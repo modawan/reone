@@ -40,11 +40,22 @@ public:
         return from->type() == ActionType::CastSpellAtObject || from->type() == ActionType::CastSpellAtLocation;
     }
 
+    /**
+     * A saved CastSpell or ItemCastSpell command. A cast takes up its
+     * progress; an item use starts over with the spell of the property it is
+     * used through, and one whose item, property, spell or target object is
+     * gone fails on its first frame, leaving its user posed, and the queue
+     * goes on.
+     */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
+
+    /** The cast notes whether a placeable casts it, which shapes its saved command. */
+    void onQueued(Object &actor) override;
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** An instant cast starts an ordinary round, which runs its end-of-round script. */
-    bool suppressesEndRoundScript() const override { return (_fake && !_instantSpell) || _cutsceneAttack; }
+    bool suppressesEndRoundScript() const override { return _fake && !_instantSpell; }
     bool holdsCombatRound() const override { return _schedule.holdsRound() && !isCompleted() && !isCancelled(); }
     /** An instant cast takes no action of its round. */
     bool tookRoundAction() const override { return _dispatched && !_fake && !_instantSpell; }
@@ -63,10 +74,30 @@ public:
         _metaType = metaType;
         _spontaneousCast = spontaneousCast;
     }
+    /**
+     * Sets whether the cast skips its range test and approach. An instant cast
+     * skips them unless told otherwise; a script's instant cast skips them
+     * only when its instant argument is exactly 1.
+     */
+    void setSkipsApproach(bool skips) { _skipsApproach = skips; }
+    /**
+     * Has the cast check its line to its object before it starts, wherever
+     * its caster stands. The check is kept while the cast waits in a queue,
+     * and through a save.
+     */
+    void requireUseLineCheck() { _checksUseLine = true; }
+    /**
+     * Starts an item use over from its saved command. It keeps the projectile
+     * it was holding only to let go of it when it starts again, and a pending
+     * check of its line to its target.
+     */
+    void restartItemUse(const SavedCastAction &state);
 
     /** The cast has reached its end and no longer occupies its creature. */
     bool castEnded() const { return !_schedule.awaitingRelease(); }
     bool instantSpell() const { return _instantSpell; }
+    /** The cast shows itself and has no impact. */
+    bool fake() const { return _fake; }
     /** The object the cast is aimed at; none for a cast at a location. */
     const std::shared_ptr<Object> &target() const { return _target; }
     const std::shared_ptr<Spell> &spell() const { return _spell; }
@@ -95,7 +126,11 @@ protected:
     bool _cheat;
     ProjectilePathType _projectilePathType;
     bool _instantSpell;
+    /** The cast goes ahead from where its caster stands, whatever the range. */
+    bool _skipsApproach;
     bool _fake;
+    /** A placeable casts the spell. */
+    bool _placeableCaster {false};
     /** The command's domain level, meta type and spontaneous-cast parameter. */
     int _domainLevel {0};
     int _metaType {0};
@@ -114,6 +149,8 @@ protected:
     bool _admitted {false};
     /** The caster was out of range when the cast was dispatched and is walking up to it. */
     bool _approaching {false};
+    /** The cast waits for its caster to stand in use range of its object, with a clear line to it. */
+    bool _checksUseLine {false};
     bool _started {false};
     bool _commitAttempted {false};
     bool _committed {false};

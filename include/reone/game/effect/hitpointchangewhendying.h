@@ -23,19 +23,19 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Changes the hit points of a dying creature each round: the change is float
+ * 0.
+ */
 class HitPointChangeWhenDyingEffect : public CopyableEffect<HitPointChangeWhenDyingEffect> {
 public:
     HitPointChangeWhenDyingEffect(float hitPointChangePerRound) :
-        CopyableEffect(EffectType::HitPointChangeWhenDying),
-        _hitPointChangePerRound(hitPointChangePerRound) {
+        CopyableEffect(EffectType::HitPointChangeWhenDying) {
         setSaveFacingFloat(0, hitPointChangePerRound);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
-
-private:
-    float _hitPointChangePerRound;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

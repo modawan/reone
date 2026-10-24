@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,6 +36,7 @@
 namespace reone {
 
 namespace scene {
+class ModelNodeSceneNode;
 class ModelSceneNode;
 class ISceneGraph;
 } // namespace scene
@@ -64,6 +66,9 @@ struct AttackHistory {
     static constexpr int kScriptAttackTypeRapidShot = 10;
     /** The last attack mode scripts read for each combat mode from 1 to 6. */
     static constexpr std::array<int, 6> kScriptAttackModes {1, 2, 3, 0, 4, 5};
+
+    /** The script attack mode of an object not fighting, or not a creature: the invalid object id. */
+    static constexpr int kScriptModeNone = static_cast<int>(kSavedEffectInvalidObjectId);
 
     /** The feat the attack uses, or zero for an ordinary attack. */
     int type {0};
@@ -95,7 +100,7 @@ struct AttackHistory {
      */
     int scriptMode(bool inCombat) const {
         if (!inCombat) {
-            return static_cast<int>(kSavedEffectInvalidObjectId);
+            return kScriptModeNone;
         }
         if (mode < 1 || mode > static_cast<int>(kScriptAttackModes.size())) {
             return 0;
@@ -314,11 +319,6 @@ struct CutsceneAttack {
 bool isMeleeWieldType(CreatureWieldType type);
 
 /**
- * Predicate for ranged weapon: blasters, rifles, etc.
- */
-bool isRangedWieldType(CreatureWieldType type);
-
-/**
  * Returns true if \p result is HitSuccessful, CriticalHit, AutomaticHit.
  * The rest are variouns forms for failed attacks (Parried, Deflected, etc.)
  */
@@ -393,6 +393,36 @@ struct DefenseBreakdown {
     int debilitationPenalty {0};
 };
 
+/**
+ * The parts of the last deflection roll made against the round's shots, as
+ * the combat log reports them. A roll writes its d20, totals, base attack
+ * bonus, Dexterity and effects; each feat, power or form part only when it
+ * applies, so a part from an earlier roll of the round stays.
+ */
+struct DeflectionBreakdown {
+    int roll {0};
+    /** The score of the shot the roll is made against. */
+    int attackTotal {0};
+    /** The deflection roll's total. */
+    int total {0};
+    int baseAttackBonus {0};
+    int dexterity {0};
+    int effects {0};
+    /** The defender's Jedi Defense feat, and the bonus it gives. */
+    FeatType jediDefenseFeat {FeatType::Invalid};
+    int jediDefenseBonus {0};
+    /** The bonus of Force Redirection. */
+    int redirectionBonus {0};
+    /** The defender's lightsaber form, and the bonus it gives. */
+    CombatForm form {CombatForm::None};
+    int formBonus {0};
+    /** The bonus of the Deflect feat. */
+    int deflectFeatBonus {0};
+    /** The shooter's Precise Shot feat, and the penalty it gives. */
+    FeatType shooterFeat {FeatType::Invalid};
+    int shooterFeatPenalty {0};
+};
+
 /** The bonuses a physical attack adds to its damage. */
 struct PhysicalDamageBonus {
     int damageAbilityModifier {0};
@@ -402,7 +432,6 @@ struct PhysicalDamageBonus {
     int preciseShotDamage {0};
     int formDamage {0};
     int furyDamage {0};
-    int combatModeDamage {0};
     /**
      * The d4 dice of the two unarmed feat families, feats 209-211 and
      * 212-219. They are rolled once per attack, and a critical hit multiplies
@@ -414,8 +443,7 @@ struct PhysicalDamageBonus {
     /** The bonuses a critical hit multiplies, without the unarmed feat dice. */
     int total() const {
         return damageAbilityModifier + weaponSpecialization +
-               combatFeatDamage + preciseShotDamage + formDamage + furyDamage +
-               combatModeDamage;
+               combatFeatDamage + preciseShotDamage + formDamage + furyDamage;
     }
 };
 
@@ -463,6 +491,9 @@ public:
      */
     bool addPhysicalAttacks(Creature &attacker, Object &target,
                             FeatType feat = FeatType::Invalid);
+
+    /** The feat the round's attacks are made with; Invalid for plain attacks. */
+    FeatType feat() const { return _feat; }
 
     /**
      * Publish the round's summary on its attack records. Every hit is already
@@ -607,6 +638,8 @@ public:
             _roundFields->result = result;
         }
     }
+    /** The record's last deflection roll. */
+    DeflectionBreakdown &recordDeflection() { return _recordDeflection; }
 
     /** Every round of this buffer is a cutscene attack with these values. */
     void forceCutscene(const CutsceneAttack &cutscene) { _cutscene = cutscene; }
@@ -865,6 +898,21 @@ private:
         const Creature &attacker,
         const Object &target,
         const Attack &attack) const;
+    /**
+     * Report the record's last deflection roll in the combat feedback of the
+     * party leader when \p attack was parried, deflected or stopped by a
+     * shield, once for each of the attacker and the target in its faction and
+     * within range.
+     */
+    void addDeflectionFeedback(
+        Game &game,
+        ServicesView &services,
+        const Creature &attacker,
+        const Object &target,
+        const Attack &attack) const;
+
+    /** The score \p attack reports: its roll plus its modifier, which a cutscene attack does not have. */
+    int getAttackTotal(const Attack &attack) const;
 
     /** The feedback line that summarises \p attack: its result, feat, roll and suffixes. */
     std::string getAttackSummaryFeedback(
@@ -875,7 +923,8 @@ private:
         const Attack &attack) const;
 
     /** The feedback line that breaks down the attack roll of \p attack. */
-    std::string getAttackRollFeedback(Game &game, ServicesView &services, const Attack &attack) const;
+    std::string getAttackRollFeedback(Game &game, ServicesView &services, const Creature &attacker,
+                                      const Attack &attack) const;
 
     SmallVector<Attack, 8> _attacks;
     /**
@@ -884,9 +933,13 @@ private:
      */
     SmallVector<Discharge, 12> _discharges;
     size_t _nextDischarge {0};
-    /** The record's roll and the modifier added to it. They are not saved. */
+    /**
+     * The record's roll and the modifier added to it, and its last deflection
+     * roll. They are not saved.
+     */
     int _recordRoll {0};
     int _recordModifier {0};
+    DeflectionBreakdown _recordDeflection;
     std::optional<CutsceneAttack> _cutscene;
     /** TSL times a cutscene hit by an impact row that does not exist. */
     bool _cutsceneHitsAtRelease {false};
@@ -1056,6 +1109,53 @@ struct PhysicalAttackSwing {
     bool engagedPlaceholder {false};
     /** The round is a ranged one. */
     bool ranged {false};
+    /** The feat the swing shows; none for a plain one. */
+    FeatType attackType {FeatType::Invalid};
+};
+
+/**
+ * The visual an improved or master special attack, or a sniper shot, shows on
+ * the attacker's weapons as its swing starts: on the right-hand weapon, and on
+ * the left too with two blades or two pistols. Each weapon carries one; the
+ * next replaces it, and it goes once its impact animation has played.
+ */
+class SpecialAttackVisuals {
+public:
+    ~SpecialAttackVisuals();
+
+    /** Shows the visual of \p attackType on the attacker's weapons as its swing starts. */
+    void show(Creature &attacker, FeatType attackType, bool ranged);
+    /** Takes every weapon's visual away. */
+    void clear();
+    /** Takes away each visual whose impact animation has played. */
+    void update();
+
+    /**
+     * A rebuilt body takes back each weapon's visual: it comes off the old
+     * weapon model and goes back to the same node of the new one, carrying on
+     * where it was. A visual whose weapon has left the hand, or whose node the
+     * new weapon model lacks, goes.
+     */
+    void detachFromBody();
+    /** Puts the visuals taken off by detachFromBody on \p body, the attacker's rebuilt body. */
+    void reattachToBody(const Creature &attacker, scene::ModelSceneNode &body);
+
+private:
+    /** The visual one weapon carries. */
+    struct Attached {
+        /** The weapon that carries the visual. */
+        std::weak_ptr<Item> weapon;
+        /** The visual hangs from the weapon's bullet hook rather than its root. */
+        bool ranged {false};
+        /** The node of the weapon model the visual hangs from; none while it is off the body. */
+        scene::ModelNodeSceneNode *hook {nullptr};
+        std::shared_ptr<scene::ModelSceneNode> model;
+    };
+
+    /** The right hand, then the left. */
+    std::array<Attached, 2> _hands;
+
+    static void detach(Attached &attached);
 };
 
 /**

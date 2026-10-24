@@ -48,9 +48,12 @@ public:
     }
 
     void setBacking(std::shared_ptr<IInventoryMenuBacking> backing);
+    /** Shows a message by its string reference. */
+    void setOnMessage(std::function<void(int)> callback) { _onMessage = std::move(callback); }
 
     void refreshPortraits();
-    void refreshItems();
+    /** Lists the items again and selects the given row, or the last one when the list is shorter. */
+    void refreshItems(int selectedRow = 0);
 
 private:
     struct Controls {
@@ -92,6 +95,9 @@ private:
     InventoryView _view;
     std::shared_ptr<IInventoryMenuBacking> _backing;
     std::function<void()> _onExit;
+    std::function<void(int)> _onMessage;
+    /** The use button's authored text colour, shown while it is available. */
+    glm::vec3 _useItemTextColor {1.0f};
 
     void onGUILoaded() override;
     void configureItemsListBox();
@@ -103,6 +109,10 @@ private:
     void updateFilterControls();
     void updateItemDescription();
     void clearItemDescription();
+    /** Use the selected entry's item, show why it cannot be used, or do nothing, as the entry says. */
+    void activateSelectedItem();
+    /** Colour the use button as available only for an entry that uses its item and is not held back. */
+    void updateUseItemButton();
 
     void bindControls() {
         _controls.BTN_ALL = findControl<gui::Button>("BTN_ALL");

@@ -53,13 +53,13 @@ void AudioMixer::stopAll() {
     _sources.clear();
 }
 
-void AudioMixer::setSoundsHeldForMovie(bool held) {
+void AudioMixer::setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) {
     if (_soundsHeldForMovie == held) {
         return;
     }
     _soundsHeldForMovie = held;
     for (auto &active : _sources) {
-        if (active.type == AudioType::Movie) {
+        if (active.type == AudioType::Movie || active.source == playingThrough) {
             continue;
         }
         if (held) {

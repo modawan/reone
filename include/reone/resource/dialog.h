@@ -49,6 +49,8 @@ struct Dialog {
         int logic {0};
         ConditionParams params;
         ConditionParams params2;
+        /** A reply this link leads to is listed even when its condition fails. */
+        bool displayInactive {false};
     };
 
     struct ParticipantAnimation {
@@ -81,6 +83,10 @@ struct Dialog {
         int cameraAngle {0};
         int cameraAnimation {0};
         float camFieldOfView {0.0f};
+        /** Raises the camera of the shot, in metres. */
+        float camHeightOffset {0.0f};
+        /** Raises the point the shot looks at, in metres. */
+        float tarHeightOffset {0.0f};
         int camVidEffect {-1}; /**< videoeffects row of the shot, -1 for none */
         std::vector<EntryReplyLink> replies;
         std::vector<EntryReplyLink> entries;
@@ -98,6 +104,8 @@ struct Dialog {
     std::string abortScript;
     int entryIndex {-1};
     bool animatedCutscene {false};
+    /** Shots frame the participants' models where they stand, rather than their camera hooks. */
+    bool oldHitCheck {false};
     std::vector<Stunt> stunts;
     ConversationType conversationType {ConversationType::Cinematic};
     ComputerType computerType {ComputerType::Normal};

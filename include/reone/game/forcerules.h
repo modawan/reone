@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 
 #include "d20/spell.h"
 #include "effect.h"
@@ -102,12 +103,12 @@ struct ForceResistanceState {
 
 /**
  * Tests a power of user type \p userType against a creature's Force
- * resistance: 1 when the creature resists, 0 when it does not or the power is
- * a special ability, -1 for any other power that is not a Force power.
+ * resistance: 1 when the creature resists, 0 when it does not or, in TSL, the
+ * power is a special ability, -1 for any other power that is not a Force power.
  */
 template <class Roll>
-int resolveForceResistance(int userType, int resistance, int casterLevel, Roll &&roll) {
-    if (userType == kSpellUserTypeSpecialAbility) {
+int resolveForceResistance(int userType, bool tsl, int resistance, int casterLevel, Roll &&roll) {
+    if (tsl && userType == kSpellUserTypeSpecialAbility) {
         return 0;
     }
     if (userType != kSpellUserTypeForcePower) {
@@ -178,35 +179,90 @@ inline int consumeTemporaryResource(int &temporary, int amount) {
     return remainder;
 }
 
+/** What the Force point cost of a power is worked out from. */
+struct ForcePointCostTerms {
+    /** The power's own Force point cost. */
+    int base {0};
+    /** The forceadjust.2da multiplier for a light or dark power; 1 otherwise. */
+    float alignmentMultiplier {1.0f};
+    bool tsl {false};
+    int charismaModifier {0};
+    /** The creature's good-evil value. */
+    int alignment {0};
+    int roomRating {0};
+    CombatForm form {CombatForm::None};
+};
+
 /**
- * The Force point cost of a power after alignment: multiplied by the
- * alignment multiplier, which TSL lowers by 0.05 per point of Charisma
- * modifier, down to 1. TSL then adjusts it by the room's Force rating for a
- * light or dark creature, makes it at least 1, and raises it by a fifth in the
- * Force potency and mastery forms.
+ * The alignment multiplier a cost is multiplied by: TSL lowers one above 1
+ * by 0.05 per point of Charisma modifier, down to 1.
  */
-inline int adjustedForcePointCost(int base, float alignmentMultiplier, bool tsl, int charismaModifier, int alignment, int roomRating, CombatForm form) {
-    if (base <= 0) {
+inline float effectiveAlignmentCostMultiplier(const ForcePointCostTerms &terms) {
+    if (terms.tsl && terms.alignmentMultiplier > 1.0f && terms.charismaModifier > 0) {
+        return std::max(1.0f, terms.alignmentMultiplier - 0.05f * terms.charismaModifier);
+    }
+    return terms.alignmentMultiplier;
+}
+
+/** Whether a combat form raises Force point costs by a fifth (TSL). */
+inline bool raisesForcePointCost(CombatForm form) {
+    return form == CombatForm::ForceIIPotency || form == CombatForm::ForceIVMastery;
+}
+
+/**
+ * The Force point cost of a power before the form raise: multiplied by the
+ * alignment multiplier; TSL then adjusts it by the room's Force rating for a
+ * light or dark creature and makes it at least 1. A power without a cost
+ * costs nothing.
+ */
+inline int alignedForcePointCost(const ForcePointCostTerms &terms) {
+    if (terms.base <= 0) {
         return 0;
     }
-    if (tsl && alignmentMultiplier > 1.0f && charismaModifier > 0) {
-        alignmentMultiplier = std::max(1.0f, alignmentMultiplier - 0.05f * charismaModifier);
-    }
-    auto cost = static_cast<int>(static_cast<float>(base) * alignmentMultiplier);
-    if (!tsl) {
+    auto cost = static_cast<int>(static_cast<float>(terms.base) * effectiveAlignmentCostMultiplier(terms));
+    if (!terms.tsl) {
         return cost;
     }
-    int roomAdjustment = roomRating / 20;
-    if (alignment >= 60) {
+    int roomAdjustment = terms.roomRating / 20;
+    if (terms.alignment >= 60) {
         cost -= roomAdjustment;
-    } else if (alignment < 50) {
+    } else if (terms.alignment < 50) {
         cost += roomAdjustment;
     }
-    cost = std::max(1, cost);
-    if (form == CombatForm::ForceIIPotency || form == CombatForm::ForceIVMastery) {
+    return std::max(1, cost);
+}
+
+/**
+ * The Force point cost of a power after alignment, Charisma and room, raised
+ * by a fifth in TSL's Force potency and mastery forms.
+ */
+inline int adjustedForcePointCost(const ForcePointCostTerms &terms) {
+    int cost = alignedForcePointCost(terms);
+    if (terms.tsl && cost > 0 && raisesForcePointCost(terms.form)) {
         cost = static_cast<int>(cost * 1.2f);
     }
     return cost;
+}
+
+/**
+ * The minimum range the power menu gives a power whose range tag names no
+ * range, which is what working out its cost leaves behind: in KotOR the
+ * alignment multiplier; in TSL, for a power with a cost, the multiplier after
+ * the Charisma step, or in the potency and mastery forms the cost before the
+ * raise times 1.2. A TSL power without a cost leaves no defined value and is
+ * given no minimum.
+ */
+inline std::optional<float> unrangedPowerMinimumRange(const ForcePointCostTerms &terms) {
+    if (!terms.tsl) {
+        return terms.alignmentMultiplier;
+    }
+    if (terms.base <= 0) {
+        return std::nullopt;
+    }
+    if (raisesForcePointCost(terms.form)) {
+        return static_cast<float>(alignedForcePointCost(terms)) * 1.2f;
+    }
+    return effectiveAlignmentCostMultiplier(terms);
 }
 
 /** What a Force power costs a creature, in Force points and, under Force Body, vitality. */

@@ -88,6 +88,8 @@ public:
 
     /** Transition the door is playing, if any. */
     DoorTransition transition() const { return _transition; }
+    /** The state the door is in or, during a transition, is moving to. */
+    DoorState actionState() const;
 
     /**
      * True while the door is swinging open. It has not reached its opened pose
@@ -121,9 +123,18 @@ public:
      * open itself.
      */
     void onFailToOpen(uint32_t openerId, bool quiet);
+    /**
+     * A creature walked up to the door: it becomes the entering object. A door
+     * linked to another module takes the party there when the clicker moves
+     * the party between modules and is neither dead nor a downed member; any
+     * other door runs its click script with the clicker as the clicking
+     * object.
+     */
+    void receiveClick(const std::shared_ptr<Object> &clicker);
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
+    void setOnDialog(std::string onDialog) { _onDialog = std::move(onDialog); }
 
     /**
      * The object the door last saw come at it: one it failed to open for, one
@@ -179,6 +190,22 @@ public:
 
     /** The door takes its destroyed pose. */
     void enterDestroyedState();
+    /**
+     * Shows animation \p id on the door until its open state next changes: a
+     * looping row as a loop, after the swing from the loop shown (a closed
+     * door swings open, a door swings shut into its closed loop and dies
+     * into its dead one), unless it shows that loop already; any other row
+     * once, after which the door shows the loop it showed before. A clip the
+     * model lacks shows nothing.
+     */
+    void setStateAnimation(int id);
+    /**
+     * The length in seconds, at natural speed, of the clip animation \p id
+     * shows on the door; 0 when the model lacks it.
+     */
+    float animationLength(int id) const;
+    /** Animation \p id plays once on the door: its row is a one-shot. */
+    bool playsAnimationOnce(int id) const;
     /** A damaged signal reached the door: the damager is recorded and the damaged script runs. */
     void receiveDamagedSignal(const std::shared_ptr<Object> &damager);
     /** A death signal reached the door: the killer is recorded and the death script runs. */
@@ -195,6 +222,8 @@ public:
     bool isPreciseUse() const { return _preciseUse; }
     /** Whether the door's look blocks sight (a see-through door does not block a sight line that may pass one). */
     bool blocksSight() const { return _blocksSight; }
+    /** The armour type, in lower case, the door's look sounds as when struck (placeableobjsnds.2da). */
+    const std::string &soundArmorType() const { return _soundArmorType; }
 
     /**
      * The point a creature at from goes to in order to use the door: of the
@@ -211,6 +240,8 @@ public:
     std::shared_ptr<scene::WalkmeshSceneNode> walkmeshOpen1() const { return _walkmeshOpen1; }
     std::shared_ptr<scene::WalkmeshSceneNode> walkmeshOpen2() const { return _walkmeshOpen2; }
     std::shared_ptr<scene::WalkmeshSceneNode> walkmeshClosed() const { return _walkmeshClosed; }
+    /** The box round all of the door's walkmeshes, closed and open both ways, where it stands. */
+    graphics::AABB collisionBounds() const;
 
     // END Walkmeshes
 
@@ -271,6 +302,7 @@ private:
     bool _blocksSight {true};
     /** Seconds until a door whose lock a mine blew swings open, while it is due. */
     std::optional<float> _mineOpenDelay;
+    std::string _soundArmorType;
 
     // Walkmeshes
 
@@ -283,6 +315,8 @@ private:
 
     // Scripts
 
+    void runConversationScript() override;
+
     // END Scripts
 
     /**
@@ -292,6 +326,17 @@ private:
      * which is what stops the superseded transition from ever completing.
      */
     DoorTransition _transition {DoorTransition::None};
+    /** The loop a script set on the door, and its animation; none while the door shows its resting pose. */
+    std::string _stateLoop;
+    std::optional<int> _stateLoopAnimation;
+    /** The one-shot or swing playing before the door's loop. */
+    std::string _stateOneShot;
+    /** The last animation the door was given, loop or one-shot: a script's, or its open state's. */
+    int _lastAnimation {0};
+    /** The swing the transition in flight plays; none when it arrives at once. */
+    std::string _transitionSwing;
+    /** The last one-shot a script set, until a loop or the open state takes over. */
+    std::optional<int> _lastStateOneShot;
     /** The door this one is linked to, once found. */
     RuntimeObjectRef<Door> _linkedDoor;
 
@@ -308,6 +353,14 @@ private:
     /** Put model pose, walkmeshes and the open flag into correspondence with _state. */
     void applyRestingState();
     void applyRestingPose();
+    /** The door's open state takes over from the animation a script set. */
+    void clearStateAnimation();
+    /** The animation of the loop the door shows: a script's, else that of the state it rests in or swings to. */
+    int shownLoopAnimation() const;
+    /** The animation of open state \p state. */
+    static int stateAnimation(DoorState state);
+    /** A one-shot a script set gives way, once it ends, to the loop the door showed before. */
+    void updateStateAnimation();
     void enableStateWalkmeshes();
     /** Swings this door alone open to the side the opening names. */
     void swingOpen(DoorTransition opening);
@@ -320,13 +373,13 @@ private:
      */
     std::shared_ptr<Door> linkedDoor();
     void beginTransition(DoorTransition transition);
+    /**
+     * The door arrives where its transition leads. A door that has come to
+     * rest open or shut moves the creatures it no longer leaves room for.
+     */
     void finishTransition();
     bool isTransitionComplete() const;
-    /** The animation of a transition; a closing door swings shut from the side it stands open on. */
-    const char *transitionAnimation(DoorTransition transition) const;
     static DoorState transitionTarget(DoorTransition transition);
-    /** The state the door is in or, during a transition, is moving to. */
-    DoorState actionState() const;
     /** The two use points of a resting state in the world; none for a destroyed door. */
     std::optional<std::array<glm::vec3, 2>> actionPoints(DoorState state) const;
     void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);

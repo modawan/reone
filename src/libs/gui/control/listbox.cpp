@@ -21,6 +21,8 @@
 #include <cmath>
 #include <sstream>
 
+#include "reone/graphics/context.h"
+#include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
@@ -162,6 +164,23 @@ bool ListBox::handleMouseWheel(int x, int y) {
 void ListBox::updateItemSlots() {
     _slotCount = 0;
 
+    if (_textLineRows) {
+        // A position for each line beyond those the room holds whole.
+        const int lineHeight = getTextLineHeight();
+        const int innerHeight = getInnerHeight();
+        const int lines = static_cast<int>(_items.size());
+        _overflowing = lines > 0 && lines * lineHeight + static_cast<int>(_padding * _layoutScale) > innerHeight;
+        _slotCount = lines;
+        if (_overflowing && lineHeight > 0) {
+            _slotCount = std::min(lines, innerHeight / lineHeight);
+        }
+        _itemOffset = std::min(_itemOffset, lines - _slotCount);
+        if (_scrollBar) {
+            _scrollBar->setVisible(_scrollBarEnabled && _overflowing);
+        }
+        return;
+    }
+
     // Increase the number of slots until they no longer fit vertically.
     // KOTOR lays out unequal rows inside the list border, with one padding
     // interval accounted for by every visible row.
@@ -175,9 +194,10 @@ void ListBox::updateItemSlots() {
 
         ++_slotCount;
     }
+    _overflowing = _items.size() > _slotCount;
 
     if (_scrollBar) {
-        _scrollBar->setVisible(_scrollBarEnabled && _items.size() > _slotCount);
+        _scrollBar->setVisible(_scrollBarEnabled && _overflowing);
     }
 }
 
@@ -215,6 +235,11 @@ void ListBox::render(const glm::ivec2 &screenSize,
 
     if (!_protoItem)
         return;
+
+    if (_textLineRows) {
+        renderTextLineRows(screenSize, offset, pass);
+        return;
+    }
 
     float itemY = 0.0f;
     for (int i = 0; i < _slotCount; ++i) {
@@ -392,6 +417,102 @@ void ListBox::setProtoMatchContent(bool match) {
     updateItemsLayout();
 }
 
+// A block that fits is the first of the rows of its own height (and the
+// padding) that the room holds, stretched by its share of the spare room;
+// the first row takes a pixel more while any is left over. The prototype's
+// vertical alignment places the text in the stretched row.
+int ListBox::getTextBlockAlignmentOffset(int content, int room, int padding) const {
+    const int pitch = content + padding;
+    const int rows = room / pitch;
+    const int spare = room - padding - rows * pitch;
+    const int stretched = content + spare / rows + (spare % rows > 0 ? 1 : 0);
+    const int lineHeight = getTextLineHeight();
+    const int lineCount = content / lineHeight;
+    switch (_protoItem->text().align) {
+    case TextAlign::LeftTop:
+    case TextAlign::CenterTop:
+        return 0;
+    case TextAlign::CenterBottom:
+        return stretched - content;
+    case TextAlign::RightCenter:
+    case TextAlign::LeftCenter:
+    case TextAlign::CenterCenter:
+    case TextAlign::RightCenter2:
+    default:
+        // Where the block's first line sits when the stretched row is
+        // centred, against where a line-high row centres it.
+        return stretched / 2 - static_cast<int>(0.5f * (lineCount - 1) * lineHeight) - lineHeight / 2;
+    }
+}
+
+int ListBox::getTextLineHeight() const {
+    return static_cast<int>(std::lround(_protoItem->text().font->height() * _protoItem->scale()));
+}
+
+void ListBox::renderTextLineRows(const glm::ivec2 &screenSize, const glm::ivec2 &offset, IRenderPass &pass) {
+    // The room is inside the border, less an enabled scroll bar on its side.
+    const int border = _border ? _border->dimension : 0;
+    const int scrollBarWidth = _scrollBar && _scrollBarEnabled ? _scrollBar->extent().width : 0;
+    const Extent inner {
+        _extent.left + border + (_leftScrollBar ? scrollBarWidth : 0),
+        _extent.top + border,
+        std::max(0, _extent.width - 2 * border - scrollBarWidth),
+        getInnerHeight()};
+    const int lineHeight = getTextLineHeight();
+    const int lines = static_cast<int>(_items.size());
+    const int padding = static_cast<int>(_padding * _layoutScale);
+    // The block's top below the room's top: the padding at the first
+    // position, a line higher at each next, and bottom-aligned at the last.
+    int top = padding - _itemOffset * lineHeight;
+    if (_overflowing && _itemOffset == lines - _slotCount) {
+        top = inner.height - lines * lineHeight - padding;
+    }
+    if (!_overflowing && lines > 0) {
+        top = padding + getTextBlockAlignmentOffset(lines * lineHeight, inner.height, padding);
+    }
+    const glm::ivec4 scissorBounds {
+        offset.x + inner.left,
+        screenSize.y - (offset.y + inner.top + inner.height),
+        inner.width,
+        inner.height};
+    _graphicsSvc.context.withScissorTestNoClear(scissorBounds, [&]() {
+        for (int i = 0; i < lines; ++i) {
+            const int lineTop = inner.top + top + i * lineHeight;
+            if (lineTop + lineHeight <= inner.top || lineTop >= inner.top + inner.height) {
+                continue;
+            }
+            const Item &item = _items[i];
+            // Each line starts the padding in from the room's left.
+            glm::ivec2 lineOffset(offset);
+            lineOffset.x += inner.left + padding - _protoItem->extent().left;
+            lineOffset.y += lineTop - _protoItem->extent().top;
+            glm::vec3 originalTextColor(_protoItem->text().color);
+            if (item.textColor) {
+                _protoItem->setTextColor(*item.textColor);
+            }
+            _protoItem->setSelected(false);
+            _protoItem->setTextLines(item._textLines);
+            _protoItem->render(screenSize, lineOffset, pass);
+            _protoItem->setTextColor(originalTextColor);
+        }
+    });
+
+    if (_scrollBar && _scrollBarEnabled) {
+        ScrollBar::ScrollState state;
+        state.count = lines;
+        state.numVisible = _slotCount;
+        state.offset = _itemOffset;
+        auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
+        scrollBar.setScrollState(std::move(state));
+        scrollBar.render(screenSize, offset, pass);
+    }
+}
+
+void ListBox::setTextLineRows(bool lines) {
+    _textLineRows = lines;
+    updateItemSlots();
+}
+
 void ListBox::setRenderItemIconsForButtonProto(bool render) {
     _renderItemIconsForButtonProto = render;
     updateItemsLayout();
@@ -490,6 +611,9 @@ Control::Extent ListBox::visibleItemExtent(int index) const {
 }
 
 float ListBox::getItemPitch(const Item &item) const {
+    if (_textLineRows) {
+        return static_cast<float>(getTextLineHeight());
+    }
     float padding = _padding * _layoutScale;
     if (_protoMatchContent) {
         return getItemHeight(item) + padding;

@@ -108,8 +108,8 @@ public:
      */
     std::shared_ptr<resource::Gff> save(
         const std::function<uint32_t(const Object &)> &objectId) const;
-    /** Forgets the objects that leave with the area, keeping \p retainedObjects. */
-    void retireAreaRuntime(const std::set<const Object *> &retainedObjects);
+    /** Forgets the objects that leave with the area, keeping those whose ids are in \p retainedObjectIds. */
+    void retireAreaRuntime(const std::set<uint32_t> &retainedObjectIds);
 
 private:
     RuntimeObjectRef<Object> _target;
@@ -180,9 +180,6 @@ void presentSpellRelease(Object &caster, const Spell &spell);
 uint32_t spellProjectileTimeMilliseconds(
     const Spell &spell, const glm::vec3 &origin, const glm::vec3 &destination,
     ProjectilePathType path, bool tsl);
-/** As spellProjectileTimeMilliseconds, in seconds. */
-float spellProjectileTime(const Spell &spell, const glm::vec3 &origin,
-                          const glm::vec3 &destination, ProjectilePathType path, bool tsl = true);
 /** The path a spell's projectile takes: the spell's own, unless another is given. */
 ProjectilePathType effectiveProjectilePath(const Spell &spell, ProjectilePathType overridePath);
 
@@ -307,23 +304,6 @@ private:
 };
 
 /**
- * The clips a spell shows: a conjure one-shot, then the cast clip, which loops
- * unless it is a one-shot, each with its animation ID. Creature models only
- * conjure, and only the monster fury loop has a creature row.
- */
-struct CastPresentation {
-    std::string conjure;
-    std::string cast;
-    bool castLoops {false};
-    int conjureId {0};
-    /** None when the code has no cast clip. */
-    std::optional<int> castId;
-};
-
-/** The clips a spell of cast animation \p code shows on a body or a creature model. */
-CastPresentation castPresentation(SpellCastAnimation code, bool creatureModel);
-
-/**
  * What using an item shows, by its base item type: the clip and its animation
  * ID, whether it loops, whether the user is posed instead of holding it,
  * whether it is drawn on the creature it is used on, when the droid utility
@@ -340,11 +320,6 @@ struct ItemUsePresentation {
     float impact {0.001f};
     float end {1.5f};
 };
-
-/** What \p user's use of an item of \p itemType shows, at \p targetCreature if it is one. */
-ItemUsePresentation itemUsePresentation(const Creature &user, int itemType, const Spell &spell,
-                                        std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                                        const glm::vec3 &targetPosition);
 
 /**
  * The models a spell shows on its caster's head, hand and feet. The conjure
@@ -391,8 +366,8 @@ private:
 
 /**
  * An entangled caster's paid cast fails: the caster shows its combat-ready
- * pose, in combat or not, and its orientation is released. Returns whether
- * the cast was interrupted.
+ * pose, in combat or not, its orientation is released, and a controlled caster
+ * reads the failure line. Returns whether the cast was interrupted.
  */
 bool interruptEntangledCast(Creature &caster);
 
@@ -410,8 +385,7 @@ public:
     void update(Creature &caster, const Spell &spell, std::optional<int> itemType, std::optional<std::reference_wrapper<Creature>> targetCreature,
                 const glm::vec3 &targetPosition, const SpellSchedule &schedule, SpellSchedule::State state);
     /** Shows again what a restored cast was showing. */
-    void restore(Creature &caster, const Spell &spell, std::optional<int> itemType, std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                 const glm::vec3 &targetPosition, const SpellSchedule &schedule);
+    void restore(Creature &caster, const Spell &spell, const SpellSchedule &schedule);
 
 private:
     std::optional<ItemUsePresentation> _item;

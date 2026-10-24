@@ -59,14 +59,24 @@ static std::map<ClassType, int> g_classDescStrRefs {
     {ClassType::JediSentinel, 48032},
     {ClassType::JediGuardian, 48033}};
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_SEL1", "BTN_SEL2", "BTN_SEL3", "BTN_SEL4", "BTN_SEL5", "BTN_SEL6",
+    "3D_MODEL1", "3D_MODEL2", "3D_MODEL3", "3D_MODEL4", "3D_MODEL5", "3D_MODEL6",
+    "BTN_BACK", "LBL_CHAR_GEN", "LBL_CLASS", "LBL_DESC", "LBL_INSTRUCTION"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void ClassSelection::onGUILoaded() {
     if (!_game.isTSL()) {
         loadBackground(BackgroundType::Menu);
     }
 
     bindControls();
+    showOnlyNamedControls(kPanelControls, kNoTitleControls);
 
-    setupClassButtons();
+    _enlargedButtonSize = glm::vec2(_controls.BTN_SEL1->extent().width, _controls.BTN_SEL1->extent().height);
+    _defaultButtonSize = glm::vec2(_controls.BTN_SEL2->extent().width, _controls.BTN_SEL2->extent().height);
     setButtonColors(*_controls.BTN_BACK);
 
     _controls.BTN_BACK->setOnClick([this]() {
@@ -75,9 +85,7 @@ void ClassSelection::onGUILoaded() {
 }
 
 void ClassSelection::setupClassButtons() {
-    _enlargedButtonSize = glm::vec2(_controls.BTN_SEL1->extent().width, _controls.BTN_SEL1->extent().height);
-    _defaultButtonSize = glm::vec2(_controls.BTN_SEL2->extent().width, _controls.BTN_SEL2->extent().height);
-
+    _classButtons.clear();
     setupClassButton(0, Gender::Male, !_game.isTSL() ? ClassType::Scoundrel : ClassType::JediConsular);
     setupClassButton(1, Gender::Male, !_game.isTSL() ? ClassType::Scout : ClassType::JediSentinel);
     setupClassButton(2, Gender::Male, !_game.isTSL() ? ClassType::Soldier : ClassType::JediGuardian);
@@ -163,7 +171,7 @@ std::vector<Portrait> ClassSelection::getPCPortraitsByGender(Gender gender) {
     std::vector<Portrait> result;
     int sex = gender == Gender::Female ? 1 : 0;
     for (auto &portrait : _services.game.portraits.portraits()) {
-        if (portrait.forPC && portrait.sex == sex) {
+        if (portrait.forPC != 0 && portrait.sex == sex) {
             result.push_back(portrait);
         }
     }

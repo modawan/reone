@@ -35,6 +35,7 @@
 #include "reone/game/attack.h"
 #include "reone/game/castspell.h"
 #include "reone/game/combatfeedback.h"
+#include "reone/game/combattables.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -50,8 +51,6 @@
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/script/savedsituation.h"
-#include "reone/game/twodautil.h"
-#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/gffs.h"
@@ -106,12 +105,6 @@ void dispatchDueSavedEvents(Events &events, bool &dispatching, Clock now, Delive
 static constexpr int kSpellCasterExcitedState = 2;
 // A broadcast bolt leaves from its source's impact node, which hand 2 names.
 static constexpr int kSafeProjectileHand = 2;
-
-// The delay in milliseconds before a destroyed creature's body fades; blank
-// keeps the body as a corpse.
-static std::optional<int> readFadeDelayOnDeath(const resource::TwoDA &table, int row) {
-    return table.getIntOpt(row, "fadedelayondeath");
-}
 
 // The droid power offered against a mine (TSL). Minor mine types allow
 // Destroy, else Disable, else Stun; average types Destroy, else Disable; the
@@ -196,8 +189,7 @@ static bool canBashPlaceable(const Placeable &placeable) {
            placeable.isSelectable() &&
            !placeable.isDead() &&
            !placeable.plotFlag() &&
-           !placeable.isNotBlastable() &&
-           (placeable.hitPoints() > 0 || placeable.currentHitPoints() > 0);
+           !placeable.isNotBlastable();
 }
 
 void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
@@ -216,9 +208,6 @@ void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
             "Area GIT not found: " + parsed.Mod_Entry_Area);
     }
     load(std::move(name), ifo, *are, *git, restoreSavedWorld);
-    if (!restoreSavedWorld) {
-        runSpawnScripts();
-    }
 }
 
 void Module::load(
@@ -248,17 +237,23 @@ void Module::load(
             _savedProjectiles.push_back(SavedProjectile::fromGff(*record, identityContext));
         }
         loadLimboCreatures(ifo);
+        for (const auto &creature : _limboCreatures) {
+            _game.signalEquippedOnLoad(*creature);
+        }
     } else {
         _pendingSavedEvents.clear();
         _savedProjectiles.clear();
     }
     loadInfo(ifoParsed);
     loadArea(ifoParsed, are, git, restoreSavedWorld);
-    // Outside a saved game, each creature placed from the area's instance
-    // list is announced to the area.
-    if (!_isSaveGame) {
-        for (const auto &object : _area->getObjectsByType(ObjectType::Creature)) {
-            _area->signalEntered(static_cast<Creature &>(*object));
+    // Each creature placed from the area's instance list tells the module of
+    // what it was read wearing and, outside a saved game, is then announced
+    // to the area.
+    for (const auto &object : _area->getObjectsByType(ObjectType::Creature)) {
+        auto &creature = static_cast<Creature &>(*object);
+        _game.signalEquippedOnLoad(creature);
+        if (!_isSaveGame) {
+            _area->signalEntered(creature);
         }
     }
 
@@ -303,6 +298,7 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onActivateItem = boost::to_lower_copy(ifo.Mod_OnActvtItem);
     _info.onAcquireItem = boost::to_lower_copy(ifo.Mod_OnAcquirItem);
     _info.onUnacquireItem = boost::to_lower_copy(ifo.Mod_OnUnAqreItem);
+    _info.onEquipItem = boost::to_lower_copy(ifo.Mod_OnEquipItem);
     _info.onPlayerDeath = boost::to_lower_copy(ifo.Mod_OnPlrDeath);
     _info.onClientEnter = boost::to_lower_copy(ifo.Mod_OnClientEntr);
     _onHeartbeat = boost::to_lower_copy(ifo.Mod_OnHeartbeat);
@@ -349,9 +345,6 @@ void Module::loadArea(
 
 }
 
-void Module::runSpawnScripts() {
-    _area->runSpawnScripts();
-}
 void Module::loadLimboCreatures(const resource::Gff &ifo) {
     _limboCreatures.clear();
     const auto identityContext = SerializedIdentityContext::moduleGraph(_name);
@@ -378,7 +371,18 @@ void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();
     // Placing the party ends its stealth and leaves solo mode.
-    _game.party().setSoloMode(false);
+    Party &party = _game.party();
+    party.setSoloMode(false);
+    // Each companion placed takes up the alignment its influence gives.
+    for (const auto &member : party.members()) {
+        if (!member.creature) {
+            continue;
+        }
+        const auto identity = party.rosterIdentity(*member.creature);
+        if (identity && identity->kind == RosterKind::Npc) {
+            member.creature->recomputeInfluenceAlignment();
+        }
+    }
 }
 
 // The event carries whether a saved game was being loaded when the module
@@ -480,14 +484,18 @@ bool Module::handle(const input::Event &event) {
 bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
     CursorType cursor = CursorType::Default;
 
-    auto object = _area->getObjectAt(event.x, event.y);
-    if (object && object->isSelectable()) {
-        auto objectPtr = _game.getObjectById(object->id());
+    // While the mouse turns the camera nothing is under the pointer.
+    const Camera *camera = _game.getActiveCamera();
+    auto object = camera && camera->isMouseLookMode() ? std::nullopt : _area->getObjectAt(event.x, event.y);
+    if (object && object->get().isSelectable()) {
+        Object &picked = object->get();
+        auto objectPtr = _game.getObjectById(picked.id());
         _area->hilightObject(objectPtr);
 
-        bool hostile = object->type() == ObjectType::Creature && !object->isDead()
-            ? isHostileToPartyLeader(*static_cast<Creature *>(object)) : false;
-        cursor = contextualCursor(object->type(), object->isDead(), hostile);
+        bool hostile = picked.type() == ObjectType::Creature && !picked.isDead()
+                           ? isHostileToPartyLeader(static_cast<Creature &>(picked))
+                           : false;
+        cursor = contextualCursor(picked.type(), picked.isDead(), hostile);
     } else {
         _area->hilightObject(nullptr);
     }
@@ -502,10 +510,10 @@ bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
         return false;
     }
     auto object = _area->getObjectAt(event.x, event.y);
-    if (!object || !object->isSelectable()) {
+    if (!object || !object->get().isSelectable()) {
         return false;
     }
-    auto objectPtr = _game.getObjectById(object->id());
+    auto objectPtr = _game.getObjectById(object->get().id());
     if (!objectPtr) {
         return false;
     }
@@ -588,6 +596,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sou
             creature->face(*partyLeader);
         }
         partyLeader->clearAllActions(true);
+        _game.setDialogUnderWay(true);
         partyLeader->addAction(_game.newAction<StartConversationAction>(creature, ""));
     }
 }
@@ -620,6 +629,8 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     }
 }
 
+// A placeable's default action is an order: it clears the leader's actions
+// unless the leader is busy, and then follows them.
 void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     if (!partyLeader->isCommandable() || !_game.canClick()) {
@@ -627,15 +638,16 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     }
 
     if (placeable->hasInventory()) {
-        partyLeader->clearAllActions();
+        partyLeader->clearOrdersUnlessBusy();
         if (!placeable->isLocked()) {
             partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
         }
     } else if (!placeable->conversation().empty()) {
-        partyLeader->clearAllActions();
+        partyLeader->clearOrdersUnlessBusy();
+        _game.setDialogUnderWay(true);
         partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
     } else {
-        partyLeader->clearAllActions();
+        partyLeader->clearOrdersUnlessBusy();
         partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
     }
 }
@@ -659,28 +671,25 @@ uint32_t Module::spawnBodyBag(Object &source) {
     if (!creature && source.items().empty()) {
         return script::kObjectInvalid;
     }
-    const auto bodyBags = getRequiredTwoDA(_services.resource.twoDas, "bodybag");
+    const auto &tables = _services.game.combatTables;
     std::optional<int> appearance;
     std::optional<int> nameStrRef;
     bool corpse = false;
     if (creature) {
         // A bag row of 0 takes the appearance's row.
-        const auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-        const int appearanceRow = appearances->getIntOpt(creature->appearance(), "body_bag").value_or(0);
+        const int appearanceRow = creature->appearanceBodyBagRow().value_or(0);
         const int row = creature->bodyBagRow() != 0 ? creature->bodyBagRow() : appearanceRow;
-        corpse = bodyBags->getIntOpt(row, "corpse").value_or(0) != 0;
+        corpse = tables.bodyBag(row).corpse;
         if (!corpse && creature->dropableItems().empty() && creature->gold() == 0) {
             return script::kObjectInvalid;
         }
-        appearance = bodyBags->getIntOpt(creature->bodyBagRow(), "appearance");
-        if (!appearance) {
-            appearance = bodyBags->getIntOpt(appearanceRow, "appearance");
-        }
-        nameStrRef = bodyBags->getIntOpt(creature->bodyBagRow(), "name");
+        const auto own = tables.bodyBag(creature->bodyBagRow());
+        appearance = own.appearance ? own.appearance : tables.bodyBag(appearanceRow).appearance;
+        nameStrRef = own.nameStrRef;
     } else {
-        const auto &placeable = cast<Placeable>(source);
-        appearance = bodyBags->getIntOpt(placeable.bodyBagRow(), "appearance");
-        nameStrRef = bodyBags->getIntOpt(placeable.bodyBagRow(), "name");
+        const auto bagRow = tables.bodyBag(cast<Placeable>(source).bodyBagRow());
+        appearance = bagRow.appearance;
+        nameStrRef = bagRow.nameStrRef;
     }
     std::vector<std::shared_ptr<Object>> noObsolete;
     std::shared_ptr<Placeable> bag;
@@ -858,22 +867,6 @@ void Module::dispatchDueSavedEvents() {
     detail::dispatchDueSavedEvents(_publishedSavedEvents, _dispatchingSavedEvents, [&]() { return _game.worldTimeMilliseconds(); }, [&](PublishedSavedEvent &event) { deliverSavedEvent(event); }, [&]() { return static_cast<bool>(_game.movie()); });
 }
 
-void Module::cancelObjectDestruction(const Object &object) {
-    for (auto it = _pendingSavedEvents.begin(); it != _pendingSavedEvents.end();) {
-        const auto index = it->first;
-        const auto &event = it->second.record;
-        // Only the death fade is withdrawn. Its records carry no caller; a
-        // script's DestroyObject cannot be cancelled.
-        const bool matches = event.eventId == static_cast<uint32_t>(SavedEventType::DestroyObject) &&
-                             event.caller.isInvalid() &&
-                             event.object.boundObject().get() == &object;
-        ++it;
-        if (matches) {
-            cancelSaveEvent(index);
-        }
-    }
-}
-
 void Module::dropPendingEvents(const Object &target) {
     for (auto it = _pendingSavedEvents.begin(); it != _pendingSavedEvents.end();) {
         const auto index = it->first;
@@ -894,6 +887,11 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     auto target = savedEvent.object.boundObject();
     if (!target) {
         return;
+    }
+    // A creature that has not yet run its creation script runs it before it
+    // takes any event.
+    if (auto creature = dyn_cast<Creature>(target)) {
+        creature->runSpawnScript();
     }
 
     switch (static_cast<SavedEventType>(savedEvent.eventId)) {
@@ -1002,6 +1000,23 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
                    std::make_shared<Location>(position, targetFacing), context, item, overrideLevel);
 }
 
+// A conversation event carries in its integers the number of pieces of the
+// match, the whole string included, and the pattern number, and in its strings
+// the pieces, the whole string's place left empty. A request to talk carries
+// none of them: it matched no pattern and has no pieces.
+static Object::ConversationEvent conversationEventOf(const SavedScriptEvent &event, uint32_t speaker) {
+    Object::ConversationEvent result;
+    result.speaker = speaker;
+    if (event.integers.size() > 1) {
+        result.patternNumber = event.integers[1];
+    }
+    const int32_t count = event.integers.empty() ? 0 : event.integers[0];
+    for (int32_t i = 1; i < count; ++i) {
+        result.matchedPieces.push_back(static_cast<size_t>(i) < event.strings.size() ? event.strings[i] : "");
+    }
+    return result;
+}
+
 void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::shared_ptr<Object> &target) {
     using Signal = SavedSignalEventType;
     const auto &event = std::get<SavedScriptEvent>(savedEvent.payload);
@@ -1056,8 +1071,8 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else {
             placeable->onFailToOpen(callerId());
         }
-    } else if (target.get() == this &&
-               (type == Signal::ItemActivated || type == Signal::ItemAcquired || type == Signal::ItemLost)) {
+    } else if (target.get() == this && (type == Signal::ItemActivated || type == Signal::ItemAcquired ||
+                                        type == Signal::ItemLost || type == Signal::ItemEquipped)) {
         receiveItemEvent(event, savedEvent.caller);
     } else if (target.get() == this && type == Signal::ModuleLoaded) {
         receiveLoadedSignal(!event.integers.empty() && event.integers[0] != 0);
@@ -1080,6 +1095,20 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         }
     } else if (auto area = dyn_cast<Area>(target); area && type == Signal::Entered) {
         area->receiveEnteredSignal(savedEvent.caller.boundObject(), !event.integers.empty() && event.integers[0] != 0);
+    } else if (auto area = dyn_cast<Area>(target); area && type == Signal::Exited) {
+        area->receiveExitedSignal(savedEvent.caller.boundObject());
+    } else if (type == Signal::Clicked && (isa<Trigger>(target.get()) || isa<Door>(target.get()))) {
+        // A click reaches triggers and doors only; its first object is the
+        // one who clicked.
+        if (auto trigger = dyn_cast<Trigger>(target)) {
+            trigger->receiveClick(subject());
+        } else {
+            dyn_cast<Door>(target)->receiveClick(subject());
+        }
+    } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
+        // A conversation event reaches creatures, placeables and doors only;
+        // the caller is the one who spoke.
+        target->receiveConversationEvent(conversationEventOf(event, callerId()));
     } else if (type == Signal::UserDefined && !event.integers.empty()) {
         _game.scriptRunner().run(target->getOnUserDefined(), {{script::ArgKind::Caller, script::Variable::ofObject(target->id())},
                                                               {script::ArgKind::UserDefinedEventNumber, script::Variable::ofInt(event.integers[0])}});
@@ -1099,21 +1128,28 @@ void Module::deliverSpellCastAtSignal(const SavedScriptEvent &event, Object &tar
         creature->receiveSpellCastAt(casterId, spell, harmful);
         return;
     }
-    // A harmful spell at a door or placeable records its caster as the last
-    // hostile actor and excites the caster's spell row before the
-    // spell-cast-at script runs.
+    // A door or placeable records the spell cast at it with the caster the
+    // signal names, even one that no longer exists; a harmful one also
+    // records that caster as the last hostile actor and excites the caster's
+    // spell row before the spell-cast-at script runs. A caster restored from
+    // a save that no longer exists names no object.
     const bool doorOrPlaceable = isa<Door>(&target) || isa<Placeable>(&target);
+    uint32_t namedCasterId = casterId;
+    if (!caster && !event.objects.empty() && !event.objects[0].isInvalid() &&
+        !event.objects[0].isSerializedIdentity()) {
+        namedCasterId = event.objects[0].id;
+    }
+    if (doorOrPlaceable) {
+        target.setLastSpellCast(namedCasterId, spell, harmful);
+    }
     if (doorOrPlaceable && harmful != 0) {
-        target.setLastHostileActor(casterId);
+        target.setLastHostileActor(namedCasterId);
         if (auto casterCreature = caster ? dyn_cast<Creature>(caster) : nullptr) {
             casterCreature->setExcitedState(kSpellCasterExcitedState);
             casterCreature->removeCombatInvisibilityEffects();
         }
     }
-    _game.scriptRunner().run(target.getOnSpellCastAt(), {{script::ArgKind::Caller, script::Variable::ofObject(target.id())},
-                                                         {script::ArgKind::LastSpellCaster, script::Variable::ofObject(casterId)},
-                                                         {script::ArgKind::LastSpell, script::Variable::ofInt(spell)},
-                                                         {script::ArgKind::LastSpellHarmful, script::Variable::ofInt(harmful)}});
+    _game.scriptRunner().run(target.getOnSpellCastAt(), {{script::ArgKind::Caller, script::Variable::ofObject(target.id())}});
 }
 
 void Module::deliverAttackedEvent(const SavedEventRecord &savedEvent, Object &target) {
@@ -1171,8 +1207,7 @@ void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keep
         // Any destruction but a script's takes the death fade: the
         // appearance's fade delay, or a kept corpse when it has none.
         if (!keepsCallerFade) {
-            const auto table = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-            if (const auto delay = readFadeDelayOnDeath(*table, creature->appearance())) {
+            if (const auto delay = creature->fadeDelayOnDeath()) {
                 creature->setFadeOutTime(static_cast<uint32_t>(*delay));
                 creature->setKeepCorpse(false);
             } else {
@@ -1248,7 +1283,6 @@ void Module::update(float dt) {
     if (held()) {
         return;
     }
-    _game.updateTimeStop();
 
     if (_game.cameraType() == CameraType::ThirdPerson) {
         _player->update(dt);
@@ -1267,11 +1301,55 @@ void Module::update(float dt) {
     if (held()) {
         return;
     }
-    updateStampedHeartbeat(_onHeartbeat);
+    // The module and its area take turns. On the module's turn a due
+    // heartbeat runs; without one, a time stop no creature holds any more
+    // ends. On the area's turn the area's heartbeat runs when due.
+    if (!_moduleTurn) {
+        _area->updateHeartbeat();
+        _moduleTurn = true;
+        return;
+    }
+    _moduleTurn = false;
+    if (isHeartbeatDueSince(_heartbeatDay, _heartbeatTime)) {
+        updateStampedHeartbeat(_onHeartbeat);
+    } else {
+        _game.updateTimeStop();
+    }
 }
 
-// Item events (activated, acquired and lost) record their objects for the
-// module's getters, then run the matching module script.
+void Module::runObjectActions() {
+    runActions();
+    if (_game.movie()) {
+        return;
+    }
+    _area->runObjectActions();
+}
+
+void Module::runSpawnScriptsOutsideArea() {
+    // A creation script can bring a companion into being or take one away,
+    // so each place is read again as it comes. A movie started by one holds
+    // the rest until it ends.
+    const Party &party = _game.party();
+    auto run = [&](RosterKind kind, int slot) {
+        auto creature = party.rosterCreature({kind, slot});
+        if (creature && !_area->isObjectResident(*creature)) {
+            creature->runSpawnScript();
+        }
+    };
+    const int npcCount = static_cast<int>(_game.isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount);
+    for (int npc = 0; npc < npcCount && !_game.movie(); ++npc) {
+        run(RosterKind::Npc, npc);
+    }
+    if (!_game.isTSL()) {
+        return;
+    }
+    for (int puppet = 0; puppet < static_cast<int>(Party::kMaxPuppetCount) && !_game.movie(); ++puppet) {
+        run(RosterKind::Puppet, puppet);
+    }
+}
+
+// Item events (activated, acquired, lost and equipped) record their objects
+// for the module's getters, then run the matching module script.
 void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectReference &caller) {
     auto objectId = [&event](size_t index) {
         if (index >= event.objects.size()) {
@@ -1298,6 +1376,10 @@ void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectRe
         _itemEvents.acquired = objectId(0);
         _itemEvents.acquiredFrom = objectId(1);
         script = _info.onAcquireItem;
+        break;
+    case SavedSignalEventType::ItemEquipped:
+        _itemEvents.equipped = objectId(0);
+        script = _info.onEquipItem;
         break;
     default: {
         _itemEvents.lost = objectId(0);
@@ -1328,6 +1410,10 @@ static const ItemAttributes &partyItemAttributes(Game &game, const std::shared_p
     return (receiver ? *receiver : *leader).itemAttributes();
 }
 
+// The lightsaber, double-bladed lightsaber and short lightsaber item types.
+static constexpr int kFirstLightsaberItemType = 39;
+static constexpr int kLastLightsaberItemType = 41;
+
 std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Object> &object) const {
     std::vector<ContextAction> actions;
     // With no one under control there is no one to act.
@@ -1335,6 +1421,9 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     if (!leader) {
         return actions;
     }
+    // A locked door or container offers no bash while the area restricts the
+    // player.
+    const bool playerRestricted = _area && _area->playerRestrictMode();
 
     switch (object->type()) {
     case ObjectType::Creature: {
@@ -1385,7 +1474,18 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     }
     case ObjectType::Door: {
         auto door = std::static_pointer_cast<Door>(object);
-        if (canBashDoor(*door)) {
+        // In TSL a leader with a lightsaber, or a weapon that burns doors, in
+        // the right hand is offered the door saber on a locked door that is
+        // not plot and not standing open, in place of the bash.
+        const bool standingOpen =
+            door->isOpen() && door->state() != DoorState::Destroyed && door->transition() == DoorTransition::None;
+        auto weapon = leader->getEquippedItem(InventorySlots::rightWeapon);
+        const bool saber = weapon && ((weapon->itemType() >= kFirstLightsaberItemType &&
+                                       weapon->itemType() <= kLastLightsaberItemType) ||
+                                      weapon->sabersDoors());
+        if (_game.isTSL() && door->isLocked() && !door->plotFlag() && !standingOpen && saber) {
+            actions.push_back(ContextAction(ActionType::DoorSaber));
+        } else if (!playerRestricted && canBashDoor(*door)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
@@ -1398,7 +1498,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     }
     case ObjectType::Placeable: {
         auto placeable = cast<Placeable>(object);
-        if (canBashPlaceable(*placeable)) {
+        if (!playerRestricted && canBashPlaceable(*placeable)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (canUseSecurityOnPlaceable(*placeable, *leader)) {
@@ -1488,7 +1588,9 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
         return true;
     case input::KeyCode::Q:
     case input::KeyCode::E: {
-        // Target cycling: Q steps counter-clockwise, E clockwise.
+        // Target cycling: Q steps counter-clockwise, E clockwise. Either key
+        // ends the choice of a party member to use an item on.
+        _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
             return false;
         }

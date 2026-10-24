@@ -23,13 +23,14 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Lowers armour class: the bonus type is integer 0, the amount integer 1, the
+ * racial type integer 2 and the damage types integer 5.
+ */
 class ACDecreaseEffect : public CopyableEffect<ACDecreaseEffect> {
 public:
     ACDecreaseEffect(int value, ACBonus modifyType, int damageType) :
-        CopyableEffect(EffectType::ACDecrease),
-        _value(value),
-        _modifyType(modifyType),
-        _damageType(damageType) {
+        CopyableEffect(EffectType::ACDecrease) {
         setSaveFacingInteger(0, static_cast<int>(modifyType));
         setSaveFacingInteger(1, value);
         setSaveFacingInteger(2, static_cast<int>(RacialType::All));
@@ -37,15 +38,6 @@ public:
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-
-    int penalty() const { return _value; }
-    ACBonus modifierType() const { return _modifyType; }
-    int damageType() const { return _damageType; }
-
-private:
-    int _value;
-    ACBonus _modifyType;
-    int _damageType;
 };
 
 } // namespace game

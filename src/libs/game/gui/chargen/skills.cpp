@@ -48,8 +48,24 @@ static const std::unordered_map<SkillType, int> g_descStrRefBySkill {
     {SkillType::Security, 256},
     {SkillType::TreatInjury, 258}};
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_ACCEPT", "BTN_BACK", "BTN_RECOMMENDED", "CLASSSKL_LBL", "COST_LBL", "COST_POINTS_LBL",
+    "LB_DESC", "MAIN_TITLE_LBL", "REMAINING_BOX_LBL", "REMAINING_SELECTIONS_LBL", "SELECTIONS_REMAINING_LBL", "SUB_TITLE_LBL",
+    "COMPUTER_USE_LBL", "COMPUTER_USE_POINTS_BTN", "COM_MINUS_BTN", "COM_PLUS_BTN", "DEMOLITIONS_LBL", "DEMOLITIONS_POINTS_BTN",
+    "DEM_MINUS_BTN", "DEM_PLUS_BTN", "STEALTH_LBL", "STEALTH_POINTS_BTN", "STE_MINUS_BTN", "STE_PLUS_BTN",
+    "AWARENESS_LBL", "AWARENESS_POINTS_BTN", "AWA_MINUS_BTN", "AWA_PLUS_BTN", "PERSUADE_LBL", "PERSUADE_POINTS_BTN",
+    "PER_MINUS_BTN", "PER_PLUS_BTN", "REPAIR_LBL", "REPAIR_POINTS_BTN", "REP_MINUS_BTN", "REP_PLUS_BTN",
+    "SECURITY_LBL", "SECURITY_POINTS_BTN", "SEC_MINUS_BTN", "SEC_PLUS_BTN", "TREAT_INJURY_LBL", "TREAT_INJURY_POINTS_BTN",
+    "TRE_MINUS_BTN", "TRE_PLUS_BTN"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"DESC_LBL"};
+/** The controls the panel also shows in TSL. */
+static const std::unordered_set<std::string> kTSLPanelControls {"LBL_BAR1", "LBL_BAR2"};
+
 void CharGenSkills::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kTSLPanelControls : kK1PanelControls);
 
     std::vector<Label *> skillLabels {
         _controls.COMPUTER_USE_LBL.get(),

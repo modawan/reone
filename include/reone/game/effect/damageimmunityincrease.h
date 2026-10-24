@@ -23,25 +23,20 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Raises immunity to damage types: the damage types are integer 0 and the
+ * percentage integer 1.
+ */
 class DamageImmunityIncreaseEffect : public CopyableEffect<DamageImmunityIncreaseEffect> {
 public:
     DamageImmunityIncreaseEffect(DamageType damageType, int percentImmunity) :
-        CopyableEffect(EffectType::DamageImmunityIncrease),
-        _damageType(damageType),
-        _percentImmunity(percentImmunity) {
+        CopyableEffect(EffectType::DamageImmunityIncrease) {
         setSaveFacingInteger(0, static_cast<int>(damageType));
         setSaveFacingInteger(1, percentImmunity);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
-
-    DamageType damageType() const { return _damageType; }
-    int percentImmunity() const { return _percentImmunity; }
-
-private:
-    DamageType _damageType;
-    int _percentImmunity;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

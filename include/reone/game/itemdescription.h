@@ -18,17 +18,21 @@
 #pragma once
 
 #include <string>
-#include <vector>
 
 namespace reone {
 
 namespace game {
 
+class Game;
 class Item;
 struct ServicesView;
 
-std::vector<std::string> buildItemDescriptionLines(const Item &item, ServicesView &services);
-std::string joinItemDescriptionLines(const std::vector<std::string> &lines);
+/**
+ * The text the inventory and equipment screens show for an item: its
+ * property lines, built from interface strings and the item property tables,
+ * followed by its description, or a placeholder when it has none.
+ */
+std::string buildItemDescription(const Item &item, const Game &game, ServicesView &services);
 
 } // namespace game
 

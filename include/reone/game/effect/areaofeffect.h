@@ -37,7 +37,7 @@ public:
 
     /** Only a creature carries one; the new area of effect is object parameter 0. */
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

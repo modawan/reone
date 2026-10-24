@@ -12,15 +12,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
-#include "../fixtures/game.h"
-
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/effect.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/resource/gff.h"
+
+#include "../fixtures/engine.h"
+#include "../fixtures/game.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -184,7 +185,33 @@ TEST_P(WorldTimeFixture, forced_move_timeout_expires_after_the_scripted_real_dur
     advance(2.0f);
     action->execute(action, *actor, 0.0f);
     EXPECT_TRUE(action->isCompleted());
-    EXPECT_NEAR(actor->position().x, 100.0f, 0.001f);
+
+    // In an area with open ground at the destination, the mover that runs out
+    // of time is put down on it.
+    static graphics::Walkmesh groundWalkmesh;
+    auto ground = std::make_shared<scene::WalkmeshSceneNode>(
+        groundWalkmesh, *sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+    ON_CALL(*sceneGraph, findRoomWalkmesh(_))
+        .WillByDefault(Return(ground));
+    ON_CALL(*sceneGraph, findRoomFace(_, _, _))
+        .WillByDefault(Return(std::optional<scene::RoomFace>(scene::RoomFace {0, 0.0f, glm::vec3(0.0f, 0.0f, 1.0f)})));
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    area->add(actor);
+    actor->setPosition({0.0f, 0.0f, 0.0f});
+
+    auto inArea = game.newAction<MoveToLocationAction>(destination, false, true, 30.0f);
+    inArea->execute(inArea, *actor, 0.0f);
+    advance(29.0f);
+    inArea->execute(inArea, *actor, 0.0f);
+    EXPECT_FALSE(inArea->isCompleted());
+    EXPECT_LT(glm::length(actor->position()), 1.0f);
+
+    advance(2.0f);
+    inArea->execute(inArea, *actor, 0.0f);
+    EXPECT_TRUE(inArea->isCompleted());
+    EXPECT_NEAR(100.0f, actor->position().x, 0.001f);
+    EXPECT_NEAR(0.0f, actor->position().y, 0.001f);
 }
 
 TEST_P(WorldTimeFixture, temporary_effect_expiry_round_trips_as_a_real_duration) {

@@ -57,6 +57,7 @@ struct IFO {
     std::string Mod_OnActvtItem;
     std::string Mod_OnClientEntr;
     std::string Mod_OnClientLeav;
+    std::string Mod_OnEquipItem;
     std::string Mod_OnHeartbeat;
     std::string Mod_OnModLoad;
     std::string Mod_OnModStart;

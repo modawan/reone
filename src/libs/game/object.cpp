@@ -86,9 +86,7 @@ bool removeEffectApplication(Collection &effects, uint64_t order,
             stack(stack) { stack.push_back(order); }
         ~Invocation() { stack.pop_back(); }
     } invocation(inFlight, order);
-    if (remove(record) != EffectRemovalResult::Removed) {
-        return false;
-    }
+    remove(record);
     at = find();
     if (at == effects.end()) {
         return false;
@@ -334,13 +332,25 @@ void Object::update(float dt) {
     updateActions(dt);
     updateEffects(dt);
     updateShownVisuals(dt);
-    // An action that can no longer be cleared runs on whatever holds the object.
-    const auto current = getCurrentAction();
-    if (!isDead() && (canExecuteActions() || (current && !current->isClearable()))) {
-        executeActions(dt);
-    }
+    executeActionsIfAble(dt);
     if (_sceneNode && _sceneNode->type() == SceneNodeType::Model) {
         std::static_pointer_cast<ModelSceneNode>(_sceneNode)->setPickable(isSelectable());
+    }
+}
+
+void Object::runActions() {
+    if (!isRuntimeLive()) {
+        return;
+    }
+    updateActions(0.0f);
+    executeActionsIfAble(0.0f);
+}
+
+void Object::executeActionsIfAble(float dt) {
+    // An action that can no longer be cleared runs on whatever holds the object.
+    const auto current = getCurrentAction();
+    if (!isDead() && (takesUpActions() || (current && !current->isClearable()))) {
+        executeActions(dt);
     }
 }
 
@@ -361,6 +371,49 @@ void Object::setLocalBoolean(int index, bool value) {
 void Object::setLocalNumber(int index, int value) {
     _localNumbers[index] = value;
 }
+
+void Object::setListenPattern(const std::string &pattern, int32_t number) {
+    auto expression = std::find_if(_listenExpressions.begin(), _listenExpressions.end(),
+                                   [number](const ListenExpression &entry) { return entry.number == number; });
+    if (expression == _listenExpressions.end()) {
+        expression = _listenExpressions.insert(_listenExpressions.end(), ListenExpression {number, "", std::nullopt});
+    }
+    // The pattern the entry already has changes nothing; a new entry has the
+    // empty pattern and matches nothing.
+    const std::string lowered = boost::to_lower_copy(pattern);
+    if (lowered == expression->pattern) {
+        return;
+    }
+    // An empty pattern in place of another matches only an empty string.
+    if (lowered.empty()) {
+        expression->parsed = ListenPattern::emptyString();
+        expression->pattern.clear();
+        return;
+    }
+    // A pattern that fails to parse leaves the entry matching nothing, and
+    // the last pattern that parsed is still the one saved.
+    expression->parsed = ListenPattern::parse(pattern);
+    if (expression->parsed) {
+        expression->pattern = lowered;
+    }
+}
+
+std::optional<int32_t> Object::testListenExpressions(const std::string &str, std::vector<std::string> &pieces) const {
+    for (const auto &expression : _listenExpressions) {
+        if (expression.parsed && expression.parsed->match(str, pieces)) {
+            return expression.number;
+        }
+    }
+    return std::nullopt;
+}
+
+void Object::receiveConversationEvent(ConversationEvent event) {
+    _lastSpeaker = event.speaker;
+    _listenPatternNumber = event.patternNumber;
+    _matchedSubstrings = std::move(event.matchedPieces);
+    runConversationScript();
+}
+
 void Object::deserializeRuntimeState(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -651,23 +704,11 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
     // A kept saved action is written back behind the restored node it followed
     // in its saved queue, or behind the nearest restored node before that one
     // still saved; with none, ahead of every live action.
-    auto isSaved = [this](const OrdinaryActionQueue::Node &node) {
-        return std::find(_actions.nodes.begin(), _actions.nodes.end(), node) != _actions.nodes.end() &&
-               !node->action->isCompleted() && !node->action->isCancelled();
-    };
-    std::vector<std::pair<OrdinaryActionQueue::Node, SavedActionRecord>> kept;
-    OrdinaryActionQueue::Node anchor;
-    for (const auto &published : _publishedSavedActions) {
-        if (published.kept) {
-            kept.emplace_back(anchor, *published.kept);
-        } else if (auto node = published.restored.lock(); node && isSaved(node)) {
-            anchor = std::move(node);
-        }
-    }
+    const auto kept = keptSavedActionAnchors();
     auto saveKeptBehind = [&](const OrdinaryActionQueue::Node &node) {
-        for (const auto &[after, record] : kept) {
+        for (const auto &[published, after] : kept) {
             if (after == node) {
-                result.push_back(record);
+                result.push_back(*_publishedSavedActions[published].kept);
             }
         }
     };
@@ -695,6 +736,24 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
     return result;
 }
 
+std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> Object::keptSavedActionAnchors() const {
+    auto isSaved = [this](const OrdinaryActionQueue::Node &node) {
+        return std::find(_actions.nodes.begin(), _actions.nodes.end(), node) != _actions.nodes.end() &&
+               !node->action->isCompleted() && !node->action->isCancelled();
+    };
+    std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> result;
+    OrdinaryActionQueue::Node anchor;
+    for (size_t index = 0; index < _publishedSavedActions.size(); ++index) {
+        const auto &published = _publishedSavedActions[index];
+        if (published.kept) {
+            result.emplace_back(index, anchor);
+        } else if (auto node = published.restored.lock(); node && isSaved(node)) {
+            anchor = std::move(node);
+        }
+    }
+    return result;
+}
+
 void Object::endEffectPresentations() {
     for (auto &effect : _effects) {
         if (effect.effect) {
@@ -705,7 +764,7 @@ void Object::endEffectPresentations() {
 }
 
 void Object::retireAreaRuntimeState(
-    const std::set<const Object *> &retainedObjects) {
+    const std::set<uint32_t> &retainedObjectIds) {
     // The authoritative source snapshot was captured before this boundary.
     // Discard rather than cancel: cancellation callbacks are live gameplay and
     // must not mutate the already-frozen outgoing world.
@@ -730,9 +789,9 @@ void Object::retireAreaRuntimeState(
 
     for (auto &effect : _effects) {
         if (effect.effect) {
-            effect.effect->retireAreaRuntime(retainedObjects);
+            effect.effect->retireAreaRuntime(retainedObjectIds);
         }
-        effect.retireAreaRuntimeBindings(retainedObjects);
+        effect.retireAreaRuntimeBindings(retainedObjectIds);
     }
     _shownVisuals.clear();
     _savedEffects.clear();
@@ -747,16 +806,17 @@ void Object::retireAreaRuntimeState(
     std::map<std::string, RuntimeObjectRef<Object>> retainedReferences;
     for (const auto &[field, binding] : _savedReferences) {
         auto object = binding.resolve();
-        if (!object || retainedObjects.count(object.get()) == 0) continue;
+        if (!object || retainedObjectIds.count(object->id()) == 0)
+            continue;
         retainedReferenceIds.emplace(field, object->id());
         retainedReferences.emplace(field, object);
     }
     _savedReferenceIds = std::move(retainedReferenceIds);
     _savedReferences = std::move(retainedReferences);
-    _spellScriptContext.retireAreaRuntime(retainedObjects);
+    _spellScriptContext.retireAreaRuntime(retainedObjectIds);
     _lastHostileActor.reset();
     auto lastDamager = _lastDamager.resolve();
-    if (!lastDamager || retainedObjects.count(lastDamager.get()) == 0) {
+    if (!lastDamager || retainedObjectIds.count(lastDamager->id()) == 0) {
         _lastDamager.reset();
         _lastDamageAmounts.fill(-1);
         if (_savedLastDamagerId) {
@@ -1100,6 +1160,27 @@ void Object::cancelActionGroups(const std::function<bool(const Action &)> &match
     }
 }
 
+void Object::removeActionsBehind(const Action &action) {
+    auto &nodes = _actions.nodes;
+    auto position = std::find_if(nodes.begin(), nodes.end(),
+                                 [&](const OrdinaryActionQueue::Node &node) { return node->action.get() == &action; });
+    if (position == nodes.end()) {
+        return;
+    }
+    // The kept saved actions queued behind it go with the rest.
+    const auto kept = keptSavedActionAnchors();
+    std::vector<size_t> dropped;
+    for (const auto &[published, after] : kept) {
+        if (after && std::find(position, nodes.end(), after) != nodes.end()) {
+            dropped.push_back(published);
+        }
+    }
+    for (auto it = dropped.rbegin(); it != dropped.rend(); ++it) {
+        _publishedSavedActions.erase(_publishedSavedActions.begin() + static_cast<std::ptrdiff_t>(*it));
+    }
+    nodes.erase(std::next(position), nodes.end());
+}
+
 void Object::requeueActionNode(const OrdinaryActionQueue::Node &node) {
     if (!isRuntimeLive() || !node) {
         return;
@@ -1147,6 +1228,11 @@ void Object::removeCompletedActions() {
 void Object::executeActions(float dt) {
     if (_actions.nodes.empty()) {
         _spellScriptContext.clearActiveTarget();
+        if (auto *creature = dyn_cast<Creature>(this)) {
+            creature->setAttemptedAttackTarget(script::kObjectInvalid);
+            creature->resetAttemptedMovementTarget();
+            creature->resetBlockingCreature();
+        }
         return;
     }
     auto node = _actions.nodes.front();
@@ -1155,7 +1241,10 @@ void Object::executeActions(float dt) {
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
         return;
     }
-    const bool refused = creature && action->isClearable() && !creature->permitsAction(*action);
+    // An action that cannot be cleared is refused only to a party member at
+    // zero vitality.
+    const bool refused = creature && (action->isClearable() || creature->isTemporarilyDead()) &&
+                         !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
     // ends the creature's combat modes.
     Action &command = action->combatAction();
@@ -1460,12 +1549,6 @@ void Object::setDamageImmunity(int flags, int value) {
     }
 }
 
-void Object::heal(int amount) {
-    if (auto *creature = dyn_cast<Creature>(this)) {
-        creature->applyHealingEffect(amount, nullptr, false);
-    }
-}
-
 bool Object::applyEffect(const std::shared_ptr<Effect> &effect,
                          DurationType durationType, float duration) {
     EffectInstance instance = effect->saveFacingInstance();
@@ -1589,16 +1672,15 @@ size_t Object::removeEffectsById(EffectId id) {
     std::optional<int> poolMaximum;
     const auto count = detail::removeEffectPackage(_effects, id, _removingEffectApplications, [&](const EffectInstance &value) {
             poolMaximum.reset();
-            const auto result = value.effect ? value.effect->onRemove(*this, value) : EffectRemovalResult::Removed;
-            if (result == EffectRemovalResult::Removed) {
-                if (auto *creature = dyn_cast<Creature>(this)) {
-                    creature->removeArmorClassEffect(value);
-                    poolMaximum = creature->abilityPoolMaximum(value);
-                }
+            if (value.effect) {
+                value.effect->onRemove(*this, value);
             }
-            changesVisibility |= result == EffectRemovalResult::Removed &&
-                (value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness);
-            return result; }, [&](const EffectInstance &value) {
+            if (auto *creature = dyn_cast<Creature>(this)) {
+                creature->removeArmorClassEffect(value);
+                poolMaximum = creature->abilityPoolMaximum(value);
+            }
+            changesVisibility |=
+                value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness; }, [&](const EffectInstance &value) {
             if (auto *creature = dyn_cast<Creature>(this)) {
                 creature->updateArmorClassEffectCursor();
                 if (poolMaximum) {
@@ -1619,16 +1701,15 @@ bool Object::removeEffectApplication(uint64_t order) {
     std::optional<int> poolMaximum;
     const bool removed = detail::removeEffectApplication(_effects, order, _removingEffectApplications, [&](const EffectInstance &value) {
             poolMaximum.reset();
-            const auto result = value.effect ? value.effect->onRemove(*this, value) : EffectRemovalResult::Removed;
-            if (result == EffectRemovalResult::Removed) {
-                if (auto *creature = dyn_cast<Creature>(this)) {
-                    creature->removeArmorClassEffect(value);
-                    poolMaximum = creature->abilityPoolMaximum(value);
-                }
+            if (value.effect) {
+                value.effect->onRemove(*this, value);
             }
-            changesVisibility |= result == EffectRemovalResult::Removed &&
-                (value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness);
-            return result; }, [&](const EffectInstance &value) {
+            if (auto *creature = dyn_cast<Creature>(this)) {
+                creature->removeArmorClassEffect(value);
+                poolMaximum = creature->abilityPoolMaximum(value);
+            }
+            changesVisibility |=
+                value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness; }, [&](const EffectInstance &value) {
             if (auto *creature = dyn_cast<Creature>(this)) {
                 creature->updateArmorClassEffectCursor();
                 if (poolMaximum) {
@@ -1853,14 +1934,6 @@ void Object::queueScriptEffectRemoval(ScriptEffectRemovalMatch match, const Effe
     }
 }
 
-void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
-    auto at = std::find_if(_effects.begin(), _effects.end(),
-                           [&](const EffectInstance &record) { return record.effect == effect; });
-    if (at != _effects.end()) {
-        removeEffectApplication(at->applicationOrder);
-    }
-}
-
 bool Object::hasEffect(EffectType type) const {
     return std::any_of(
         _effects.begin(),
@@ -1872,6 +1945,10 @@ bool Object::hasEffect(EffectType type) const {
 }
 
 bool Object::hasSpellEffect(int spell) const {
+    // No spell is never applied.
+    if (spell == -1) {
+        return false;
+    }
     return std::any_of(
         _effects.begin(),
         _effects.end(),
@@ -1920,6 +1997,7 @@ void Object::damage(
 }
 
 void Object::startStuntMode() {
+    _placedAtOrigin = false;
     if (_sceneNode) {
         _sceneNode->setLocalTransform(glm::mat4(1.0f));
         _sceneNode->setCullingEnabled(false);
@@ -1936,6 +2014,21 @@ void Object::stopStuntMode() {
         _sceneNode->setCullingEnabled(true);
     }
     _stunt = false;
+}
+
+void Object::setPlacedAtOrigin(bool placed) {
+    if (!placed) {
+        if (_placedAtOrigin) {
+            stopStuntMode();
+            _placedAtOrigin = false;
+            updateTransform();
+        }
+        return;
+    }
+    if (!_stunt) {
+        startStuntMode();
+        _placedAtOrigin = true;
+    }
 }
 
 std::shared_ptr<Effect> Object::getFirstEffect() {

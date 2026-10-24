@@ -32,8 +32,19 @@ static const char kIconControlTag[] = "LBL_POPUPICON";
 
 static constexpr int kAuthoredCanvasWidth = 640;
 static constexpr int kAuthoredCanvasHeight = 480;
+
+// Message box layout, in authored units. An icon sits kIconTop from the top,
+// centred, and makes the box kIconSize taller with the message below it.
+// Without Cancel the box loses the Cancel row and the gap above it,
+// kButtonGap. A button starts kButtonMinWidth wide and grows by
+// kButtonWidthStep until its label fits on one line inside its border. OK
+// sits kOkGap below the message and Cancel kButtonGap below OK, both centred.
 static constexpr int kIconSize = 32;
-static constexpr int kIconPadding = 6;
+static constexpr int kIconTop = 10;
+static constexpr int kButtonGap = 2;
+static constexpr int kButtonMinWidth = 100;
+static constexpr int kButtonWidthStep = 10;
+static constexpr int kOkGap = 4;
 
 // Message box growth, in authored units. A message that overflows widens the
 // box by kGrowWidth, while the box is at least kWidenMinHeight tall and
@@ -69,101 +80,170 @@ void ConfirmPopup::onGUILoaded() {
     });
     _defaultConfirmText = _controls.BTN_OK->text().text;
     _controls.LB_MESSAGE->setItemsInteractive(false);
+    // The message is one block of text that scrolls a line at a time.
+    _controls.LB_MESSAGE->setTextLineRows(true);
 
-    // The authored confirmation panel reserves a second button row. This
-    // popup only exposes OK, so retain the top inset below that button instead
-    // of leaving the unused row as a large empty footer, and center the
-    // trimmed panel in the authored canvas so the Scaled layout lands it
-    // mid-screen at any resolution.
-    auto &root = _gui->rootControl();
-    auto rootAuthored = root.authoredExtent();
-    const auto &okAuthored = _controls.BTN_OK->authoredExtent();
-    const auto &messageAuthored = _controls.LB_MESSAGE->authoredExtent();
-    int topInset = std::max(0, std::min(messageAuthored.top, okAuthored.top));
-    rootAuthored.height = std::min(rootAuthored.height, okAuthored.top + okAuthored.height + topInset);
-    root.setAuthoredExtent(std::move(rootAuthored));
+    // The box as authored, centred in the authored canvas so the Scaled
+    // layout lands it mid-screen at any resolution. Every message is laid
+    // out from it.
     centerRootInCanvas(kAuthoredCanvasWidth, kAuthoredCanvasHeight);
 
-    _messageExtent = _controls.LB_MESSAGE->protoItem().extent();
-    _iconSize = std::max(1, static_cast<int>(std::lround(kIconSize * _gui->scale())));
-    _iconPadding = std::max(1, static_cast<int>(std::lround(kIconPadding * _gui->scale())));
-
+    const int iconSize = static_cast<int>(std::lround(kIconSize * _gui->scale()));
     auto icon = _gui->newControl(ControlType::Label, kIconControlTag);
     Control::Extent iconExtent;
-    iconExtent.left = _messageExtent.left;
-    iconExtent.top = _messageExtent.top;
-    iconExtent.width = _iconSize;
-    iconExtent.height = _iconSize;
+    iconExtent.width = iconSize;
+    iconExtent.height = iconSize;
     icon->setExtent(std::move(iconExtent));
     icon->setSharpenBorderFillAlpha(true);
     icon->setVisible(false);
     _icon = std::shared_ptr<Control>(std::move(icon));
     _gui->addControlToFront(_icon, IGUI::ControlCoordinates::Screen);
 
-    _rootExtent = root.extent();
+    _rootExtent = _gui->rootControl().extent();
     _listExtent = _controls.LB_MESSAGE->extent();
+    _messageExtent = _controls.LB_MESSAGE->protoItem().extent();
     _okExtent = _controls.BTN_OK->extent();
     _cancelExtent = _controls.BTN_CANCEL->extent();
     if (auto scrollBar = _controls.LB_MESSAGE->scrollBarOrNull()) {
         _scrollBarExtent = scrollBar->extent();
     }
-    _iconExtent = _icon->extent();
 }
 
 void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon,
                         std::function<void()> onConfirm) {
+    open(message, std::move(icon), false);
     _onConfirm = std::move(onConfirm);
+}
+
+void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel) {
+    _onConfirm = {};
     _onCancel = {};
-    _controls.BTN_CANCEL->setVisible(false);
+    _controls.BTN_CANCEL->setVisible(allowCancel);
     _controls.BTN_OK->setTextMessage(_defaultConfirmText);
-    bool hasIcon = static_cast<bool>(icon);
-    if (hasIcon) {
+    _hasIcon = static_cast<bool>(icon);
+    if (_hasIcon) {
         _icon->setBorderFill(std::move(icon));
     }
-    _icon->setVisible(hasIcon);
+    _icon->setVisible(_hasIcon);
 
     // A message box resolves the tokens of whatever message it is given.
-    layoutMessage(_game.substituteCustomTokens(message), hasIcon);
+    _message = _game.substituteCustomTokens(message);
+    layoutMessage();
 
     _visible = true;
 }
 
-void ConfirmPopup::layoutMessage(const std::string &text, bool hasIcon) {
+int ConfirmPopup::buttonWidth(const Button &button) const {
+    const float scale = _gui->scale();
+    const auto &text = button.text();
+    const int border = button.border().dimension;
+    const float textWidth = text.font->measure(text.text, button.scale());
+    int width = static_cast<int>(std::lround(kButtonMinWidth * scale));
+    const int step = static_cast<int>(std::lround(kButtonWidthStep * scale));
+    while (width - 2 * border < textWidth) {
+        width += step;
+    }
+    return width + 2 * border;
+}
+
+void ConfirmPopup::layoutMessage() {
     auto &root = _gui->rootControl();
     auto &list = *_controls.LB_MESSAGE;
+    auto &ok = *_controls.BTN_OK;
+    auto &cancel = *_controls.BTN_CANCEL;
     auto scrollBar = list.scrollBarOrNull();
+    const bool allowCancel = cancel.isVisible();
     const float scale = _gui->scale();
     const auto scaled = [scale](int value) { return static_cast<int>(std::lround(value * scale)); };
 
-    auto rootExtent = _rootExtent;
-    auto listExtent = _listExtent;
-    auto okExtent = _okExtent;
-    auto cancelExtent = _cancelExtent;
-    auto iconExtent = _iconExtent;
-    // The scroll bar keeps its right edge at its own width.
-    auto barExtent = _scrollBarExtent;
-    const int barWidth = scaled(kScrollBarWidth);
-    barExtent.left += barExtent.width - barWidth;
-    barExtent.width = barWidth;
-    // A gutter for the icon, if any, is kept left of the text.
-    const int gutter = hasIcon ? _iconSize + _iconPadding : 0;
-    auto textExtent = _messageExtent;
-    textExtent.left += gutter;
-
-    // The message is laid out a line to a row across the list's inner width,
-    // less the scroll bar while it is enabled.
-    const auto wrap = [&]() {
-        root.setExtent(rootExtent);
-        list.setExtent(listExtent);
-        if (scrollBar) {
-            scrollBar->setExtent(barExtent);
-        }
-        textExtent.width = std::max(0, list.getItemWidth() - gutter);
-        list.protoItem().setExtent(textExtent);
-        list.clearItems();
-        list.addTextLinesAsItems(text);
+    // The box is laid out relative to its top-left corner and centred where
+    // the authored box was centred.
+    int centreX = 0;
+    int centreY = 0;
+    _rootExtent.getCenter(centreX, centreY);
+    const auto relative = [this](Control::Extent extent) {
+        extent.left -= _rootExtent.left;
+        extent.top -= _rootExtent.top;
+        return extent;
     };
-    const auto overflows = [&list]() { return list.getItemCount() > list.visibleItemCount(); };
+    Control::Extent panel {0, 0, _rootExtent.width, _rootExtent.height};
+    auto listExtent = relative(_listExtent);
+    auto okExtent = relative(_okExtent);
+    auto cancelExtent = relative(_cancelExtent);
+
+    // An icon makes the box taller and moves the message below it. Without
+    // Cancel its row goes.
+    if (_hasIcon) {
+        panel.height += scaled(kIconSize);
+        listExtent.top += scaled(kIconSize);
+    }
+    if (!allowCancel) {
+        panel.height -= _cancelExtent.height + scaled(kButtonGap);
+    }
+
+    // Each shown button is as wide as its label needs, and the box is at
+    // least as wide; the message widens with the box. TSL gives both buttons
+    // the wider width.
+    okExtent.width = buttonWidth(ok);
+    panel.width = std::max(panel.width, okExtent.width - scaled(kButtonGap));
+    if (allowCancel) {
+        cancelExtent.width = buttonWidth(cancel);
+        panel.width = std::max(panel.width, cancelExtent.width - scaled(kButtonGap));
+        if (_game.isTSL()) {
+            // The narrower takes the wider width; a wider OK gives Cancel its
+            // height too.
+            if (okExtent.width > cancelExtent.width) {
+                cancelExtent.width = okExtent.width;
+                cancelExtent.height = okExtent.height;
+            } else {
+                okExtent.width = cancelExtent.width;
+            }
+        }
+    }
+    listExtent.width += panel.width - _rootExtent.width;
+
+    // The scroll bar keeps its place at the message's right edge, at its own
+    // width.
+    const int barWidth = scaled(kScrollBarWidth);
+    const int barRightInset = (_listExtent.left + _listExtent.width) - (_scrollBarExtent.left + _scrollBarExtent.width);
+    const int barTopOffset = _scrollBarExtent.top - _listExtent.top;
+    const int barHeightOffset = _scrollBarExtent.height - _listExtent.height;
+    const auto &proto = list.protoItem();
+    const int lineHeight = static_cast<int>(std::lround(proto.text().font->height() * proto.scale()));
+
+    // Place the box and its message on screen and lay the message out across
+    // the list's inner width, less the scroll bar while it is enabled, a line
+    // to a row; the message overflows when its lines and the list's padding
+    // are taller than the list inside its border.
+    const auto absolute = [&](Control::Extent extent) {
+        extent.left += centreX - panel.width / 2;
+        extent.top += centreY - panel.height / 2;
+        return extent;
+    };
+    const auto wrap = [&]() {
+        root.setExtent(absolute(panel));
+        const auto listOnScreen = absolute(listExtent);
+        list.setExtent(listOnScreen);
+        if (scrollBar) {
+            Control::Extent bar;
+            bar.left = listOnScreen.left + listOnScreen.width - barRightInset - barWidth;
+            bar.top = listOnScreen.top + barTopOffset;
+            bar.width = barWidth;
+            bar.height = listOnScreen.height + barHeightOffset;
+            scrollBar->setExtent(std::move(bar));
+        }
+        // The list places the lines itself; the row is a line high and as
+        // wide as the room.
+        auto textExtent = _messageExtent;
+        textExtent.left = listOnScreen.left;
+        textExtent.top = listOnScreen.top;
+        textExtent.width = std::max(0, list.getItemWidth());
+        textExtent.height = lineHeight;
+        list.protoItem().setExtent(std::move(textExtent));
+        list.clearItems();
+        list.addTextLinesAsItems(_message);
+    };
+    const auto overflows = [&list]() { return list.isOverflowing(); };
 
     // The text is first wrapped clear of the scroll bar, which is then hidden
     // without wrapping the text again.
@@ -171,39 +251,23 @@ void ConfirmPopup::layoutMessage(const std::string &text, bool hasIcon) {
     wrap();
     list.setScrollBarEnabled(false);
     if (overflows()) {
-        const auto &proto = list.protoItem();
-        const int lineHeight = static_cast<int>(std::lround(proto.text().font->height() * proto.scale()));
         const int widen = scaled(kGrowWidth);
         const int maxWidth = scaled(kMaxWidth);
         const int maxHeight = scaled(kMaxHeight);
-        while (overflows() && (rootExtent.width < maxWidth || rootExtent.height < maxHeight)) {
-            if (rootExtent.height >= scaled(kWidenMinHeight) && rootExtent.width < maxWidth) {
+        while (overflows() && (panel.width < maxWidth || panel.height < maxHeight)) {
+            if (panel.height >= scaled(kWidenMinHeight) && panel.width < maxWidth) {
                 // The box widens about its centre.
-                rootExtent.left -= widen / 2;
-                rootExtent.width += widen;
-                listExtent.left -= widen / 2;
+                panel.width += widen;
                 listExtent.width += widen;
-                textExtent.left -= widen / 2;
-                iconExtent.left -= widen / 2;
-                barExtent.left += widen / 2;
                 wrap();
                 if (!overflows()) {
                     break;
                 }
             }
-            if (rootExtent.height < maxHeight) {
-                // The box grows a line about its centre; the buttons stay
-                // below the list.
-                rootExtent.top -= lineHeight / 2;
-                rootExtent.height += lineHeight;
-                listExtent.top -= lineHeight / 2;
+            if (panel.height < maxHeight) {
+                // The box grows a line about its centre.
+                panel.height += lineHeight;
                 listExtent.height += lineHeight;
-                textExtent.top -= lineHeight / 2;
-                iconExtent.top -= lineHeight / 2;
-                barExtent.top -= lineHeight / 2;
-                barExtent.height += lineHeight;
-                okExtent.top += lineHeight - lineHeight / 2;
-                cancelExtent.top += lineHeight - lineHeight / 2;
                 wrap();
             }
         }
@@ -213,23 +277,34 @@ void ConfirmPopup::layoutMessage(const std::string &text, bool hasIcon) {
             wrap();
         }
     }
-    _icon->setExtent(std::move(iconExtent));
-    _controls.BTN_OK->setExtent(std::move(okExtent));
-    _controls.BTN_CANCEL->setExtent(std::move(cancelExtent));
+
+    // The icon is centred at the top; OK sits under the message and Cancel
+    // under OK, both centred.
+    Control::Extent iconExtent = _icon->extent();
+    iconExtent.left = panel.width / 2 - iconExtent.width / 2;
+    iconExtent.top = scaled(kIconTop);
+    _icon->setExtent(absolute(iconExtent));
+    okExtent.top = listExtent.top + listExtent.height + scaled(kOkGap);
+    okExtent.left = panel.width / 2 - okExtent.width / 2;
+    ok.setExtent(absolute(okExtent));
+    cancelExtent.top = okExtent.top + okExtent.height + scaled(kButtonGap);
+    cancelExtent.left = panel.width / 2 - cancelExtent.width / 2;
+    cancel.setExtent(absolute(cancelExtent));
 }
 
 void ConfirmPopup::showConfirm(
     const std::string &message,
     std::function<void()> onConfirm,
     std::function<void()> onCancel) {
-    show(message);
+    open(message, nullptr, true);
     _onConfirm = std::move(onConfirm);
     _onCancel = std::move(onCancel);
-    _controls.BTN_CANCEL->setVisible(true);
 }
 
+// OK is sized to its label, so the box is laid out again.
 void ConfirmPopup::setConfirmText(const std::string &text) {
     _controls.BTN_OK->setTextMessage(text);
+    layoutMessage();
 }
 
 void ConfirmPopup::hide() {

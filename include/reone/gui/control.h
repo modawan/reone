@@ -192,6 +192,8 @@ public:
     void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
     int textPaddingLeft() const;
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
+    /** Sets the alpha the border's fill is drawn with. */
+    void setBorderFillOpacity(float opacity) { _borderFillOpacity = opacity; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
     void setVisible(bool visible);
@@ -258,6 +260,7 @@ protected:
     bool _hilightOverBorder {false};
     bool _selectable {false};
     bool _tintBorderFill {false};
+    float _borderFillOpacity {1.0f};
     bool _sharpenBorderFillAlpha {false};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};

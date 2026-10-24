@@ -23,6 +23,10 @@ namespace reone {
 
 namespace game {
 
+/**
+ * A puppet keeps within a range of its owner, running back to it whenever it
+ * is farther away. The order never ends by itself.
+ */
 class FollowOwnerAction : public Action {
 public:
     FollowOwnerAction(Game &game, ServicesView &services, float range) :
@@ -35,6 +39,10 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved FollowOwner command: the range. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     float _range;

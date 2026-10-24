@@ -41,6 +41,10 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved CloseDoor command; none once the door is gone. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     std::shared_ptr<Door> _door;

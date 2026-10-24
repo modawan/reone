@@ -23,18 +23,15 @@ namespace reone {
 
 namespace game {
 
+/** Restores Force points: the amount is integer 0. */
 class HealForcePointsEffect : public CopyableEffect<HealForcePointsEffect> {
 public:
     HealForcePointsEffect(int heal) :
-        CopyableEffect(EffectType::HealForcePoints),
-        _heal(heal) {
+        CopyableEffect(EffectType::HealForcePoints) {
         setSaveFacingInteger(0, heal);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    int _heal;
 };
 
 } // namespace game

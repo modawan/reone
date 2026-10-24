@@ -56,7 +56,6 @@ static constexpr float kShadowFadeSpeed = 2.0f;
 static constexpr float kLightRadiusBias = 64.0f;
 
 static constexpr float kMaxCollisionDistanceWalk = 8.0f;
-static constexpr float kMaxCollisionDistanceWalk2 = kMaxCollisionDistanceWalk * kMaxCollisionDistanceWalk;
 
 static constexpr float kMaxCollisionDistanceLineOfSight = 16.0f;
 static constexpr float kMaxCollisionDistanceLineOfSight2 = kMaxCollisionDistanceLineOfSight * kMaxCollisionDistanceLineOfSight;
@@ -81,6 +80,8 @@ void SceneGraph::clear() {
     }
     _soundRoots.clear();
     _grassRoots.clear();
+    _roomWalkmeshes.clear();
+    _roomTest.reset();
     _activeLights.clear();
 }
 
@@ -186,8 +187,9 @@ float SceneGraph::forceSightPulse() const {
 }
 
 void SceneGraph::cullRoots() {
+    const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        if (!root->isEnabled()) {
+        if (!root->isEnabled() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
             root->setCulled(true);
             continue;
         }
@@ -817,42 +819,6 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
     return lights;
 }
 
-bool SceneGraph::testElevation(const glm::vec3 &position, Collision &outCollision) const {
-    static glm::vec3 down(0.0f, 0.0f, -1.0f);
-
-    bool walkable = false;
-    float minDistance = std::numeric_limits<float>::max();
-    glm::vec3 origin {position.x, position.y, position.z + 0.1f};
-    for (auto &root : _walkmeshRoots) {
-        if (!root->isEnabled()) {
-            continue;
-        }
-        if (!root->walkmesh().isAreaWalkmesh()) {
-            float distance2 = root->getSquareDistanceTo2D(position);
-            if (distance2 > kMaxCollisionDistanceWalk2) {
-                continue;
-            }
-        }
-        auto objSpaceOrigin = glm::vec3(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
-        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, /*ignoreBackface=*/true);
-        if (raycast.fail || raycast.distance >= minDistance) {
-            continue;
-        }
-        uint32_t material = root->walkmesh().materials[raycast.face];
-        glm::vec3 normal = root->walkmesh().normals[raycast.face];
-        walkable = _walkableSurfaces.count(material) > 0;
-        if (walkable) {
-            outCollision.user = root->user();
-            outCollision.intersection = origin + raycast.distance * down;
-            outCollision.normal = root->absoluteTransform() * glm::vec4 {normal, 0.0f};
-            outCollision.material = material;
-        }
-        minDistance = raycast.distance;
-    }
-
-    return walkable;
-}
-
 bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
     auto originToDest = dest - origin;
     auto dir = glm::normalize(originToDest);
@@ -929,6 +895,149 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
     }
 
     return minDistance != std::numeric_limits<float>::max();
+}
+
+void SceneGraph::setWalkableSurfaces(std::set<uint32_t> surfaces) {
+    _walkableSurfaces = std::move(surfaces);
+    updateBlockingSurfaces();
+}
+
+void SceneGraph::setWalkcheckSurfaces(std::set<uint32_t> surfaces) {
+    _walkcheckSurfaces = std::move(surfaces);
+    updateBlockingSurfaces();
+}
+
+void SceneGraph::updateBlockingSurfaces() {
+    _blockingSurfaces.clear();
+    for (uint32_t material : _walkcheckSurfaces) {
+        if (_walkableSurfaces.count(material) == 0) {
+            _blockingSurfaces.insert(material);
+        }
+    }
+}
+
+// Room surfaces are looked for from this high above a point down to as far
+// below it.
+static constexpr float kRoomSurfaceReach = 1000.0f;
+
+// Casts down through the faces of the given materials of a room walkmesh from
+// a point in the walkmesh's own coordinates, over twice kRoomSurfaceReach; a
+// cast that meets none is tried once more, shifted 0.001 along the diagonal of
+// x and y.
+static Raycast raycastRoomSurface(const WalkmeshSceneNode &room, const std::set<uint32_t> &surfaces, const glm::vec3 &top) {
+    static const glm::vec3 kRetryShift {0.001f * glm::normalize(glm::vec3 {1.0f, 1.0f, 0.0f})};
+    const glm::vec3 down {0.0f, 0.0f, -1.0f};
+    auto raycast = room.walkmesh().raycast(surfaces, top, down, 2.0f * kRoomSurfaceReach, /*ignoreBackface=*/true);
+    if (raycast.fail != RAYCAST_OK) {
+        raycast = room.walkmesh().raycast(surfaces, top + kRetryShift, down, 2.0f * kRoomSurfaceReach, /*ignoreBackface=*/true);
+    }
+    return raycast;
+}
+
+std::shared_ptr<WalkmeshSceneNode> SceneGraph::findRoomWalkmesh(const glm::vec3 &position) const {
+    const glm::vec3 top {position + glm::vec3 {0.0f, 0.0f, kRoomSurfaceReach}};
+    for (const auto &room : _roomWalkmeshes) {
+        if (!room) {
+            continue;
+        }
+        const glm::vec3 local {room->absoluteTransformInverse() * glm::vec4(top, 1.0f)};
+        if (raycastRoomSurface(*room, _walkcheckSurfaces, local).fail == RAYCAST_OK) {
+            return room;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<RoomFace> SceneGraph::findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const {
+    static const std::set<uint32_t> kAllSurfaces = [] {
+        std::set<uint32_t> all;
+        for (uint32_t material = 0; material < Walkmesh::kSurfaceMaterialCount; ++material) {
+            all.insert(material);
+        }
+        return all;
+    }();
+    const glm::vec3 local {room.absoluteTransformInverse() * glm::vec4(position, 1.0f)};
+    glm::vec3 top {local};
+    if (probe == RoomFaceProbe::Locating) {
+        top = glm::vec3 {room.absoluteTransformInverse() * glm::vec4(position + glm::vec3 {0.0f, 0.0f, kRoomSurfaceReach}, 1.0f)};
+    } else {
+        top.z = kRoomSurfaceReach;
+    }
+    const auto raycast = raycastRoomSurface(room, probe == RoomFaceProbe::Any ? kAllSurfaces : _walkcheckSurfaces, top);
+    if (raycast.fail != RAYCAST_OK) {
+        return std::nullopt;
+    }
+    const Walkmesh::Face face {room.walkmesh().getFace(raycast.face)};
+    // The face's plane is taken at the point itself; an upright plane gives
+    // height 0.
+    float localHeight = 0.0f;
+    if (face.normal.z != 0.0f) {
+        const float distance = -glm::dot(face.normal, face.vertices[0]);
+        localHeight = -(face.normal.x * local.x + face.normal.y * local.y + distance) / face.normal.z;
+    }
+    const glm::vec3 point {room.absoluteTransform() * glm::vec4(local.x, local.y, localHeight, 1.0f)};
+    return RoomFace {face.material, point.z, glm::vec3 {room.absoluteTransform() * glm::vec4(face.normal, 0.0f)}};
+}
+
+bool SceneGraph::testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
+                              std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const {
+    // A perimeter crossing this close to where the walk entered a room, or to
+    // where it ends, is that point itself.
+    static constexpr float kPerimeterTolerance = 1e-4f;
+    // Blocking faces are looked for this far beyond the heights the walk spans.
+    static constexpr float kBandMargin = 0.1f;
+
+    const glm::vec3 line {dest - origin};
+    const glm::vec2 level {line};
+    const float length = glm::length(level);
+    auto room = findRoomWalkmesh(origin);
+    if (!room) {
+        outCollision.user = nullptr;
+        outCollision.intersection = origin;
+        outCollision.normal = length > 0.0f ? glm::vec3(-level / length, 0.0f) : glm::vec3(0.0f);
+        return true;
+    }
+    if (length <= kPerimeterTolerance) {
+        return false;
+    }
+    const float tolerance = kPerimeterTolerance / length;
+    float entered = 0.0f;
+    for (int rooms = 1;; ++rooms) {
+        const glm::vec3 entry {origin + line * entered};
+        if (maxRooms && rooms > *maxRooms) {
+            outCollision.user = room->user();
+            outCollision.intersection = entry;
+            outCollision.normal = glm::vec3(-level / length, 0.0f);
+            return true;
+        }
+        const glm::mat4 &toLocal = room->absoluteTransformInverse();
+        const auto crossing = room->walkmesh().findPerimeterCrossing(
+            glm::vec2(toLocal * glm::vec4(origin, 1.0f)),
+            glm::vec2(toLocal * glm::vec4(dest, 1.0f)),
+            entered + tolerance);
+        if (!crossing || crossing->fraction >= 1.0f - tolerance) {
+            return false;
+        }
+        const int next = crossing->transition;
+        if (next >= 0 && next < static_cast<int>(_roomWalkmeshes.size()) && _roomWalkmeshes[next]) {
+            room = _roomWalkmeshes[next];
+            entered = crossing->fraction;
+            outCrossings.push_back(entered);
+            continue;
+        }
+        const glm::vec3 exit {origin + line * crossing->fraction};
+        const glm::vec3 localExit {toLocal * glm::vec4(exit, 1.0f)};
+        const float shift = localExit.z - exit.z;
+        const float minZ = std::min(entry.z, exit.z) - kBandMargin + shift;
+        const float maxZ = std::max(entry.z, exit.z) + height + kBandMargin + shift;
+        if (room->walkmesh().hasFaceWithin(_blockingSurfaces, localExit, localExit, radius, minZ, maxZ)) {
+            return false;
+        }
+        outCollision.user = room->user();
+        outCollision.intersection = exit;
+        outCollision.normal = room->absoluteTransform() * glm::vec4(crossing->normal, 0.0f, 0.0f);
+        return true;
+    }
 }
 
 ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {

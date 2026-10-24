@@ -34,6 +34,7 @@ struct InGameMenuFooter {
     };
     std::array<Member, 3> members;
     bool subjectPresent {false};
+    bool subjectDebilitated {false};
     std::string name;
     std::array<std::string, 2> classes;
     std::array<std::string, 2> levels;
@@ -54,6 +55,8 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;
+    /** Leaving the menu also leaves its active tab. */
+    void clearSelection() override;
 
     void registerScreen(InGameMenuTab tab, std::shared_ptr<PresentationGUI> screen);
     void setEnabled(InGameMenuTab tab, bool enabled);

@@ -23,8 +23,10 @@
 #include "reone/game/camerastyles.h"
 #include "reone/game/combattables.h"
 #include "reone/game/console.h"
+#include "reone/game/creaturespeeds.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/races.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
@@ -87,10 +89,28 @@ public:
     MOCK_METHOD(std::shared_ptr<CreatureClass>, get, (ClassType key), (override));
 };
 
+class StubCreatureSpeeds : public ICreatureSpeeds, boost::noncopyable {
+public:
+    const CreatureSpeed &get(int) const override {
+        return _speed;
+    }
+
+    int find(const std::string &) const override {
+        return 0;
+    }
+
+private:
+    CreatureSpeed _speed {1.0f, 1.0f};
+};
+
 class StubDifficultyOptions : public IDifficultyOptions, boost::noncopyable {
 public:
     const DifficultyOption &get(int difficulty) const override {
         return _options.at(difficulty);
+    }
+
+    int count() const override {
+        return static_cast<int>(_options.size());
     }
 
 private:
@@ -107,9 +127,10 @@ public:
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(std::shared_ptr<Feat>, get, (FeatType type), (const override));
     MOCK_METHOD(int, getLevelUpChoiceCount, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(bool, isLevelUpCandidate, (FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
+    MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
+    MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {
@@ -124,10 +145,12 @@ public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnEnter, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionAccepted, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionUnavailable, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionMenuScroll, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getAlignmentShift, (bool light), (const override));
 };
 
 class MockPortraits : public IPortraits, boost::noncopyable {
@@ -157,10 +180,22 @@ public:
 
 class MockSpells : public ISpells, boost::noncopyable {
 public:
+    /** Every range reads as blank, as from an empty ranges table. */
+    MockSpells() {
+        ON_CALL(*this, range(testing::_)).WillByDefault(testing::ReturnRef(_blankRange));
+        ON_CALL(*this, findRange(testing::_)).WillByDefault(testing::Return(std::nullopt));
+    }
+
     MOCK_METHOD(std::shared_ptr<Spell>, get, (SpellType type), (const override));
+    MOCK_METHOD(const RangeRow &, range, (int row), (const override));
+    MOCK_METHOD((std::optional<std::reference_wrapper<const RangeRow>>), findRange, (int row), (const override));
     MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+    MOCK_METHOD(void, addGrantedPowers, (CreatureAttributes & attributes, bool tsl), (const override));
+
+private:
+    RangeRow _blankRange;
 };
 
 class MockSurfaces : public ISurfaces, boost::noncopyable {
@@ -182,6 +217,17 @@ public:
                 (override));
     MOCK_METHOD(void, update, (float, Game &, ServicesView &), (override));
     MOCK_METHOD(void, retireAreaRuntime, (), (override));
+    MOCK_METHOD(uint64_t, beginSpell,
+                (Object &, std::optional<std::reference_wrapper<const Object>>, const glm::vec3 &, const Spell &, ProjectilePathType, Game &, ServicesView &),
+                (override));
+    MOCK_METHOD(void, releaseSpell, (uint64_t, float, Game &, ServicesView &), (override));
+    MOCK_METHOD(void, cancelSpell, (uint64_t), (override));
+    MOCK_METHOD(void, dropThrownLightsaber, (const Creature &), (override));
+    MOCK_METHOD(void, launchSafeProjectile,
+                (Creature &, Object &, const Item &, const SafeProjectileShot &, Game &, ServicesView &),
+                (override));
+    MOCK_METHOD(std::vector<SavedProjectile>, savePresentations, (), (const override));
+    MOCK_METHOD(void, restorePresentations, (std::vector<SavedProjectile>, Game &, ServicesView &), (override));
     MOCK_METHOD(std::optional<ProjectileSpec>, discharge, (int animation, const Creature &attacker), (const override));
 };
 
@@ -191,6 +237,13 @@ public:
     MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
     MOCK_METHOD(std::string, getReactionAnimation, (const std::string &attackAnim, CreatureWieldType targetWield, AttackReaction reaction), (const override));
     MOCK_METHOD(int, getMeleeImpactTime, (const std::string &attackAnim, size_t attackIndex), (const override));
+    MOCK_METHOD(bool, isOverlay, (const std::string &), (const override));
+    MOCK_METHOD(bool, isLoopingById, (uint32_t), (const override));
+    MOCK_METHOD(bool, isFireForgetById, (uint32_t), (const override));
+    MOCK_METHOD(bool, isParry, (const std::string &), (const override));
+    MOCK_METHOD(bool, hidesEquippedItems, (const std::string &), (const override));
+    MOCK_METHOD(bool, isDialogAnimation, (int id), (const override));
+    MOCK_METHOD(std::optional<std::reference_wrapper<const DialogAnimation>>, findDialogAnimation, (int row), (const override));
 };
 
 class MockVisualEffects : public IVisualEffects, boost::noncopyable {
@@ -301,6 +354,7 @@ public:
     static size_t delayedActionCount(const Object &object);
     static void setAreaRuntimePath(Creature &creature, Pathfinder &pathfinder);
     static bool hasAreaRuntimePath(const Creature &creature);
+    static void setAreaRuntimeStraightPath(Creature &creature, Pathfinder &pathfinder, const glm::vec3 &to);
     static size_t seenObjectCount(const Creature &creature);
     static size_t heardObjectCount(const Creature &creature);
     static void setAreaRuntimeSceneNode(
@@ -359,6 +413,7 @@ public:
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
         _classes = std::make_unique<MockClasses>();
+        _creatureSpeeds = std::make_unique<StubCreatureSpeeds>();
         _difficultyOptions = std::make_unique<StubDifficultyOptions>();
         _feats = std::make_unique<MockFeats>();
         _footstepSounds = std::make_unique<MockFootstepSounds>();
@@ -372,10 +427,12 @@ public:
         _animations = std::make_unique<MockAnimations>();
         _visualEffects = std::make_unique<MockVisualEffects>();
         _combatTables = std::make_unique<CombatTables>();
+        _races = std::make_unique<Races>();
 
         _services = std::make_unique<GameServices>(
             *_cameraStyles,
             *_classes,
+            *_creatureSpeeds,
             *_difficultyOptions,
             *_feats,
             *_footstepSounds,
@@ -388,7 +445,8 @@ public:
             *_projectiles,
             *_animations,
             *_visualEffects,
-            *_combatTables);
+            *_combatTables,
+            *_races);
     }
 
     GameServices &services() {
@@ -399,10 +457,12 @@ public:
     MockSpells &spells() { return *_spells; }
     MockPortraits &portraits() { return *_portraits; }
     CombatTables &combatTables() { return *_combatTables; }
+    Races &races() { return *_races; }
 
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;
     std::unique_ptr<MockClasses> _classes;
+    std::unique_ptr<StubCreatureSpeeds> _creatureSpeeds;
     std::unique_ptr<StubDifficultyOptions> _difficultyOptions;
     std::unique_ptr<MockFeats> _feats;
     std::unique_ptr<MockFootstepSounds> _footstepSounds;
@@ -416,6 +476,7 @@ private:
     std::unique_ptr<MockAnimations> _animations;
     std::unique_ptr<MockVisualEffects> _visualEffects;
     std::unique_ptr<CombatTables> _combatTables;
+    std::unique_ptr<Races> _races;
 
     std::unique_ptr<GameServices> _services;
 };

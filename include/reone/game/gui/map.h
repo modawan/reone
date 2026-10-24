@@ -54,7 +54,7 @@ public:
      *
      * The map and its markers are drawn into a control's rect but not by the
      * control, so nothing else carries the layout scale to them: the frame
-     * shrank with the GUI while the map inside it stayed native size.
+     * shrank with the GUI while the map inside it stayed unscaled.
      */
     void render(Mode mode, const glm::vec4 &bounds, float scale);
 

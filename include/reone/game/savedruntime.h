@@ -9,8 +9,10 @@
 
 #pragma once
 
+#include <initializer_list>
 #include <memory>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -103,6 +105,8 @@ enum class SavedSignalEventType : uint16_t {
     Heartbeat = 0,
     SpellCastAt = 2,
     Damaged = 4,
+    /** A shout heard, or a request to talk. */
+    Conversation = 7,
     Death = 10,
     UserDefined = 11,
     Entered = 12,
@@ -116,7 +120,10 @@ enum class SavedSignalEventType : uint16_t {
     InventoryClosed = 23,
     Used = 25,
     Locked = 28,
+    /** A creature walked up to the trigger or door it was heading for. */
+    Clicked = 30,
     FailToOpen = 34,
+    ItemEquipped = 38,
 };
 
 struct SavedScriptEvent {
@@ -212,6 +219,8 @@ private:
  */
 enum class SavedActionType : uint32_t {
     MoveToPoint = 1,
+    MoveAwayFromObject = 3,
+    JumpToLocation = 5,
     PlayAnimation = 6,
     PickUpItem = 7,
     EquipItem = 8,
@@ -219,9 +228,12 @@ enum class SavedActionType : uint32_t {
     UnequipItem = 11,
     /** A physical attack, with or without a combat feat. */
     AttackObject = 12,
+    SpeakString = 14,
     CastSpell = 15,
     /** A move to an object that ends once it is within range. */
     MoveToObject = 17,
+    /** A turn to face an object. */
+    FaceObject = 19,
     OpenDoor = 20,
     CloseDoor = 21,
     StartConversation = 24,
@@ -231,6 +243,10 @@ enum class SavedActionType : uint32_t {
     ExamineMine = 28,
     SetMine = 29,
     Wait = 30,
+    ResumeConversation = 32,
+    SpeakStringByStrRef = 33,
+    GiveItem = 34,
+    TakeItem = 35,
     DoCommand = 37,
     OpenLock = 38,
     Lock = 39,
@@ -238,14 +254,26 @@ enum class SavedActionType : uint32_t {
     AnimalEmpathy = 41,
     Rest = 42,
     Taunt = 43,
+    MoveAwayFromLocation = 44,
+    RandomWalk = 45,
     ItemCastSpell = 46,
+    JumpToObject = 48,
+    /** A turn to face a point. */
+    FacePoint = 49,
     Counterspell = 50,
+    Appear = 52,
     PickPocket = 54,
     Follow = 55,
     Heal = 56,
+    /** A follow's check on the one followed, which takes the follow's first four parameters. */
+    FollowCheck = 58,
     FollowLeader = 61,
+    BarkString = 62,
     /** The command that dispatches its creature's combat round. */
     CombatDispatch = 63,
+    SurrenderToEnemies = 65,
+    /** TSL: a lightsaber burnt through a locked door. */
+    DoorSaber = 67,
     TotalDefense = 68,
     Meditate = 69,
     FollowOwner = 70,
@@ -280,6 +308,11 @@ struct SavedActionParameter {
     SavedActionParameterPayload payload;
     /** The saved parameter entry of an empty parameter, saved again unchanged. */
     std::shared_ptr<const resource::Gff> unread;
+    /**
+     * The type the parameter was saved with, when it is read as another type;
+     * a record saved again as it was loaded keeps it.
+     */
+    std::optional<uint32_t> savedType;
 
     static SavedActionParameter fromGff(
         const resource::Gff &gff,
@@ -317,12 +350,16 @@ struct SavedAttackCommand {
 };
 
 /**
- * A spell cast order as the game saves it: the twelve parameters of a
- * CastSpell command. They name the spell, the class and caster level it is
- * cast with, the object or point it is cast at, its projectile path, its
- * associated feat, and whether the cast is fake or instant.
+ * A spell cast order as a save records it: the parameters of a CastSpell
+ * command. A creature's command has twelve: the spell, the class and caster
+ * level it is cast with, the object or point it is cast at, its projectile
+ * path, its associated feat, and whether the cast is fake or instant. A
+ * placeable's has seven: the spell, the metamagic, the object or point it is
+ * cast at, and its projectile path with whether the cast is fake.
  */
 struct SavedSpellCommand {
+    /** The command is a placeable's. */
+    bool placeable {false};
     int spellId {-1};
     SpellSelection selection;
     /** The object the spell is cast at; invalid for a cast at a location. */
@@ -346,20 +383,63 @@ struct SavedSpellCommand {
 };
 
 /**
+ * An item use as a save records it: the seven parameters of an ItemCastSpell
+ * command. They name the item, the property it is used through by its place
+ * among the item's use properties, a value the command carries and nothing
+ * reads, and the object or point it is used at. A use under way carries more
+ * parameters, which have no type.
+ */
+struct SavedItemUseCommand {
+    SavedObjectReference item;
+    /** The property's place among the properties the item is used through. */
+    int useProperty {0};
+    /** The object the item is used at; invalid for a use at a location. */
+    SavedObjectReference target;
+    glm::vec3 position {0.0f};
+
+    /** Reads the use from a command, or none when its parameters have another shape. */
+    static std::optional<SavedItemUseCommand> fromAction(const SavedActionRecord &record);
+    /** Writes the use as the seven parameters of an ItemCastSpell command. */
+    void toAction(SavedActionRecord &record) const;
+};
+
+/**
+ * A walk as the game saves it: the thirteen parameters of a MoveToPoint
+ * command. They name the point and its area, an object walked to, how the
+ * walk goes and how near it ends, and the time limit of a forced walk.
+ */
+struct SavedMoveCommand {
+    glm::vec3 destination {0.0f};
+    SavedObjectReference area;
+    /** The object walked to; invalid for a walk to a point. */
+    SavedObjectReference target;
+    bool run {false};
+    /** A walk to a point keeps to the straight line to it. */
+    bool straight {false};
+    /** How near the point or the object the walk ends. */
+    float range {0.0f};
+    /** A forced walk not yet begun: it is forced to its end once timeout seconds have passed. */
+    bool forcedPending {false};
+    float timeout {0.0f};
+    /** A forced walk under way: it is forced to its end at the expiry day and time. */
+    bool forcedActive {false};
+    uint32_t expiryDay {0};
+    uint32_t expiryTime {0};
+    /** Where a walk to an object ends, from the object. */
+    glm::vec2 offset {0.0f};
+
+    /** Reads the walk from a command, or none when its parameters do not describe one. */
+    static std::optional<SavedMoveCommand> fromAction(const SavedActionRecord &record);
+    /** Writes the walk as the parameters of a MoveToPoint command. */
+    void toAction(SavedActionRecord &record) const;
+};
+
+/**
  * What a cast under way keeps beyond its command's parameters, saved beside
  * them as CastState: how far the cast has got, the context it was paid with,
- * a cheat order and an item use.
+ * a cheat order and the caster level an item use was ordered with.
  */
 struct SavedCastAction {
-    /** The item a cast uses, and what it uses of it. */
-    struct ItemUse {
-        SavedObjectReference item;
-        std::optional<int> property;
-        std::optional<int> casterLevel;
-        /** The item's base item type, kept for a use that outlives its item. */
-        std::optional<int> baseItemType;
-    };
-
     /** The phase of the cast's schedule, the time spent in it, and the phase timings. */
     int phase {0};
     float elapsed {0.0f};
@@ -386,6 +466,10 @@ struct SavedCastAction {
     bool admitted {false};
     /** The caster is walking up to the range it was out of when the cast was dispatched. */
     bool approaching {false};
+    /** The cast goes ahead from where its caster stands, whatever the range. */
+    bool skipsApproach {false};
+    /** The cast waits for its caster to stand in use range of its object, with a clear line to it. */
+    bool checksUseLine {false};
     bool started {false};
     bool commitAttempted {false};
     bool committed {false};
@@ -393,8 +477,11 @@ struct SavedCastAction {
     bool released {false};
     /** The cast holds its caster's movement. */
     bool movementOwned {false};
-    bool itemConsumed {false};
-    std::optional<ItemUse> itemUse;
+    /**
+     * The caster level an item use was ordered with, if any. An item use
+     * keeps no progress across a load: it starts over from its command.
+     */
+    std::optional<int> itemCasterLevel;
 
     static SavedCastAction fromGff(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
     std::shared_ptr<resource::Gff> toGff() const;
@@ -456,12 +543,13 @@ struct SavedProjectile {
         glm::vec3 origin {0.0f};
         glm::vec3 destination {0.0f};
         float duration {0.0f};
-        bool reacted {false};
         ProjectileMotion motion {ProjectileMotion::Homing};
         glm::vec3 targetOffset {0.0f};
         std::string targetHook;
         bool ownsTargetHook {false};
         float stopRadius {0.0f};
+        /** The ground material a grenade's bounce lands on; none for any other leg. */
+        std::optional<int> surface;
     };
     uint64_t id {0};
     ProjectileKind kind {ProjectileKind::Spell};
@@ -473,13 +561,11 @@ struct SavedProjectile {
     std::vector<Leg> legs;
     int leg {0};
     bool released {false};
-    bool initialized {false};
     bool clockwise {false};
     float elapsed {0.0f};
     glm::vec3 position {0.0f};
     glm::vec3 velocity {0.0f};
     glm::vec3 acceleration {0.0f};
-    bool parryBlocked {false};
     float activationDelay {0.0f};
     float travelRate {0.0f};
     std::string sourceHook;
@@ -557,11 +643,28 @@ struct SavedActionRecord {
     static SavedActionRecord fromGff(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /** A command of \p type with its parameters, and nothing more. */
+    static SavedActionRecord command(SavedActionType type, std::vector<SavedActionParameter> parameters);
+    /** Whether a command of this type comes back with these parameters. */
     SavedExecutionSupport executionSupport() const;
+    /**
+     * The action the command comes back as, or none when it cannot come back:
+     * its parameters are not ones its type takes, or an object it needs is
+     * gone.
+     */
     std::shared_ptr<Action> toRuntimeAction(
         Game &game,
         const SavedScriptSituationImporter *importer = nullptr) const;
     bool bindObjectReferences(const Game &game);
+
+    /** The command has exactly these parameters, in this order. */
+    bool hasParameterTypes(std::initializer_list<SavedActionParameterType> types) const;
+    int32_t integerParameter(size_t index) const { return std::get<int32_t>(parameters[index].payload); }
+    float floatParameter(size_t index) const { return std::get<float>(parameters[index].payload); }
+    const SavedObjectReference &objectParameter(size_t index) const {
+        return std::get<SavedObjectReference>(parameters[index].payload);
+    }
+    const std::string &stringParameter(size_t index) const { return std::get<std::string>(parameters[index].payload); }
 
     SavedActionType type() const { return static_cast<SavedActionType>(actionId); }
 };

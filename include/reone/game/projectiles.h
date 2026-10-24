@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "reone/game/savedruntime.h"
 #include "reone/game/types.h"
@@ -88,7 +89,6 @@ public:
     virtual void update(float dt, Game &game, ServicesView &services) = 0;
     /** Removes every projectile, as the area they fly in goes. */
     virtual void retireAreaRuntime() = 0;
-    // Presentation hooks remain optional for headless providers.
     /**
      * Shows a spell's projectile at its caster while the cast is conjured,
      * aimed at \p target, or at \p position when there is none.
@@ -98,20 +98,18 @@ public:
      */
     virtual uint64_t beginSpell(Object &caster, std::optional<std::reference_wrapper<const Object>> target,
                                 const glm::vec3 &position, const Spell &spell, ProjectilePathType path,
-                                Game &game, ServicesView &services) { return 0; }
+                                Game &game, ServicesView &services) = 0;
     /** Sends a conjured spell projectile off; it arrives after \p duration seconds. */
-    virtual void releaseSpell(uint64_t id, float duration, Game &game, ServicesView &services) {}
+    virtual void releaseSpell(uint64_t id, float duration, Game &game, ServicesView &services) = 0;
     /** Removes a spell projectile that has not been released. */
-    virtual void cancelSpell(uint64_t id) {}
-    /** A thrown lightsaber keeps the creature from parrying ranged attacks. */
-    virtual bool blocksRangedParry(const Creature &creature) const { return false; }
+    virtual void cancelSpell(uint64_t id) = 0;
     /** The creature's thrown lightsaber now in flight is taken away. */
-    virtual void dropThrownLightsaber(const Creature &creature) {}
+    virtual void dropThrownLightsaber(const Creature &creature) = 0;
     /** Shows one discharge of \p weapon from \p source at \p target. */
     virtual void launchSafeProjectile(Creature &source, Object &target, const Item &weapon,
-                                      const SafeProjectileShot &shot, Game &game, ServicesView &services) {}
-    virtual std::vector<SavedProjectile> savePresentations() const { return {}; }
-    virtual void restorePresentations(std::vector<SavedProjectile> records, Game &game, ServicesView &services) {}
+                                      const SafeProjectileShot &shot, Game &game, ServicesView &services) = 0;
+    virtual std::vector<SavedProjectile> savePresentations() const = 0;
+    virtual void restorePresentations(std::vector<SavedProjectile> records, Game &game, ServicesView &services) = 0;
     /** Discharge row of \p animation (an animations.2da index) for \p attacker. */
     virtual std::optional<ProjectileSpec> discharge(int animation, const Creature &attacker) const = 0;
 };
@@ -137,7 +135,6 @@ public:
                         Game &game, ServicesView &services) override;
     void releaseSpell(uint64_t, float, Game &, ServicesView &) override;
     void cancelSpell(uint64_t) override;
-    bool blocksRangedParry(const Creature &) const override;
     void dropThrownLightsaber(const Creature &) override;
     void launchSafeProjectile(Creature &, Object &, const Item &,
                               const SafeProjectileShot &, Game &, ServicesView &) override;
@@ -165,6 +162,8 @@ private:
     std::unordered_map<std::string, Discharge> _discharges;
     /** droiddischarge.2da: race, then animation label, to label prefix. */
     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> _droidPrefixes;
+    /** grenadesnd.2da sound of each row, lower case; empty when the row has none. */
+    std::vector<std::string> _grenadeSounds;
 
     void attachPresentation(ActiveProjectile &active, Game &game, ServicesView &services, bool restoring);
     void startLeg(ActiveProjectile &active, Game &game, ServicesView &services, bool restoring = false);

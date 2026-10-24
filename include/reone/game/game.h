@@ -23,6 +23,8 @@
 #include <map>
 #include <optional>
 #include <queue>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "reone/audio/source.h"
@@ -34,6 +36,7 @@
 #include "reone/system/logutil.h"
 
 #include "action.h"
+#include "areamusicplayer.h"
 #include "combat.h"
 #include "console.h"
 #include "di/services.h"
@@ -46,6 +49,8 @@
 #include "gui/confirmpopup.h"
 #include "gui/container.h"
 #include "gui/conversation.h"
+#include "gui/credits.h"
+#include "gui/deathdisplay.h"
 #include "gui/dialog.h"
 #include "gui/galaxymap.h"
 #include "gui/hud.h"
@@ -231,6 +236,7 @@ public:
         _turret(*this, services),
         _journal(services.resource.gffs, services.resource.strings),
         _floatingText(*this, services),
+        _areaMusic(services),
         _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
         initJournalNotifications();
         // TSL keeps combat lines in a list of their own.
@@ -254,9 +260,21 @@ public:
      */
     bool consumeTimingDiscontinuity();
 
-    void playVideo(const std::string &name);
+    /**
+     * Play a movie, ending any module transition movies.
+     *
+     * @param streamingMusic whether area music set to play through movies
+     *        plays on while it runs
+     */
+    void playVideo(const std::string &name, bool streamingMusic = false);
 
     bool isPaused() const { return _paused; }
+    /**
+     * The player's pause, or a menu that pauses the world the same way: the
+     * clock stands still, actions still run, and combat and conversation
+     * starts wait.
+     */
+    bool holdsWorld() const;
     bool isFreeLook() const { return _freeLook; }
     /**
      * While blocked, the player's presses, pointer motion and wheel are
@@ -389,6 +407,22 @@ public:
         }
     }
     bool isDialogHeadFollowLocked(uint32_t objectId) const { return _dialogHeadFollowLocks.count(objectId) > 0; }
+    /**
+     * The party leader, rather than the player character, answers in
+     * conversations. A script starting a conversation asks for it or not; it
+     * holds until a conversation ends.
+     */
+    void setLeaderAnswersInDialog(bool leader) { _leaderAnswersInDialog = leader; }
+    /** The party leader, rather than the player character, answers in conversations. */
+    bool leaderAnswersInDialog() const { return _leaderAnswersInDialog; }
+    /**
+     * Whether a conversation is under way: from the moment one is asked for,
+     * by a click to talk or a script, through the walk to the one talked to,
+     * until it ends, its start fails or its request is dropped, or a module
+     * starts.
+     */
+    bool isDialogUnderWay() const { return _dialogUnderWay; }
+    void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
 
     /** Show a message box dismissed with OK. False when the popup cannot be loaded. */
     bool showMessagePopup(
@@ -458,18 +492,21 @@ public:
     void openInGameMenu(InGameMenuTab tab);
     /** The roster index whose inventory the menu shows, or -1 when it is closed. */
     int inventoryMenuCharacter() const;
-    void setInventoryMenuCharacter(int npc);
     /** Script cost multipliers per base item; they last for the process and are not saved. */
     float baseItemCostMultiplier(int baseItem) const;
     void setBaseItemCostMultiplier(int baseItem, float multiplier) { _baseItemCostMultipliers[baseItem] = multiplier; }
     /** Control returns to this party member when the conversation it handed on ends. */
     void setPostDialogCharacterSwitch(const std::shared_ptr<Creature> &creature) { _postDialogCharacterSwitch = creature; }
     void cancelPostDialogCharacterSwitch() { _postDialogCharacterSwitch.reset(); }
+    /**
+     * When a member was stored, pass the lead on one member at a time, at most
+     * once round the party, until that member leads.
+     */
     void finishPostDialogCharacterSwitch();
     void openLevelUp();
     /**
      * A party member has enough experience to level up; newly when this
-     * award brought it there.
+     * award brought it there. The level-up chime is the main interface's.
      */
     void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
     void openContainer(const std::shared_ptr<Object> &container);
@@ -523,6 +560,7 @@ public:
 
     GlobalFade &globalFade() { return _globalFade; }
     const GlobalFade &globalFade() const { return _globalFade; }
+    AreaMusicPlayer &areaMusic() { return _areaMusic; }
 
     void pauseConversation();
     void resumeConversation();
@@ -536,12 +574,19 @@ public:
     void setBarkBubbleText(std::string text, float durartion);
     /** Show a combat-mode line for the controlled character. */
     void presentCombatMessage(int strref);
+    /** End the choice of a party member to use an item on, if the main interface is making one. */
+    void cancelPartyItemTarget();
     /** Append a feedback line from a string reference, filling the given custom tokens. */
     void addFeedbackMessage(int strRef, const std::map<int, std::string> &tokens = {});
 
     /** Submit one of the fixed status-summary categories. */
     void submitStatusSummary(StatusSummaryCategory category, int amount = 0, std::vector<std::string> items = {});
     StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
+    /**
+     * A status summary was taken down or passed by unseen. TSL then looks for
+     * the story's reaction to the player character's alignment.
+     */
+    void finishStatusSummaryCycle();
 
     int getPlotXP(const std::string &plotName);
 
@@ -583,9 +628,7 @@ public:
         return _pointer->type();
     }
 
-    bool relativeMouseMode() const {
-        return _relativeMouseMode;
-    }
+    bool relativeMouseMode() const;
 
     // Module loading
 
@@ -706,6 +749,18 @@ public:
     void setFeedbackOptions(const FeedbackOptions &options) { _options.game.feedback = options; }
     /** Write the feedback options to the configuration. */
     void saveFeedbackOptions() const;
+    /** The difficulty level the player chose: a difficultyopt.2da row. */
+    int clientDifficulty() const { return _options.game.clientDifficulty; }
+    void setClientDifficulty(int level) { _options.game.clientDifficulty = level; }
+    /** Write the difficulty level to the configuration. */
+    void saveDifficultyLevel() const;
+    /** Whether the mouse turns the camera unless the right button or a Ctrl key is held. */
+    bool mouseLook() const { return _options.game.mouse.mouseLook; }
+    void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
+    /** Write the mouse options to the configuration. */
+    void saveMouseOptions() const;
+    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    bool alternateActionsHeld() const { return _alternateActionsHeld; }
     /**
      * Ask for tutorial window id (a tutorial.2da row). It shows on the next
      * frame, at most once per game, while tutorials are on and no conversation
@@ -717,6 +772,13 @@ public:
         uint32_t actor = script::kObjectInvalid,
         uint32_t subject = script::kObjectInvalid,
         uint32_t param = 0);
+    /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
+    std::optional<int> feedbackTextStrRef(int row) const;
+    /**
+     * The traps.2da row of a trap type. A type outside the table reads as a
+     * blank row, as every 2DA row outside its table does.
+     */
+    const TrapTypeRow &trapType(int type) const;
     /**
      * Whether the caster can cast a Force power from the action menu: it needs
      * a Jedi class in its first two positions, except (TSL) for forms and the
@@ -742,7 +804,8 @@ public:
      * the property is a usable cast spell whose upgrade, if it waits for one,
      * is installed. Once the creature may use the item and the property
      * exists, a party member breaks the forfeit condition that forbids items
-     * or, with forearm bands, the one that forbids all but a shield. Returns
+     * or, with anything but forearm bands, the one that forbids all but a
+     * shield. Returns
      * whether the use went on the round.
      */
     bool useItem(Creature &user, const Item &item, size_t property, const std::shared_ptr<Action> &use);
@@ -759,6 +822,34 @@ public:
      * event 4001. Returns whether the condition was set.
      */
     bool breakForfeitCondition(const Creature &member, int condition);
+    /**
+     * A party member's item newly in its body slot or a primary hand breaks
+     * the first forfeit condition it offends: armour in the body; in a hand,
+     * any weapon, then anything but the Dxun sword, then a ranged weapon,
+     * then a lightsaber. The second weapon set never counts.
+     */
+    void breakEquipForfeit(const Creature &member, int slot, const Item &item);
+    /**
+     * What follows every item going on, in this order: the module is told
+     * (event 38), a forfeit condition may break, and in TSL body armour may
+     * change the wearer's appearance.
+     */
+    void finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item);
+    /**
+     * Signals the module that the wearer put the item on, unless into the
+     * second weapon set. The module's equip script runs on it.
+     */
+    void signalItemEquipped(Creature &wearer, int slot, const std::shared_ptr<Item> &item);
+    /**
+     * An item put on while its wearer is read. The module is told once the
+     * wearer and the item are live.
+     */
+    void recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item);
+    /**
+     * During a module load, tells the module of the items the wearer was read
+     * wearing: each creature's come just before it is announced to its area.
+     */
+    void signalEquippedOnLoad(const Creature &wearer);
     /**
      * The tutorial window a Force power from the action menu asks for: 4 for
      * powers with a hostile slot, else 3; none for the (TSL) forms and powers
@@ -809,7 +900,9 @@ public:
     void beginMenuAttack(Creature &attacker);
     /**
      * The player's attack order: an attack on the attacker's round. In TSL,
-     * party members with no attack target join an attack on a creature.
+     * party members with no attack target join an attack on a creature. Each
+     * such member, and the attacker when it is attempting another target,
+     * remembers the order.
      */
     void sendAttack(Creature &attacker, const std::shared_ptr<Object> &target, FeatType feat = FeatType::Invalid);
     int scaleDamageForDifficulty(int damage, const Object &target) const;
@@ -842,14 +935,16 @@ public:
             return;
         }
         beginRuntimeObjectGraphReplacement(obsoleteObjects);
+        std::vector<EquippedOnLoad> equipped;
         try {
             build();
             publish();
-            commitRuntimeObjectGraphReplacement(obsoleteObjects);
+            equipped = commitRuntimeObjectGraphReplacement(obsoleteObjects);
         } catch (...) {
             abortRuntimeObjectGraphReplacement();
             throw;
         }
+        releaseEquippedOnLoad(equipped);
     }
 
     inline std::shared_ptr<Module> newModule() {
@@ -936,8 +1031,8 @@ public:
         return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<DialogCamera> newDialogCamera(CameraStyle style, std::string sceneName = kSceneMain) {
-        return newObject<DialogCamera>(std::move(style), std::move(sceneName), *this, _services);
+    inline std::shared_ptr<DialogCamera> newDialogCamera(std::string sceneName = kSceneMain) {
+        return newObject<DialogCamera>(std::move(sceneName), *this, _services);
     }
 
     inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, std::string sceneName = kSceneMain) {
@@ -995,11 +1090,11 @@ public:
     void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event);
     /** Remove an effect from the target through the module's event queue. */
     void queueEffectRemoval(Object &target, EffectId id);
-    /** Destroy the target after the delay, replacing a destruction already pending for it. */
-    void queueObjectDestruction(Object &target, float delay);
-    /** Destroy the target after the delay, leaving a destruction already pending for it. */
+    /**
+     * Destroy the target after the delay. A destruction already pending for
+     * it stays pending; whichever falls due first destroys it.
+     */
     void postObjectDestruction(Object &target, float delay);
-    void cancelObjectDestruction(Object &target);
     /** World time after a script delay, or none when the delay is dropped. */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
     /** DelayCommand: a timed event that runs command as owner when due. */
@@ -1049,18 +1144,34 @@ public:
     void updateDeathSequence();
     /** The fallen party's game is over. */
     void runDeathSequence();
+    /** The title's death GUI: the sequel's gameover panel, or the first title's message. */
+    void displayDeathMessage();
+    bool isDeathMessageDisplayed() const;
     /** Menu keys pressed while the fallen party's game is over bring the fade to black forward. */
     void hurryDeathSequence();
     /** Menu keys while the controlled character lies dead hurry the death sequence. */
     bool handleDeathSequenceKey(const input::KeyEvent &event);
     /** The camera of a following death sequence orbits the last party member to fall. */
     void setLastPartyMemberTempKilled(const Creature &creature);
-    bool isGameOver() const { return _gameOver; }
     /** Leave the game-over state, ending the game or cancelling a pending end. */
     void leaveGameOver(bool endGame) {
         _gameOver = false;
         _endGamePending = endGame;
+        _endGameDelay = 0.0f;
+        _showEndGameGui = true;
     }
+    /**
+     * EndGame: a script ends the game. With the end-game GUI the title's death
+     * message comes up first; without it the game returns to the main menu on
+     * the next frame.
+     */
+    void endGame(bool showGui);
+    /**
+     * StartCreditSequence: put up the closing credits, unless they are already
+     * up. The area's music and ambient stop.
+     */
+    void startCreditSequence(bool transparentBackground, const std::string &music);
+    bool isCreditSequenceInProgress() const { return static_cast<bool>(_credits); }
     /** How loading the most recent save after death went. */
     enum class LastSaveLaunch {
         NoSaves,
@@ -1072,7 +1183,11 @@ public:
     /** Whether a panel holds the input instead of the world: a popup in play, or an exclusive screen. */
     bool hasModalPanel() const;
     /** End the game on the next frame, returning to the main menu. */
-    void requestEndGame() { _endGamePending = true; }
+    void requestEndGame() {
+        _endGamePending = true;
+        _endGameDelay = 0.0f;
+        _showEndGameGui = true;
+    }
 
     uint8_t minutesPerHour() const { return _minutesPerHour; }
 
@@ -1384,17 +1499,83 @@ private:
     /** A menu attack within this many seconds of the last one is a repeated attack. */
     static constexpr float kAttackMashWindow = 3.0f;
 
+    /**
+     * A video effect (videoeffects.2da) in this game's colours: the overlays it
+     * lays, its fury level and its desaturation. A blank cell is zero.
+     */
+    struct VideoEffectRow {
+        /** Whether the effect lays scan noise. */
+        bool scanNoise {false};
+        /** Whether the effect desaturates the screen. */
+        bool saturation {false};
+        /** Either clairvoyance column lays the same overlay. */
+        bool clairvoyance {false};
+        /** Whether the effect lays the Force Sight overlay. */
+        bool forceSight {false};
+        /** The effect's fury level. */
+        int fury {0};
+        /** The colour the screen is modulated by. */
+        glm::vec3 modulation {0.0f};
+        /** How much colour is kept while desaturated. */
+        float saturationAmount {0.0f};
+    };
+
+    /** A dialogue text token (stringtokens.2da). A blank cell is -1. */
+    struct StringTokenRow {
+        /** The strings the token may give, strref1 to strref4. */
+        std::array<int, 4> strRefs {-1, -1, -1, -1};
+        /** The string the token gives when none of the others applies. */
+        int defaultStrRef {-1};
+        /** The action the token's strings depend on. */
+        int action {-1};
+    };
+
+    /** The keys an input event takes by default. */
+    struct InputEventKeys {
+        /** The key. */
+        int key {0};
+        /** The alternate key of a two-key event; none for a single-key one. */
+        std::optional<int> alternateKey;
+    };
+
+    /** A tutorial window (tutorial.2da): this game's message of each page, none where blank, and its icon. */
+    struct TutorialRow {
+        /** The message of each page, none where blank. */
+        std::vector<std::optional<int>> messages;
+        /** The window's icon. */
+        std::string icon;
+    };
+
     resource::GameID _gameId;
     std::filesystem::path _path;
     OptionsView &_options;
     ServicesView &_services;
     IConsole &_console;
 
+    // Tables
+
+    std::vector<VideoEffectRow> _videoEffects;
+    /** By token; the first row of a token is the one used. */
+    std::unordered_map<std::string, StringTokenRow> _stringTokens;
+    /** The input events, by number: the built-in ones and keymap.2da's. */
+    std::unordered_map<int, InputEventKeys> _inputEvents;
+    /** The key-name strings of bindablekeys.2da, by keyboard key from the first. */
+    std::vector<int> _keyNameStrRefs;
+    std::vector<TutorialRow> _tutorials;
+    /** The feedbacktext.2da strings; none where blank. */
+    std::vector<std::optional<int>> _feedbackTexts;
+    /** The trap types of traps.2da, by row. */
+    std::vector<TrapTypeRow> _trapTypes;
+
+    // END Tables
+
     Screen _screen {Screen::None};
     std::map<int, float> _baseItemCostMultipliers;
     bool _soloModeQueryOpen {false};
     bool _freeLook {false};
     bool _playerInputBlocked {false};
+    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    bool _alternateActionsHeld {false};
     /** The world time a click was last shut off at, and for how long. */
     uint32_t _noClickDay {0};
     uint32_t _noClickTime {0};
@@ -1467,6 +1648,9 @@ private:
     float _attackMashTime {0.0f};
     std::set<uint32_t> _dialogOrientationLocks;
     std::set<uint32_t> _dialogHeadFollowLocks;
+    bool _leaderAnswersInDialog {false};
+    /** See isDialogUnderWay. */
+    bool _dialogUnderWay {false};
     std::vector<HostileHilite> _hostileHilites;
 
     void showTarget(const std::shared_ptr<Object> &object, bool look, bool camera);
@@ -1577,18 +1761,29 @@ private:
     // One authoritative graph object has one canonical saved identity. Roster
     // doubles live in detached graphs and never create cross-graph aliases.
     std::map<const Object *, uint32_t> _savedIdByObject;
+    /**
+     * An item a creature was read wearing, and its slot. The wearer is the
+     * item's owner; the module is told once both are live.
+     */
+    struct EquippedOnLoad {
+        int slot {0};
+        std::shared_ptr<Item> item;
+    };
     struct StagedRuntimeObjectGraph {
         uint32_t initialNextObjectId {kFirstRuntimeObjectId};
         std::map<uint32_t, std::shared_ptr<Object>> objectById;
         std::set<uint32_t> publishedRuntimeObjectIds;
         std::map<uint32_t, std::weak_ptr<Object>> objectBySavedId;
         std::map<const Object *, uint32_t> savedIdByObject;
-        std::set<const Object *> replaceableObjects;
+        std::set<uint32_t> replaceableObjectIds;
         std::set<uint32_t> reservedSavedObjectIdsToRelease;
         std::vector<std::shared_ptr<Object>> obsoleteGraph;
         std::vector<std::shared_ptr<Object>> candidateObjects;
+        std::vector<EquippedOnLoad> equippedOnLoad;
     };
     std::optional<StagedRuntimeObjectGraph> _stagedRuntimeObjectGraph;
+    /** Equipment read while a module loads, waiting for its place in the load. */
+    std::vector<EquippedOnLoad> _equippedOnLoad;
     uint64_t _nextRuntimeIncarnation {1};
     uint32_t _nextPresentationObjectId {
         std::numeric_limits<uint32_t>::max() - 1};
@@ -1648,15 +1843,26 @@ private:
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
     std::unique_ptr<ConfirmPopup> _deathMessage;
+    std::unique_ptr<DeathDisplay> _deathDisplay;
+    /** The closing credits, while they are up. */
+    std::unique_ptr<CreditsGUI> _credits;
     TemporaryDeathRecovery _temporaryDeathRecovery;
     bool _gameOver {false};
     bool _endGamePending {false};
+    /**
+     * While an end is pending and this delay is positive, the death GUI stays
+     * up when the end asked for it. The first title counts the delay down in
+     * world time; the sequel waits for a gameover panel button.
+     */
+    float _endGameDelay {0.0f};
+    bool _showEndGameGui {true};
     uint32_t _lastPartyMemberTempKilled {script::kObjectInvalid};
     /**
      * How fast the world, its presentation and the fade run during the death
-     * sequence. Play slows from full speed to a fifth over the first four
-     * seconds of real time; its time and rate carry over to later deaths for
-     * the program's lifetime.
+     * sequence. The first title slows play from full speed to a fifth over
+     * the first four seconds of real time; its time and rate carry over to
+     * later deaths for the program's lifetime. The second title runs at a quarter
+     * while its gameover panel is up.
      */
     float _deathTimeScale {1.0f};
     uint32_t _deathSequenceSample {0};
@@ -1713,6 +1919,7 @@ private:
 
     std::string _musicResRef;
     std::shared_ptr<audio::AudioSource> _music;
+    AreaMusicPlayer _areaMusic;
 
     // END Audio
 
@@ -1762,8 +1969,20 @@ private:
         bool allowReserved);
     void beginRuntimeObjectGraphReplacement(
         const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
-    void commitRuntimeObjectGraphReplacement(
+    /** Publishes the staged graph; returns the equipment its creatures were read wearing. */
+    std::vector<EquippedOnLoad> commitRuntimeObjectGraphReplacement(
         const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
+    /**
+     * Each item a creature was read wearing tells the module, in the order
+     * read. While a module loads, the items wait for their place in the load.
+     */
+    void releaseEquippedOnLoad(const std::vector<EquippedOnLoad> &equipped);
+    /** The live creature wearing equipment read on load, if any. */
+    std::shared_ptr<Creature> equippedOnLoadWearer(const EquippedOnLoad &equipped) const;
+    /** The arriving party tells the module of everything it wears. */
+    void signalPartyEquipment();
+    /** The equipment read during a load that no announcement has told yet tells the module. */
+    void signalKeptEquippedOnLoad();
     void abortRuntimeObjectGraphReplacement();
     void unregisterRuntimeObject(const std::shared_ptr<Object> &object);
     bool isRuntimeObjectAttachable(const Object &object) const;
@@ -1883,7 +2102,8 @@ private:
 
     // Updates
 
-    bool startVideo(const std::string &name);
+    /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
+    bool startVideo(const std::string &name, bool streamingMusic);
     bool playNextModuleTransitionMovie();
     void updateMovie(float dt);
     void updateMusic();
@@ -1937,7 +2157,8 @@ private:
 
     void changeScreen(Screen screen);
 
-    void withLoadingScreen(const std::string &imageResRef, const std::function<void()> &block);
+    /** Runs \p block behind the loading screen, showing the loading picture of the module named \p moduleName. */
+    void withLoadingScreen(const std::string &moduleName, const std::function<void()> &block);
 
     template <class T>
     std::unique_ptr<T> tryLoadGUI() {
@@ -1957,6 +2178,10 @@ private:
 
     void initConsole();
     void initJournalNotifications();
+    /** Read the video effects, dialogue tokens, tutorial windows and feedback texts, and the party's tables. */
+    void initTables();
+    /** Builds the input events and their default keys, and reads the key names. */
+    void initInputEvents();
     int getPlotXPByIndex(int plotIndex);
 
     using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);

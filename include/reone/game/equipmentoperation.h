@@ -85,6 +85,14 @@ bool equipMostDamagingRangedWeapon(
     const std::shared_ptr<Object> &versus);
 
 /**
+ * Chooses the body armour with the best armour value, the worn armour or one
+ * the creature carries itself, and queues its equip. The worn armour keeps
+ * its place on a tie; with none worn, a candidate needs some armour value.
+ * The shared party inventory is never searched.
+ */
+void equipMostEffectiveArmor(Game &game, Creature &subject);
+
+/**
  * Apply a selection using existing equipment and inventory operations.
  * A null item explicitly requests clearing the slot. All non-null objects must
  * be exact live objects in game; item must belong to sourceInventory.

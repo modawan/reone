@@ -175,6 +175,11 @@ public:
     void pauseAnimation();
     void resumeAnimation();
     void setAnimationTime(float time);
+    /**
+     * Change the speed of the channels under the layers that play the named
+     * animation, here and on the attachments, without starting them over.
+     */
+    void setAnimationSpeed(const std::string &name, float speed);
 
     /**
      * Stop the channel playing the named animation, leaving every other channel

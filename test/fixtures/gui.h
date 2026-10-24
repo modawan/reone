@@ -33,6 +33,7 @@ public:
     MOCK_METHOD(bool, handle, (const input::Event &), (override));
     MOCK_METHOD(void, update, (float), (override));
     MOCK_METHOD(void, render, (), (override));
+    MOCK_METHOD(void, withRenderPass, (const std::function<void(scene::IRenderPass &)> &), (override));
 
     MOCK_METHOD(void, clearSelection, (), (override));
 
@@ -42,8 +43,13 @@ public:
     MOCK_METHOD(const glm::ivec2 &, controlOffset, (), (const override));
     MOCK_METHOD(float, scale, (), (const override));
     MOCK_METHOD(float, textScale, (), (const override));
+    float textLayoutScale(float horizontalScale, float verticalScale) const override {
+        return std::min(horizontalScale, verticalScale);
+    }
     MOCK_METHOD(float, borderScale, (), (const override));
+    float listScale() const override { return 1.0f; }
     MOCK_METHOD(bool, tintBorderFills, (), (const override));
+    bool sceneRenderEnabled() const override { return true; }
 
     MOCK_METHOD(void, setEventListener, (IGUIEventListener & listener), (override));
     MOCK_METHOD(void, setResolution, (int, int), (override));
@@ -53,6 +59,7 @@ public:
     MOCK_METHOD(void, setControlScaling, (const std::string &, ScalingMode), (override));
     MOCK_METHOD(void, setDefaultHilightColor, (glm::vec3), (override));
     MOCK_METHOD(void, setBackground, (std::shared_ptr<graphics::Texture>), (override));
+    MOCK_METHOD(void, refreshLayout, (), (override));
 
     MOCK_METHOD(std::unique_ptr<Control>, newControl, (ControlType, std::string), (override));
     MOCK_METHOD(void, addControlToFront, (std::shared_ptr<Control>, ControlCoordinates), (override));

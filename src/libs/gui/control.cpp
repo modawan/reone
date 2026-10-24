@@ -288,7 +288,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
                 fillSize,
-                _tintBorderFill ? glm::vec4(color, 1.0f) : glm::vec4(1.0f),
+                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), _borderFillOpacity),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
         });

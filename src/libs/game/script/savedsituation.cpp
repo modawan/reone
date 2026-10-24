@@ -85,17 +85,22 @@ script::Variable objectVariable(const SavedObjectReference &reference) {
 }
 
 std::shared_ptr<Event> eventValue(const SavedScriptEvent &saved) {
+    // A slot whose object is not bound keeps the id it names.
     std::vector<std::shared_ptr<Object>> objects;
+    std::vector<uint32_t> objectIds;
     objects.reserve(saved.objects.size());
+    objectIds.reserve(saved.objects.size());
     for (const auto &reference : saved.objects) {
         objects.push_back(reference.boundObject());
+        objectIds.push_back(runtimeObjectId(reference));
     }
     return std::make_shared<Event>(
         saved.type,
         saved.integers,
         saved.floats,
         saved.strings,
-        std::move(objects));
+        std::move(objects),
+        std::move(objectIds));
 }
 
 bool convertStackValue(

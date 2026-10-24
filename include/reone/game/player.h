@@ -49,9 +49,6 @@ public:
     bool isMovementRequested() const;
     /** Whether the last update moved the leader under direct control. */
     bool isMoving() const { return _moving; }
-    bool isRestrictMode() const { return _restrictMode; }
-
-    void setRestrictMode(bool value) { _restrictMode = value; }
 
 private:
     Module &_module;
@@ -64,7 +61,6 @@ private:
     bool _moveBackward {false};
     bool _moveRight {false};
     bool _leftPressedInMouseLook {false};
-    bool _restrictMode {false};
     bool _walk {false};
     bool _moving {false};
 

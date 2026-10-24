@@ -20,8 +20,10 @@
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
+#include "reone/gui/control/togglebutton.h"
 
 #include "../../gui.h"
+#include "../../menupresentation.h"
 
 namespace reone {
 
@@ -39,6 +41,12 @@ public:
         GameGUI(game, services) {
         _resRef = guiResRef("optionsingame");
     }
+
+    bool handle(const input::Event &event) override;
+    void update(float dt) override;
+    void render() override;
+    /** Leaving the options writes them to the configuration. */
+    void clearSelection() override;
 
 private:
     struct Controls {
@@ -60,9 +68,100 @@ private:
         std::shared_ptr<gui::ListBox> LB_DESC;
     };
 
+    /** The autopause options panel, opened over the menu from BTN_AUTOPAUSE. */
+    struct AutoPauseControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::ToggleButton> CB_ACTIONMENU;
+        std::shared_ptr<gui::ToggleButton> CB_ENDROUND;
+        std::shared_ptr<gui::ToggleButton> CB_ENEMYSIGHTED;
+        std::shared_ptr<gui::ToggleButton> CB_MINESIGHTED;
+        std::shared_ptr<gui::ToggleButton> CB_PARTYKILLED;
+        std::shared_ptr<gui::ToggleButton> CB_TRIGGERS;
+        std::shared_ptr<gui::ListBox> LB_DETAILS;
+    };
+
+    /** The feedback options panel, opened over the menu from BTN_FEEDBACK. Its rows are built in code, one per option. */
+    struct FeedbackControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::Label> LBL_BAR1;
+        std::shared_ptr<gui::Label> LBL_BAR2;
+        std::shared_ptr<gui::Label> LBL_TITLE;
+        std::shared_ptr<gui::ListBox> LB_DESC;
+        std::shared_ptr<gui::ListBox> LB_OPTIONS;
+    };
+
+    /** A row of the feedback options panel: the option it flips, its name and its description. */
+    struct FeedbackRow {
+        bool FeedbackOptions::*option {nullptr};
+        int nameStrRef {0};
+        int descriptionStrRef {0};
+    };
+
     Controls _controls;
 
+    std::shared_ptr<gui::IGUI> _autoPauseGUI;
+    AutoPauseControls _autoPauseControls;
+    bool _autoPauseOpen {false};
+
+    std::shared_ptr<gui::IGUI> _feedbackGUI;
+    FeedbackControls _feedbackControls;
+    std::vector<FeedbackRow> _feedbackRows;
+    bool _feedbackOpen {false};
+    /** The row whose description the panel shows, or -1 before any. */
+    int _feedbackDescribedRow {-1};
+
+    /**
+     * Gameplay options panel, opened over the menu from BTN_GAMEPLAY. Only
+     * the difficulty level and mouse look are handled; the other options are
+     * drawn as laid out.
+     */
+    struct GameplayControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::Button> BTN_DIFFICULTY;
+        std::shared_ptr<gui::Button> BTN_DIFFLEFT;
+        std::shared_ptr<gui::Button> BTN_DIFFRIGHT;
+        std::shared_ptr<gui::ToggleButton> CB_INVERTCAM;
+        std::shared_ptr<gui::Label> LBL_TITLE;
+        std::shared_ptr<gui::ListBox> LB_DESC;
+    };
+
+    std::shared_ptr<gui::IGUI> _gameplayGUI;
+    GameplayControls _gameplayControls;
+    bool _gameplayOpen {false};
+
     void onGUILoaded() override;
+
+    /** Load the feedback options panel and wire its rows and buttons. */
+    void loadFeedbackPanel();
+    /** Open the feedback panel on the current options, describing its first row. */
+    void openFeedbackPanel();
+    void closeFeedbackPanel();
+    /** List one row per feedback option, checked when the option is on. */
+    void showFeedbackOptions();
+    void showFeedbackDescription(int row);
+
+    /** Load the gameplay options panel and wire its buttons. */
+    void loadGameplayPanel();
+    /** Open the gameplay panel on the current difficulty and Mouse Look. */
+    void openGameplayPanel();
+    void closeGameplayPanel();
+    /** Step the difficulty level down or up, within the levels the player can pick. */
+    void lowerDifficulty();
+    void raiseDifficulty();
+    /** Show the difficulty level's name, with an arrow on each side that has a level to step to. */
+    void showDifficulty();
+
+    /** Load the autopause options panel and wire its checkboxes and buttons. */
+    void loadAutoPausePanel();
+    /** Open the autopause panel on the current options, describing its first checkbox. */
+    void openAutoPausePanel();
+    /** Close the autopause panel; its checkbox states become the current options. */
+    void closeAutoPausePanel();
+    void showAutoPauseOptions(const AutoPauseOptions &options);
+    void showAutoPauseDescription(int strRef);
 
     void bindControls() {
         _controls.BTN_AUTOPAUSE = findControl<gui::Button>("BTN_AUTOPAUSE");

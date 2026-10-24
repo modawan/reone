@@ -59,6 +59,45 @@ uint32_t Action::serializedActionId() const {
     case ActionType::MoveToLocation:
         type = SavedActionType::MoveToPoint;
         break;
+    case ActionType::MoveAwayFromObject:
+        type = SavedActionType::MoveAwayFromObject;
+        break;
+    case ActionType::JumpToLocation:
+        type = SavedActionType::JumpToLocation;
+        break;
+    case ActionType::SpeakString:
+        type = SavedActionType::SpeakString;
+        break;
+    case ActionType::ResumeConversation:
+        type = SavedActionType::ResumeConversation;
+        break;
+    case ActionType::SpeakStringByStrRef:
+        type = SavedActionType::SpeakStringByStrRef;
+        break;
+    case ActionType::GiveItem:
+        type = SavedActionType::GiveItem;
+        break;
+    case ActionType::TakeItem:
+        type = SavedActionType::TakeItem;
+        break;
+    case ActionType::MoveAwayFromLocation:
+        type = SavedActionType::MoveAwayFromLocation;
+        break;
+    case ActionType::JumpToObject:
+        type = SavedActionType::JumpToObject;
+        break;
+    case ActionType::Appear:
+        type = SavedActionType::Appear;
+        break;
+    case ActionType::BarkString:
+        type = SavedActionType::BarkString;
+        break;
+    case ActionType::SurrenderToEnemies:
+        type = SavedActionType::SurrenderToEnemies;
+        break;
+    case ActionType::DoorSaber:
+        type = SavedActionType::DoorSaber;
+        break;
     case ActionType::PlayAnimation:
         type = SavedActionType::PlayAnimation;
         break;
@@ -80,7 +119,9 @@ uint32_t Action::serializedActionId() const {
         break;
     case ActionType::CastSpellAtObject:
     case ActionType::CastSpellAtLocation:
-        type = SavedActionType::CastSpell;
+        // An item use is queued as its own command, apart from a cast.
+        type = static_cast<const CastSpellAction &>(*this).item() ? SavedActionType::ItemCastSpell
+                                                                  : SavedActionType::CastSpell;
         break;
     case ActionType::MoveToObject:
         type = static_cast<const MoveToObjectAction &>(*this).usesPointPath() ? SavedActionType::MoveToPoint : SavedActionType::MoveToObject;
@@ -105,6 +146,9 @@ uint32_t Action::serializedActionId() const {
         break;
     case ActionType::DoCommand:
         type = SavedActionType::DoCommand;
+        break;
+    case ActionType::RandomWalk:
+        type = SavedActionType::RandomWalk;
         break;
     case ActionType::OpenLock:
         type = SavedActionType::OpenLock;

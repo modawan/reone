@@ -78,6 +78,7 @@ void BwmReader::load() {
 
     if (_type == WalkmeshType::WOK) {
         loadAABB();
+        loadPerimeter();
     }
 }
 
@@ -170,6 +171,17 @@ void BwmReader::loadAABB() {
     }
 
     _walkmesh->_rootAabb = aabbs[0];
+}
+
+void BwmReader::loadPerimeter() {
+    _bwm.seek(_offsetEdges);
+    auto &array = _walkmesh->perimeter;
+    array.reserve(_numEdges);
+    for (uint32_t i = 0; i < _numEdges; ++i) {
+        uint32_t index = _bwm.readUint32();
+        int transition = _bwm.readInt32();
+        array.push_back(Walkmesh::PerimeterEdge {index, transition});
+    }
 }
 
 } // namespace graphics

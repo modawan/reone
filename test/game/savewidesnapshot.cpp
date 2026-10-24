@@ -653,6 +653,15 @@ TEST(SaveWideSnapshot, k1_pc_utc_is_present_only_for_companion_control) {
 
 TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     auto &engine = testEngine();
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     configureReputes(engine);
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -666,6 +675,7 @@ TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     NiceMock<MockStrings> classStrings;
     NiceMock<MockTwoDAs> classTwoDas;
     Classes classes(classStrings, classTwoDas);

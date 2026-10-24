@@ -23,7 +23,12 @@ namespace game {
 
 struct Surface {
     std::string label;
-    bool walk {false};
+    /**
+     * The walk cell. A room's walkable faces are those of surfaces whose cell
+     * is 1; a position stands on walkable ground when its surface's cell is
+     * not zero.
+     */
+    int walk {0};
     bool walkcheck {false};
     bool lineOfSight {false};
     bool grass {false};

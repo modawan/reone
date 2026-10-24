@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
@@ -108,16 +109,6 @@ static void collectBeamMeshes(scene::SceneNode &node, std::vector<scene::MeshSce
         collectBeamMeshes(*child, meshes);
     }
 }
-
-// Where a visual's models attach on an object. Creatures name their nodes;
-// a placeable prefixes its with its model name after the first four
-// characters, a door with its whole model name.
-enum class VisualSite {
-    Root,
-    Impact,
-    Head
-};
-
 static std::string placeableNodePrefix(const scene::ModelSceneNode &model) {
     const std::string &name = model.model().name();
     return name.substr(std::min<size_t>(4, name.size()));
@@ -134,6 +125,36 @@ static std::string visualSiteNode(const Object &object, const scene::ModelSceneN
     }
     static constexpr const char *nodes[] = {"root", "impact", "talkdummy"};
     return nodes[static_cast<int>(site)];
+}
+
+// The node of a visual site on an object's body. On a creature the head site
+// is on its head model when it has one.
+static std::optional<std::reference_wrapper<scene::SceneNode>> visualSiteHook(const Object &object,
+                                                                              scene::ModelSceneNode &body,
+                                                                              VisualSite site) {
+    auto *owner = &body;
+    if (site == VisualSite::Head && isa<Creature>(&object)) {
+        if (auto *head = dynamic_cast<scene::ModelSceneNode *>(body.getAttachment("headhook"))) {
+            owner = head;
+        }
+    }
+    auto *hook = owner->getNodeByName(visualSiteNode(object, body, site));
+    if (!hook) {
+        return std::nullopt;
+    }
+    return *hook;
+}
+
+// The node a program's attachment hooks. The breath hooks the head model,
+// and the body only when there is no head model.
+static std::optional<std::reference_wrapper<scene::SceneNode>> attachmentHook(scene::ModelSceneNode &body, int program,
+                                                                              const std::string &name) {
+    auto *head = program == kBreathProgram ? dynamic_cast<scene::ModelSceneNode *>(body.getAttachment("headhook")) : nullptr;
+    auto *hook = head ? head->getNodeByName(name) : body.getNodeByName(name);
+    if (!hook) {
+        return std::nullopt;
+    }
+    return *hook;
 }
 
 // The node a beam starts from on its source, by body part; the source's root
@@ -212,11 +233,11 @@ static glm::vec3 spellRangedMissPoint(std::optional<std::reference_wrapper<const
                       2.0f * targetPosition.z + 1.0f};
 }
 
-// The size a visual chooses its root model by: an object that is not a
-// creature counts as medium.
-static CreatureSize visualTargetSize(const Object &object) {
+// The size category a visual chooses its root model by: a creature's, or
+// medium for a creature without one and for any other object.
+static int visualTargetSize(const Object &object) {
     auto *creature = dyn_cast<Creature>(&object);
-    return creature ? creature->size() : CreatureSize::Medium;
+    return static_cast<int>(creature && creature->hasSizeCategory() ? creature->size() : CreatureSize::Medium);
 }
 
 // The parts of a body a shell covers: the body, its head model, and the
@@ -248,8 +269,6 @@ void clearShell(scene::ModelSceneNode &body) {
 
 VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &services) :
     CopyableEffect(EffectType::Visual),
-    _visualEffectId(visualEffectId),
-    _missEffect(missEffect),
     _services(services) {
     setSaveFacingInteger(0, visualEffectId);
     setSaveFacingInteger(2, missEffect ? 1 : 0);
@@ -257,8 +276,6 @@ VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &se
 
 VisualEffect::VisualEffect(const VisualEffect &other) :
     CopyableEffect(other),
-    _visualEffectId(other._visualEffectId),
-    _missEffect(other._missEffect),
     _location(other._location),
     _services(other._services) {
     // Scene nodes, beams, shells and sounds belong to one application.
@@ -268,7 +285,7 @@ VisualEffect::~VisualEffect() {
     clearPresentation();
 }
 
-void VisualEffect::retireAreaRuntime(const std::set<const Object *> &) {
+void VisualEffect::retireAreaRuntime(const std::set<uint32_t> &) {
     // A held motion blur comes back when its holder is presented again.
     const bool motionBlur = _motionBlurProgram;
     clearPresentation();
@@ -321,7 +338,7 @@ void VisualEffect::removeNodeModels() {
 }
 
 float VisualEffect::duration() const {
-    const auto row = _services.game.visualEffects.get(_visualEffectId);
+    const auto row = _services.game.visualEffects.get(saveFacingInteger(0));
     if (!row) {
         return 0.0f;
     }
@@ -479,14 +496,11 @@ bool VisualEffect::startProgram(int program, Object &object, const EffectInstanc
         return false;
     }
     auto model = _services.resource.models.get(attachment->model);
-    // The breath hooks the head model, and the body only when there is no
-    // head model.
-    auto *head = program == kBreathProgram ? dynamic_cast<scene::ModelSceneNode *>(body->getAttachment("headhook")) : nullptr;
-    auto *hook = head ? head->getNodeByName(attachment->hook) : body->getNodeByName(attachment->hook);
+    const auto hook = attachmentHook(*body, program, attachment->hook);
     if (!model || !hook) {
         return false;
     }
-    _hookNode = hook;
+    _hookNode = &hook->get();
     _attachedOwner = body;
     _attachmentProgram = program;
     if (program == kBreathProgram) {
@@ -627,13 +641,13 @@ void VisualEffect::stopProgram(std::optional<std::reference_wrapper<Object>> hol
 // goes straight to its looping duration animation and any other holds the
 // model for a second.
 void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
-                                  std::optional<std::reference_wrapper<scene::SceneNode>> hook, bool orientationOff,
-                                  std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position,
-                                  bool restoring, int slot) {
+                                  std::optional<std::reference_wrapper<scene::SceneNode>> hook, VisualSite site,
+                                  bool orientationOff, std::shared_ptr<scene::ModelSceneNode> owner,
+                                  const glm::vec3 &position, bool restoring) {
     NodeModel nodeModel;
-    nodeModel.slot = slot;
     nodeModel.model = graph.newModel(model, scene::ModelUsage::Projectile);
     nodeModel.owner = std::move(owner);
+    nodeModel.site = site;
     nodeModel.hook = hook ? &hook->get() : nullptr;
     nodeModel.followsPositionOnly = hook && orientationOff;
     if (hook && !nodeModel.followsPositionOnly) {
@@ -660,33 +674,79 @@ void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &mo
 // is not shown.
 void VisualEffect::attachNodeModels(Object &object, const std::shared_ptr<scene::ModelSceneNode> &body,
                                     const VisualEffectDesc &desc, bool restoring) {
-    auto *creature = dyn_cast<Creature>(&object);
-    // The sites are also the slots the models take, in this order.
     const std::pair<const std::shared_ptr<graphics::Model> *, VisualSite> models[] = {
-        {&desc.rootModel(visualTargetSize(object)), VisualSite::Root},
+        {&desc.rootModel(visualTargetSize(object)).model, VisualSite::Root},
         {&desc.impactModel, VisualSite::Impact},
         {&desc.headModel, VisualSite::Head}};
     for (const auto &[model, site] : models) {
         if (!*model) {
             continue;
         }
-        scene::ModelSceneNode *owner = body.get();
-        if (site == VisualSite::Head && creature) {
-            if (auto *head = dynamic_cast<scene::ModelSceneNode *>(body->getAttachment("headhook"))) {
-                owner = head;
-            }
-        }
-        auto *hook = owner->getNodeByName(visualSiteNode(object, *body, site));
+        const auto hook = visualSiteHook(object, *body, site);
         if (!hook) {
             continue;
         }
-        startNodeModel(body->graph(), **model, *hook, desc.orientationOff, body, glm::vec3 {0.0f}, restoring, static_cast<int>(site));
+        startNodeModel(body->graph(), **model, hook, site, desc.orientationOff, body, glm::vec3 {0.0f}, restoring);
+    }
+}
+
+void VisualEffect::detachFromBody() {
+    for (auto &nodeModel : _nodeModels) {
+        // A model standing at a point in the world is on no body, nor is one
+        // whose node an earlier body lacked.
+        if (!nodeModel.owner || !nodeModel.hook) {
+            continue;
+        }
+        if (nodeModel.followsPositionOnly) {
+            nodeModel.model->graph().removeRoot(*nodeModel.model);
+        } else {
+            nodeModel.hook->removeChild(*nodeModel.model);
+        }
+        nodeModel.hook = nullptr;
+    }
+    if (_hookNode && _attached) {
+        _hookNode->removeChild(*_attached);
+    }
+    _hookNode = nullptr;
+}
+
+void VisualEffect::reattachToBody(Object &object, scene::ModelSceneNode &body) {
+    for (auto &nodeModel : _nodeModels) {
+        if (!nodeModel.owner) {
+            continue;
+        }
+        const auto hook = visualSiteHook(object, body, nodeModel.site);
+        if (!hook) {
+            continue;
+        }
+        nodeModel.hook = &hook->get();
+        if (nodeModel.followsPositionOnly) {
+            nodeModel.model->setLocalTransform(glm::translate(nodeModel.hook->origin()));
+            body.graph().addRoot(nodeModel.model);
+        } else {
+            nodeModel.hook->addChild(*nodeModel.model);
+        }
+    }
+    if (_attached) {
+        // An attached model always comes from its program's attachment.
+        assert(_attachmentProgram && "attached model without its program");
+        const int program = *_attachmentProgram;
+        auto attachment = spellVisualForProgram(program);
+        if (!attachment) {
+            attachment = modelAttachmentForProgram(program, object.game().isTSL());
+        }
+        assert(attachment && "attached model of a program without an attachment");
+        if (const auto hook = attachmentHook(body, program, attachment->hook)) {
+            _hookNode = &hook->get();
+            _hookNode->addChild(*_attached);
+        }
     }
 }
 
 void VisualEffect::updateNodeModels(float dt) {
     for (auto &nodeModel : _nodeModels) {
-        if (nodeModel.followsPositionOnly) {
+        // A model whose node its body lacks has no place to follow.
+        if (nodeModel.followsPositionOnly && nodeModel.hook) {
             nodeModel.model->setLocalTransform(glm::translate(nodeModel.hook->origin()));
         }
         if (nodeModel.impactRemaining > 0.0f) {
@@ -726,7 +786,7 @@ std::optional<float> VisualEffect::startNodeModelCessation() {
         }
         nodeModel.model->playAnimation("cessation");
         nodeModel.impactRemaining = cessation->length();
-        lengths[nodeModel.slot] = cessation->length();
+        lengths[static_cast<int>(nodeModel.site)] = cessation->length();
     }
     std::optional<float> first;
     std::optional<float> last;
@@ -759,7 +819,9 @@ float VisualEffect::nodeModelsPresentationLength() const {
 }
 
 EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &instance) {
-    const auto row = _services.game.visualEffects.get(_visualEffectId);
+    const int visualEffectId = instance.integerParameter(0);
+    const bool missEffect = instance.integerParameter(2) != 0;
+    const auto row = _services.game.visualEffects.get(visualEffectId);
     // A second Speed Knight visual is not shown while the object still shows
     // one, kept or shown once; the application itself is kept or not as any
     // other.
@@ -767,10 +829,10 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
         return applied.type() == EffectType::Visual && applied.integerParameter(0) == kSpeedKnightVisual;
     };
     const auto shown = object.shownVisuals();
-    if (_visualEffectId == kSpeedKnightVisual &&
+    if (visualEffectId == kSpeedKnightVisual &&
         (std::any_of(object.effects().begin(), object.effects().end(), isSpeedKnight) ||
          std::any_of(shown.begin(), shown.end(), [&](const EffectInstance &visual) { return isSpeedKnight(visual); }))) {
-        _kept = instance.durationType() != DurationType::Instant && !_missEffect && !(row && row->get().fireAndForget);
+        _kept = instance.durationType() != DurationType::Instant && !missEffect && !(row && row->get().fireAndForget);
         return _kept ? EffectApplicationResult::Retained : EffectApplicationResult::Applied;
     }
     if (row) {
@@ -778,11 +840,11 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     }
     // A row the table does not have shows nothing, but a timed application
     // that hit is kept all the same, and a miss still draws its point.
-    if (_missEffect) {
+    if (missEffect) {
         auto caster = instance.boundCreator();
         spellRangedMissPoint(caster ? std::optional<std::reference_wrapper<const Object>>(*caster) : std::nullopt, object);
     }
-    _kept = instance.durationType() != DurationType::Instant && !_missEffect;
+    _kept = instance.durationType() != DurationType::Instant && !missEffect;
     return _kept ? EffectApplicationResult::Retained : EffectApplicationResult::Applied;
 }
 
@@ -790,8 +852,9 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(object.sceneNode());
     scene::ISceneGraph *graph = body ? &body->graph() : nullptr;
     const bool tsl = object.game().isTSL();
-    // A visual that shows a root model on its target runs no programs.
-    const bool rooted = desc.rootModel(visualTargetSize(object)) != nullptr;
+    // A visual whose root cell for its target names a model runs no programs,
+    // whether or not that model is found.
+    const bool rooted = desc.rootModel(visualTargetSize(object)).named;
     const int impactProgramId = rooted ? -1 : desc.progFXImpact;
     const int durationProgramId = rooted ? -1 : desc.progFXDuration;
     // Only a timed application that hit, of a row that is not fire-and-forget,
@@ -799,7 +862,8 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     // runs the duration program; a beam shown once still runs it for the
     // application's duration.
     const bool beamRow = !beamModelForProgram(durationProgramId, tsl).empty();
-    _kept = instance.durationType() != DurationType::Instant && !_missEffect && !desc.fireAndForget;
+    const bool missEffect = instance.integerParameter(2) != 0;
+    _kept = instance.durationType() != DurationType::Instant && !missEffect && !desc.fireAndForget;
     const bool runsDuration = _kept || (beamRow && instance.duration != 0.0f);
     std::optional<int> durationProgram;
     if (runsDuration && durationProgramId >= 0) {
@@ -813,7 +877,7 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     // the target's feet and its root otherwise; any other missed visual is
     // shown at the point. TSL still draws the point's random terms but aims
     // every miss at the world origin.
-    if (_missEffect) {
+    if (missEffect) {
         auto caster = instance.boundCreator();
         const auto drawnPoint = spellRangedMissPoint(
             caster ? std::optional<std::reference_wrapper<const Object>>(*caster) : std::nullopt, object);
@@ -856,7 +920,8 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
         if (!_beam && (!instance.restoring || _kept)) {
             if (_location) {
                 if (desc.locationModel) {
-                    startNodeModel(*graph, *desc.locationModel, std::nullopt, desc.orientationOff, nullptr, position, instance.restoring, static_cast<int>(VisualSite::Root));
+                    startNodeModel(*graph, *desc.locationModel, std::nullopt, VisualSite::Root, desc.orientationOff,
+                                   nullptr, position, instance.restoring);
                 }
             } else if (body) {
                 attachNodeModels(object, body, desc, instance.restoring);
@@ -945,10 +1010,10 @@ void VisualEffect::onUpdate(Object &object, const EffectInstance &instance, floa
 // already running from the start runs on. Sounds and beams end at once. The
 // models stay until both they and the cessation program are done; with
 // neither to wait for, everything goes at once.
-EffectRemovalResult VisualEffect::onRemove(Object &object, const EffectInstance &instance) {
+void VisualEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (!_kept || _ceasing) {
         clearPresentation(object);
-        return EffectRemovalResult::Removed;
+        return;
     }
     endSoundsAndBeams();
     const auto modelsDone = startNodeModelCessation();
@@ -984,11 +1049,10 @@ EffectRemovalResult VisualEffect::onRemove(Object &object, const EffectInstance 
     const float done = std::max(modelsDone.value_or(0.0f), programDone.value_or(0.0f));
     if (done <= 0.0f) {
         clearPresentation(object);
-        return EffectRemovalResult::Removed;
+        return;
     }
     _ceasing = true;
     object.addShownVisual(instance, done);
-    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

@@ -21,10 +21,12 @@
 #include <cmath>
 #include <vector>
 
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "reone/audio/mixer.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
@@ -152,9 +154,17 @@ bool Party::addAvailableMember(int npc, const std::string &blueprint) {
         {RosterKind::Npc, npc}, blueprint);
 }
 
+// Joining the roster puts a companion on the player's movement row, and a
+// puppet on the Very Fast row.
+static constexpr int kPlayerMovementRate = 0;
+static constexpr int kPuppetMovementRate = 6;
+
 bool Party::addAvailableMember(int npc, std::shared_ptr<Creature> creature) {
-    return makeRosterAvailableAndBind(
-        {RosterKind::Npc, npc}, creature);
+    if (!makeRosterAvailableAndBind({RosterKind::Npc, npc}, creature)) {
+        return false;
+    }
+    creature->setMovementRate(kPlayerMovementRate);
+    return true;
 }
 
 bool Party::removeAvailableMember(int npc) {
@@ -162,8 +172,11 @@ bool Party::removeAvailableMember(int npc) {
 }
 
 bool Party::addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature) {
-    return makeRosterAvailableAndBind(
-        {RosterKind::Puppet, puppet}, creature);
+    if (!makeRosterAvailableAndBind({RosterKind::Puppet, puppet}, creature)) {
+        return false;
+    }
+    creature->setMovementRate(kPuppetMovementRate);
+    return true;
 }
 
 std::shared_ptr<Creature> Party::getAvailablePuppet(int puppet) const {
@@ -330,6 +343,11 @@ bool Party::addAvailableRosterRecord(
     if (identity.kind == RosterKind::Npc) {
         transferInventory(*creature);
     }
+    creature->setMovementRate(identity.kind == RosterKind::Npc ? kPlayerMovementRate : kPuppetMovementRate);
+    // A companion joining the roster takes up the alignment its influence gives.
+    if (identity.kind == RosterKind::Npc) {
+        creature->recomputeInfluenceAlignment();
+    }
     try {
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
@@ -357,6 +375,10 @@ bool Party::addAvailableRosterRecord(
         joinRosterFaction(identity, *creature);
         if (identity.kind == RosterKind::Npc) {
             transferInventory(*creature);
+        }
+        creature->setMovementRate(identity.kind == RosterKind::Npc ? kPlayerMovementRate : kPuppetMovementRate);
+        if (identity.kind == RosterKind::Npc) {
+            creature->recomputeInfluenceAlignment();
         }
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
@@ -515,20 +537,18 @@ void Party::removeMemberEntries(const Creature &creature) {
         _members.end());
 }
 
-// A follower brought back catches up with the party's experience, as any
-// companion brought into the world does, and perceives at the range of its
-// place.
+// A follower brought back perceives at the range of its place. Placing the
+// party then spawns it as it does every other companion.
 void Party::respawnVacantFollowers() {
     for (auto &member : _members) {
         if (member.creature || !isCompanion(member)) {
             continue;
         }
         if (auto creature = rosterCreature({RosterKind::Npc, member.npc}, true)) {
-            catchUpExperience(member.npc, *creature);
-            spawnIntoPlayerFaction(*creature);
             creature->setPerceptionRangeRow(&member == &_members.front() ? kPlayerPerceptionRangeRow
                                                                          : kPartyPerceptionRangeRow);
             member.creature = std::move(creature);
+            member.creature->refreshDeath();
         }
     }
 }
@@ -571,6 +591,7 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     member.npc = npc;
     member.creature = creature;
     _members.push_back(std::move(member));
+    creature->refreshDeath();
     // A companion's carried items join the party's; then a member whose body
     // armour was refused on load joins in the party's clothing.
     if (npc != kNpcPlayer) {
@@ -850,9 +871,56 @@ void Party::setXP(int xp) {
     syncMembersXP();
 }
 
+void Party::init() {
+    auto &twoDas = _game.services().resource.twoDas;
+
+    auto npcs = getRequiredTwoDA(twoDas, "npc");
+    _percentXP.clear();
+    _percentXPFraction.clear();
+    for (int row = 0; row < npcs->getRowCount(); ++row) {
+        _percentXP.push_back(npcs->getInt(row, "percentxp", 0));
+        _percentXPFraction.push_back(npcs->getFloat(row, "percentxp", 0.0f));
+    }
+
+    auto scripts = getRequiredTwoDA(twoDas, "aiscripts");
+    _aiScripts.clear();
+    for (int row = 0; row < scripts->getRowCount(); ++row) {
+        AIScriptRow script;
+        script.nameStrRef = scripts->getInt(row, "name_strref", 0);
+        script.descriptionStrRef = scripts->getInt(row, "description_strref", script.descriptionStrRef);
+        script.state = scripts->getInt(row, "aistate", 0);
+        _aiScripts.push_back(script);
+    }
+
+    // Influence is TSL's alone.
+    _baseInfluence.clear();
+    if (_game.isTSL()) {
+        auto influence = getRequiredTwoDA(twoDas, "influence");
+        for (int row = 0; row < influence->getRowCount(); ++row) {
+            // The first row of a tag is the companion's.
+            _baseInfluence.emplace(boost::to_lower_copy(influence->getString(row, "tag")), influence->getInt(row, "baseinfluence"));
+        }
+    }
+}
+
+std::optional<int> Party::baseInfluence(const std::string &tag) const {
+    const auto it = _baseInfluence.find(boost::to_lower_copy(tag));
+    return it != _baseInfluence.end() ? std::optional<int>(it->second) : std::nullopt;
+}
+
 // A blank or missing share pays nothing.
 int Party::percentXP(int row) const {
-    return getRequiredTwoDA(_game.services().resource.twoDas, "npc")->getInt(row, "percentxp", 0);
+    if (row < 0 || row >= static_cast<int>(_percentXP.size())) {
+        return 0;
+    }
+    return _percentXP[row];
+}
+
+float Party::percentXPFraction(int row) const {
+    if (row < 0 || row >= static_cast<int>(_percentXPFraction.size())) {
+        return 0.0f;
+    }
+    return _percentXPFraction[row];
 }
 
 // A roster companion takes its npc.2da share and every recipient the
@@ -1206,12 +1274,24 @@ std::shared_ptr<Creature> Party::puppetOwner(int puppet) const {
     return _player && _player->assignedPuppet() == puppet ? _player : nullptr;
 }
 
+std::shared_ptr<Creature> Party::puppetOwner(const Creature &puppet) const {
+    const auto identity = rosterIdentity(puppet);
+    if (!identity || identity->kind != RosterKind::Puppet) {
+        return nullptr;
+    }
+    return puppetOwner(identity->slot);
+}
+
 bool Party::isMember(const Object &object) const {
     for (auto &member : _members) {
         if (member.creature.get() == &object)
             return true;
     }
     return false;
+}
+
+bool Party::movesBetweenModules(const Object &object) const {
+    return &object == actualPlayer().get() || &object == getLeader().get();
 }
 
 bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {
@@ -1347,6 +1427,7 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
     member.npc = npc;
     member.creature = creature;
     _members.insert(_members.begin(), std::move(member));
+    creature->refreshDeath();
 
     // The controlled creature is a player character.
     creature->setPC(true);
@@ -1387,7 +1468,11 @@ bool Party::removeMember(int npc) {
     if (maybeMember == _members.end()) {
         return false;
     }
+    const auto removed = maybeMember->creature;
     _members.erase(maybeMember);
+    if (removed) {
+        removed->refreshDeath();
+    }
     // Solo mode ends with the last companion.
     if (companionCount() == 0) {
         _solo = false;
@@ -1461,10 +1546,12 @@ void Party::resetFollowSlots() {
 }
 
 bool Party::isTrailLineClear(
-    const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, bool &clear) const {
-    const auto line = area.testDirectLine(walker, from, to);
-    clear = line.result == Area::DirectLine::Clear;
-    return clear || (line.result == Area::DirectLine::CreatureBlocked && line.blocker && isMember(line.blocker->get()));
+    const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, TrailLine &line) const {
+    const auto test = area.testDirectLine(walker, from, to);
+    line = test.result == Area::DirectLine::Clear         ? TrailLine::Clear
+           : test.result == Area::DirectLine::LeavesRooms ? TrailLine::LeavesRooms
+                                                          : TrailLine::Blocked;
+    return line == TrailLine::Clear || (test.result == Area::DirectLine::CreatureBlocked && test.blocker && isMember(test.blocker->get()));
 }
 
 void Party::recordLeaderStep(const Area &area, const glm::vec3 &position, float facing) {
@@ -1478,14 +1565,14 @@ void Party::recordLeaderStep(const Area &area, const glm::vec3 &position, float 
     }
 
     const glm::vec3 offset {position - previous};
-    bool clear = false;
-    if (!isTrailLineClear(area, *leader, previous, position, clear)) {
+    TrailLine line {TrailLine::Clear};
+    if (!isTrailLineClear(area, *leader, previous, position, line)) {
         // The way round a corner goes through the last point reached in a clear line.
         _followSteps[_followHead].position = _lastClearStep;
         _followHead = stepAfter(_followHead);
     }
     _lastClearStep = position;
-    if (glm::dot(offset, offset) < kFollowStepMinimum2 && clear) {
+    if (glm::dot(offset, offset) < kFollowStepMinimum2 && line == TrailLine::Clear) {
         return;
     }
 
@@ -1585,7 +1672,7 @@ float Party::followRange() const {
     default:
         return kDefaultFollowRange;
     }
-    return getRequiredTwoDA(_game.services().resource.twoDas, "ranges")->getFloat(row, "primaryrange");
+    return _game.services().game.spells.range(row).primary.value_or(0.0f);
 }
 
 // Walk back from the leader's newest step, segment by segment, until the
@@ -1682,8 +1769,8 @@ void Party::smoothFollowPath(const Area &area) {
     // In TSL, whether the leader can walk straight to the newest step: a
     // follower whose point cannot be laid out afterwards then goes for that
     // step.
-    bool clear = false;
-    const bool newestInSight = _game.isTSL() && isTrailLineClear(area, *leader, leader->position(), _followSteps[start].position, clear);
+    TrailLine line {TrailLine::Clear};
+    const bool newestInSight = _game.isTSL() && isTrailLineClear(area, *leader, leader->position(), _followSteps[start].position, line);
     int anchor = _followSlots[closestFollower()].index;
     if (anchor < 0 || anchor >= kFollowSteps) {
         anchor = 0;
@@ -1697,7 +1784,7 @@ void Party::smoothFollowPath(const Area &area) {
         const glm::vec3 &to = _followSteps[current].position;
         const glm::vec3 gap {from - to};
         const bool visible = static_cast<double>(glm::dot(gap, gap)) <= kFollowSameStep2 ||
-                             isTrailLineClear(area, *leader, from, to, clear);
+                             isTrailLineClear(area, *leader, from, to, line);
         if (visible) {
             last = current;
             current = stepAfter(current);
@@ -1709,10 +1796,14 @@ void Party::smoothFollowPath(const Area &area) {
         } else {
             corners.push_back(_followSteps[last].position);
         }
+        // A walk that runs out of the rooms ends the search for corners.
+        if (line == TrailLine::LeavesRooms) {
+            break;
+        }
     }
     if (corners.size() < kFollowCorners) {
-        isTrailLineClear(area, *leader, corners.back(), _followSteps[current].position, clear);
-        if (!clear) {
+        isTrailLineClear(area, *leader, corners.back(), _followSteps[current].position, line);
+        if (line != TrailLine::Clear) {
             corners.push_back(_followSteps[last].position);
         }
         corners.push_back(_followSteps[current].position);

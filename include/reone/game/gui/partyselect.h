@@ -37,6 +37,9 @@ public:
 
     void prepare(const PartySelectionContext &ctx);
 
+    /** Called whenever the screen is left, however it is left. */
+    void clearSelection() override;
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
@@ -100,11 +103,15 @@ private:
     PartySelectionContext _context;
     int _selectedNpc {-1};
     bool _added[kMaxNpcCount] {false};
+    /** Companions this opening of the screen brought into being to show them. */
+    bool _materialized[kMaxNpcCount] {false};
     int _availableCount {0};
 
     void onGUILoaded() override;
 
     void bindEventHandlers();
+    /** Leaving the screen destroys each companion it brought into being that did not join the party. */
+    void releaseMaterialized();
     void bindControls() {
         _controls.BTN_ACCEPT = findControl<gui::Button>("BTN_ACCEPT");
         _controls.BTN_BACK = findControl<gui::Button>("BTN_BACK");

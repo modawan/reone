@@ -38,8 +38,22 @@ static constexpr int kStrRefFeedback = 42167;
 static constexpr int kStrRefShowFeedback = 42142;
 static constexpr int kStrRefShowDialog = 42143;
 
+/** A feedback line's colour: KotOR's and TSL's; a highlighted line's in both. */
 static const glm::vec3 kFeedbackColor(0.0f, 0.66f, 0.98f);
+static const glm::vec3 kTSLFeedbackColor(0.1f, 0.7f, 0.55f);
 static const glm::vec3 kCombatColor(0.74f, 0.11f, 0.0f);
+
+// In TSL a feedback or combat line, or a conversation line's speaker name,
+// holding a token or a note is parsed again when the list shows it, and loses
+// its trailing spaces. K1 lists every line as it was logged.
+static std::string getTslMessageLine(const Game &game, std::string text) {
+    if (text.find_first_of("<{") == std::string::npos) {
+        return text;
+    }
+    text = game.substituteLogTokens(std::move(text));
+    text.erase(text.find_last_not_of(' ') + 1);
+    return text;
+}
 
 void MessagesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -58,8 +72,10 @@ void MessagesMenu::onGUILoaded() {
         _controls.BTN_SHOW->setOnClick([this]() {
             toggleMessages();
         });
-        _controls.LB_MESSAGES->setItemsInteractive(false);
-        _controls.LB_MESSAGES->setProtoMatchContent(true);
+        for (const auto &list : {_controls.LB_MESSAGES, _controls.LB_DIALOG}) {
+            list->setItemsInteractive(false);
+            list->setProtoMatchContent(true);
+        }
         return;
     }
 
@@ -86,15 +102,30 @@ void MessagesMenu::onGUILoaded() {
         setFilter(Filter::Effects);
     });
 
+    for (const auto &list : {_controls.LB_MESSAGES, _controls.LB_COMBAT, _controls.LB_DIALOG}) {
+        list->setItemsInteractive(false);
+        list->setProtoMatchContent(true);
+    }
     resetFilter();
 }
 
 void MessagesMenu::refresh() {
+    _controls.LB_DIALOG->clearItems();
+    _controls.LB_MESSAGES->clearItems();
     if (_game.isTSL()) {
-        return;
+        _controls.LB_COMBAT->clearItems();
     }
 
-    _controls.LB_MESSAGES->clearItems();
+    // A conversation line shows as "speaker: text", or the text alone. The
+    // text is shown as it was logged; in TSL the speaker's name is the part
+    // parsed as a message line.
+    for (const MessageLog::DialogEntry &entry : _game.messageLog().dialogEntries()) {
+        gui::ListBox::Item item;
+        const std::string speaker = _game.isTSL() ? getTslMessageLine(_game, entry.speaker) : entry.speaker;
+        item.text = speaker.empty() ? entry.text : speaker + ": " + entry.text;
+        _controls.LB_DIALOG->addItem(std::move(item));
+    }
+    _controls.LB_DIALOG->scrollToBottom();
 
     for (const MessageLog::Entry &entry : _game.messageLog().entries()) {
         if ((entry.type & MessageLog::kFeedbackMessageType) == 0) {
@@ -102,13 +133,24 @@ void MessagesMenu::refresh() {
         }
 
         gui::ListBox::Item item;
-        item.text = entry.text;
+        // Lines are resolved when they are written; K1 lists them as written.
+        item.text = _game.isTSL() ? getTslMessageLine(_game, entry.text) : entry.text;
         item.textColor = entry.style == MessageLog::Style::Combat
                              ? kCombatColor
-                             : kFeedbackColor;
-        _controls.LB_MESSAGES->addItem(std::move(item));
+                             : (_game.isTSL() ? kTSLFeedbackColor : kFeedbackColor);
+        // The list follows the line's buffer; the colour follows its highlight flag.
+        if (_game.isTSL() && entry.buffer == MessageLog::Buffer::Combat) {
+            _controls.LB_COMBAT->addItem(std::move(item));
+        } else {
+            _controls.LB_MESSAGES->addItem(std::move(item));
+        }
     }
     _controls.LB_MESSAGES->scrollToBottom();
+    if (_game.isTSL()) {
+        _controls.LB_COMBAT->scrollToBottom();
+        refreshFilterVisibility();
+        return;
+    }
 
     if (_showingFeedback) {
         showFeedbackMessages();

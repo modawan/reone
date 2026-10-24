@@ -46,6 +46,10 @@ public:
         }
         complete();
     }
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved SpeakStringByStrRef command: the string reference and the chat channel. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     int _strRef;

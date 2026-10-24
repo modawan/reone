@@ -16,7 +16,9 @@
  */
 
 #include "reone/game/gui.h"
+
 #include "reone/game/game.h"
+#include "reone/gui/control.h"
 
 namespace reone::game {
 
@@ -26,6 +28,17 @@ GameGUI::GameGUI(Game &game, ServicesView &services) :
                      services.audio.mixer, services.game.guiSounds}),
     _game(game),
     _services(services) {
+}
+
+void GameGUI::showOnlyNamedControls(
+    const std::unordered_set<std::string> &controls,
+    const std::unordered_set<std::string> &titleControls) {
+    for (auto &control : _gui->rootControl().children()) {
+        const std::string &tag = control.get().tag();
+        if (controls.count(tag) == 0 && titleControls.count(tag) == 0) {
+            control.get().setVisible(false);
+        }
+    }
 }
 
 } // namespace reone::game

@@ -75,6 +75,7 @@ std::shared_ptr<Dialog> computerDialog(bool camera = true, bool automatic = fals
     auto &first = dialog->entries[0];
     first.text = "Camera menu";
     first.cameraId = camera ? 1 : 0;
+    first.cameraAngle = camera ? 6 : 0;
     first.delay = 2;
     first.replies.push_back({});
     if (!automatic) {
@@ -170,6 +171,7 @@ TEST_P(ComputerGUITest, static_entry_renders_only_camera_and_isolates_input) {
 TEST_P(ComputerGUITest, animated_camera_takes_precedence_over_static_id) {
     auto dialog = computerDialog();
     dialog->cameraModel = "camera_model";
+    dialog->entries[0].cameraAnimation = 1200;
     computer->start(dialog, nullptr);
     int id = 0;
     EXPECT_EQ(computer->getCamera(id), CameraType::Animated);
@@ -247,6 +249,7 @@ TEST_P(ComputerGUITest, conversation_timer_expires_camera_with_multiple_replies)
 TEST_P(ComputerGUITest, consecutive_camera_entries_keep_the_next_feed_visible) {
     auto dialog = computerDialog(true, true);
     dialog->entries[1].cameraId = 3;
+    dialog->entries[1].cameraAngle = 6;
     computer->start(dialog, nullptr);
     computer->handle(key(input::KeyCode::Return));
     EXPECT_EQ(computer->entry(), &dialog->entries[1]);

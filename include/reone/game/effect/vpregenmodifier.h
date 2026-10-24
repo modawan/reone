@@ -23,18 +23,15 @@ namespace reone {
 
 namespace game {
 
+/** Modifies vitality regeneration: the percentage is integer 0. */
 class VPRegenModifierEffect : public CopyableEffect<VPRegenModifierEffect> {
 public:
     VPRegenModifierEffect(int percent) :
-        CopyableEffect(EffectType::VPRegenModifier),
-        _percent(percent) {
+        CopyableEffect(EffectType::VPRegenModifier) {
         setSaveFacingInteger(0, percent);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    int _percent;
 };
 
 } // namespace game

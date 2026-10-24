@@ -17,24 +17,26 @@
 
 #include "reone/game/itemdescription.h"
 
+#include <algorithm>
+#include <cstdio>
+#include <iterator>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/format.hpp>
+
 #include "reone/game/d20/feat.h"
 #include "reone/game/d20/feats.h"
-#include "reone/game/d20/skill.h"
-#include "reone/game/d20/skills.h"
-#include "reone/game/d20/spell.h"
-#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
+#include "reone/game/game.h"
 #include "reone/game/object/item.h"
+#include "reone/game/party.h"
+#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/strings.h"
-
-#include <boost/algorithm/string/case_conv.hpp>
-
-#include <iterator>
-#include <map>
-#include <regex>
-#include <set>
 
 using namespace reone::resource;
 
@@ -44,1048 +46,1067 @@ namespace game {
 
 namespace {
 
-struct Section {
-    std::string title;
-    std::vector<std::string> lines;
+// Interface strings of the property lines.
+constexpr int kNoDescriptionStrRef = 32172;
+constexpr int kAttributeRequirementsStrRef = 117597;
+constexpr int kFirstAbilityRequirementStrRef = 117591;
+constexpr int kFeatRequirementsStrRef = 38536;
+constexpr int kGenderRequirementsStrRef = 47995;
+constexpr int kSubraceRequirementsStrRef = 48013;
+constexpr int kCharacterRequirementsStrRef = 48026;
+constexpr int kPartyMemberRequirementsStrRef = 130590;
+constexpr int kBaoDurNameStrRef = 102045;
+constexpr int kDamageStrRef = 31385;
+constexpr int kVersusStrRef = 1395;
+constexpr int kPhysicalDamageStrRef = 38552;
+constexpr int kRangeStrRef = 38565;
+constexpr int kCriticalThreatStrRef = 38571;
+constexpr int kOnHitStrRef = 38583;
+constexpr int kChanceStrRef = 38574;
+constexpr int kDurationStrRef = 47878;
+constexpr int kTSLDifficultyClassStrRef = 48756;
+constexpr int kK1DifficultyClassStrRef = 49135;
+constexpr int kOffHandStrRef = 42145;
+constexpr int kAttackModifierStrRef = 38566;
+constexpr int kUnarmedAttackSuffixStrRef = 114160;
+constexpr int kDefenseStrRef = 38593;
+constexpr int kMaxDexterityBonusStrRef = 42144;
+constexpr int kSingleUseStrRef = 783;
+constexpr int kUsesStrRef = 41899;
+constexpr int kUnlimitedUsesStrRef = 41900;
+constexpr int kSavesStrRef = 41935;
+constexpr int kSkillsStrRef = 41936;
+constexpr int kVulnerabilityStrRef = 41898;
+constexpr int kForceResistanceStrRef = 41930;
+constexpr int kUseLimitationStrRef = 41934;
+
+// The damage kinds of a weapon, named in this order.
+constexpr std::pair<int, int> kDamageTypeNames[] {
+    {static_cast<int>(DamageType::Physical), 38552},
+    {static_cast<int>(DamageType::Universal), 38553},
+    {static_cast<int>(DamageType::Acid), 38554},
+    {static_cast<int>(DamageType::Cold), 38555},
+    {static_cast<int>(DamageType::LightSide), 38556},
+    {static_cast<int>(DamageType::Electrical), 38557},
+    {static_cast<int>(DamageType::Fire), 38558},
+    {static_cast<int>(DamageType::DarkSide), 38559},
+    {static_cast<int>(DamageType::Sonic), 38560},
+    {static_cast<int>(DamageType::Ion), 38561},
+    {static_cast<int>(DamageType::Blaster), 38562},
+    {static_cast<int>(DamageType::Poison), 41903}};
+
+// The damage bonus subtypes (iprp_damagetype.2da) up to slashing are the
+// physical kinds, which are listed as one.
+constexpr int kLastPhysicalDamageSubtype = 2;
+
+// Lightsaber crystals list no properties, nor do grenades and (in TSL) rockets.
+constexpr int kCrystalItemType = 46;
+// Droid plating shows no Dexterity limit.
+constexpr int kDroidPlatingItemType = 15;
+// TSL gauntlets list damage like a weapon.
+constexpr int kGauntletsBaseItem = 45;
+// Items whose description names Bao-Dur among the party member requirements.
+// Bao-Dur also cannot equip base item 100, which is not on this list.
+constexpr int kBaoDurItems[] {35, 36, 37, 97, 98, 99, 102};
+constexpr int kBaoDurNpc = 1;
+
+// Cost tables of the attribute limits and of the on-hit difficulty class.
+constexpr int kAttributeCostTable = 26;
+constexpr int kOnHitDifficultyCostTable = 25;
+
+// The highest ability (iprp_abilities.2da) an attribute limit names; its
+// interface strings follow the first ability's in order.
+constexpr int kLastAbilitySubtype = 5;
+
+// On-hit effects (iprp_onhit.2da) with lines of their own. TSL adds knockdown
+// to the effects an item lists; KotOR lists them up to instant death.
+constexpr int kOnHitAbilityDrain = 6;
+constexpr int kOnHitPoison = 7;
+constexpr int kOnHitSlayRacialGroup = 8;
+constexpr int kOnHitSlayAlignmentGroup = 9;
+constexpr int kOnHitInstantDeath = 10;
+constexpr int kOnHitKnockdown = 11;
+
+// On-hit and vulnerability durations are in rounds, which last three seconds.
+constexpr int kSecondsPerRound = 3;
+
+// A Dexterity limit of this value means none.
+constexpr int kNoDexterityLimit = -1;
+
+struct PropertyStrings {
+    std::string name;
+    std::string subtype;
+    std::string cost;
+    std::string param;
 };
 
-struct RangeBonus {
-    int min {0};
-    int max {0};
-
-    bool empty() const {
-        return min == 0 && max == 0;
-    }
-
-    void add(const RangeBonus &other) {
-        min += other.min;
-        max += other.max;
-    }
+// The chance, duration and difficulty class of an on-hit effect.
+struct OnHitOdds {
+    int chance {0};
+    int durationRounds {0};
+    int difficulty {0};
 };
 
-struct DerivedProperties {
-    int attackModifier {0};
-    int defenseBonus {0};
-    int blasterBoltDeflection {0};
-    std::map<int, int> attributeBonuses;
-    std::map<std::string, RangeBonus> damageBonuses;
-    std::set<std::string> foldedDamageTypes;
-    RangeBonus massiveCriticals;
-    bool foldedDefenseBonus {false};
-};
-
-static std::string trim(std::string value) {
-    auto begin = std::find_if(value.begin(), value.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    });
-    auto end = std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base();
-    return begin < end ? std::string(begin, end) : std::string();
-}
-
-static std::string singleLine(std::string value) {
-    for (char &ch : value) {
-        if (ch == '\r' || ch == '\n' || ch == '\t') {
-            ch = ' ';
-        }
-    }
-
-    std::string result;
-    bool previousSpace = false;
-    for (char ch : value) {
-        bool space = std::isspace(static_cast<unsigned char>(ch));
-        if (space && previousSpace) {
-            continue;
-        }
-        result += space ? ' ' : ch;
-        previousSpace = space;
-    }
-    return trim(result);
-}
-
-static std::string titleFromRaw(std::string value) {
-    value = trim(value);
-    bool nextUpper = true;
-    for (char &ch : value) {
-        if (ch == '_' || ch == '-') {
-            ch = ' ';
-            nextUpper = true;
-        } else if (nextUpper) {
-            ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-            nextUpper = false;
-        } else {
-            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        }
-    }
-    return value;
-}
-
-static bool isDeletedCell(const std::string &value) {
-    return value.empty() || value == "****" || value == "*";
-}
-
-static std::optional<int> parseInt(const std::string &value) {
-    try {
-        size_t pos = 0;
-        int result = std::stoi(value, &pos, 0);
-        if (pos == value.size()) {
-            return result;
-        }
-    } catch (const std::exception &) {
-    }
-    return std::nullopt;
-}
-
-static std::optional<RangeBonus> parseRangeBonus(std::string value) {
-    value = trim(value);
-    if (value.empty()) {
-        return std::nullopt;
-    }
-
-    std::smatch match;
-    static const std::regex kDiceRegex("^([+-]?\\d+)\\s*d\\s*(\\d+)$", std::regex::icase);
-    if (std::regex_search(value, match, kDiceRegex)) {
-        int count = std::stoi(match[1].str());
-        int sides = std::stoi(match[2].str());
-        return RangeBonus {count, count * sides};
-    }
-
-    static const std::regex kRangeRegex("^([+-]?\\d+)\\s*-\\s*([+-]?\\d+)$");
-    if (std::regex_search(value, match, kRangeRegex)) {
-        return RangeBonus {std::stoi(match[1].str()), std::stoi(match[2].str())};
-    }
-
-    if (auto maybeValue = parseInt(value)) {
-        return RangeBonus {*maybeValue, *maybeValue};
-    }
-
-    // Exact numeric cells are handled above; this keeps free-form 2DA labels
-    // like "+2 bonus" readable.
-    static const std::regex kEmbeddedIntRegex("([+-]?\\d+)");
-    if (std::regex_search(value, match, kEmbeddedIntRegex)) {
-        int amount = std::stoi(match[1].str());
-        return RangeBonus {amount, amount};
-    }
-    return std::nullopt;
-}
-
-static std::optional<std::string> cell(
-    const TwoDA &twoDa,
-    int row,
-    const std::vector<std::string> &columns) {
-
-    if (row < 0 || row >= twoDa.getRowCount()) {
-        return std::nullopt;
-    }
-
-    for (const auto &column : columns) {
-        if (auto maybeValue = twoDa.getStringOpt(row, column)) {
-            if (!isDeletedCell(*maybeValue)) {
-                return maybeValue;
+class ItemDescriptionBuilder {
+public:
+    ItemDescriptionBuilder(const Item &item, const Game &game, ServicesView &services) :
+        _item(item),
+        _game(game),
+        _services(services),
+        _tsl(game.isTSL()) {
+        for (const auto &property : item.properties()) {
+            if (item.isPropertyActive(property)) {
+                _active.push_back(&property);
             }
         }
     }
-    return std::nullopt;
-}
 
-static std::string textFromCell(ServicesView &services, const std::string &raw) {
-    auto value = trim(raw);
-    if (auto maybeStrRef = parseInt(value)) {
-        std::string text(services.resource.strings.getText(*maybeStrRef));
-        if (!text.empty()) {
-            return text;
+    std::string build() {
+        const int itemType = _item.itemType();
+        if (itemType != kCrystalItemType && itemType != Item::kGrenadeItemType &&
+            !(_tsl && itemType == Item::kRocketItemType)) {
+            if (_tsl) {
+                addAttributeRequirements();
+            }
+            addFeatRequirements();
+            if (_tsl) {
+                addNamedRequirements(ItemProperty::LimitUseByGender, kGenderRequirementsStrRef, "gender");
+                addNamedRequirements(ItemProperty::LimitUseBySubrace, kSubraceRequirementsStrRef, "subrace");
+                addCharacterRequirements();
+                addPartyMemberRequirements();
+            }
+            const bool gauntlets = _tsl && _item.baseItemType() == kGauntletsBaseItem;
+            if (_item.weaponType() != WeaponType::None || gauntlets) {
+                addDamage();
+                addRange();
+                if (!gauntlets) {
+                    addCriticalThreat();
+                }
+                addOnHit();
+                addWeaponSize();
+            }
+            addAttackModifier();
+            addDefense();
+            addUses();
+            addImmunities();
+            addSaves();
+            addSkills();
+            if (_tsl) {
+                addDeflection();
+            }
+            addOtherProperties();
+        }
+        std::string description(_item.descIdentified());
+        if (description.empty()) {
+            description = gui(kNoDescriptionStrRef);
+        }
+        return _text + description;
+    }
+
+private:
+    const Item &_item;
+    const Game &_game;
+    ServicesView &_services;
+    bool _tsl;
+    // Active properties, in list order.
+    std::vector<const Item::PropertyEntry *> _active;
+    std::string _text;
+
+    std::string gui(int strRef) const {
+        return _game.getInterfaceText(strRef);
+    }
+
+    std::shared_ptr<TwoDA> requiredTable(const std::string &resRef) const {
+        return getRequiredTwoDA(_services.resource.twoDas, boost::to_lower_copy(resRef));
+    }
+
+    std::shared_ptr<TwoDA> costTable(int index) const {
+        return requiredTable(requiredTable("iprp_costtable")->getString(index, "name"));
+    }
+
+    std::shared_ptr<TwoDA> paramTable(int index) const {
+        return requiredTable(requiredTable("iprp_paramtable")->getString(index, "tableresref"));
+    }
+
+    static int type(const Item::PropertyEntry &property) {
+        return static_cast<int>(property.propertyName);
+    }
+
+    bool hasProperty(ItemProperty kind) const {
+        return std::any_of(_active.begin(), _active.end(), [kind](const Item::PropertyEntry *property) {
+            return type(*property) == static_cast<int>(kind);
+        });
+    }
+
+    // Another active property of the same kind and subtype has a higher value.
+    bool isOutvalued(const Item::PropertyEntry &property) const {
+        return std::any_of(_active.begin(), _active.end(), [&property](const Item::PropertyEntry *other) {
+            return other->propertyName == property.propertyName && other->subtype == property.subtype &&
+                   other->costValue > property.costValue;
+        });
+    }
+
+    /**
+     * The name of a property and the names of its subtype, cost and
+     * parameter. A property the table does not name shows no text; a subtype
+     * without a name of its own is shown with its property's name. No cost
+     * or parameter value asks for no cost or parameter text.
+     */
+    PropertyStrings propertyStrings(int kind, std::optional<int> subtype, std::optional<int> costValue, std::optional<int> paramValue) const {
+        PropertyStrings strings;
+        auto definitions = requiredTable("itempropdef");
+        const auto nameStrRef = definitions->getIntOpt(kind, "name");
+        if (!nameStrRef) {
+            return strings;
+        }
+        if (*nameStrRef != -1) {
+            strings.name = gui(*nameStrRef);
+        }
+        std::shared_ptr<TwoDA> subtypes;
+        const std::string subtypeResRef(definitions->getString(kind, "subtyperesref"));
+        if (!subtypeResRef.empty() && subtype) {
+            subtypes = requiredTable(subtypeResRef);
+            strings.subtype = gui(subtypes->getIntOpt(*subtype, "name").value_or(*nameStrRef));
+        }
+        const auto costTableIndex = definitions->getIntOpt(kind, "costtableresref");
+        if (costValue && costTableIndex) {
+            const auto costStrRef = costTable(*costTableIndex)->getIntOpt(*costValue, "name");
+            if (costStrRef && *costStrRef > 0) {
+                strings.cost = gui(*costStrRef);
+            }
+        }
+        // The parameter table is the property's, or else its subtype's.
+        auto paramTableIndex = definitions->getIntOpt(kind, "param1resref");
+        if (!paramTableIndex && subtypes) {
+            paramTableIndex = subtypes->getIntOpt(*subtype, "param1resref");
+        }
+        if (paramValue && paramTableIndex) {
+            const auto paramStrRef = paramTable(*paramTableIndex)->getIntOpt(*paramValue, "name");
+            if (paramStrRef) {
+                strings.param = gui(*paramStrRef);
+            }
+        }
+        return strings;
+    }
+
+    // The damage a damage cost value adds, as {minimum, maximum}. A row
+    // without dice adds a fixed amount, its cost value.
+    std::pair<int, int> damageRange(int costValue) const {
+        auto costs = requiredTable("iprp_damagecost");
+        const auto dice = costs->getIntOpt(costValue, "numdice");
+        if (!dice) {
+            return {costValue, costValue};
+        }
+        if (*dice == 0) {
+            return {1, costValue};
+        }
+        return {*dice, *dice * costs->getInt(costValue, "die")};
+    }
+
+    OnHitOdds onHitOdds(int costValue, int paramValue) const {
+        auto durations = requiredTable("iprp_onhitdur");
+        OnHitOdds odds;
+        odds.chance = durations->getInt(paramValue, "effectchance");
+        odds.durationRounds = durations->getInt(paramValue, "durationrounds");
+        odds.difficulty = costTable(kOnHitDifficultyCostTable)->getInt(costValue, "value");
+        return odds;
+    }
+
+    std::string damageTypes(int flags) const {
+        std::string result;
+        for (const auto &[mask, strRef] : kDamageTypeNames) {
+            if ((flags & mask) == 0) {
+                continue;
+            }
+            if (!result.empty()) {
+                result += ", ";
+            }
+            result += gui(strRef);
+        }
+        return result;
+    }
+
+    // Damage bonus subtype n is the damage kind of flag 1 << n.
+    static bool hasDamageType(int flags, int subtype) {
+        return (flags & (1 << subtype)) != 0;
+    }
+
+    int difficultyClassStrRef() const {
+        return _tsl ? kTSLDifficultyClassStrRef : kK1DifficultyClassStrRef;
+    }
+
+    // Requirements
+
+    void addAttributeRequirements() {
+        if (!hasProperty(ItemProperty::LimitUseByAttribute)) {
+            return;
+        }
+        auto values = costTable(kAttributeCostTable);
+        bool listed = false;
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::LimitUseByAttribute)) {
+                continue;
+            }
+            if (!listed) {
+                _text += gui(kAttributeRequirementsStrRef) + ":\n";
+                listed = true;
+            }
+            if (property->subtype <= kLastAbilitySubtype) {
+                _text += gui(kFirstAbilityRequirementStrRef + property->subtype) + ": ";
+            }
+            _text += std::to_string(values->getInt(property->costValue, "value")) + "\n";
+        }
+        if (listed) {
+            _text += "\n";
         }
     }
-    return titleFromRaw(value);
-}
 
-static std::shared_ptr<TwoDA> getTwoDA(ServicesView &services, const std::string &resRef) {
-    if (resRef.empty()) {
-        return nullptr;
-    }
-    return services.resource.twoDas.get(boost::to_lower_copy(resRef));
-}
-
-static std::string resolveRowText(ServicesView &services, const std::string &tableName, int row) {
-    auto twoDa = getTwoDA(services, tableName);
-    if (!twoDa) {
-        return "";
-    }
-
-    static const std::vector<std::string> kTextColumns {
-        "name",
-        "stringref",
-        "strref",
-        "labelstrref",
-        "gamestrref",
-        "description",
-        "desc"};
-
-    auto maybeTextCell = cell(*twoDa, row, kTextColumns);
-    if (maybeTextCell) {
-        return textFromCell(services, *maybeTextCell);
-    }
-
-    static const std::vector<std::string> kRawColumns {
-        "label",
-        "value"};
-
-    auto maybeRawCell = cell(*twoDa, row, kRawColumns);
-    return maybeRawCell ? titleFromRaw(*maybeRawCell) : "";
-}
-
-static std::string resolvePropertyDefText(ServicesView &services, int property, const std::vector<std::string> &columns) {
-    auto itemPropDef = services.resource.twoDas.get("itempropdef");
-    if (!itemPropDef) {
-        return "";
-    }
-    auto maybeCell = cell(*itemPropDef, property, columns);
-    return maybeCell ? textFromCell(services, *maybeCell) : "";
-}
-
-static std::string resolvePropertyDefResRef(ServicesView &services, int property, const std::vector<std::string> &columns) {
-    auto itemPropDef = services.resource.twoDas.get("itempropdef");
-    if (!itemPropDef) {
-        return "";
-    }
-    auto maybeCell = cell(*itemPropDef, property, columns);
-    return maybeCell ? boost::to_lower_copy(trim(*maybeCell)) : "";
-}
-
-static std::string resolveIndexedTableName(ServicesView &services, const std::string &tableName, int row) {
-    auto table = getTwoDA(services, tableName);
-    if (!table) {
-        return "";
-    }
-
-    static const std::vector<std::string> kResRefColumns {
-        "resref",
-        "tablename",
-        "table",
-        "name",
-        "label"};
-
-    auto maybeCell = cell(*table, row, kResRefColumns);
-    if (!maybeCell) {
-        return "";
-    }
-    std::string value(boost::to_lower_copy(trim(*maybeCell)));
-    if (auto maybeStrRef = parseInt(value)) {
-        std::string text(services.resource.strings.getText(*maybeStrRef));
-        if (!text.empty()) {
-            return boost::to_lower_copy(text);
+    // A feat name's colon reads " - ". A feat.2da row without a name is no
+    // feat and names nothing.
+    std::string featName(FeatType type) const {
+        const auto feat = _services.game.feats.get(type);
+        std::string name(feat ? gui(feat->nameStrRef) : std::string());
+        const size_t colon = name.find(':');
+        if (colon != std::string::npos) {
+            name = name.substr(0, colon) + " - " + name.substr(colon + 1);
         }
-    }
-    return value;
-}
-
-static std::string resolveSubtype(ServicesView &services, const Item::PropertyEntry &property) {
-    std::string tableName(resolvePropertyDefResRef(
-        services,
-        property.propertyName,
-        {"subtyperesref", "subtype", "subtypetable", "subtyperes"}));
-    if (tableName.empty()) {
-        tableName = resolveIndexedTableName(services, "iprp_subtypes", property.subtype);
-    }
-    return resolveRowText(services, tableName, property.subtype);
-}
-
-static std::string resolveCost(ServicesView &services, const Item::PropertyEntry &property) {
-    std::string tableName(resolvePropertyDefResRef(
-        services,
-        property.propertyName,
-        {"costtableresref", "costtable", "costtableres"}));
-    if (tableName.empty()) {
-        tableName = resolveIndexedTableName(services, "iprp_costtable", property.costTable);
-    }
-    return resolveRowText(services, tableName, property.costValue);
-}
-
-static std::string resolveParam(ServicesView &services, const Item::PropertyEntry &property) {
-    std::string tableName(resolvePropertyDefResRef(
-        services,
-        property.propertyName,
-        {"param1resref", "param1table", "paramtableresref", "param1"}));
-    if (tableName.empty()) {
-        tableName = resolveIndexedTableName(services, "iprp_paramtable", property.paramTable);
-    }
-    return resolveRowText(services, tableName, property.paramValue);
-}
-
-static std::string itemPropertyName(ItemProperty property) {
-    switch (property) {
-    case ItemProperty::AbilityBonus:
-        return "Ability Bonus";
-    case ItemProperty::AcBonus:
-        return "Defense Bonus";
-    case ItemProperty::AcBonusVsAlignmentGroup:
-        return "Defense Bonus vs Alignment";
-    case ItemProperty::AcBonusVsDamageType:
-        return "Defense Bonus vs Damage";
-    case ItemProperty::AcBonusVsRacialGroup:
-        return "Defense Bonus vs Racial Group";
-    case ItemProperty::EnhancementBonus:
-        return "Enhancement Bonus";
-    case ItemProperty::AttackPenalty:
-        return "Attack Penalty";
-    case ItemProperty::BonusFeat:
-        return "Bonus Feat";
-    case ItemProperty::ActivateItem:
-        return "Activate Item";
-    case ItemProperty::DamageBonus:
-        return "Damage Bonus";
-    case ItemProperty::ImmunityDamageType:
-        return "Damage Immunity";
-    case ItemProperty::DamageReduction:
-        return "Damage Reduction";
-    case ItemProperty::DamageResistance:
-        return "Damage Resistance";
-    case ItemProperty::Immunity:
-        return "Immunity";
-    case ItemProperty::ImprovedSavingThrow:
-    case ItemProperty::ImprovedSavingThrowSpecific:
-        return "Saving Throw Bonus";
-    case ItemProperty::Keen:
-        return "Keen";
-    case ItemProperty::OnHitProperties:
-        return "On Hit";
-    case ItemProperty::Regeneration:
-        return "Regeneration";
-    case ItemProperty::SkillBonus:
-        return "Skill Bonus";
-    case ItemProperty::AttackBonus:
-        return "Attack Bonus";
-    case ItemProperty::UnlimitedAmmunition:
-        return "Unlimited Ammunition";
-    case ItemProperty::UseLimitationAlignmentGroup:
-        return "Use Limitation Alignment";
-    case ItemProperty::UseLimitationClass:
-        return "Use Limitation Class";
-    case ItemProperty::UseLimitationRacialType:
-        return "Use Limitation Racial Type";
-    case ItemProperty::TrueSeeing:
-        return "True Seeing";
-    case ItemProperty::MassiveCriticals:
-        return "Massive Criticals";
-    case ItemProperty::FreedomOfMovement:
-        return "Freedom Of Movement";
-    case ItemProperty::RegenerationForcePoints:
-        return "Regeneration Force Points";
-    case ItemProperty::BlasterBoltDeflectIncrease:
-        return "Blaster Bolt Deflection";
-    case ItemProperty::BlasterBoltDeflectDecrease:
-        return "Blaster Bolt Deflection Penalty";
-    case ItemProperty::UseLimitationFeat:
-        return "Use Limitation Feat";
-    default:
-        return "";
-    }
-}
-
-static std::string propertyDisplayName(ServicesView &services, int propertyName) {
-    std::string name(resolvePropertyDefText(
-        services,
-        propertyName,
-        {"name", "label", "stringref", "strref", "gamestrref"}));
-    if (!name.empty()) {
         return name;
     }
 
-    std::string enumName(itemPropertyName(static_cast<ItemProperty>(propertyName)));
-    return !enumName.empty() ? enumName : "Property " + std::to_string(propertyName);
-}
-
-static std::string signedValue(std::string value, bool positive = true) {
-    value = trim(value);
-    if (value.empty()) {
-        return "";
-    }
-    if (positive && value[0] != '+' && value[0] != '-' && parseInt(value)) {
-        return "+" + value;
-    }
-    if (!positive && value[0] != '-') {
-        return "-" + value;
-    }
-    return value;
-}
-
-static std::optional<RangeBonus> propertyCostRange(ServicesView &services, const Item::PropertyEntry &property) {
-    std::string cost(resolveCost(services, property));
-    if (!cost.empty()) {
-        return parseRangeBonus(cost);
-    }
-    if (property.costValue != 0) {
-        return RangeBonus {property.costValue, property.costValue};
-    }
-    return std::nullopt;
-}
-
-static std::optional<int> propertyCostInt(ServicesView &services, const Item::PropertyEntry &property) {
-    auto maybeRange = propertyCostRange(services, property);
-    if (!maybeRange || maybeRange->min != maybeRange->max) {
-        return std::nullopt;
-    }
-    return maybeRange->min;
-}
-
-static std::string formatSignedInt(int value) {
-    return signedValue(std::to_string(value), value >= 0);
-}
-
-static std::string formatRangeBonus(const RangeBonus &range) {
-    if (range.min == range.max) {
-        return formatSignedInt(range.min);
-    }
-    std::string sign = range.min >= 0 ? "+" : "";
-    return sign + std::to_string(range.min) + "-" + std::to_string(range.max);
-}
-
-static std::string abilityName(int ability) {
-    switch (static_cast<Ability>(ability)) {
-    case Ability::Strength:
-        return "Strength";
-    case Ability::Dexterity:
-        return "Dexterity";
-    case Ability::Constitution:
-        return "Constitution";
-    case Ability::Intelligence:
-        return "Intelligence";
-    case Ability::Wisdom:
-        return "Wisdom";
-    case Ability::Charisma:
-        return "Charisma";
-    default:
-        return "";
-    }
-}
-
-static std::string propertyDetailLine(
-    ServicesView &services,
-    const Item::PropertyEntry &property,
-    bool signedCost = false,
-    bool positive = true) {
-
-    std::vector<std::string> parts;
-
-    std::string subtype(resolveSubtype(services, property));
-    if (!subtype.empty()) {
-        parts.push_back(subtype);
+    // Of the armour proficiencies an item asks for, only the highest is listed.
+    static bool isArmourProficiency(FeatType feat) {
+        return feat == FeatType::ArmourProfLight || feat == FeatType::ArmourProfMedium || feat == FeatType::ArmourProfHeavy;
     }
 
-    std::string cost(resolveCost(services, property));
-    if (!cost.empty()) {
-        parts.push_back(signedCost ? signedValue(cost, positive) : cost);
-    } else if (property.costValue != 0) {
-        parts.push_back(signedCost ? signedValue(std::to_string(property.costValue), positive) : std::to_string(property.costValue));
-    }
-
-    std::string param(resolveParam(services, property));
-    if (!param.empty()) {
-        parts.push_back(param);
-    }
-
-    if (parts.empty()) {
-        return propertyDisplayName(services, property.propertyName);
-    }
-
-    std::string result;
-    for (size_t i = 0; i < parts.size(); ++i) {
-        if (i > 0) {
-            result += " ";
-        }
-        result += parts[i];
-    }
-    return result;
-}
-
-static std::string rawPropertyDetails(const Item::PropertyEntry &property) {
-    std::vector<std::string> parts {
-        "subtype " + std::to_string(property.subtype),
-        "cost table " + std::to_string(property.costTable),
-        "cost value " + std::to_string(property.costValue),
-        "param table " + std::to_string(property.paramTable),
-        "param value " + std::to_string(property.paramValue)};
-
-    std::string result;
-    for (size_t i = 0; i < parts.size(); ++i) {
-        if (i > 0) {
-            result += ", ";
-        }
-        result += parts[i];
-    }
-    return result;
-}
-
-static std::string fallbackPropertyLine(ServicesView &services, const Item::PropertyEntry &property) {
-    std::string detail(propertyDetailLine(services, property));
-    std::string name(propertyDisplayName(services, property.propertyName));
-    if (detail.empty() || detail == name) {
-        detail = rawPropertyDetails(property);
-    }
-    return name + ": " + detail;
-}
-
-static std::string featName(ServicesView &services, int featIdx) {
-    auto feat = services.game.feats.get(static_cast<FeatType>(featIdx));
-    if (feat && !feat->name.empty()) {
-        return feat->name;
-    }
-    return resolveRowText(services, "feat", featIdx);
-}
-
-static std::string skillName(ServicesView &services, int skillIdx) {
-    auto skill = services.game.skills.get(static_cast<SkillType>(skillIdx));
-    if (skill && !skill->name.empty()) {
-        return skill->name;
-    }
-    return resolveRowText(services, "skills", skillIdx);
-}
-
-static std::string damageTypeName(int flags) {
-    if (flags == 0) {
-        return "";
-    }
-
-    std::vector<std::pair<int, std::string>> names {
-        {static_cast<int>(DamageType::Bludgeoning), "Bludgeoning"},
-        {static_cast<int>(DamageType::Piercing), "Piercing"},
-        {static_cast<int>(DamageType::Slashing), "Slashing"},
-        {static_cast<int>(DamageType::Universal), "Universal"},
-        {static_cast<int>(DamageType::Acid), "Acid"},
-        {static_cast<int>(DamageType::Cold), "Cold"},
-        {static_cast<int>(DamageType::LightSide), "Light Side"},
-        {static_cast<int>(DamageType::Electrical), "Electrical"},
-        {static_cast<int>(DamageType::Fire), "Fire"},
-        {static_cast<int>(DamageType::DarkSide), "Dark Side"},
-        {static_cast<int>(DamageType::Sonic), "Sonic"},
-        {static_cast<int>(DamageType::Ion), "Ion"},
-        {static_cast<int>(DamageType::Blaster), "Energy"}};
-
-    std::vector<std::string> parts;
-    for (auto &name : names) {
-        if ((flags & name.first) == name.first) {
-            parts.push_back(name.second);
-        }
-    }
-
-    std::string result;
-    for (size_t i = 0; i < parts.size(); ++i) {
-        if (i > 0) {
-            result += "/";
-        }
-        result += parts[i];
-    }
-    return result;
-}
-
-static std::optional<int> baseItemInt(ServicesView &services, const Item &item, const std::vector<std::string> &columns) {
-    auto baseItems = services.resource.twoDas.get("baseitems");
-    if (!baseItems) {
-        return std::nullopt;
-    }
-    auto maybeCell = cell(*baseItems, item.baseItemType(), columns);
-    if (!maybeCell) {
-        return std::nullopt;
-    }
-    return parseInt(*maybeCell);
-}
-
-static std::vector<int> baseItemInts(ServicesView &services, const Item &item, const std::vector<std::string> &columns) {
-    auto baseItems = services.resource.twoDas.get("baseitems");
-    if (!baseItems) {
-        return {};
-    }
-
-    std::vector<int> values;
-    for (auto &column : columns) {
-        auto maybeCell = cell(*baseItems, item.baseItemType(), {column});
-        if (!maybeCell) {
-            continue;
-        }
-        auto maybeValue = parseInt(*maybeCell);
-        if (maybeValue && *maybeValue > 0) {
-            values.push_back(*maybeValue);
-        }
-    }
-    return values;
-}
-
-static std::optional<bool> baseItemBool(ServicesView &services, const Item &item, const std::vector<std::string> &columns) {
-    auto baseItems = services.resource.twoDas.get("baseitems");
-    if (!baseItems) {
-        return std::nullopt;
-    }
-
-    auto maybeCell = cell(*baseItems, item.baseItemType(), columns);
-    if (!maybeCell) {
-        return std::nullopt;
-    }
-
-    std::string value(boost::to_lower_copy(trim(*maybeCell)));
-    if (value == "true" || value == "yes") {
-        return true;
-    }
-    if (value == "false" || value == "no") {
-        return false;
-    }
-    if (auto maybeValue = parseInt(value)) {
-        return *maybeValue != 0;
-    }
-    return std::nullopt;
-}
-
-static bool hasUpgradeHostMetadata(const Item &item) {
-    if (!item.isEquippable()) {
-        return false;
-    }
-    return std::any_of(item.properties().begin(), item.properties().end(), [](const Item::PropertyEntry &property) {
-        return property.upgradeType != 0;
-    });
-}
-
-static Section &sectionByTitle(std::vector<Section> &sections, const std::string &title) {
-    auto it = std::find_if(sections.begin(), sections.end(), [&title](const Section &section) {
-        return section.title == title;
-    });
-    if (it != sections.end()) {
-        return *it;
-    }
-    sections.push_back({title, {}});
-    return sections.back();
-}
-
-static std::string damageRange(int min, int max) {
-    return std::to_string(min) + "-" + std::to_string(max);
-}
-
-static std::string criticalThreatRange(const Item &item) {
-    int threatChances = std::clamp(item.criticalThreat(), 1, 20);
-    int startThreat = 21 - threatChances;
-    return std::to_string(startThreat) + "-20,x" + std::to_string(item.criticalHitMultiplier());
-}
-
-static std::string itemDescriptionText(const Item &item) {
-    std::string description(item.isIdentified() ? item.descIdentified() : item.description());
-    if (description.empty() && !item.descIdentified().empty()) {
-        description = item.descIdentified();
-    }
-    return description;
-}
-
-static bool isBalancedWeapon(ServicesView &services, const Item &item) {
-    if (auto maybeBalanced = baseItemBool(services, item, {"balanced", "isbalanced", "offhandbalanced"})) {
-        return *maybeBalanced;
-    }
-    if (auto maybeWeaponSize = baseItemInt(services, item, {"weaponsize", "weapon_size", "weapsize"})) {
-        return item.weaponType() != WeaponType::None && *maybeWeaponSize <= 1;
-    }
-    return item.weaponWield() == WeaponWield::BlasterPistol;
-}
-
-static void addBaseFacts(ServicesView &services, const Item &item, DerivedProperties &derived, std::vector<Section> &sections) {
-    Section featsRequired {"Feats Required"};
-    std::set<int> featIds;
-    for (int feat : baseItemInts(
-             services,
-             item,
-             {"reqfeat0", "reqfeat1", "reqfeat2", "reqfeat3", "reqfeat4", "reqfeat", "requiredfeat", "featrequired", "basefeat"})) {
-        featIds.insert(feat);
-    }
-    for (int feat : featIds) {
-        std::string name(featName(services, feat));
-        featsRequired.lines.push_back(!name.empty() ? singleLine(name) : std::to_string(feat));
-    }
-    sections.push_back(std::move(featsRequired));
-
-    Section baseFacts {""};
-    if (item.weaponType() != WeaponType::None && item.numDice() > 0 && item.dieToRoll() > 0) {
-        std::string type(damageTypeName(item.damageFlags()));
-        int minDamage = item.numDice();
-        int maxDamage = item.numDice() * item.dieToRoll();
-        if (!type.empty()) {
-            auto maybeDamageBonus = derived.damageBonuses.find(type);
-            if (maybeDamageBonus != derived.damageBonuses.end()) {
-                minDamage += maybeDamageBonus->second.min;
-                maxDamage += maybeDamageBonus->second.max;
-                derived.foldedDamageTypes.insert(type);
+    void addFeatRequirements() {
+        const auto &feats = _item.requiredFeats();
+        auto armour = FeatType::ArmourProfLight;
+        for (auto feat : feats) {
+            if (feat == FeatType::ArmourProfMedium && armour == FeatType::ArmourProfLight) {
+                armour = FeatType::ArmourProfMedium;
+            }
+            if (feat == FeatType::ArmourProfHeavy) {
+                armour = FeatType::ArmourProfHeavy;
             }
         }
-
-        std::string line(damageRange(minDamage, maxDamage));
-        if (!type.empty()) {
-            line = type + ", " + line;
+        bool listed = false;
+        const auto listFeat = [this, &listed](FeatType feat) {
+            if (!listed) {
+                _text += gui(kFeatRequirementsStrRef) + ":\n";
+                listed = true;
+            }
+            _text += featName(feat) + "\n";
+        };
+        for (auto feat : feats) {
+            if (feat == FeatType::Invalid) {
+                continue;
+            }
+            if (isArmourProficiency(feat) && feat != armour) {
+                continue;
+            }
+            listFeat(feat);
         }
-        baseFacts.lines.push_back("Damage: " + line);
-    }
-
-    if (item.weaponType() != WeaponType::None && item.criticalThreat() > 0 && item.criticalHitMultiplier() > 0) {
-        std::string line("Critical Threat: " + criticalThreatRange(item));
-        if (!derived.massiveCriticals.empty()) {
-            line += " " + formatRangeBonus(derived.massiveCriticals);
+        for (const auto *property : _active) {
+            if (type(*property) == static_cast<int>(ItemProperty::UseLimitationFeat) && property->subtype != 0) {
+                listFeat(static_cast<FeatType>(property->subtype));
+            }
         }
-        baseFacts.lines.push_back(line);
+        if (listed) {
+            _text += "\n";
+        }
     }
 
-    if (item.weaponType() == WeaponType::Ranged && item.attackRange() > 0.0f) {
-        baseFacts.lines.push_back("Range: " + std::to_string(static_cast<int>(item.attackRange())) + "m");
+    void addNamedRequirements(ItemProperty kind, int headerStrRef, const std::string &tableName) {
+        if (!hasProperty(kind)) {
+            return;
+        }
+        auto names = requiredTable(tableName);
+        bool listed = false;
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(kind)) {
+                continue;
+            }
+            if (!listed) {
+                _text += gui(headerStrRef) + ":\n";
+                listed = true;
+            }
+            _text += gui(names->getInt(property->subtype, "name", -1)) + "\n";
+        }
+        if (listed) {
+            _text += "\n";
+        }
     }
 
-    if (auto maybeDefense = baseItemInt(services, item, {"baseac", "acbonus", "defbonus", "armorbonus", "armorclass"})) {
-        int defense = *maybeDefense + derived.defenseBonus;
-        derived.foldedDefenseBonus = true;
+    // Subtype 0 names the player character.
+    void addCharacterRequirements() {
+        if (!hasProperty(ItemProperty::LimitUseByPc)) {
+            return;
+        }
+        auto characters = requiredTable("iprp_pc");
+        bool listed = false;
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::LimitUseByPc)) {
+                continue;
+            }
+            if (!listed) {
+                _text += gui(kCharacterRequirementsStrRef) + ":\n";
+                listed = true;
+            }
+            _text += (property->subtype != 0 ? gui(characters->getInt(property->subtype, "name", -1))
+                                             : _game.party().playerCharacterName()) +
+                     "\n";
+        }
+        if (listed) {
+            _text += "\n";
+        }
+    }
+
+    // Once Bao-Dur has joined, the listed items name him.
+    void addPartyMemberRequirements() {
+        if (!_game.party().influence(kBaoDurNpc)) {
+            return;
+        }
+        const int baseItem = _item.baseItemType();
+        if (std::find(std::begin(kBaoDurItems), std::end(kBaoDurItems), baseItem) == std::end(kBaoDurItems)) {
+            return;
+        }
+        _text += gui(kPartyMemberRequirementsStrRef) + ":\n" + gui(kBaoDurNameStrRef) + "\n\n";
+    }
+
+    // Weapon lines
+
+    void addDamage() {
+        if (hasProperty(ItemProperty::NoDamage)) {
+            _text += gui(kDamageStrRef) + (_tsl ? ": 1\n" : ": 0\n");
+        } else {
+            // Enhancement and damage of the weapon's own kinds raise its
+            // range, damage penalties lower it. In TSL the minimum is at
+            // least 1 and a weapon without damage shows no line.
+            const int flags = _item.damageFlags();
+            int minimum = _item.numDice();
+            int maximum = _item.numDice() * _item.dieToRoll();
+            const std::string kinds(damageTypes(flags));
+            for (const auto *property : _active) {
+                switch (static_cast<ItemProperty>(type(*property))) {
+                case ItemProperty::DecreasedDamage:
+                    minimum -= property->costValue;
+                    maximum -= property->costValue;
+                    break;
+                case ItemProperty::DamageBonus:
+                    if (hasDamageType(flags, property->subtype)) {
+                        const auto [low, high] = damageRange(property->costValue);
+                        minimum += low;
+                        maximum += high;
+                    }
+                    break;
+                case ItemProperty::EnhancementBonus:
+                    minimum += property->costValue;
+                    maximum += property->costValue;
+                    break;
+                default:
+                    break;
+                }
+            }
+            if (_tsl && minimum <= 0) {
+                minimum = 1;
+            }
+            if (!_tsl || maximum != 0) {
+                _text += gui(kDamageStrRef) + ": ";
+                if (_tsl && _item.baseItemType() == kGauntletsBaseItem) {
+                    if (!kinds.empty()) {
+                        _text += kinds + " ";
+                    }
+                    _text += "+" + std::to_string(maximum) + "\n\n";
+                } else {
+                    if (!kinds.empty()) {
+                        _text += kinds + ", ";
+                    }
+                    _text += str(boost::format("%d-%d\n\n") % minimum % maximum);
+                }
+            }
+        }
+        addGroupDamage(ItemProperty::DamageBonusVsAlignmentGroup, _tsl ? "\n" : "\n\n");
+        addGroupDamage(ItemProperty::DamageBonusVsRacialGroup, "\n\n");
+        addDamageReduction();
+        addExtraDamage();
+    }
+
+    static std::string bonusRange(int minimum, int maximum) {
+        return minimum == maximum ? str(boost::format("+%d") % maximum) : str(boost::format("+%d-%d") % minimum % maximum);
+    }
+
+    // The bonuses against groups are summed into one line, named for the
+    // last of them.
+    void addGroupDamage(ItemProperty kind, const std::string &end) {
+        const Item::PropertyEntry *last = nullptr;
+        int minimum = 0;
+        int maximum = 0;
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(kind)) {
+                continue;
+            }
+            const auto [low, high] = damageRange(property->costValue);
+            minimum += low;
+            maximum += high;
+            last = property;
+        }
+        if (!last) {
+            return;
+        }
+        const auto strings = propertyStrings(static_cast<int>(kind), last->subtype, std::nullopt, last->paramValue);
+        _text += strings.param + ": " + bonusRange(minimum, maximum) + " " + gui(kVersusStrRef) + " " + strings.subtype + end;
+    }
+
+    // The amount a name ends with, as in "Penalty -2" or "Bonus +3", read
+    // with the pattern given; a name that holds none gives 0.
+    static int namedAmount(const std::string &name, const std::string &pattern) {
+        int amount = 0;
+        std::sscanf(name.c_str(), pattern.c_str(), &amount);
+        return amount;
+    }
+
+    void addDamageReduction() {
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::DamageReduction) || isOutvalued(*property)) {
+                continue;
+            }
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            const int amount = namedAmount(strings.subtype, "%*s +%d");
+            _text += strings.name + ": +" + std::to_string(amount) + " (" + strings.cost + ")\n\n";
+        }
+    }
+
+    // Damage of kinds the weapon does not deal, one entry per kind; the
+    // physical kinds count as one.
+    void addExtraDamage() {
+        const int flags = _item.damageFlags();
+        const int damageBonus = static_cast<int>(ItemProperty::DamageBonus);
+        bool listed = false;
+        for (size_t i = 0; i < _active.size(); ++i) {
+            const auto &property = *_active[i];
+            if (type(property) != damageBonus || hasDamageType(flags, property.subtype)) {
+                continue;
+            }
+            const auto strings = propertyStrings(damageBonus, property.subtype, property.costValue, std::nullopt);
+            if (!listed) {
+                _text += strings.name + ": ";
+            }
+            bool listedBefore = false;
+            int minimum = 0;
+            int maximum = 0;
+            for (size_t j = 0; j < _active.size(); ++j) {
+                const auto &other = *_active[j];
+                if (type(other) != damageBonus) {
+                    continue;
+                }
+                if (other.subtype != property.subtype &&
+                    (property.subtype > kLastPhysicalDamageSubtype || other.subtype > kLastPhysicalDamageSubtype))
+                    continue;
+                if (j < i) {
+                    listedBefore = true;
+                    break;
+                }
+                const auto [low, high] = damageRange(other.costValue);
+                minimum += low;
+                maximum += high;
+            }
+            if (listedBefore) {
+                continue;
+            }
+            const std::string kind(property.subtype <= kLastPhysicalDamageSubtype ? gui(kPhysicalDamageStrRef) : strings.subtype);
+            if (listed) {
+                _text += ", ";
+            }
+            _text += bonusRange(minimum, maximum) + " " + kind;
+            listed = true;
+        }
+        if (listed) {
+            _text += "\n\n";
+        }
+    }
+
+    void addRange() {
+        if (!_item.isRanged()) {
+            return;
+        }
+        _text += str(boost::format("%s: %dm\n") % gui(kRangeStrRef) % static_cast<int>(_item.attackRange())) + "\n";
+    }
+
+    // Keen doubles the threat range; massive criticals add their damage. In
+    // KotOR only the highest of a subtype counts.
+    void addCriticalThreat() {
+        _text += gui(kCriticalThreatStrRef) + ":\n";
+        int threat = _item.criticalThreat();
+        if (hasProperty(ItemProperty::Keen)) {
+            threat *= 2;
+        }
+        int minimum = 0;
+        int maximum = 0;
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::MassiveCriticals) || (!_tsl && isOutvalued(*property))) {
+                continue;
+            }
+            const auto [low, high] = damageRange(property->costValue);
+            minimum += low;
+            maximum += high;
+        }
+        if (minimum != 0 || maximum != 0) {
+            _text += str(boost::format("%d-20,x%d +%d-%d\n") % (21 - threat) % _item.criticalHitMultiplier() % minimum % maximum);
+        } else {
+            _text += str(boost::format("%d-20,x%d\n") % (21 - threat) % _item.criticalHitMultiplier());
+        }
+        _text += "\n";
+    }
+
+    void addOnHit() {
+        const int onHitKind = static_cast<int>(ItemProperty::OnHitProperties);
+        const int lastEffect = _tsl ? kOnHitKnockdown : kOnHitInstantDeath;
+        for (const auto *property : _active) {
+            if (type(*property) != onHitKind || property->subtype > lastEffect) {
+                continue;
+            }
+            const auto effect = propertyStrings(onHitKind, property->subtype, std::nullopt, std::nullopt);
+            const std::string prefix(gui(kOnHitStrRef) + ": ");
+            switch (property->subtype) {
+            case kOnHitAbilityDrain:
+            case kOnHitSlayRacialGroup:
+            case kOnHitSlayAlignmentGroup: {
+                _text += prefix + effect.subtype + " ";
+                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue);
+                _text += strings.param + " " + strings.cost + "\n\n";
+                break;
+            }
+            case kOnHitPoison: {
+                _text += prefix;
+                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue);
+                const int difficulty = requiredTable("poison")->getInt(property->paramValue, "dc_save");
+                _text += strings.param + " " + gui(difficultyClassStrRef()) + " " + std::to_string(difficulty) + "\n\n";
+                break;
+            }
+            case kOnHitInstantDeath: {
+                _text += prefix + effect.subtype + " ";
+                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue);
+                _text += ", " + strings.cost + "\n\n";
+                break;
+            }
+            case kOnHitKnockdown: {
+                _text += prefix + effect.subtype + " ";
+                const auto odds = onHitOdds(property->costValue, property->paramValue);
+                _text += str(boost::format("%s %d\n\n") % gui(difficultyClassStrRef()) % odds.difficulty);
+                break;
+            }
+            default: {
+                _text += prefix + effect.subtype + " ";
+                const auto odds = onHitOdds(property->costValue, property->paramValue);
+                _text += str(boost::format("%d%% %s, %d %s, %s %d\n\n") % odds.chance % gui(kChanceStrRef) %
+                             (odds.durationRounds * kSecondsPerRound) % gui(kDurationStrRef) %
+                             gui(difficultyClassStrRef()) % odds.difficulty);
+                break;
+            }
+            }
+        }
+    }
+
+    void addWeaponSize() {
+        if (_item.weaponSize() == CreatureSize::Small) {
+            _text += gui(kOffHandStrRef) + "\n\n";
+        }
+    }
+
+    // Attack and defence
+
+    void addAttackModifier() {
+        int total = 0;
+        for (const auto *property : _active) {
+            switch (static_cast<ItemProperty>(type(*property))) {
+            case ItemProperty::EnhancementBonus:
+            case ItemProperty::AttackBonus:
+                total += property->costValue;
+                break;
+            case ItemProperty::AttackPenalty:
+            case ItemProperty::DecreasedAttackModifier:
+                total -= property->costValue;
+                break;
+            default:
+                break;
+            }
+        }
+        // TSL gauntlets say the modifier is for unarmed attacks.
+        const std::string suffix(_tsl && _item.baseItemType() == kGauntletsBaseItem
+                                     ? _services.resource.strings.getText(kUnarmedAttackSuffixStrRef)
+                                     : std::string());
+        // A nonzero total is written with its sign.
+        if (total != 0) {
+            _text += str(boost::format("%s: %+d%s\n") % gui(kAttackModifierStrRef) % total % suffix);
+        }
+        static constexpr ItemProperty kVersusKinds[] {
+            ItemProperty::EnhancementBonusVsAlignmentGroup,
+            ItemProperty::EnhancementBonusVsRacialGroup,
+            ItemProperty::AttackBonusVsAlignmentGroup,
+            ItemProperty::AttackBonusVsRacialGroup};
+        if (std::any_of(std::begin(kVersusKinds), std::end(kVersusKinds), [this](ItemProperty kind) { return hasProperty(kind); })) {
+            if (total == 0) {
+                _text += gui(kAttackModifierStrRef) + ": ";
+            }
+            for (auto kind : kVersusKinds) {
+                addAttackBonuses(static_cast<int>(kind));
+            }
+        }
+        _text += "\n";
+    }
+
+    // One line per subtype; the running sum carries over from one subtype
+    // to the next.
+    void addAttackBonuses(int kind) {
+        int sum = 0;
+        for (size_t i = 0; i < _active.size(); ++i) {
+            const auto &property = *_active[i];
+            if (type(property) != kind) {
+                continue;
+            }
+            bool listedBefore = false;
+            for (size_t j = 0; j < _active.size(); ++j) {
+                const auto &other = *_active[j];
+                if (type(other) != kind || other.subtype != property.subtype) {
+                    continue;
+                }
+                if (j < i) {
+                    listedBefore = true;
+                    break;
+                }
+                sum += other.costValue;
+            }
+            if (listedBefore) {
+                continue;
+            }
+            const auto strings = propertyStrings(kind, property.subtype, property.costValue, std::nullopt);
+            _text += "+" + std::to_string(sum) + " " + gui(kVersusStrRef) + " " + strings.subtype + "\n";
+        }
+    }
+
+    void addDefense() {
+        // Armour bonuses stack unless the base item's defence is enchantment
+        // of a kind, where only the highest of a subtype counts; the first
+        // defence penalty counts when it is the highest of its subtype.
+        int defense = _item.baseDefense();
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::AcBonus)) {
+                continue;
+            }
+            if (_item.acBonusType() != ACBonus::Dodge && isOutvalued(*property)) {
+                continue;
+            }
+            defense += property->costValue;
+        }
+        if (hasProperty(ItemProperty::DecreasedAc)) {
+            const auto &properties = _item.properties();
+            auto penalty = std::find_if(properties.begin(), properties.end(), [](const Item::PropertyEntry &property) {
+                return type(property) == static_cast<int>(ItemProperty::DecreasedAc);
+            });
+            if (_item.isPropertyActive(*penalty) && !isOutvalued(*penalty)) {
+                defense -= penalty->costValue;
+            }
+        }
         if (defense != 0) {
-            baseFacts.lines.push_back("Defense Bonus: " + formatSignedInt(defense));
+            _text += gui(kDefenseStrRef) + ": " + str(boost::format("%d\n") % defense) + "\n";
         }
-    }
 
-    if (isBalancedWeapon(services, item)) {
-        baseFacts.lines.push_back("Balanced: +2/+0 vs. two-weapon penalty if used in the off hand");
-    }
-
-    sections.push_back(std::move(baseFacts));
-}
-
-static void addPropertyLine(Section &section, const std::string &line) {
-    if (!line.empty()) {
-        section.lines.push_back(line);
-    }
-}
-
-static bool addSignedCost(ServicesView &services, const Item::PropertyEntry &property, int &target, bool positive = true) {
-    auto maybeValue = propertyCostInt(services, property);
-    if (!maybeValue) {
-        return false;
-    }
-    target += positive ? *maybeValue : -*maybeValue;
-    return true;
-}
-
-static void addDamageBonus(DerivedProperties &derived, const std::string &damageType, const RangeBonus &bonus) {
-    if (damageType.empty()) {
-        return;
-    }
-    derived.damageBonuses[damageType].add(bonus);
-}
-
-static void addAggregatedPropertyLines(const DerivedProperties &derived, std::vector<Section> &sections) {
-    Section scalar {""};
-
-    if (derived.attackModifier != 0) {
-        scalar.lines.push_back("Attack Modifier: " + formatSignedInt(derived.attackModifier));
-    }
-
-    if (!derived.foldedDefenseBonus && derived.defenseBonus != 0) {
-        scalar.lines.push_back("Defense Bonus: " + formatSignedInt(derived.defenseBonus));
-    }
-
-    if (derived.blasterBoltDeflection != 0) {
-        scalar.lines.push_back("Blaster Bolt Deflection: " + formatSignedInt(derived.blasterBoltDeflection));
-    }
-
-    for (auto &bonus : derived.damageBonuses) {
-        if (derived.foldedDamageTypes.count(bonus.first) > 0 || bonus.second.empty()) {
-            continue;
+        // The Dexterity limit, with TSL's adjustments; an item without one
+        // shows its adjustment alone, if any.
+        if (_item.itemType() != kDroidPlatingItemType) {
+            const int limit = _item.maxDexterityBonus();
+            const int adjustment = _item.maxDexterityBonusAdjustment();
+            std::optional<int> shown;
+            if (limit != kNoDexterityLimit) {
+                shown = limit + adjustment;
+            } else if (adjustment != 0) {
+                shown = adjustment;
+            }
+            if (shown) {
+                _text += gui(kMaxDexterityBonusStrRef) + ": +" + std::to_string(*shown) + "\n\n";
+            }
         }
-        scalar.lines.push_back("Damage Bonus: " + bonus.first + " " + formatRangeBonus(bonus.second));
-    }
 
-    for (auto &bonus : derived.attributeBonuses) {
-        std::string name(abilityName(bonus.first));
-        if (!name.empty() && bonus.second != 0) {
-            scalar.lines.push_back(name + ": " + formatSignedInt(bonus.second));
-        }
-    }
-
-    sections.push_back(std::move(scalar));
-}
-
-static void addProperties(ServicesView &services, const Item &item, DerivedProperties &derived, std::vector<Section> &sections) {
-    Section requirements {"Requirements / Restrictions"};
-    Section attack {"Attack Modifier"};
-    Section damageBonus {"Damage Bonus"};
-    Section damageResistance {"Damage Resistance"};
-    Section damageImmunity {"Damage Immunity"};
-    Section immunity {"Immunity"};
-    Section saves {"Saves"};
-    Section skills {"Skills"};
-    Section attributes {"Attributes"};
-    Section regeneration {"Regeneration"};
-    Section featsGranted {"Feats Granted"};
-    Section activateItem {"Activate Item"};
-    Section onHit {""};
-    Section special {"Special / Properties"};
-
-    for (auto &property : item.properties()) {
-        ItemProperty type = static_cast<ItemProperty>(property.propertyName);
-        switch (type) {
-        case ItemProperty::AbilityBonus:
-        case ItemProperty::DecreasedAbilityScore: {
-            auto maybeValue = propertyCostInt(services, property);
-            if (maybeValue) {
-                derived.attributeBonuses[property.subtype] += type == ItemProperty::AbilityBonus ? *maybeValue : -*maybeValue;
+        for (const auto *property : _active) {
+            const auto kind = static_cast<ItemProperty>(type(*property));
+            const bool versus = kind == ItemProperty::AcBonusVsAlignmentGroup ||
+                                kind == ItemProperty::AcBonusVsDamageType ||
+                                kind == ItemProperty::AcBonusVsRacialGroup;
+            const bool protection = kind == ItemProperty::ImmunityDamageType || kind == ItemProperty::DamageResistance;
+            if ((!versus && !protection) || isOutvalued(*property)) {
+                continue;
+            }
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            if (versus) {
+                _text += "+" + strings.cost + " " + gui(kVersusStrRef) + " " + strings.subtype + "\n\n";
             } else {
-                addPropertyLine(attributes, propertyDetailLine(services, property, true, type == ItemProperty::AbilityBonus));
+                _text += strings.name + ": " + strings.cost + " " + gui(kVersusStrRef) + " " + strings.subtype + "\n\n";
             }
-            break;
         }
-        case ItemProperty::AcBonus:
-        case ItemProperty::DecreasedAc:
-            if (!addSignedCost(services, property, derived.defenseBonus, type != ItemProperty::DecreasedAc)) {
-                addPropertyLine(sectionByTitle(sections, "Defense Bonus"), propertyDetailLine(services, property, true, type != ItemProperty::DecreasedAc));
+    }
+
+    // Miscellaneous lines
+
+    // The uses a charged or daily cast-spell property has left.
+    int usesLeft(const Item::PropertyEntry &property) const {
+        const int charges = _item.charges();
+        const int mode = property.costValue;
+        if (!property.usable) {
+            return 0;
+        }
+        if (mode == Item::kSingleUse) {
+            return _item.stackSize();
+        }
+        if (Item::isChargedUse(mode)) {
+            return charges > 0 ? charges / Item::chargesPerUse(mode) : 0;
+        }
+        // A daily property always has its uses left recorded.
+        if (Item::isDailyUse(mode)) {
+            return *property.usesPerDay;
+        }
+        if (Item::isTimedUse(mode)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    // The whole an Activate Item property's uses left are shown out of: the
+    // full charges divided by the charges a use costs, except that two or
+    // one charges a use show the full charges; the uses a day of a daily
+    // property; one use of a timed one; none, shown as unlimited, otherwise.
+    void addUses() {
+        const int maximum = _item.maxCharges();
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::ActivateItem)) {
+                continue;
             }
-            break;
-        case ItemProperty::AcBonusVsAlignmentGroup:
-        case ItemProperty::AcBonusVsDamageType:
-        case ItemProperty::AcBonusVsRacialGroup:
-            addPropertyLine(sectionByTitle(sections, "Defense Bonus"), propertyDetailLine(services, property, true));
-            break;
-        case ItemProperty::EnhancementBonus:
-        case ItemProperty::AttackBonus:
-        case ItemProperty::AttackPenalty:
-        case ItemProperty::DecreasedAttackModifier:
-            if (!addSignedCost(
-                    services,
-                    property,
-                    derived.attackModifier,
-                    type != ItemProperty::AttackPenalty && type != ItemProperty::DecreasedAttackModifier)) {
-                addPropertyLine(attack, propertyDetailLine(
-                                            services,
-                                            property,
-                                            true,
-                                            type != ItemProperty::AttackPenalty && type != ItemProperty::DecreasedAttackModifier));
+            const int mode = property->costValue;
+            if (mode == Item::kSingleUse) {
+                _text += gui(kSingleUseStrRef) + "\n\n";
+                continue;
             }
-            break;
-        case ItemProperty::EnhancementBonusVsAlignmentGroup:
-        case ItemProperty::EnhancementBonusVsRacialGroup:
-        case ItemProperty::AttackBonusVsAlignmentGroup:
-        case ItemProperty::AttackBonusVsRacialGroup:
-            addPropertyLine(attack, propertyDetailLine(services, property, true));
-            break;
-        case ItemProperty::DamageBonus:
-        case ItemProperty::ExtraMeleeDamageType:
-        case ItemProperty::ExtraRangedDamageType: {
-            std::string damageType(resolveSubtype(services, property));
-            auto maybeBonus = propertyCostRange(services, property);
-            if (!damageType.empty() && maybeBonus) {
-                addDamageBonus(derived, damageType, *maybeBonus);
+            int uses = 0;
+            if (Item::isChargedUse(mode)) {
+                uses = Item::chargesPerUse(mode) > 2 ? maximum / Item::chargesPerUse(mode) : maximum;
+            } else if (Item::isDailyUse(mode)) {
+                uses = mode - Item::kOneUsePerDay + 1;
+            } else if (Item::isTimedUse(mode)) {
+                uses = 1;
+            }
+            _text += gui(kUsesStrRef) + ": ";
+            if (uses != 0) {
+                _text += str(boost::format("%d/%d\n") % usesLeft(*property) % uses) + "\n";
             } else {
-                addPropertyLine(damageBonus, propertyDetailLine(services, property, true));
+                _text += gui(kUnlimitedUsesStrRef) + "\n\n";
             }
-            break;
         }
-        case ItemProperty::MassiveCriticals: {
-            auto maybeBonus = propertyCostRange(services, property);
-            if (maybeBonus) {
-                derived.massiveCriticals.add(*maybeBonus);
+    }
+
+    void addImmunities() {
+        if (!hasProperty(ItemProperty::Immunity)) {
+            return;
+        }
+        int count = 0;
+        for (const auto *property : _active) {
+            if (type(*property) != static_cast<int>(ItemProperty::Immunity)) {
+                continue;
+            }
+            const auto strings = propertyStrings(type(*property), property->subtype, std::nullopt, std::nullopt);
+            if (count == 0) {
+                _text += strings.name + ": ";
+            }
+            if (count > 0) {
+                _text += ", ";
+            }
+            _text += strings.subtype;
+            ++count;
+        }
+        _text += "\n\n";
+    }
+
+    void addSaves() {
+        if (!hasProperty(ItemProperty::ImprovedSavingThrow) && !hasProperty(ItemProperty::DecreasedSavingThrows) &&
+            !hasProperty(ItemProperty::ImprovedSavingThrowSpecific) && !hasProperty(ItemProperty::DecreasedSavingThrowsSpecific)) {
+            return;
+        }
+        _text += gui(kSavesStrRef) + ": ";
+        int count = 0;
+        for (const auto *property : _active) {
+            if (isOutvalued(*property)) {
+                continue;
+            }
+            const auto kind = static_cast<ItemProperty>(type(*property));
+            const bool bonus = kind == ItemProperty::ImprovedSavingThrow || kind == ItemProperty::ImprovedSavingThrowSpecific;
+            const bool penalty = kind == ItemProperty::DecreasedSavingThrows || kind == ItemProperty::DecreasedSavingThrowsSpecific;
+            if (!bonus && !penalty) {
+                continue;
+            }
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            if (count > 0) {
+                _text += ", ";
+            }
+            if (bonus) {
+                _text += strings.subtype + " +" + strings.cost;
             } else {
-                addPropertyLine(damageBonus, propertyDetailLine(services, property, true));
+                _text += strings.subtype + " -" + std::to_string(namedAmount(strings.cost, "%*s -%d"));
             }
-            break;
+            ++count;
         }
-        case ItemProperty::DamageBonusVsAlignmentGroup:
-        case ItemProperty::DamageBonusVsRacialGroup:
-        case ItemProperty::MonsterDamage:
-            addPropertyLine(damageBonus, propertyDetailLine(services, property, true));
-            break;
-        case ItemProperty::ImmunityDamageType:
-            addPropertyLine(damageImmunity, propertyDetailLine(services, property));
-            break;
-        case ItemProperty::DamageReduction:
-        case ItemProperty::DamageResistance:
-            addPropertyLine(damageResistance, propertyDetailLine(services, property));
-            break;
-        case ItemProperty::Immunity:
-            addPropertyLine(immunity, propertyDetailLine(services, property));
-            break;
-        case ItemProperty::ImprovedSavingThrow:
-        case ItemProperty::ImprovedSavingThrowSpecific:
-        case ItemProperty::DecreasedSavingThrows:
-        case ItemProperty::DecreasedSavingThrowsSpecific:
-            addPropertyLine(saves, propertyDetailLine(
-                                       services,
-                                       property,
-                                       true,
-                                       type != ItemProperty::DecreasedSavingThrows && type != ItemProperty::DecreasedSavingThrowsSpecific));
-            break;
-        case ItemProperty::SkillBonus: {
-            std::string line(skillName(services, property.subtype));
-            std::string value(resolveCost(services, property));
-            if (!line.empty() && !value.empty()) {
-                line += ": " + signedValue(value);
+        _text += "\n\n";
+    }
+
+    void addSkills() {
+        if (!hasProperty(ItemProperty::SkillBonus) && !hasProperty(ItemProperty::DecreasedSkillModifier)) {
+            return;
+        }
+        _text += gui(kSkillsStrRef) + ": ";
+        int count = 0;
+        for (const auto *property : _active) {
+            const auto kind = static_cast<ItemProperty>(type(*property));
+            if ((kind != ItemProperty::SkillBonus && kind != ItemProperty::DecreasedSkillModifier) || isOutvalued(*property)) {
+                continue;
             }
-            addPropertyLine(skills, !line.empty() ? line : propertyDetailLine(services, property, true));
-            break;
-        }
-        case ItemProperty::DecreasedSkillModifier:
-            addPropertyLine(skills, propertyDetailLine(services, property, true, false));
-            break;
-        case ItemProperty::Regeneration:
-        case ItemProperty::RegenerationForcePoints:
-            addPropertyLine(regeneration, propertyDetailLine(services, property, true));
-            break;
-        case ItemProperty::BonusFeat: {
-            std::string name(featName(services, property.subtype));
-            addPropertyLine(featsGranted, !name.empty() ? name : propertyDetailLine(services, property));
-            break;
-        }
-        case ItemProperty::ActivateItem: {
-            auto spell = services.game.spells.get(static_cast<SpellType>(property.subtype));
-            if (spell && !spell->name.empty()) {
-                addPropertyLine(activateItem, spell->name);
-            } else {
-                addPropertyLine(activateItem, propertyDetailLine(services, property));
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            if (count > 0) {
+                _text += ", ";
             }
-            break;
+            _text += strings.subtype + " " + penaltyOrCost(kind == ItemProperty::DecreasedSkillModifier, strings.cost);
+            ++count;
         }
-        case ItemProperty::OnHitProperties:
-        case ItemProperty::OnMonsterHit:
-            addPropertyLine(onHit, "On Hit: " + propertyDetailLine(services, property));
-            break;
-        case ItemProperty::BlasterBoltDeflectIncrease:
-        case ItemProperty::BlasterBoltDeflectDecrease:
-            if (!addSignedCost(services, property, derived.blasterBoltDeflection, type == ItemProperty::BlasterBoltDeflectIncrease)) {
-                addPropertyLine(special, fallbackPropertyLine(services, property));
+        _text += "\n\n";
+    }
+
+    /**
+     * The cost text of a bonus or penalty. KotOR shows a penalty as "-N",
+     * with N read from its cost name; TSL shows the cost name.
+     */
+    std::string penaltyOrCost(bool penalty, const std::string &cost) const {
+        if (penalty && !_tsl) {
+            return "-" + std::to_string(namedAmount(cost, "%*s -%d"));
+        }
+        return cost;
+    }
+
+    /**
+     * The title of a deflection line: the part of the property name before
+     * its colon, followed by ": ". A name without a colon is used whole.
+     */
+    static std::string deflectionTitle(const std::string &name) {
+        const size_t colon = name.find(':');
+        return colon != std::string::npos ? name.substr(0, colon) + ": " : name;
+    }
+
+    // TSL sums the deflection bonuses and penalties; the line is titled with
+    // the part of the first property's name before its colon.
+    void addDeflection() {
+        if (!hasProperty(ItemProperty::BlasterBoltDeflectIncrease) && !hasProperty(ItemProperty::BlasterBoltDeflectDecrease)) {
+            return;
+        }
+        bool titled = false;
+        int total = 0;
+        for (const auto *property : _active) {
+            const auto kind = static_cast<ItemProperty>(type(*property));
+            if (kind != ItemProperty::BlasterBoltDeflectIncrease && kind != ItemProperty::BlasterBoltDeflectDecrease) {
+                continue;
             }
-            break;
-        case ItemProperty::UseLimitationAlignmentGroup:
-        case ItemProperty::UseLimitationClass:
-        case ItemProperty::UseLimitationRacialType:
-        case ItemProperty::UseLimitationFeat:
-        case ItemProperty::LimitUseByGender:
-        case ItemProperty::LimitUseBySubrace:
-        case ItemProperty::LimitUseByPc:
-            addPropertyLine(requirements, fallbackPropertyLine(services, property));
-            break;
-        default:
-            addPropertyLine(special, fallbackPropertyLine(services, property));
-            break;
-        }
-    }
-
-    sections.insert(sections.begin(), std::move(requirements));
-    sections.push_back(std::move(attack));
-    sections.push_back(std::move(damageBonus));
-    sections.push_back(std::move(damageResistance));
-    sections.push_back(std::move(damageImmunity));
-    sections.push_back(std::move(immunity));
-    sections.push_back(std::move(saves));
-    sections.push_back(std::move(skills));
-    sections.push_back(std::move(attributes));
-    sections.push_back(std::move(regeneration));
-    sections.push_back(std::move(featsGranted));
-    sections.push_back(std::move(activateItem));
-    sections.push_back(std::move(onHit));
-    sections.push_back(std::move(special));
-}
-
-static bool shouldUseHeader(const Section &section) {
-    if (section.title.empty()) {
-        return false;
-    }
-    if (section.title == "Description") {
-        return true;
-    }
-    if (section.title == "Feats Required" ||
-        section.title == "Requirements / Restrictions" ||
-        section.title == "Skills" ||
-        section.title == "Attributes" ||
-        section.title == "Feats Granted" ||
-        section.title == "On Hit" ||
-        section.title == "Special / Properties") {
-        return true;
-    }
-    return section.lines.size() > 1;
-}
-
-static void appendSection(std::vector<std::string> &result, const Section &section) {
-    if (section.lines.empty()) {
-        return;
-    }
-    if (!result.empty()) {
-        result.push_back("");
-    }
-
-    if (section.title.empty()) {
-        for (auto &line : section.lines) {
-            if (!result.empty() && !result.back().empty()) {
-                result.push_back("");
+            if (!titled) {
+                const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+                const size_t colon = strings.name.find(':');
+                if (colon != std::string::npos) {
+                    _text += strings.name.substr(0, colon) + ": " + " ";
+                }
+                titled = true;
             }
-            result.push_back(line);
+            total += kind == ItemProperty::BlasterBoltDeflectIncrease ? property->costValue : -property->costValue;
         }
-        return;
+        if (total > 0) {
+            _text += "+";
+        }
+        _text += std::to_string(total) + "\n\n";
     }
 
-    if (shouldUseHeader(section)) {
-        result.push_back(section.title == "Description" ? section.title : section.title + ":");
-        result.insert(result.end(), section.lines.begin(), section.lines.end());
-        return;
+    void addOtherProperties() {
+        for (const auto *property : _active) {
+            const int kind = type(*property);
+            switch (static_cast<ItemProperty>(kind)) {
+            case ItemProperty::AbilityBonus:
+            case ItemProperty::DecreasedAbilityScore: {
+                if (isOutvalued(*property)) {
+                    break;
+                }
+                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
+                _text += strings.subtype + ": " + penaltyOrCost(kind == static_cast<int>(ItemProperty::DecreasedAbilityScore), strings.cost) + "\n\n";
+                break;
+            }
+            // KotOR lists each deflection property among the others.
+            case ItemProperty::BlasterBoltDeflectIncrease:
+            case ItemProperty::BlasterBoltDeflectDecrease: {
+                if (_tsl || isOutvalued(*property)) {
+                    break;
+                }
+                const auto strings = propertyStrings(kind, std::nullopt, property->costValue, std::nullopt);
+                if (kind == static_cast<int>(ItemProperty::BlasterBoltDeflectIncrease)) {
+                    _text += deflectionTitle(strings.name) + "+" + std::to_string(property->costValue) + "\n\n";
+                } else {
+                    _text += deflectionTitle(strings.name) + " -" + std::to_string(namedAmount(strings.cost, "%*s -%d")) + "\n\n";
+                }
+                break;
+            }
+            case ItemProperty::BonusFeat: {
+                const auto strings = propertyStrings(kind, property->subtype, std::nullopt, std::nullopt);
+                _text += strings.name + ": " + strings.subtype + "\n\n";
+                break;
+            }
+            case ItemProperty::DamageVulnerability: {
+                if (isOutvalued(*property)) {
+                    break;
+                }
+                const auto strings = propertyStrings(kind, property->subtype, std::nullopt, std::nullopt);
+                const auto odds = onHitOdds(property->costValue, property->paramValue);
+                _text += gui(kVulnerabilityStrRef) + ": " +
+                         str(boost::format("%d%% %s, %d%s ") % odds.chance % gui(kChanceStrRef) %
+                             (odds.durationRounds * kSecondsPerRound) % gui(kDurationStrRef)) +
+                         gui(kVersusStrRef) + " " + strings.subtype + "\n\n";
+                break;
+            }
+            case ItemProperty::ImprovedForceResistance: {
+                if (isOutvalued(*property)) {
+                    break;
+                }
+                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
+                _text += gui(kForceResistanceStrRef) + ": +" + std::to_string(namedAmount(strings.cost, "%*s %d")) + "\n\n";
+                break;
+            }
+            case ItemProperty::Light:
+            case ItemProperty::TrueSeeing:
+            case ItemProperty::FreedomOfMovement:
+                _text += propertyStrings(kind, std::nullopt, std::nullopt, std::nullopt).name + "\n\n";
+                break;
+            case ItemProperty::UseLimitationAlignmentGroup:
+            case ItemProperty::UseLimitationClass:
+                _text += gui(kUseLimitationStrRef) + ": " +
+                         propertyStrings(kind, property->subtype, std::nullopt, std::nullopt).subtype + "\n\n";
+                break;
+            case ItemProperty::Regeneration:
+            case ItemProperty::RegenerationForcePoints: {
+                if (isOutvalued(*property)) {
+                    break;
+                }
+                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
+                _text += strings.name + ": " + strings.cost + "\n\n";
+                break;
+            }
+            default:
+                break;
+            }
+        }
     }
-
-    if (section.lines.size() == 1) {
-        result.push_back(section.title + ": " + section.lines.front());
-        return;
-    }
-
-    result.push_back(section.title + ":");
-    result.insert(result.end(), section.lines.begin(), section.lines.end());
-}
+};
 
 } // namespace
 
-std::vector<std::string> buildItemDescriptionLines(const Item &item, ServicesView &services) {
-    std::vector<std::string> result;
-    if (!item.localizedName().empty()) {
-        result.push_back(item.localizedName());
-    }
-
-    std::vector<Section> sections;
-    DerivedProperties derived;
-    std::vector<Section> propertySections;
-
-    // Upgradeable host templates can carry candidate/component properties in PropertiesList.
-    // Installed-upgrade-derived display needs active upgrade state, which Item does not expose yet.
-    bool renderProperties = !hasUpgradeHostMetadata(item);
-    if (renderProperties) {
-        addProperties(services, item, derived, propertySections);
-    }
-
-    addBaseFacts(services, item, derived, sections);
-
-    if (!propertySections.empty() && propertySections.front().title == "Requirements / Restrictions") {
-        auto insertPos = sections.size() > 1 ? sections.begin() + 1 : sections.end();
-        sections.insert(insertPos, std::move(propertySections.front()));
-        propertySections.erase(propertySections.begin());
-    }
-    if (renderProperties) {
-        addAggregatedPropertyLines(derived, sections);
-        sections.insert(
-            sections.end(),
-            std::make_move_iterator(propertySections.begin()),
-            std::make_move_iterator(propertySections.end()));
-    }
-
-    for (auto &section : sections) {
-        appendSection(result, section);
-    }
-
-    std::string description(itemDescriptionText(item));
-    if (!description.empty()) {
-        appendSection(result, {"Description", {description}});
-    }
-
-    return result;
-}
-
-std::string joinItemDescriptionLines(const std::vector<std::string> &lines) {
-    std::string result;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        if (i > 0) {
-            result += "\n";
-        }
-        result += lines[i];
-    }
-    return result;
+std::string buildItemDescription(const Item &item, const Game &game, ServicesView &services) {
+    return ItemDescriptionBuilder(item, game, services).build();
 }
 
 } // namespace game

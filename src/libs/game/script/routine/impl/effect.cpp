@@ -434,6 +434,13 @@ static Variable EffectVisualEffect(const std::vector<Variable> &args, const Rout
 
     // Transform
     bool missEffect = static_cast<bool>(nMissEffect);
+    // In TSL the distortion visual is shown as the stealth field, as with
+    // frame-buffer effects off; the effect then carries the stealth field's id.
+    static constexpr int kDistortionVisual = 8000;
+    static constexpr int kStealthFieldVisual = 8002;
+    if (ctx.game.isTSL() && nVisualEffectId == kDistortionVisual) {
+        nVisualEffectId = kStealthFieldVisual;
+    }
 
     // Execute
     auto effect = ctx.game.newEffect<VisualEffect>(nVisualEffectId, missEffect, ctx.services);

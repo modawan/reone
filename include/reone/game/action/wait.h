@@ -38,6 +38,8 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved Wait command: the seconds left. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     Timer _timer;

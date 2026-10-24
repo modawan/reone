@@ -23,19 +23,16 @@ namespace reone {
 
 namespace game {
 
+/** Drains Force points: the amount is integer 0. */
 class ForceDrainEffect : public CopyableEffect<ForceDrainEffect> {
 public:
     ForceDrainEffect(int damage) :
-        CopyableEffect(EffectType::ForceDrain),
-        _damage(damage) {
+        CopyableEffect(EffectType::ForceDrain) {
         setSaveFacingInteger(0, damage);
     }
 
     /** Drains the Force pool at once; nothing is retained. */
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-
-private:
-    int _damage;
 };
 
 } // namespace game

@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <array>
+#include <functional>
+#include <optional>
+
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/progressbar.h"
@@ -52,10 +56,17 @@ public:
     void update(float dt) override;
     void render() override;
     void renderModal();
+    /** Click the pause, solo and stealth toggles like checkboxes; an action slot sounds its own outcome. */
+    void onClick(const std::string &control) override;
 
     BarkBubble &barkBubble() const { return *_barkBubble; }
 
-    void activateStatusSummaryIndicator(StatusSummaryCategory category);
+    /**
+     * Flash a status row's indicator on the main interface for four seconds.
+     * Plot and stealth experience share a place, as do the dark and light
+     * side shifts: flashing one takes the other away.
+     */
+    void flashStatus(StatusSummaryCategory category);
     /**
      * Present a combat-mode line. Idle and status lines stay until replaced;
      * any other line fades out, after which the idle line returns. A fading
@@ -63,6 +74,8 @@ public:
      */
     void setCombatMessage(int strref);
     void resetStatusSummaryPresentation();
+    /** End the action bar's choice of a party member to use an item on. */
+    void cancelPartyItemTarget() { _actionBar.cancelPartyItemTarget(); }
 
     /** Exposes representative HUD state for the scripted gallery fixture. */
     void showCapturePresentation(bool combat);
@@ -168,24 +181,47 @@ private:
         std::shared_ptr<gui::ToggleButton> TB_STEALTH;
     };
 
+    /** The controls of the paused-play indicator. */
+    struct PauseControls {
+        std::shared_ptr<gui::Button> BTN_UNPAUSE;
+        std::shared_ptr<gui::Label> LBL_PAUSEREASON;
+        std::shared_ptr<gui::Label> LBL_PRESS;
+    };
+
     Controls _controls;
+
+    /** The paused-play indicator, a non-modal panel under the menu bar. */
+    std::shared_ptr<gui::IGUI> _pauseGUI;
+    PauseControls _pauseControls;
+    /** The pause reason the indicator is laid out for; none while it is hidden. */
+    std::optional<PauseReason> _pauseLayoutReason;
 
     SelectionOverlay _select;
     ActionBar _actionBar;
     std::unique_ptr<BarkBubble> _barkBubble;
     std::unique_ptr<StatusSummary> _statusSummary;
     std::unique_ptr<AreaTransition> _areaTransition;
-    StatusSummaryIndicator _journalIndicator;
-    StatusSummaryIndicator _plotXPIndicator;
+    /** The flash of each status row's indicator on the main interface. */
+    std::array<StatusSummaryIndicator, kStatusSummaryCategoryCount> _statusFlashes;
     /** The time the shown combat-mode line lasts and the time it has left; zero for a line that stays. */
     float _combatMessageDuration {0.0f};
     float _combatMessageRemaining {0.0f};
+    /** The line last shown on the combat line. */
+    int _combatMessageStrref {0};
     bool _capturePresentation {false};
     bool _captureCombatPresentation {false};
     bool _captureTransitionPresentation {false};
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
+    /** The main-interface indicator of a status row; the net shift and the influence and Force rows have none. */
+    std::optional<std::reference_wrapper<gui::Label>> statusFlashLabel(StatusSummaryCategory category) const;
+    /**
+     * TSL: a summary whose light and dark side shifts differ plays the
+     * winning side's sting, and the player character, when leading, shows
+     * that side's visual.
+     */
+    void presentAlignmentShift(const StatusSummaryBatch &batch);
 
     void bindControls() {
         _controls.BTN_ABI = findControl<gui::Button>("BTN_ABI");
@@ -281,13 +317,33 @@ private:
         _controls.TB_STEALTH = findControl<gui::ToggleButton>("TB_STEALTH");
     }
 
+    void loadPausePanel();
+    /** Lay the indicator out again whenever the pause reason changes, and hide it when play resumes. */
+    void updatePausePanel(float dt);
+    /** Size the indicator to the text of \p reason and place it under the menu bar's right end. */
+    void layoutPausePanel(PauseReason reason);
+    /** Play is paused for a reason the indicator shows. */
+    bool isPausePanelShown() const;
+
+    /**
+     * The index of the party member portrait \p portrait shows: a party of
+     * two shows its companion in the third portrait and leaves the second
+     * empty. None for an empty portrait.
+     */
+    std::optional<int> portraitMemberIndex(int portrait) const;
+    /** TSL: build the box the action bar's announcements and prompts show in. */
+    void loadNoticeBox();
+
     void toggleCombat(bool enabled);
     /** Fade the shown timed combat-mode line, then bring back the idle line. */
     void updateCombatMessage(float dt);
+    /** Show the leader's queued orders and pending round entries in the action queue. */
     void refreshActionQueueItems() const;
     void updateTransitionPresentation();
     std::optional<TransitionPortal> currentTransitionCandidate() const;
 
+    /** Draw each member's beneficial and harmful effect stacks over its portrait. */
+    void renderEffectStacks();
     void renderMinimap();
 };
 

@@ -23,20 +23,17 @@ namespace reone {
 
 namespace game {
 
+/** Makes the object immune to a spell: the spell is integer 0. */
 class SpellImmunityEffect : public CopyableEffect<SpellImmunityEffect> {
 public:
     SpellImmunityEffect(SpellType immunityToSpell) :
-        CopyableEffect(EffectType::SpellImmunity),
-        _immunityToSpell(immunityToSpell) {
+        CopyableEffect(EffectType::SpellImmunity) {
         setSaveFacingInteger(0, static_cast<int>(immunityToSpell));
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override {
         return EffectApplicationResult::Retained;
     }
-
-private:
-    SpellType _immunityToSpell;
 };
 
 } // namespace game

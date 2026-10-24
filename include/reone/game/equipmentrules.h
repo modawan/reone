@@ -202,11 +202,26 @@ bool releaseAreaOwnedItem(
     Game &game,
     const std::shared_ptr<Item> &item);
 
+/** The outcome of moving an Item to a receiver. */
+struct ItemTransfer {
+    /** Whether the Item moved, or was the receiver's already. */
+    bool moved {false};
+    /**
+     * The receiver's stack that holds the Item: the Item itself, or the stack
+     * it merged into; none when a creature took it as a counted item.
+     */
+    std::shared_ptr<Item> held;
+
+    explicit operator bool() const { return moved; }
+};
+
 /**
  * Move one complete runtime Item from its current nested or Area ownership
  * edge to receiver. An ownerless nonresident Item is not transferable.
+ *
+ * @return whether it moved, and the receiver's stack that holds it
  */
-bool transferItemTo(
+ItemTransfer transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
     Object &receiver);

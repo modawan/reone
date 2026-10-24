@@ -73,6 +73,10 @@ const TalkTable::String *Strings::findString(int strRef) const {
     return nullptr;
 }
 
+int Strings::languageId() const {
+    return _tables[0] ? static_cast<int>(_tables[0]->languageId()) : 0;
+}
+
 std::string Strings::getText(int strRef) {
     auto string = findString(strRef);
     if (!string) {

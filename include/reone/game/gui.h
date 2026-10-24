@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <string>
+#include <unordered_set>
+
 #include "reone/game/di/services.h"
 #include "presentationgui.h"
 
@@ -31,6 +34,17 @@ protected:
     ServicesView &_services;
 
     GameGUI(Game &game, ServicesView &services);
+
+    /**
+     * Shows only the controls the panel names: every control of the layout
+     * whose tag is in neither \p controls nor \p titleControls is hidden.
+     *
+     * @param controls the controls the panel names in both titles
+     * @param titleControls the controls it names in the current title only
+     */
+    void showOnlyNamedControls(
+        const std::unordered_set<std::string> &controls,
+        const std::unordered_set<std::string> &titleControls);
 };
 
 } // namespace reone::game

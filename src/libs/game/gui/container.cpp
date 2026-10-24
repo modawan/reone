@@ -22,6 +22,7 @@
 #include "reone/resource/strings.h"
 #include "reone/system/exception/validation.h"
 
+#include "reone/game/action/giveitem.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
@@ -119,10 +120,12 @@ void ContainerGUI::open(std::shared_ptr<Object> container) {
     _mode = Mode::ContainerToPlayer;
     _controls.LB_ITEMS->clearItems();
     _itemsListed = false;
+    _giveRefresh = GiveRefresh::None;
 }
 
 void ContainerGUI::update(float dt) {
     GameGUI::update(dt);
+    updateGiveRefresh();
     if (_itemsListed) {
         return;
     }
@@ -130,6 +133,28 @@ void ContainerGUI::update(float dt) {
     // A container that its open script destroyed lists nothing.
     if (auto container = _container.resolve()) {
         populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
+    }
+}
+
+// The leader's items are listed again, at the same scroll offset, while the
+// screen still shows them.
+void ContainerGUI::updateGiveRefresh() {
+    switch (_giveRefresh) {
+    case GiveRefresh::AfterNextFrame:
+        _giveRefresh = GiveRefresh::Due;
+        break;
+    case GiveRefresh::Due: {
+        _giveRefresh = GiveRefresh::None;
+        if (_mode != Mode::PlayerToContainer) {
+            break;
+        }
+        const int offset = _controls.LB_ITEMS->getItemOffset();
+        populateItems(*_game.party().getLeader(), /*onlyDropable=*/false, /*skipCredits=*/true);
+        _controls.LB_ITEMS->setItemOffset(offset);
+        break;
+    }
+    case GiveRefresh::None:
+        break;
     }
 }
 
@@ -192,9 +217,9 @@ void ContainerGUI::transferItemsToPlayer() {
     close();
 }
 
-// Giving the container an item from a stack moves one of the stack there; a
-// stack of one moves whole. The container takes it into a matching stack of
-// its own where one has room.
+// The party leader gives the container one of the stack, or the whole stack
+// while the alternate actions key is held, through a give action. The list
+// shows the leader's items again a frame after the next.
 void ContainerGUI::onItemDoubleClick(const std::string &entry) {
     if (_mode == Mode::ContainerToPlayer) {
         // Do nothing for the player for now.
@@ -205,38 +230,13 @@ void ContainerGUI::onItemDoubleClick(const std::string &entry) {
         close();
         return;
     }
-
-    std::shared_ptr<Creature> player = _game.party().player();
     auto item = _game.getObjectById<Item>(static_cast<uint32_t>(std::stoul(entry)));
-    auto owner = item ? _game.getObjectById(item->owner()) : nullptr;
-    if (!owner) {
+    if (!item) {
         return;
     }
-
-    std::shared_ptr<Item> given(item);
-    if (item->stackSize() > 1) {
-        given = _game.newItemClone(*item);
-        given->setStackSize(1);
-        item->setStackSize(item->stackSize() - 1);
-    } else {
-        owner->removeItemStack(item);
-    }
-    auto held = container->addItem(given);
-    const uint32_t itemId = held ? held->id() : script::kObjectInvalid;
-
-    // Repopulate the list after the number of items changes.
-    int offset = _controls.LB_ITEMS->getItemOffset();
-    populateItems(*player, /*onlyDropable=*/false, /*skipCredits=*/true);
-
-    // Try to keep scroll offset the same.
-    _controls.LB_ITEMS->setItemOffset(offset);
-
-    // Execute a script for every item individually, because it only
-    // supports a single InventoryDisturbItem.
-    auto placeable = dyn_cast<Placeable>(container);
-    if (placeable) {
-        placeable->runOnInvDisturbed(player->id(), InventoryDisturbType::Added, itemId);
-    }
+    const int count = _game.alternateActionsHeld() ? item->stackSize() : 1;
+    GiveItemAction::queue(_game, *_game.party().getLeader(), std::move(item), std::move(container), count, false);
+    _giveRefresh = GiveRefresh::AfterNextFrame;
 }
 
 } // namespace game

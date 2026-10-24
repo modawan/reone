@@ -43,15 +43,23 @@ public:
         std::vector<String> _strings;
     };
 
-    TalkTable(std::vector<String> strings) :
-        _strings(std::move(strings)) {
+    /**
+     * @param strings the strings, by string reference
+     * @param languageId the language the strings are written in
+     */
+    TalkTable(std::vector<String> strings, uint32_t languageId = 0) :
+        _strings(std::move(strings)),
+        _languageId(languageId) {
     }
 
     int getStringCount() const;
     const String &getString(int index) const;
+    /** The language the strings are written in. */
+    uint32_t languageId() const { return _languageId; }
 
 private:
     std::vector<String> _strings;
+    uint32_t _languageId {0};
 };
 
 } // namespace resource

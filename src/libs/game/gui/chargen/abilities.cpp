@@ -59,8 +59,24 @@ static const std::unordered_map<Ability, int> g_descStrRefByAbility {
     {Ability::Wisdom, 225},
     {Ability::Charisma, 227}};
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_ACCEPT", "BTN_BACK", "BTN_RECOMMENDED", "STR_LBL", "STR_MINUS_BTN", "STR_PLUS_BTN",
+    "STR_POINTS_BTN", "DEX_LBL", "DEX_MINUS_BTN", "DEX_PLUS_BTN", "DEX_POINTS_BTN", "CON_LBL",
+    "CON_MINUS_BTN", "CON_PLUS_BTN", "CON_POINTS_BTN", "INT_LBL", "INT_MINUS_BTN", "INT_PLUS_BTN",
+    "INT_POINTS_BTN", "WIS_LBL", "WIS_MINUS_BTN", "WIS_PLUS_BTN", "WIS_POINTS_BTN", "CHA_LBL",
+    "CHA_MINUS_BTN", "CHA_PLUS_BTN", "CHA_POINTS_BTN", "COST_LBL", "COST_POINTS_LBL", "LB_DESC",
+    "MAIN_TITLE_LBL", "REMAINING_BOX_LBL", "REMAINING_SELECTIONS_LBL", "SELECTIONS_REMAINING_LBL", "SUB_TITLE_LBL"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"DESC_LBL", "LBL_ABILITY_MOD", "LBL_MODIFIER"};
+/** The controls the panel also shows in TSL. */
+static const std::unordered_set<std::string> kTSLPanelControls {
+    "LBL_BAR1", "LBL_BAR2", "LBL_BAR3", "LBL_BAR4", "LBL_BONUS_STR", "LBL_BONUS_DEX",
+    "LBL_BONUS_CON", "LBL_BONUS_INT", "LBL_BONUS_WIS", "LBL_BONUS_CHA", "LBL_PORTRAIT"};
+
 void CharGenAbilities::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kTSLPanelControls : kK1PanelControls);
 
     styleChargenTitles(_game, *_controls.SELECTIONS_REMAINING_LBL, *_controls.LB_DESC);
     _controls.LB_DESC->setProtoMatchContent(true);
@@ -87,6 +103,7 @@ void CharGenAbilities::onGUILoaded() {
     _controls.BTN_ACCEPT->setOnClick([this]() {
         if (_points > 0)
             return;
+        _charGen.acceptAbilities();
         updateCharacter();
         _charGen.goToNextStep();
         _charGen.openSteps();

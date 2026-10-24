@@ -37,8 +37,16 @@ namespace game {
 static constexpr int kStrRefQuickHelpText = 241;
 static constexpr int kStrRefCustomHelpText = 242;
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {"BTN_BACK", "CUST_CHAR_BTN", "LBL_RANALOG", "LB_DESC", "QUICK_CHAR_BTN"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"LBL_DECORATION", "LBL_RBG"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void QuickOrCustom::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
     _controls.LB_DESC->setProtoMatchContent(true);
 

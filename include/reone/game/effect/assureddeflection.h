@@ -23,19 +23,16 @@ namespace reone {
 
 namespace game {
 
+/** Assures deflection: the damage it returns is integer 0. */
 class AssuredDeflectionEffect : public CopyableEffect<AssuredDeflectionEffect> {
 public:
     AssuredDeflectionEffect(int returnDamage) :
-        CopyableEffect(EffectType::AssuredDeflection),
-        _returnDamage(returnDamage) {
+        CopyableEffect(EffectType::AssuredDeflection) {
         setSaveFacingInteger(0, returnDamage);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
-
-private:
-    int _returnDamage;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

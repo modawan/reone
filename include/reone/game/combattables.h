@@ -121,9 +121,56 @@ struct AutoBalanceRow {
     float levelMultiplier {0.0f};
 };
 
+/** A body bag (bodybag.2da). A blank cell, or a bag outside the table, has no value. */
+struct BodyBagRow {
+    std::optional<int> appearance;
+    std::optional<int> nameStrRef;
+    /** The bag is the creature's own corpse. */
+    bool corpse {false};
+};
+
 /**
- * The tables the combat rules read on every attack, hit and effect, parsed
- * once at start-up. Every table is required.
+ * Vitality and Force regeneration (regeneration.2da). KotOR reads its in and
+ * out of combat rows; TSL reads its values by label. A blank cell, or a
+ * missing label, is zero.
+ */
+struct RegenerationRates {
+    /** The row KotOR reads in combat. */
+    static constexpr int kInCombatRow = 0;
+    /** The row KotOR reads out of combat. */
+    static constexpr int kOutOfCombatRow = 1;
+
+    /** KotOR: percent of the maximum vitality per second, by row. */
+    std::array<float, 2> healthRegen {};
+    /** KotOR: percent of the maximum Force points per second, by row. */
+    std::array<float, 2> forceRegen {};
+    float timePerHitPoint {0.0f};
+    float inCombatHitPointBase {0.0f};
+    float outOfCombatHitPointBase {0.0f};
+    float constitutionBonus {0.0f};
+    float skillRankBonus {0.0f};
+    float forcePointTime {0.0f};
+    float inCombatForcePointBase {0.0f};
+    float outOfCombatForcePointBase {0.0f};
+    float wisdomBonus {0.0f};
+};
+
+/** An effect icon (effecticon.2da). A blank cell, or an icon outside the table, has no value. */
+struct EffectIconRow {
+    /** The row names a picture. */
+    bool hasIcon {false};
+    std::optional<int> priority;
+    /** Whether the effect helps the creature. */
+    std::optional<bool> good;
+    std::optional<int> nameStrRef;
+};
+
+/**
+ * The tables the combat rules read on every attack, hit, effect, death and
+ * spawn, parsed once at start-up: item properties and equipment limits,
+ * effects and creature states, kill experience and challenge, regeneration
+ * and the sounds of weapons. Every table is required; one that only TSL has
+ * is read in TSL alone.
  */
 class ICombatTables {
 public:
@@ -180,13 +227,56 @@ public:
 
     /** A TSL autobalance multiplier set; zero outside autobalance.2da. */
     virtual AutoBalanceRow autoBalance(int multiplierSet) const = 0;
+
+    /** The effect types that survive the death of a creature (removefxondeath.2da). */
+    virtual const std::vector<int> &deathKeptEffectTypes() const = 0;
+
+    /** The experience a level row needs (exptable.2da); fails outside the table. */
+    virtual uint32_t experienceThreshold(int levelRow) const = 0;
+
+    /**
+     * A kill's experience by the player's level row and the victim's challenge
+     * column (xptable.2da); zero outside the table or at a blank cell.
+     */
+    virtual float killExperience(int row, int column) const = 0;
+
+    /**
+     * A weapon sound (weaponsounds.2da) in lower case, its column named
+     * ignoring case; empty when the cell is blank, the row is outside the
+     * table or there is no such column.
+     */
+    virtual const std::string &weaponSound(int row, const std::string &column) const = 0;
+
+    /** A body bag; blank outside bodybag.2da. */
+    virtual BodyBagRow bodyBag(int row) const = 0;
+
+    /** The least challenge rating of a fractionalcr.2da row; fails outside the table. */
+    virtual float fractionalChallengeMinimum(int row) const = 0;
+
+    /** An encounter difficulty (encdifficulty.2da); none outside the table or at a blank cell. */
+    virtual std::optional<int> encounterDifficulty(int row) const = 0;
+
+    /** The regeneration rates (regeneration.2da). */
+    virtual const RegenerationRates &regeneration() const = 0;
+
+    /** An effect icon; blank outside effecticon.2da. */
+    virtual EffectIconRow effectIcon(int row) const = 0;
+
+    /** The most a single item may cost for each level row (itemvalue.2da). */
+    virtual const std::vector<int> &itemValueLimits() const = 0;
+
+    /**
+     * The tag a TSL player character limit expects (iprp_pc.2da); empty
+     * outside the table.
+     */
+    virtual const std::string &playerCharacterLimitTag(int subtype) const = 0;
 };
 
 class CombatTables : public ICombatTables {
 public:
     /**
-     * Parse every table. autobalance.2da is read in TSL alone, the only game
-     * that has it.
+     * Parse every table. autobalance.2da and iprp_pc.2da are read in TSL
+     * alone, the only game that has them.
      */
     void init(resource::ITwoDAs &twoDas, resource::GameID gameId);
 
@@ -209,10 +299,24 @@ public:
     const std::string &stateScript(int row) const override;
     AutoBalanceRow autoBalance(int multiplierSet) const override;
 
+    const std::vector<int> &deathKeptEffectTypes() const override;
+    uint32_t experienceThreshold(int levelRow) const override;
+    float killExperience(int row, int column) const override;
+    const std::string &weaponSound(int row, const std::string &column) const override;
+    BodyBagRow bodyBag(int row) const override;
+    float fractionalChallengeMinimum(int row) const override;
+    std::optional<int> encounterDifficulty(int row) const override;
+    const RegenerationRates &regeneration() const override;
+    EffectIconRow effectIcon(int row) const override;
+    const std::vector<int> &itemValueLimits() const override;
+    const std::string &playerCharacterLimitTag(int subtype) const override;
+
 private:
     /** A light side and a dark side Force cost multiplier. */
     struct ForceCostMultipliers {
+        /** The multiplier of a light side power. */
         float good {1.0f};
+        /** The multiplier of a dark side power. */
         float evil {1.0f};
     };
 
@@ -220,21 +324,54 @@ private:
     std::unordered_map<std::string, CostTable> _costTables;
     /** The lower-case table names of iprp_costtable, by row. */
     std::vector<std::string> _costTableNames;
+    /** iprp_damagecost.2da, by row. */
     std::vector<DamageCost> _damageCosts;
+    /** iprp_monstcost.2da, by row. */
     std::vector<MonsterDamageCost> _monsterDamageCosts;
+    /** The rows of iprp_damagetype.2da. */
     int _damageTypeCount {0};
+    /** The rows of iprp_protection.2da. */
     int _protectionCount {0};
+    /** iprp_onhit.2da's parameter table, by row. */
     std::vector<int> _onHitParameterTables;
+    /** iprp_onhitdur.2da, by row. */
     std::vector<OnHitDuration> _onHitDurations;
+    /** gameeffects.2da's immunity types, by row. */
     std::vector<std::vector<int>> _gameEffectImmunities;
     /** By lower-case label; the first row of a label is the one found. */
     std::unordered_map<std::string, ForceShieldRow> _forceShields;
+    /** forceadjust.2da, by row. */
     std::vector<ForceCostMultipliers> _forceCostMultipliers;
+    /** excitedduration.2da, by row. */
     std::vector<uint32_t> _excitedDurations;
+    /** poison.2da, by row. */
     std::vector<PoisonData> _poisons;
+    /** statescripts.2da, by row. */
     std::vector<std::string> _stateScripts;
     /** Empty in KotOR, which has no autobalance. */
     std::vector<AutoBalanceRow> _autoBalance;
+    /** The effect types removefxondeath.2da keeps through death. */
+    std::vector<int> _deathKeptEffectTypes;
+    /** exptable.2da's experience by level row. */
+    std::vector<uint32_t> _experienceThresholds;
+    /** By row, then by column; a blank cell is zero. */
+    std::vector<std::vector<float>> _killExperience;
+    /** By row, then by column; blank cells are left out. */
+    std::vector<std::unordered_map<std::string, std::string>> _weaponSounds;
+    /** bodybag.2da, by row. */
+    std::vector<BodyBagRow> _bodyBags;
+    /** fractionalcr.2da's minimum, by row. */
+    std::vector<float> _fractionalChallengeMinimums;
+    /** encdifficulty.2da's value by row; none where blank. */
+    std::vector<std::optional<int>> _encounterDifficulties;
+    /** regeneration.2da's rates. */
+    RegenerationRates _regeneration;
+    /** effecticon.2da, by row. */
+    std::vector<EffectIconRow> _effectIcons;
+    /** itemvalue.2da's largest single item value, by level row. */
+    std::vector<int> _itemValueLimits;
+    /** Empty in KotOR, which has no player character limits. */
+    std::vector<std::string> _playerCharacterLimitTags;
 };
 
 } // namespace game

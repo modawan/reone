@@ -44,9 +44,6 @@
 #include "reone/game/object/door.h"
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
-#include "reone/game/twodautil.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/system/logutil.h"
 
 namespace reone {
@@ -745,19 +742,38 @@ EffectApplicationResult DamageEffect::onApply(Object &object, EffectInstance &in
     // Damage shields struck back by this hit see it as the last damage. It is
     // not set again afterwards: a hit they cause may have replaced it.
     object.setLastDamager(creator);
+    // A creature records the damage's creator as its last hostile actor,
+    // except for the damage of its own poison.
+    auto *creature = dyn_cast<Creature>(&object);
+    if (creature) {
+        const bool ownPoison = creature->activePoisonEffectId() != kUnassignedEffectId &&
+                               std::any_of(creature->effects().begin(), creature->effects().end(), [&](const auto &record) {
+                                   return record.type() == EffectType::Poison && record.id == instance.id;
+                               });
+        if (!ownPoison) {
+            creature->setLastHostileActor(creator ? creator->id() : script::kObjectInvalid);
+        }
+    }
     object.setLastDamageAmounts(damageAmounts);
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
     if (application->preResolved && !application->suppressDamageShields) {
         auto attacker = std::dynamic_pointer_cast<Creature>(instance.boundCreator());
-        auto *defender = dyn_cast<Creature>(&object);
-        if (defender && attacker) {
-            defender->resolveDamageShields(*attacker);
+        if (creature && attacker) {
+            creature->resolveDamageShields(*attacker);
         }
     }
-    if (amount > 0) {
-        if (auto *creature = dyn_cast<Creature>(&object)) {
-            creature->removeMindTrickEffects();
+    if (amount > 0 && creature) {
+        creature->removeMindTrickEffects();
+    }
+    // The damage line goes to the party unless the hit that caused it has
+    // already told it. A door or container always tells the effect's own
+    // amounts.
+    if (creature) {
+        if (instance.integerParameter(kFeedbackHandled) == 0) {
+            addDamageFeedback(object.game(), creator, object, damageAmounts);
         }
+    } else if (isa<Door>(&object) || isa<Placeable>(&object)) {
+        addDamageFeedback(object.game(), creator, object, application->effectAmounts);
     }
     if (object.isRuntimeLive()) {
         object.applyDamageEffect(amount, creator, reaction);
@@ -979,8 +995,8 @@ EffectApplicationResult HitPointChangeWhenDyingEffect::onApply(Object &object, E
 }
 
 void applyBloodVisual(Creature &creature) {
-    const auto appearance = getRequiredTwoDA(creature.services().resource.twoDas, "appearance");
-    const auto blood = appearance->getString(creature.appearance(), "bloodcolr");
+    // A creature of no blood colour shows visual 0.
+    const auto &blood = creature.bloodColour();
     int visualId = 0;
     if (blood == "R") {
         visualId = kRedBloodVisual;
@@ -996,11 +1012,11 @@ void applyBloodVisual(Creature &creature) {
     creature.applyEffect(std::move(child));
 }
 
-EffectRemovalResult HitPointChangeWhenDyingEffect::onRemove(Object &object, const EffectInstance &instance) {
+void HitPointChangeWhenDyingEffect::onRemove(Object &object, const EffectInstance &instance) {
     auto *creature = dyn_cast<Creature>(&object);
     // Anything but a creature has nothing to change.
     if (!creature) {
-        return EffectRemovalResult::Removed;
+        return;
     }
     if (creature->isPC()) {
         const float rate = instance.floatParameters[0];
@@ -1023,7 +1039,6 @@ EffectRemovalResult HitPointChangeWhenDyingEffect::onRemove(Object &object, cons
         }
         object.applyEffect(std::move(child));
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult HealEffect::onApply(Object &object, EffectInstance &instance) {

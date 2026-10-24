@@ -71,7 +71,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/saveprovenance.cpp
     ${TESTS_SOURCE_DIR}/game/savedsituation.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
-    ${TESTS_SOURCE_DIR}/game/messagebus.cpp
+    ${TESTS_SOURCE_DIR}/game/listenpattern.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp

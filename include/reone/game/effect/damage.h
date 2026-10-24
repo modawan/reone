@@ -413,7 +413,9 @@ struct DamageEffectApplication {
     /** The damage dealt. */
     int amount {0};
     /** The amount in each damage event slot, then the total. */
-    std::array<int, 15> damageAmounts {};
+    std::array<int, DamageEffect::kSlotCount> damageAmounts {};
+    /** The effect's own amounts before mitigation; a plot object's are zero. */
+    std::array<int, DamageEffect::kSlotCount> effectAmounts {};
     /** The amounts were resolved before the damage was applied. */
     bool preResolved {false};
     /** The damage sets off no damage shield. */
@@ -433,6 +435,7 @@ std::optional<DamageEffectApplication> resolveDamageEffect(
         const int value = instance.integerParameter(i);
         result.damageAmounts[i] = plot && value >= 0 ? 0 : value;
     }
+    result.effectAmounts = result.damageAmounts;
     result.amount = result.damageAmounts[DamageEffect::kTotal];
     // Damage that mitigation reduces to nothing is still applied.
     if (result.amount == 0 && !plot) {

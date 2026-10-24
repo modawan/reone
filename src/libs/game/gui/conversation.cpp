@@ -17,6 +17,10 @@
 
 #include "reone/game/gui/conversation.h"
 
+#include <array>
+#include <cmath>
+#include <limits>
+
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
@@ -45,6 +49,20 @@ namespace reone {
 namespace game {
 
 static constexpr float kDefaultEntryDuration = 3.0f;
+
+// Camera shots: the placed camera and same-pair angles, the animated shot
+// range, and the video effect values a shot can carry besides a row.
+static constexpr int kPlacedCameraAngle = 6;
+static constexpr int kSamePairCameraAngle = 5;
+static constexpr int kFirstCameraAnimation = 1000;
+static constexpr int kLastCameraAnimation = 1727;
+static constexpr int kNoShotVideoEffect = -1;
+static constexpr int kKeepShotVideoEffect = -2;
+static constexpr int kSecurityCameraVideoEffect = 0;
+// The angles an entry or reply without one takes in turn, and the angle of
+// the first entry and the first list of replies without one.
+static constexpr std::array<int, 19> kCameraAngleCycle {1, 3, 1, 3, 2, 2, 1, 3, 1, 2, 1, 2, 1, 3, 2, 3, 1, 1, 1};
+static constexpr int kFirstShotCameraAngle = 2;
 
 static bool g_allEntriesSkippable = false;
 
@@ -105,6 +123,9 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     _dialog = dialog;
     _owner = owner;
     _partner = listener;
+    _shotCamera = CameraType::Dialog;
+    _animatedView = false;
+    seedCameraAngles();
 
     if (owner) {
         attachDialogParticipant(owner);
@@ -308,6 +329,11 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     auto ownerRef = _owner;
     _game.globalFade().finishDialog(_fadeDialog);
     _fadeDialog.reset();
+    // A conversation ending takes the video effect away, and any script's
+    // request that the leader answer.
+    _game.disableVideoEffect();
+    _game.setLeaderAnswersInDialog(false);
+    _game.setDialogUnderWay(false);
     _paused = false;
     _entryEnded = true;
     onFinish();
@@ -355,6 +381,8 @@ void Conversation::cleanupForModuleTransition() {
     auto generation = ++_generation;
     _game.globalFade().finishDialog(_fadeDialog);
     _fadeDialog.reset();
+    _game.disableVideoEffect();
+    _game.setLeaderAnswersInDialog(false);
     _paused = false;
     _entryEnded = true;
     if (!_dialog) {
@@ -376,6 +404,14 @@ void Conversation::loadEntry(int index, bool start) {
     auto dialog = _dialog; // retain nodes across callbacks, including conditions
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
+    // An entry keeps the camera angle it is given while the conversation lasts.
+    const int drawnAngle = drawCameraAngle();
+    int &angle = _entryCameraAngles.try_emplace(index, _currentEntry->cameraAngle).first->second;
+    if (angle == 0) {
+        angle = _firstEntryShot ? kFirstShotCameraAngle : drawnAngle;
+    }
+    _firstEntryShot = false;
+    _entryCameraAngle = angle;
     if (!_currentEntry->speaker.empty()) {
         if (auto owner = _owner.resolve(); owner && owner->spatialArea()) {
             attachDialogParticipant(owner->spatialArea()->get().getObjectByTag(_currentEntry->speaker));
@@ -432,8 +468,16 @@ void Conversation::loadEntry(int index, bool start) {
         pickReply(0);
         return;
     }
+    if (!oneLiner) {
+        logEntryLine(entryText);
+    }
 
     scheduleEndOfEntry();
+    if (isAnimatedCameraShot()) {
+        _animatedView = true;
+    } else {
+        takeCameraShot(*_currentEntry, _entryCameraAngle);
+    }
     onLoadEntry();
     if (!isCurrent(generation)) {
         return;
@@ -477,6 +521,8 @@ void Conversation::loadEntry(int index, bool start) {
         return;
     }
 
+    applyShotVideoEffect();
+
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
             if (skip.value() && !_paused) {
@@ -487,6 +533,119 @@ void Conversation::loadEntry(int index, bool start) {
 }
 
 void Conversation::onLoadEntry() {
+}
+
+// The shown entry's camera shot sets the video effect.
+//  - A computer conversation takes it only from a placed camera (angle 6),
+//    where no effect of its own means the security camera look (row 0).
+//    KotOR leaves the effect as it is for -2.
+//  - A cinematic conversation leaves it as it is for an animated shot and
+//    for a shot that keeps the previous pair (angle 5). Otherwise TSL shows
+//    the entry's effect or, without one, takes the effect away unless a
+//    script holds it; KotOR shows the entry's effect on a placed camera and
+//    takes the effect away on any other shot.
+void Conversation::applyShotVideoEffect() {
+    const Dialog::EntryReply &entry = *_currentEntry;
+    const int effect = entry.camVidEffect;
+    const bool none = effect == kNoShotVideoEffect || effect == kKeepShotVideoEffect;
+    const bool placed = entry.cameraAngle == kPlacedCameraAngle;
+    const bool tsl = _game.isTSL();
+    if (_dialog->conversationType == ConversationType::Computer) {
+        if (!placed) {
+            return;
+        }
+        if (effect == kNoShotVideoEffect) {
+            _game.enableVideoEffect(kSecurityCameraVideoEffect);
+        } else if (tsl || effect != kKeepShotVideoEffect) {
+            _game.enableVideoEffect(effect);
+        }
+        return;
+    }
+    if (isAnimatedCameraShot() || keepsPreviousSpeakerPair(entry)) {
+        return;
+    }
+    if (tsl) {
+        if (!none) {
+            _game.enableVideoEffect(effect);
+        } else if (!_game.isVideoEffectHeldByScript()) {
+            _game.disableVideoEffect();
+        }
+    } else if (!placed) {
+        _game.disableVideoEffect();
+    } else if (!none) {
+        _game.enableVideoEffect(effect);
+    }
+}
+
+// A shot after an animated one starts on the dialog camera.
+void Conversation::takeCameraShot(const Dialog::EntryReply &shot, int angle) {
+    if (_animatedView) {
+        _animatedView = false;
+        _shotCamera = CameraType::Dialog;
+    }
+    if (angle == kPlacedCameraAngle) {
+        _shotCamera = CameraType::Static;
+        _shotCameraId = shot.cameraId;
+        return;
+    }
+    if (angle == kSamePairCameraAngle && _dialog->conversationType != ConversationType::Computer) {
+        return;
+    }
+    _shotCamera = CameraType::Dialog;
+}
+
+// Each character of the dialog's name weighs itself plus itself times ten to
+// the power of its place, in 32-bit arithmetic; a power beyond 32 bits weighs
+// as the least 32-bit integer. The sum gives the place, step and direction.
+void Conversation::seedCameraAngles() {
+    static constexpr double kFirstOutOfRangePower = 2147483648.0;
+    static constexpr uint32_t kStepCount = 5;
+    uint32_t seed = 0;
+    const std::string &name = _dialog->resRef;
+    for (size_t place = 0; place < name.size(); ++place) {
+        const auto weight = static_cast<uint32_t>(static_cast<int32_t>(static_cast<signed char>(name[place])));
+        const double power = std::pow(10.0, static_cast<double>(place));
+        const int32_t scale = power < kFirstOutOfRangePower ? static_cast<int32_t>(power) : std::numeric_limits<int32_t>::min();
+        seed += weight + weight * static_cast<uint32_t>(scale);
+    }
+    _angleCyclePlace = static_cast<int>(seed % kCameraAngleCycle.size());
+    _angleCycleStep = static_cast<int>(seed % kStepCount) + 1;
+    _angleCycleForward = (seed & 1) != 0;
+    _firstEntryShot = true;
+    _firstReplyShot = true;
+    _entryCameraAngles.clear();
+    _replyCameraAngles.clear();
+}
+
+// A step past either end of the cycle stops at the other end.
+int Conversation::drawCameraAngle() {
+    const int last = static_cast<int>(kCameraAngleCycle.size()) - 1;
+    const int angle = kCameraAngleCycle[_angleCyclePlace];
+    int next = _angleCyclePlace + (_angleCycleForward ? _angleCycleStep : -_angleCycleStep);
+    if (next > last) {
+        next = 0;
+    }
+    if (next < 0) {
+        next = last;
+    }
+    _angleCyclePlace = next;
+    return angle;
+}
+
+bool Conversation::isAnimatedCameraShot() const {
+    const int animation = _currentEntry->cameraAnimation;
+    return !_dialog->cameraModel.empty() && animation >= kFirstCameraAnimation && animation <= kLastCameraAnimation;
+}
+
+bool Conversation::keepsPreviousSpeakerPair(const Dialog::EntryReply &shot) {
+    return shot.cameraAngle == kSamePairCameraAngle;
+}
+
+std::optional<std::reference_wrapper<const Dialog::EntryReply>> Conversation::firstReply() const {
+    if (_replies.empty()) {
+        return std::nullopt;
+    }
+    return std::cref(*_replies.front());
 }
 
 void Conversation::loadVoiceOver() {
@@ -519,15 +678,11 @@ void Conversation::loadVoiceOver() {
     }
 }
 
-static std::string getCameraAnimationName(int ordinal) {
-    return str(boost::format("cut%03dw") % (ordinal - 1200 + 1));
-}
-
 void Conversation::scheduleEndOfEntry() {
     float duration = kDefaultEntryDuration;
 
     if (_cameraModel && (_currentEntry->waitFlags & Dialog::WaitFlags::waitAnimFinish)) {
-        std::string animName(getCameraAnimationName(_currentEntry->cameraAnimation));
+        std::string animName(AnimatedCamera::getShotClipName(_currentEntry->cameraAnimation));
         std::shared_ptr<Animation> animation(_cameraModel->getAnimation(animName));
         if (animation) {
             duration = animation->length();
@@ -543,10 +698,27 @@ void Conversation::scheduleEndOfEntry() {
     _endEntryTimer.reset(duration);
 }
 
+// A reply as listed and logged: its tokens resolved and, in TSL, its leading
+// and trailing spaces trimmed.
+static std::string getParsedReplyText(const Dialog::EntryReply &reply, const Game &game) {
+    std::string text(game.substituteCustomTokens(reply.text));
+    if (game.isTSL()) {
+        text.erase(0, text.find_first_not_of(' '));
+        text.erase(text.find_last_not_of(' ') + 1);
+    }
+    return text;
+}
+
+// The replies whose condition holds are listed first. A reply whose condition
+// fails is listed after them when its link displays it inactive, the last
+// such reply first; it can be chosen like any other.
 void Conversation::loadReplies() {
     auto generation = _generation;
     auto dialog = _dialog;
     _replies.clear();
+    std::vector<const Dialog::EntryReply *> inactive;
+    std::vector<int> listedIndices;
+    std::vector<int> inactiveIndices;
     for (auto &link : _currentEntry->replies) {
         bool active = isLinkActive(link);
         if (!isCurrent(generation)) {
@@ -554,27 +726,63 @@ void Conversation::loadReplies() {
         }
         if (active) {
             _replies.push_back(&_dialog->getReply(link.index));
+            listedIndices.push_back(link.index);
+        } else if (link.displayInactive) {
+            inactive.push_back(&_dialog->getReply(link.index));
+            inactiveIndices.push_back(link.index);
         }
     }
+    const size_t activeCount = _replies.size();
+    _replies.insert(_replies.end(), inactive.rbegin(), inactive.rend());
+    listedIndices.insert(listedIndices.end(), inactiveIndices.rbegin(), inactiveIndices.rend());
+
+    // A list of replies draws one camera angle, which each listed reply
+    // without one keeps while the conversation lasts.
+    const int drawnAngle = drawCameraAngle();
+    for (size_t place = 0; place < listedIndices.size(); ++place) {
+        const int index = listedIndices[place];
+        int &angle = _replyCameraAngles.try_emplace(index, _dialog->getReply(index).cameraAngle).first->second;
+        if (angle == 0) {
+            angle = _firstReplyShot ? kFirstShotCameraAngle : drawnAngle;
+        }
+        if (place == 0) {
+            _firstReplyCameraAngle = angle;
+        }
+    }
+    _firstReplyShot = false;
 
     // A sole reply whose text resolves to nothing is taken when the entry ends.
-    _autoPickFirstReply = _replies.size() == 1ll && _game.substituteCustomTokens(_replies.front()->text).empty();
-    // The conversation ends on an entry with no reply, or whose sole reply
-    // leads nowhere.
-    _endReached = _replies.empty() || (_replies.size() == 1ll && _replies.front()->entries.empty());
+    _autoPickFirstReply = _replies.size() == 1ll && getParsedReplyText(*_replies.front(), _game).empty();
+    // The conversation ends on an entry that lists no reply, or whose sole
+    // reply with a holding condition leads nowhere.
+    _endReached = _replies.empty() || (activeCount == 1ll && _replies.front()->entries.empty());
 
     refreshReplies();
 }
 
+// A reply as listed: numbered by its place among the replies, or, in KotOR,
+// "-" from the tenth on. A reply whose text resolves to nothing is not listed
+// and gets an empty line, which keeps the numbers of the others.
 static std::string getReplyText(const Dialog::EntryReply &reply, int index, const Game &game) {
-    std::string text(game.substituteCustomTokens(reply.text));
-    return str(boost::format("%d. %s") % (index + 1) % (text.empty() ? "[empty]" : text));
+    static constexpr int kLastNumberedK1Reply = 8;
+    std::string text(getParsedReplyText(reply, game));
+    if (text.empty()) {
+        return text;
+    }
+    if (!game.isTSL() && index > kLastNumberedK1Reply) {
+        return "-. " + text;
+    }
+    return str(boost::format("%d. %s") % (index + 1) % text);
 }
 
 void Conversation::refreshReplies() {
+    // TSL lists up to 30 replies, KotOR up to 20.
+    static constexpr size_t kMaxListedRepliesTSL = 30;
+    static constexpr size_t kMaxListedRepliesK1 = 20;
     std::vector<std::string> lines;
     if (!_autoPickFirstReply) {
-        for (size_t i = 0; i < _replies.size(); ++i) {
+        const size_t listed = std::min(_replies.size(), _game.isTSL() ? kMaxListedRepliesTSL : kMaxListedRepliesK1);
+        for (size_t i = 0; i < listed; ++i) {
             lines.push_back(getReplyText(*_replies[i], static_cast<int>(i), _game));
         }
     }
@@ -585,6 +793,18 @@ void Conversation::pickReply(int index) {
     auto generation = _generation;
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
     const Dialog::EntryReply &reply = *_replies[index];
+
+    // The chosen reply goes to the dialog list under the party leader's name.
+    if (auto leader = _game.party().getLeader()) {
+        _game.messageLog().addDialog(leader->name(), getParsedReplyText(reply, _game));
+    }
+    // A sole reply taken when the entry ends is not chosen by the player.
+    if (!_autoPickFirstReply) {
+        onReplyPicked(reply);
+        if (!isCurrent(generation)) {
+            return;
+        }
+    }
 
     applyStatusSummaryEntries(reply);
 
@@ -639,6 +859,22 @@ bool Conversation::isSkippableEntry() const {
     return g_allEntriesSkippable || (_dialog->isSkippable() && !_paused);
 }
 
+// An entry shown in the conversation goes to the dialog list under its
+// speaker's name: the object its speaker tag names, or else the owner.
+void Conversation::logEntryLine(const std::string &text) {
+    auto owner = _owner.resolve();
+    std::shared_ptr<Object> speaker;
+    if (!_currentEntry->speaker.empty() && owner && owner->spatialArea()) {
+        speaker = owner->spatialArea()->get().getObjectByTag(_currentEntry->speaker);
+    }
+    if (!speaker) {
+        speaker = owner;
+    }
+    if (speaker) {
+        _game.messageLog().addDialog(speaker->name(), text);
+    }
+}
+
 bool Conversation::isNonPresentationalEntry() const {
     return _autoPickFirstReply &&
            _currentEntry->text.empty() &&
@@ -684,6 +920,9 @@ void Conversation::endCurrentEntry() {
 void Conversation::onEntryEnded() {
 }
 
+void Conversation::onReplyPicked(const Dialog::EntryReply &) {
+}
+
 bool Conversation::handleKeyUp(const input::KeyEvent &event) {
     if (!_entryEnded) {
         return false;
@@ -722,15 +961,13 @@ void Conversation::update(float dt) {
 }
 
 CameraType Conversation::getCamera(int &cameraId) const {
-    std::string cameraModel(_dialog->cameraModel);
-    if (!cameraModel.empty()) {
+    if (_animatedView) {
         return CameraType::Animated;
     }
-    if (_currentEntry->cameraId != 0) {
-        cameraId = _currentEntry->cameraId;
-        return CameraType::Static;
+    if (_shotCamera == CameraType::Static) {
+        cameraId = _shotCameraId;
     }
-    return CameraType::Dialog;
+    return _shotCamera;
 }
 
 void Conversation::stopParticipant(const Object &object) {

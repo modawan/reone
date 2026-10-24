@@ -23,24 +23,20 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Kills the object: a spectacular death is integer 0, feedback integer 1 and
+ * no fading away integer 2.
+ */
 class DeathEffect : public CopyableEffect<DeathEffect> {
 public:
     DeathEffect(bool spectacularDeath, bool displayFeedback, bool noFadeAway) :
-        CopyableEffect(EffectType::Death),
-        _spectacularDeath(spectacularDeath),
-        _displayFeedback(displayFeedback),
-        _noFadeAway(noFadeAway) {
+        CopyableEffect(EffectType::Death) {
         setSaveFacingInteger(0, spectacularDeath);
         setSaveFacingInteger(1, displayFeedback);
         setSaveFacingInteger(2, noFadeAway);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    bool _spectacularDeath;
-    bool _displayFeedback;
-    bool _noFadeAway;
 };
 
 } // namespace game

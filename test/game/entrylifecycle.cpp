@@ -123,13 +123,14 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
         // than re-initializing mocks other suites already depend on.
         ON_CALL(engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(sharedSceneGraph()));
-        ON_CALL(sharedSceneGraph(), testElevation(_, _))
-            .WillByDefault(Invoke([this](
-                                      const glm::vec3 &position,
-                                      scene::Collision &collision) {
-                collision.intersection = position;
-                collision.user = &candidateRoom;
-                return true;
+        candidateRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
+            candidateRoomWalkmesh, sharedSceneGraph(), engine.services().graphics, engine.services().audio, engine.services().resource);
+        candidateRoomNode->setUser(candidateRoom);
+        ON_CALL(sharedSceneGraph(), findRoomWalkmesh(_))
+            .WillByDefault(Return(candidateRoomNode));
+        ON_CALL(sharedSceneGraph(), findRoomFace(_, _, _))
+            .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
+                return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
             }));
         EXPECT_CALL(engine.gameModule().portraits(), portraits())
             .Times(AnyNumber())
@@ -290,6 +291,8 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
     std::unique_ptr<Routines> routines;
     std::shared_ptr<Creature> player;
     Room candidateRoom {"candidate", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    graphics::Walkmesh candidateRoomWalkmesh;
+    std::shared_ptr<scene::WalkmeshSceneNode> candidateRoomNode;
     std::vector<std::shared_ptr<scene::CameraSceneNode>> cameraNodes;
     std::shared_ptr<Layout> emptyLayout {std::make_shared<Layout>()};
     std::shared_ptr<Gff> moduleIfo;
@@ -583,16 +586,15 @@ TEST_P(EntryLifecycleFixture, fade_hold_transfers_to_reconstructed_party_convers
     player->setPC(false);
     player->setMaxHitPoints(10);
     player->setCurrentHitPoints(10);
-    ON_CALL(engine.resourceModule().twoDas(), get("skills"))
-        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
-                                                                   .columns({"label", "untrained"})
-                                                                   .build())));
+    ON_CALL(static_cast<MockSkills &>(engine.services().game.skills), get(_))
+        .WillByDefault(Return(nullptr));
     ON_CALL(engine.resourceModule().twoDas(), get("regeneration"))
         .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
                                                                    .columns({"label", "healthregen", "forceregen"})
                                                                    .row({"InCombat", "0.0", "0.0"})
                                                                    .row({"OutOfCombat", "0.0", "1.0"})
                                                                    .build())));
+    engine.initCombatTables();
     serveModule(/*savedModuleSnapshot=*/false);
     ASSERT_TRUE(game->loadModule("module_b"));
     game->globalFade().holdForDialog();
@@ -774,7 +776,7 @@ TEST_P(EntryLifecycleFixture, controlled_companion_uses_same_transition_continui
         controlled->actions().front()->originalSavedAction()->actionId);
 }
 
-TEST_P(EntryLifecycleFixture, k2_puppet_uses_same_transition_continuity) {
+TEST_P(EntryLifecycleFixture, k2_puppet_drops_its_actions_across_a_transition) {
     if (GetParam() != GameID::TSL) GTEST_SKIP();
     serveModule(/*savedModuleSnapshot=*/false);
     auto puppet = game->newCreature();
@@ -837,17 +839,23 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
     }
 
     // The module's load script and the player's area OnEnter are queued
-    // events, so no authored script runs inside the load once the party is
-    // placed. Fail the load after placement at the spawn script of the last
-    // creature placed, which runs once it is in the area.
+    // events, and creation scripts run at the first update, so no authored
+    // script runs inside the load once the party is placed. Fail the load
+    // after placement where the third-person camera turns to the leader:
+    // its line-of-sight test, the third the load makes after the two that
+    // set the camera up. The failure goes to whichever scene graph the shared
+    // engine serves; afterwards the graph answers as it did before.
     auto expectedLeader = game->party().player();
-    (puppet ? puppet : expectedLeader)->setOnSpawn("fail_on_spawn");
     std::shared_ptr<Area> failedArea;
     std::shared_ptr<Trigger> failedTrigger;
-    EXPECT_CALL(engine.resourceModule().scripts(), get("fail_on_spawn"))
+    auto &graph = static_cast<scene::MockSceneGraph &>(
+        engine.sceneModule().graphs().get(kSceneMain));
+    EXPECT_CALL(graph, testLineOfSight(_, _, _))
+        .WillOnce(DoDefault())
+        .WillOnce(DoDefault())
         .WillOnce(Invoke([this, &failedArea, &failedTrigger, expectedLeader, puppet](
-                             const std::string &)
-                             -> std::shared_ptr<ScriptProgram> {
+                             const glm::vec3 &, const glm::vec3 &, scene::Collision &)
+                             -> bool {
             failedArea = game->module()->area();
             TestGameModule::setAreaRuntimePath(
                 *expectedLeader, failedArea->pathfinder());
@@ -861,7 +869,7 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
             }
             throw std::runtime_error("injected post-placement failure");
         }))
-        .RetiresOnSaturation();
+        .WillRepeatedly(DoDefault());
 
     ASSERT_FALSE(game->loadModule("module_b"));
     ASSERT_TRUE(failedArea);
@@ -904,14 +912,14 @@ TEST_P(EntryLifecycleFixture, failed_destination_before_party_placement_is_harml
     // The module's load script is a queued event and no longer runs inside
     // the load. Fail the load where the leader is first landed in the
     // destination area, before any party member is attached to it: with an
-    // empty instance list that is the load's first elevation test.
+    // empty instance list that is the load's first room lookup.
     std::shared_ptr<Area> failedArea;
     // The failure goes to whichever scene graph the shared engine serves;
     // afterwards the graph answers as it did before.
     auto &graph = static_cast<scene::MockSceneGraph &>(
         engine.sceneModule().graphs().get(kSceneMain));
-    EXPECT_CALL(graph, testElevation(_, _))
-        .WillOnce(Invoke([this, &failedArea](const glm::vec3 &, scene::Collision &) -> bool {
+    EXPECT_CALL(graph, findRoomWalkmesh(_))
+        .WillOnce(Invoke([this, &failedArea](const glm::vec3 &) -> std::shared_ptr<scene::WalkmeshSceneNode> {
             failedArea = game->module()->area();
             throw std::runtime_error("injected pre-placement failure");
         }))

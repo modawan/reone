@@ -104,8 +104,8 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
         glm::vec2 worldPos(partyLeader->position());
         glm::vec2 mapPos(getMapPosition(worldPos));
 
-        // Drawn at the layout's scale, not the texture's native size: the
-        // minimap frame is a control and shrinks with the GUI, so a native-size
+        // Drawn at the layout's scale, not the texture's own size: the
+        // minimap frame is a control and shrinks with the GUI, so an unscaled
         // map inside it is the wrong zoom and slides under its own scissor.
         // The offsets that centre the party leader are in the same pixel space
         // and take the same factor.

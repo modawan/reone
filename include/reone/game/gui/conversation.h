@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <map>
+
 #include "reone/audio/source.h"
 #include "reone/graphics/lipanimation.h"
 #include "reone/graphics/model.h"
@@ -87,11 +89,35 @@ protected:
 
     virtual void loadEntry(int index, bool start = false);
 
+    /** The current entry's shot is an animation of the conversation's camera model. */
+    bool isAnimatedCameraShot() const;
+    /** The camera angle of the current entry's shot: its own, or the one the conversation gave it. */
+    int entryCameraAngle() const { return _entryCameraAngle; }
+    /** The camera angle of the first listed reply's shot: its own, or the one the conversation gave it. */
+    int firstReplyCameraAngle() const { return _firstReplyCameraAngle; }
+    /**
+     * The view takes the camera of \p shot at \p angle: a placed camera
+     * (angle 6) shows the shot's camera, angle 5 keeps the view of a cinematic
+     * conversation as it is, and any other angle is a dialog camera shot.
+     * After an animated shot the dialog camera takes the view first.
+     */
+    void takeCameraShot(const resource::Dialog::EntryReply &shot, int angle);
+    /** The dialog camera shows the shot, as for a placed camera the area lacks. */
+    void showShotOnDialogCamera() { _shotCamera = CameraType::Dialog; }
+    /** The camera shot of \p shot, an entry or a reply, keeps the previous speaker pair. */
+    static bool keepsPreviousSpeakerPair(const resource::Dialog::EntryReply &shot);
+
+    /** The current entry's sole reply is taken when the entry ends, rather than its replies listed. */
+    bool autoPicksFirstReply() const { return _autoPickFirstReply; }
+    /** The first of the current entry's replies, if it has any. */
+    std::optional<std::reference_wrapper<const resource::Dialog::EntryReply>> firstReply() const;
+
     void pickReply(int index);
 
     // Complete the active entry's presentation using the same path as expiry.
     void endCurrentEntry();
 
+    /** One line per reply, in reply order; an empty line stands for a reply that is not listed. */
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
 
     // How a one-liner presents its entry, alongside setMessage/setReplyLines.
@@ -101,6 +127,8 @@ protected:
     virtual void onFinish();
     virtual void onLoadEntry();
     virtual void onEntryEnded();
+    /** The player chose \p reply from the listed replies; called before the reply's scripts run. */
+    virtual void onReplyPicked(const resource::Dialog::EntryReply &reply);
 
 private:
     std::shared_ptr<audio::AudioSource> _currentVoice;
@@ -115,6 +143,35 @@ private:
     uint64_t _generation {0};
     /** The objects this conversation has made its participants. */
     std::vector<RuntimeObjectRef<Object>> _dialogParticipants;
+
+    // Camera shots
+
+    /** The place in the cycle of camera angles, and the step and direction it moves by. */
+    int _angleCyclePlace {0};
+    int _angleCycleStep {1};
+    bool _angleCycleForward {false};
+    /** No entry, or no list of replies, has been given a camera angle yet. */
+    bool _firstEntryShot {true};
+    bool _firstReplyShot {true};
+    /** The camera angles of the entries and replies by index, once shown, as given. */
+    std::map<int, int> _entryCameraAngles;
+    std::map<int, int> _replyCameraAngles;
+    /** The resolved camera angle of the current entry. */
+    int _entryCameraAngle {0};
+    /** The resolved camera angle of the first listed reply. */
+    int _firstReplyCameraAngle {0};
+    /** The camera the last shot took, and the placed camera's id. */
+    CameraType _shotCamera {CameraType::Dialog};
+    int _shotCameraId {0};
+    /** The view is an animated shot, until another shot is taken. */
+    bool _animatedView {false};
+
+    /** Starts the cycle of camera angles where the dialog's name puts it. */
+    void seedCameraAngles();
+    /** The next angle of the cycle, for an entry or reply without one. */
+    int drawCameraAngle();
+
+    // END Camera shots
 
     /** Make \p object a participant of this conversation, unless another conversation still holds it. */
     void attachDialogParticipant(const std::shared_ptr<Object> &object);
@@ -134,6 +191,8 @@ private:
 
     bool isSkippableEntry() const;
     bool isNonPresentationalEntry() const;
+    /** Add the shown entry's \p text to the dialogue log under its speaker's name. */
+    void logEntryLine(const std::string &text);
 
     void refreshReplies();
 
@@ -160,6 +219,8 @@ private:
     void runScript(const std::string &scriptResRef, const resource::Dialog::EntryReply::ActionParams &params);
     void runScripts(const resource::Dialog::EntryReply &node);
     void applyStatusSummaryEntries(const resource::Dialog::EntryReply &node);
+    /** Set or clear the video effect for the current entry's camera shot. */
+    void applyShotVideoEffect();
 
     virtual void setMessage(std::string message) = 0;
 

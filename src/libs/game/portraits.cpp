@@ -44,7 +44,7 @@ void Portraits::init() {
         portrait.appearanceNumber = portraits->getInt(row, "appearancenumber");
         portrait.appearanceS = portraits->getInt(row, "appearance_s");
         portrait.appearanceL = portraits->getInt(row, "appearance_l");
-        portrait.forPC = portraits->getBool(row, "forpc");
+        portrait.forPC = portraits->getInt(row, "forpc");
         portrait.sex = portraits->getInt(row, "sex");
 
         _portraits.push_back(std::move(portrait));

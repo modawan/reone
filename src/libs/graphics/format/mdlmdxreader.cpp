@@ -115,6 +115,7 @@ void MdlMdxReader::load() {
         animationScale);
 
     _model->setAffectedByFog(affectedByFog != 0);
+    _model->setSubclassification(subclassification);
 }
 
 MdlMdxReader::ArrayDefinition MdlMdxReader::readArrayDefinition() {

@@ -23,7 +23,6 @@
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/equipitem.h"
-#include "reone/game/action/equipmosteffectivearmor.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/followowner.h"
@@ -38,7 +37,6 @@
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
-#include "reone/game/action/openlock.h"
 #include "reone/game/action/pickupitem.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/putdownitem.h"
@@ -52,6 +50,7 @@
 #include "reone/game/action/takeitem.h"
 #include "reone/game/action/unequipitem.h"
 #include "reone/game/action/unlockobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/action/usetalentatlocation.h"
 #include "reone/game/action/usetalentonobject.h"
@@ -101,7 +100,8 @@ static Variable ActionRandomWalk(const std::vector<Variable> &args, const Routin
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
     }
-    auto action = ctx.game.newAction<RandomWalkAction>();
+    // The walk wanders about where the caller stands now.
+    auto action = ctx.game.newAction<RandomWalkAction>(getCaller(ctx)->position());
     getCaller(ctx)->addAction(std::move(action));
     return Variable::ofNull();
 }
@@ -168,7 +168,7 @@ static Variable ActionMoveAwayFromObject(const std::vector<Variable> &args, cons
         return Variable::ofNull();
     }
     auto action = ctx.game.newAction<MoveAwayFromObject>(std::move(oFleeFrom), run, fMoveAwayRange);
-    caller->addAction(std::move(action));
+    caller->addAction(std::move(action), caller->actions().lastGroup());
     return Variable::ofNull();
 }
 
@@ -387,11 +387,14 @@ static Variable ActionCastSpellAtObject(const std::vector<Variable> &args, const
     if (!scriptCastSource(*caller, *spell, cheat, selection)) {
         return Variable::ofNull();
     }
-    // Only a creature's cast can be instant.
+    // Only a creature's cast can be instant. Any instant value casts at once,
+    // but only 1 also skips the range test and approach.
+    const bool creatureInstant = instantSpell && isa<Creature>(caller.get());
     auto action = ctx.game.newAction<CastSpellAtObjectAction>(std::move(spell), std::move(oTarget), /*item=*/std::nullopt,
-                                                              cheat, *projectilePathType, instantSpell && isa<Creature>(caller.get()),
+                                                              cheat, *projectilePathType, creatureInstant,
                                                               std::nullopt, std::nullopt, selection);
     action->setCommandParameters(nDomainLevel, 0, 0);
+    action->setSkipsApproach(creatureInstant && bInstantSpell == 1);
     submitScriptCast(ctx.game, *caller, std::move(action));
     return Variable::ofNull();
 }
@@ -407,18 +410,10 @@ static Variable ActionGiveItem(const std::vector<Variable> &args, const RoutineC
     auto item = std::dynamic_pointer_cast<Item>(oItem);
 
     // Execute
-    if (!item || !oGiveTo || refusesCommand(ctx)) {
+    if (!item || !oGiveTo) {
         return Variable::ofNull();
     }
-    auto caller = getCaller(ctx);
-    auto &party = ctx.game.party();
-    auto possessor = ctx.game.getObjectById<Creature>(item->owner());
-    const bool partyItem = possessor && isa<Creature>(*caller) && party.isMember(*possessor) && party.isMember(*caller);
-    if (item->owner() != caller->id() && !partyItem) {
-        return Variable::ofNull();
-    }
-    auto action = ctx.game.newAction<GiveItemAction>(std::move(item), std::move(oGiveTo));
-    caller->addAction(std::move(action));
+    GiveItemAction::queue(ctx.game, *getCaller(ctx), std::move(item), std::move(oGiveTo), GiveItemAction::kWholeStack, true);
     return Variable::ofNull();
 }
 
@@ -507,7 +502,8 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto sDialogResRef = getStringOrElse(args, 1, "");
     auto bPrivateConversation = getIntOrElse(args, 2, 0);
     auto nConversationType = getIntOrElse(args, 3, 0);
-    auto bIgnoreStartRange = getIntOrElse(args, 4, 0);
+    // bIgnoreStartRange (4) changes nothing: a scripted conversation starts
+    // wherever its speaker stands.
     auto sNameObjectToIgnore1 = getStringOrElse(args, 5, "");
     auto sNameObjectToIgnore2 = getStringOrElse(args, 6, "");
     auto sNameObjectToIgnore3 = getStringOrElse(args, 7, "");
@@ -524,7 +520,6 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto caller = getCaller(ctx);
     auto privateConversation = static_cast<bool>(bPrivateConversation);
     auto conversationType = static_cast<resource::ConversationType>(nConversationType);
-    auto ignoreStartRange = static_cast<bool>(bIgnoreStartRange);
     auto namesToIgnore = std::vector<std::string> {sNameObjectToIgnore1,
                                                    sNameObjectToIgnore2,
                                                    sNameObjectToIgnore3,
@@ -535,8 +530,10 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto dontClearAllActions = static_cast<bool>(bDontClearAllActions);
 
     // Execute
-    // The party leader drops its actions and its orders, as the player's
-    // controls clear them, even when the conversation is then refused.
+    // Whether the leader answers in conversations holds from now on, and the
+    // party leader drops its actions and its orders, as the player's controls
+    // clear them, even when the conversation is then refused.
+    ctx.game.setLeaderAnswersInDialog(useLeader);
     auto &party = ctx.game.party();
     if (auto leader = party.getLeader()) {
         ctx.game.combat().clearAllOrders(*leader);
@@ -575,7 +572,9 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
             member->applyEffect(std::move(revive), DurationType::Instant);
         }
     }
-    // Unless told not to, the caller drops what it was doing first.
+    // The conversation is under way from now on. Unless told not to, the
+    // caller drops what it was doing first.
+    ctx.game.setDialogUnderWay(true);
     if (!dontClearAllActions) {
         caller->clearAllActions(true);
     }
@@ -584,7 +583,7 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
         dialogResRef,
         privateConversation,
         conversationType,
-        ignoreStartRange,
+        /*ignoreStartRange=*/true,
         namesToIgnore,
         useLeader,
         nBarkX,
@@ -696,7 +695,7 @@ static Variable ActionUseFeat(const std::vector<Variable> &args, const RoutineCo
     if (!creature || !creature->spatialArea()) {
         return Variable::ofNull();
     }
-    if (creature->attackFeatToUse(feat) == FeatType::Invalid) {
+    if (creature->useFeat(feat) == FeatType::Invalid) {
         return Variable::ofNull();
     }
     ctx.game.combat().addRoundAttack(*creature, oTarget);
@@ -723,7 +722,7 @@ static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineC
 
     // Transform
     auto skill = static_cast<SkillType>(nSkill);
-    // The item is optional: only setting a mine uses one.
+    // The item is optional: only setting a mine and healing use one.
     auto itemUsed = std::dynamic_pointer_cast<Item>(oItemUsed);
 
     // Execute
@@ -762,6 +761,13 @@ static Variable ActionUseTalentOnObject(const std::vector<Variable> &args, const
     auto action = ctx.game.newAction<UseTalentOnObjectAction>(tChosenTalent, oTarget, *caller);
     const auto &talent = action->subAction();
     if (!talent) {
+        return Variable::ofNull();
+    }
+    // A feat talent goes on the caster's round at once, as an attack with
+    // that feat.
+    if (auto *feat = dyn_cast<UseFeatAction>(talent.get())) {
+        auto &caster = *dyn_cast<Creature>(caller.get());
+        ctx.game.combat().scheduleAttack(caster, oTarget, feat->feat());
         return Variable::ofNull();
     }
     // A spell talent goes on the caster's round at once: an item's power as
@@ -836,13 +842,18 @@ static Variable ActionMoveAwayFromLocation(const std::vector<Variable> &args, co
     // Execute
     // Only a creature that takes commands can be sent away, and one already
     // out of range of the location stays where it is. The first leg is set
-    // off now, from where the creature stands.
+    // off now, from where the creature stands, in a straight line.
     if (!creature || !creature->isCommandable() ||
         creature->getSquareDistanceTo(lMoveAwayFrom->position()) > fMoveAwayRange * fMoveAwayRange) {
         return Variable::ofNull();
     }
     const glm::vec3 point = ctx.game.module()->area()->computeAwayPoint(*creature, lMoveAwayFrom->position(), fMoveAwayRange);
-    creature->addAction(ctx.game.newAction<MoveToLocationAction>(std::make_shared<Location>(point, 0.0f), run));
+    static constexpr bool kForce = false;
+    static constexpr float kNoTimeout = -1.0f;
+    static constexpr float kToThePoint = 0.0f;
+    static constexpr bool kStraight = true;
+    creature->addAction(ctx.game.newAction<MoveToLocationAction>(
+        std::make_shared<Location>(point, 0.0f), run, kForce, kNoTimeout, kToThePoint, kStraight));
     auto action = ctx.game.newAction<MoveAwayFromLocation>(std::move(lMoveAwayFrom), run, fMoveAwayRange);
     creature->addAction(std::move(action), creature->actions().lastGroup());
     return Variable::ofNull();
@@ -918,11 +929,11 @@ static Variable ActionEquipMostDamagingRanged(const std::vector<Variable> &args,
 
 static Variable ActionEquipMostEffectiveArmor(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    if (refusesCommand(ctx)) {
-        return Variable::ofNull();
+    // The choice is made as the script runs; only the equip is queued.
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (caller && caller->isCommandable()) {
+        equipMostEffectiveArmor(ctx.game, *caller);
     }
-    auto action = ctx.game.newAction<EquipMostEffectiveArmorAction>();
-    getCaller(ctx)->addAction(std::move(action));
     return Variable::ofNull();
 }
 

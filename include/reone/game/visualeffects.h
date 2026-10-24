@@ -147,6 +147,14 @@ inline std::string beamSourceHook(BodyNode part) {
     }
 }
 
+/** A root model cell of visualeffects.2da. */
+struct VisualRootModel {
+    /** Whether the cell names a model. */
+    bool named {false};
+    /** The named model; none when the cell is blank or the model is missing. */
+    std::shared_ptr<graphics::Model> model;
+};
+
 /** A row of visualeffects.2da. */
 struct VisualEffectDesc {
     std::string label;
@@ -154,9 +162,9 @@ struct VisualEffectDesc {
      * Models attached to an object at its root, chosen by the object's size;
      * see rootModel().
      */
-    std::shared_ptr<graphics::Model> rootHugeModel;
-    std::shared_ptr<graphics::Model> rootLargeModel;
-    std::shared_ptr<graphics::Model> rootMediumModel;
+    VisualRootModel rootHugeModel;
+    VisualRootModel rootLargeModel;
+    VisualRootModel rootMediumModel;
     /** The model attached at the object's impact node. */
     std::shared_ptr<graphics::Model> impactModel;
     /** The model attached at the object's head. */
@@ -170,18 +178,18 @@ struct VisualEffectDesc {
     std::shared_ptr<graphics::Model> locationModel;
     std::shared_ptr<audio::AudioClip> soundImpact;
     /**
-     * The visual program run on impact, or -1 for none. A visual that shows a
-     * root model on its target runs no programs.
+     * The visual program run on impact, or -1 for none. A visual whose root
+     * cell for its target names a model runs no programs.
      */
     int progFXImpact {-1};
     /**
      * The visual program run for the effect's duration, or -1 for none. A
-     * visual that shows a root model on its target runs no programs.
+     * visual whose root cell for its target names a model runs no programs.
      */
     int progFXDuration {-1};
     /**
      * The visual program a kept application runs as it ends, or -1 for none.
-     * A visual that shows a root model on its target runs no programs.
+     * A visual whose root cell for its target names a model runs no programs.
      */
     int progFXCessation {-1};
     /** Type_FD "F": the row is only ever presented as an impact. */
@@ -189,18 +197,24 @@ struct VisualEffectDesc {
     std::shared_ptr<audio::AudioClip> soundDuration;
 
     /**
-     * The root model for an object of this size: a huge object takes the
-     * huge model, then the large, then the medium one; a large object the
-     * large, then the medium one; any other object the medium one.
+     * The root model cell for an object of this size category: from huge up,
+     * the huge cell if it names a model, then the large, then the medium
+     * one; a large object the large cell if it names a model, then the medium
+     * one; any other positive size the medium cell. Size 0 or less takes no
+     * cell.
      */
-    const std::shared_ptr<graphics::Model> &rootModel(CreatureSize size) const {
-        if (size == CreatureSize::Huge && rootHugeModel) {
+    const VisualRootModel &rootModel(int sizeCategory) const {
+        static const VisualRootModel kNoRootModel {};
+        if (sizeCategory >= static_cast<int>(CreatureSize::Huge) && rootHugeModel.named) {
             return rootHugeModel;
         }
-        if ((size == CreatureSize::Huge || size == CreatureSize::Large) && rootLargeModel) {
+        if (sizeCategory >= static_cast<int>(CreatureSize::Large) && rootLargeModel.named) {
             return rootLargeModel;
         }
-        return rootMediumModel;
+        if (sizeCategory > 0) {
+            return rootMediumModel;
+        }
+        return kNoRootModel;
     }
 };
 

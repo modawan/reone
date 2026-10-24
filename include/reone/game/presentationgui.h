@@ -75,6 +75,12 @@ public:
             _gui->clearSelection();
     }
 
+    /**
+     * Acts as a click on the named control, whatever its state: the click
+     * sound, then the control's click handler.
+     */
+    void clickControl(const std::string &tag);
+
     std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
 
 protected:

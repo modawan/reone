@@ -23,12 +23,15 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Conceals the object: the percentage is integer 0 and the racial type integer
+ * 1.
+ */
 class ConcealmentEffect : public CopyableEffect<ConcealmentEffect> {
 public:
     /** Concealment applies to all races; a miss chance is a concealment with none. */
     ConcealmentEffect(int percentage, int racialType = static_cast<int>(RacialType::All)) :
-        CopyableEffect(EffectType::Concealment),
-        _percentage(percentage) {
+        CopyableEffect(EffectType::Concealment) {
         setSaveFacingInteger(0, percentage);
         setSaveFacingInteger(1, racialType);
     }
@@ -39,9 +42,6 @@ public:
                    ? EffectApplicationResult::Retained
                    : EffectApplicationResult::Rejected;
     }
-
-private:
-    int _percentage;
 };
 
 } // namespace game

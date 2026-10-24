@@ -298,8 +298,8 @@ TEST(ActionActor, a_creature_actor_keeps_following_the_leader) {
     // and healing skill, and searches for mines.
     ON_CALL(fixture.engine.resourceModule().twoDas(), get("regeneration"))
         .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
-    ON_CALL(fixture.engine.resourceModule().twoDas(), get("skills"))
-        .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+    ON_CALL(static_cast<MockSkills &>(fixture.engine.services().game.skills), get(_))
+        .WillByDefault(Return(nullptr));
     // A follower standing still glances at the leader within its head arc.
     ON_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
         .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().columns({"head_arc_h"}).row({"40"}).build())));

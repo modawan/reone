@@ -48,6 +48,18 @@ class Game;
 struct ServicesView;
 struct VisualEffectDesc;
 
+/**
+ * Where a visual's models attach on an object. Creatures name their nodes; a
+ * placeable prefixes its with its model name after the first four characters,
+ * a door with its whole model name. The sites are also the slots the models
+ * take, in this order.
+ */
+enum class VisualSite {
+    Root,
+    Impact,
+    Head
+};
+
 /** Wraps a body, its head model and its worn head item in a bumped-out shell of \p texture. */
 void setShell(scene::ModelSceneNode &body, std::shared_ptr<graphics::Texture> texture);
 
@@ -57,7 +69,7 @@ void clearShell(scene::ModelSceneNode &body);
 /**
  * A visualeffects.2da row shown on an object or at a point: its models,
  * sounds and programs. An application that is not kept lasts as long as what
- * it shows.
+ * it shows. The row is integer 0 and the miss flag integer 2.
  */
 class VisualEffect : public CopyableEffect<VisualEffect> {
 public:
@@ -66,10 +78,10 @@ public:
     ~VisualEffect();
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
     void onUpdate(Object &object, const EffectInstance &, float dt) override;
     void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) override;
+        const std::set<uint32_t> &retainedObjectIds) override;
     /** A visual sent to an area carries the point it plays at in floats 0 to 2. */
     void setLocation(glm::vec3 loc) {
         for (size_t i = 0; i < 3; ++i) {
@@ -88,6 +100,15 @@ public:
      * the slot is empty.
      */
     static void showLatestShell(Object &holder);
+    /**
+     * A rebuilt body takes back what the visual shows on it: its models come
+     * off the old body and go back to the same nodes of the new one, carrying
+     * on where they were. A model whose node the new body lacks is not shown.
+     * detachFromBody takes them off the old body before it is rebuilt.
+     */
+    void detachFromBody();
+    /** Puts the models taken off by detachFromBody on \p body, the rebuilt body of \p object. */
+    void reattachToBody(Object &object, scene::ModelSceneNode &body);
 
 private:
     /**
@@ -99,12 +120,13 @@ private:
      */
     struct NodeModel {
         std::shared_ptr<scene::ModelSceneNode> model;
+        /** The body the model attaches to; none when it stands at a point in the world. */
         std::shared_ptr<scene::ModelSceneNode> owner;
-        /** No hook: the model stands at a point in the world. */
+        /** The site the model attaches to on its owner. */
+        VisualSite site {VisualSite::Root};
+        /** The node the model hangs from; none at a point in the world, or when the body lacks the site's node. */
         scene::SceneNode *hook {nullptr};
         bool followsPositionOnly {false};
-        /** The model's slot: 0 root, 1 impact, 2 head. */
-        int slot {0};
         float impactRemaining {0.0f};
     };
 
@@ -118,8 +140,6 @@ private:
         bool complete() const { return sourceNode && targetNode; }
     };
 
-    int _visualEffectId;
-    bool _missEffect;
     std::optional<glm::vec3> _location;
     ServicesView &_services;
 
@@ -177,9 +197,8 @@ private:
     void attachNodeModels(Object &object, const std::shared_ptr<scene::ModelSceneNode> &body,
                           const VisualEffectDesc &desc, bool restoring);
     void startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
-                        std::optional<std::reference_wrapper<scene::SceneNode>> hook, bool orientationOff,
-                        std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position, bool restoring,
-                        int slot);
+                        std::optional<std::reference_wrapper<scene::SceneNode>> hook, VisualSite site, bool orientationOff,
+                        std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position, bool restoring);
     /**
      * How long the node models of an application that is not kept show: until
      * the first impact ends, and the unload hold after it.

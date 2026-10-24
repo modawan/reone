@@ -31,6 +31,7 @@ namespace reone {
 namespace game {
 
 class Area;
+class CastSpellAction;
 class Game;
 struct ServicesView;
 
@@ -47,6 +48,8 @@ public:
     void execute(std::shared_ptr<Action>, Object &, float) override;
     bool cancel(std::shared_ptr<Action>, Object &) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved CombatDispatch command: its round slot. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     /** The command's one parameter, as it is saved. */
@@ -76,6 +79,8 @@ public:
     void execute(std::shared_ptr<Action>, Object &, float) override;
     bool cancel(std::shared_ptr<Action>, Object &) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved TotalDefense or Meditate command; none once the Total Defense target is gone. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     CombatStance stance() const { return _stance; }
     const std::shared_ptr<Object> &target() const { return _target; }
@@ -222,6 +227,12 @@ public:
      */
     static bool refusesAttackOnFriend(const Creature &attacker, const Object &target);
     /**
+     * A creature outside the party does not cast, or use an item, at another
+     * creature it has not perceived or that is invisible to it and unseen; a
+     * fake cast is exempt. The entry is used up without casting.
+     */
+    static bool refusesUnperceivedTarget(const Creature &caster, const CastSpellAction &cast);
+    /**
      * A creature that cannot be commanded takes up no attack, save in TSL one
      * under either state that turns it on anyone.
      */
@@ -280,9 +291,11 @@ public:
     /** The action waits: its creature's scheduled entry holds it, or its round is suspended. */
     bool isActionPaused(const Action &action) const;
     /**
-     * The target is engaged by the attacker: it is able to act, and it attacks
-     * no one, or attacks or casts at the attacker. The controlled leader is
-     * engaged only while it acts against the attacker and no one else.
+     * The target is engaged by the attacker: it is able to act, and it is
+     * attempting to attack no one, or attempting to attack or cast at the
+     * attacker. The controlled leader is engaged only while it acts against
+     * the attacker and no one else, and the player has not ordered it onto
+     * another target.
      */
     bool isEngagedBy(const Creature &attacker, const Creature &target) const;
     /**
@@ -370,13 +383,22 @@ public:
     /**
      * Schedule a physical attack on the creature's round: kind 1, or 11 with a
      * feat. A cutscene attack carries its forced values and accepts any
-     * target. Out of combat the creature's other actions are cleared. Returns
-     * the attack to come, or nothing when nothing was scheduled: the target
-     * cannot be attacked or four entries are already pending.
+     * target. Out of combat the controlled creature's other actions are
+     * cleared, and the dispatcher is installed, even when the target cannot be
+     * attacked. Returns the attack to come, or nothing when nothing was
+     * scheduled: the target cannot be attacked or four entries are already
+     * pending.
      */
     std::shared_ptr<Action> scheduleAttack(Creature &actor, const std::shared_ptr<Object> &target,
                                            FeatType feat = FeatType::Invalid,
                                            const std::optional<CutsceneAttack> &cutscene = std::nullopt);
+    /**
+     * Schedule a cutscene move on the creature's round: kind 12. When taken,
+     * it goes to the object where it stands then, or to the point when the
+     * object is gone, and is forced there after a tenth of a second. Out of
+     * combat the controlled creature's other actions are cleared.
+     */
+    void scheduleCutsceneMove(Creature &actor, const std::shared_ptr<Object> &object, const glm::vec3 &point, bool run);
     /**
      * Add an ordinary attack entry (kind 1) to the creature's round, and
      * nothing else: no dispatcher is installed and nothing is cleared, so the
@@ -388,12 +410,19 @@ public:
      * Schedule a spell cast or item use (a CastSpellAction) on the creature's
      * round: kind 9, or 10 for an item use. The dispatcher goes behind the
      * creature's actions if it is not queued. Out of combat an item use then
-     * clears the creature's other actions. Nothing is scheduled when four
-     * entries are already pending.
+     * clears the controlled creature's other actions while an entry is due, a
+     * cast while none is. Nothing is scheduled when four entries are already
+     * pending.
      */
     void scheduleCast(Creature &actor, const std::shared_ptr<Action> &cast);
     /** The creature's ClearAllActions: its clearable actions go, its pending round entries stay. */
     void clearActions(Creature &actor);
+    /**
+     * The clear that scheduling a round command out of combat makes: the
+     * controlled creature's forced ClearAllActions. Any other creature keeps
+     * its actions.
+     */
+    void clearControlledActions(Creature &actor);
     /**
      * The clear the player's controls make: the creature's forced
      * ClearAllActions, then, even for one that cannot be commanded, its round's pending
@@ -409,10 +438,17 @@ public:
     bool hasScheduled(const Object &actor) const;
     /** Fills \p entries with the creature's round entries not yet taken up, in order. */
     void pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &entries) const;
+    /**
+     * The creature's round action under way: the scheduled entry holding its
+     * round for its pause, or else the command its running round carries
+     * out, of the kind of round entry it stands for: a cast, an item use, a
+     * feat attack, Total Defense or an attack. None while nothing is under
+     * way, and none for a round with no command of its own: a duel partner's
+     * side, or a round restored from a save.
+     */
+    std::optional<PendingEntry> currentRoundAction(const Creature &actor) const;
     /** Installs the round dispatcher: in front of the queue, or behind it when toFront is false. */
     void ensureDispatcher(Creature &actor, bool toFront = true);
-    /** The kind of the next scheduled round entry for the creature, if any. */
-    std::optional<int> nextScheduledKind(const Object &actor) const;
     /** Hands the creature's pending equipment entries on to its queue. */
     void transferEquipment(Creature &actor);
     /** Drops the creature's scheduled entries. */
@@ -455,13 +491,24 @@ public:
 private:
     using RoundQueue = std::deque<std::shared_ptr<CombatRound>>;
 
+    /** What taking up a due scheduled entry did with it. */
+    enum class EntryTake {
+        /** The entry left the schedule: handed on to its creature's queue, or used up. */
+        Left,
+        /** The entry holds its creature for its pause before it leaves. */
+        Paused,
+        /** The entry waits at the head until its creature may act. */
+        Waiting
+    };
+
     /** A scheduled round entry, with the command it runs once taken up. */
     struct ScheduledEntry {
         SavedScheduledAction saved;
         OrdinaryActionQueue::Node node;
         /** The objects the entry names were found when it was restored. */
         bool referencesBound {true};
-        bool refusalReported {false};
+        /** The power a cast entry casts; a save does not keep it, so a restored entry has none. */
+        std::optional<SpellType> spell;
     };
 
     /** A creature's scheduled round entries and the time on its schedule. */
@@ -500,6 +547,27 @@ private:
 
     /** Advances every creature's scheduled entries by \p dt seconds, dispatching those that come due. */
     void updateEquipment(float dt);
+    /** Takes up the creature's due entry at the head of its schedule. */
+    EntryTake takeEntry(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
+    /** Takes up a due attack entry, or uses it up when its target can no longer be attacked. */
+    EntryTake takeAttack(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
+    /** Takes up a due cast entry, or uses it up when its cast can no longer run. */
+    EntryTake takeCast(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
+    /**
+     * Uses up an entry that can no longer be carried out. Its command has no
+     * effect, but the entry becomes the round's action and takes its creature
+     * out of stealth as a carried-out one would; an equip or unequip still
+     * holds its creature for its pause.
+     */
+    EntryTake useUpEntry(Creature &actor, ScheduledOwner &owner, ScheduledEntry &entry);
+    /**
+     * Whether taking up \p entry, carried out or not, leaves its creature in
+     * stealth: an item use does, and in TSL so do a stance and a cast of a
+     * power that keeps stealth; every other entry takes it out.
+     */
+    bool entryKeepsStealth(const ScheduledEntry &entry) const;
+    /** Starts the pause of an equip or unequip: its creature leaves stealth and stops. */
+    void beginEquipmentPause(Creature &actor, ScheduledEntry &entry);
     /** A scheduled entry's pause has ended: \p actor, and the partner of a pair it masters, take up their pose. */
     void readyAfterScheduledPause(Creature &actor);
     /** The scheduled entries of \p actor, started on the time of its running round when there are none yet. */
@@ -516,6 +584,8 @@ private:
                                                     const std::optional<CutsceneAttack> &cutscene) const;
     /** Hands a combat stance or weapon switch entry to \p actor as its round action. */
     void dispatchScheduled(Creature &actor, const ScheduledEntry &entry);
+    /** Puts the move of a cutscene move entry at the front of \p actor's queue. */
+    void dispatchCutsceneMove(Creature &actor, const ScheduledEntry &entry);
     /**
      * Prepares an item use entry for dispatch: a hostile item spell takes its
      * user out of stealth, and a spell the hostile menu does not list, aimed

@@ -9,13 +9,14 @@
 
 #pragma once
 
-#include "../gui.h"
-#include "../statussummary.h"
+#include <array>
+#include <functional>
 
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 
-#include <array>
+#include "../gui.h"
+#include "../statussummary.h"
 
 namespace reone {
 
@@ -31,6 +32,8 @@ public:
     void reset();
 
     bool isVisible() const { return _visible; }
+    /** Presenting a shown row may flash that row's indicator on the main interface. */
+    void setOnStatusFlash(std::function<void(StatusSummaryCategory)> flash) { _flash = std::move(flash); }
 
     bool handle(const input::Event &event) override;
 
@@ -48,11 +51,11 @@ private:
     StatusSummaryAccumulator &_accumulator;
     std::shared_ptr<gui::Button> _ok;
     std::array<RowControls, kStatusSummaryCategoryCount> _rows;
-    std::vector<std::shared_ptr<gui::Control>> _unusedTSLRows;
     gui::Control::Extent _rootExtent;
     gui::Control::Extent _okExtent;
     bool _loaded {false};
     bool _visible {false};
+    std::function<void(StatusSummaryCategory)> _flash;
 
     void onGUILoaded() override;
     void acknowledge();

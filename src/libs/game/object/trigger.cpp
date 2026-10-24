@@ -18,6 +18,7 @@
 #include "reone/game/object/trigger.h"
 
 #include "reone/game/animations.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/messagelog.h"
@@ -38,7 +39,6 @@
 #include "reone/resource/provider/models.h"
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
-#include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/model.h"
@@ -100,9 +100,6 @@ void Trigger::deserialize(
         }
     }
     deserializeAll(gff, identityContext);
-    if (_isTrap) {
-        loadTrapRadius();
-    }
     loadAppearance();
     updateTransform();
 }
@@ -130,6 +127,7 @@ void Trigger::deserializeAll(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");
+    gff.readResRef(_onClick, "OnClick");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     _trap.deserialize(gff);
     if (gff.readString(_linkedTo, "LinkedTo")) {
@@ -147,11 +145,11 @@ void Trigger::deserializeAll(
     gff.readEnum(_faction, "Faction");
     gff.readString(_keyName, "KeyName");
     // The detect and disarm DCs come from traps.2da, not from the record.
-    _trap.loadTypeDCs(_services.resource.twoDas);
+    _trap.loadTypeDCs(_game);
     // An empty or "default" trap script means the trap type's own script.
     static const std::string kDefaultTrapScript {"default"};
     if (_trap.triggeredScript().empty() || _trap.triggeredScript() == kDefaultTrapScript) {
-        _trap.setTriggeredScript(Trap::typeRow(_services.resource.twoDas, _trap.type()).script);
+        _trap.setTriggeredScript(_game.trapType(_trap.type()).script);
     }
     uint32_t creatorId = 0;
     if (gff.readDword(creatorId, "CreatorId")) {
@@ -198,8 +196,6 @@ void Trigger::deserializeAll(
     }
 
     // Not handled:
-    // - OnClick
-    // - CreatorId (IDs are not deserialized)
     // - Cursor
     // - PortraitId
     // - VarTable
@@ -222,7 +218,7 @@ void Trigger::loadTrapModel() {
         return;
     }
     // Every trap type names its model.
-    const std::string modelName = Trap::typeRow(_services.resource.twoDas, _trap.type()).model;
+    const std::string &modelName = _game.trapType(_trap.type()).model;
     auto model = _services.resource.models.get(modelName);
     if (!model) {
         throw ResourceNotFoundException("Trap model not found: " + modelName);
@@ -244,7 +240,7 @@ glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
         if (glm::dot(offset, offset) <= 1e-4f) {
             return from;
         }
-        return _position + glm::normalize(offset) * _trapRadius;
+        return _position + glm::normalize(offset) * trapRadius();
     }
     // Nearest point on the outline, edge by edge in vertex order.
     glm::vec3 nearest {0.0f};
@@ -298,6 +294,7 @@ void Trigger::setTrapCreator(const std::shared_ptr<Object> &creator) {
 }
 
 void Trigger::initMine(
+    const Area &area,
     int trapType,
     const glm::vec3 &position,
     const std::shared_ptr<Object> &creator,
@@ -307,25 +304,23 @@ void Trigger::initMine(
     int ownerDemolitionsSkill) {
     setTrapCreator(creator);
     _isTrap = true;
-    loadTrapRadius();
     // Saved as a trap trigger, so a reload keeps the mine.
     _triggerType = kTrapType;
-    _trap.setUpMine(_services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill);
+    _trap.setUpMine(_game, trapType, detectDC, disarmDC, ownerDemolitionsSkill);
     _faction = faction;
-    if (auto nameStrRef = Trap::typeRow(_services.resource.twoDas, trapType).nameStrRef) {
+    if (auto nameStrRef = _game.trapType(trapType).nameStrRef) {
         _locName = LocString(*nameStrRef, "", _services.resource.strings);
         _name = _locName.str();
     }
     // A square four metres across, each corner on the ground beneath it, or
-    // level with the mine where there is no ground or the ground is at height
+    // level with the mine where there is no room or the ground is at height
     // zero.
     _position = position;
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto corner = [&](float x, float y) {
         glm::vec3 point {x, y, 0.0f};
-        Collision collision;
-        if (sceneGraph.testElevation(position + point, collision) && collision.intersection.z != 0.0f) {
-            point.z = collision.intersection.z - position.z;
+        const float ground = area.groundHeight(glm::vec3(position.x + x, position.y + y, 0.0f), Area::GroundFace::Locating);
+        if (ground != 0.0f) {
+            point.z = ground - position.z;
         }
         return point;
     };
@@ -364,7 +359,13 @@ bool Trigger::canFireMineOn(const Creature &creature, bool force) const {
     return fire;
 }
 
-void Trigger::fireMine(const std::shared_ptr<Creature> &creature, bool force) {
+void Trigger::enterMine(const std::shared_ptr<Creature> &creature, bool force) {
+    _lastEnteredId = creature->id();
+    fireMine(force);
+}
+
+void Trigger::fireMine(bool force) {
+    auto creature = _game.getObjectById<Creature>(_lastEnteredId);
     if (!creature || !canFireMineOn(*creature, force)) {
         return;
     }
@@ -491,7 +492,7 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     syncDebugVisual();
     // Stepping on a trap goes through the trap, which runs the enter script itself.
     if (_isTrap) {
-        fireMine(std::dynamic_pointer_cast<Creature>(object), false);
+        fireMine(false);
         return;
     }
     if (_onEnter.empty()) {
@@ -499,6 +500,25 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     }
 
     _game.scriptRunner().run(_onEnter, _id);
+}
+
+// The click script an area transition takes when it has none of its own, and
+// the name that stands for none.
+static constexpr char kTransitionClickScript[] = "nw_g0_transition";
+static constexpr char kDefaultClickScript[] = "default";
+
+void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
+    _lastEnteredId = clicker ? clicker->id() : script::kObjectInvalid;
+    if ((_onClick.empty() || _onClick == kDefaultClickScript) && isAreaTransition()) {
+        _onClick = kTransitionClickScript;
+    }
+    if (_onClick.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onClick,
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
+         {script::ArgKind::ClickingObject, script::Variable::ofObject(_lastEnteredId)}});
 }
 
 void Trigger::removeTenant(const Object *object) {
@@ -515,14 +535,16 @@ void Trigger::removeTenant(const Object *object) {
 bool Trigger::isIn(const glm::vec3 &point) const {
     if (_isTrap) {
         const glm::vec3 offset {point - _position};
-        return glm::dot(offset, offset) <= _trapRadius * _trapRadius;
+        const float radius = trapRadius();
+        return glm::dot(offset, offset) <= radius * radius;
     }
     auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
     return sceneNode && sceneNode->isIn(glm::vec2(point));
 }
 
-void Trigger::loadTrapRadius() {
-    _trapRadius = getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kTrapRadiusRange, "primaryrange", kDefaultTrapRadius);
+float Trigger::trapRadius() const {
+    const auto row = _services.game.spells.findRange(kTrapRadiusRange);
+    return row && row->get().primary ? *row->get().primary : kDefaultTrapRadius;
 }
 
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {
@@ -545,12 +567,10 @@ bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activato
     if (!activator) {
         return false;
     }
-    // Only the player character or the current party leader moves the party
-    // between modules; a following companion crossing a transition is ignored.
-    // Taking control of a companion makes it the leader, so it keeps the
-    // ability to transition and stays controlled in the destination.
-    const Party &party = _game.party();
-    return activator == party.actualPlayer() || activator == party.getLeader();
+    // A following companion crossing a transition is ignored. Taking control
+    // of a companion makes it the leader, so it keeps the ability to
+    // transition and stays controlled in the destination.
+    return _game.party().movesBetweenModules(*activator);
 }
 
 bool Trigger::detachLinkedDoorTransition(const Door &door) {

@@ -42,6 +42,8 @@ public:
 
     const std::string &name() const { return _name; }
     int classification() const { return _classification; }
+    /** The model header's subclassification flags. */
+    int subclassification() const { return _subclassification; }
     std::shared_ptr<ModelNode> rootNode() const { return _rootNode; }
     std::shared_ptr<Model> superModel() const { return _superModel; }
     const std::string &superModelName() const { return _superModelName; }
@@ -49,6 +51,7 @@ public:
     const AABB &aabb() const { return _aabb; }
 
     void setAffectedByFog(bool affected) { _affectedByFog = affected; }
+    void setSubclassification(int subclassification) { _subclassification = subclassification; }
 
     void setSuperModel(std::shared_ptr<Model> superModel) {
         _superModel = std::move(superModel);
@@ -77,6 +80,7 @@ public:
 private:
     std::string _name;
     int _classification;
+    int _subclassification {0};
     std::shared_ptr<ModelNode> _rootNode;
     std::unordered_map<std::string, std::shared_ptr<Animation>> _animations;
     std::string _superModelName;

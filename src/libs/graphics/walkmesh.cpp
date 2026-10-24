@@ -126,7 +126,7 @@ Raycast Walkmesh::raycastFace(
 
     Raycast result = {0};
 
-    if (surfaces.count(face.material) == 0) {
+    if (!hasSurfaceMaterial(surfaces, face.material)) {
         result.fail = RAYCAST_NO_MATERIAL;
         return result;
     }
@@ -157,10 +157,12 @@ bool Walkmesh::contains(const glm::vec2 &point) const {
     return _rootAabb->value.contains(point);
 }
 
-// Horizontal distance from a point to a segment.
+// Horizontal distance from a point to a segment; a segment of no length is
+// its end point.
 static float distanceToSegment2D(const glm::vec2 &point, const glm::vec2 &a, const glm::vec2 &b) {
     glm::vec2 ab {b - a};
-    float t = glm::clamp(glm::dot(point - a, ab) / glm::dot(ab, ab), 0.0f, 1.0f);
+    const float length2 = glm::dot(ab, ab);
+    float t = length2 > 0.0f ? glm::clamp(glm::dot(point - a, ab) / length2, 0.0f, 1.0f) : 0.0f;
     return glm::length(point - (a + t * ab));
 }
 
@@ -169,14 +171,38 @@ static float sideOf(const glm::vec2 &u, const glm::vec2 &v, const glm::vec2 &w) 
     return (v.x - u.x) * (w.y - u.y) - (v.y - u.y) * (w.x - u.x);
 }
 
+// Whether two segments cross, horizontally, each passing between the ends of
+// the other.
+static bool segmentsCross2D(const glm::vec2 &a, const glm::vec2 &b, const glm::vec2 &c, const glm::vec2 &d) {
+    const float c1 = sideOf(a, b, c);
+    const float c2 = sideOf(a, b, d);
+    const float a1 = sideOf(c, d, a);
+    const float a2 = sideOf(c, d, b);
+    return ((c1 > 0.0f && c2 < 0.0f) || (c1 < 0.0f && c2 > 0.0f)) &&
+           ((a1 > 0.0f && a2 < 0.0f) || (a1 < 0.0f && a2 > 0.0f));
+}
+
+// Horizontal distance between two segments.
+static float distanceBetweenSegments2D(const glm::vec2 &a, const glm::vec2 &b, const glm::vec2 &c, const glm::vec2 &d) {
+    if (segmentsCross2D(a, b, c, d)) {
+        return 0.0f;
+    }
+    return std::min({distanceToSegment2D(a, c, d),
+                     distanceToSegment2D(b, c, d),
+                     distanceToSegment2D(c, a, b),
+                     distanceToSegment2D(d, a, b)});
+}
+
 bool Walkmesh::hasFaceWithin(const std::set<uint32_t> &materials,
-                             const glm::vec3 &point,
+                             const glm::vec3 &from,
+                             const glm::vec3 &to,
                              float radius,
                              float minZ,
                              float maxZ) const {
-    glm::vec2 p {point};
+    glm::vec2 p {from};
+    glm::vec2 q {to};
     for (size_t index = 0; index < faces.size(); ++index) {
-        if (materials.count(this->materials[index]) == 0) {
+        if (!hasSurfaceMaterial(materials, this->materials[index])) {
             continue;
         }
         Face face = getFace(static_cast<uint32_t>(index));
@@ -188,23 +214,54 @@ bool Walkmesh::hasFaceWithin(const std::set<uint32_t> &materials,
         glm::vec2 a {face.vertices[0]};
         glm::vec2 b {face.vertices[1]};
         glm::vec2 c {face.vertices[2]};
-        if (std::min({a.x, b.x, c.x}) > p.x + radius || std::max({a.x, b.x, c.x}) < p.x - radius ||
-            std::min({a.y, b.y, c.y}) > p.y + radius || std::max({a.y, b.y, c.y}) < p.y - radius) {
+        if (std::min({a.x, b.x, c.x}) > std::max(p.x, q.x) + radius || std::max({a.x, b.x, c.x}) < std::min(p.x, q.x) - radius ||
+            std::min({a.y, b.y, c.y}) > std::max(p.y, q.y) + radius || std::max({a.y, b.y, c.y}) < std::min(p.y, q.y) - radius) {
             continue;
         }
-        // Inside the face, or within radius of one of its edges.
+        // The segment starts inside the face, or passes within radius of one
+        // of its edges.
         float d0 = sideOf(a, b, p);
         float d1 = sideOf(b, c, p);
         float d2 = sideOf(c, a, p);
         bool inside = (d0 >= 0.0f && d1 >= 0.0f && d2 >= 0.0f) || (d0 <= 0.0f && d1 <= 0.0f && d2 <= 0.0f);
         if (inside ||
-            distanceToSegment2D(p, a, b) <= radius ||
-            distanceToSegment2D(p, b, c) <= radius ||
-            distanceToSegment2D(p, c, a) <= radius) {
+            distanceBetweenSegments2D(p, q, a, b) <= radius ||
+            distanceBetweenSegments2D(p, q, b, c) <= radius ||
+            distanceBetweenSegments2D(p, q, c, a) <= radius) {
             return true;
         }
     }
     return false;
+}
+
+std::optional<Walkmesh::PerimeterCrossing> Walkmesh::findPerimeterCrossing(const glm::vec2 &from, const glm::vec2 &to, float after) const {
+    const glm::vec2 line {to - from};
+    std::optional<PerimeterCrossing> first;
+    for (const PerimeterEdge &edge : perimeter) {
+        const FaceVertices &face = faces[edge.index / 3];
+        const uint32_t place = edge.index % 3;
+        const glm::vec2 a {vertices[face.indices[place]]};
+        const glm::vec2 b {vertices[face.indices[(place + 1) % 3]]};
+        const glm::vec2 side {b - a};
+        const float denominator = line.x * side.y - line.y * side.x;
+        if (denominator == 0.0f) {
+            continue;
+        }
+        const glm::vec2 toEdge {a - from};
+        const float fraction = (toEdge.x * side.y - toEdge.y * side.x) / denominator;
+        const float along = (toEdge.x * line.y - toEdge.y * line.x) / denominator;
+        if (along < 0.0f || along > 1.0f || fraction <= after || fraction > 1.0f) {
+            continue;
+        }
+        if (!first || fraction < first->fraction) {
+            glm::vec2 normal {glm::normalize(glm::vec2(side.y, -side.x))};
+            if (glm::dot(normal, line) > 0.0f) {
+                normal = -normal;
+            }
+            first = PerimeterCrossing {fraction, edge.transition, normal};
+        }
+    }
+    return first;
 }
 
 void Walkmesh::verify() const {

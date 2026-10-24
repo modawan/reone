@@ -25,6 +25,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+#include "reone/audio/mixer.h"
 #include "reone/game/castspell.h"
 #include "reone/game/combattables.h"
 #include "reone/game/d20/spells.h"
@@ -39,6 +40,7 @@
 #include "reone/graphics/model.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
@@ -253,6 +255,10 @@ void Projectiles::init() {
             prefixes.emplace(boost::to_lower_copy(column), droids->getString(row, column));
         }
     }
+    auto grenadeSounds = getRequiredTwoDA(_twoDas, "grenadesnd");
+    for (int row = 0; row < grenadeSounds->getRowCount(); ++row) {
+        _grenadeSounds.push_back(boost::to_lower_copy(grenadeSounds->getString(row, "sound")));
+    }
 }
 
 std::optional<ProjectileSpec> Projectiles::discharge(int animation, const Creature &attacker) const {
@@ -336,14 +342,13 @@ void Projectiles::launchLightsaberThrow(Creature &caster, const EffectInstance &
         route.spellId = static_cast<int>(spell->type);
         route.path = 1;
         route.model = modelName;
-        route.initialized = true;
         route.travelRate = rate;
         route.activationDelay = deadline / 1000.0f;
         route.released = deadline == 0;
         route.legs.push_back({sourceRef, targetRef,
                               attachmentPosition(sourceRef, source == casterObject ? "rhand" : "impact", source->position()),
                               throwTargetPosition(targetRef, route.caster, target->position()),
-                              milliseconds / 1000.0f, false});
+                              milliseconds / 1000.0f});
         _active.push_back(active);
         if (route.released) {
             startLeg(*active, game, services);
@@ -478,6 +483,18 @@ void Projectiles::startLeg(ActiveProjectile &active, Game &game, ServicesView &s
             if (s.kind == ProjectileKind::AttackBolt) {
                 leg.destination = safeLegDestination(s, leg);
             }
+            // A grenade is silent as it is thrown. Each bounce plays, where it
+            // happens, the grenadesnd.2da sound of the surface the grenade
+            // lands on next. The row is that surface's bit (1 << surface), not
+            // its number; a row past the table or with no sound plays nothing.
+            if (s.leg > 0 && leg.surface) {
+                const auto row = static_cast<size_t>(1) << *leg.surface;
+                if (row < _grenadeSounds.size() && !_grenadeSounds[row].empty()) {
+                    if (auto clip = services.resource.audioClips.get(_grenadeSounds[row])) {
+                        services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, 1.0f, false, s.position);
+                    }
+                }
+            }
         }
         initializeMotion(s, _burstWentLeft);
     }
@@ -505,8 +522,7 @@ uint64_t Projectiles::beginSpell(Object &caster, std::optional<std::reference_wr
     s.orientation = glm::angleAxis(caster.getFacing(), glm::vec3(0, 0, 1));
     s.position = spellSourcePosition(s.caster, s.sourceHook, caster.position());
     s.clockwise = selectedPath == ProjectilePathType::Spiral && randomInt(0, 1) != 0;
-    s.initialized = true;
-    s.legs.push_back({s.caster, referenceTo(target, game), s.position, position, 0.0f, false});
+    s.legs.push_back({s.caster, referenceTo(target, game), s.position, position, 0.0f});
     attachPresentation(*active, game, services, false);
     _active.push_back(active);
     return s.id;
@@ -534,17 +550,24 @@ void Projectiles::releaseSpell(uint64_t id, float duration, Game &game, Services
         auto append = [&](const glm::vec3 &end, float seconds, ProjectileMotion motion,
                           SavedObjectReference follow = {}, glm::vec3 offset = glm::vec3(0)) {
             const auto start = s.legs.empty() ? origin : s.legs.back().destination;
-            s.legs.push_back({{}, std::move(follow), start, end, seconds, false, motion, offset});
+            s.legs.push_back({{}, std::move(follow), start, end, seconds, motion, offset});
         };
         auto &area = *game.module()->area();
-        // A point over no walkable ground has no elevation.
-        auto ground = [&](glm::vec3 &point) {
+        // Drops a point onto the room floor beneath it and gives that floor's
+        // material. Once a point of this throw has found a floor, a later point
+        // with none beneath it takes the height and material of the last floor
+        // found.
+        std::optional<scene::Collision> lastGround;
+        auto ground = [&](glm::vec3 &point) -> std::optional<int> {
             scene::Collision collision;
-            if (!area.graph().testElevation(glm::vec3(point.x, point.y, 1000.0f), collision)) {
-                return false;
+            if (area.testRoomSurface(glm::vec2(point), collision)) {
+                lastGround = collision;
             }
-            point.z = collision.intersection.z;
-            return true;
+            if (!lastGround) {
+                return std::nullopt;
+            }
+            point.z = lastGround->intersection.z;
+            return lastGround->material;
         };
         switch (static_cast<ProjectilePathType>(s.path)) {
         case ProjectilePathType::HighBallistic: {
@@ -613,11 +636,16 @@ void Projectiles::releaseSpell(uint64_t id, float duration, Game &game, Services
             break;
         }
         case ProjectilePathType::Grenade: {
-            // A grenade lands short and bounces twice to its target. When any
-            // contact point has no ground beneath it, it flies one arc instead.
+            // A grenade lands short and bounces twice to its target. When the
+            // first contact point has no floor beneath it, it flies one arc
+            // instead.
             std::array<glm::vec3, 4> contacts {glm::mix(origin, destination, 0.8f),
                                                glm::mix(origin, destination, 0.9f), glm::mix(origin, destination, 0.95f), destination};
-            if (!std::all_of(contacts.begin(), contacts.end(), ground)) {
+            std::array<std::optional<int>, 4> surfaces;
+            for (size_t i = 0; i < contacts.size(); ++i) {
+                surfaces[i] = ground(contacts[i]);
+            }
+            if (!std::all_of(surfaces.begin(), surfaces.end(), [](const auto &surface) { return surface.has_value(); })) {
                 append(destination, duration, ProjectileMotion::Ballistic);
                 break;
             }
@@ -627,6 +655,7 @@ void Projectiles::releaseSpell(uint64_t id, float duration, Game &game, Services
             const std::array<int, 4> times {first, second, third, total - first - second - third};
             for (size_t i = 0; i < contacts.size(); ++i) {
                 append(contacts[i], times[i] / 1000.0f, ProjectileMotion::Ballistic);
+                s.legs.back().surface = surfaces[i];
             }
             break;
         }
@@ -650,9 +679,6 @@ void Projectiles::cancelSpell(uint64_t id) {
                       return p->saved.id == id && p->saved.kind == ProjectileKind::Spell && !p->saved.released;
                   }),
                   _active.end());
-}
-bool Projectiles::blocksRangedParry(const Creature &creature) const {
-    return creature.throwParryBlocked();
 }
 
 static glm::vec3 safeProjectileSourcePosition(Creature &source, int hand) {
@@ -728,7 +754,6 @@ void Projectiles::launchSafeProjectile(Creature &source, Object &target, const I
     s.kind = ProjectileKind::AttackBolt;
     s.path = static_cast<int>(ProjectilePathType::Homing);
     s.released = true;
-    s.initialized = true;
     s.caster = referenceTo(source, game);
     s.weapon = referenceTo(weapon, game);
     s.model = ammunition->model->name();
@@ -783,6 +808,29 @@ void Projectiles::launchSafeProjectile(Creature &source, Object &target, const I
         item->playShotSound(s.soundVariant, s.position);
     }
     _active.push_back(std::move(p));
+}
+
+// The visual effect of a blaster bolt's spark.
+static constexpr int kBlasterImpactVisual = 4024;
+
+// A bolt that ends its flight after hitting a creature, or after the creature
+// deflected it or stopped it with a shield, shows a blaster spark on that
+// creature, turned along the bolt's last heading: at its impact node for a
+// hit, at its bolt impact node otherwise. A parried bolt, a miss, a bolt at a
+// door or placeable, and a bolt whose creature is gone show none.
+static void presentBoltSpark(Area &area, const SavedProjectile &projectile) {
+    const auto result = static_cast<AttackResultType>(projectile.combatResult);
+    const bool hit = result == AttackResultType::HitSuccessful || result == AttackResultType::CriticalHit ||
+                     result == AttackResultType::AutomaticHit || result == AttackResultType::AttackResisted;
+    if (!hit && result != AttackResultType::Deflected && result != AttackResultType::ShieldHit) {
+        return;
+    }
+    const auto creature = Creature::asCreature(projectile.legs.front().target.boundObject());
+    if (!creature) {
+        return;
+    }
+    area.presentHitSpark(creature->get(), kBlasterImpactVisual,
+                         projectile.orientation * glm::vec3(0.0f, 1.0f, 0.0f), hit ? "impact" : "impact_bolt");
 }
 
 // Legs not yet set out still leave on time; only the saber flying now goes.
@@ -868,14 +916,16 @@ void Projectiles::update(float dt, Game &game, ServicesView &services) {
                     active.model->setLocalTransform(glm::translate(s.position) * glm::mat4_cast(s.orientation));
                 }
                 // Presentation completion never applies gameplay damage.
-                const bool playImpact = s.kind == ProjectileKind::AttackBolt && !leg.reacted && leg.target.boundObject();
-                leg.reacted = true;
-                if (playImpact)
-                    if (auto item = std::dynamic_pointer_cast<Item>(s.weapon.boundObject())) {
-                        item->playImpactSound(s.soundVariant, s.position);
-                    }
                 ++s.leg;
+                // A bolt is heard once, where its flight ends, whether it hit,
+                // missed or came back deflected.
                 if (s.leg == s.legs.size()) {
+                    if (s.kind == ProjectileKind::AttackBolt) {
+                        if (auto item = std::dynamic_pointer_cast<Item>(s.weapon.boundObject())) {
+                            item->playImpactSound(s.soundVariant, s.position);
+                        }
+                        presentBoltSpark(*game.module()->area(), s);
+                    }
                     break;
                 }
                 startLeg(active, game, services);

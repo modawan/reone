@@ -77,7 +77,10 @@ struct Spell {
     /** The power's side (spells.2da GoodEvil): 'G' light, 'E' dark, 'N' neither. */
     char alignment {'N'};
     std::unordered_map<ClassType, int> classLevelRequirements;
+    /** The talent category: four four-bit fields. */
     uint32_t category {0};
+    /** The challenge rating that ranks the spell as a talent. */
+    int maxCR {0};
     std::string impactScript;
     SpellCastAnimation castAnimation {SpellCastAnimation::Other};
     std::shared_ptr<audio::AudioClip> castSound;
@@ -93,7 +96,11 @@ struct Spell {
     float range {0.0f};
     /** The spells.2da range tag as written. */
     std::string rangeTag;
-    /** The least distance the power menu offers the power at; none without a single-letter range tag. */
+    /**
+     * The least distance the power menu offers the power at, from the row of
+     * its range tag; none when the tag names no range (see
+     * unrangedPowerMinimumRange).
+     */
     std::optional<float> minimumRange;
     /** The combat forms the power works in (TSL). */
     uint32_t formMask {0};
@@ -111,7 +118,10 @@ struct Spell {
     /** The head, hand and ground models shown while conjuring and after the release. */
     std::array<std::string, 3> conjureVisuals;
     std::array<std::string, 3> castVisuals;
-    /** Target kinds a hostile power menu does not offer the power against. */
+    /**
+     * Target kinds a hostile power menu does not offer the power against.
+     * Talent selection also tests it against the requested inclusion.
+     */
     uint32_t exclusion {0};
 
     /**

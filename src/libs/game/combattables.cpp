@@ -40,6 +40,13 @@ static Row rowOrBlank(const std::vector<Row> &rows, int row) {
     return row >= 0 && row < static_cast<int>(rows.size()) ? rows[row] : Row();
 }
 
+// A regeneration value by its row's label; a missing label, or a blank value,
+// is zero.
+static float regenerationValue(const TwoDA &table, const std::string &label) {
+    const int row = table.indexByLabel(label);
+    return row >= 0 ? table.getFloat(row, "value", 0.0f) : 0.0f;
+}
+
 // A row of iprp_costtable that names no table adds none.
 static void readCostTable(ITwoDAs &twoDas, const std::string &resRef,
                           std::unordered_map<std::string, CostTable> &tables) {
@@ -90,11 +97,10 @@ void CombatTables::init(ITwoDAs &twoDas, GameID gameId) {
 
     // The first column is the label; each further one is an immunity.
     auto gameEffects = getRequiredTwoDA(twoDas, "gameeffects");
-    const auto &columns = gameEffects->columns();
     for (int row = 0; row < gameEffects->getRowCount(); ++row) {
         std::vector<int> immunities;
-        for (int column = 1; column < static_cast<int>(columns.size()); ++column) {
-            if (gameEffects->getInt(row, columns[column], 0) != 0) {
+        for (int column = 1; column < gameEffects->getColumnCount(); ++column) {
+            if (gameEffects->getInt(row, column, 0) != 0) {
                 immunities.push_back(column - 1);
             }
         }
@@ -163,6 +169,93 @@ void CombatTables::init(ITwoDAs &twoDas, GameID gameId) {
             set.levelMultiplier = multiplier("levelmult");
             _autoBalance.push_back(set);
         }
+        auto tags = getRequiredTwoDA(twoDas, "iprp_pc");
+        for (int row = 0; row < tags->getRowCount(); ++row) {
+            _playerCharacterLimitTags.push_back(tags->getString(row, "expectedtag"));
+        }
+    }
+
+    // A row without an effect type keeps none.
+    auto kept = getRequiredTwoDA(twoDas, "removefxondeath");
+    for (int row = 0; row < kept->getRowCount(); ++row) {
+        if (auto type = kept->getIntOpt(row, "effecttype")) {
+            _deathKeptEffectTypes.push_back(*type);
+        }
+    }
+
+    // The thresholds are unsigned: the last level's is 0xFFFFFFFF. KotOR has 21
+    // level rows and TSL 51; a blank cell, or a row the table lacks, is 0.
+    const int levelRows = gameId == GameID::TSL ? 51 : 21;
+    auto thresholds = getRequiredTwoDA(twoDas, "exptable");
+    for (int row = 0; row < levelRows; ++row) {
+        _experienceThresholds.push_back(thresholds->getUint(row, "xp"));
+    }
+    auto experience = getRequiredTwoDA(twoDas, "xptable");
+    for (int row = 0; row < experience->getRowCount(); ++row) {
+        std::vector<float> cells;
+        for (int column = 0; column < experience->getColumnCount(); ++column) {
+            cells.push_back(experience->getFloat(row, column, 0.0f));
+        }
+        _killExperience.push_back(std::move(cells));
+    }
+
+    auto weaponSounds = getRequiredTwoDA(twoDas, "weaponsounds");
+    for (int row = 0; row < weaponSounds->getRowCount(); ++row) {
+        std::unordered_map<std::string, std::string> sounds;
+        // Sounds are looked up by column name, ignoring case; of columns
+        // whose names differ only in case, the first is found.
+        for (const auto &column : weaponSounds->columns()) {
+            auto sound = boost::to_lower_copy(weaponSounds->getString(row, column));
+            if (!sound.empty()) {
+                sounds.emplace(boost::to_lower_copy(column), std::move(sound));
+            }
+        }
+        _weaponSounds.push_back(std::move(sounds));
+    }
+
+    auto bodyBags = getRequiredTwoDA(twoDas, "bodybag");
+    for (int row = 0; row < bodyBags->getRowCount(); ++row) {
+        _bodyBags.push_back({bodyBags->getIntOpt(row, "appearance"),
+                             bodyBags->getIntOpt(row, "name"),
+                             bodyBags->getInt(row, "corpse", 0) != 0});
+    }
+    auto fractions = getRequiredTwoDA(twoDas, "fractionalcr");
+    for (int row = 0; row < fractions->getRowCount(); ++row) {
+        _fractionalChallengeMinimums.push_back(fractions->getFloat(row, "min", 0.0f));
+    }
+    auto difficulties = getRequiredTwoDA(twoDas, "encdifficulty");
+    for (int row = 0; row < difficulties->getRowCount(); ++row) {
+        _encounterDifficulties.push_back(difficulties->getIntOpt(row, "value"));
+    }
+
+    auto regeneration = getRequiredTwoDA(twoDas, "regeneration");
+    if (gameId == GameID::TSL) {
+        _regeneration.timePerHitPoint = regenerationValue(*regeneration, "TimePerHP");
+        _regeneration.inCombatHitPointBase = regenerationValue(*regeneration, "InCombatHPBase");
+        _regeneration.outOfCombatHitPointBase = regenerationValue(*regeneration, "OutOfCombatHPBase");
+        _regeneration.constitutionBonus = regenerationValue(*regeneration, "ConModBonus");
+        _regeneration.skillRankBonus = regenerationValue(*regeneration, "SkillRankBons");
+        _regeneration.forcePointTime = regenerationValue(*regeneration, "FPRegenTime");
+        _regeneration.inCombatForcePointBase = regenerationValue(*regeneration, "InCombatFPBase");
+        _regeneration.outOfCombatForcePointBase = regenerationValue(*regeneration, "OutOfCombatFPBase");
+        _regeneration.wisdomBonus = regenerationValue(*regeneration, "WisModBonus");
+    } else {
+        for (int row : {RegenerationRates::kInCombatRow, RegenerationRates::kOutOfCombatRow}) {
+            _regeneration.healthRegen[row] = regeneration->getFloat(row, "healthregen", 0.0f);
+            _regeneration.forceRegen[row] = regeneration->getFloat(row, "forceregen", 0.0f);
+        }
+    }
+
+    auto icons = getRequiredTwoDA(twoDas, "effecticon");
+    for (int row = 0; row < icons->getRowCount(); ++row) {
+        _effectIcons.push_back({!icons->getString(row, "iconresref").empty(),
+                                icons->getIntOpt(row, "priority"),
+                                icons->getBoolOpt(row, "good"),
+                                icons->getIntOpt(row, "namestrref")});
+    }
+    auto values = getRequiredTwoDA(twoDas, "itemvalue");
+    for (int row = 0; row < values->getRowCount(); ++row) {
+        _itemValueLimits.push_back(values->getInt(row, "maxsingleitemvalue", 0));
     }
 }
 
@@ -244,6 +337,64 @@ const std::string &CombatTables::stateScript(int row) const {
 
 AutoBalanceRow CombatTables::autoBalance(int multiplierSet) const {
     return rowOrBlank(_autoBalance, multiplierSet);
+}
+
+const std::vector<int> &CombatTables::deathKeptEffectTypes() const {
+    return _deathKeptEffectTypes;
+}
+
+uint32_t CombatTables::experienceThreshold(int levelRow) const {
+    validateTwoDARowIndex("exptable", levelRow, static_cast<int>(_experienceThresholds.size()));
+    return _experienceThresholds[levelRow];
+}
+
+float CombatTables::killExperience(int row, int column) const {
+    if (row < 0 || row >= static_cast<int>(_killExperience.size())) {
+        return 0.0f;
+    }
+    const auto &cells = _killExperience[row];
+    return column >= 0 && column < static_cast<int>(cells.size()) ? cells[column] : 0.0f;
+}
+
+const std::string &CombatTables::weaponSound(int row, const std::string &column) const {
+    static const std::string kNoSound;
+    if (row < 0 || row >= static_cast<int>(_weaponSounds.size())) {
+        return kNoSound;
+    }
+    auto sound = _weaponSounds[row].find(boost::to_lower_copy(column));
+    return sound != _weaponSounds[row].end() ? sound->second : kNoSound;
+}
+
+BodyBagRow CombatTables::bodyBag(int row) const {
+    return rowOrBlank(_bodyBags, row);
+}
+
+float CombatTables::fractionalChallengeMinimum(int row) const {
+    validateTwoDARowIndex("fractionalcr", row, static_cast<int>(_fractionalChallengeMinimums.size()));
+    return _fractionalChallengeMinimums[row];
+}
+
+std::optional<int> CombatTables::encounterDifficulty(int row) const {
+    return rowOrBlank(_encounterDifficulties, row);
+}
+
+const RegenerationRates &CombatTables::regeneration() const {
+    return _regeneration;
+}
+
+EffectIconRow CombatTables::effectIcon(int row) const {
+    return rowOrBlank(_effectIcons, row);
+}
+
+const std::vector<int> &CombatTables::itemValueLimits() const {
+    return _itemValueLimits;
+}
+
+const std::string &CombatTables::playerCharacterLimitTag(int subtype) const {
+    static const std::string kNoTag;
+    return subtype >= 0 && subtype < static_cast<int>(_playerCharacterLimitTags.size())
+               ? _playerCharacterLimitTags[subtype]
+               : kNoTag;
 }
 
 } // namespace game

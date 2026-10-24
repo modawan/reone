@@ -88,6 +88,18 @@ float mouseFrameStrength(float travel) {
     return std::clamp(-travel / kMouseFullTravel, -1.0f, 1.0f);
 }
 
+// The sensitivity scale: degrees at a setting of 0, and degrees added per 100.
+static constexpr float kMouseSensitivityBase = 10.0f;
+static constexpr float kMouseSensitivityPerHundred = 45.0f;
+
+float mouseSensitivity(int setting) {
+    return static_cast<float>(setting) / 100.0f * kMouseSensitivityPerHundred + kMouseSensitivityBase;
+}
+
+bool Camera::isMouseLookMode() const {
+    return _mouseLookHeld != _game.mouseLook();
+}
+
 void Camera::update(float dt) {
     updateViewAngle(dt);
     auto &options = _game.options().graphics;

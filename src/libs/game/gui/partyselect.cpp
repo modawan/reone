@@ -45,15 +45,16 @@ namespace reone {
 
 namespace game {
 
+static constexpr int kPartySelectionTutorial = 41;
+
 static constexpr int kMaxFollowerCount = 2;
 
 static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
-// Neither game authors an in-party colour; K1's green is the retail runtime
-// tint. TSL authors white for its buttons' selected state, and the K1 green
-// clashes with its teal-and-sand palette.
+// Neither game specifies an in-party colour in the layout. K1 uses green
+// for an active companion.
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
 static glm::vec3 g_tslColorAdded = {1.0f, 1.0f, 1.0f};
 
@@ -113,12 +114,14 @@ void PartySelection::bindEventHandlers() {
             }
         }
         _game.reconcilePartySelection(selectedNpcs);
+        releaseMaterialized();
         _game.openInGame();
         if (!_context.exitScript.empty()) {
             _game.scriptRunner().run(_context.exitScript);
         }
     });
     _controls.BTN_BACK->setOnClick([this]() {
+        releaseMaterialized();
         _game.openInGame();
         if (!_context.exitScript.empty()) {
             _game.scriptRunner().run(_context.exitScript);
@@ -168,6 +171,7 @@ void PartySelection::bindEventHandlers() {
 void PartySelection::prepare(const PartySelectionContext &ctx) {
     _gui->setEventListener(*this);
     bindEventHandlers();
+    _game.requestTutorialWindow(kPartySelectionTutorial);
 
     _context = ctx;
     _availableCount = kMaxFollowerCount;
@@ -183,7 +187,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
 
     Party &party = _game.party();
     for (auto &member : party.members()) {
-        if (member.npc != kNpcPlayer) {
+        if (member.npc != kNpcPlayer && member.creature) {
             addNpc(member.npc);
         }
     }
@@ -228,7 +232,12 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         Label &LBL_CHAR = *charLabels[i];
         Label &LBL_NA = *naLabels[i];
 
-        if (auto member = party.getAvailableMember(i, true)) {
+        // A companion with no creature yet is brought into being for its
+        // portrait, outside the area.
+        const bool existed = static_cast<bool>(party.getAvailableMember(i));
+        auto member = party.getAvailableMember(i, true);
+        _materialized[i] = !existed && member;
+        if (member) {
             auto portrait = member->portrait();
             BTN_NPC.setDisabled(false);
             BTN_NPC.setVisible(true);
@@ -311,6 +320,22 @@ void PartySelection::onAcceptButtonClick() {
     } else if (!added && _availableCount > 0) {
         addNpc(_selectedNpc);
         refreshAcceptButton();
+    }
+}
+
+void PartySelection::clearSelection() {
+    releaseMaterialized();
+    GameGUI::clearSelection();
+}
+
+// Leaving the screen destroys each companion it brought into being that did
+// not join the party.
+void PartySelection::releaseMaterialized() {
+    for (int npc = 0; npc < npcCount(); ++npc) {
+        if (_materialized[npc] && !_game.party().isMember(npc)) {
+            _game.killRosterCreature({RosterKind::Npc, npc});
+        }
+        _materialized[npc] = false;
     }
 }
 

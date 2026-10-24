@@ -28,6 +28,7 @@ namespace generated {
 struct DLG_EntryReplyList_EntriesRepliesList {
     std::string Active;
     std::string Active2;
+    uint8_t DisplayInactive {0};
     uint32_t Index {0};
     uint8_t IsChild {0};
     std::string LinkComment;

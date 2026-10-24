@@ -16,7 +16,6 @@
  */
 
 #include "reone/game/gui/ingame.h"
-#include "reone/game/gui/ingame/itembacking.h"
 
 #include <algorithm>
 #include <array>
@@ -24,10 +23,12 @@
 #include "reone/game/d20/classes.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/ingame/itembacking.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
-#include "reone/resource/provider/textures.h"
 #include "reone/game/types.h"
+#include "reone/resource/provider/textures.h"
+#include "reone/resource/strings.h"
 
 using namespace reone::audio;
 
@@ -38,6 +39,13 @@ using namespace reone::resource;
 namespace reone {
 
 namespace game {
+
+/** The tutorial windows that the in-game menu's screens bring. */
+static constexpr int kEquipSlotTutorial = 11;
+static constexpr int kMessagesTutorial = 12;
+static constexpr int kMapTutorial = 13;
+static constexpr int kInventoryTutorial = 20;
+static constexpr int kSkillsViewTutorial = 36;
 
 void InGameMenu::init() {
     _host = std::make_unique<InGameMenuHost>(_game.gameId(), _game.options().graphics,
@@ -58,6 +66,8 @@ void InGameMenu::loadEquipment() {
     _equip = std::make_shared<Equipment>(_game.gameId(), _game.options().graphics,
         _presentation, _services.resource.strings, newEquipmentMenuBacking(_game, _services),
         [this]() { _game.openInGame(); });
+    _equip->setOnSlotOpened([this]() { _game.requestTutorialWindow(kEquipSlotTutorial); });
+    _equip->setOnMessage([this](const std::string &message) { _game.showMessagePopup(message); });
     _equip->init();
     _host->registerScreen(InGameMenuTab::Equipment, _equip);
 }
@@ -66,6 +76,7 @@ void InGameMenu::loadInventory() {
     _inventory = std::make_shared<InventoryMenu>(_game.gameId(), _game.options().graphics,
         _presentation, newInventoryMenuBacking(_game, _services),
         [this]() { _game.openInGame(); });
+    _inventory->setOnMessage([this](int strRef) { _game.showMessagePopup(_services.resource.strings.getText(strRef)); });
     _inventory->init();
     _host->registerScreen(InGameMenuTab::Inventory, _inventory);
 }
@@ -115,54 +126,97 @@ void InGameMenu::loadOptions() {
     _host->registerScreen(InGameMenuTab::Options, _options);
 }
 
+void InGameMenu::closeEquipment() {
+    if (_equipmentOpen) {
+        _equip->endSession();
+    }
+    _equipmentOpen = false;
+}
+
+int InGameMenu::inventoryCharacter() const {
+    return _equipmentOpen ? _equip->browsedRosterIndex() : -1;
+}
+
+std::shared_ptr<Creature> InGameMenu::equipmentCharacter() const {
+    if (!_equipmentOpen || !_equip->browsingRoster()) {
+        return _game.party().getLeader();
+    }
+    return _equip->browsedCharacter();
+}
+
 void InGameMenu::openEquipment() {
+    if (!_equipmentOpen) {
+        _equip->beginSession();
+        _equipmentOpen = true;
+    }
     _equip->update();
     _host->changeTab(InGameMenuTab::Equipment);
 }
 
 void InGameMenu::openEquipmentItems() {
+    if (!_equipmentOpen) {
+        _equip->beginSession();
+        _equipmentOpen = true;
+    }
     _equip->openItems();
     _host->changeTab(InGameMenuTab::Equipment);
 }
 
 void InGameMenu::openInventory() {
+    closeEquipment();
     _inventory->refreshPortraits();
     _inventory->refreshItems();
     _host->changeTab(InGameMenuTab::Inventory);
+    _game.requestTutorialWindow(kInventoryTutorial);
 }
 
 void InGameMenu::openCharacter() {
+    closeEquipment();
     _character->refreshControls();
     _host->changeTab(InGameMenuTab::Character);
 }
 
 void InGameMenu::openAbilities() {
+    closeEquipment();
     _abilities->refreshControls();
     _host->changeTab(InGameMenuTab::Abilities);
+    // TSL opens abilities on the skills view.
+    if (_game.isTSL()) {
+        _game.requestTutorialWindow(kSkillsViewTutorial);
+    }
 }
 
 void InGameMenu::openPartySelection() {
-    _partySelect->prepare(PartySelectionContext());
+    closeEquipment();
+    // The tab being left lets go of what it showed before the party screen
+    // brings its companions into being.
     _host->changeTab(InGameMenuTab::Party);
+    _partySelect->prepare(PartySelectionContext());
 }
 
 void InGameMenu::openMessages() {
+    closeEquipment();
     _messages->refresh();
     _messages->resetFilter();
     _host->changeTab(InGameMenuTab::Messages);
+    _game.requestTutorialWindow(kMessagesTutorial);
 }
 
 void InGameMenu::openJournal() {
+    closeEquipment();
     _journal->refresh();
     _host->changeTab(InGameMenuTab::Journal);
 }
 
 void InGameMenu::openMap() {
+    closeEquipment();
     _map->refreshControls();
     _host->changeTab(InGameMenuTab::Map);
+    _game.requestTutorialWindow(kMapTutorial);
 }
 
 void InGameMenu::openOptions() {
+    closeEquipment();
     _host->changeTab(InGameMenuTab::Options);
 }
 
@@ -195,10 +249,24 @@ InGameMenuFooter InGameMenu::footer() const {
         auto member = _game.party().getMember(i);
         if (member) view.members[i] = {true, member->portrait(), member->isLevelUpPending()};
     }
-    auto leader = _game.party().getLeader();
+    auto leader = equipmentCharacter();
+    if (_equipmentOpen && _equip->browsingRoster()) {
+        view.members = {};
+        if (leader) {
+            view.members[0] = {true, leader->portrait(), leader->isLevelUpPending()};
+        }
+    }
     if (!leader) return view;
     view.subjectPresent = true;
+    // A fallen character or one with a level-up pending shows no helpless mark.
+    view.subjectDebilitated = !leader->isDead() && !leader->isTemporarilyDead() &&
+                              !leader->isLevelUpPending() && leader->isDebilitated();
     view.name = leader->name();
+    // TSL shows the character's name with its actions hidden, resolved for
+    // that character.
+    if (_game.isTSL()) {
+        view.name = _game.substituteLogTokens(std::move(view.name), *leader);
+    }
     auto &attributes = leader->attributes();
     for (int i = 0; i < 2; ++i) {
         auto clazz = attributes.getClassByPosition(i + 1);

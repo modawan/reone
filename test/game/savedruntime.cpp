@@ -655,34 +655,33 @@ TEST(SavedAction, play_animation_rejects_malformed_parameter_shapes) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    // The animation ID, speed, requested duration and first-run flag.
     auto valid = action(6, 7, {
-        valueParameter(3, Gff::Field::newDword(
-            "Value", static_cast<uint32_t>(AnimationType::LoopingPause))),
+        valueParameter(1, Gff::Field::newInt("Value", 10000)),
         valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
         valueParameter(2, Gff::Field::newFloat("Value", 4.0f)),
         valueParameter(1, Gff::Field::newInt("Value", 1)),
-        valueParameter(1, Gff::Field::newInt("Value", 0)),
     });
     auto record = SavedActionRecord::fromGff(
         *valid, savedRuntimeIdentityContext());
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
     EXPECT_TRUE(record.toRuntimeAction(game));
 
-    record.declaredParameterCount = 4;
+    record.declaredParameterCount = 3;
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
     EXPECT_FALSE(record.toRuntimeAction(game));
-    record.declaredParameterCount = 5;
+    record.declaredParameterCount = 4;
     record.parameters[3].payload = int32_t {2};
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[3].payload = int32_t {1};
     record.parameters[1].payload = std::numeric_limits<float>::quiet_NaN();
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[1].payload = 1.0f;
-    // Any animation constant the command queues is restored.
-    record.parameters[0].payload = SavedObjectReference {42};
+    // Any animation ID the command queues is restored.
+    record.parameters[0].payload = int32_t {42};
     EXPECT_TRUE(record.toRuntimeAction(game));
     record.parameters[0].payload = SavedObjectReference {100};
-    record.parameters[0].type = 1;
+    record.parameters[0].type = 3;
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
 }
 
@@ -904,12 +903,14 @@ TEST(SavedAction, move_to_location_rejects_malformed_semantics_and_invalid_area)
     ASSERT_TRUE(record.bindObjectReferences(game));
 
     record.parameters[6].payload = 1.0f;
-    EXPECT_FALSE(record.toRuntimeAction(game));
+    auto ranged = std::dynamic_pointer_cast<MoveToLocationAction>(record.toRuntimeAction(game));
+    ASSERT_TRUE(ranged);
+    EXPECT_FLOAT_EQ(ranged->closeRange(), 1.0f);
     record.parameters[6].payload = 0.0f;
     record.parameters[7].payload = int32_t {1};
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[7].payload = int32_t {0};
-    record.parameters[5].payload = int32_t {8};
+    record.parameters[5].payload = int32_t {2};
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[5].payload = int32_t {1};
     record.parameters[0].payload = std::numeric_limits<float>::quiet_NaN();
@@ -1159,8 +1160,8 @@ TEST(SavedAction, start_conversation_uses_retail_action_24_shape) {
 
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 24u);
-    EXPECT_EQ(exported->declaredParameterCount, 3);
-    ASSERT_EQ(exported->parameters.size(), 3);
+    EXPECT_EQ(exported->declaredParameterCount, 6);
+    ASSERT_EQ(exported->parameters.size(), 6);
     EXPECT_EQ(exported->parameters[0].type, 3u);
     EXPECT_EQ(exported->parameters[1].type, 4u);
     EXPECT_EQ(exported->parameters[2].type, 1u);
@@ -1242,6 +1243,7 @@ TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publicat
                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                    .row({"0", "0", "0", "0", "0", "0"})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;

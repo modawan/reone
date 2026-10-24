@@ -40,6 +40,10 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved JumpToObject command; none once the object is gone. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     std::shared_ptr<Object> _toJumpTo;

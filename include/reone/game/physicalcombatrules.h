@@ -167,6 +167,20 @@ constexpr int getAutoBalanceDamageFactor(
     return 1 + static_cast<int>(factor * multiplier);
 }
 
+/**
+ * The hit-point factor of a balanced creature: one plus \p multiplier times
+ * the levels the player had above the second when the creature spawned,
+ * truncated. The product is single-precision; it lands exactly on whole
+ * numbers at several levels, so it must not be widened to double.
+ */
+constexpr int getAutoBalanceVitalityFactor(
+    int playerLevelAtSpawn,
+    float multiplier) {
+
+    float factor = playerLevelAtSpawn >= 2 ? static_cast<float>(playerLevelAtSpawn - 2) : 0.0f;
+    return 1 + static_cast<int>(factor * multiplier);
+}
+
 /** A save's base: the classes' saving throw, conditioning and autobalance. */
 constexpr int getBaseSavingThrowBonus(int classes, int conditioning, int autoBalance) {
     return classes + conditioning + autoBalance;
@@ -613,17 +627,6 @@ constexpr bool isMeleePowerAttackFeat(FeatType feat) {
     case FeatType::PowerAttack:
     case FeatType::ImprovedPowerAttack:
     case FeatType::MasterPowerAttack:
-        return true;
-    default:
-        return false;
-    }
-}
-
-constexpr bool isMeleeFlurryFeat(FeatType feat) {
-    switch (feat) {
-    case FeatType::Flurry:
-    case FeatType::ImprovedFlurry:
-    case FeatType::MasterFlurry:
         return true;
     default:
         return false;

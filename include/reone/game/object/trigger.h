@@ -31,6 +31,7 @@ class ModelSceneNode;
 
 namespace game {
 
+class Area;
 class Creature;
 class Door;
 
@@ -108,6 +109,13 @@ public:
     void markDebugEntered();
 
     const std::string &getOnEnter() const { return _onEnter; }
+    /**
+     * A creature walked up to the trigger it was heading for: it becomes the
+     * entering object, and the click script runs with it as the clicking
+     * object. An area transition with no click script of its own, or the
+     * default one, takes the stock transition script for good.
+     */
+    void receiveClick(const std::shared_ptr<Object> &clicker);
     const std::string &getOnExit() const { return _onExit; }
     /** The object that last came into the trigger, kept until the next one does. */
     uint32_t lastEnteredId() const { return _lastEnteredId; }
@@ -147,9 +155,13 @@ public:
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
     /**
      * Make this trigger a mine: a 4 m square around the position, with the
-     * type's script and name, the given DCs and its creator's side.
+     * type's script and name, the given DCs and its creator's side. Each
+     * corner stands at the ground height of the area there, the room under it
+     * looked for around height 0, or level with the mine where that height is
+     * 0.
      */
     void initMine(
+        const Area &area,
         int trapType,
         const glm::vec3 &position,
         const std::shared_ptr<Object> &creator,
@@ -159,8 +171,11 @@ public:
         int ownerDemolitionsSkill);
     /** A mine standing for a trapped door or placeable: neither seen nor disarmed on its own. */
     void hideLinkedMine() { _trap.hide(); }
-    /** A creature steps on the trap. Forced firing skips the standing test. */
-    void fireMine(const std::shared_ptr<Creature> &creature, bool force);
+    /**
+     * A creature enters the mine: it becomes the entering object, and the
+     * mine goes off on it. Forced firing skips the standing test.
+     */
+    void enterMine(const std::shared_ptr<Creature> &creature, bool force);
     /**
      * Whether the mine goes off on the creature: without force, only on one
      * that regards the mine's creator (or the mine itself) as an enemy and is
@@ -185,6 +200,7 @@ private:
     // Serializable
     std::string _onEnter;
     std::string _onExit;
+    std::string _onClick;
     uint32_t _lastEnteredId {script::kObjectInvalid};
     uint32_t _lastLeftId {script::kObjectInvalid};
 
@@ -205,8 +221,6 @@ private:
     // END Serializable
 
     bool _isTrap {false};
-    /** The reach of a trap around its position, read when the trigger becomes a trap. */
-    float _trapRadius {0.0f};
     SavedObjectReference _creator;
     std::shared_ptr<scene::ModelSceneNode> _trapModel;
     bool _trapShown {false};
@@ -225,8 +239,10 @@ private:
     void loadTrapModel();
     void updateTrapPresentation();
     void setTrapCreator(const std::shared_ptr<Object> &creator);
-    /** Reads the reach of a trap around its position from ranges.2da. */
-    void loadTrapRadius();
+    /** The reach of a trap around its position: ranges.2da's trap row, or a metre without one. */
+    float trapRadius() const;
+    /** Set the mine off on the entering creature, when there is one. */
+    void fireMine(bool force);
 
     void syncDebugVisual();
 };

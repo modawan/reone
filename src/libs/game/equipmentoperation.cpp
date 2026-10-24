@@ -77,25 +77,6 @@ static void presentHandChange(Creature &subject, int slot, bool instant) {
     subject.playWeaponDraw();
 }
 
-// A new hand configuration ends a combat mode that needs a different one.
-static void dropMismatchedCombatMode(Creature &subject) {
-    auto rightHand = subject.getEquippedItem(InventorySlots::rightWeapon);
-    auto leftHand = subject.getEquippedItem(InventorySlots::leftWeapon);
-    const bool rangedRightHand = rightHand && rightHand->isRanged();
-    const int mode = subject.combatMode();
-    bool drop = false;
-    if (mode >= 1 && mode <= 3) {
-        drop = rangedRightHand;
-    } else if (mode == 5) {
-        drop = rightHand || leftHand;
-    } else if (mode == 6) {
-        drop = !rangedRightHand;
-    }
-    if (drop) {
-        subject.setCombatMode(0);
-    }
-}
-
 // One ordered transaction serves queued commands, round dispatch and screens.
 // Occupants leave for the inventory before the candidate is taken, main hand
 // before its pair.
@@ -154,6 +135,9 @@ static EquipmentOperationOutcome equipFrom(
     if (occupant && !subject.moveEquippedItemTo(occupant, inventory)) {
         return EquipmentOperationOutcome::Failed;
     }
+    if (occupant && decision.actualSlot == InventorySlots::body) {
+        subject.updateArmourAppearance(nullptr);
+    }
     if (paired && !subject.moveEquippedItemTo(paired, inventory)) {
         return EquipmentOperationOutcome::Failed;
     }
@@ -166,7 +150,7 @@ static EquipmentOperationOutcome equipFrom(
         return EquipmentOperationOutcome::Failed;
     }
     presentHandChange(subject, decision.actualSlot, instant);
-    dropMismatchedCombatMode(subject);
+    game.finishEquip(subject, decision.actualSlot, candidate);
     return EquipmentOperationOutcome::Applied;
 }
 
@@ -196,11 +180,16 @@ static EquipmentOperationOutcome unequipInto(
     if (!subject.moveEquippedItemTo(item, repository)) {
         return EquipmentOperationOutcome::Failed;
     }
+    if (slot == InventorySlots::body) {
+        subject.updateArmourAppearance(nullptr);
+    }
     if (promoted) {
         auto moved = subject.takeEquippedItem(promoted);
         if (!moved || !subject.equip(slot, moved)) {
             return EquipmentOperationOutcome::Failed;
         }
+        // The promoted weapon counts as newly equipped in the main hand.
+        game.finishEquip(subject, slot, moved);
     }
     presentHandChange(subject, slot, instant);
     return EquipmentOperationOutcome::Applied;
@@ -369,10 +358,16 @@ static void chooseMeleeWeapon(
             return subject.getMaximumWeaponDamage(versusObject, offHand) +
                    (versusCreature ? subject.getMaximumElementalDamageBonus(*versusCreature) : 0);
         });
+        // Measuring a weapon counts as putting it on.
+        game.finishEquip(subject, decision->actualSlot, candidate);
         if (damage >= best) {
             best = damage;
             choice = candidate;
         }
+    }
+    // The held weapon goes back on after the measuring.
+    if (held) {
+        game.finishEquip(subject, slot, held);
     }
     if (choice) {
         if (choice != held) {
@@ -434,16 +429,52 @@ bool equipMostDamagingRangedWeapon(
         const int attack = measureWithWeapon(subject, equipment, decision->actualSlot, candidate, [&]() {
             return subject.getAttackBonusBreakdown(versusCreature, candidate, false).total();
         });
+        // Measuring a weapon counts as putting it on.
+        game.finishEquip(subject, decision->actualSlot, candidate);
         if (attack > best) {
             best = attack;
             choice = candidate;
         }
+    }
+    // The held weapon goes back on after the measuring.
+    if (held) {
+        game.finishEquip(subject, InventorySlots::rightWeapon, held);
     }
     if (!choice || choice == held) {
         return false;
     }
     subject.addAction(game.newAction<EquipItemAction>(choice, InventorySlots::rightWeapon, 0));
     return true;
+}
+
+void equipMostEffectiveArmor(Game &game, Creature &subject) {
+    // An armour class bonus counts only when its upgrade is installed.
+    auto worn = subject.getEquippedItem(InventorySlots::body);
+    std::shared_ptr<Item> choice = worn;
+    int best = worn ? worn->armorValue(true) : 0;
+    // A party member's own items live in the shared inventory, which is not
+    // searched.
+    if (!game.party().isMember(subject)) {
+        for (const auto &candidate : subject.items()) {
+            // Armour, robes and clothing.
+            const int type = candidate->itemType();
+            if (type < Item::kArmorClass4ItemType || type > Item::kLastBodyItemType) {
+                continue;
+            }
+            if (!evaluateEquipmentCandidate(subject, InventorySlots::body, candidate.get()).valid) {
+                continue;
+            }
+            const int value = candidate->armorValue(true);
+            if (value > best) {
+                best = value;
+                choice = candidate;
+            }
+        }
+    }
+    if (!choice || choice == worn) {
+        return;
+    }
+    subject.addAction(game.newAction<EquipItemAction>(choice, InventorySlots::body, 0));
 }
 
 EquipmentOperationOutcome applyEquipmentOperation(

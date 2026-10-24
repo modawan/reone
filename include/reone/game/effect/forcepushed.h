@@ -23,17 +23,6 @@ namespace reone {
 
 namespace game {
 
-/**
- * Pushes the creature away from the centre and lays it in the force-pushed
- * state for the push effect's duration.
- */
-bool applyForcePushMovement(Object &, const glm::vec3 &centre, bool ignoreDirectLine,
-                            EffectInstance &owner);
-/** The creator a push comes from; only an object in the world pushes. */
-std::shared_ptr<Object> getForcePushCreator(const EffectInstance &owner);
-/** A push ending frees the creature's facing and holds its AI a moment. */
-void endForcePushEffect(Object &);
-
 class ForcePushedEffect : public CopyableEffect<ForcePushedEffect> {
 public:
     ForcePushedEffect() :
@@ -41,7 +30,7 @@ public:
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
+    void onRemove(Object &object, const EffectInstance &) override;
 };
 
 } // namespace game

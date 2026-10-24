@@ -89,7 +89,7 @@ public:
     }
 
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
 };
 
 /** The record that carries the bonuses of haste or the penalties of slow. */
@@ -102,7 +102,6 @@ public:
 
     EffectInstance saveFacingInstance() const override;
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
 
 private:
     bool _haste;

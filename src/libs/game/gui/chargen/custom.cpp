@@ -31,20 +31,42 @@ namespace reone {
 
 namespace game {
 
+/** The step that chooses the character's abilities. */
+static constexpr int kAbilitiesStep = 1;
+
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_BACK", "BTN_CANCEL", "BTN_STEPNAME1", "BTN_STEPNAME2", "BTN_STEPNAME3", "BTN_STEPNAME4",
+    "BTN_STEPNAME5", "BTN_STEPNAME6", "LBL_1", "LBL_2", "LBL_3", "LBL_4",
+    "LBL_5", "LBL_6", "LBL_NUM1", "LBL_NUM2", "LBL_NUM3", "LBL_NUM4",
+    "LBL_NUM5", "LBL_NUM6"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"LBL_BG"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void CustomCharacterGeneration::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
     doSetStep(0);
 
     _controls.BTN_CANCEL->setOnClick([this]() {
         setStep(0);
+        _charGen.resetCreationFeats();
         _charGen.openQuickOrCustom();
     });
     _controls.BTN_BACK->setOnClick([this]() {
         if (_step == 0) {
+            _charGen.resetCreationFeats();
             _charGen.openQuickOrCustom();
         } else {
             setStep(_step - 1);
+            // Going back to the abilities step returns the feats to the
+            // class's first-level feats.
+            if (_step == kAbilitiesStep) {
+                _charGen.resetCreationFeats();
+            }
         }
     });
     _controls.BTN_STEPNAME1->setOnClick([this]() {

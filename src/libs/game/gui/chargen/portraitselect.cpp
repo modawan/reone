@@ -48,12 +48,25 @@ namespace game {
 
 static constexpr float kModelScale = 0.2f;
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_ACCEPT", "BTN_ARRL", "BTN_ARRR", "BTN_BACK", "LBL_BEVEL_B", "LBL_BEVEL_L",
+    "LBL_BEVEL_M", "LBL_BEVEL_R", "LBL_BEVEL_T", "LBL_HEAD", "LBL_PORTRAIT", "MAIN_TITLE_LBL",
+    "SUB_TITLE_LBL"};
+/** The controls the panel also shows in TSL. */
+static const std::unordered_set<std::string> kTSLPanelControls {
+    "LBL_BAR1", "LBL_BAR2", "LBL_BAR3", "LBL_BAR4", "LBL_BAR5", "LBL_BAR6",
+    "LBL_BAR7", "LBL_BAR8"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void PortraitSelection::onGUILoaded() {
     if (!_game.isTSL()) {
         loadBackground(BackgroundType::Menu);
     }
 
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kTSLPanelControls : kNoTitleControls);
 
     setButtonColors(*_controls.BTN_ACCEPT);
     setButtonColors(*_controls.BTN_BACK);
@@ -148,7 +161,8 @@ void PortraitSelection::updatePortraits() {
     _filteredPortraits.clear();
     int sex = _charGen.character().gender == Gender::Female ? 1 : 0;
     for (auto &portrait : _services.game.portraits.portraits()) {
-        if (portrait.forPC && portrait.sex == sex) {
+        // The portrait list offers only portraits whose forpc cell is 1.
+        if (portrait.forPC == 1 && portrait.sex == sex) {
             _filteredPortraits.push_back(std::move(portrait));
         }
     }

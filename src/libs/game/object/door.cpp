@@ -22,6 +22,7 @@
 
 #include "reone/game/action/opendoor.h"
 #include "reone/game/animations.h"
+#include "reone/game/animationutil.h"
 #include "reone/game/attack.h"
 #include "reone/game/di/services.h"
 #include "reone/game/event.h"
@@ -33,6 +34,7 @@
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/twodautil.h"
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -196,17 +198,22 @@ void Door::deserializeAll(
 // from its generic type in genericdoors. The walkmeshes follow the model.
 void Door::loadAppearance() {
     std::string modelName;
+    int soundType;
     if (_appearance != 0) {
         std::shared_ptr<TwoDA> types(_services.resource.twoDas.get("doortypes"));
         modelName = boost::to_lower_copy(types->getString(_appearance, "model"));
         _preciseUse = false;
         _blocksSight = types->getInt(_appearance, "blocksight", 1) != 0;
+        soundType = types->getInt(_appearance, "soundapptype");
     } else {
         std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
         modelName = boost::to_lower_copy(doors->getString(_genericType, "modelname"));
         _preciseUse = doors->getInt(_genericType, "preciseuse", 0) != 0;
         _blocksSight = doors->getInt(_genericType, "blocksight", 1) != 0;
+        soundType = doors->getInt(_genericType, "soundapptype");
     }
+    _soundArmorType = boost::to_lower_copy(
+        getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds")->getString(soundType, "armortype"));
 
     _linkedTransitionGeometry.clear();
     auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
@@ -254,6 +261,9 @@ void Door::loadAppearance() {
 
 void Door::applyRestingState() {
     _transition = DoorTransition::None;
+    _transitionSwing.clear();
+    clearStateAnimation();
+    _lastAnimation = stateAnimation(_state);
     _open = _state != DoorState::Closed;
     enableStateWalkmeshes();
     applyRestingPose();
@@ -400,12 +410,10 @@ std::shared_ptr<Door> Door::linkedDoor() {
 }
 
 void Door::swingOpen(DoorTransition opening) {
-    if (isOpening()) {
-        // Already swinging open. Restarting would rewind the leaf and re-run
-        // whatever the caller does around the transition.
-        return;
-    }
-    if (_state != DoorState::Closed && _transition == DoorTransition::None) {
+    if (actionState() == transitionTarget(opening)) {
+        // Already open, or swinging open, to that side. Restarting would
+        // rewind the leaf and re-run whatever the caller does around the
+        // transition. A door open to the other side swings over.
         return;
     }
 
@@ -434,15 +442,23 @@ void Door::swingShut() {
     beginTransition(DoorTransition::Closing);
 }
 
+// The swing comes from the loop shown and the last animation: a door opens
+// with a swing only from its closed loop, and swings shut with closing1 only
+// after opened1.
 void Door::beginTransition(DoorTransition transition) {
     // _state is left alone. It names where the door still physically stands,
     // and everything that can obstruct or admit a creature is read off it, so
     // the door keeps the collision of the state it is leaving until it arrives.
+    const int target = stateAnimation(transitionTarget(transition));
+    const auto swingRow = stateLoopSwingRow(shownLoopAnimation(), _lastAnimation, target, true);
     _transition = transition;
+    clearStateAnimation();
+    _lastAnimation = target;
+    _transitionSwing = swingRow ? _services.game.animations.getNameById(static_cast<uint32_t>(*swingRow)) : std::string();
 
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
-    if (model) {
-        model->playAnimation(transitionAnimation(transition));
+    if (model && !_transitionSwing.empty()) {
+        model->playAnimation(_transitionSwing);
     }
     if (isTransitionComplete()) {
         // No model, or no such animation on it: there is nothing to wait for,
@@ -453,8 +469,19 @@ void Door::beginTransition(DoorTransition transition) {
 }
 
 void Door::finishTransition() {
+    const DoorState previous = _state;
     _state = transitionTarget(_transition);
     applyRestingState();
+    if (_state == previous) {
+        return;
+    }
+    if (auto area = spatialArea()) {
+        std::optional<std::reference_wrapper<const Door>> shutDoor;
+        if (_state == DoorState::Closed) {
+            shutDoor = *this;
+        }
+        area->get().budgeCreatures(_position, collisionBounds(), shutDoor);
+    }
 }
 
 void Door::update(float dt) {
@@ -466,6 +493,114 @@ void Door::update(float dt) {
     if (_transition != DoorTransition::None && isTransitionComplete()) {
         finishTransition();
     }
+    updateStateAnimation();
+}
+
+void Door::setStateAnimation(int id) {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    const int row = doorAnimationRow(id);
+    if (!model || row < 0) {
+        return;
+    }
+    auto &animations = _services.game.animations;
+    const std::string clip = animations.getNameById(static_cast<uint32_t>(row));
+    if (clip.empty() || !model->model().getAnimation(clip)) {
+        return;
+    }
+    if (!animations.isLoopingById(static_cast<uint32_t>(row))) {
+        if (_lastStateOneShot == id) {
+            return;
+        }
+        _lastStateOneShot = id;
+        _lastAnimation = id;
+        _stateOneShot = clip;
+        model->playAnimation(clip);
+        return;
+    }
+    const int shown = shownLoopAnimation();
+    if (id == shown) {
+        return;
+    }
+    const int current = _lastAnimation;
+    _lastAnimation = id;
+    _lastStateOneShot.reset();
+    _stateLoop = clip;
+    _stateLoopAnimation = id;
+    _stateOneShot.clear();
+    if (auto swingRow = stateLoopSwingRow(shown, current, id, true)) {
+        const std::string swing = animations.getNameById(static_cast<uint32_t>(*swingRow));
+        if (!swing.empty() && model->model().getAnimation(swing)) {
+            _stateOneShot = swing;
+            model->playAnimation(swing);
+            return;
+        }
+    }
+    model->playAnimation(clip, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+}
+
+float Door::animationLength(int id) const {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    const int row = doorAnimationRow(id);
+    if (!model || row < 0) {
+        return 0.0f;
+    }
+    auto clip = model->model().getAnimation(_services.game.animations.getNameById(static_cast<uint32_t>(row)));
+    return clip ? clip->length() : 0.0f;
+}
+
+bool Door::playsAnimationOnce(int id) const {
+    const int row = doorAnimationRow(id);
+    return row >= 0 && _services.game.animations.isFireForgetById(static_cast<uint32_t>(row));
+}
+
+void Door::clearStateAnimation() {
+    _stateLoop.clear();
+    _stateLoopAnimation.reset();
+    _stateOneShot.clear();
+    _lastStateOneShot.reset();
+}
+
+int Door::stateAnimation(DoorState state) {
+    static constexpr int kClosedAnimation = 10022;
+    static constexpr int kOpened1Animation = 10050;
+    static constexpr int kOpened2Animation = 10051;
+    static constexpr int kDeadAnimation = 10072;
+    switch (state) {
+    case DoorState::Opened1:
+        return kOpened1Animation;
+    case DoorState::Opened2:
+        return kOpened2Animation;
+    case DoorState::Destroyed:
+        return kDeadAnimation;
+    case DoorState::Closed:
+    default:
+        return kClosedAnimation;
+    }
+}
+
+// A swinging door already shows the loop it swings to.
+int Door::shownLoopAnimation() const {
+    return _stateLoopAnimation ? *_stateLoopAnimation : stateAnimation(actionState());
+}
+
+void Door::updateStateAnimation() {
+    if (_stateOneShot.empty()) {
+        return;
+    }
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (!model || model->activeAnimationName() != _stateOneShot) {
+        _stateOneShot.clear();
+        return;
+    }
+    if (!model->isAnimationFinished()) {
+        return;
+    }
+    _stateOneShot.clear();
+    if (_stateLoop.empty()) {
+        applyRestingPose();
+        return;
+    }
+    model->playAnimation(_stateLoop, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
 }
 
 bool Door::isTransitionComplete() const {
@@ -473,23 +608,13 @@ bool Door::isTransitionComplete() const {
     if (!model) {
         return true;
     }
-    // Something other than this transition owns the model - a reversal, or an
-    // animation the door never had - so there is nothing left to wait for.
-    if (model->activeAnimationName() != transitionAnimation(_transition)) {
+    // Something other than this transition's swing owns the model - a
+    // reversal, or a swing the door never had or does not play - so there is
+    // nothing left to wait for.
+    if (_transitionSwing.empty() || model->activeAnimationName() != _transitionSwing) {
         return true;
     }
     return model->isAnimationFinished();
-}
-
-const char *Door::transitionAnimation(DoorTransition transition) const {
-    switch (transition) {
-    case DoorTransition::Opening1:
-        return "opening1";
-    case DoorTransition::Opening2:
-        return "opening2";
-    default:
-        return _state == DoorState::Opened2 ? "closing2" : "closing1";
-    }
 }
 
 DoorState Door::transitionTarget(DoorTransition transition) {
@@ -546,7 +671,7 @@ glm::vec3 Door::nearestActionPoint(const glm::vec3 &from, bool closed) const {
 
     const Area &area = spatialArea()->get();
     auto walkable = [&area](const glm::vec3 &point) {
-        return area.groundHeight(point).has_value();
+        return area.isPositionWalkable(point);
     };
     auto distance2 = [&](const glm::vec3 &point) {
         const glm::vec3 offset {from - point};
@@ -595,6 +720,26 @@ void Door::onOpen(uint32_t triggererId) {
          {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)}});
 }
 
+void Door::receiveClick(const std::shared_ptr<Object> &clicker) {
+    _lastEnteredId = clicker ? clicker->id() : kObjectInvalid;
+    if (_linkedToFlags == kLinkedToDoor || _linkedToFlags == kLinkedToWaypoint) {
+        auto creature = dyn_cast<Creature>(clicker);
+        const Party &party = _game.party();
+        if (creature && !_linkedToModule.empty() && party.movesBetweenModules(*creature) && !creature->isDead() &&
+            !(party.isMember(*creature) && creature->currentHitPoints() <= 0)) {
+            _game.scheduleModuleTransition(_linkedToModule, _linkedTo);
+        }
+        return;
+    }
+    if (_onClick.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onClick,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::ClickingObject, Variable::ofObject(_lastEnteredId)}});
+}
+
 void Door::onLocked() {
     if (_onLock.empty()) {
         return;
@@ -626,6 +771,15 @@ void Door::onFailToOpen(uint32_t openerId, bool quiet) {
     if (leader && leader->id() == openerId) {
         _game.addFeedbackMessage(kLockedStrRef);
     }
+}
+
+void Door::runConversationScript() {
+    // Only a door whose conversation script is "default" takes the fallback
+    // one, which stays its own; a door with none runs nothing.
+    if (_onDialog == "default") {
+        _onDialog = kFallbackConversationScript;
+    }
+    _game.scriptRunner().run(_onDialog, _id);
 }
 
 void Door::runDamagedScript() {
@@ -685,8 +839,21 @@ bool canBashDoor(const Door &door) {
            door.isSelectable() &&
            !door.isDead() &&
            !door.plotFlag() &&
-           !door.isNotBlastable() &&
-           (door.hitPoints() > 0 || door.currentHitPoints() > 0);
+           !door.isNotBlastable();
+}
+
+graphics::AABB Door::collisionBounds() const {
+    graphics::AABB bounds;
+    for (const auto &node : {_walkmeshClosed, _walkmeshOpen1, _walkmeshOpen2}) {
+        if (!node) {
+            continue;
+        }
+        const glm::mat4 &transform = node->absoluteTransform();
+        for (const auto &vertex : node->walkmesh().vertices) {
+            bounds.expand(glm::vec3(transform * glm::vec4(vertex, 1.0f)));
+        }
+    }
+    return bounds;
 }
 
 void Door::updateTransform() {
@@ -745,7 +912,7 @@ void Door::triggerTrap(const std::shared_ptr<Creature> &caller, bool force) {
 void Door::armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                    const std::shared_ptr<Trigger> &linkedMine,
                    const std::shared_ptr<Creature> &setter, int blastBonus, bool blast) {
-    _trap.armMine(_game, _services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill,
+    _trap.armMine(_game, trapType, detectDC, disarmDC, ownerDemolitionsSkill,
                   linkedMine, setter, blastBonus, blast);
 }
 

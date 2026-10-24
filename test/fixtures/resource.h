@@ -103,6 +103,7 @@ class MockStrings : public IStrings, boost::noncopyable {
 public:
     MOCK_METHOD(std::string, getText, (int strRef), (override));
     MOCK_METHOD(std::string, getSound, (int strRef), (override));
+    MOCK_METHOD(int, languageId, (), (const override));
 };
 
 class MockTwoDAs : public ITwoDAs, boost::noncopyable {

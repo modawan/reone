@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/options.h"
@@ -74,6 +75,8 @@ public:
     virtual bool handle(const input::Event &event) = 0;
     virtual void update(float dt) = 0;
     virtual void render() = 0;
+    /** Runs \p block in normal blending with the render pass the GUI's controls draw with. */
+    virtual void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) = 0;
 
     virtual void clearSelection() = 0;
 
@@ -94,18 +97,13 @@ public:
 
     /** Independent presentation dials owned by the live graphics options. */
     virtual float textScale() const = 0;
-    virtual float textLayoutScale(float horizontalScale, float verticalScale) const {
-        // Glyphs always follow the limiting resolution axis. Text may move
-        // with viewport-relative controls, but it must never inherit their
-        // non-uniform geometry or fall back to its authored pixel size.
-        return std::min(horizontalScale, verticalScale);
-    }
+    virtual float textLayoutScale(float horizontalScale, float verticalScale) const = 0;
     virtual float borderScale() const = 0;
-    virtual float listScale() const { return 1.0f; }
+    virtual float listScale() const = 0;
     virtual bool tintBorderFills() const = 0;
 
     /** Whether scene-backed controls may render their 3D content. */
-    virtual bool sceneRenderEnabled() const { return true; }
+    virtual bool sceneRenderEnabled() const = 0;
 
     virtual void setEventListener(IGUIEventListener &listener) = 0;
     virtual void setResolution(int x, int y) = 0;
@@ -117,7 +115,7 @@ public:
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
 
     /** Reapplies the layout after authored geometry or the resolution changed. */
-    virtual void refreshLayout() {}
+    virtual void refreshLayout() = 0;
 
     virtual std::unique_ptr<Control> newControl(ControlType type, std::string tag) = 0;
     virtual void addControlToFront(std::shared_ptr<Control> control, ControlCoordinates coordinates) = 0;
@@ -150,6 +148,7 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;
+    void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) override;
 
     void clearSelection() override;
 
@@ -203,7 +202,10 @@ public:
     }
 
     float textLayoutScale(float horizontalScale, float verticalScale) const override {
-        return IGUI::textLayoutScale(horizontalScale, verticalScale);
+        // Glyphs always follow the limiting resolution axis. Text may move
+        // with viewport-relative controls, but it must never inherit their
+        // non-uniform geometry or fall back to its authored pixel size.
+        return std::min(horizontalScale, verticalScale);
     }
 
     float borderScale() const override {

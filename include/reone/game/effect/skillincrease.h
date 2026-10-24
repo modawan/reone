@@ -23,22 +23,20 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Raises a skill: the skill is integer 0, the amount integer 1 and the racial
+ * type integer 2.
+ */
 class SkillIncreaseEffect : public CopyableEffect<SkillIncreaseEffect> {
 public:
     SkillIncreaseEffect(SkillType skill, int value) :
-        CopyableEffect(EffectType::SkillIncrease),
-        _skill(skill),
-        _value(value) {
+        CopyableEffect(EffectType::SkillIncrease) {
         setSaveFacingInteger(0, static_cast<int>(skill));
         setSaveFacingInteger(1, value);
         setSaveFacingInteger(2, static_cast<int>(RacialType::All));
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    SkillType _skill;
-    int _value;
 };
 
 } // namespace game

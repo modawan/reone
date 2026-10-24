@@ -1030,12 +1030,14 @@ enum class ActionType {
     UseTalentAtLocation = 0x1018,
     MoveAwayFromLocation = 0x101a,
     SurrenderToEnemies = 0x101b,
-    EquipMostEffectiveArmor = 0x101e,
     BarkString = 0x1023,
     SwitchWeapons = 0x1024,
     PutDownItem = 0x1025,
     CombatDispatch = 0x1026,
     CombatStance = 0x1027,
+    Appear = 0x1028,
+    DoorSaber = 0x1029,
+    ChangeFacing = 0x102a,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe
@@ -1046,8 +1048,7 @@ enum class TalkVolume {
     Whisper = 1,
     Shout = 2,
     SilentTalk = 3,
-    SilentShout = 4,
-    Last = 4
+    SilentShout = 4
 };
 
 enum class ProjectilePathType {
@@ -1445,7 +1446,11 @@ enum class AttackBonus {
     Offhand = 2,
     /** An attack with the left creature weapon. */
     CreatureWeapon = 3,
-    Unarmed = 7
+    /** An on-hand attack with a weapon while the on-hand attack count is below zero. */
+    ExtraOnhand = 6,
+    Unarmed = 7,
+    /** An unarmed attack while the on-hand attack count is below zero. */
+    ExtraUnarmed = 8
 };
 
 enum class BodyNode {

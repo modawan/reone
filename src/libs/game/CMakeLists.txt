@@ -19,15 +19,17 @@ set(GAME_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/game)
 set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/menupresentation.h
     ${GAME_INCLUDE_DIR}/action.h
+    ${GAME_INCLUDE_DIR}/action/appear.h
     ${GAME_INCLUDE_DIR}/action/attackobject.h
     ${GAME_INCLUDE_DIR}/action/barkstring.h
     ${GAME_INCLUDE_DIR}/action/castspell.h
     ${GAME_INCLUDE_DIR}/action/castspellatlocation.h
     ${GAME_INCLUDE_DIR}/action/castspellatobject.h
+    ${GAME_INCLUDE_DIR}/action/changefacing.h
     ${GAME_INCLUDE_DIR}/action/closedoor.h
     ${GAME_INCLUDE_DIR}/action/docommand.h
+    ${GAME_INCLUDE_DIR}/action/doorsaber.h
     ${GAME_INCLUDE_DIR}/action/equipitem.h
-    ${GAME_INCLUDE_DIR}/action/equipmosteffectivearmor.h
     ${GAME_INCLUDE_DIR}/action/follow.h
     ${GAME_INCLUDE_DIR}/action/followleader.h
     ${GAME_INCLUDE_DIR}/action/followowner.h
@@ -42,8 +44,6 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/movetopoint.h
     ${GAME_INCLUDE_DIR}/action/opencontainer.h
     ${GAME_INCLUDE_DIR}/action/opendoor.h
-    ${GAME_INCLUDE_DIR}/action/openlock.h
-    ${GAME_INCLUDE_DIR}/action/pauseconversation.h
     ${GAME_INCLUDE_DIR}/action/pickupitem.h
     ${GAME_INCLUDE_DIR}/action/playanimation.h
     ${GAME_INCLUDE_DIR}/action/putdownitem.h
@@ -64,6 +64,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/wait.h
     ${GAME_INCLUDE_DIR}/animations.h
     ${GAME_INCLUDE_DIR}/animationutil.h
+    ${GAME_INCLUDE_DIR}/areamusicplayer.h
     ${GAME_INCLUDE_DIR}/attack.h
     ${GAME_INCLUDE_DIR}/camerastyle.h
     ${GAME_INCLUDE_DIR}/camerastyles.h
@@ -79,12 +80,14 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/d20/feat.h
     ${GAME_INCLUDE_DIR}/d20/feats.h
     ${GAME_INCLUDE_DIR}/d20/itemattributes.h
+    ${GAME_INCLUDE_DIR}/d20/races.h
     ${GAME_INCLUDE_DIR}/d20/savingthrows.h
     ${GAME_INCLUDE_DIR}/d20/skill.h
     ${GAME_INCLUDE_DIR}/d20/skills.h
     ${GAME_INCLUDE_DIR}/d20/spell.h
     ${GAME_INCLUDE_DIR}/d20/spells.h
     ${GAME_INCLUDE_DIR}/debug.h
+    ${GAME_INCLUDE_DIR}/creaturespeeds.h
     ${GAME_INCLUDE_DIR}/difficultyoptions.h
     ${GAME_INCLUDE_DIR}/di/module.h
     ${GAME_INCLUDE_DIR}/di/services.h
@@ -205,6 +208,8 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/confirmpopup.h
     ${GAME_INCLUDE_DIR}/gui/container.h
     ${GAME_INCLUDE_DIR}/gui/conversation.h
+    ${GAME_INCLUDE_DIR}/gui/credits.h
+    ${GAME_INCLUDE_DIR}/gui/deathdisplay.h
     ${GAME_INCLUDE_DIR}/gui/dialog.h
     ${GAME_INCLUDE_DIR}/gui/galaxymap.h
     ${GAME_INCLUDE_DIR}/gui/generated/areatrans.h
@@ -297,7 +302,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/journal.h
     ${GAME_INCLUDE_DIR}/statussummary.h
     ${GAME_INCLUDE_DIR}/location.h
-    ${GAME_INCLUDE_DIR}/messagebus.h
+    ${GAME_INCLUDE_DIR}/listenpattern.h
     ${GAME_INCLUDE_DIR}/messagelog.h
     ${GAME_INCLUDE_DIR}/minigame.h
     ${GAME_INCLUDE_DIR}/modulesnapshot.h
@@ -358,6 +363,7 @@ set(GAME_HEADERS
 
 set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/menupresentation.cpp
+    ${GAME_SOURCE_DIR}/gui/deathdisplay.cpp
     ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/action/attackobject.cpp
     ${GAME_SOURCE_DIR}/action/castspell.cpp
@@ -371,6 +377,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action/usetalent.cpp
     ${GAME_SOURCE_DIR}/animations.cpp
     ${GAME_SOURCE_DIR}/animationutil.cpp
+    ${GAME_SOURCE_DIR}/areamusicplayer.cpp
     ${GAME_SOURCE_DIR}/attack.cpp
     ${GAME_SOURCE_DIR}/camerastyles.cpp
     ${GAME_SOURCE_DIR}/castspell.cpp
@@ -382,9 +389,11 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/d20/classes.cpp
     ${GAME_SOURCE_DIR}/d20/feats.cpp
     ${GAME_SOURCE_DIR}/d20/itemattributes.cpp
+    ${GAME_SOURCE_DIR}/d20/races.cpp
     ${GAME_SOURCE_DIR}/d20/skills.cpp
     ${GAME_SOURCE_DIR}/d20/spells.cpp
     ${GAME_SOURCE_DIR}/debug.cpp
+    ${GAME_SOURCE_DIR}/creaturespeeds.cpp
     ${GAME_SOURCE_DIR}/difficultyoptions.cpp
     ${GAME_SOURCE_DIR}/di/module.cpp
     ${GAME_SOURCE_DIR}/effect/creaturestate.cpp
@@ -426,6 +435,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/confirmpopup.cpp
     ${GAME_SOURCE_DIR}/gui/container.cpp
     ${GAME_SOURCE_DIR}/gui/conversation.cpp
+    ${GAME_SOURCE_DIR}/gui/credits.cpp
     ${GAME_SOURCE_DIR}/gui/dialog.cpp
     ${GAME_SOURCE_DIR}/gui/galaxymap.cpp
     ${GAME_SOURCE_DIR}/gui/hud.cpp
@@ -453,7 +463,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/statussummary.cpp
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
-    ${GAME_SOURCE_DIR}/messagebus.cpp
+    ${GAME_SOURCE_DIR}/listenpattern.cpp
     ${GAME_SOURCE_DIR}/messagelog.cpp
     ${GAME_SOURCE_DIR}/minigame.cpp
     ${GAME_SOURCE_DIR}/modulesnapshot.cpp

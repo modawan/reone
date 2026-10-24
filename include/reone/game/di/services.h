@@ -32,6 +32,7 @@ namespace game {
 
 class ICameraStyles;
 class IClasses;
+class ICreatureSpeeds;
 class IDifficultyOptions;
 class IFeats;
 class IFootstepSounds;
@@ -45,10 +46,12 @@ class IProjectiles;
 class IAnimations;
 class IVisualEffects;
 class ICombatTables;
+class IRaces;
 
 struct GameServices {
     ICameraStyles &cameraStyles;
     IClasses &classes;
+    ICreatureSpeeds &creatureSpeeds;
     IDifficultyOptions &difficultyOptions;
     IFeats &feats;
     IFootstepSounds &footstepSounds;
@@ -62,10 +65,12 @@ struct GameServices {
     IAnimations &animations;
     IVisualEffects &visualEffects;
     ICombatTables &combatTables;
+    IRaces &races;
 
     GameServices(
         ICameraStyles &cameraStyles,
         IClasses &classes,
+        ICreatureSpeeds &creatureSpeeds,
         IDifficultyOptions &difficultyOptions,
         IFeats &feats,
         IFootstepSounds &footstepSounds,
@@ -78,9 +83,11 @@ struct GameServices {
         IProjectiles &projectiles,
         IAnimations &animations,
         IVisualEffects &visualEffects,
-        ICombatTables &combatTables) :
+        ICombatTables &combatTables,
+        IRaces &races) :
         cameraStyles(cameraStyles),
         classes(classes),
+        creatureSpeeds(creatureSpeeds),
         difficultyOptions(difficultyOptions),
         feats(feats),
         footstepSounds(footstepSounds),
@@ -93,7 +100,8 @@ struct GameServices {
         projectiles(projectiles),
         animations(animations),
         visualEffects(visualEffects),
-        combatTables(combatTables) {
+        combatTables(combatTables),
+        races(races) {
     }
 };
 

@@ -59,16 +59,6 @@ void validateTwoDARowIndex(
     }
 }
 
-int readRacialAbilityAdjustment(
-    const TwoDA &table, int row, Ability ability) {
-    // By Ability.
-    static constexpr const char *kColumns[] = {
-        "stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"};
-    validateTwoDARow(table, "racialtypes", row);
-    // A blank adjustment is zero.
-    return table.getInt(row, kColumns[static_cast<int>(ability)], 0);
-}
-
 } // namespace game
 
 } // namespace reone

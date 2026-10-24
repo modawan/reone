@@ -30,21 +30,37 @@ Event::Event(
     std::vector<float> floats,
     std::vector<std::string> strings,
     std::vector<std::shared_ptr<Object>> objects) :
+    Event(number, std::move(integers), std::move(floats), std::move(strings), std::move(objects), std::vector<uint32_t> {}) {
+}
+
+Event::Event(
+    int number,
+    std::vector<int32_t> integers,
+    std::vector<float> floats,
+    std::vector<std::string> strings,
+    std::vector<std::shared_ptr<Object>> objects,
+    std::vector<uint32_t> objectIds) :
     _number(number),
     _integers(std::move(integers)),
     _floats(std::move(floats)),
     _strings(std::move(strings)) {
     _objects.reserve(objects.size());
-    for (const auto &object : objects) {
-        _objects.emplace_back(object);
+    _absentObjectIds.reserve(objects.size());
+    for (size_t index = 0; index < objects.size(); ++index) {
+        _objects.emplace_back(objects[index]);
+        _absentObjectIds.push_back(!objects[index] && index < objectIds.size() ? objectIds[index] : script::kObjectInvalid);
     }
 }
 
 std::vector<uint32_t> Event::objects() const {
     std::vector<uint32_t> result;
     result.reserve(_objects.size());
-    for (const auto &reference : _objects) {
-        auto object = reference.resolve();
+    for (size_t index = 0; index < _objects.size(); ++index) {
+        if (_objects[index].empty()) {
+            result.push_back(_absentObjectIds[index]);
+            continue;
+        }
+        auto object = _objects[index].resolve();
         result.push_back(object ? object->id() : script::kObjectInvalid);
     }
     return result;

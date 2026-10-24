@@ -15,9 +15,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
+
 #include "reone/game/action/barkstring.h"
-#include "reone/game/action/pauseconversation.h"
 #include "reone/game/action/resumeconversation.h"
+#include "reone/game/action/speakstring.h"
+#include "reone/game/action/speakstringbystrref.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/combat.h"
 #include "reone/game/di/services.h"
@@ -72,7 +75,7 @@ bool StartConversationAction::approach(Creature &speaker, float dt) {
     const float range = partnerType == ObjectType::Door || partnerType == ObjectType::Placeable
                             ? use.range
                             : use.range + kConversationUseRangeExtra;
-    if (!speaker.navigateTo(use.point, true, range, dt)) {
+    if (!speaker.navigateTo(use.point, true, range, dt, *_objectToConverse)) {
         return false;
     }
     const glm::vec3 offset {_objectToConverse->position() - speaker.position()};
@@ -181,6 +184,8 @@ void StartConversationAction::admit() {
 }
 
 bool StartConversationAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    // A dropped or failed request ends the conversation being under way.
+    _game.setDialogUnderWay(false);
     _game.globalFade().finishDialog(_fadeDialog);
     _fadeDialog.reset();
     return true;
@@ -190,9 +195,25 @@ void StartConversationAction::onQueued(Object &actor) {
     admit();
 }
 
+// The party has members and none of them stands: each names no creature or
+// one at zero vitality.
+static bool isPartyDown(const Party &party) {
+    const auto &members = party.members();
+    return !members.empty() &&
+           std::none_of(members.begin(), members.end(), [](const Party::Member &member) {
+               return member.creature && !member.creature->isTemporarilyDead();
+           });
+}
+
 void StartConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     // Direct executors and restored queues use the same admission path.
     admit();
+    // No conversation starts, whoever starts it, while the whole party is down.
+    if (isPartyDown(_game.party())) {
+        cancel(self, actor);
+        complete();
+        return;
+    }
     if (!_game.globalFade().isCurrentDialog(_fadeDialog)) {
         complete();
         return;
@@ -203,10 +224,17 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     if (_game.isConversationActive()) {
         debug("Discarding StartConversation, a conversation is already active",
               LogChannel::Conversation);
-        cancel(self, actor);
+        // The running conversation stays under way.
+        _game.globalFade().finishDialog(_fadeDialog);
+        _fadeDialog.reset();
         complete();
         return;
     }
+    // While the world is held, a conversation waits to start.
+    if (_game.holdsWorld()) {
+        return;
+    }
+    _game.setDialogUnderWay(true);
 
     auto actorPtr = _game.getObjectById(actor.id());
 
@@ -296,37 +324,48 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     complete();
 }
 
+// A conversation names its dialog by a resource name of at most sixteen
+// characters, and is private or not.
+static constexpr size_t kMaxDialogNameLength = 16;
+
+// The command's parameters: the one talked to, the dialog, whether it is
+// private, whether the speaker has still to look for its partner within use
+// range, whether it starts wherever the speaker stands, and the companion
+// that handed it to the player character.
 std::optional<SavedActionRecord> StartConversationAction::saveFacingState() const {
     bool ignoredNamesAreEmpty = std::all_of(
         _namesToIgnore.begin(), _namesToIgnore.end(),
         [](const std::string &name) { return name.empty(); });
-    if (!_objectToConverse || _dialogResRef.size() > 16 ||
+    if (!_objectToConverse || _dialogResRef.size() > kMaxDialogNameLength ||
         _conversationType != resource::ConversationType::Cinematic ||
-        _ignoreStartRange || !ignoredNamesAreEmpty || _useLeader ||
+        !ignoredNamesAreEmpty || _useLeader ||
         _barkX != -1 || _barkY != -1 || _dontClearAllActions) {
         return std::nullopt;
     }
 
-    SavedActionRecord result;
-    result.actionId = static_cast<uint32_t>(SavedActionType::StartConversation);
-    result.declaredParameterCount = 3;
-    result.parameters = {
-        SavedActionParameter {
-            kSavedObjectParameter,
-            SavedObjectReference::fromRuntimeId(_objectToConverse->id())},
-        SavedActionParameter {
-            static_cast<uint32_t>(SavedActionParameterType::String),
-            _dialogResRef},
-        SavedActionParameter {
-            kSavedIntegerParameter,
-            static_cast<int32_t>(_privateConversation ? 1 : 0)},
-    };
-    return result;
+    return SavedActionRecord::command(SavedActionType::StartConversation, {
+                                                                              {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_objectToConverse->id())},
+                                                                              {kSavedStringParameter, _dialogResRef},
+                                                                              {kSavedIntegerParameter, int32_t {_privateConversation ? 1 : 0}},
+                                                                              {kSavedIntegerParameter, int32_t {_approaching ? 0 : 1}},
+                                                                              {kSavedIntegerParameter, int32_t {_ignoreStartRange ? 1 : 0}},
+                                                                              {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_transferredFrom ? _transferredFrom->id() : script::kObjectInvalid)},
+                                                                          });
 }
 
-void PauseConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    _game.pauseConversationBy(actor);
-    complete();
+std::shared_ptr<Action> StartConversationAction::restore(const SavedActionRecord &record, Game &game) {
+    auto target = record.objectParameter(0).boundObject();
+    const auto &dialog = record.stringParameter(1);
+    const int32_t privateConversation = record.integerParameter(2);
+    if (!target || dialog.size() > kMaxDialogNameLength || (privateConversation != 0 && privateConversation != 1)) {
+        return nullptr;
+    }
+    auto action = game.newAction<StartConversationAction>(std::move(target), dialog, privateConversation != 0,
+                                                          resource::ConversationType::Cinematic,
+                                                          record.integerParameter(4) != 0);
+    action->_approaching = record.integerParameter(3) == 0;
+    action->_transferredFrom = std::dynamic_pointer_cast<Creature>(record.objectParameter(5).boundObject());
+    return action;
 }
 
 void ResumeConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -334,10 +373,127 @@ void ResumeConversationAction::execute(std::shared_ptr<Action> self, Object &act
     complete();
 }
 
+std::optional<SavedActionRecord> ResumeConversationAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::ResumeConversation, {});
+}
+
+std::shared_ptr<Action> ResumeConversationAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<ResumeConversationAction>();
+}
+
+void SpeakStringAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // A creature that speaks gives up stealth. The words reach listeners as
+    // SpeakString's do.
+    if (auto *creature = dyn_cast<Creature>(&actor)) {
+        creature->setStealthMode(false);
+    }
+    // Away from any area nobody hears it.
+    if (auto area = actor.spatialArea()) {
+        area->get().broadcastDialog(actor, _stringToSpeak, _talkVolume);
+    }
+    complete();
+}
+
+// A spoken string keeps its volume as the chat type it is said with: talk,
+// whisper, shout, silent talk or silent shout; any other volume is talk.
+static constexpr int32_t kTalkChatType = 1;
+static constexpr int32_t kShoutChatType = 2;
+static constexpr int32_t kWhisperChatType = 3;
+static constexpr int32_t kSilentTalkChatType = 13;
+static constexpr int32_t kSilentShoutChatType = 14;
+
+static int32_t chatTypeOf(int talkVolume) {
+    switch (static_cast<TalkVolume>(talkVolume)) {
+    case TalkVolume::Whisper:
+        return kWhisperChatType;
+    case TalkVolume::Shout:
+        return kShoutChatType;
+    case TalkVolume::SilentTalk:
+        return kSilentTalkChatType;
+    case TalkVolume::SilentShout:
+        return kSilentShoutChatType;
+    default:
+        return kTalkChatType;
+    }
+}
+
+static int talkVolumeOfChatType(int32_t chatType) {
+    switch (chatType) {
+    case kWhisperChatType:
+        return static_cast<int>(TalkVolume::Whisper);
+    case kShoutChatType:
+        return static_cast<int>(TalkVolume::Shout);
+    case kSilentTalkChatType:
+        return static_cast<int>(TalkVolume::SilentTalk);
+    case kSilentShoutChatType:
+        return static_cast<int>(TalkVolume::SilentShout);
+    default:
+        return static_cast<int>(TalkVolume::Talk);
+    }
+}
+
+std::optional<SavedActionRecord> SpeakStringAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::SpeakString, {
+                                                                        {kSavedStringParameter, _stringToSpeak},
+                                                                        {kSavedIntegerParameter, chatTypeOf(_talkVolume)},
+                                                                    });
+}
+
+std::shared_ptr<Action> SpeakStringAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<SpeakStringAction>(record.stringParameter(0), talkVolumeOfChatType(record.integerParameter(1)));
+}
+
+// The volume is kept as the chat channel it speaks on: a whisper, a shout, or
+// talk for anything else.
+static constexpr int32_t kTalkChannel = 8;
+static constexpr int32_t kShoutChannel = 9;
+static constexpr int32_t kWhisperChannel = 10;
+
+static int32_t chatChannelOf(int talkVolume) {
+    switch (static_cast<TalkVolume>(talkVolume)) {
+    case TalkVolume::Whisper:
+        return kWhisperChannel;
+    case TalkVolume::Shout:
+        return kShoutChannel;
+    default:
+        return kTalkChannel;
+    }
+}
+
+static int talkVolumeOf(int32_t chatChannel) {
+    switch (chatChannel) {
+    case kWhisperChannel:
+        return static_cast<int>(TalkVolume::Whisper);
+    case kShoutChannel:
+        return static_cast<int>(TalkVolume::Shout);
+    default:
+        return static_cast<int>(TalkVolume::Talk);
+    }
+}
+
+std::optional<SavedActionRecord> SpeakStringByStrRefAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::SpeakStringByStrRef, {
+                                                                                {kSavedIntegerParameter, int32_t {_strRef}},
+                                                                                {kSavedIntegerParameter, chatChannelOf(_talkVolume)},
+                                                                            });
+}
+
+std::shared_ptr<Action> SpeakStringByStrRefAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<SpeakStringByStrRefAction>(record.integerParameter(0), talkVolumeOf(record.integerParameter(1)));
+}
+
 void BarkStringAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     // TODO: implement
 
     complete();
+}
+
+std::optional<SavedActionRecord> BarkStringAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::BarkString, {{kSavedIntegerParameter, int32_t {_strRef}}});
+}
+
+std::shared_ptr<Action> BarkStringAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<BarkStringAction>(record.integerParameter(0));
 }
 
 } // namespace game

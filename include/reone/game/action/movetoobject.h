@@ -42,6 +42,17 @@ public:
     };
 
     /**
+     * The flags a range check in front of an attack, a cast or an item use
+     * carries: its use-range test also tests the objects in the line, and a
+     * walk it starts may end once the object is in range in a clear line.
+     * They do not change the move.
+     */
+    struct ApproachFlags {
+        int objectsInLine {0};
+        int clearLineWalk {0};
+    };
+
+    /**
      * A move to within range of an object: a door or placeable is walked to
      * at the mover's use point for it, which the move takes when it starts
      * and takes anew at most once, should the point or the use range change;
@@ -79,6 +90,12 @@ public:
     void onQueued(Object &actor) override;
 
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /**
+     * A saved MoveToObject command, or the range check in front of an
+     * attack, a cast or an item use; none once the object is gone, or when
+     * its run flag, ranges or move flags are not ones a command carries.
+     */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     bool isRun() const { return _run; }
     const std::shared_ptr<Object> &target() const { return _moveTo; }
@@ -101,6 +118,8 @@ private:
     bool _closeToUseRange {false};
     /** The use point and range of a move to a door or placeable. */
     std::optional<Creature::UseApproach> _approach;
+    /** The flags of a range check in front of an attack, a cast or an item use. */
+    std::optional<ApproachFlags> _approachFlags;
 
     /** The distance the mover closes to: the use range taken, when it closes on it, else the move's range. */
     float closingRange() const;

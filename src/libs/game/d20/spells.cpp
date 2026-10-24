@@ -17,6 +17,9 @@
 
 #include "reone/game/d20/spells.h"
 
+#include <array>
+#include <cassert>
+
 #include <boost/algorithm/string.hpp>
 
 #include "reone/game/d20/attributes.h"
@@ -47,6 +50,23 @@ static const std::vector<std::pair<ClassType, std::string>> kClassLevelColumns =
     {ClassType::SithMarauder, "marauder"},
     {ClassType::SithLord, "sithlord"},
     {ClassType::SithAssassin, "assassin"}};
+
+// The forms a Jedi of each base class is granted at Jedi levels 11 to 14, in
+// that order.
+static constexpr int kFirstFormJediLevel = 11;
+
+static const std::unordered_map<ClassType, std::array<SpellType, 4>> kJediLevelForms = {
+    {ClassType::JediGuardian, {SpellType::FormSaberIShiiCho, SpellType::FormSaberIIMakashi, SpellType::FormSaberIIISoresu, SpellType::FormForceIChannel}},
+    {ClassType::JediConsular, {SpellType::FormSaberIShiiCho, SpellType::FormForceIChannel, SpellType::FormSaberIIMakashi, SpellType::FormSaberIIISoresu}},
+    {ClassType::JediSentinel, {SpellType::FormSaberIShiiCho, SpellType::FormSaberIIISoresu, SpellType::FormForceIChannel, SpellType::FormSaberIIMakashi}}};
+
+// The powers each prestige class is granted, by class level.
+static const std::unordered_map<ClassType, std::vector<std::pair<int, SpellType>>> kPrestigeClassPowers = {
+    {ClassType::JediMaster, {{1, SpellType::InspireFollowersI}, {5, SpellType::InspireFollowersII}, {9, SpellType::InspireFollowersIII}, {13, SpellType::InspireFollowersIV}, {17, SpellType::InspireFollowersV}}},
+    {ClassType::JediWatchman, {{1, SpellType::ForceCamouflage}, {7, SpellType::ImprovedForceCamouflage}, {13, SpellType::MasterForceCamouflage}}},
+    {ClassType::SithMarauder, {{1, SpellType::Fury}, {5, SpellType::ImprovedFury}, {9, SpellType::MasterFury}}},
+    {ClassType::SithLord, {{1, SpellType::CrushOppositionI}, {5, SpellType::CrushOppositionII}, {9, SpellType::CrushOppositionIII}, {13, SpellType::CrushOppositionIV}, {17, SpellType::CrushOppositionV}}},
+    {ClassType::SithAssassin, {{1, SpellType::ForceCamouflage}, {7, SpellType::ImprovedForceCamouflage}, {13, SpellType::MasterForceCamouflage}}}};
 
 static std::optional<SpellType> parseSpellType(const std::string &value) {
     if (value.empty()) {
@@ -248,11 +268,16 @@ static std::optional<int> getSpellRangeRow(const std::string &range) {
 }
 
 void Spells::init(resource::GameID gameId) {
+    // A blank range stays blank; each use says what it counts as.
+    const auto ranges = getRequiredTwoDA(_twoDas, "ranges");
+    for (int row = 0; row < ranges->getRowCount(); ++row) {
+        _ranges.push_back({ranges->getFloatOpt(row, "primaryrange"), ranges->getFloatOpt(row, "secondaryrange")});
+    }
+
     std::shared_ptr<TwoDA> spells(_twoDas.get("spells"));
     if (!spells)
         return;
 
-    const auto ranges = getRequiredTwoDA(_twoDas, "ranges");
     for (int row = 0; row < spells->getRowCount(); ++row) {
         SpellType type = static_cast<SpellType>(row);
         std::string name(_strings.getText(spells->getInt(row, "name", -1)));
@@ -262,7 +287,7 @@ void Spells::init(resource::GameID gameId) {
         std::vector<SpellType> prerequisites(parsePrerequisites(spells->getString(row, "prerequisites")));
         std::optional<SpellType> masterSpell(parseSpellType(spells->getString(row, "masterspell")));
         int userType = spells->getInt(row, "usertype", -1);
-        uint32_t category = spells->getHexInt(row, "category");
+        auto category = static_cast<uint32_t>(spells->getInt(row, "category"));
         std::string impactScript = spells->getString(row, "impactscript");
         std::string castAnim = spells->getString(row, "castanim");
         std::string castSound = spells->getString(row, "castsound");
@@ -271,12 +296,12 @@ void Spells::init(resource::GameID gameId) {
         uint32_t itemTargeting = spells->getInt(row, "itemtargeting");
         uint32_t formMask = static_cast<uint32_t>(
             spells->getInt(row, "formmask"));
-        bool hostile = spells->getBool(row, "hostilesetting");
+        bool hostile = spells->getInt(row, "hostilesetting") != 0;
         std::string projModel = spells->getString(row, "projmodel");
 
         auto spell = std::make_shared<Spell>();
         spell->catchTime = spells->getInt(row, "catchtime") / 1000.0f;
-        spell->projectile = spells->getBool(row, "proj");
+        spell->projectile = spells->getInt(row, "proj") != 0;
         const auto path = boost::algorithm::to_lower_copy(spells->getString(row, "projtype"));
         static const std::map<std::string, ProjectilePathType> paths {
             {"homing", ProjectilePathType::Homing}, {"ballistic", ProjectilePathType::Ballistic}, {"highballistic", ProjectilePathType::HighBallistic}, {"accelerating", ProjectilePathType::Accelerating}, {"spiral", ProjectilePathType::Spiral}, {"linked", ProjectilePathType::Linked}, {"bounce", ProjectilePathType::Bounce}, {"burst", ProjectilePathType::Burst}, {"grenade", ProjectilePathType::Grenade}};
@@ -290,7 +315,7 @@ void Spells::init(resource::GameID gameId) {
                                  spells->getString(row, "conjgrndvisual")};
         spell->castVisuals = {spells->getString(row, "castheadvisual"), spells->getString(row, "casthandvisual"),
                               spells->getString(row, "castgrndvisual")};
-        spell->exclusion = spells->getHexInt(row, "exclusion");
+        spell->exclusion = static_cast<uint32_t>(spells->getInt(row, "exclusion"));
         spell->type = type;
         spell->name = std::move(name);
         spell->description = std::move(description);
@@ -310,6 +335,7 @@ void Spells::init(resource::GameID gameId) {
             }
         }
         spell->category = category;
+        spell->maxCR = spells->getInt(row, "maxcr");
         spell->impactScript = impactScript;
         spell->castAnimation = parseCastAnimation(castAnim, gameId);
         spell->castSound = castSound.empty() ? nullptr : _audioClips.get(castSound);
@@ -318,16 +344,16 @@ void Spells::init(resource::GameID gameId) {
         spell->itemTargeting = itemTargeting;
         spell->requireItemMask = static_cast<uint32_t>(spells->getInt(row, "requireitemmask", 0));
         spell->forbidItemMask = static_cast<uint32_t>(spells->getInt(row, "forbiditemmask", 0));
-        const auto range = spells->getString(row, "range");
-        const auto rangeRow = getSpellRangeRow(range);
+        const auto rangeTag = spells->getString(row, "range");
+        const auto rangeRow = getSpellRangeRow(rangeTag);
         if (rangeRow) {
-            spell->range = ranges->getFloat(*rangeRow, "primaryrange", 0.0f);
+            spell->range = this->range(*rangeRow).primary.value_or(0.0f);
         }
-        spell->rangeTag = range;
+        spell->rangeTag = rangeTag;
         // Casting uses the primary range and the menu's minimum the secondary
         // one, both from the row of the tag's first letter.
         if (rangeRow) {
-            spell->minimumRange = ranges->getFloat(*rangeRow, "secondaryrange", 0.0f);
+            spell->minimumRange = this->range(*rangeRow).secondary.value_or(0.0f);
         }
         spell->formMask = formMask;
         spell->hostile = hostile;
@@ -337,6 +363,18 @@ void Spells::init(resource::GameID gameId) {
         spell->projModel = projModel.empty() ? nullptr : _models.get(projModel);
         _spells.insert(std::make_pair(type, std::move(spell)));
     }
+}
+
+const RangeRow &Spells::range(int row) const {
+    validateTwoDARowIndex("ranges", row, static_cast<int>(_ranges.size()));
+    return _ranges[row];
+}
+
+std::optional<std::reference_wrapper<const RangeRow>> Spells::findRange(int row) const {
+    if (row < 0 || row >= static_cast<int>(_ranges.size())) {
+        return std::nullopt;
+    }
+    return std::cref(_ranges[row]);
 }
 
 std::shared_ptr<Spell> Spells::get(SpellType type) const {
@@ -454,6 +492,43 @@ std::vector<SpellDisplayEntry> Spells::getLevelUpDisplayEntries(
         return left.sourceOrder < right.sourceOrder;
     });
     return result;
+}
+
+void Spells::addGrantedPowers(CreatureAttributes &attributes, bool tsl) const {
+    if (!tsl) {
+        return;
+    }
+    const auto &classLevels = attributes.classLevels();
+    assert(!classLevels.empty());
+    // The base classes follow the character's Jedi level, the prestige
+    // classes the level of the newest class.
+    const int classLevel = classLevels.back().second;
+    const int jediLevel = attributes.getJediLevel();
+    for (auto &levelledClass : classLevels) {
+        ClassType type = levelledClass.first->type();
+        auto forms = kJediLevelForms.find(type);
+        if (forms != kJediLevelForms.end()) {
+            int formIndex = jediLevel - kFirstFormJediLevel;
+            if (formIndex < 0 || formIndex >= static_cast<int>(forms->second.size())) {
+                continue;
+            }
+            // A power without a row in the spell table is not granted.
+            SpellType form = forms->second[formIndex];
+            if (_spells.count(form) > 0) {
+                attributes.addSpell(form);
+            }
+            continue;
+        }
+        auto powers = kPrestigeClassPowers.find(type);
+        if (powers == kPrestigeClassPowers.end()) {
+            continue;
+        }
+        for (auto &[level, power] : powers->second) {
+            if (level == classLevel && _spells.count(power) > 0) {
+                attributes.addSpell(power);
+            }
+        }
+    }
 }
 
 } // namespace game

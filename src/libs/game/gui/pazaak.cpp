@@ -145,8 +145,8 @@ std::string handCardTexture(const CardDefinition &card, CardSign sign, bool tsl)
 }
 
 std::string collectionCardText(const CardDefinition &card) {
-    // The engine draws one glyph per byte, so the plus-minus sign is emitted as a
-    // single authored code point rather than a multi-byte sequence.
+    // Card text is drawn one glyph per byte, so the plus-minus sign is a single
+    // byte of the font's code page rather than a multi-byte sequence.
     if (card.behavior() == CardBehavior::SignSelectable) {
         return "\xB1" + std::to_string(card.magnitude());
     }

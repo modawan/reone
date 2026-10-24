@@ -19,9 +19,12 @@
 
 #include <array>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
+#include <string>
 #include <tuple>
+#include <vector>
 
 #include <glm/vec3.hpp>
 
@@ -30,6 +33,10 @@
 #include "reone/input/event.h"
 
 namespace reone {
+
+namespace resource {
+class TwoDA;
+}
 
 namespace game {
 
@@ -48,7 +55,7 @@ enum class XPSource {
     Stealth,
     Console,
     Skill, /**< disarming and recovering mines */
-    Script /**< a script award naming a creature outside the party */
+    Script /**< a script award naming a creature outside the party, or a class gained */
 };
 
 enum class RosterKind {
@@ -72,6 +79,17 @@ struct RosterIdentity {
     bool operator!=(const RosterIdentity &rhs) const {
         return !operator==(rhs);
     }
+};
+
+/**
+ * A party AI style (aiscripts.2da): its name, description and AI state. A
+ * blank name or state reads as 0; a style without a description (TSL's table
+ * has none) has none (-1).
+ */
+struct AIScriptRow {
+    int nameStrRef {-1};
+    int descriptionStrRef {-1};
+    int state {-1};
 };
 
 class Party {
@@ -99,6 +117,8 @@ public:
     static constexpr int kForfeitNoForcePowers = 1;
     static constexpr int kForfeitNoItems = 2;
     static constexpr int kForfeitNoItemButShield = 128;
+    /** The saved influence of a party NPC whose influence was never set. */
+    static constexpr int kInfluenceNeverSet = -1;
 
     struct PersistedState {
         std::string pcName;
@@ -132,7 +152,7 @@ public:
 
         PersistedState() {
             npcSelectable.fill(true);
-            influence.fill(-1);
+            influence.fill(kInfluenceNeverSet);
             puppetSelectable.fill(true);
         }
     };
@@ -149,6 +169,13 @@ public:
         _game(game) {
         resetFollowSlots();
     }
+
+    /**
+     * Read the party's tables: each roster slot's share of experience
+     * (npc.2da), the party AI styles (aiscripts.2da) and, in TSL, the
+     * companions' base influence (influence.2da).
+     */
+    void init();
 
     bool handle(const input::Event &event);
 
@@ -217,6 +244,32 @@ public:
     int lastForfeitViolation() const { return _persistedState.forfeitViolation; }
     void setLastForfeitViolation(int condition) { _persistedState.forfeitViolation = condition; }
 
+    /**
+     * A companion's base influence by its tag (influence.2da, TSL); none for a
+     * tag the table does not name, and always none in KotOR, which has no
+     * influence.
+     */
+    std::optional<int> baseInfluence(const std::string &tag) const;
+    /** The npc.2da share of experience of a row, read as a whole percentage; a blank cell, or a row outside the table, is none. */
+    int percentXP(int row) const;
+    /**
+     * The npc.2da share of experience of a row as the cell reads, fractions
+     * kept, as kill experience reads its general share; a blank cell, or a
+     * row outside the table, is none.
+     */
+    float percentXPFraction(int row) const;
+    /** The party AI styles, in table order. */
+    const std::vector<AIScriptRow> &aiScripts() const { return _aiScripts; }
+
+    /** Whether npc names a party NPC slot. */
+    static bool isNpcSlot(int npc) { return npc >= 0 && npc < static_cast<int>(kMaxNpcCount); }
+    /** A party NPC's influence (TSL); none while never set. */
+    std::optional<int> influence(int npc) const {
+        const int value = _persistedState.influence.at(static_cast<size_t>(npc));
+        return value == kInfluenceNeverSet ? std::nullopt : std::optional<int>(value);
+    }
+    void setInfluence(int npc, int value) { _persistedState.influence.at(static_cast<size_t>(npc)) = value; }
+
     /** Roster index of the actor standing in for the PC, or kNpcPlayer. */
     int controlledNpc() const { return _persistedState.controlledNpc; }
 
@@ -261,6 +314,8 @@ public:
     void endStealth();
     /** Members other than the player's own creature. */
     int companionCount() const;
+    /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
+    bool isCompanion(const Member &member) const;
 
     // Members
 
@@ -273,6 +328,11 @@ public:
 
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
+    /**
+     * Whether the object moves the party between modules: only the player
+     * character or the current leader does.
+     */
+    bool movesBetweenModules(const Object &object) const;
     /**
      * Whether a companion travels with the party as a follower. A follower
      * whose creature was destroyed still does: its place stays, naming
@@ -402,6 +462,8 @@ public:
     bool assignPuppet(int puppet, int npc);
     std::optional<int> assignedNpcForPuppet(int puppet) const;
     std::shared_ptr<Creature> puppetOwner(int puppet) const;
+    /** The owner of the puppet the creature is bound to, or none. */
+    std::shared_ptr<Creature> puppetOwner(const Creature &puppet) const;
 
     /** Complete live object graph retained by the session across Areas. */
     std::vector<std::shared_ptr<Object>> runtimeObjects() const;
@@ -573,6 +635,15 @@ private:
     /** The leader's trail keeps this many steps. */
     static constexpr int kFollowSteps = 100;
 
+    /** How a straight walk along the leader's trail goes. */
+    enum class TrailLine {
+        Clear,
+        /** Something stands in the way. */
+        Blocked,
+        /** The walk runs out of the rooms before anything stands in its way. */
+        LeavesRooms
+    };
+
     /** A point of the leader's trail and the way the leader faced there. */
     struct FollowStep {
         glm::vec3 position {0.0f};
@@ -589,6 +660,18 @@ private:
     };
 
     Game &_game;
+
+    // Tables
+
+    /** The npc.2da share of each row, read as a whole number; 0 where the cell is blank. */
+    std::vector<int> _percentXP;
+    /** The npc.2da share of each row, read with its fraction; 0 where the cell is blank. */
+    std::vector<float> _percentXPFraction;
+    std::vector<AIScriptRow> _aiScripts;
+    /** Each companion's base influence by its lower-case tag (TSL). */
+    std::map<std::string, int> _baseInfluence;
+
+    // END Tables
 
     std::shared_ptr<Creature> _player;
     std::shared_ptr<Creature> _actualPlayer;
@@ -631,10 +714,6 @@ private:
 
     // Apply the party XP pool value to every current member's creature XP.
     void syncMembersXP();
-    /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
-    bool isCompanion(const Member &member) const;
-    /** PercentXP of an npc.2da row; a blank or missing cell counts as 0. */
-    int percentXP(int row) const;
     /** Pay a creature its share of an award. */
     void receiveExperience(Creature &creature, int amount);
     /** A companion added to the roster starts from the pool. */
@@ -672,9 +751,12 @@ private:
     int closestFollower() const;
     /** Squared distance from the leader to the slot's follow point. */
     float followerLag2(int slot) const;
-    /** A straight walk the trail can take: clear, or blocked only by a party member. */
+    /**
+     * A straight walk the trail can take: clear, or blocked only by a party
+     * member. How the walk goes is kept in line.
+     */
     bool isTrailLineClear(
-        const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, bool &clear) const;
+        const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, TrailLine &line) const;
     void smoothFollowPath(const Area &area);
     bool turnBack();
 };

@@ -19,6 +19,8 @@
 
 #include "reone/graphics/texture.h"
 
+#include "../types.h"
+
 namespace reone {
 
 namespace game {
@@ -27,6 +29,12 @@ struct Skill {
     std::string name;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
+    /** A creature without ranks may use the skill. */
+    bool untrained {false};
+    /** A creature of any class may use the skill untrained, whether or not its class names a skills table. */
+    bool allClassesCanUse {false};
+    /** The ability whose modifier the skill adds. */
+    Ability keyAbility {Ability::Strength};
 };
 
 } // namespace game

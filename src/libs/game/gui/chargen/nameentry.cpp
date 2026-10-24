@@ -36,8 +36,14 @@ static const ResRef kMaleNameLtrResRef("humanm");
 static const ResRef kFemaleNameLtrResRef("humanf");
 static const ResRef kLastNameLtrResRef("humanl");
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {"BTN_BACK", "BTN_RANDOM", "END_BTN", "MAIN_TITLE_LBL", "NAME_BOX_EDIT", "SUB_TITLE_LBL"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void NameEntry::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, kNoTitleControls);
 
     _input.setText(_charGen.character().name);
     _controls.NAME_BOX_EDIT->setTextMessage(_charGen.character().name);

@@ -17,6 +17,7 @@
 
 #include "reone/resource/2da.h"
 
+#include <cstdlib>
 #include <limits>
 
 #include "reone/system/logutil.h"
@@ -74,7 +75,7 @@ int TwoDA::indexByCellValue(const std::string &column, const std::string &value)
 
 int TwoDA::getColumnIndex(const std::string &column) const {
     for (size_t i = 0; i < _columns.size(); ++i) {
-        if (_columns[i] == column)
+        if (asciiEqualsIgnoreCase(_columns[i], column))
             return static_cast<int>(i);
     }
     return -1;
@@ -124,24 +125,31 @@ std::string TwoDA::getString(int row, const std::string &column, std::string def
     return getStringOpt(row, column).value_or(defValue);
 }
 
-std::optional<std::string> TwoDA::getStringOpt(int row, const std::string &column) const {
+std::string TwoDA::getString(int row, int column, std::string defValue) const {
+    return getStringOpt(row, column).value_or(defValue);
+}
+
+std::optional<std::string> TwoDA::getCellOpt(int row, int column) const {
     if (row < 0 || row >= _rows.size()) {
         warn("2DA: row index out of range: " + std::to_string(row));
         return std::nullopt;
     }
-
-    int columnIdx = getColumnIndex(column);
-    if (columnIdx == -1) {
+    if (column < 0 || column >= static_cast<int>(_columns.size())) {
         return std::nullopt;
     }
+    return _rows[row].values[column];
+}
 
-    const std::string &value = _rows[row].values[columnIdx];
+std::optional<std::string> TwoDA::getStringOpt(int row, const std::string &column) const {
+    return getStringOpt(row, getColumnIndex(column));
+}
 
-    if (value == kCellValueDeleted) {
-        warn(str(boost::format("2DA: cell value was deleted: %d %s") % row % column));
+std::optional<std::string> TwoDA::getStringOpt(int row, int column) const {
+    auto value = getCellOpt(row, column);
+    if (value && *value == kCellValueDeleted) {
+        warn(str(boost::format("2DA: cell value was deleted: %d %s") % row % _columns[column]));
         return std::nullopt;
     }
-
     return value;
 }
 
@@ -149,15 +157,80 @@ int TwoDA::getInt(int row, const std::string &column, int defValue) const {
     return getIntOpt(row, column).value_or(defValue);
 }
 
+int TwoDA::getInt(int row, int column, int defValue) const {
+    return getIntOpt(row, column).value_or(defValue);
+}
+
+static bool isScanSpace(char ch) {
+    return ch == ' ' || (ch >= '\t' && ch <= '\r');
+}
+
+static int getDigitValue(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    char lower = asciiLower(ch);
+    if (lower >= 'a' && lower <= 'z') {
+        return lower - 'a' + 10;
+    }
+    return std::numeric_limits<int>::max();
+}
+
+/**
+ * Reads an integer as a scanf "%i" conversion does. Leading white space and
+ * a sign are skipped; a "0x" or "0X" prefix makes the digits hexadecimal and
+ * a leading 0 makes them octal; reading ends at the first character that is
+ * not a digit of the base. Text with no digits reads as 0. The number is
+ * read as a 64-bit one, saturating, and kept to its low 32 bits.
+ */
+static int scanInt(const std::string &text) {
+    size_t pos = 0;
+    while (pos < text.size() && isScanSpace(text[pos])) {
+        ++pos;
+    }
+    bool negative = false;
+    if (pos < text.size() && (text[pos] == '+' || text[pos] == '-')) {
+        negative = text[pos] == '-';
+        ++pos;
+    }
+    int base = 10;
+    if (pos < text.size() && text[pos] == '0') {
+        base = 8;
+        if (pos + 1 < text.size() && (text[pos + 1] == 'x' || text[pos + 1] == 'X')) {
+            base = 16;
+            pos += 2;
+        }
+    }
+    // The largest magnitude a signed 64-bit number of this sign holds.
+    const uint64_t limit = negative
+                               ? static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1
+                               : static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    uint64_t magnitude = 0;
+    for (; pos < text.size(); ++pos) {
+        int digit = getDigitValue(text[pos]);
+        if (digit >= base) {
+            break;
+        }
+        if (magnitude > (limit - digit) / base) {
+            magnitude = limit;
+        } else {
+            magnitude = magnitude * base + digit;
+        }
+    }
+    uint64_t value = negative ? ~magnitude + 1 : magnitude;
+    return static_cast<int>(static_cast<uint32_t>(value));
+}
+
 std::optional<int> TwoDA::getIntOpt(int row, const std::string &column) const {
-    const std::string &value = getString(row, column);
-    if (value.empty()) {
+    return getIntOpt(row, getColumnIndex(column));
+}
+
+std::optional<int> TwoDA::getIntOpt(int row, int column) const {
+    auto value = getCellOpt(row, column);
+    if (!value || value->empty()) {
         return std::nullopt;
     }
-    bool hexadecimal = value.size() > 2 &&
-                       value[0] == '0' &&
-                       (value[1] == 'x' || value[1] == 'X');
-    return stoi(value, nullptr, hexadecimal ? 16 : 10);
+    return scanInt(*value);
 }
 
 uint32_t TwoDA::getUint(int row, const std::string &column, uint32_t defValue) const {
@@ -165,18 +238,11 @@ uint32_t TwoDA::getUint(int row, const std::string &column, uint32_t defValue) c
 }
 
 std::optional<uint32_t> TwoDA::getUintOpt(int row, const std::string &column) const {
-    const std::string &value = getString(row, column);
-    if (value.empty()) {
+    auto value = getIntOpt(row, column);
+    if (!value) {
         return std::nullopt;
     }
-    bool hexadecimal = value.size() > 2 &&
-                       value[0] == '0' &&
-                       (value[1] == 'x' || value[1] == 'X');
-    const unsigned long long number = std::stoull(value, nullptr, hexadecimal ? 16 : 10);
-    if (number > std::numeric_limits<uint32_t>::max()) {
-        throw std::out_of_range("2DA: unsigned value out of range: " + value);
-    }
-    return static_cast<uint32_t>(number);
+    return static_cast<uint32_t>(*value);
 }
 
 uint32_t TwoDA::getHexInt(int row, const std::string &column, uint32_t defValue) const {
@@ -195,12 +261,32 @@ float TwoDA::getFloat(int row, const std::string &column, float defValue) const 
     return getFloatOpt(row, column).value_or(defValue);
 }
 
+float TwoDA::getFloat(int row, int column, float defValue) const {
+    return getFloatOpt(row, column).value_or(defValue);
+}
+
 std::optional<float> TwoDA::getFloatOpt(int row, const std::string &column) const {
-    const std::string &value = getString(row, column);
-    if (value.empty()) {
+    return getFloatOpt(row, getColumnIndex(column));
+}
+
+/**
+ * Reads a real number as a scanf "%f" conversion does. Leading white space
+ * and a sign are skipped; decimal digits with an optional point and exponent,
+ * 0x-prefixed hexadecimal digits with an optional binary exponent, or an
+ * infinity or NaN are read up to the first character that cannot continue the
+ * number. Text with no number reads as 0, and a magnitude too large for a
+ * float reads as infinity.
+ */
+static float scanFloat(const std::string &text) {
+    return std::strtof(text.c_str(), nullptr);
+}
+
+std::optional<float> TwoDA::getFloatOpt(int row, int column) const {
+    auto value = getCellOpt(row, column);
+    if (!value || value->empty()) {
         return std::nullopt;
     }
-    return stof(value);
+    return scanFloat(*value);
 }
 
 bool TwoDA::getBool(int row, const std::string &column, bool defValue) const {
@@ -208,11 +294,11 @@ bool TwoDA::getBool(int row, const std::string &column, bool defValue) const {
 }
 
 std::optional<bool> TwoDA::getBoolOpt(int row, const std::string &column) const {
-    const std::string &value = getString(row, column);
-    if (value.empty()) {
+    auto value = getIntOpt(row, column);
+    if (!value) {
         return std::nullopt;
     }
-    return stoi(value) != 0;
+    return *value != 0;
 }
 
 } // namespace resource

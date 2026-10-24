@@ -35,11 +35,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
-#include "reone/game/twodautil.h"
 #include "reone/game/types.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/di/services.h"
-#include "reone/resource/provider/2das.h"
 
 namespace reone {
 
@@ -135,10 +131,10 @@ std::optional<int> equipmentRefusalFeedback(EquipmentCandidateReason reason) {
 
 int minimumEquipLevel(const Creature &creature, const Item &item) {
     const int cost = item.cost(creature.game().baseItemCostMultiplier(item.baseItemType()));
-    auto table = getRequiredTwoDA(creature.services().resource.twoDas, "itemvalue");
-    const int rows = table->getRowCount();
+    const auto &limits = creature.services().game.combatTables.itemValueLimits();
+    const int rows = static_cast<int>(limits.size());
     int row = 0;
-    while (row < rows && cost > table->getInt(row, "maxsingleitemvalue", 0)) {
+    while (row < rows && cost > limits[row]) {
         ++row;
     }
     return row + 1;
@@ -284,12 +280,12 @@ static bool meetsPlayerCharacterLimits(const Creature &creature, const Item &ite
     if (!hasProperty(item, ItemProperty::LimitUseByPc)) {
         return true;
     }
-    auto table = getRequiredTwoDA(creature.services().resource.twoDas, "iprp_pc");
+    const auto &tables = creature.services().game.combatTables;
     return anyActiveProperty(item, ItemProperty::LimitUseByPc, [&](const Item::PropertyEntry &property) {
         if (property.subtype == kPlayerCreatedRow) {
             return creature.isPlayerCreated();
         }
-        return boost::iequals(table->getString(property.subtype, "expectedtag"), creature.tag());
+        return boost::iequals(tables.playerCharacterLimitTag(property.subtype), creature.tag());
     });
 }
 
@@ -646,7 +642,7 @@ bool releaseAreaOwnedItem(
     return area && area->releaseObject(item);
 }
 
-bool transferItemTo(
+ItemTransfer transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
     Object &receiver) {
@@ -654,11 +650,12 @@ bool transferItemTo(
         (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
         (item->isPresentationOnly() != receiver.isPresentationOnly()) ||
         item.get() == &receiver) {
-        return false;
+        return {};
     }
 
     uint32_t ownerId = item->owner();
-    if (ownerId == receiver.id() && !item->isEquipped()) return true;
+    if (ownerId == receiver.id() && !item->isEquipped())
+        return {true, item};
 
     if (!item->isHeld()) {
         // owner() describes nested inventory/equipment ownership; it does not
@@ -668,27 +665,27 @@ bool transferItemTo(
         if (item->isPresentationOnly() || item->isEquipped() ||
             std::find(receiver.items().begin(), receiver.items().end(), item) !=
                 receiver.items().end()) {
-            return false;
+            return {};
         }
         if (!releaseAreaOwnedItem(game, item)) {
-            return false;
+            return {};
         }
-        receiver.addItem(item);
-        return true;
+        return {true, receiver.addItem(item)};
     }
 
     auto owner = game.getObjectById(ownerId);
-    if (!owner) return false;
+    if (!owner)
+        return {};
 
     if (auto creature = std::dynamic_pointer_cast<Creature>(owner);
         creature && item->isEquipped()) {
-        if (!creature->takeEquippedItem(item)) return false;
+        if (!creature->takeEquippedItem(item))
+            return {};
     } else if (!owner->removeItemStack(item)) {
-        return false;
+        return {};
     }
 
-    receiver.addItem(item);
-    return true;
+    return {true, receiver.addItem(item)};
 }
 
 } // namespace game

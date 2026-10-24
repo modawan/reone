@@ -24,6 +24,10 @@
 
 namespace reone {
 
+namespace resource {
+class TwoDA;
+}
+
 namespace game {
 
 class LoadingScreen : public GameGUI {
@@ -33,7 +37,12 @@ public:
         _resRef = guiResRef("loadscreen");
     }
 
-    void setImage(const std::string &resRef);
+    /**
+     * Shows the loading picture of the module named \p moduleName: the one its
+     * row of the loading-screen table names, else its own load_ picture when
+     * there is one, else the one the table's default row names.
+     */
+    void setModuleImage(const std::string &moduleName);
     void setProgress(int progress);
 
 private:
@@ -45,6 +54,8 @@ private:
     };
 
     Controls _controls;
+    /** The loading-screen table, read when the screen is loaded. */
+    std::shared_ptr<resource::TwoDA> _loadScreens;
 
 protected:
     void preload(gui::IGUI &gui) override;

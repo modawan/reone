@@ -35,8 +35,19 @@ namespace reone {
 
 namespace game {
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_BACK", "BTN_CANCEL", "BTN_STEPNAME1", "BTN_STEPNAME2", "BTN_STEPNAME3", "BTN_STEPNAME4",
+    "BTN_STEPNAME5", "LBL_1", "LBL_2", "LBL_3", "LBL_4", "LBL_5",
+    "LBL_NUM1", "LBL_NUM2", "LBL_NUM3", "LBL_NUM4", "LBL_NUM5"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"LBL_BG"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void LevelUpMenu::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
     if (_game.isTSL()) {
         for (auto &control : {_controls.LBL_1, _controls.LBL_2, _controls.LBL_3, _controls.LBL_4, _controls.LBL_5}) {
@@ -119,6 +130,11 @@ void LevelUpMenu::setStep(int step) {
 
 void LevelUpMenu::doSetStep(int step) {
     _step = step;
+    // Entering the feats step, the first time or again, takes back the
+    // level's granted and chosen feats.
+    if (_step == 2) {
+        _charGen.resetLevelFeats();
+    }
 
     _controls.LBL_1->setDisabled(_step != 0);
     _controls.LBL_2->setDisabled(_step != 1);

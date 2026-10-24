@@ -255,16 +255,6 @@ uint16_t serializedEffectType(EffectType type) {
         return SavedEffectTypes::concealment;
     case EffectType::BonusFeat:
         return SavedEffectTypes::bonusFeat;
-    case EffectType::Confused:
-    case EffectType::Frightened:
-    case EffectType::Stunned:
-    case EffectType::Paralyze:
-    case EffectType::Sleep:
-    case EffectType::DroidStun:
-    case EffectType::Choke:
-    case EffectType::Horrified:
-    case EffectType::WhirlWind:
-        return SavedEffectTypes::setState;
     case EffectType::Slow:
         return SavedEffectTypes::slow;
     case EffectType::Entangle:
@@ -864,8 +854,7 @@ EffectApplicationResult Effect::onApply(Object &, EffectInstance &) {
     return EffectApplicationResult::Rejected;
 }
 
-EffectRemovalResult Effect::onRemove(Object &, const EffectInstance &) {
-    return EffectRemovalResult::Removed;
+void Effect::onRemove(Object &, const EffectInstance &) {
 }
 
 void Effect::onUpdate(Object &, const EffectInstance &, float) {
@@ -885,49 +874,9 @@ EffectInstance Effect::saveFacingInstance() const {
     result.serializedType = serializedEffectType(_type);
     result.setCategory(_category);
     result.exposed = 1;
-    result.creatorId = kSavedEffectInvalidObjectId;
+    result.creatorId = _saveFacingCreatorId;
     result.spellId = _saveFacingSpellId;
     result.integerParameters = _saveFacingIntegers;
-    // Every creature state is saved as the same type; its first integer says
-    // which state it is.
-    if (result.serializedType == SavedEffectTypes::setState) {
-        result.integerParameters.resize(std::max<size_t>(1, result.integerParameters.size()));
-        std::optional<CreatureState> state;
-        switch (_type) {
-        case EffectType::Confused:
-            state = CreatureState::Confusion;
-            break;
-        case EffectType::Frightened:
-            state = CreatureState::Fear;
-            break;
-        case EffectType::Stunned:
-            state = CreatureState::Stun;
-            break;
-        case EffectType::Paralyze:
-            state = CreatureState::Paralysis;
-            break;
-        case EffectType::Sleep:
-            state = CreatureState::Sleep;
-            break;
-        case EffectType::DroidStun:
-            state = CreatureState::DroidStun;
-            break;
-        case EffectType::Choke:
-            state = CreatureState::Choke;
-            break;
-        case EffectType::Horrified:
-            state = CreatureState::Horrified;
-            break;
-        case EffectType::WhirlWind:
-            state = CreatureState::Whirlwind;
-            break;
-        default:
-            break;
-        }
-        if (state) {
-            result.integerParameters[0] = static_cast<int>(*state);
-        }
-    }
     result.floatParameters = _saveFacingFloats;
     result.stringParameters = _saveFacingStrings;
     // Preserve the exact candidate binding even while its owner graph remains
@@ -948,16 +897,20 @@ EffectInstance Effect::saveFacingInstance() const {
 
 void Effect::setSaveFacingCreator(const std::shared_ptr<Object> &creator) {
     _saveFacingCreator = creator;
+    _saveFacingCreatorId = creator ? creator->id() : kSavedEffectInvalidObjectId;
 }
 
 void Effect::setCreatorFromCaller(const std::shared_ptr<Object> &caller) {
-    _saveFacingCreator = caller;
+    setSaveFacingCreator(caller);
     if (!caller || isa<Area>(caller.get()) || isa<Module>(caller.get())) {
         return;
     }
     _saveFacingSpellId = caller->effectSpellId();
     if (auto areaOfEffect = dyn_cast<AreaOfEffect>(caller.get())) {
-        _saveFacingCreator = areaOfEffect->creator();
+        // The area of effect's creator is passed on even when it is gone.
+        setSaveFacingCreator(areaOfEffect->creator());
+        const uint32_t creatorId = areaOfEffect->creatorId();
+        _saveFacingCreatorId = creatorId == script::kObjectInvalid ? kSavedEffectInvalidObjectId : creatorId;
     }
 }
 
@@ -1041,8 +994,12 @@ void Effect::captureSaveFacingScriptArguments(
     for (const auto &argument : arguments) {
         switch (argument.type) {
         case script::VariableType::Int:
-            if (_type == EffectType::Visual && integerIndex == 1) {
-                setSaveFacingInteger(2, argument.intValue);
+            if (_type == EffectType::Visual) {
+                // The visual keeps the id it shows, as constructed; the miss
+                // argument is kept as given.
+                if (integerIndex == 1) {
+                    setSaveFacingInteger(2, argument.intValue);
+                }
             } else if ((_type == EffectType::SavingThrowIncrease ||
                         _type == EffectType::SavingThrowDecrease) &&
                        integerIndex < 3) {
@@ -1496,12 +1453,12 @@ bool EffectInstance::bindObjectParameter(
 }
 
 void EffectInstance::retireAreaRuntimeBindings(
-    const std::set<const Object *> &retainedObjects) {
-    auto retain = [&retainedObjects](
+    const std::set<uint32_t> &retainedObjectIds) {
+    auto retain = [&retainedObjectIds](
                       RuntimeObjectRef<Object> &binding,
                       uint32_t &identity) {
         auto object = binding.resolve();
-        if (!object || retainedObjects.count(object.get()) == 0) {
+        if (!object || retainedObjectIds.count(object->id()) == 0) {
             binding.reset();
             identity = kSavedEffectInvalidObjectId;
             return;
@@ -1649,13 +1606,12 @@ EffectApplicationResult TimeStopEffect::onApply(Object &object, EffectInstance &
     return EffectApplicationResult::Applied;
 }
 
-EffectRemovalResult TimeStopEffect::onRemove(Object &object, const EffectInstance &) {
+void TimeStopEffect::onRemove(Object &object, const EffectInstance &) {
     // Ending a Time Stop always flips the stop; a stop left without an
     // excluded caster ends at the next module update.
     auto &game = object.game();
     game.toggleTimeStop();
     game.removeTimeStopExclusion(object);
-    return EffectRemovalResult::Removed;
 }
 
 void LinkEffectsEffect::setCategory(EffectCategory category) {
@@ -1683,12 +1639,12 @@ EffectApplicationResult LinkEffectsEffect::onApply(Object &object, EffectInstanc
 }
 
 void LinkEffectsEffect::retireAreaRuntime(
-    const std::set<const Object *> &retainedObjects) {
+    const std::set<uint32_t> &retainedObjectIds) {
     if (_childEffect) {
-        _childEffect->retireAreaRuntime(retainedObjects);
+        _childEffect->retireAreaRuntime(retainedObjectIds);
     }
     if (_parentEffect) {
-        _parentEffect->retireAreaRuntime(retainedObjects);
+        _parentEffect->retireAreaRuntime(retainedObjectIds);
     }
 }
 

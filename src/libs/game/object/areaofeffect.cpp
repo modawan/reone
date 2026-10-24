@@ -121,8 +121,14 @@ void AreaOfEffect::overrideScripts(const std::string &onEnter, const std::string
     }
 }
 
+uint32_t AreaOfEffect::creatorId() const {
+    const auto found = creator();
+    return found ? found->id() : _creatorId;
+}
+
 void AreaOfEffect::setCreator(const std::shared_ptr<Object> &creator) {
     _savedReferences[kCreatorReference] = creator;
+    _creatorId = creator ? creator->id() : script::kObjectInvalid;
     const auto found = Creature::asCreature(creator);
     if (!found || found->get().effectSpellId() == std::numeric_limits<uint32_t>::max()) {
         return;
@@ -356,13 +362,12 @@ EffectApplicationResult AreaOfEffectEffect::onApply(Object &object, EffectInstan
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult AreaOfEffectEffect::onRemove(Object &object, const EffectInstance &instance) {
+void AreaOfEffectEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (isa<Creature>(&object)) {
         if (auto areaOfEffect = instance.boundObjectParameter(0)) {
             object.game().postObjectDestruction(*areaOfEffect, std::nullopt, 0.0f, true);
         }
     }
-    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

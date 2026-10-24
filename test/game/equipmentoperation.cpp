@@ -138,38 +138,73 @@ TEST_F(EquipmentOperation, preserves_stacked_candidates_and_clears_both_hands) {
 }
 
 TEST_F(EquipmentOperation, clears_paired_hand_for_restricted_weapons_and_supports_alternate_slots) {
-    for (int baseItem : {6}) {
-        for (auto slots : {std::pair {InventorySlots::rightWeapon, InventorySlots::leftWeapon},
-                           std::pair {InventorySlots::rightWeapon2, InventorySlots::leftWeapon2}}) {
-            Game alternate(GameID::TSL, "", engine.options(), engine.services(), console);
-            Game &operationGame = slots.first == InventorySlots::rightWeapon2 ? alternate : game;
-            auto subject = operationGame.newCreature();
-            // Not a player character: no minimum equip level applies.
-            subject->setPC(false);
-            auto owner = operationGame.newCreature();
-            auto main = makeItem(operationGame, "main", 8, 1);
-            auto off = makeItem(operationGame, "off", 3, 1);
-            auto baton = makeItem(operationGame, "restricted", baseItem, 1);
-            ASSERT_TRUE(subject->equip(slots.first, main));
-            ASSERT_TRUE(subject->equip(slots.second, off));
-            owner->addItem(baton);
-            EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(operationGame, *subject, *owner, baton, slots.first));
-            EXPECT_FALSE(subject->getEquippedItem(slots.second));
-            EXPECT_EQ(baton, subject->getEquippedItem(slots.first));
-            EXPECT_EQ(2u, owner->items().size());
-            EXPECT_EQ(owner->id(), main->owner());
-            EXPECT_EQ(owner->id(), off->owner());
-            EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(operationGame, *subject, *owner, nullptr, slots.first));
-            EXPECT_EQ(3u, owner->items().size());
-            EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(operationGame, *subject, *owner, main, slots.first));
-            EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(operationGame, *subject, *owner, off, slots.second));
-            EXPECT_EQ(1u, owner->items().size());
-            EXPECT_EQ(owner->id(), baton->owner());
-        }
+    for (auto slots : {std::pair {InventorySlots::rightWeapon, InventorySlots::leftWeapon},
+                       std::pair {InventorySlots::rightWeapon2, InventorySlots::leftWeapon2}}) {
+        Game alternate(GameID::TSL, "", engine.options(), engine.services(), console);
+        Game &operationGame = slots.first == InventorySlots::rightWeapon2 ? alternate : game;
+        auto subject = operationGame.newCreature();
+        // Not a player character: no minimum equip level applies.
+        subject->setPC(false);
+        auto owner = operationGame.newCreature();
+        auto main = makeItem(operationGame, "main", 8, 1);
+        auto off = makeItem(operationGame, "off", 3, 1);
+        auto doubleBlade = makeItem(operationGame, "restricted", 6, 1);
+        ASSERT_TRUE(subject->equip(slots.first, main));
+        ASSERT_TRUE(subject->equip(slots.second, off));
+        owner->addItem(doubleBlade);
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, doubleBlade, slots.first));
+        EXPECT_FALSE(subject->getEquippedItem(slots.second));
+        EXPECT_EQ(doubleBlade, subject->getEquippedItem(slots.first));
+        EXPECT_EQ(2u, owner->items().size());
+        EXPECT_EQ(owner->id(), main->owner());
+        EXPECT_EQ(owner->id(), off->owner());
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, nullptr, slots.first));
+        EXPECT_EQ(3u, owner->items().size());
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, main, slots.first));
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, off, slots.second));
+        EXPECT_EQ(1u, owner->items().size());
+        EXPECT_EQ(owner->id(), doubleBlade->owner());
+    }
+}
+
+TEST_F(EquipmentOperation, stun_baton_keeps_the_other_hand_in_either_hand) {
+    for (auto slots : {std::pair {InventorySlots::rightWeapon, InventorySlots::leftWeapon},
+                       std::pair {InventorySlots::rightWeapon2, InventorySlots::leftWeapon2}}) {
+        Game alternate(GameID::TSL, "", engine.options(), engine.services(), console);
+        Game &operationGame = slots.first == InventorySlots::rightWeapon2 ? alternate : game;
+        auto subject = operationGame.newCreature();
+        // Not a player character: no minimum equip level applies.
+        subject->setPC(false);
+        auto owner = operationGame.newCreature();
+        auto main = makeItem(operationGame, "main", 8, 1);
+        auto off = makeItem(operationGame, "off", 3, 1);
+        auto baton = makeItem(operationGame, "baton", 1, 1);
+        ASSERT_TRUE(subject->equip(slots.first, main));
+        ASSERT_TRUE(subject->equip(slots.second, off));
+        owner->addItem(baton);
+
+        // In the main hand, beside an off-hand weapon.
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, baton, slots.first));
+        EXPECT_EQ(baton, subject->getEquippedItem(slots.first));
+        EXPECT_EQ(off, subject->getEquippedItem(slots.second));
+        EXPECT_EQ(owner->id(), main->owner());
+
+        // In the off hand, beside a main-hand weapon.
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, main, slots.first));
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, nullptr, slots.second));
+        EXPECT_EQ(EquipmentOperationOutcome::Applied,
+                  applyEquipmentOperation(operationGame, *subject, *owner, baton, slots.second));
+        EXPECT_EQ(main, subject->getEquippedItem(slots.first));
+        EXPECT_EQ(baton, subject->getEquippedItem(slots.second));
+        EXPECT_EQ(1u, owner->items().size());
+        EXPECT_EQ(owner->id(), off->owner());
     }
 }
 

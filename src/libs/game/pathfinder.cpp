@@ -50,8 +50,9 @@
 
    == Omissions
 
-   1. Dynamic objects (creatures) are not handled. Each creature has a "personal
-   space" radius that must be taken into account for pathfinding.
+   1. Dynamic objects (creatures) are not handled by the global pathfinding.
+   A creature met on the way is walked round instead: a way along a hexagon
+   around it is spliced into the path as explicit points.
 
    2. Static objects that do not have a carve-out for them in the room walkmesh
       are not reflected in the Uniwalk yet. Each object has it is own
@@ -59,6 +60,10 @@
  */
 
 #include "reone/game/pathfinder.h"
+
+#include <algorithm>
+#include <cassert>
+
 #include "reone/game/debug.h"
 #include "reone/scene/drawdebug.h"
 
@@ -97,7 +102,7 @@ void uniwalkLoadRoom(struct Uniwalk &uni, graphics::Walkmesh &data, std::set<uin
     uni.faces.reserve(uni.faces.size() + data.faces.size());
     for (uint32_t i = 0; i < data.faces.size(); ++i) {
         uint32_t material = data.materials[i];
-        if (!walkableMaterial.count(material)) {
+        if (!graphics::Walkmesh::hasSurfaceMaterial(walkableMaterial, material)) {
             continue;
         }
 
@@ -634,7 +639,10 @@ static bool findPath(AStarPath &path, AStarContext &astar, const Uniwalk &uni,
     path.to = to;
     path.next = 0;
     path.active = true;
-    path.nextPoint = funnelPath(path, uni, from);
+    const glm::vec3 first = funnelPath(path, uni, from);
+    path.points = {from, first};
+    path.pointNext = 1;
+    path.followsFaces = true;
     return true;
 }
 
@@ -687,8 +695,24 @@ void releasePath(Pathfinder &pf, Path path) {
     }
 }
 
+// Explicit points are walked in order and never planned again. A point
+// counts as reached from above, whatever its height, and points reached
+// together are passed together.
+static void updatePathPoints(AStarPath &path, const glm::vec3 &current) {
+    const float eps2 = 0.01f;
+    while (path.pointNext + 1 < path.points.size() &&
+           glm::distance2(glm::vec2(path.points[path.pointNext]), glm::vec2(current)) < eps2) {
+        ++path.pointNext;
+    }
+}
+
 bool updatePath(Pathfinder &pf, Path p, const glm::vec3 &current) {
     AStarPath &path = pf.paths[p.index];
+
+    if (!path.followsFaces) {
+        updatePathPoints(path, current);
+        return true;
+    }
 
     uint32_t checkFrom = (path.next == 0) ? path.next : path.next - 1;
     uint32_t checkTo = path.next + 1;
@@ -712,9 +736,11 @@ bool updatePath(Pathfinder &pf, Path p, const glm::vec3 &current) {
 
     float eps2 = 0.01f;
     if (path.next < path.faces.size()) {
-        if (glm::distance2(path.nextPoint, current) < eps2) {
+        if (glm::distance2(path.points[path.pointNext], current) < eps2) {
             // Reached an intermediate point, move to the next.
-            path.nextPoint = funnelPath(path, pf.uni, current);
+            const glm::vec3 reached = path.points[path.pointNext];
+            path.points = {reached, funnelPath(path, pf.uni, current)};
+            path.pointNext = 1;
         }
     }
 
@@ -723,7 +749,7 @@ bool updatePath(Pathfinder &pf, Path p, const glm::vec3 &current) {
     drawdebug::clear();
 
     if (isShowPathEnabled()) {
-        drawdebug::line(current, path.nextPoint, 0xF0E68CFF, 0.05);
+        drawdebug::line(current, path.points[path.pointNext], 0xF0E68CFF, 0.05);
     }
 
     drawdebug::popId();
@@ -734,11 +760,206 @@ bool updatePath(Pathfinder &pf, Path p, const glm::vec3 &current) {
 
 glm::vec3 getNextPathPoint(Pathfinder &pf, Path p) {
     AStarPath &path = pf.paths[p.index];
-    return path.nextPoint;
+    return path.points[path.pointNext];
 }
 
-glm::vec3 getLastPathPoint(Pathfinder &pf, Path path) {
-    return pf.paths[path.index].to;
+glm::vec3 getLastPathPoint(Pathfinder &pf, Path p) {
+    const AStarPath &path = pf.paths[p.index];
+    return path.followsFaces ? path.to : path.points.back();
+}
+
+bool followsPathPoints(Pathfinder &pf, Path p) {
+    return !pf.paths[p.index].followsFaces;
+}
+
+std::vector<glm::vec3> pathPoints(Pathfinder &pf, Path p, uint32_t &next) {
+    const AStarPath &path = pf.paths[p.index];
+    if (!path.followsFaces) {
+        next = path.pointNext;
+        return path.points;
+    }
+    // The funnel is walked ahead on a copy of the path, each point taken from
+    // the one before, until it yields the destination. Every step either
+    // passes a portal or yields the destination, so this ends.
+    AStarPath ahead = path;
+    std::vector<glm::vec3> points = path.points;
+    while (points.back() != path.to) {
+        points.push_back(funnelPath(ahead, pf.uni, points.back()));
+    }
+    next = 1;
+    return points;
+}
+
+void setPathPoints(Pathfinder &pf, Path p, std::vector<glm::vec3> points, uint32_t next) {
+    AStarPath &path = pf.paths[p.index];
+    assert(next < points.size());
+    path.points = std::move(points);
+    path.pointNext = next;
+    path.followsFaces = false;
+}
+
+// An edge's distance from the centre of a hexagon over a corner's.
+static constexpr float kHexLineFactor = 0.866025f;
+// A sixth of a turn, clockwise seen from above.
+static constexpr float kHexStep = -1.0471976f;
+// A path point this near a corner, squared, lies on it.
+static constexpr float kHexCornerEps2 = 0.001f;
+
+AvoidanceHex computeAvoidanceHex(const glm::vec3 &center, const glm::vec3 &moverDir, float inradius,
+                                 const std::function<float(const glm::vec2 &)> &height) {
+    const glm::quat step = glm::angleAxis(kHexStep, glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::vec3 offset = glm::normalize(-moverDir) * (inradius / kHexLineFactor);
+    AvoidanceHex hex;
+    hex.v[0] = center + offset;
+    for (int k = 1; k < 6; ++k) {
+        offset = step * offset;
+        hex.v[k] = center + offset;
+        hex.v[k].z = height(glm::vec2(hex.v[k]));
+    }
+    return hex;
+}
+
+bool isPointInAvoidanceHex(const AvoidanceHex &hex, const glm::vec3 &point) {
+    for (int e = 0; e < 6; ++e) {
+        const glm::vec3 &corner = hex.v[e];
+        const glm::vec3 edge = hex.v[(e + 1) % 6] - corner;
+        // The right-hand normal of an edge of a clockwise hexagon points in.
+        const glm::vec2 inward {edge.y, -edge.x};
+        if (glm::dot(inward, glm::vec2(point - corner)) < 0.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int closestAvoidanceHexCorner(const AvoidanceHex &hex, const glm::vec3 &point) {
+    int closest = 0;
+    float closestDistance2 = FLT_MAX;
+    for (int i = 0; i < 6; ++i) {
+        const float distance2 = glm::distance2(hex.v[i], point);
+        if (distance2 < closestDistance2) {
+            closest = i;
+            closestDistance2 = distance2;
+        }
+    }
+    return closest;
+}
+
+// Where two segments meet seen from above, ends included. Parallel segments
+// never meet.
+static bool intersectSegments2d(const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c, const glm::vec3 &d,
+                                glm::vec3 &outPoint) {
+    const glm::vec2 ab {b - a};
+    const glm::vec2 cd {d - c};
+    const float denominator = ab.x * cd.y - ab.y * cd.x;
+    if (denominator == 0.0f) {
+        return false;
+    }
+    const glm::vec2 ac {c - a};
+    const float t = (ac.x * cd.y - ac.y * cd.x) / denominator;
+    const float u = (ac.x * ab.y - ac.y * ab.x) / denominator;
+    if (t < 0.0f || t > 1.0f || u < 0.0f || u > 1.0f) {
+        return false;
+    }
+    outPoint = glm::vec3(glm::vec2(a) + ab * t, 0.0f);
+    return true;
+}
+
+bool findAvoidanceEntryAndExit(const AvoidanceHex &hex, const std::vector<glm::vec3> &points, uint32_t next,
+                               AvoidanceCrossing &entry, AvoidanceCrossing &exit) {
+    entry = AvoidanceCrossing();
+    exit = AvoidanceCrossing();
+    if (points.empty()) {
+        return false;
+    }
+
+    // Path points are taken on the ground plane.
+    const auto flat = [](const glm::vec3 &p) { return glm::vec3(p.x, p.y, 0.0f); };
+    const auto nearCorner = [](const glm::vec3 &p, const glm::vec3 &corner) {
+        return glm::distance2(p, corner) < kHexCornerEps2;
+    };
+    int found = 0;
+    glm::vec3 a = flat(points[0]);
+    for (int k = 1; k < static_cast<int>(points.size()); ++k) {
+        const glm::vec3 b = flat(points[k]);
+        for (int e = 0; e < 6; ++e) {
+            const glm::vec3 &corner = hex.v[e];
+            const glm::vec3 &nextCorner = hex.v[(e + 1) % 6];
+            const bool a0 = nearCorner(a, corner);
+            const bool a1 = nearCorner(a, nextCorner);
+            const bool b0 = nearCorner(b, corner);
+            const bool b1 = nearCorner(b, nextCorner);
+            if (a0 + a1 + b0 + b1 >= 2) {
+                // The segment runs along this edge.
+                if (found == 0 && (a0 || a1)) {
+                    exit = {e, k, a};
+                    found = 1;
+                }
+                if (b0 || b1) {
+                    exit = {e, k, b};
+                    ++found;
+                }
+            }
+            glm::vec3 crossing;
+            if (intersectSegments2d(a, b, corner, nextCorner, crossing)) {
+                if (found > 0) {
+                    entry = exit;
+                }
+                exit = {e, k, crossing};
+                ++found;
+                break;
+            }
+        }
+        a = b;
+    }
+    if (entry.edge == -1) {
+        if (exit.edge == -1) {
+            return false;
+        }
+        const int left = next > 0 ? static_cast<int>(next) - 1 : 0;
+        entry.edge = closestAvoidanceHexCorner(hex, flat(points[left]));
+        entry.index = left;
+        entry.point = hex.v[entry.edge];
+        ++found;
+    }
+    return found > 1;
+}
+
+std::vector<glm::vec3> findAvoidanceWay(const AvoidanceHex &hex, const AvoidanceCrossing &entry,
+                                        const AvoidanceCrossing &exit, bool left) {
+    std::vector<glm::vec3> way {entry.point};
+    if (entry.edge == exit.edge) {
+        way.push_back(exit.point);
+        return way;
+    }
+    if (left) {
+        const int last = (exit.edge + 1) % 6;
+        int corner = entry.edge;
+        way.push_back(hex.v[corner]);
+        while (corner != last) {
+            corner = (corner + 5) % 6;
+            way.push_back(hex.v[corner]);
+        }
+    } else {
+        int corner = (entry.edge + 1) % 6;
+        way.push_back(hex.v[corner]);
+        while (corner != exit.edge) {
+            corner = (corner + 1) % 6;
+            way.push_back(hex.v[corner]);
+        }
+    }
+    way.push_back(exit.point);
+    return way;
+}
+
+void insertAvoidanceWay(std::vector<glm::vec3> &points, uint32_t &next, int entryIndex, int exitIndex,
+                        const std::vector<glm::vec3> &way) {
+    const int rejoin = exitIndex + (entryIndex == exitIndex ? 1 : 0);
+    std::vector<glm::vec3> spliced(points.begin(), points.begin() + entryIndex);
+    spliced.insert(spliced.end(), way.begin(), way.end());
+    spliced.insert(spliced.end(), points.begin() + rejoin, points.end());
+    points = std::move(spliced);
+    next = std::min(next, static_cast<uint32_t>(entryIndex));
 }
 
 // Keepout vector points away from a border edge or a corner vertex.

@@ -50,6 +50,8 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved UnequipItem command; none once the item is gone. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     const std::shared_ptr<Item> &item() const { return _item; }
     /**

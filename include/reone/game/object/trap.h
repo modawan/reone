@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "../object.h"
 
@@ -85,12 +86,8 @@ public:
 
     explicit Trap(Carrier carrier);
 
-    /**
-     * The row of a trap type in traps.2da.
-     *
-     * @param type the trap type, a row of the table
-     */
-    static TrapTypeRow typeRow(resource::ITwoDAs &twoDas, int type);
+    /** Reads every trap type in traps.2da, by row. */
+    static std::vector<TrapTypeRow> readTypes(resource::ITwoDAs &twoDas);
 
     /** Whether the trap on an object of the faction is hostile to the creature. */
     static bool isHostileTo(const Object &trapped, Faction faction, const Creature &creature);
@@ -109,7 +106,7 @@ public:
     void deserializeArming(const resource::Gff &gff, const Game &game, bool keepShiftedDCs);
 
     /** Take the DCs of the trap's type; a blank cell keeps the current one. */
-    void loadTypeDCs(resource::ITwoDAs &twoDas);
+    void loadTypeDCs(const Game &game);
 
     /**
      * The DC to find the trap. In TSL the difficulty shifts it: by -5 on easy
@@ -143,8 +140,7 @@ public:
      * mine tries to blow the object's lock a few seconds later.
      */
     void armMine(
-        Game &game,
-        resource::ITwoDAs &twoDas,
+        const Game &game,
         int trapType,
         int detectDC,
         int disarmDC,
@@ -158,7 +154,7 @@ public:
      * Make this the trap of a mine trigger: the type's script, the given DCs
      * and the setter's Demolitions skill. The mine can be found and disarmed.
      */
-    void setUpMine(resource::ITwoDAs &twoDas, int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill);
+    void setUpMine(const Game &game, int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill);
 
     /** A mine standing for a trapped door or placeable: neither seen nor disarmed on its own. */
     void hide();

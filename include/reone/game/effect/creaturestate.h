@@ -57,7 +57,10 @@ enum class StateApplicationResult {
     Applied
 };
 
-/** Holds a creature in a state for the effect's duration. */
+/**
+ * Holds a creature in a state for the effect's duration. The state is integer
+ * 0 and the package inspection bypass integer 1.
+ */
 class CreatureStateEffect : public CopyableEffect<CreatureStateEffect> {
 public:
     /**
@@ -69,15 +72,12 @@ public:
 
     EffectInstance saveFacingInstance() const override;
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
 
-    /** The state the effect holds the creature in. */
-    CreatureState state() const { return _state; }
     /** What the last application did. */
     StateApplicationResult result() const { return _result; }
 
 private:
-    CreatureState _state;
     StateApplicationResult _result {StateApplicationResult::Rejected};
 };
 
@@ -88,7 +88,7 @@ public:
 
     EffectInstance saveFacingInstance() const override;
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
 };
 
 /** Takes the actions of \p mask from the creature's AI while it lasts. */
@@ -98,7 +98,7 @@ public:
 
     EffectInstance saveFacingInstance() const override;
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
 };
 
 /** Shows an effect icon on the creature while it lasts. */
@@ -108,7 +108,7 @@ public:
 
     EffectInstance saveFacingInstance() const override;
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
 };
 
 /** Plays a visual effect on the object when applied. */
@@ -129,7 +129,7 @@ public:
 
     EffectInstance saveFacingInstance() const override;
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
 };
 
 /** Records a creature's special walk animation (an iprp_walk row). */

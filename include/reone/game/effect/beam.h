@@ -24,6 +24,11 @@ namespace reone {
 
 namespace game {
 
+/**
+ * A beam from an effector to the object: the beam's visual effect is integer
+ * 0, the body part it reaches integer 1, the miss flag integer 2 and the
+ * effector object 0.
+ */
 class BeamEffect : public CopyableEffect<BeamEffect> {
 public:
     BeamEffect(
@@ -31,11 +36,7 @@ public:
         std::shared_ptr<Object> effector,
         BodyNode bodyPart,
         bool missEffect) :
-        CopyableEffect(EffectType::Beam),
-        _beamVisualEffect(beamVisualEffect),
-        _effector(effector),
-        _bodyPart(bodyPart),
-        _missEffect(missEffect) {
+        CopyableEffect(EffectType::Beam) {
         setSaveFacingInteger(0, beamVisualEffect);
         setSaveFacingInteger(1, static_cast<int>(bodyPart));
         setSaveFacingInteger(2, missEffect ? 1 : 0);
@@ -47,19 +48,6 @@ public:
      * TSL a trigger; the record is kept on any object.
      */
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-    void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) override {
-        auto effector = _effector.resolve();
-        if (!effector || retainedObjects.count(effector.get()) == 0) {
-            _effector.reset();
-        }
-    }
-
-private:
-    int _beamVisualEffect;
-    RuntimeObjectRef<Object> _effector;
-    BodyNode _bodyPart;
-    bool _missEffect;
 };
 
 } // namespace game

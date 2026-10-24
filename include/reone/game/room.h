@@ -30,6 +30,10 @@ class Object;
 
 class Room : public scene::IUser {
 public:
+    /** The corners of a box that holds nothing, which every mesh widens. */
+    static constexpr glm::vec3 kEmptyBoxMin {100000.0f};
+    static constexpr glm::vec3 kEmptyBoxMax {-100000.0f};
+
     Room(
         std::string name,
         glm::vec3 position,
@@ -41,13 +45,25 @@ public:
         _model(std::move(model)),
         _walkmesh(std::move(walkmesh)),
         _grass(std::move(grass)) {
+        computeBox();
     }
 
     bool isVisible() const { return _visible; }
+    /**
+     * Whether the room's box holds a point seen from above, edges included.
+     * The box spans the room's meshes, but for animated meshes and background
+     * geometry; a room without such a mesh holds no point.
+     */
+    bool boxHolds(const glm::vec2 &point) const;
+    /** The room's box (see boxHolds). */
+    graphics::AABB box() const { return graphics::AABB(_boxMin, _boxMax); }
+    /** Whether the room has background geometry, which keeps it drawn wherever the view looks. */
+    bool hasBackgroundGeometry() const { return _backgroundGeometry; }
 
     const std::string &name() const { return _name; }
     const glm::vec3 &position() const { return _position; }
 
+    /** Shows or hides the room's model and grass; its walkmesh and the objects in it are left as they are. */
     void setVisible(bool visible);
 
     // Scene Nodes
@@ -60,6 +76,7 @@ public:
 
     // Tenants
 
+    /** The objects found standing over the room (see Area::determineObjectRoom); it does not decide what is drawn. */
     void addTenant(Object *object);
     void removeTenant(Object *object);
     const std::set<Object *> tenants() const { return _tenants; }
@@ -69,6 +86,11 @@ public:
 private:
     std::string _name;
     glm::vec3 _position {0.0f};
+    /** See boxHolds. */
+    glm::vec3 _boxMin {kEmptyBoxMin};
+    glm::vec3 _boxMax {kEmptyBoxMax};
+    /** See hasBackgroundGeometry. */
+    bool _backgroundGeometry {false};
 
     std::set<Object *> _tenants;
     bool _visible {true};
@@ -80,6 +102,8 @@ private:
     std::shared_ptr<scene::GrassSceneNode> _grass;
 
     // END Scene Nodes
+
+    void computeBox();
 };
 
 } // namespace game

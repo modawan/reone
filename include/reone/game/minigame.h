@@ -212,7 +212,6 @@ struct MinigameSpec {
     uint32_t bumpPlane {0};
     uint32_t depthOfField {0};
     bool doBumping {false};
-    std::string music;
     MinigameMouseSpec mouse;
     MinigamePlayerSpec player;
     std::vector<MinigameEnemySpec> enemies;

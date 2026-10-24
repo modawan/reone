@@ -36,8 +36,7 @@ void CameraStyles::init() {
     // KotOR's table gives the free-look speeds in fl_tiltspeed and
     // fl_rotatespeed; TSL's gives them for the player character, in
     // fl_pc_tiltspeed and fl_pc_rotatespeed.
-    const auto &columns = twoDa->columns();
-    bool playerSpeeds = std::find(columns.begin(), columns.end(), "fl_pc_tiltspeed") != columns.end();
+    bool playerSpeeds = twoDa->getColumnIndex("fl_pc_tiltspeed") != -1;
     auto tiltSpeedColumn = playerSpeeds ? "fl_pc_tiltspeed" : "fl_tiltspeed";
     auto rotateSpeedColumn = playerSpeeds ? "fl_pc_rotatespeed" : "fl_rotatespeed";
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
@@ -47,6 +46,9 @@ void CameraStyles::init() {
         style->pitch = twoDa->getFloat(row, "pitch");
         style->viewAngle = twoDa->getFloat(row, "viewangle");
         style->height = twoDa->getFloat(row, "height");
+        style->tiltUp = twoDa->getFloat(row, "tiltup");
+        style->tiltDown = twoDa->getFloat(row, "tiltdown");
+        style->tiltSpeed = twoDa->getFloat(row, "tiltspeed");
         style->freeLookTiltSpeed = twoDa->getFloat(row, tiltSpeedColumn);
         style->freeLookRotateSpeed = twoDa->getFloat(row, rotateSpeedColumn);
         style->freeLookUp = twoDa->getFloat(row, "fl_lookup");

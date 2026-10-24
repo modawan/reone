@@ -260,12 +260,12 @@ std::shared_ptr<resource::Gff> SpellScriptContext::save(
     return result.build();
 }
 
-void SpellScriptContext::retireAreaRuntime(const std::set<const Object *> &retainedObjects) {
+void SpellScriptContext::retireAreaRuntime(const std::set<uint32_t> &retainedObjectIds) {
     _needsBind = false;
     _savedIds.fill(kSavedRuntimeInvalidObjectId);
     for (auto *reference : {&_target, &_item, &_activeTarget}) {
         const auto object = reference->resolve();
-        if (!object || retainedObjects.count(object.get()) == 0) {
+        if (!object || retainedObjectIds.count(object->id()) == 0) {
             reference->reset();
         }
     }
@@ -358,6 +358,18 @@ void SpellSchedule::restore(const SavedCastAction &record) {
     }
 }
 
+// The clips a spell shows: a conjure one-shot, then the cast clip, which loops
+// unless it is a one-shot, each with its animation ID. Creature models only
+// conjure, and only the monster fury loop has a creature row.
+struct CastPresentation {
+    std::string conjure;
+    std::string cast;
+    bool castLoops {false};
+    int conjureId {0};
+    // None when the code has no cast clip.
+    std::optional<int> castId;
+};
+
 static CastPresentation castClips(SpellCastAnimation code, bool creatureModel) {
     if (creatureModel) {
         switch (code) {
@@ -433,16 +445,16 @@ static std::optional<int> castAnimationId(SpellCastAnimation code) {
 }
 
 // The conjure's and the cast's animation IDs follow the code alone.
-CastPresentation castPresentation(SpellCastAnimation code, bool creatureModel) {
+static CastPresentation castPresentation(SpellCastAnimation code, bool creatureModel) {
     CastPresentation look = castClips(code, creatureModel);
     look.conjureId = conjureAnimationId(code);
     look.castId = castAnimationId(code);
     return look;
 }
 
-ItemUsePresentation itemUsePresentation(const Creature &user, int itemType, const Spell &spell,
-                                        std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                                        const glm::vec3 &targetPosition) {
+static ItemUsePresentation itemUsePresentation(const Creature &user, int itemType, const Spell &spell,
+                                               std::optional<std::reference_wrapper<const Creature>> targetCreature,
+                                               const glm::vec3 &targetPosition) {
     const bool tsl = user.game().isTSL();
     // Only character and droid models use the item clips; others stand in their pose.
     const bool bodied = user.modelType() != Creature::ModelType::Creature;
@@ -542,12 +554,18 @@ const ItemUsePresentation &CastPresenter::itemUse(const Creature &user, const Sp
     return *_item;
 }
 
+// The line the controlled caster reads when its cast fails to entanglement.
+static constexpr int kEntangledCastStrRef = 0;
+
 bool interruptEntangledCast(Creature &caster) {
     if (!caster.hasEffect(EffectType::Entangle)) {
         return false;
     }
     caster.showReadyAnimation();
     caster.setOrientationLock(script::kObjectInvalid);
+    if (caster.game().party().getLeader().get() == &caster) {
+        caster.game().addFeedbackMessage(kEntangledCastStrRef);
+    }
     return true;
 }
 
@@ -746,27 +764,9 @@ void CastPresenter::updateItem(Creature &user, std::optional<std::reference_wrap
 // one-shot the cast is still writing arrives anew and plays from its start;
 // any other creature comes back already showing it and returns to its loop at
 // once.
-void CastPresenter::restore(Creature &caster, const Spell &spell, std::optional<int> itemType, std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                            const glm::vec3 &targetPosition, const SpellSchedule &schedule) {
+void CastPresenter::restore(Creature &caster, const Spell &spell, const SpellSchedule &schedule) {
     const float time = schedule.time();
     const bool replays = caster.game().party().isMember(caster);
-    if (itemType) {
-        _item = itemUsePresentation(caster, *itemType, spell, targetCreature, targetPosition);
-        const auto &look = *_item;
-        if (time >= look.end || !look.hold || (look.onTarget && targetCreature && &targetCreature->get() != &caster)) {
-            return;
-        }
-        if (look.loopAt >= 0.0f && time >= look.loopAt) {
-            caster.holdCastAnimation("castoutlp1");
-            return;
-        }
-        caster.holdCastAnimation(look.loops ? look.clip : std::string());
-        // The clip is shown until the item takes effect.
-        if (!look.loops && replays && time < look.impact) {
-            caster.playFireForgetAnimation(look.clip, AnimationSource {look.clipId});
-        }
-        return;
-    }
     const auto look = castPresentation(spell.castAnimation, caster.modelType() == Creature::ModelType::Creature);
     const float castEnd = spell.conjTime + spell.castTime;
     if (time < spell.conjTime) {
@@ -825,8 +825,7 @@ std::optional<ProjectilePathType> projectilePathFromScript(int value) {
 
 std::optional<SpellSelection> scriptCastingSource(const Creature &caster, const Spell &spell) {
     const auto &classes = caster.attributes().classLevels();
-    // A third class never casts for a script command; the spell-like ability is tried instead.
-    for (size_t index = 0; index < classes.size() && index < 2; ++index) {
+    for (size_t index = 0; index < classes.size(); ++index) {
         const ClassType clazz = classes[index].first->type();
         if (!isForceUsingClass(clazz, caster.game().isTSL()) || !caster.hasSpellUsesLeft(spell, index)) {
             continue;
@@ -904,12 +903,6 @@ uint32_t spellProjectileTimeMilliseconds(
         milliseconds += kSpiralExtraMilliseconds;
     }
     return milliseconds;
-}
-
-float spellProjectileTime(const Spell &spell, const glm::vec3 &origin,
-                          const glm::vec3 &destination, ProjectilePathType overridePath,
-                          bool tsl) {
-    return spellProjectileTimeMilliseconds(spell, origin, destination, overridePath, tsl) / 1000.0f;
 }
 
 bool equipmentAllowsSpell(const Creature &caster, const Spell &spell) {
@@ -1068,7 +1061,7 @@ void useItemAtOnce(Game &game, Creature &user, const std::shared_ptr<Item> &item
         presentSpellRelease(user, *spell);
     }
     if (item->consumeSpellUse(index)) {
-        game.queueObjectDestruction(*item, 0.0f);
+        game.postObjectDestruction(*item, 0.0f);
     }
     if (user.isInCombat()) {
         user.startItemUseCooldown();

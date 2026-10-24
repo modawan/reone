@@ -57,9 +57,41 @@ struct ResourceServices;
 
 namespace scene {
 
-static constexpr float kElevationTestZ = 1024.0f;
-
 struct Collision;
+
+/** Which faces of a room walkmesh a vertical probe through a point meets. */
+enum class RoomFaceProbe {
+    /**
+     * Walk-check faces, from a thousand units above the point to a thousand
+     * below it: the faces by which the room under a point is found.
+     */
+    Locating,
+    /**
+     * Walk-check faces, from a thousand units above the walkmesh's origin to
+     * a thousand below it, whatever the point's height.
+     */
+    WalkCheck,
+    /**
+     * Faces of every material, from a thousand units above the walkmesh's
+     * origin to a thousand below it, whatever the point's height.
+     */
+    Any
+};
+
+class ModelSceneNode;
+
+/** Whether a top-level model stands in a shown room (see ISceneGraph::setRoomTest). */
+using RoomTest = std::function<bool(const ModelSceneNode &)>;
+
+/** The face of a room walkmesh that a vertical probe meets first going down. */
+struct RoomFace {
+    /** The face's surface material. */
+    uint32_t material {0};
+    /** The height of the face's plane on the vertical, 0 for an upright face. */
+    float height {0.0f};
+    /** The face's normal. */
+    glm::vec3 normal {0.0f};
+};
 
 class IAnimationEventListener;
 class IRenderPass;
@@ -87,9 +119,39 @@ public:
     /** The Force Sight glow's pulse, between 0.5 and 1. */
     virtual float forceSightPulse() const = 0;
 
-    virtual bool testElevation(const glm::vec3 &position, Collision &outCollision) const = 0;
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
+    /**
+     * The first room walkmesh, in layout order, with a walk-check face on the
+     * vertical through a point, within a thousand units above and below it; a
+     * vertical that misses a room is tried on it once more, shifted 0.001
+     * along the diagonal of x and y. Empty when no room lies there.
+     */
+    virtual std::shared_ptr<WalkmeshSceneNode> findRoomWalkmesh(const glm::vec3 &position) const = 0;
+    /**
+     * The face of a room walkmesh met first going down the vertical through a
+     * point; a vertical that meets none is tried once more, shifted 0.001
+     * along the diagonal of x and y. Empty when it meets no face.
+     *
+     * @param probe which faces are met, and over which heights
+     */
+    virtual std::optional<RoomFace> findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const = 0;
+    /**
+     * Whether a level walk from origin to dest runs out of the rooms. It starts
+     * in the room found under origin and passes from room to room across the
+     * perimeter edges that lead into another. It runs out at origin when no
+     * room lies there; past maxRooms rooms, where it enters the next; and
+     * where it crosses a perimeter edge leading into no room, unless a
+     * blocking face lies within radius of that point, between the heights the
+     * walk spans in the room less a tenth and those plus height and a tenth.
+     * The collision names the room the walk leaves, none when it starts off
+     * the rooms, the point it leaves them at, and the level normal there,
+     * facing back along the walk. The crossings are the fractions of the walk,
+     * from 0 at origin to 1 at dest, at which it passes from one room into the
+     * next, in order.
+     */
+    virtual bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
+                              std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const = 0;
 
     virtual ModelSceneNode *pickModelAt(int x, int y, IUser *except = nullptr) const = 0;
     virtual std::optional<std::reference_wrapper<ModelSceneNode>> pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const = 0;
@@ -107,6 +169,18 @@ public:
     virtual void setWalkableSurfaces(std::set<uint32_t> surfaces) = 0;
     virtual void setWalkcheckSurfaces(std::set<uint32_t> surfaces) = 0;
     virtual void setLineOfSightSurfaces(std::set<uint32_t> surfaces) = 0;
+    /**
+     * The walkmeshes of the area's rooms, by their place in the layout; empty
+     * for a room loaded without one. Walks through the rooms follow them.
+     */
+    virtual void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) = 0;
+    /**
+     * The test a top-level model other than a room's must pass to be drawn
+     * and picked: whether it stands in a shown room. The graph only watches
+     * the test, which its owner keeps; once the owner lets it go, or after
+     * clear, every model passes.
+     */
+    virtual void setRoomTest(std::weak_ptr<const RoomTest> test) = 0;
 
     virtual void setActiveCamera(CameraSceneNode *camera) = 0;
     virtual void setUpdateRoots(bool update) = 0;
@@ -267,16 +341,21 @@ public:
 
     // Collision detection and object picking
 
-    bool testElevation(const glm::vec3 &position, Collision &outCollision) const override;
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
+    std::shared_ptr<WalkmeshSceneNode> findRoomWalkmesh(const glm::vec3 &position) const override;
+    std::optional<RoomFace> findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const override;
+    bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
+                      std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const override;
 
     ModelSceneNode *pickModelAt(int x, int y, IUser *except = nullptr) const override;
     std::optional<std::reference_wrapper<ModelSceneNode>> pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const override;
 
-    void setWalkableSurfaces(std::set<uint32_t> surfaces) override { _walkableSurfaces = std::move(surfaces); }
-    void setWalkcheckSurfaces(std::set<uint32_t> surfaces) override { _walkcheckSurfaces = std::move(surfaces); }
+    void setWalkableSurfaces(std::set<uint32_t> surfaces) override;
+    void setWalkcheckSurfaces(std::set<uint32_t> surfaces) override;
     void setLineOfSightSurfaces(std::set<uint32_t> surfaces) override { _lineOfSightSurfaces = std::move(surfaces); }
+    void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) override { _roomWalkmeshes = std::move(rooms); }
+    void setRoomTest(std::weak_ptr<const RoomTest> test) override { _roomTest = std::move(test); }
 
     // END Collision detection and object picking
 
@@ -330,6 +409,10 @@ private:
     std::list<std::shared_ptr<TriggerSceneNode>> _triggerRoots;
     std::list<std::shared_ptr<GrassSceneNode>> _grassRoots;
     std::list<std::shared_ptr<SoundSceneNode>> _soundRoots;
+    /** The rooms' walkmeshes by their place in the layout; empty for a room without one. */
+    std::vector<std::shared_ptr<WalkmeshSceneNode>> _roomWalkmeshes;
+    /** See setRoomTest. */
+    std::weak_ptr<const RoomTest> _roomTest;
 
     // END Roots
 
@@ -378,10 +461,14 @@ private:
     std::set<uint32_t> _walkableSurfaces;
     std::set<uint32_t> _walkcheckSurfaces;
     std::set<uint32_t> _lineOfSightSurfaces;
+    /** The walk-check surfaces that are not walkable. */
+    std::set<uint32_t> _blockingSurfaces;
 
     // END Surfaces
 
     void cullRoots();
+    /** Keeps the blocking surfaces in step with the walkable and walk-check ones. */
+    void updateBlockingSurfaces();
 
     void refresh();
     void refreshFromNode(SceneNode &node);

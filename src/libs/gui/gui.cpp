@@ -333,7 +333,29 @@ void GUI::update(float dt) {
 }
 
 void GUI::render() {
-    _graphicsSvc.context.withBlendMode(BlendMode::Normal, [this]() {
+    withRenderPass([this](IRenderPass &pass) {
+        if (_background) {
+            renderBackground(pass);
+        }
+        if (!_rootControl) {
+            return;
+        }
+        std::queue<std::pair<std::reference_wrapper<Control>, glm::ivec2>> controls;
+        controls.push({*_rootControl, renderOffset(_rootControl->get())});
+        while (!controls.empty()) {
+            auto &[controlWrapper, offset] = controls.front();
+            auto &control = controlWrapper.get();
+            control.render({_options.width, _options.height}, offset, pass);
+            for (auto &child : control.children()) {
+                controls.push({child, renderOffset(child)});
+            }
+            controls.pop();
+        }
+    });
+}
+
+void GUI::withRenderPass(const std::function<void(IRenderPass &)> &block) {
+    _graphicsSvc.context.withBlendMode(BlendMode::Normal, [this, &block]() {
         auto retroPass = RetroRenderPass(
             _options,
             _graphicsSvc.context,
@@ -353,23 +375,7 @@ void GUI::render() {
             _graphicsSvc.uniforms);
         auto &pass = _options.pbr ? static_cast<IRenderPass &>(pbrPass)
                                   : static_cast<IRenderPass &>(retroPass);
-        if (_background) {
-            renderBackground(pass);
-        }
-        if (!_rootControl) {
-            return;
-        }
-        std::queue<std::pair<std::reference_wrapper<Control>, glm::ivec2>> controls;
-        controls.push({*_rootControl, renderOffset(_rootControl->get())});
-        while (!controls.empty()) {
-            auto &[controlWrapper, offset] = controls.front();
-            auto &control = controlWrapper.get();
-            control.render({_options.width, _options.height}, offset, pass);
-            for (auto &child : control.children()) {
-                controls.push({child, renderOffset(child)});
-            }
-            controls.pop();
-        }
+        block(pass);
     });
 }
 

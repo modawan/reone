@@ -38,11 +38,27 @@ public:
         std::vector<float> floats,
         std::vector<std::string> strings,
         std::vector<std::shared_ptr<Object>> objects);
+    /**
+     * @param objectIds the id each object slot was named by; a slot whose
+     *                  object is null keeps that id, whether or not any object
+     *                  has it
+     */
+    Event(
+        int number,
+        std::vector<int32_t> integers,
+        std::vector<float> floats,
+        std::vector<std::string> strings,
+        std::vector<std::shared_ptr<Object>> objects,
+        std::vector<uint32_t> objectIds);
 
     int number() const { return _number; }
     const std::vector<int32_t> &integers() const { return _integers; }
     const std::vector<float> &floats() const { return _floats; }
     const std::vector<std::string> &strings() const { return _strings; }
+    /**
+     * @return the id of each slot's object while it exists, invalid once it is
+     *         gone, or the id a slot without an object was named by
+     */
     std::vector<uint32_t> objects() const;
 
 private:
@@ -51,6 +67,8 @@ private:
     std::vector<float> _floats;
     std::vector<std::string> _strings;
     std::vector<RuntimeObjectRef<Object>> _objects;
+    /** Per slot, the id a slot made without an object names. */
+    std::vector<uint32_t> _absentObjectIds;
 };
 
 } // namespace game

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "types.h"
@@ -49,10 +50,6 @@ void validateTwoDARowIndex(
     const std::string &resRef,
     int row,
     int rowCount);
-
-/** A race's adjustment to an ability (racialtypes.2da); a blank one is zero. */
-int readRacialAbilityAdjustment(
-    const resource::TwoDA &table, int row, Ability ability);
 
 } // namespace game
 

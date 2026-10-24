@@ -49,8 +49,6 @@ class CreatureClass;
  */
 class CreatureAttributes {
 public:
-    int getDefense() const;
-
     // Class Levels
 
     void addClassLevels(CreatureClass *clazz, int levels);
@@ -69,6 +67,11 @@ public:
      * @return the sum of all class levels, aka "hit dice"
      */
     int getAggregateLevel() const;
+
+    /**
+     * @return the sum of the levels of all Jedi classes
+     */
+    int getJediLevel() const;
 
     /**
      * @return the sum of (level * hitdie) of all classes
@@ -95,7 +98,12 @@ public:
     ClassType getEffectiveClass() const;
     int getClassLevel(ClassType clazz) const;
     int getAggregateAttackBonus() const;
-    int getAggregateDefenseBonus() const;
+    /**
+     * @param tsl whether the title is TSL: there a class without levels adds
+     *            no defense, while in KotOR it adds its level 0 bonus
+     * @return the sum of the classes' defense bonuses at their levels
+     */
+    int getAggregateDefenseBonus(bool tsl) const;
     SavingThrows getAggregateSavingThrows() const;
     const std::vector<std::pair<CreatureClass *, int>> &classLevels() const {
         return _classLevels;

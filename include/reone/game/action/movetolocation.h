@@ -42,12 +42,16 @@ public:
                          std::shared_ptr<Location> destination,
                          bool run,
                          bool force = false,
-                         float timeout = -1.0f) :
+                         float timeout = -1.0f,
+                         float closeRange = 0.0f,
+                         bool straight = false) :
         Action(game, services, ActionType::MoveToLocation),
         _destination(std::move(destination)),
         _run(run),
         _force(force),
-        _timeout(timeout) {
+        _timeout(timeout),
+        _closeRange(closeRange),
+        _straight(straight) {
     }
 
     MoveToLocationAction(Game &game,
@@ -56,12 +60,16 @@ public:
                          bool run,
                          bool force,
                          float timeout,
-                         ForcedState forcedState) :
+                         ForcedState forcedState,
+                         float closeRange = 0.0f,
+                         bool straight = false) :
         Action(game, services, ActionType::MoveToLocation),
         _destination(std::move(destination)),
         _run(run),
         _force(force),
         _timeout(timeout),
+        _closeRange(closeRange),
+        _straight(straight),
         _forcedState(std::move(forcedState)) {
     }
 
@@ -74,11 +82,17 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved MoveToPoint command: a walk to a point, or to an object along a point path; none unless its area is loaded, or once the object is gone. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     bool isRun() const { return _run; }
     const std::shared_ptr<Location> &destination() const { return _destination; }
     bool isForced() const { return _force; }
     float timeout() const { return _timeout; }
+    /** How near the walk must end; a script's move walks onto the point itself. */
+    float closeRange() const { return _closeRange; }
+    /** The walk keeps to the straight line to its destination. */
+    bool isStraight() const { return _straight; }
     const ForcedState &forcedState() const { return _forcedState; }
 
 private:
@@ -86,6 +100,8 @@ private:
     bool _run;
     bool _force;
     float _timeout;
+    float _closeRange;
+    bool _straight;
     ForcedState _forcedState;
 };
 

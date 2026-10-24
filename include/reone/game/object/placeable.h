@@ -71,6 +71,8 @@ public:
         const std::shared_ptr<Object> &damager) override;
 
     bool hasInventory() const { return _hasInventory; }
+    /** Whether the placeable is destroyed once its inventory is empty. */
+    bool dieWhenEmpty() const { return _dieWhenEmpty; }
     bool isSelectable() const override { return _usable; }
     glm::vec3 getSelectablePosition() const override;
     bool isUsable() const { return _usable; }
@@ -85,6 +87,30 @@ public:
     uint8_t closeLockDC() const { return _closeLockDC; }
     /** Run the script for being locked. */
     void onLocked();
+
+    /**
+     * Shows animation \p id for a conversation: as a loop, or once and then
+     * the default pose. A loop whose clip the model lacks shows the default
+     * pose. A world-space cut clip plays with the model at the world origin.
+     */
+    void playDialogAnimation(int id, bool looping);
+    /**
+     * The placeable takes animation \p animation as its state. When the model
+     * has the state's loop and does not show it already, the swing from the
+     * loop shown to it plays first (opening, closing, switching on or off,
+     * dying; none into an animation loop), then the loop. A corpse bag keeps
+     * its body's dead pose.
+     */
+    void setStateAnimation(int animation);
+    /**
+     * The length in seconds, at natural speed, of the clip animation \p id
+     * shows on the placeable; 0 when the model lacks it.
+     */
+    float animationLength(int id) const;
+    /** Animation \p id plays once on the placeable: a one-shot cut clip or row. */
+    bool playsAnimationOnce(int id) const;
+    /** Shows the loop of the placeable's own animation state again, as a conversation lets it go. */
+    void showStateAnimation();
 
     // Traps
 
@@ -116,6 +142,8 @@ public:
     // END Traps
 
     int appearance() const { return _appearance; }
+    /** The name of the placeable's appearance, shown for a placeable that has none of its own. */
+    int appearanceNameStrRef() const { return _appearanceNameStrRef; }
     Faction faction() const { return _faction; }
     void setFaction(Faction faction) { _faction = faction; }
     /** The placeable's own saving throw from its template; effects never change it. */
@@ -123,6 +151,8 @@ public:
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh() const { return _walkmesh; }
     /** Whether a creature steps right up to the placeable's use point to use it. */
     bool isPreciseUse() const { return _preciseUse; }
+    /** The armour type, in lower case, the placeable's look sounds as when struck (placeableobjsnds.2da). */
+    const std::string &soundArmorType() const { return _soundArmorType; }
     /**
      * The point a creature at from goes to in order to use the placeable: the
      * nearer of its walkmesh's two use points, the second one on a tie; the
@@ -145,8 +175,7 @@ public:
      * script runs, and an armed trap goes off on an attacker close by.
      */
     void receiveAttackEvent(uint32_t attackerId, std::optional<std::reference_wrapper<const AttackEventFields>> fields);
-    int computerUseAdjustment() const { return _computerUseAdjustment; }
-    /** The conversation with the placeable ended: its script runs and the computer use adjustment clears. */
+    /** The conversation with the placeable ended: its script runs. */
     void runEndDialogScript();
     void update(float dt) override;
 
@@ -222,6 +251,7 @@ public:
     void onClosed(uint32_t closerId);
     void runOnUsed(std::shared_ptr<Object> usedBy);
     void runOnInvDisturbed(uint32_t triggerrer, InventoryDisturbType type, uint32_t item);
+    void setOnDialog(std::string onDialog) { _onDialog = std::move(onDialog); }
 
     // END Scripts
 
@@ -238,13 +268,13 @@ private:
     void updateHeartbeat();
     void acquireItemsFrom(Object &source);
     void updateBodyBagPresentation();
-    /**
-     * The placeable takes an open-state animation: opening swings it open
-     * first and closing an open one swings it shut first, then the state's
-     * loop plays. A corpse bag keeps its body's dead pose.
-     */
-    void setOpenStateAnimation(int animation);
     void updateOpenStateAnimation();
+    /**
+     * Shows animation \p id as a loop. A corpse keeps its pose.
+     *
+     * @return whether the model has the clip and shows it
+     */
+    bool showAnimationLoop(int id);
 
     // Serializable
     resource::LocString _locName;
@@ -256,10 +286,15 @@ private:
     bool _usable {false};
     bool _hostileAppearance {false};
     bool _preciseUse {false};
+    /** The armour type of the appearance's sound type; a blank sound type sounds as the first. */
+    std::string _soundArmorType;
+    /** The sound the placeable plays when it opens; none for a blank sound type. */
+    std::string _openedSound;
     bool _static {false};
     bool _notBlastable {false};
     bool _groundPile {false};
     uint32_t _appearance {0};
+    int _appearanceNameStrRef {-1};
     uint8_t _hardness {0};
     uint8_t _fort {0};
     uint8_t _will {0};
@@ -301,16 +336,15 @@ private:
 
     int _animationState {0};
     bool _inventoryOpenPending {false};
-    /** The loop that follows the open-state clip running now. */
+    /** The loop that follows the one-shot running now. */
     std::string _openStateLoop;
-    /**
-     * Runtime dialog input: constructed and cleared to zero. Do not derive a
-     * nonzero value from unrelated lock, trap or skill-effect parameters.
-     */
-    int _computerUseAdjustment {0};
+    /** The animation whose loop the model shows; -1 while it shows none of its own. */
+    int _shownAnimation {-1};
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
 
     // Scripts
+
+    void runConversationScript() override;
 
     // END Scripts
 

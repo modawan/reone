@@ -33,7 +33,7 @@ struct StringFlags {
 void TlkReader::load() {
     checkEqual("TLK signature", _tlk.readString(8), std::string("TLK V3.0", 8));
 
-    uint32_t languageId = _tlk.readUint32();
+    _languageId = _tlk.readUint32();
     _stringCount = _tlk.readUint32();
     _stringsOffset = _tlk.readUint32();
 
@@ -63,7 +63,7 @@ void TlkReader::loadStrings() {
         strings.push_back(TalkTable::String {std::move(text), std::move(soundResRef)});
     }
 
-    _table = std::make_unique<TalkTable>(std::move(strings));
+    _table = std::make_unique<TalkTable>(std::move(strings), _languageId);
 }
 
 } // namespace resource

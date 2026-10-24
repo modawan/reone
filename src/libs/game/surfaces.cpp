@@ -17,6 +17,7 @@
 
 #include "reone/game/surfaces.h"
 
+#include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 
@@ -34,9 +35,11 @@ void Surfaces::init() {
     for (int row = 0; row < surfacemat->getRowCount(); ++row) {
         Surface surface;
         surface.label = surfacemat->getString(row, "label");
-        surface.walk = surfacemat->getBool(row, "walk");
-        surface.walkcheck = surfacemat->getBool(row, "walkcheck");
-        surface.lineOfSight = surfacemat->getBool(row, "lineofsight");
+        // Only the value 1 sets a surface's walk check and line of sight
+        // flags.
+        surface.walk = surfacemat->getInt(row, "walk");
+        surface.walkcheck = surfacemat->getInt(row, "walkcheck") == 1;
+        surface.lineOfSight = surfacemat->getInt(row, "lineofsight") == 1;
         surface.grass = surfacemat->getBool(row, "grass");
         surface.name = surfacemat->getString(row, "name");
         _surfaces.push_back(std::move(surface));
@@ -44,22 +47,27 @@ void Surfaces::init() {
 }
 
 bool Surfaces::isWalkable(int index) const {
+    // A surface the table has no row for has a blank walk cell.
     if (index < 0 || index >= static_cast<int>(_surfaces.size())) {
-        throw std::out_of_range(str(boost::format("index out of range: %d/%d") % index % static_cast<int>(_surfaces.size())));
+        return false;
     }
-    return _surfaces[index].walk;
+    return _surfaces[index].walk != 0;
 }
 
 const Surface &Surfaces::getSurface(int index) const {
+    // A surface the table has no row for reads as a blank row.
+    static const Surface kBlankSurface;
     if (index < 0 || index >= static_cast<int>(_surfaces.size())) {
-        throw std::out_of_range(str(boost::format("index out of range: %d/%d") % index % static_cast<int>(_surfaces.size())));
+        return kBlankSurface;
     }
     return _surfaces[index];
 }
 
 std::set<uint32_t> Surfaces::getSurfaceIndices(const std::function<bool(const Surface &)> &pred) const {
+    // Only the first rows, one per material a set can name, take part.
+    const size_t count = std::min<size_t>(_surfaces.size(), graphics::Walkmesh::kSurfaceMaterialCount);
     std::set<uint32_t> result;
-    for (size_t i = 0; i < _surfaces.size(); ++i) {
+    for (size_t i = 0; i < count; ++i) {
         if (pred(_surfaces[i])) {
             result.insert(static_cast<uint32_t>(i));
         }
@@ -72,7 +80,7 @@ std::set<uint32_t> Surfaces::getGrassSurfaces() const {
 }
 
 std::set<uint32_t> Surfaces::getWalkableSurfaces() const {
-    return getSurfaceIndices([](auto &surface) { return surface.walk; });
+    return getSurfaceIndices([](auto &surface) { return surface.walk == 1; });
 }
 
 std::set<uint32_t> Surfaces::getWalkcheckSurfaces() const {

@@ -23,7 +23,6 @@
 #include "reone/audio/clip.h"
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
-#include "reone/game/action/pauseconversation.h"
 #include "reone/game/action/resumeconversation.h"
 #include "reone/game/console.h"
 #include "reone/game/game.h"
@@ -234,6 +233,7 @@ protected:
 TEST_F(ConversationTest, ordinary_static_dialogue_keeps_its_own_gui) {
     auto dialog = makeDialog();
     dialog->entries[0].cameraId = 1;
+    dialog->entries[0].cameraAngle = 6;
     auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
     _conversation->setGUIForTest(gui);
     EXPECT_CALL(_engine.guiModule().guis(), get(_, _)).Times(0);
@@ -248,6 +248,7 @@ TEST_F(ConversationTest, ordinary_static_dialogue_keeps_its_own_gui) {
 TEST_F(ConversationTest, animated_dialogue_keeps_its_own_gui) {
     auto dialog = makeDialog();
     dialog->cameraModel = "camera_model";
+    dialog->entries[0].cameraAnimation = 1200;
     auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
     _conversation->setGUIForTest(gui);
     EXPECT_CALL(_engine.guiModule().guis(), get(_, _)).Times(0);
@@ -270,24 +271,20 @@ TEST_F(ConversationTest, game_resume_is_harmless_without_a_conversation) {
     _game->resumeConversation();
 }
 
-TEST_F(ConversationTest, pause_and_resume_actions_complete_without_a_conversation) {
+TEST_F(ConversationTest, pause_by_caller_and_resume_action_complete_without_a_conversation) {
     auto actor = _game->newCreature();
-    auto pause = _game->newAction<PauseConversationAction>();
     auto resume = _game->newAction<ResumeConversationAction>();
 
-    pause->execute(pause, *actor, 0.0f);
+    _game->pauseConversationBy(*actor);
     resume->execute(resume, *actor, 0.0f);
 
-    EXPECT_TRUE(pause->isCompleted());
     EXPECT_TRUE(resume->isCompleted());
 }
 
-TEST_F(ConversationTest, queued_pause_and_resume_actions_are_consumed_without_a_conversation) {
+TEST_F(ConversationTest, queued_resume_action_is_consumed_without_a_conversation) {
     auto actor = _game->newCreature();
-    actor->addAction(_game->newAction<PauseConversationAction>());
     actor->addAction(_game->newAction<ResumeConversationAction>());
 
-    actor->update(0.0f);
     actor->update(0.0f);
     actor->update(0.0f);
 

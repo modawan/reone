@@ -28,10 +28,11 @@ namespace reone {
 
 namespace game {
 
-/** The guisounds.2da rows of the error, checkbox and action-menu use sounds. */
+/** The guisounds.2da rows of the error, checkbox, action-menu use and action-menu scroll sounds. */
 static constexpr int kErrorSoundRow = 2;
 static constexpr int kCheckboxCheckSoundRow = 3;
 static constexpr int kActionMenuUseSoundRow = 6;
+static constexpr int kActionMenuScrollSoundRow = 7;
 
 void GUISounds::init() {
     std::shared_ptr<TwoDA> sounds(_twoDas.get("guisounds"));
@@ -44,9 +45,14 @@ void GUISounds::init() {
     // An item chosen for, or cleared from, an equipment slot.
     loadSound(*sounds, "Inventory_Select", _inventorySelect);
     loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
-    // A refused and an accepted action-menu selection, and a toggle button's click.
+    // TSL only: the light and dark side stings.
+    loadSound(*sounds, "DarkSide", _darkSide);
+    loadSound(*sounds, "LightSide", _lightSide);
+    // A refused and an accepted action-menu selection, an action menu's
+    // scroll, and a toggle button's click.
     _actionUnavailable = _audioClips.get(sounds->getString(kErrorSoundRow, "soundresref"));
     _actionAccepted = _audioClips.get(sounds->getString(kActionMenuUseSoundRow, "soundresref"));
+    _actionMenuScroll = _audioClips.get(sounds->getString(kActionMenuScrollSoundRow, "soundresref"));
     _checkboxCheck = _audioClips.get(sounds->getString(kCheckboxCheckSoundRow, "soundresref"));
 }
 
@@ -63,9 +69,12 @@ void GUISounds::deinit() {
     _onLevelUpNotify.reset();
     _actionAccepted.reset();
     _actionUnavailable.reset();
+    _actionMenuScroll.reset();
     _checkboxCheck.reset();
     _inventorySelect.reset();
     _inventoryDrop.reset();
+    _darkSide.reset();
+    _lightSide.reset();
 }
 
 } // namespace game

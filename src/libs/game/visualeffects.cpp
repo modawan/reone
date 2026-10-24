@@ -41,9 +41,13 @@ static void parseEffects(const resource::TwoDA &twoDa,
     for (int row = 0; row < twoDa.getRowCount(); ++row) {
         VisualEffectDesc desc;
         desc.label = twoDa.getString(row, "label");
-        desc.rootHugeModel = models.get(twoDa.getString(row, "imp_root_h_node"));
-        desc.rootLargeModel = models.get(twoDa.getString(row, "imp_root_l_node"));
-        desc.rootMediumModel = models.get(twoDa.getString(row, "imp_root_m_node"));
+        const auto rootModel = [&](const char *column) {
+            const auto name = twoDa.getString(row, column);
+            return VisualRootModel {!name.empty(), models.get(name)};
+        };
+        desc.rootHugeModel = rootModel("imp_root_h_node");
+        desc.rootLargeModel = rootModel("imp_root_l_node");
+        desc.rootMediumModel = rootModel("imp_root_m_node");
         desc.impactModel = models.get(twoDa.getString(row, "imp_impact_node"));
         desc.headModel = models.get(twoDa.getString(row, "imp_headcon_node"));
         desc.orientationOff = twoDa.getInt(row, "orientationoff", 0) != 0;

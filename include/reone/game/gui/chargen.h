@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "reone/gui/control/label.h"
 #include "reone/scene/graph.h"
 #include "reone/scene/node/model.h"
@@ -74,6 +76,12 @@ public:
     void update(float dt) override;
     void render() override;
 
+    /**
+     * Starts creating a new character: the panel returns to its creation
+     * state, with no character yet, and opens the class selection with new
+     * characters to choose from.
+     */
+    void startCreation();
     void startQuick();
     void startCustom();
     void startLevelUp();
@@ -89,7 +97,13 @@ public:
     CharGenFeats &feats() { return *_charGenFeats; }
     CharGenPowers &powers() { return *_charGenPowers; }
 
+    /**
+     * Opens the feats screen for the choice of the level's normal feats, or,
+     * on a level-up that gains no normal feats, of its bonus feats.
+     */
     void openFeats();
+    /** Opens the feats screen for the choice of the level's bonus feats. */
+    void openBonusFeats();
     void openPowers();
     void openPortraitSelection();
     void openQuick();
@@ -100,17 +114,36 @@ public:
 
     void goToNextStep();
 
+    /**
+     * Returns the new character's feats to those its class grants at its
+     * first level, as abandoning its quick or custom creation does.
+     */
+    void resetCreationFeats();
+
+    /**
+     * Returns the level-up character's feats to those it held before the
+     * level-up, taking back the level's granted and chosen feats, as entering
+     * its feats step does.
+     */
+    void resetLevelFeats();
+
+    /**
+     * Records that the abilities screen was accepted: from then on, a
+     * level-up's attributes panel counts the character's chosen scores rather
+     * than its effective ones.
+     */
+    void acceptAbilities();
+
     const Character &character() const { return _character; }
+
+    /** The level-up character's attributes with its coming level. */
+    CreatureAttributes levelledAttributes() const;
 
     void setCharacter(Character character);
     void setCharacterName(std::string name);
 
     const std::string &musicResRef() const {
         return _musicResRef;
-    }
-
-    const std::string &loadScreenResRef() const {
-        return _loadScreenResRef;
     }
 
 private:
@@ -167,14 +200,39 @@ private:
         std::shared_ptr<gui::Label> WIS_LBL;
     };
 
+    /**
+     * The level-up character before its coming level, as the attributes panel
+     * counts it.
+     */
+    struct LevelUpBase {
+        int maxHitPoints {0};
+        int vitalityConstitutionModifier {0};
+        int defense {0};
+        /** The effective Dexterity modifier, which the defense changes from. */
+        int dexterityModifier {0};
+        /**
+         * What worn body armour takes off the Dexterity modifier; the Reflex
+         * save counts it. Nothing while the character is debilitated.
+         */
+        int reflexDexterityLimit {0};
+        /** Each ability's effective score, with its effects. */
+        std::array<int, 6> effectiveScores {};
+        /** The character's race, whose adjustments the chosen scores take. */
+        RacialType race {RacialType::Unknown};
+        /** Whether the abilities screen has been accepted. */
+        bool abilitiesAccepted {false};
+    };
+
     Controls _controls;
 
     std::string _musicResRef;
-    std::string _loadScreenResRef;
 
     CharGenScreen _screen {CharGenScreen::ClassSelection};
     Type _type {Type::Quick};
     Character _character;
+    LevelUpBase _levelUpBase;
+    /** The panel's title as the layout gives it, which creation shows. */
+    std::string _creationTitle;
 
     // Sub GUI
 
@@ -249,7 +307,40 @@ private:
 
     void reloadCharacterModel();
     void updateAttributes();
+    /**
+     * The modifier of \p ability as the attributes panel counts it: on a
+     * level-up, from the effective score until the abilities screen is
+     * accepted, and otherwise from the score with its race's adjustment, held
+     * in a byte. A new character is human.
+     */
+    int panelAbilityModifier(Ability ability) const;
+    /**
+     * Takes back the new character's feats and gives it those its class
+     * grants at its first level; \p newCharacter adds the player-character
+     * feats and War Veteran a new character starts with.
+     *
+     * @return the feats the grant lists as granted
+     */
+    std::vector<FeatType> regrantCreationFeats(bool newCharacter);
+    /**
+     * Shows the level-up panel's title and level labels, or the creation
+     * panel's title without them.
+     */
+    void showLevelUpTitle(bool levelUp);
+    /**
+     * Gives the level-up character the feats its coming level grants.
+     *
+     * @return the feats the grant lists as granted
+     */
+    std::vector<FeatType> addLevelFeats();
+    /** Gives the level-up character the powers its coming level grants. */
+    void addLevelPowers();
     void changeScreen(CharGenScreen screen);
+    /**
+     * Opens the feats screen. The choice of normal feats first grants the
+     * level's feats; with nothing to choose, the screen accepts at once.
+     */
+    void openFeatsScreen(bool bonus);
 
     GameGUI *getSubGUI() const;
     std::shared_ptr<scene::ModelSceneNode> getCharacterModel(scene::ISceneGraph &sceneGraph);

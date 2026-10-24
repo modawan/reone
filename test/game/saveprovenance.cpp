@@ -512,7 +512,7 @@ TEST(ActionSaveProvenance, play_animation_uses_retail_id_shape_and_live_state) {
     auto object = game.newObject<SaveTestObject>(game, engine.services());
 
     auto pending = game.newAction<PlayAnimationAction>(
-        AnimationType::LoopingPause, 1.25f, 10.0f);
+        10000, 1.25f, 10.0f);
     SavedActionRecord provenance;
     provenance.groupActionId = 17;
     pending->attachSavedAction(provenance);
@@ -522,25 +522,23 @@ TEST(ActionSaveProvenance, play_animation_uses_retail_id_shape_and_live_state) {
     ASSERT_EQ(saved.size(), 1);
     EXPECT_EQ(saved[0].actionId, 6u);
     EXPECT_EQ(saved[0].groupActionId, 17);
-    EXPECT_EQ(saved[0].declaredParameterCount, 5);
-    ASSERT_EQ(saved[0].parameters.size(), 5);
-    EXPECT_EQ(saved[0].parameters[0].type, 3u);
-    EXPECT_EQ(std::get<SavedObjectReference>(saved[0].parameters[0].payload).id,
-              static_cast<uint32_t>(AnimationType::LoopingPause));
+    EXPECT_EQ(saved[0].declaredParameterCount, 4);
+    ASSERT_EQ(saved[0].parameters.size(), 4);
+    EXPECT_EQ(saved[0].parameters[0].type, 1u);
+    EXPECT_EQ(std::get<int32_t>(saved[0].parameters[0].payload), 10000);
     EXPECT_EQ(saved[0].parameters[1].type, 2u);
     EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[1].payload), 1.25f);
     EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[2].payload), 10.0f);
     EXPECT_EQ(std::get<int32_t>(saved[0].parameters[3].payload), 1);
-    EXPECT_EQ(std::get<int32_t>(saved[0].parameters[4].payload), 1);
 
     auto started = game.newAction<PlayAnimationAction>(
-        AnimationType::LoopingPause, 1.25f, 6.0f, true, true);
+        10000, 1.25f, 6.0f);
     object->clearAllActions(true);
     object->addAction(started);
     started->execute(started, *object, 2.0f);
     saved = object->saveActionSnapshot();
     ASSERT_EQ(saved.size(), 1);
-    EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[2].payload), 4.0f);
+    EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[2].payload), 6.0f);
     EXPECT_EQ(std::get<int32_t>(saved[0].parameters[3].payload), 0);
 }
 
@@ -552,13 +550,12 @@ TEST(ActionSaveProvenance, play_animation_import_is_inert_and_semantically_symme
     SavedActionRecord saved;
     saved.actionId = 6;
     saved.groupActionId = 23;
-    saved.declaredParameterCount = 5;
+    saved.declaredParameterCount = 4;
     saved.parameters = {
-        {3, SavedObjectReference {static_cast<uint32_t>(AnimationType::LoopingPause)}},
+        {1, int32_t {10000}},
         {2, 1.0f},
         {2, 6.0f},
         {1, int32_t {0}},
-        {1, int32_t {1}},
     };
 
     auto runtime = saved.toRuntimeAction(game);
@@ -576,7 +573,7 @@ TEST(ActionSaveProvenance, play_animation_import_is_inert_and_semantically_symme
     object->addAction(game.newAction<WaitAction>(2.0f));
     object->tickActionQueue(5.0f);
     EXPECT_EQ(object->actions().size(), 2);
-    object->tickActionQueue(1.0f);
+    object->tickActionQueue(6.0f);
     EXPECT_EQ(object->actions().size(), 2);
     object->tickActionQueue(0.0f);
     ASSERT_EQ(object->actions().size(), 1);

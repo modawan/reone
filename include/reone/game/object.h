@@ -34,6 +34,7 @@
 #include "action/playanimation.h"
 #include "castspell.h"
 #include "effect.h"
+#include "listenpattern.h"
 #include "runtimeref.h"
 #include "savedruntime.h"
 #include "saveprovenance.h"
@@ -93,6 +94,12 @@ public:
     static constexpr int kMaxDamageImmunity = 100;
     /** The spell of an object that is not running a spell-impact script. */
     static constexpr uint32_t kNoEffectSpellId = 0xffffffffu;
+    /**
+     * An object whose conversation script is "default" runs this one, as do
+     * a creature and a placeable whose script is empty; a door with an empty
+     * script runs nothing.
+     */
+    static constexpr char kFallbackConversationScript[] = "k_hen_dialogue01";
 
     enum class RuntimeState {
         Constructing,
@@ -114,6 +121,11 @@ public:
     void deserializePlacement(const resource::Gff &gff);
 
     virtual void update(float dt);
+    /**
+     * Runs the action queue on a frame with the clock stopped: what takes no
+     * time is done, what takes time waits.
+     */
+    virtual void runActions();
     virtual void damage(
         int amount,
         const std::shared_ptr<Object> &damager);
@@ -122,8 +134,6 @@ public:
         int amount,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction);
-    /** Heals a creature by \p amount; other objects are not healed. */
-    void heal(int amount);
 
     void face(const Object &other);
     void face(const glm::vec3 &point);
@@ -137,8 +147,6 @@ public:
     bool isMinOneHP() const { return _minOneHP; }
     virtual bool isDead() const { return _dead; }
     bool isDestroyable() const { return _destroyable; }
-    bool isRaiseable() const { return _raiseable; }
-    bool isSelectableWhenDead() const { return _selectableWhenDead; }
     void setRaiseable(bool value) { _raiseable = value; }
     /** Sets whether the object can be destroyed, raised, and selected while dead. */
     void setDestroyability(bool destroyable, bool raiseable, bool selectableWhenDead);
@@ -194,8 +202,10 @@ public:
     const std::string &conversation() const { return _conversation; }
     bool plotFlag() const { return _plot; }
     /**
-     * Damage immunity is kept per damage type: the lowest (most vulnerable)
-     * of the types in \p flags, within -100..100.
+     * Damage immunity is kept per damage type. For several types in \p flags,
+     * the types are taken in bit order: a running value of 0 takes the next
+     * type's value, and otherwise only a lower value replaces it. The result
+     * is within -100..100.
      */
     int damageImmunity(int flags) const;
     /** Stores \p value, within -100..100, for the lowest type in \p flags only. */
@@ -296,7 +306,6 @@ public:
      * commandable afterwards.
      */
     void clearAllEffects(bool retainOwn = false);
-    void removeEffect(const std::shared_ptr<Effect> &effect);
     /**
      * Hides the effects a script removes, chosen by \p match against \p value,
      * and queues their removal.
@@ -331,7 +340,7 @@ public:
     std::optional<std::reference_wrapper<EffectInstance>> findEffectApplication(uint64_t applicationOrder);
     std::vector<EffectInstance> saveEffectSnapshot() const;
     bool hasEffect(EffectType type) const;
-    /** An applied effect came from the spell. */
+    /** An applied effect came from the spell; never for spell -1. */
     bool hasSpellEffect(int spell) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
@@ -351,6 +360,13 @@ public:
     void startStuntMode();
 
     void stopStuntMode();
+
+    /**
+     * Places the model at the world origin, unrotated, for an animation
+     * authored in world space, or puts it back where the object stands. An
+     * object already in stunt mode keeps its staging either way.
+     */
+    void setPlacedAtOrigin(bool placed);
 
     // END Stunt mode
 
@@ -408,6 +424,8 @@ public:
      * clearable action of such a group is cancelled and removed.
      */
     void cancelActionGroups(const std::function<bool(const Action &)> &matches);
+    /** Drops every action queued behind one, kept saved actions included, without cancelling them. */
+    void removeActionsBehind(const Action &action);
     bool hasOrdinaryActionsPending() const { return !_actions.nodes.empty(); }
     uint32_t currentSerializedActionId() const {
         return _actions.nodes.empty() ? static_cast<uint32_t>(SavedActionType::Invalid) : _actions.nodes.front()->actionId;
@@ -433,9 +451,13 @@ public:
     /** Moves a queued node behind every other queued node. */
     void moveActionNodeToBack(const OrdinaryActionQueue::Node &node);
 
-    /** Drop live execution and object bindings after their Area was captured. */
+    /**
+     * Drop live execution and object bindings after their Area was captured.
+     *
+     * @param retainedObjectIds ids of the session objects that outlive the Area
+     */
     void retireAreaRuntimeState(
-        const std::set<const Object *> &retainedObjects);
+        const std::set<uint32_t> &retainedObjectIds);
 
     // END Actions
 
@@ -464,6 +486,26 @@ public:
     void setLastDamageAmounts(const std::array<int, 15> &amounts) {
         _lastDamageAmounts = amounts;
     }
+
+    /**
+     * Record the spell-cast-at event the object is handling. The values stay
+     * until the next such event and are not saved.
+     *
+     * @param caster the caster the object records
+     * @param spell the spell cast
+     * @param harmful whether the spell is harmful
+     */
+    void setLastSpellCast(uint32_t caster, int spell, int harmful) {
+        _lastSpellCaster = caster;
+        _lastSpell = spell;
+        _lastSpellHarmful = harmful;
+    }
+    /** The caster of the last spell cast at the object, or no object. */
+    uint32_t getLastSpellCaster() const { return _lastSpellCaster; }
+    /** The last spell cast at the object, or -1. */
+    int getLastSpell() const { return _lastSpell; }
+    /** Whether the last spell cast at the object was harmful; 0 before any. */
+    int getLastSpellHarmful() const { return _lastSpellHarmful; }
 
     // END Combat
 
@@ -526,6 +568,58 @@ public:
     void clearOnHeartbeat() { _onHeartbeat.clear(); }
 
     // END Scripts
+
+    // Listening
+
+    /**
+     * A shout the object heard, or a request to talk, which matched no
+     * pattern.
+     */
+    struct ConversationEvent {
+        /** The one who spoke. */
+        uint32_t speaker {script::kObjectInvalid};
+        /** The number of the pattern that matched; 0 for a request to talk. */
+        int32_t patternNumber {0};
+        /** The pieces of the match, after the whole string. */
+        std::vector<std::string> matchedPieces;
+    };
+
+    /** A pattern the object listens for and the number it answers with. */
+    struct ListenExpression {
+        int32_t number {0};
+        /** The last pattern that parsed, in lower case; this is what is saved. */
+        std::string pattern;
+        /** Nothing while the last pattern set failed to parse: it matches nothing. */
+        std::optional<ListenPattern> parsed;
+    };
+
+    bool isListening() const { return _listening; }
+    void setListening(bool listening) { _listening = listening; }
+    const std::vector<ListenExpression> &listenExpressions() const { return _listenExpressions; }
+    /**
+     * Sets the pattern for a number. A number already in use keeps its place
+     * and takes the new pattern; a new number goes last. The pattern a number
+     * already has changes nothing, and an empty pattern in place of another
+     * matches only an empty string.
+     */
+    void setListenPattern(const std::string &pattern, int32_t number);
+    /**
+     * The number of the first pattern, in the order they were set, that
+     * matches; pieces receives that match's pieces.
+     */
+    std::optional<int32_t> testListenExpressions(const std::string &str, std::vector<std::string> &pieces) const;
+
+    uint32_t lastSpeaker() const { return _lastSpeaker; }
+    int32_t listenPatternNumber() const { return _listenPatternNumber; }
+    const std::vector<std::string> &matchedSubstrings() const { return _matchedSubstrings; }
+    /**
+     * A conversation event: a shout the object heard, or a request to talk.
+     * The speaker becomes the last speaker, and the event's pattern number
+     * and pieces the object's own; then its conversation script runs.
+     */
+    void receiveConversationEvent(ConversationEvent event);
+
+    // END Listening
 
 protected:
     friend class Game;
@@ -634,6 +728,8 @@ protected:
     std::vector<uint64_t> _removingEffectApplications;
     bool _open {false};
     bool _stunt {false};
+    /** Stunt mode was entered for a world-space animation and ends with it. */
+    bool _placedAtOrigin {false};
     std::string _activeAnimName;
     std::string _feedbackText;
     float _feedbackTextRemaining {0.0f};
@@ -671,6 +767,9 @@ protected:
     RuntimeObjectRef<Object> _lastDamager;
     uint32_t _lastKillerId {script::kObjectInvalid};
     std::array<int, 15> _lastDamageAmounts;
+    uint32_t _lastSpellCaster {script::kObjectInvalid};
+    int _lastSpell {-1};
+    int _lastSpellHarmful {0};
     std::optional<uint32_t> _savedLastDamagerId;
 
     // Local variables
@@ -700,6 +799,20 @@ protected:
 
     // END Local variables
 
+    // Listening
+
+    bool _listening {false};
+    std::vector<ListenExpression> _listenExpressions;
+    /** None of these is saved. */
+    uint32_t _lastSpeaker {script::kObjectInvalid};
+    int32_t _listenPatternNumber {0};
+    std::vector<std::string> _matchedSubstrings;
+
+    /** Runs the object's conversation script, as a conversation event does. */
+    virtual void runConversationScript() {}
+
+    // END Listening
+
     Object(uint32_t id, ObjectType type, std::string sceneName,
            Game &game, ServicesView &services);
 
@@ -707,6 +820,11 @@ protected:
     /** The orientation the scene node shows. */
     virtual glm::quat presentedOrientation() const { return _orientation; }
     virtual bool canExecuteActions() const { return true; }
+    /**
+     * Whether the object takes up its queued actions this frame, each then
+     * running or failing by its own rule; by default, while it can act.
+     */
+    virtual bool takesUpActions() const { return canExecuteActions(); }
 
     void deserializeOwnedItems(
         const resource::Gff &gff,
@@ -738,8 +856,16 @@ protected:
      */
     void removeActions(bool force, bool keepUnclearable);
     void removeCompletedActions();
+    /**
+     * The live node each kept saved action is saved again behind, by its
+     * index in _publishedSavedActions: the restored node it followed in its
+     * saved queue, or the nearest restored node before that one still saved;
+     * none when it is saved ahead of every live action.
+     */
+    std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> keptSavedActionAnchors() const;
 
     void executeActions(float dt);
+    void executeActionsIfAble(float dt);
 
     // END Actions
 
