@@ -1861,17 +1861,11 @@ private:
     bool _showEndGameGui {true};
     uint32_t _lastPartyMemberTempKilled {script::kObjectInvalid};
     /**
-     * How fast the world, its presentation and the fade run during the death
-     * sequence. The first title slows play from full speed to a fifth over
-     * the first four seconds of real time; its time and rate carry over to
-     * later deaths for the program's lifetime. The second title runs at a quarter
-     * while its gameover panel is up.
+     * How fast the world, its presentation and the fade run: a quarter while
+     * the second title's gameover panel is up, else full speed. The first
+     * title's death sequence keeps full speed.
      */
     float _deathTimeScale {1.0f};
-    uint32_t _deathSequenceSample {0};
-    float _deathSequenceSeconds {0.0f};
-    float _deathSlowRate {0.0f};
-    bool _deathSequenceStarting {true};
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;

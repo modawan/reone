@@ -82,6 +82,7 @@ void PresentationGUI::preload(IGUI &gui) {
         // values carry the screen palette; drawing the textures white turns
         // title bars and panels into opaque gray rectangles.
         gui.setTintBorderFills(true);
+        gui.setImageButtonTextPulses(true);
     } else {
         gui.setDefaultHilightColor(kGUIColorHilight);
     }
@@ -375,7 +376,8 @@ void PresentationGUI::updateK2FilterButton(const std::shared_ptr<Control> &butto
         return;
     }
 
-    button->setSelected(selected);
+    // The chosen filter is told apart by its text colour alone; it is not
+    // selected, so its text pulses only while hovered, as any button's.
     button->setTextColor(selected ? glm::vec3 {1.0f} : _baseColor);
 }
 

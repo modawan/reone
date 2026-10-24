@@ -37,7 +37,7 @@ public:
 
     virtual std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
 
-    /** Advances the pulse every GUI shares, once a frame, by real time. */
+    /** Advances the pulse every GUI shares, once a frame, by dt seconds. */
     virtual void updatePulsingAlpha(float dt) = 0;
 };
 

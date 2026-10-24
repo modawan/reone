@@ -114,7 +114,10 @@ public:
         float opacity {1.0f};
         /** The text is drawn at the GUI's pulsing alpha. */
         bool pulsing {false};
-        /** While the control is selected, the text is drawn at the GUI's pulsing alpha. */
+        /**
+         * While the control is selected, the text is drawn at the GUI's pulsing
+         * alpha; deselecting the control stops the text's pulse.
+         */
         bool hilightPulsing {false};
     };
 
@@ -197,9 +200,9 @@ public:
     void setText(Text text);
     void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
-    /** While selected, the text is drawn at the GUI's pulsing alpha. */
-    void setHilightTextPulsing(bool pulsing) { _text.hilightPulsing = pulsing; }
-    /** The hilight's frame and fill pulse, as chosen. */
+    /** Sets whether the text is drawn at the GUI's pulsing alpha. */
+    void setTextPulsing(bool pulsing) { _text.pulsing = pulsing; }
+    /** The hilight's frame and fill pulse, as chosen; a control without a hilight is left alone. */
     void setHilightPulsing(bool frame, bool fill);
     /** Sets the alpha the text is drawn with. */
     void setTextOpacity(float opacity) { _text.opacity = opacity; }
@@ -208,8 +211,6 @@ public:
     void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
     int textPaddingLeft() const;
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
-    /** Sets the alpha the border's fill is drawn with. */
-    void setBorderFillOpacity(float opacity) { _borderFillOpacity = opacity; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
     void setVisible(bool visible);
@@ -275,8 +276,9 @@ protected:
     bool _selected {false};
     bool _hilightOverBorder {false};
     bool _selectable {false};
+    /** Whether this control is a list's prototype, drawn once for each row. */
+    bool _isProtoItem {false};
     bool _tintBorderFill {false};
-    float _borderFillOpacity {1.0f};
     bool _sharpenBorderFillAlpha {false};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};

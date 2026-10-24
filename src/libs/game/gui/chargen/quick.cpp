@@ -96,6 +96,14 @@ void QuickCharacterGeneration::doSetStep(int step) {
     _controls.BTN_STEPNAME1->setSelected(_step == 0);
     _controls.BTN_STEPNAME2->setSelected(_step == 1);
     _controls.BTN_STEPNAME3->setSelected(_step == 2);
+
+    // The current step's number and name pulse.
+    _controls.LBL_NUM1->setTextPulsing(_step == 0);
+    _controls.LBL_NUM2->setTextPulsing(_step == 1);
+    _controls.LBL_NUM3->setTextPulsing(_step == 2);
+    _controls.BTN_STEPNAME1->setTextPulsing(_step == 0);
+    _controls.BTN_STEPNAME2->setTextPulsing(_step == 1);
+    _controls.BTN_STEPNAME3->setTextPulsing(_step == 2);
 }
 
 void QuickCharacterGeneration::goToNextStep() {

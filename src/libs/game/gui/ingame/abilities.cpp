@@ -84,11 +84,9 @@ void AbilitiesMenu::onGUILoaded() {
         protoItem.setHilightFill("uibit_fill_2wt");
         protoItem.setTintBorderFill(true);
     }
-    // The active row's frames pulse; TSL's text pulses too, and its icon
-    // frame is white.
+    // The active row's frames pulse; TSL's icon frame is white.
     protoItem.setHilightPulsing(true, false);
     if (_game.isTSL()) {
-        protoItem.setHilightTextPulsing(true);
         protoItem.setIconFrameHilight(glm::vec3 {1.0f}, true);
     } else {
         protoItem.setIconFrameHilight(std::nullopt, true);

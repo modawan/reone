@@ -132,6 +132,9 @@ void CharacterMenu::onGUILoaded() {
     }
 
     _controls.BTN_AUTO->setDisabled(true);
+    // The level-up buttons' texts pulse until the pointer first leaves them.
+    _controls.BTN_AUTO->setTextPulsing(true);
+    _controls.BTN_LEVELUP->setTextPulsing(true);
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
     });

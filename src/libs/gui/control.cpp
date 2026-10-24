@@ -76,6 +76,12 @@ void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
     loadExtent(gui.EXTENT);
     loadBorder(gui.BORDER);
     _tintBorderFill = _gui.tintBorderFills();
+    _isProtoItem = protoItem;
+    // A button's text pulses while the button is selected, and so does an
+    // image button's where the GUI says so.
+    _text.hilightPulsing = _type == ControlType::Button ||
+                           _type == ControlType::ToggleButton ||
+                           (_type == ControlType::ImageButton && _gui.imageButtonTextPulses());
 
     if (static_cast<ControlType>(gui.CONTROLTYPE) == ControlType::Panel) {
         _id = -1;
@@ -300,7 +306,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
                 fillSize,
-                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), _borderFillOpacity * fillAlpha),
+                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), fillAlpha),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
         });
@@ -576,6 +582,13 @@ void Control::setSelected(bool setSelected) {
 
     _selected = setSelected;
 
+    // Deselecting a control whose text pulses while selected stops the text's
+    // pulse. A list's prototype is selected and deselected for each row it
+    // draws, so it keeps its text's pulse.
+    if (!setSelected && _text.hilightPulsing && !_isProtoItem) {
+        _text.pulsing = false;
+    }
+
     if (_onSelectedChanged) {
         _onSelectedChanged(setSelected);
     }
@@ -661,7 +674,7 @@ void Control::setHilightColor(glm::vec3 color) {
 
 void Control::setHilightPulsing(bool frame, bool fill) {
     if (!_hilight) {
-        _hilight = std::make_shared<Border>();
+        return;
     }
     _hilight->pulseFrame = frame;
     _hilight->pulseFill = fill;

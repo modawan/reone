@@ -86,7 +86,7 @@ void MapMenu::render() {
         extent.width,
         extent.height);
 
-    _game.map().render(Map::Mode::Default, bounds, _gui->scale());
+    _game.map().render(Map::Mode::Default, bounds, _gui->scale(), _gui->pulsingAlpha());
 }
 
 void MapMenu::refreshControls() {

@@ -55,7 +55,7 @@ public:
  */
 class PulsingAlpha {
 public:
-    /** Advances the pulse by dt seconds of real time. */
+    /** Advances the pulse by dt seconds. */
     void update(float dt) {
         _timeLeft -= dt;
         if (_timeLeft <= 0.0f) {
@@ -135,6 +135,8 @@ public:
     virtual float borderScale() const = 0;
     virtual float listScale() const = 0;
     virtual bool tintBorderFills() const = 0;
+    /** Whether an image button's text pulses while the button is selected, as a button's does. */
+    virtual bool imageButtonTextPulses() const = 0;
     /** The opacity pulsing borders and texts are drawn with now. */
     virtual float pulsingAlpha() const = 0;
 
@@ -146,6 +148,8 @@ public:
     virtual void setScaling(ScalingMode scaling) = 0;
     virtual void setTextScale(float scale) = 0;
     virtual void setTintBorderFills(bool tint) = 0;
+    /** Sets whether the image buttons loaded afterwards pulse their text while selected. */
+    virtual void setImageButtonTextPulses(bool pulses) = 0;
     virtual void setControlScaling(const std::string &tag, ScalingMode scaling) = 0;
     virtual void setDefaultHilightColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
@@ -234,6 +238,10 @@ public:
         _tintBorderFills = tint;
     }
 
+    void setImageButtonTextPulses(bool pulses) override {
+        _imageButtonTextPulses = pulses;
+    }
+
     float textScale() const override {
         return _textScale.value_or(_options.guiTextScale);
     }
@@ -255,6 +263,10 @@ public:
 
     bool tintBorderFills() const override {
         return _tintBorderFills;
+    }
+
+    bool imageButtonTextPulses() const override {
+        return _imageButtonTextPulses;
     }
 
     float pulsingAlpha() const override {
@@ -297,6 +309,7 @@ private:
     ScalingMode _scaling {ScalingMode::Center};
     std::optional<float> _textScale;
     bool _tintBorderFills {false};
+    bool _imageButtonTextPulses {false};
     glm::ivec2 _rootOffset {0};
     glm::ivec2 _controlOffset {0};
     std::shared_ptr<graphics::Texture> _background;
