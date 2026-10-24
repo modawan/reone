@@ -152,9 +152,17 @@ bool Party::addAvailableMember(int npc, const std::string &blueprint) {
         {RosterKind::Npc, npc}, blueprint);
 }
 
+// Joining the roster puts a companion on the player's movement row, and a
+// puppet on the Very Fast row.
+static constexpr int kPlayerMovementRate = 0;
+static constexpr int kPuppetMovementRate = 6;
+
 bool Party::addAvailableMember(int npc, std::shared_ptr<Creature> creature) {
-    return makeRosterAvailableAndBind(
-        {RosterKind::Npc, npc}, creature);
+    if (!makeRosterAvailableAndBind({RosterKind::Npc, npc}, creature)) {
+        return false;
+    }
+    creature->setMovementRate(kPlayerMovementRate);
+    return true;
 }
 
 bool Party::removeAvailableMember(int npc) {
@@ -162,8 +170,11 @@ bool Party::removeAvailableMember(int npc) {
 }
 
 bool Party::addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature) {
-    return makeRosterAvailableAndBind(
-        {RosterKind::Puppet, puppet}, creature);
+    if (!makeRosterAvailableAndBind({RosterKind::Puppet, puppet}, creature)) {
+        return false;
+    }
+    creature->setMovementRate(kPuppetMovementRate);
+    return true;
 }
 
 std::shared_ptr<Creature> Party::getAvailablePuppet(int puppet) const {
@@ -330,6 +341,11 @@ bool Party::addAvailableRosterRecord(
     if (identity.kind == RosterKind::Npc) {
         transferInventory(*creature);
     }
+    creature->setMovementRate(identity.kind == RosterKind::Npc ? kPlayerMovementRate : kPuppetMovementRate);
+    // A companion joining the roster takes up the alignment its influence gives.
+    if (identity.kind == RosterKind::Npc) {
+        creature->recomputeInfluenceAlignment();
+    }
     try {
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
@@ -357,6 +373,10 @@ bool Party::addAvailableRosterRecord(
         joinRosterFaction(identity, *creature);
         if (identity.kind == RosterKind::Npc) {
             transferInventory(*creature);
+        }
+        creature->setMovementRate(identity.kind == RosterKind::Npc ? kPlayerMovementRate : kPuppetMovementRate);
+        if (identity.kind == RosterKind::Npc) {
+            creature->recomputeInfluenceAlignment();
         }
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
@@ -515,17 +535,14 @@ void Party::removeMemberEntries(const Creature &creature) {
         _members.end());
 }
 
-// A follower brought back catches up with the party's experience, as any
-// companion brought into the world does, and perceives at the range of its
-// place.
+// A follower brought back perceives at the range of its place. Placing the
+// party then spawns it as it does every other companion.
 void Party::respawnVacantFollowers() {
     for (auto &member : _members) {
         if (member.creature || !isCompanion(member)) {
             continue;
         }
         if (auto creature = rosterCreature({RosterKind::Npc, member.npc}, true)) {
-            catchUpExperience(member.npc, *creature);
-            spawnIntoPlayerFaction(*creature);
             creature->setPerceptionRangeRow(&member == &_members.front() ? kPlayerPerceptionRangeRow
                                                                          : kPartyPerceptionRangeRow);
             member.creature = std::move(creature);
@@ -848,6 +865,10 @@ void Party::awardXP(int amount, XPSource source) {
 void Party::setXP(int xp) {
     _xp = xp;
     syncMembersXP();
+}
+
+std::shared_ptr<resource::TwoDA> Party::influenceTable() const {
+    return _game.isTSL() ? getRequiredTwoDA(_game.services().resource.twoDas, "influence") : nullptr;
 }
 
 // A blank or missing share pays nothing.
@@ -1204,6 +1225,14 @@ std::shared_ptr<Creature> Party::puppetOwner(int puppet) const {
         }
     }
     return _player && _player->assignedPuppet() == puppet ? _player : nullptr;
+}
+
+std::shared_ptr<Creature> Party::puppetOwner(const Creature &puppet) const {
+    const auto identity = rosterIdentity(puppet);
+    if (!identity || identity->kind != RosterKind::Puppet) {
+        return nullptr;
+    }
+    return puppetOwner(identity->slot);
 }
 
 bool Party::isMember(const Object &object) const {

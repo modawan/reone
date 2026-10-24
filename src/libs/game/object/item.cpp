@@ -439,6 +439,18 @@ std::optional<size_t> Item::firstUseProperty() const {
     return std::nullopt;
 }
 
+int Item::armorValue(bool installedUpgradesOnly) const {
+    // Only armour worn as the body model counts its base armour class, so
+    // droid plating starts from nothing.
+    int value = _bodyModel ? _baseDefense : 0;
+    for (const auto &property : _properties) {
+        if (property.type() == ItemProperty::AcBonus && (!installedUpgradesOnly || isPropertyActive(property))) {
+            value += property.costValue;
+        }
+    }
+    return value;
+}
+
 bool Item::canUseSpell(size_t index) const {
     return hasSpellUse(index) && isPropertyActive(_properties[index]);
 }
@@ -578,12 +590,12 @@ void Item::playImpactSound(int variant, glm::vec3 position) {
     }
 }
 
-void Item::powerUp(glm::vec3 position) {
+void Item::powerUp(glm::vec3 position, bool transition) {
     if (!_poweredItem || _isPowered) {
         return;
     }
     _isPowered = true;
-    if (_powerUpSound) {
+    if (transition && _powerUpSound) {
         _services.audio.mixer.play(_powerUpSound, AudioType::Sound, 1.0f, false, position);
     }
     if (_poweredAudioSource) {
@@ -594,7 +606,7 @@ void Item::powerUp(glm::vec3 position) {
     }
 }
 
-void Item::powerDown(glm::vec3 position) {
+void Item::powerDown(glm::vec3 position, bool transition) {
     if (!_poweredItem || !_isPowered) {
         return;
     }
@@ -603,7 +615,7 @@ void Item::powerDown(glm::vec3 position) {
         _poweredAudioSource->stop();
         _poweredAudioSource.reset();
     }
-    if (_powerDownSound) {
+    if (transition && _powerDownSound) {
         _services.audio.mixer.play(_powerDownSound, AudioType::Sound, 1.0f, false, position);
     }
 }

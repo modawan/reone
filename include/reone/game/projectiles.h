@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "reone/game/savedruntime.h"
 #include "reone/game/types.h"
@@ -165,6 +166,8 @@ private:
     std::unordered_map<std::string, Discharge> _discharges;
     /** droiddischarge.2da: race, then animation label, to label prefix. */
     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> _droidPrefixes;
+    /** grenadesnd.2da sound of each row, lower case; empty when the row has none. */
+    std::vector<std::string> _grenadeSounds;
 
     void attachPresentation(ActiveProjectile &active, Game &game, ServicesView &services, bool restoring);
     void startLeg(ActiveProjectile &active, Game &game, ServicesView &services, bool restoring = false);

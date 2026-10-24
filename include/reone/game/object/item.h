@@ -56,6 +56,8 @@ public:
     /** Body armour of armour classes 4 to 9, the first of six item types. */
     static constexpr int kArmorClass4ItemType = 31;
     static constexpr int kArmorClass9ItemType = 36;
+    /** The last of the body armour, robe and clothing item types, which start at kArmorClass4ItemType. */
+    static constexpr int kLastBodyItemType = 38;
     /** Double-bladed, short and ordinary lightsabers, the first of three item types. */
     static constexpr int kDoubleLightsaberItemType = 39;
     static constexpr int kLightsaberItemType = 41;
@@ -168,9 +170,15 @@ public:
 
     void playShotSound(int variant, glm::vec3 position);
     void playImpactSound(int variant, glm::vec3 position);
-    void powerUp(glm::vec3 position);
-    void powerDown(glm::vec3 position);
+    /**
+     * Powers the item up or down at \p position. The power-up and power-down
+     * sounds play only with the \p transition; the item's lit state and its
+     * hum change either way.
+     */
+    void powerUp(glm::vec3 position, bool transition);
+    void powerDown(glm::vec3 position, bool transition);
     void updatePoweredSoundPosition(glm::vec3 position);
+    bool isPowered() const { return _isPowered; }
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
@@ -304,16 +312,25 @@ public:
     bool hasActiveProperty(ItemProperty type) const;
     /** Whether an item is used through a property of this type: a cast spell, security spike, trap or computer spike. */
     static bool isUseProperty(uint16_t propertyName);
+    /**
+     * The base armour class of armour worn as the body model, plus the raw
+     * values of the armour class bonus properties; with installedUpgradesOnly,
+     * a bonus tied to an upgrade that is not installed is left out.
+     */
+    int armorValue(bool installedUpgradesOnly) const;
     uint32_t upgrades() const { return _upgrades; }
 
     /** Latches set by applying an item property, which removing it does not clear. */
     void enableSniperBonus() { _sniperBonus = true; }
     void enableRapidShotBonus() { _rapidShotBonus = true; }
     void enableDoorCutting() { _doorCutting = true; }
+    void enableDoorSabering() { _doorSabering = true; }
     bool sniperBonus() const { return _sniperBonus; }
     bool rapidShotBonus() const { return _rapidShotBonus; }
     /** Whether the item's hits cut doors, as set when it was worn with a Door Cutting property. */
     bool cutsDoors() const { return _doorCutting; }
+    /** Whether the item burns through locked doors, as set when it was worn with a Door Sabering property. */
+    bool sabersDoors() const { return _doorSabering; }
 
     bool hasDisguise() const { return _disguiseAppearance >= 0; }
     int disguiseAppearance() const { return _disguiseAppearance; }
@@ -384,6 +401,7 @@ private:
     bool _sniperBonus {false};
     bool _rapidShotBonus {false};
     bool _doorCutting {false};
+    bool _doorSabering {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;
     bool _poweredItem {false};
     bool _isPowered {false};

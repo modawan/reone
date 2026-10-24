@@ -253,6 +253,9 @@ InGameMenuFooter InGameMenu::footer() const {
     }
     if (!leader) return view;
     view.subjectPresent = true;
+    // A fallen character or one with a level-up pending shows no helpless mark.
+    view.subjectDebilitated = !leader->isDead() && !leader->isTemporarilyDead() &&
+                              !leader->isLevelUpPending() && leader->isDebilitated();
     view.name = leader->name();
     // TSL shows the character's name with its actions hidden, resolved for
     // that character.

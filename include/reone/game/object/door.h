@@ -124,6 +124,7 @@ public:
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
+    void setOnDialog(std::string onDialog) { _onDialog = std::move(onDialog); }
 
     /**
      * The object the door last saw come at it: one it failed to open for, one
@@ -282,6 +283,8 @@ private:
     // END Walkmeshes
 
     // Scripts
+
+    void runConversationScript() override;
 
     // END Scripts
 

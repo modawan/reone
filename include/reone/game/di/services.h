@@ -32,6 +32,7 @@ namespace game {
 
 class ICameraStyles;
 class IClasses;
+class ICreatureSpeeds;
 class IDifficultyOptions;
 class IFeats;
 class IFootstepSounds;
@@ -49,6 +50,7 @@ class ICombatTables;
 struct GameServices {
     ICameraStyles &cameraStyles;
     IClasses &classes;
+    ICreatureSpeeds &creatureSpeeds;
     IDifficultyOptions &difficultyOptions;
     IFeats &feats;
     IFootstepSounds &footstepSounds;
@@ -66,6 +68,7 @@ struct GameServices {
     GameServices(
         ICameraStyles &cameraStyles,
         IClasses &classes,
+        ICreatureSpeeds &creatureSpeeds,
         IDifficultyOptions &difficultyOptions,
         IFeats &feats,
         IFootstepSounds &footstepSounds,
@@ -81,6 +84,7 @@ struct GameServices {
         ICombatTables &combatTables) :
         cameraStyles(cameraStyles),
         classes(classes),
+        creatureSpeeds(creatureSpeeds),
         difficultyOptions(difficultyOptions),
         feats(feats),
         footstepSounds(footstepSounds),

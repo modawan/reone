@@ -377,6 +377,15 @@ void Placeable::enterDestroyedState() {
     }
 }
 
+void Placeable::runConversationScript() {
+    // A placeable with no conversation script, or "default", runs the
+    // fallback one, which stays its own.
+    if (_onDialog.empty() || _onDialog == "default") {
+        _onDialog = kFallbackConversationScript;
+    }
+    _game.scriptRunner().run(_onDialog, _id);
+}
+
 void Placeable::runEndDialogScript() {
     _game.scriptRunner().run(_onEndDialogue, id());
     _computerUseAdjustment = 0;

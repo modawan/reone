@@ -18,6 +18,7 @@
 #include "reone/game/action/castspell.h"
 
 #include <algorithm>
+#include <cassert>
 
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
@@ -197,7 +198,7 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             if (_ownsMovementRestriction) {
                 creature->setMovementRestricted(true);
             }
-            _presenter.restore(*creature, *_spell, _itemType, Creature::asCreature(_target), aimPosition(), _schedule);
+            _presenter.restore(*creature, *_spell, _schedule);
         }
     }
     // A party member at zero vitality stops casting; a cast that can no longer
@@ -266,7 +267,7 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
                 finish(actor);
                 return;
             }
-            if (creature->navigateTo(aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt)) {
+            if (creature->navigateTo(aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt, targetObject())) {
                 _approaching = false;
             } else if (creature->navigationFailed()) {
                 // A target no path reaches fails the cast.
@@ -349,6 +350,8 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             creature->setMovementType(Creature::MovementType::None);
             creature->setMovementRestricted(true);
         }
+        // An item use started over lets go of the projectile it was holding.
+        _services.game.projectiles.cancelSpell(_presentationId);
         _presentationId = _services.game.projectiles.beginSpell(actor, targetObject(), aimPosition(), *_spell,
                                                                 _projectilePathType, _game, _services);
         if (creature) {
@@ -561,8 +564,8 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     // The order is the command's parameters; the progress of the cast goes
     // beside them.
     SavedActionRecord record;
-    record.actionId = static_cast<uint32_t>(SavedActionType::CastSpell);
     SavedSpellCommand command;
+    command.itemUse = _item.has_value();
     command.spellId = static_cast<int>(_spell->type);
     command.selection = _selection.value_or(SpellSelection {});
     if (_target) {
@@ -596,7 +599,6 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     state.committed = _committed;
     state.released = _dispatched;
     state.movementOwned = _ownsMovementRestriction;
-    state.itemConsumed = _itemConsumed;
     if (_item) {
         SavedCastAction::ItemUse use;
         use.item = SavedObjectReference::fromRuntimeId(*_item ? (*_item)->id() : script::kObjectInvalid);
@@ -605,14 +607,20 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
             use.property = static_cast<int>(*_itemProperty);
         }
         use.casterLevel = _itemCasterLevel;
-        use.baseItemType = _itemType;
         state.itemUse = std::move(use);
     }
     record.cast = std::move(state);
     return record;
 }
 
+void CastSpellAction::restartItemUse(const SavedCastAction &state) {
+    assert(_item);
+    _presentationId = state.presentationId;
+}
+
 void CastSpellAction::restoreCastState(const SavedCastAction &state) {
+    // An item use starts over after a load instead.
+    assert(!_item);
     _schedule.restore(state);
     _projectileTime = state.projectileTime;
     _presentationId = state.presentationId;
@@ -633,19 +641,54 @@ void CastSpellAction::restoreCastState(const SavedCastAction &state) {
     _committed = state.committed;
     _dispatched = state.released;
     _ownsMovementRestriction = state.movementOwned;
-    _itemConsumed = state.itemConsumed;
-    if (_item && state.itemUse) {
-        _itemType = state.itemUse->baseItemType;
-    }
     _restorePresentation = true;
-    // A started item use stays unclearable; a paid spell derives its
-    // clearability again on its next frame.
-    if (_started && _item) {
-        setClearable(false);
+    // A paid spell derives its clearability again on its next frame.
+}
+
+std::shared_ptr<Action> CastSpellAction::restore(const SavedActionRecord &record, Game &game) {
+    const auto command = SavedSpellCommand::fromAction(record);
+    auto spell = game.getSpell(static_cast<SpellType>(command->spellId));
+    if (!spell) {
+        return nullptr;
     }
-    if (_itemConsumed && _item) {
-        releaseItemDependency();
+    const auto &cast = record.cast;
+    std::optional<std::shared_ptr<Item>> item;
+    std::optional<size_t> itemProperty;
+    std::optional<int> itemCasterLevel;
+    if (command->itemUse) {
+        const auto &use = *cast->itemUse;
+        item = std::dynamic_pointer_cast<Item>(use.item.boundObject());
+        if (use.property) {
+            itemProperty = static_cast<size_t>(*use.property);
+        }
+        itemCasterLevel = use.casterLevel;
     }
+    const bool cheat = cast && cast->cheat;
+    std::shared_ptr<CastSpellAction> action;
+    if (command->target.isInvalid()) {
+        auto location = std::make_shared<Location>(command->position, 0.0f);
+        action = game.newAction<CastSpellAtLocationAction>(spell, location, cheat, command->path, command->instant,
+                                                           item, itemProperty, itemCasterLevel, command->selection,
+                                                           command->associatedFeat, command->fake);
+    } else {
+        auto target = command->target.boundObject();
+        if (!target) {
+            return nullptr;
+        }
+        auto atObject = game.newAction<CastSpellAtObjectAction>(spell, std::move(target), item, cheat, command->path,
+                                                                command->instant, itemProperty, itemCasterLevel,
+                                                                command->selection, command->associatedFeat,
+                                                                command->fake);
+        atObject->setCommandLocation(command->position);
+        action = std::move(atObject);
+    }
+    action->setCommandParameters(command->domainLevel, command->metaType, command->spontaneousCast);
+    if (command->itemUse) {
+        action->restartItemUse(*cast);
+    } else if (cast) {
+        action->restoreCastState(*cast);
+    }
+    return action;
 }
 
 } // namespace game

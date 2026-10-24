@@ -982,6 +982,21 @@ void ModelSceneNode::setAnimationTime(float time) {
     }
 }
 
+void ModelSceneNode::setAnimationSpeed(const std::string &name, float speed) {
+    std::string lower(boost::to_lower_copy(name));
+    for (size_t i = layerCount(); i < _animChannels.size(); ++i) {
+        if (_animChannels[i].anim->name() == lower) {
+            _animChannels[i].properties.speed = speed;
+        }
+    }
+    for (auto &[_, attachment] : _attachments) {
+        if (attachment->type() != SceneNodeType::Model) {
+            continue;
+        }
+        static_cast<ModelSceneNode *>(attachment)->setAnimationSpeed(lower, speed);
+    }
+}
+
 bool ModelSceneNode::isAnimationFinished() const {
     return _animChannels.empty() || _animChannels.front().finished;
 }

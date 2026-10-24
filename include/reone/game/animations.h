@@ -40,7 +40,11 @@ public:
     virtual void clear() = 0;
 
     virtual std::string getNameById(uint32_t id) const = 0;
-    /** The target's reaction clip to an attack swing: its dodge, parry or damage clip. */
+    /**
+     * The target's reaction clip to an attack swing: its dodge, parry or damage
+     * clip. A swing without a row, or a row with no clip for the reaction and
+     * wield, gives the first row (walk).
+     */
     virtual std::string getReactionAnimation(const std::string &attackAnim, CreatureWieldType targetWield, AttackReaction reaction) const = 0;
     virtual int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const = 0;
     /**

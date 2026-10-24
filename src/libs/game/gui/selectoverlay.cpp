@@ -17,19 +17,25 @@
 
 #include "reone/game/gui/selectoverlay.h"
 
+#include <cmath>
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/castspellatobject.h"
+#include "reone/game/action/doorsaber.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/gui.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
@@ -69,6 +75,68 @@ static constexpr int kCombatFeatTutorial = 0;
 static constexpr int kGrenadeTutorial = 1;
 static constexpr int kSetMineTutorial = 2;
 static constexpr int kActionMenuTutorial = 5;
+// The hover reticle shows only this many pixels inside the edges of the HUD's
+// arrow margin, and at this opacity.
+static constexpr float kHoverReticleEdge = 32.0f;
+static constexpr float kHoverReticleAlpha = 0.5f;
+
+// The hover reticle's sizes in pixels: near, and far for a creature and for
+// anything else.
+static constexpr int kHoverReticleNearSize = 64;
+static constexpr int kHoverReticleFarCreatureSize = 16;
+static constexpr int kHoverReticleFarSize = 32;
+// The distances in metres within which the hover reticle shows its near size,
+// and beyond which its far size: TSL shrinks it sooner for anything but a creature.
+static constexpr double kHoverReticleNearDistance = 5.0;
+static constexpr double kHoverReticleFarDistance = 30.0;
+static constexpr double kHoverReticleFarDistanceTSL = 10.0;
+
+// The hover reticle is 64 pixels across within 5 metres of the leader and
+// shrinks steadily to its far size: 16 pixels at 30 metres for a creature,
+// 32 pixels for anything else, reached at 10 metres in TSL and at 30 in KotOR.
+static int hoverReticleSize(bool creature, bool tsl, float distance2) {
+    const double farDistance = !creature && tsl ? kHoverReticleFarDistanceTSL : kHoverReticleFarDistance;
+    const int farSize = creature ? kHoverReticleFarCreatureSize : kHoverReticleFarSize;
+    const double distance = std::sqrt(static_cast<double>(distance2));
+    if (distance >= farDistance) {
+        return farSize;
+    }
+    if (distance <= kHoverReticleNearDistance) {
+        return kHoverReticleNearSize;
+    }
+    const double span = farDistance - kHoverReticleNearDistance;
+    return kHoverReticleNearSize - static_cast<int>((distance - kHoverReticleNearDistance) / span * (kHoverReticleNearSize - farSize));
+}
+
+// A trap the leader knows about, flagged or found by it, that is hostile to it.
+template <class TrappedObject>
+static bool isKnownHostileTrap(const TrappedObject &object, const Creature &leader) {
+    const TrapDetection &detection = object.trapDetection();
+    return object.isTrapped() && object.isTrapHostileTo(leader) &&
+           (detection.flagged || detection.isDetectedBy(leader.id()));
+}
+
+// A placeable regarding the leader at this standing or less is hostile to it.
+static constexpr int kHighestHostileReputation = 10;
+
+// The hover reticle is hostile for a hostile creature, for a door or placeable
+// whose trap is hostile to the leader and known to it, and for a placeable of
+// a hostile appearance that regards the leader at 10 or less.
+static bool isHoverHostile(const Object &object, const Creature &leader, const Module &module, const Game &game) {
+    switch (object.type()) {
+    case ObjectType::Creature:
+        return module.isHostileToPartyLeader(static_cast<const Creature &>(object));
+    case ObjectType::Door:
+        return isKnownHostileTrap(static_cast<const Door &>(object), leader);
+    case ObjectType::Placeable: {
+        const auto &placeable = static_cast<const Placeable &>(object);
+        return isKnownHostileTrap(placeable, leader) ||
+               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestHostileReputation);
+    }
+    default:
+        return false;
+    }
+}
 
 static void cycleActionSlot(ActionSlot &slot, bool previous) {
     if (slot.actions.empty())
@@ -93,7 +161,8 @@ SelectionOverlay::SelectionOverlay(
     _actionSlots.resize(kNumActionSlots);
 }
 
-void SelectionOverlay::init() {
+void SelectionOverlay::init(std::shared_ptr<gui::Control> arrowMargin) {
+    _arrowMargin = std::move(arrowMargin);
     _font = _services.resource.fonts.get("dialogfont16x16");
     _friendlyReticle = _services.resource.textures.get("friendlyreticle", TextureUsage::GUI);
     _friendlyReticle2 = _services.resource.textures.get("friendlyreticle2", TextureUsage::GUI);
@@ -269,8 +338,27 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
             _game.combat().clearAllOrders(*leader);
             _game.delayNextEnemyAutoPause();
         }
+        // Security and mine work clear the leader's actions unless the leader
+        // is busy, then follow them.
         queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
+        order = [leader, queued = std::move(order)]() {
+            leader->clearOrdersUnlessBusy();
+            queued();
+        };
         break;
+    case ActionType::DoorSaber: {
+        // The door saber first clears the leader's orders, as the player's
+        // controls clear them, and is taken up only by a door still locked.
+        _game.combat().clearAllOrders(*leader);
+        auto door = std::static_pointer_cast<Door>(selectedObject);
+        queue(_game.newAction<DoorSaberAction>(door));
+        order = [door, queued = std::move(order)]() {
+            if (door->isLocked()) {
+                queued();
+            }
+        };
+        break;
+    }
     case ActionType::CastSpellAtObject: {
         if (ctxAction.equipmentPower) {
             // A droid's item power enters combat mode as a power does, then
@@ -364,17 +452,26 @@ void SelectionOverlay::update(float dt) {
     glm::mat4 projection(camera->cameraSceneNode()->camera()->projection());
     glm::mat4 view(camera->cameraSceneNode()->camera()->view());
 
+    // The hover reticle is sized by the distance from the leader, and hides
+    // near the edges of the arrow margin.
     auto hilightedObject = area->hilightedObject();
     if (hilightedObject) {
+        const auto leader = _game.party().getLeader();
         _hilightedScreenCoords = area->getSelectableScreenCoords(hilightedObject, projection, view);
+        const GraphicsOptions &opts = _game.options().graphics;
+        const float x = opts.width * _hilightedScreenCoords.x;
+        const float y = opts.height * (1.0f - _hilightedScreenCoords.y);
+        const float edge = kHoverReticleEdge * layoutScale();
+        const auto &margin = _arrowMargin->extent();
+        const bool inside = x >= margin.left + edge && x <= margin.left + margin.width - edge &&
+                            y >= margin.top + edge && y <= margin.top + margin.height - edge;
 
-        if (_hilightedScreenCoords.z < 1.0f) {
+        if (_hilightedScreenCoords.z < 1.0f && inside) {
             _hilightedObject = hilightedObject;
-
-            auto hilightedCreature = std::dynamic_pointer_cast<Creature>(hilightedObject);
-            if (hilightedCreature) {
-                _hilightedHostile = module->isHostileToPartyLeader(*hilightedCreature);
-            }
+            _hilightedReticleSize = hoverReticleSize(
+                hilightedObject->type() == ObjectType::Creature, _game.isTSL(),
+                glm::distance2(leader->position(), hilightedObject->position()));
+            _hilightedHostile = isHoverHostile(*hilightedObject, *leader, *module, _game);
         }
     }
 
@@ -395,6 +492,7 @@ void SelectionOverlay::update(float dt) {
                     switch (action.type) {
                     case ActionType::AttackObject:
                     case ActionType::UseFeat:
+                    case ActionType::DoorSaber:
                         _actionSlots[0].actions.push_back(action);
                         break;
                     case ActionType::UseSkill:
@@ -436,11 +534,15 @@ void SelectionOverlay::update(float dt) {
 
 void SelectionOverlay::render() {
     _services.graphics.context.withBlendMode(BlendMode::Normal, [this]() {
+        const float scale = layoutScale();
         if (_hilightedObject) {
-            renderReticle(_hilightedHostile ? _hostileReticle : _friendlyReticle, _hilightedScreenCoords);
+            const float size = _hilightedReticleSize * scale;
+            renderReticle(_hilightedHostile ? *_hostileReticle : *_friendlyReticle, _hilightedScreenCoords,
+                          size, size, kHoverReticleAlpha);
         }
         if (_selectedObject) {
-            renderReticle(_selectedHostile ? _hostileReticle2 : _friendlyReticle2, _selectedScreenCoords);
+            auto &texture = _selectedHostile ? *_hostileReticle2 : *_friendlyReticle2;
+            renderReticle(texture, _selectedScreenCoords, texture.width() * scale, texture.height() * scale, 1.0f);
             renderActionBar();
             renderTitleBar();
             renderHealthBar();
@@ -448,21 +550,19 @@ void SelectionOverlay::render() {
     });
 }
 
-void SelectionOverlay::renderReticle(std::shared_ptr<Texture> texture, const glm::vec3 &screenCoords) {
-    _services.graphics.context.bindTexture(*texture);
+void SelectionOverlay::renderReticle(Texture &texture, const glm::vec3 &screenCoords, float width, float height, float alpha) {
+    _services.graphics.context.bindTexture(texture);
 
     const GraphicsOptions &opts = _game.options().graphics;
-    float scale = layoutScale();
-    float width = texture->width() * scale;
-    float height = texture->height() * scale;
 
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, glm::vec3((opts.width * screenCoords.x) - width / 2, (opts.height * (1.0f - screenCoords.y)) - height / 2, 0.0f));
     transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
 
-    _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
+    _services.graphics.uniforms.setLocals([transform, alpha](auto &locals) {
         locals.reset();
-        locals.model = std::move(transform);
+        locals.model = transform;
+        locals.color.a = alpha;
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);

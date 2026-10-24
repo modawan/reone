@@ -74,9 +74,6 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         finish(attacker);
         return;
     }
-    if (isPhysicalAttackFeat(_feat)) {
-        attacker.setAttemptedAttackTarget(target->id());
-    }
     // A creature outside the party cannot go on attacking one it does not see.
     if (!_instantCastAttack && !attacker.hasDetectedTarget(*target)) {
         finish(attacker);
@@ -95,6 +92,10 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         return;
     case AttackApproachStep::Reached:
         break;
+    }
+    // While the world is held, an attack in reach waits.
+    if (_game.holdsWorld()) {
+        return;
     }
 
     attacker.setDesiredFacingToward(target->position());

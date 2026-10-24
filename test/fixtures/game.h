@@ -23,6 +23,7 @@
 #include "reone/game/camerastyles.h"
 #include "reone/game/combattables.h"
 #include "reone/game/console.h"
+#include "reone/game/creaturespeeds.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/skills.h"
@@ -87,10 +88,28 @@ public:
     MOCK_METHOD(std::shared_ptr<CreatureClass>, get, (ClassType key), (override));
 };
 
+class StubCreatureSpeeds : public ICreatureSpeeds, boost::noncopyable {
+public:
+    const CreatureSpeed &get(int) const override {
+        return _speed;
+    }
+
+    int find(const std::string &) const override {
+        return 0;
+    }
+
+private:
+    CreatureSpeed _speed {1.0f, 1.0f};
+};
+
 class StubDifficultyOptions : public IDifficultyOptions, boost::noncopyable {
 public:
     const DifficultyOption &get(int difficulty) const override {
         return _options.at(difficulty);
+    }
+
+    int count() const override {
+        return static_cast<int>(_options.size());
     }
 
 private:
@@ -128,6 +147,7 @@ public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getAlignmentShift, (bool light), (const override));
 };
 
 class MockPortraits : public IPortraits, boost::noncopyable {
@@ -301,6 +321,7 @@ public:
     static size_t delayedActionCount(const Object &object);
     static void setAreaRuntimePath(Creature &creature, Pathfinder &pathfinder);
     static bool hasAreaRuntimePath(const Creature &creature);
+    static void setAreaRuntimeStraightPath(Creature &creature, Pathfinder &pathfinder, const glm::vec3 &to);
     static size_t seenObjectCount(const Creature &creature);
     static size_t heardObjectCount(const Creature &creature);
     static void setAreaRuntimeSceneNode(
@@ -359,6 +380,7 @@ public:
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
         _classes = std::make_unique<MockClasses>();
+        _creatureSpeeds = std::make_unique<StubCreatureSpeeds>();
         _difficultyOptions = std::make_unique<StubDifficultyOptions>();
         _feats = std::make_unique<MockFeats>();
         _footstepSounds = std::make_unique<MockFootstepSounds>();
@@ -376,6 +398,7 @@ public:
         _services = std::make_unique<GameServices>(
             *_cameraStyles,
             *_classes,
+            *_creatureSpeeds,
             *_difficultyOptions,
             *_feats,
             *_footstepSounds,
@@ -403,6 +426,7 @@ public:
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;
     std::unique_ptr<MockClasses> _classes;
+    std::unique_ptr<StubCreatureSpeeds> _creatureSpeeds;
     std::unique_ptr<StubDifficultyOptions> _difficultyOptions;
     std::unique_ptr<MockFeats> _feats;
     std::unique_ptr<MockFootstepSounds> _footstepSounds;

@@ -41,6 +41,10 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
         complete();
     }
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved PutDownItem command; none once the item is gone. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     std::shared_ptr<Item> _item;

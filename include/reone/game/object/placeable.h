@@ -222,6 +222,7 @@ public:
     void onClosed(uint32_t closerId);
     void runOnUsed(std::shared_ptr<Object> usedBy);
     void runOnInvDisturbed(uint32_t triggerrer, InventoryDisturbType type, uint32_t item);
+    void setOnDialog(std::string onDialog) { _onDialog = std::move(onDialog); }
 
     // END Scripts
 
@@ -311,6 +312,8 @@ private:
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
 
     // Scripts
+
+    void runConversationScript() override;
 
     // END Scripts
 

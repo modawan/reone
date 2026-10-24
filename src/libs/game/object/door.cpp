@@ -628,6 +628,15 @@ void Door::onFailToOpen(uint32_t openerId, bool quiet) {
     }
 }
 
+void Door::runConversationScript() {
+    // Only a door whose conversation script is "default" takes the fallback
+    // one, which stays its own; a door with none runs nothing.
+    if (_onDialog == "default") {
+        _onDialog = kFallbackConversationScript;
+    }
+    _game.scriptRunner().run(_onDialog, _id);
+}
+
 void Door::runDamagedScript() {
     if (_onDamaged.empty()) {
         return;

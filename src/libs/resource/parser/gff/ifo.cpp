@@ -57,6 +57,7 @@ IFO parseIFO(const Gff &gff) {
     strct.Mod_OnActvtItem = gff.getString("Mod_OnActvtItem");
     strct.Mod_OnClientEntr = gff.getString("Mod_OnClientEntr");
     strct.Mod_OnClientLeav = gff.getString("Mod_OnClientLeav");
+    strct.Mod_OnEquipItem = gff.getString("Mod_OnEquipItem");
     strct.Mod_Effect_NxtId = gff.getUint64("Mod_Effect_NxtId");
     strct.Mod_NextObjId0 = gff.getUint("Mod_NextObjId0", 2);
     strct.Mod_OnHeartbeat = gff.getString("Mod_OnHeartbeat");

@@ -29,13 +29,6 @@ namespace reone {
 namespace game {
 
 /**
- * Mouse sensitivity at the default setting, 44 on a scale of 100: the degrees
- * a full-strength frame of mouse travel is worth. The scale runs from 10
- * degrees at 0 to 55 at 100.
- */
-constexpr float kDefaultMouseSensitivity = 44.0f / 100.0f * 45.0f + 10.0f;
-
-/**
  * Advances a rate that approaches \p rate times the input over one frame of
  * at most 0.2 s. Under an input it accelerates with \p acceleration, and
  * without one it brakes with \p deceleration; the pull toward the rate falls
@@ -76,6 +69,12 @@ float stepKeyboardTurn(float &velocity, float &previousInput, float input, float
  * counts is full strength, and rightward or downward travel reads negative.
  */
 float mouseFrameStrength(float travel);
+
+/**
+ * The degrees a full-strength frame of mouse travel is worth at a sensitivity
+ * setting: 10 at 0, rising by 45 for every 100 of the setting.
+ */
+float mouseSensitivity(int setting);
 
 class Camera : public Object {
 public:
@@ -146,7 +145,11 @@ public:
     void releaseViewAngleHold(uint32_t hold);
 
     float facing() const { return _facing; }
-    bool isMouseLookMode() const { return _mouseLookMode; }
+    /**
+     * Whether the mouse turns the camera: while the right button or a Ctrl key
+     * is held, or, with the Mouse Look option, while neither is.
+     */
+    bool isMouseLookMode() const;
 
 protected:
     /** A linear move of the view angle, in seconds and degrees. */
@@ -171,7 +174,7 @@ protected:
     float _fieldOfView {0.0f};
 
     float _facing {0.0f};
-    bool _mouseLookMode {false};
+    bool _mouseLookHeld {false};
 
     int _projectionWidth {-1};
     int _projectionHeight {-1};

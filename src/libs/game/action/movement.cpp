@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "reone/game/action/changefacing.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/followowner.h"
@@ -29,6 +30,7 @@
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/randomwalk.h"
+#include "reone/game/action/wait.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
@@ -46,9 +48,42 @@ namespace reone {
 
 namespace game {
 
-// The flags of a saved move: it runs, and it is a forced move not yet begun.
-static constexpr int32_t kRunMoveFlag = 1;
-static constexpr int32_t kForcedMoveFlag = 4;
+// A jump lands on the first safe spot within this distance of its destination.
+static constexpr float kJumpSearchRadius = 20.0f;
+// A forced move that runs out of time puts the mover down on its destination
+// only when that spot itself is safe.
+static constexpr float kForcedPointJumpRadius = 1.0f;
+
+// Facing along a direction; a direction too short to have one faces along +x.
+static float facingAlong(const glm::vec3 &direction) {
+    static constexpr float kShortestDirection = 1e-9f;
+    if (glm::length(direction) < kShortestDirection) {
+        return facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
+    }
+    return -std::atan2(direction.x, direction.y);
+}
+
+// A jump onto a waypoint takes its facing. A jump to a door lands behind the
+// door's closed-state use point nearest its back, twice the jumper's creature
+// personal space further back, facing away from the door. A jump onto anything
+// else lands on it facing along +x. The trail keeps the facing the jumper had
+// before it jumped.
+static void jumpToObject(Creature &jumper, Object &target, bool clearLine, Game &game) {
+    glm::vec3 destination {target.position()};
+    float facing;
+    if (target.type() == ObjectType::Waypoint) {
+        facing = target.getFacing();
+    } else if (auto *door = dyn_cast<Door>(&target)) {
+        const float doorFacing = door->getFacing();
+        const glm::vec3 doorForward {-std::sin(doorFacing), std::cos(doorFacing), 0.0f};
+        const float spacing = 2.0f * jumper.creaturePersonalSpace();
+        destination = door->nearestActionPoint(door->position() - doorForward, true) - spacing * doorForward;
+        facing = facingAlong(destination - door->position());
+    } else {
+        facing = facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
+    }
+    jumpToPositionFacing(jumper, destination, facing, jumper.getFacing(), kJumpSearchRadius, clearLine, game);
+}
 
 MoveToObjectAction::MoveToObjectAction(
     Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
@@ -134,17 +169,18 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         bool expired =
             _game.worldTimeMilliseconds() >= _forcedState.expiryMilliseconds;
         if (expired) {
-            actor.setPosition(_forcedState.destination);
-            // A move begun in another area does not land in this one.
-            if (auto area = _game.module()->area(); area->id() == _forcedState.areaId) {
-                area->landObject(actor);
-            }
+            // Out of time, the mover jumps to the object as a jump to it does.
+            jumpToObject(*creatureActor, *_moveTo, true, _game);
             complete();
             return;
         }
     }
 
-    bool reached = creatureActor->navigateTo(dest, _run, closeTo, dt);
+    std::optional<std::reference_wrapper<const Object>> pathTarget;
+    if (_moveTo) {
+        pathTarget = *_moveTo;
+    }
+    bool reached = creatureActor->navigateTo(dest, _run, closeTo, dt, pathTarget);
     if (!reached) {
         return;
     }
@@ -171,6 +207,21 @@ float MoveToObjectAction::closingRange() const {
     return _closeToUseRange && _approach ? _approach->use.range : _range;
 }
 
+// A forced walk under way keeps its absolute deadline as the day and time a
+// save splits it into.
+static void saveExpiry(SavedMoveCommand &command, uint64_t expiryMilliseconds, uint64_t millisecondsPerDay) {
+    command.expiryDay = static_cast<uint32_t>(expiryMilliseconds / millisecondsPerDay);
+    command.expiryTime = static_cast<uint32_t>(expiryMilliseconds % millisecondsPerDay);
+}
+
+// The absolute deadline of a saved forced walk.
+static uint64_t restoredExpiry(const SavedMoveCommand &command, uint64_t millisecondsPerDay) {
+    return static_cast<uint64_t>(command.expiryDay) * millisecondsPerDay + command.expiryTime;
+}
+
+// A move to an object in range always carries a move flag of 1.
+static constexpr int32_t kMoveToObjectFlags = 1;
+
 std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
     // A move to an object within a range is saved as a MoveToObject command; a
     // forced move, or one along a point path, as a MoveToPoint command.
@@ -178,63 +229,52 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
         return std::nullopt;
     }
 
-    SavedActionRecord result;
     if (usesPointPath()) {
         if ((_force && (!std::isfinite(_timeout) || _timeout < 0.0f)) ||
             (!_force && !_pointPath && _timeout >= 0.0f)) {
             return std::nullopt;
         }
-        auto destination = _forcedState.active ? _forcedState.destination : _moveTo->position();
+        SavedMoveCommand command;
+        command.destination = _forcedState.active ? _forcedState.destination : _moveTo->position();
         // A move not yet begun is in the current area.
-        const uint32_t areaId = _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId
-                                                                                    : _game.module()->area()->id();
-        // Split the absolute deadline into the day/time pair at the
-        // serialization boundary.
-        const uint64_t millisecondsPerDay = _game.millisecondsPerWorldDay();
-        const uint32_t expiryDay = _force && _forcedState.active
-                                       ? static_cast<uint32_t>(_forcedState.expiryMilliseconds / millisecondsPerDay)
-                                       : 0;
-        const uint32_t expiryTime = _force && _forcedState.active
-                                        ? static_cast<uint32_t>(_forcedState.expiryMilliseconds % millisecondsPerDay)
-                                        : 0;
-        int32_t flags = (_run ? kRunMoveFlag : 0) | (_force && !_forcedState.active ? kForcedMoveFlag : 0);
-        result.actionId = static_cast<uint32_t>(SavedActionType::MoveToPoint);
-        result.declaredParameterCount = 13;
-        result.parameters = {
-            {kSavedFloatParameter, destination.x},
-            {kSavedFloatParameter, destination.y},
-            {kSavedFloatParameter, destination.z},
-            {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(areaId)},
-            {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_moveTo->id())},
-            {kSavedIntegerParameter, flags},
-            {kSavedFloatParameter, closingRange()},
-            {kSavedIntegerParameter, int32_t {0}},
-            {kSavedFloatParameter, _force && !_forcedState.active ? _timeout : 0.0f},
-            {kSavedFloatParameter, _forcedState.offset.x},
-            {kSavedFloatParameter, _forcedState.offset.y},
-            {kSavedIntegerParameter, static_cast<int32_t>(expiryDay)},
-            {kSavedIntegerParameter, static_cast<int32_t>(expiryTime)},
-        };
+        command.area = SavedObjectReference::fromRuntimeId(
+            _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
+        command.target = SavedObjectReference::fromRuntimeId(_moveTo->id());
+        command.run = _run;
+        command.range = closingRange();
+        command.forcedPending = _force && !_forcedState.active;
+        command.timeout = command.forcedPending ? _timeout : 0.0f;
+        command.offset = _forcedState.offset;
+        if (_force && _forcedState.active) {
+            saveExpiry(command, _forcedState.expiryMilliseconds, _game.millisecondsPerWorldDay());
+        }
+        SavedActionRecord result;
+        command.toAction(result);
         return result;
     }
 
-    result.actionId = static_cast<uint32_t>(SavedActionType::MoveToObject);
-    result.declaredParameterCount = 5;
-    result.parameters = {
-        SavedActionParameter {
-            kSavedObjectParameter,
-            SavedObjectReference::fromRuntimeId(_moveTo->id())},
-        SavedActionParameter {
-            kSavedIntegerParameter,
-            static_cast<int32_t>(_run ? 1 : 0)},
-        SavedActionParameter {
-            kSavedFloatParameter, _range},
-        SavedActionParameter {
-            kSavedFloatParameter, _checkRange.value_or(_range)},
-        SavedActionParameter {
-            kSavedIntegerParameter, int32_t {1}},
-    };
-    return result;
+    return SavedActionRecord::command(SavedActionType::MoveToObject, {
+                                                                         {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_moveTo->id())},
+                                                                         {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                         {kSavedFloatParameter, _range},
+                                                                         {kSavedFloatParameter, _checkRange.value_or(_range)},
+                                                                         {kSavedIntegerParameter, kMoveToObjectFlags},
+                                                                     });
+}
+
+std::shared_ptr<Action> MoveToObjectAction::restore(const SavedActionRecord &record, Game &game) {
+    auto target = record.objectParameter(0).boundObject();
+    const int32_t run = record.integerParameter(1);
+    const float moveRange = record.floatParameter(2);
+    const float checkRange = record.floatParameter(3);
+    const int32_t moveFlags = record.integerParameter(4);
+    if (!target || (run != 0 && run != 1) ||
+        !std::isfinite(moveRange) || moveRange < 0.0f ||
+        !std::isfinite(checkRange) || checkRange < 0.0f ||
+        moveFlags != kMoveToObjectFlags) {
+        return nullptr;
+    }
+    return game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, true);
 }
 
 // A move order lets go of the orientation lock and ends a push or leap
@@ -270,17 +310,19 @@ void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, 
         bool expired =
             _game.worldTimeMilliseconds() >= _forcedState.expiryMilliseconds;
         if (expired) {
-            actor.setPosition(destination);
-            // A move begun in another area does not land in this one.
-            if (auto area = _game.module()->area(); area->id() == _forcedState.areaId) {
-                area->landObject(actor);
+            // Out of time, the mover is put down on its destination, facing
+            // along +x, if that spot is safe and still in the area the move
+            // began in; otherwise it stays where it is.
+            if (_game.module()->area()->id() == _forcedState.areaId) {
+                const float facing = facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
+                jumpToPositionFacing(*creatureActor, destination, facing, facing, kForcedPointJumpRadius, true, _game);
             }
             complete();
             return;
         }
     }
 
-    bool reached = creatureActor->navigateTo(destination, _run, 1.0f, dt);
+    bool reached = creatureActor->navigateTo(destination, _run, _closeRange, dt, std::nullopt, _straight);
     if (reached) {
         complete();
     }
@@ -297,42 +339,53 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
         return std::nullopt;
     }
 
+    SavedMoveCommand command;
+    command.destination = _destination->position();
     // A move not yet begun is in the current area.
-    const uint32_t areaId = _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId
-                                                                                : _game.module()->area()->id();
-
-    // Split the absolute deadline into the day/time pair at the serialization
-    // boundary. A zero absolute deadline is rejected above, so an armed forced
-    // move never serializes as the unarmed (0, 0) encoding.
-    const bool forcedActive = _force && _forcedState.active;
-    const uint64_t millisecondsPerDay = _game.millisecondsPerWorldDay();
-    const uint32_t expiryDay = forcedActive
-                                   ? static_cast<uint32_t>(_forcedState.expiryMilliseconds / millisecondsPerDay)
-                                   : 0;
-    const uint32_t expiryTime = forcedActive
-                                    ? static_cast<uint32_t>(_forcedState.expiryMilliseconds % millisecondsPerDay)
-                                    : 0;
-
+    command.area = SavedObjectReference::fromRuntimeId(
+        _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
+    command.run = _run;
+    command.straight = _straight;
+    command.range = _closeRange;
+    command.forcedPending = _force && !_forcedState.active;
+    command.timeout = command.forcedPending ? _timeout : 0.0f;
+    // A zero absolute deadline is rejected above, so an armed forced move
+    // never saves as the unarmed (0, 0) day and time.
+    if (_force && _forcedState.active) {
+        saveExpiry(command, _forcedState.expiryMilliseconds, _game.millisecondsPerWorldDay());
+    }
     SavedActionRecord result;
-    result.actionId = static_cast<uint32_t>(SavedActionType::MoveToPoint);
-    result.declaredParameterCount = 13;
-    int32_t flags = (_run ? kRunMoveFlag : 0) | (_force && !_forcedState.active ? kForcedMoveFlag : 0);
-    result.parameters = {
-        {kSavedFloatParameter, _destination->position().x},
-        {kSavedFloatParameter, _destination->position().y},
-        {kSavedFloatParameter, _destination->position().z},
-        {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(areaId)},
-        {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(kSavedRuntimeInvalidObjectId)},
-        {kSavedIntegerParameter, flags},
-        {kSavedFloatParameter, 0.0f},
-        {kSavedIntegerParameter, int32_t {0}},
-        {kSavedFloatParameter, _force && !_forcedState.active ? _timeout : 0.0f},
-        {kSavedFloatParameter, 0.0f},
-        {kSavedFloatParameter, 0.0f},
-        {kSavedIntegerParameter, static_cast<int32_t>(expiryDay)},
-        {kSavedIntegerParameter, static_cast<int32_t>(expiryTime)},
-    };
+    command.toAction(result);
     return result;
+}
+
+std::shared_ptr<Action> MoveToLocationAction::restore(const SavedActionRecord &record, Game &game) {
+    const auto command = SavedMoveCommand::fromAction(record);
+    if (!std::dynamic_pointer_cast<Area>(command->area.boundObject())) {
+        return nullptr;
+    }
+    const uint64_t expiryMilliseconds = restoredExpiry(*command, game.millisecondsPerWorldDay());
+    const bool forced = command->forcedPending || command->forcedActive;
+    const float timeout = command->forcedPending ? command->timeout : 0.0f;
+    if (command->target.isInvalid()) {
+        ForcedState state;
+        state.areaId = command->area.id;
+        state.active = command->forcedActive;
+        state.expiryMilliseconds = expiryMilliseconds;
+        auto location = std::make_shared<Location>(command->destination, 0.0f);
+        return game.newAction<MoveToLocationAction>(std::move(location), command->run, forced, timeout, state,
+                                                    command->range, command->straight);
+    }
+    auto target = command->target.boundObject();
+    if (!target) {
+        return nullptr;
+    }
+    MoveToObjectAction::ForcedState state;
+    state.destination = command->destination;
+    state.areaId = command->area.id;
+    state.active = command->forcedActive;
+    state.expiryMilliseconds = expiryMilliseconds;
+    return game.newAction<MoveToObjectAction>(std::move(target), command->run, command->range, timeout, state, forced);
 }
 
 void MoveToPointAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -342,18 +395,40 @@ void MoveToPointAction::execute(std::shared_ptr<Action> self, Object &actor, flo
         return;
     }
 
-    bool reached = creatureActor->navigateTo(_point, _run, 1.0f, dt);
+    bool reached = creatureActor->navigateTo(_point, _run, _range, dt);
     if (reached) {
         complete();
     }
 }
 
+// The walk is kept as an ordinary walk to its point in the current area,
+// ending as near the point as it does.
+std::optional<SavedActionRecord> MoveToPointAction::saveFacingState() const {
+    SavedMoveCommand command;
+    command.destination = _point;
+    command.area = SavedObjectReference::fromRuntimeId(_game.module()->area()->id());
+    command.run = _run;
+    command.range = _range;
+    SavedActionRecord result;
+    command.toAction(result);
+    return result;
+}
+
+// A creature moving away pauses this long before each leg, less when the
+// player controls it.
+static constexpr float kMoveAwayLegPause = 0.3f;
+static constexpr float kControlledMoveAwayLegPause = 0.1f;
+
 // Sends the creature on its way to the point that takes it the range away from
-// a threat, ahead of the action that sent it; the action runs again once the
-// creature gets there.
+// a threat, ahead of the action that sent it: a short pause, then a walk in a
+// straight line onto the point. The action runs again once the creature gets
+// there.
 static void moveAwayFrom(Game &game, const Action &action, Creature &creature, const glm::vec3 &threat, float range, bool run) {
     const glm::vec3 point = game.module()->area()->computeAwayPoint(creature, threat, range);
-    creature.addActionBefore(action, game.newAction<MoveToLocationAction>(std::make_shared<Location>(point, 0.0f), run));
+    auto leg = game.newAction<MoveToLocationAction>(std::make_shared<Location>(point, 0.0f), run, false, -1.0f, 0.0f, true);
+    creature.addActionBefore(action, leg);
+    const bool controlled = game.party().getLeader().get() == &creature;
+    creature.addActionBefore(*leg, game.newAction<WaitAction>(controlled ? kControlledMoveAwayLegPause : kMoveAwayLegPause));
 }
 
 void MoveAwayFromObject::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -393,6 +468,46 @@ void MoveAwayFromLocation::execute(std::shared_ptr<Action> self, Object &actor, 
     moveAwayFrom(_game, *this, creature, _moveAwayFrom->position(), _moveAwayRange, _run);
 }
 
+std::optional<SavedActionRecord> MoveAwayFromObject::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::MoveAwayFromObject, {
+                                                                               {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_fleeFrom->id())},
+                                                                               {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                               {kSavedFloatParameter, _moveAwayRange},
+                                                                               {kSavedIntegerParameter, int32_t {_attemptsLeft}},
+                                                                           });
+}
+
+std::shared_ptr<Action> MoveAwayFromObject::restore(const SavedActionRecord &record, Game &game) {
+    auto fleeFrom = record.objectParameter(0).boundObject();
+    if (!fleeFrom) {
+        return nullptr;
+    }
+    return game.newAction<MoveAwayFromObject>(std::move(fleeFrom), record.integerParameter(1) != 0,
+                                              record.floatParameter(2), record.integerParameter(3));
+}
+
+// The record also carries a count of legs, which a move away from a location
+// never uses.
+static constexpr int32_t kUnusedMoveAwayAttempts = 10;
+
+std::optional<SavedActionRecord> MoveAwayFromLocation::saveFacingState() const {
+    const glm::vec3 &position = _moveAwayFrom->position();
+    return SavedActionRecord::command(SavedActionType::MoveAwayFromLocation, {
+                                                                                 {kSavedFloatParameter, position.x},
+                                                                                 {kSavedFloatParameter, position.y},
+                                                                                 {kSavedFloatParameter, position.z},
+                                                                                 {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                                 {kSavedFloatParameter, _moveAwayRange},
+                                                                                 {kSavedIntegerParameter, kUnusedMoveAwayAttempts},
+                                                                             });
+}
+
+std::shared_ptr<Action> MoveAwayFromLocation::restore(const SavedActionRecord &record, Game &game) {
+    const glm::vec3 position {record.floatParameter(0), record.floatParameter(1), record.floatParameter(2)};
+    return game.newAction<MoveAwayFromLocation>(std::make_shared<Location>(position, 0.0f),
+                                                record.integerParameter(3) != 0, record.floatParameter(4));
+}
+
 void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
     if (!creatureActor) {
@@ -404,9 +519,39 @@ void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt
     float distance2 = creatureActor->getSquareDistanceTo(glm::vec2(dest));
     bool run = distance2 > kDistanceWalk * kDistanceWalk;
 
-    if (creatureActor->navigateTo(dest, run, _followDistance, dt)) {
+    if (creatureActor->navigateTo(dest, run, _followDistance, dt, *_follow)) {
         complete();
     }
+}
+
+// A follow is kept as the one followed and the point the follow distance in
+// front of it, which is also where the follower last headed.
+std::optional<SavedActionRecord> FollowAction::saveFacingState() const {
+    const float facing = _follow->getFacing();
+    const glm::vec3 point = _follow->position() + _followDistance * glm::vec3(-std::sin(facing), std::cos(facing), 0.0f);
+    // The one followed, a run, the point heading for, whether the follower
+    // caught up, and the point last headed for.
+    return SavedActionRecord::command(SavedActionType::Follow, {
+                                                                   {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_follow->id())},
+                                                                   {kSavedIntegerParameter, int32_t {1}},
+                                                                   {kSavedFloatParameter, point.x},
+                                                                   {kSavedFloatParameter, point.y},
+                                                                   {kSavedIntegerParameter, int32_t {0}},
+                                                                   {kSavedFloatParameter, point.x},
+                                                                   {kSavedFloatParameter, point.y},
+                                                               });
+}
+
+// The follow distance is how far in front of the one followed the point
+// heading for lies.
+std::shared_ptr<Action> FollowAction::restore(const SavedActionRecord &record, Game &game) {
+    auto target = record.objectParameter(0).boundObject();
+    if (!target) {
+        return nullptr;
+    }
+    const glm::vec2 point {record.floatParameter(2), record.floatParameter(3)};
+    const float distance = glm::distance(point, glm::vec2(target->position()));
+    return game.newAction<FollowAction>(std::move(target), distance);
 }
 
 static constexpr float kGlanceDistance = 8.0f;
@@ -464,61 +609,173 @@ void FollowLeaderAction::glanceAtLeader(Creature &follower, const std::shared_pt
 std::optional<SavedActionRecord> FollowLeaderAction::saveFacingState() const {
     // The command carries no target or formation: it follows whoever leads
     // the party, in the party's formation.
-    SavedActionRecord result;
-    result.actionId = static_cast<uint32_t>(SavedActionType::FollowLeader);
-    result.declaredParameterCount = 0;
-    result.parameters.clear();
-    return result;
+    return SavedActionRecord::command(SavedActionType::FollowLeader, {});
 }
 
-void FollowOwnerAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
+std::shared_ptr<Action> FollowLeaderAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<FollowLeaderAction>();
+}
 
+// A puppet keeps near its owner. Within the range, measured across the ground,
+// it waits; farther away it runs to the owner, behind whatever else it was
+// told to do, and then follows again. The order never ends by itself; a
+// creature that is no longer a puppet drops it.
+void FollowOwnerAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    auto &puppet = cast<Creature>(actor);
+    if (!puppet.isPuppet()) {
+        complete();
+        return;
+    }
+    auto owner = _game.party().puppetOwner(puppet);
+    if (!owner || puppet.getSquareDistanceTo(glm::vec2(owner->position())) < _range * _range) {
+        return;
+    }
+    puppet.addAction(_game.newAction<MoveToObjectAction>(owner, true, _range, false, -1.0f, true));
+    puppet.addAction(_game.newAction<FollowOwnerAction>(_range));
     complete();
 }
 
+std::optional<SavedActionRecord> FollowOwnerAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::FollowOwner, {{kSavedFloatParameter, _range}});
+}
+
+std::shared_ptr<Action> FollowOwnerAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<FollowOwnerAction>(record.floatParameter(0));
+}
+
+// A jump to a location always lands where the jumper could walk straight to it from.
 void JumpToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     const float facing = objectFacingFromScript(_location->facing());
-    jumpToPositionFacing(actor, _location->position(), facing, facing, _game);
+    jumpToPositionFacing(cast<Creature>(actor), _location->position(), facing, facing, kJumpSearchRadius, true, _game);
     complete();
 }
 
-// Facing along a direction; a direction too short to have one faces along +x.
-static float facingAlong(const glm::vec3 &direction) {
-    static constexpr float kShortestDirection = 1e-9f;
-    if (glm::length(direction) < kShortestDirection) {
-        return facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
-    }
-    return -std::atan2(direction.x, direction.y);
+// A jump is kept as the point in the current area, a straight line to it, the
+// search radius and the facing.
+std::optional<SavedActionRecord> JumpToLocationAction::saveFacingState() const {
+    const glm::vec3 &position = _location->position();
+    const glm::vec3 orientation = _location->saveOrientation();
+    return SavedActionRecord::command(SavedActionType::JumpToLocation, {
+                                                                           {kSavedFloatParameter, position.x},
+                                                                           {kSavedFloatParameter, position.y},
+                                                                           {kSavedFloatParameter, position.z},
+                                                                           {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_game.module()->area()->id())},
+                                                                           {kSavedIntegerParameter, int32_t {1}},
+                                                                           {kSavedFloatParameter, kJumpSearchRadius},
+                                                                           {kSavedFloatParameter, orientation.x},
+                                                                           {kSavedFloatParameter, orientation.y},
+                                                                       });
 }
 
-// A jump onto a waypoint takes its facing. A jump to a door lands behind the
-// door's closed-state use point nearest its back, twice the jumper's creature
-// personal space further back, facing away from the door. A jump onto anything
-// else lands on it facing along +x. The trail keeps the facing the jumper had
-// before it jumped.
+std::shared_ptr<Action> JumpToLocationAction::restore(const SavedActionRecord &record, Game &game) {
+    if (!std::dynamic_pointer_cast<Area>(record.objectParameter(3).boundObject())) {
+        return nullptr;
+    }
+    const glm::vec3 position {record.floatParameter(0), record.floatParameter(1), record.floatParameter(2)};
+    const glm::vec3 orientation {record.floatParameter(6), record.floatParameter(7), 0.0f};
+    return game.newAction<JumpToLocationAction>(std::make_shared<Location>(position, orientation));
+}
+
 void JumpToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    glm::vec3 destination {_toJumpTo->position()};
-    float facing;
-    if (_toJumpTo->type() == ObjectType::Waypoint) {
-        facing = _toJumpTo->getFacing();
-    } else if (auto *door = dyn_cast<Door>(_toJumpTo.get())) {
-        const float doorFacing = door->getFacing();
-        const glm::vec3 doorForward {-std::sin(doorFacing), std::cos(doorFacing), 0.0f};
-        const float spacing = 2.0f * cast<Creature>(actor).creaturePersonalSpace();
-        destination = door->nearestActionPoint(door->position() - doorForward, true) - spacing * doorForward;
-        facing = facingAlong(destination - door->position());
-    } else {
-        facing = facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
-    }
-    jumpToPositionFacing(actor, destination, facing, actor.getFacing(), _game);
+    jumpToObject(cast<Creature>(actor), *_toJumpTo, _walkStraightLine, _game);
     complete();
 }
 
-void RandomWalkAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
+std::optional<SavedActionRecord> JumpToObjectAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::JumpToObject, {
+                                                                         {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_toJumpTo->id())},
+                                                                         {kSavedIntegerParameter, int32_t {_walkStraightLine ? 1 : 0}},
+                                                                     });
+}
 
+std::shared_ptr<Action> JumpToObjectAction::restore(const SavedActionRecord &record, Game &game) {
+    auto target = record.objectParameter(0).boundObject();
+    if (!target) {
+        return nullptr;
+    }
+    return game.newAction<JumpToObjectAction>(std::move(target), record.integerParameter(1) != 0);
+}
+
+void ChangeFacingAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    auto &creature = cast<Creature>(actor);
+    if (_target) {
+        creature.turnToward(*_target);
+    } else {
+        creature.turnToward(_point);
+    }
     complete();
+}
+
+// A turn is kept as the object faced, or as the point faced.
+std::optional<SavedActionRecord> ChangeFacingAction::saveFacingState() const {
+    if (_target) {
+        return SavedActionRecord::command(SavedActionType::FaceObject, {
+                                                                           {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_target->id())},
+                                                                       });
+    }
+    return SavedActionRecord::command(SavedActionType::FacePoint, {
+                                                                      {kSavedFloatParameter, _point.x},
+                                                                      {kSavedFloatParameter, _point.y},
+                                                                      {kSavedFloatParameter, _point.z},
+                                                                  });
+}
+
+std::shared_ptr<Action> ChangeFacingAction::restore(const SavedActionRecord &record, Game &game) {
+    if (record.type() == SavedActionType::FacePoint) {
+        return game.newAction<ChangeFacingAction>(
+            glm::vec3 {record.floatParameter(0), record.floatParameter(1), record.floatParameter(2)});
+    }
+    auto target = record.objectParameter(0).boundObject();
+    if (!target) {
+        return nullptr;
+    }
+    return game.newAction<ChangeFacingAction>(std::move(target));
+}
+
+// A walker stands this long after each try at a walk, and this long, without
+// walking, while its AI runs at the lowest level.
+static constexpr float kRandomWalkPause = 3.0f;
+static constexpr float kRandomWalkIdlePause = 15.0f;
+
+// Each time the walk comes up it throws away whatever was queued behind it,
+// then goes back behind a pause, and, when it finds a point near its home that
+// the walker can walk straight to, behind a walk to that point too. It never
+// ends by itself.
+void RandomWalkAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // Only a creature walks; any other object drops the walk.
+    auto *walker = dyn_cast<Creature>(&actor);
+    if (!walker) {
+        complete();
+        return;
+    }
+    walker->removeActionsBehind(*this);
+    if (walker->aiLevel() <= 0) {
+        walker->addActionBefore(*this, _game.newAction<WaitAction>(kRandomWalkIdlePause));
+        return;
+    }
+    auto pause = _game.newAction<WaitAction>(kRandomWalkPause);
+    walker->addActionBefore(*this, pause);
+    if (auto point = _game.module()->area()->randomWalkPoint(*walker, _home)) {
+        walker->addActionBefore(*pause, _game.newAction<MoveToLocationAction>(
+                                            std::make_shared<Location>(*point, 0.0f), false, false, -1.0f, 0.0f, true));
+    }
+}
+
+std::optional<SavedActionRecord> RandomWalkAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::RandomWalk, {
+                                                                       {kSavedFloatParameter, _home.x},
+                                                                       {kSavedFloatParameter, _home.y},
+                                                                       {kSavedFloatParameter, _home.z},
+                                                                       {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_game.module()->area()->id())},
+                                                                   });
+}
+
+std::shared_ptr<Action> RandomWalkAction::restore(const SavedActionRecord &record, Game &game) {
+    if (!std::dynamic_pointer_cast<Area>(record.objectParameter(3).boundObject())) {
+        return nullptr;
+    }
+    return game.newAction<RandomWalkAction>(
+        glm::vec3 {record.floatParameter(0), record.floatParameter(1), record.floatParameter(2)});
 }
 
 } // namespace game

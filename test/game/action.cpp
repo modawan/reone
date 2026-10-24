@@ -801,6 +801,8 @@ TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
                                                                    .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // A confirmed critical hit checks whether the leader hears the attacker in the active area.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto attacker = game.newCreature();
     auto target = game.newCreature();
     attacker->attributes().setAbilityScore(Ability::Strength, 10);

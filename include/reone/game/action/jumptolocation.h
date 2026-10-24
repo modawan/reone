@@ -38,6 +38,10 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved JumpToLocation command; none unless its area is the current one. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     std::shared_ptr<Location> _location;

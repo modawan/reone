@@ -746,27 +746,9 @@ void CastPresenter::updateItem(Creature &user, std::optional<std::reference_wrap
 // one-shot the cast is still writing arrives anew and plays from its start;
 // any other creature comes back already showing it and returns to its loop at
 // once.
-void CastPresenter::restore(Creature &caster, const Spell &spell, std::optional<int> itemType, std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                            const glm::vec3 &targetPosition, const SpellSchedule &schedule) {
+void CastPresenter::restore(Creature &caster, const Spell &spell, const SpellSchedule &schedule) {
     const float time = schedule.time();
     const bool replays = caster.game().party().isMember(caster);
-    if (itemType) {
-        _item = itemUsePresentation(caster, *itemType, spell, targetCreature, targetPosition);
-        const auto &look = *_item;
-        if (time >= look.end || !look.hold || (look.onTarget && targetCreature && &targetCreature->get() != &caster)) {
-            return;
-        }
-        if (look.loopAt >= 0.0f && time >= look.loopAt) {
-            caster.holdCastAnimation("castoutlp1");
-            return;
-        }
-        caster.holdCastAnimation(look.loops ? look.clip : std::string());
-        // The clip is shown until the item takes effect.
-        if (!look.loops && replays && time < look.impact) {
-            caster.playFireForgetAnimation(look.clip, AnimationSource {look.clipId});
-        }
-        return;
-    }
     const auto look = castPresentation(spell.castAnimation, caster.modelType() == Creature::ModelType::Creature);
     const float castEnd = spell.conjTime + spell.castTime;
     if (time < spell.conjTime) {

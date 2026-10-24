@@ -23,7 +23,6 @@
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/equipitem.h"
-#include "reone/game/action/equipmosteffectivearmor.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/followowner.h"
@@ -52,6 +51,7 @@
 #include "reone/game/action/takeitem.h"
 #include "reone/game/action/unequipitem.h"
 #include "reone/game/action/unlockobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/action/usetalentatlocation.h"
 #include "reone/game/action/usetalentonobject.h"
@@ -101,7 +101,8 @@ static Variable ActionRandomWalk(const std::vector<Variable> &args, const Routin
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
     }
-    auto action = ctx.game.newAction<RandomWalkAction>();
+    // The walk wanders about where the caller stands now.
+    auto action = ctx.game.newAction<RandomWalkAction>(getCaller(ctx)->position());
     getCaller(ctx)->addAction(std::move(action));
     return Variable::ofNull();
 }
@@ -168,7 +169,7 @@ static Variable ActionMoveAwayFromObject(const std::vector<Variable> &args, cons
         return Variable::ofNull();
     }
     auto action = ctx.game.newAction<MoveAwayFromObject>(std::move(oFleeFrom), run, fMoveAwayRange);
-    caller->addAction(std::move(action));
+    caller->addAction(std::move(action), caller->actions().lastGroup());
     return Variable::ofNull();
 }
 
@@ -723,7 +724,7 @@ static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineC
 
     // Transform
     auto skill = static_cast<SkillType>(nSkill);
-    // The item is optional: only setting a mine uses one.
+    // The item is optional: only setting a mine and healing use one.
     auto itemUsed = std::dynamic_pointer_cast<Item>(oItemUsed);
 
     // Execute
@@ -762,6 +763,13 @@ static Variable ActionUseTalentOnObject(const std::vector<Variable> &args, const
     auto action = ctx.game.newAction<UseTalentOnObjectAction>(tChosenTalent, oTarget, *caller);
     const auto &talent = action->subAction();
     if (!talent) {
+        return Variable::ofNull();
+    }
+    // A feat talent goes on the caster's round at once, as an attack with
+    // that feat.
+    if (auto *feat = dyn_cast<UseFeatAction>(talent.get())) {
+        auto &caster = *dyn_cast<Creature>(caller.get());
+        ctx.game.combat().scheduleAttack(caster, oTarget, feat->feat());
         return Variable::ofNull();
     }
     // A spell talent goes on the caster's round at once: an item's power as
@@ -836,13 +844,18 @@ static Variable ActionMoveAwayFromLocation(const std::vector<Variable> &args, co
     // Execute
     // Only a creature that takes commands can be sent away, and one already
     // out of range of the location stays where it is. The first leg is set
-    // off now, from where the creature stands.
+    // off now, from where the creature stands, in a straight line.
     if (!creature || !creature->isCommandable() ||
         creature->getSquareDistanceTo(lMoveAwayFrom->position()) > fMoveAwayRange * fMoveAwayRange) {
         return Variable::ofNull();
     }
     const glm::vec3 point = ctx.game.module()->area()->computeAwayPoint(*creature, lMoveAwayFrom->position(), fMoveAwayRange);
-    creature->addAction(ctx.game.newAction<MoveToLocationAction>(std::make_shared<Location>(point, 0.0f), run));
+    static constexpr bool kForce = false;
+    static constexpr float kNoTimeout = -1.0f;
+    static constexpr float kToThePoint = 0.0f;
+    static constexpr bool kStraight = true;
+    creature->addAction(ctx.game.newAction<MoveToLocationAction>(
+        std::make_shared<Location>(point, 0.0f), run, kForce, kNoTimeout, kToThePoint, kStraight));
     auto action = ctx.game.newAction<MoveAwayFromLocation>(std::move(lMoveAwayFrom), run, fMoveAwayRange);
     creature->addAction(std::move(action), creature->actions().lastGroup());
     return Variable::ofNull();
@@ -918,11 +931,11 @@ static Variable ActionEquipMostDamagingRanged(const std::vector<Variable> &args,
 
 static Variable ActionEquipMostEffectiveArmor(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    if (refusesCommand(ctx)) {
-        return Variable::ofNull();
+    // The choice is made as the script runs; only the equip is queued.
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (caller && caller->isCommandable()) {
+        equipMostEffectiveArmor(ctx.game, *caller);
     }
-    auto action = ctx.game.newAction<EquipMostEffectiveArmorAction>();
-    getCaller(ctx)->addAction(std::move(action));
     return Variable::ofNull();
 }
 

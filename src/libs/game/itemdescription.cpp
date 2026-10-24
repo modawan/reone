@@ -456,7 +456,7 @@ private:
 
     // Once Bao-Dur has joined, the items only he may use say so.
     void addPartyMemberRequirements() {
-        if (_game.party().persistedState().influence[kBaoDurNpc] == -1) {
+        if (!_game.party().influence(kBaoDurNpc)) {
             return;
         }
         const int baseItem = _item.baseItemType();

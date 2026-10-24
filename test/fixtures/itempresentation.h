@@ -56,6 +56,7 @@ public:
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getAlignmentShift(bool) const override { return nullptr; }
 };
 
 // Real controls, layout, list rows and input, with a recording test renderer.

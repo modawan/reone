@@ -40,7 +40,10 @@ class IDifficultyOptions {
 public:
     virtual ~IDifficultyOptions() = default;
 
+    /** The option of a difficulty level, a row of the table. */
     virtual const DifficultyOption &get(int difficulty) const = 0;
+    /** The number of rows in the table, the last of which is not a selectable level. */
+    virtual int count() const = 0;
 };
 
 class DifficultyOptions : public IDifficultyOptions, boost::noncopyable {
@@ -52,6 +55,7 @@ public:
     void init();
 
     const DifficultyOption &get(int difficulty) const override;
+    int count() const override { return static_cast<int>(_options.size()); }
 
 private:
     resource::ITwoDAs &_twoDas;

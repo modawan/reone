@@ -40,6 +40,13 @@ public:
         return from->type() == ActionType::CastSpellAtObject || from->type() == ActionType::CastSpellAtLocation;
     }
 
+    /**
+     * A saved CastSpell or ItemCastSpell command. A cast takes up its
+     * progress; an item use starts over, and one whose item is gone fails on
+     * its first frame, leaving its user posed, and the queue goes on.
+     */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
@@ -63,10 +70,17 @@ public:
         _metaType = metaType;
         _spontaneousCast = spontaneousCast;
     }
+    /**
+     * Starts an item use over from its saved command. It keeps the projectile
+     * it was holding only to let go of it when it starts again.
+     */
+    void restartItemUse(const SavedCastAction &state);
 
     /** The cast has reached its end and no longer occupies its creature. */
     bool castEnded() const { return !_schedule.awaitingRelease(); }
     bool instantSpell() const { return _instantSpell; }
+    /** The cast shows itself and has no impact. */
+    bool fake() const { return _fake; }
     /** The object the cast is aimed at; none for a cast at a location. */
     const std::shared_ptr<Object> &target() const { return _target; }
     const std::shared_ptr<Spell> &spell() const { return _spell; }

@@ -290,6 +290,7 @@ struct Spell;
 class ModuleSnapshotBuilder;
 struct AttackBonusBreakdown;
 struct DefenseBreakdown;
+struct DeflectionBreakdown;
 struct DamageBreakdown;
 struct PhysicalDamageBonus;
 struct DamageResolution;
@@ -433,6 +434,12 @@ public:
         RuntimeObjectRef<Object> roundTarget;
         RuntimeObjectRef<Object> attemptedAttackTarget;
         RuntimeObjectRef<Object> attemptedSpellTarget;
+        /**
+         * The target the player ordered the creature to attack while it was
+         * attempting another, until its next round is taken on that target.
+         * It is not saved, and leaving combat keeps it.
+         */
+        RuntimeObjectRef<Object> orderedAttackTarget;
         ActionType attackAction {ActionType::QueueEmpty};
         FeatType combatFeat {FeatType::Invalid};
         /** The power a cast took the current round with, 0 for an item use. */
@@ -471,10 +478,33 @@ public:
     /** False, leaving the creature unloaded, when findTemplate finds nothing. */
     bool loadFromBlueprint(const std::string &resRef);
     void loadAppearance();
-    /** Takes on the appearance of a disguise, remembering the creature's own. */
-    void applyDisguiseAppearance(int appearance);
+    /**
+     * Set the creaturespeed.2da row and take its walk and run speeds. The
+     * Default row takes the row the appearance's MOVERATE names. The Immobile
+     * row takes the creature's legs away.
+     */
+    void setMovementRate(int row);
+    int movementRateRow() const { return _walkRate; }
+
+    /**
+     * Put on a disguise's appearance, remembering the creature's own. A
+     * disguise put on as the creature is loaded leaves it where it stands;
+     * otherwise the creature moves to where its new size fits. Taking the
+     * disguise off always moves it so.
+     */
+    void applyDisguiseAppearance(int appearance, bool place);
     /** Returns to the creature's own appearance after a disguise. */
     void removeDisguiseAppearance();
+    /**
+     * A lasting change of appearance, as armour and scripts make; none while
+     * disguised. The creature then moves to where its new size fits.
+     */
+    void changeAppearance(int appearance);
+    /**
+     * TSL: body armour just put on, or none when armour was just taken off,
+     * may change the creature's appearance for good.
+     */
+    void updateArmourAppearance(const std::shared_ptr<Item> &armour);
 
     void deserialize(
         const resource::Gff &gff,
@@ -490,8 +520,16 @@ public:
         const std::set<const Object *> &retainedObjects);
 
     void update(float dt) override;
+    /** Runs the action queue; with the clock stopped the frame takes no time, so nothing turns. */
+    void runActions() override;
 
     void clearAllActions(bool force = false, bool evenUncommandable = false) override;
+    /**
+     * A player's order to the creature under control: its actions are
+     * cleared, as forced, unless its queue is busy with a cast, an item use,
+     * a stance or another task, which the order then follows.
+     */
+    void clearOrdersUnlessBusy();
     void teardownActions() override;
     void damage(
         int amount,
@@ -515,6 +553,8 @@ public:
      * sound.
      */
     void playSound(resource::SoundSetEntry entry, bool positional = true);
+    /** The leader is in the creature's area within 30 m, where it hears the creature's voice. */
+    bool isHeardByLeader() const;
 
     void startTalking(const std::shared_ptr<graphics::LipAnimation> &animation);
     void stopTalking();
@@ -713,6 +753,14 @@ public:
     float driveSpeed() const { return _driveSpeed; }
     float driveMaxSpeed() const { return _driveMaxSpeed; }
     void setDriveSpeed(float speed) { _driveSpeed = speed; }
+    /**
+     * Whether the creature last moved at a run under the player's direct
+     * control. Running under an action or its AI does not count, and the
+     * creature stays running when it stops for an action, a conversation or a
+     * change of leader.
+     */
+    bool isRunning() const { return _running; }
+    void setRunning(bool running) { _running = running; }
     float runSpeed() const;
     float personalSpace() const { return _personalSpace; }
     float creaturePersonalSpace() const { return _creaturePersonalSpace; }
@@ -861,6 +909,20 @@ public:
     const std::string &appearanceRace() const { return _appearanceRace; }
     int goodEvil() const { return _goodEvil; }
     void setGoodEvil(int value) { _goodEvil = value; }
+    /**
+     * Move the good/evil value by a shift, kept within 0..100. In TSL a party
+     * NPC's own alignment moves instead and its influence gives the result;
+     * the player character's change, unless NPCs are left alone, is recorded
+     * for scripts and moves every companion with a creature through its
+     * influence. Pure Good or Evil powers follow.
+     */
+    void modifyAlignment(int shift, bool dontModifyNPCs);
+    /**
+     * TSL: a party NPC's good/evil follows from its own alignment, its
+     * influence with the player character and the player character's
+     * alignment, Charisma and mastery of a side of the Force.
+     */
+    void recomputeInfluenceAlignment();
     int assignedPuppet() const { return _assignedPuppet; }
     bool isPuppet() const { return _puppet; }
     CombatForm currentForm() const { return _currentForm; }
@@ -979,6 +1041,13 @@ public:
     /** Stealth holds the creature to a sneaking walk, unless TSL's Stealth Run frees it. */
     bool movesStealthily() const;
     /**
+     * Whether the creature has done its Treat Injury work and not yet healed.
+     * A heal that finds nothing to treat leaves it set, so the creature's
+     * next heal skips the work.
+     */
+    bool treatInjuryWorkDone() const { return _treatInjuryWorkDone; }
+    void setTreatInjuryWorkDone(bool done) { _treatInjuryWorkDone = done; }
+    /**
      * Break off the activities an engaging creature cannot keep: stealth ends
      * and the creature leaves any conversation it takes part in. A creature
      * holding a paused conversation stays in it; keepStealth preserves stealth.
@@ -1075,7 +1144,8 @@ public:
     /**
      * The flinch of damage other than a weapon hit: once until another
      * animation is chosen, queued as a layer that plays at its natural speed
-     * once the creature stands still in a loop.
+     * once the creature stands still in a loop. Hands with no flinch hold the
+     * pause clip as a pose instead.
      */
     void playDamageFlinch();
     /**
@@ -1091,6 +1161,8 @@ public:
     bool holdsCastAnimation() const { return _castAnimation.has_value(); }
     /** The conjure and cast visuals the creature's spells show on it. */
     SpellCastVisuals &spellCastVisuals() { return _spellCastVisuals; }
+    /** The visuals the creature's special attacks show on its weapons. */
+    SpecialAttackVisuals &specialAttackVisuals() { return _specialAttackVisuals; }
     /**
      * Another animation is chosen for the creature: the flinch it was held to
      * and a cast's or an item use's hold end.
@@ -1233,6 +1305,13 @@ public:
 
     std::shared_ptr<Item> getEquippedItem(int slot) const;
     CreatureWieldType getWieldType() const;
+    /**
+     * The weapon class of the hands, which picks the ready and combat clips:
+     * empty hands are 8 and a left item alone is 0. With both hands filled
+     * only the left item's wield counts; otherwise the right item's wield
+     * does. A wield with no class gives 0.
+     */
+    int getReadyWeaponClass() const;
     /** Whether the weapons in hand show the blaster stance an assassination needs. */
     bool hasAssassinateWeaponPresentation() const;
 
@@ -1263,7 +1342,14 @@ public:
     // END Body bag
 
     // Pathfinding
-    bool navigateTo(const glm::vec3 &dest, bool run, float distance, float dt);
+    /**
+     * @param pathTarget the object a planned path is recorded as heading for
+     * @param straight a new path is planned along the straight line to the
+     *        destination, rather than round what lies between
+     */
+    bool navigateTo(const glm::vec3 &dest, bool run, float distance, float dt,
+                    std::optional<std::reference_wrapper<const Object>> pathTarget = std::nullopt,
+                    bool straight = false);
     /** The last navigateTo found no way to its destination. */
     bool navigationFailed() const { return _navigationFailed; }
 
@@ -1299,7 +1385,9 @@ public:
      * point; five metres more for a corpse. A door is used from its nearest
      * action point, dropped onto the ground, three quarters of a metre beyond
      * the personal space, or from a tenth of a metre when it is locked and
-     * wants precise use, that is not ignored, and the creature fits there.
+     * wants precise use, that is not ignored, and the creature fits there. In
+     * TSL, while a door saber is anywhere in the creature's queue, every door
+     * is used from exactly a metre.
      */
     UseRange useRange(const Object &target, bool ignorePreciseUse = false) const;
     /**
@@ -1318,7 +1406,10 @@ public:
      * for the use point and range of that moment and keeps them until it
      * arrives, unless \p followsPoint lets it take them anew once.
      */
-    bool navigateToUse(const Object &target, float extra, float dt, bool run = true, bool followsPoint = false);
+    /**
+     * @param targetsPath whether a planned path is recorded as heading for the target
+     */
+    bool navigateToUse(const Object &target, float extra, float dt, bool run = true, bool followsPoint = false, bool targetsPath = true);
     void clearPath();
     void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);
     glm::vec3 computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt);
@@ -1327,35 +1418,12 @@ public:
     // Blocking doors
 
     /**
-     * Remember the door that obstructed the last attempted step. Written by the
-     * collision layer for every mover, including the directly controlled player.
-     *
-     * This lives only to carry the obstruction from the collision test to the
-     * blocked event raised after the step. It is not what scripts read:
-     * GetBlockingDoor answers from lastBlockingDoorId().
-     */
-    void setBlockingDoor(uint32_t doorId) { _blockingDoorId = doorId; }
-
-    void clearBlockingDoor() { _blockingDoorId = script::kObjectInvalid; }
-
-    uint32_t blockingDoorId() const { return _blockingDoorId; }
-
-    /**
      * The door the last blocked event was raised for. Each blocked event
      * replaces it and nothing else clears it, so later runs report it too.
      */
     uint32_t lastBlockingDoorId() const { return _lastBlockingDoorId; }
 
-    /**
-     * Edge-trigger ScriptOnBlocked for the door currently obstructing this
-     * creature. Called by navigation after each attempted step, so it only
-     * applies to AI, script and action driven movement. A continuous
-     * obstruction by the same door reports once; an unobstructed step re-arms.
-     */
-    void dispatchBlockedEvent();
-
     // END Blocking doors
-
     // Perception
 
     void onObjectSeen(const std::shared_ptr<Object> &object);
@@ -1466,6 +1534,17 @@ public:
     // Combat
 
     void setCombatState(bool active, CombatActivation activationType = CombatActivation::Direct, bool holdExpiry = false);
+    /**
+     * Powers the hand items on or off, with the power-up or power-down clip
+     * and sound when \p animate; nothing changes while a script holds them.
+     */
+    void setLightsabersPowered(bool powered, bool animate);
+    /** A script powers both hand items on or off, and in KotOR holds them so. */
+    void overrideLightsabers(int override, bool powered, bool animate);
+    /** The item the equipment screen takes out of a slot goes out at once. */
+    void putOutItemLeavingSlot(int slot);
+    /** A creature entering another module brings no hand power with it. */
+    void resetHandPower();
     CombatActivation combatActivationType() const { return _combatState.activationType; }
     bool clientCombatMode() const { return _clientCombatMode; }
     /** Enters or leaves client combat mode, which the game takes up at once. */
@@ -1536,10 +1615,55 @@ public:
      */
     void applyLevelUp(CreatureAttributes attributes, CreatureClass &clazz);
 
+    /** The object the last planned path heads for, until the action queue empties or is cleared. */
+    uint32_t attemptedMovementTarget() const {
+        auto target = _attemptedMovementTarget.resolve();
+        return target ? target->id() : script::kObjectInvalid;
+    }
+    void resetAttemptedMovementTarget() { _attemptedMovementTarget.reset(); }
+
+    /**
+     * The creature last walked into and looked for a way round, until the
+     * next path is planned, the action queue empties or is cleared, or no way
+     * round it was found.
+     */
+    uint32_t blockingCreature() const {
+        auto blocker = _avoidance.blocker.resolve();
+        return blocker ? blocker->id() : script::kObjectInvalid;
+    }
+    void resetBlockingCreature() {
+        _avoidance.blocker.reset();
+        _avoidance.blockerPosition = glm::vec3(0.0f);
+    }
+    /** The last hostile creature found blocking a walk or standing on the way round. */
+    uint32_t foundEnemyCreature() const {
+        auto enemy = _avoidance.foundEnemy.resolve();
+        return enemy ? enemy->id() : script::kObjectInvalid;
+    }
+    /**
+     * Push a creature in the way of a step aside, when it can be pushed. While
+     * a spot is chosen, this creature stands on the line through a and b
+     * where it passes nearest the other. The other drops what it was doing
+     * and runs to a spot just off that line on its own side, unless it is
+     * already set on a move. Failing a spot it can walk straight to, it is
+     * placed at once behind this creature, against moverDir from b. True
+     * when the other has been dealt with.
+     */
+    bool pushAside(Creature &other, glm::vec3 a, glm::vec3 b, const glm::vec2 &moverDir);
+
     uint32_t getAttemptedAttackTarget() const {
         auto target = _combatState.attemptedAttackTarget.resolve();
         return target ? target->id() : script::kObjectInvalid;
     }
+    /**
+     * The target the player ordered the creature to attack while it was
+     * attempting another, until its next round is taken on that target.
+     */
+    uint32_t getOrderedAttackTarget() const {
+        auto target = _combatState.orderedAttackTarget.resolve();
+        return target ? target->id() : script::kObjectInvalid;
+    }
+    void setOrderedAttackTarget(uint32_t target);
     std::shared_ptr<Object> getAttackTarget() const {
         return _combatState.attackTarget.resolve();
     }
@@ -1601,9 +1725,11 @@ public:
     bool canParryRangedWeapon(const Creature &shooter, int damageFlags, bool &canReturn) const;
     /**
      * Defends against a shot of \p shooter totalling \p attackTotal: Invalid when the defense
-     * fails, else a parry or deflection.
+     * fails, else a parry or deflection. A deflection roll writes its parts to
+     * \p record, the round's record, whether or not it succeeds.
      */
-    AttackResultType resolveRangedDefense(const Creature &shooter, int damageFlags, int attackTotal) const;
+    AttackResultType resolveRangedDefense(const Creature &shooter, int damageFlags, int attackTotal,
+                                          DeflectionBreakdown &record) const;
     /**
      * Let \p target deflect this creature's touch attack. Only a ranged round
      * record allows it, opposed by that record's last roll and modifier; a
@@ -1836,12 +1962,16 @@ public:
 
     // Scripts
 
+    /**
+     * Runs the creation script of a creature that has not run it yet, with its
+     * first heartbeat. It is due on the creature's first update, or earlier
+     * when an event reaches the creature first.
+     */
     void runSpawnScript();
     void runBlockedScript(uint32_t blockingDoorId);
     void runEndRoundScript();
     /** In TSL restarts the three seconds to the next end-of-round decision. */
     void refreshCombatDecisionTimer();
-    void runDialogueScript(uint32_t speakerId, int32_t listenNumber);
     void runAttackedScript(uint32_t attackerId);
 
     bool spawnScriptFired() const { return _spawnScriptFired; }
@@ -1860,6 +1990,7 @@ public:
     /** Runs the end-of-conversation script. */
     void runEndDialogScript();
     void setOnBlocked(std::string onBlocked) { _onBlocked = onBlocked; }
+    const std::string &onDialogue() const { return _onDialogue; }
     void setOnDialogue(std::string onDialogue) { _onDialogue = onDialogue; }
 
     // END Scripts
@@ -1869,13 +2000,6 @@ public:
     void onEventSignalled(const std::string &name) override;
 
     // END IAnimationEventListener
-
-    // Listeners
-
-    bool isListening() { return _isListening; }
-    void setIsListening(bool value) { _isListening = value; }
-
-    // END Listeners
 
     int getSpellSaveDC(int spellId) const;
     /** Plays the Force resisted block. */
@@ -1903,6 +2027,8 @@ public:
 protected:
     bool canExecuteActions() const override;
     glm::quat presentedOrientation() const override;
+    /** Runs the conversation script, the fallback one for a creature with none or "default". */
+    void runConversationScript() override;
 
 private:
     friend class ModuleSnapshotBuilder;
@@ -1929,6 +2055,55 @@ private:
         Dead,
         Dead1,
         Dead3
+    };
+
+    /** What walking into another creature does to a walk. */
+    enum class Bump {
+        /** The walk is over, as if arrived. */
+        WalkEnded,
+        /** A way round is spliced into the path. */
+        Detoured
+    };
+
+    /** How planning a way round a creature in the path went. */
+    enum class Avoidance {
+        Failed,
+        /** The walk ends inside the hexagon round the blocker, so it stops. */
+        EndInHex,
+        Planned
+    };
+
+    /** The clip a walking or running creature shows, its pose and its speed. */
+    struct MovementClip {
+        std::shared_ptr<graphics::Animation> anim;
+        int id {0};
+        float speed {1.0f};
+    };
+
+    /**
+     * Which hands are powered, as the walk and run clips see it: the right
+     * hand, the left hand, and a last item powered on or off that is not a
+     * lightsaber.
+     */
+    struct PoweredHands {
+        bool right {false};
+        bool left {false};
+        bool notLightsaber {false};
+
+        bool any() const { return right || left || notLightsaber; }
+    };
+
+    /** Walking into other creatures on the current path. */
+    struct PathAvoidance {
+        /** The creature last walked into and planned round, and where it stood then. */
+        RuntimeObjectRef<Creature> blocker;
+        glm::vec3 blockerPosition {0.0f};
+        /** The last hostile creature found in the way. */
+        RuntimeObjectRef<Creature> foundEnemy;
+        /** Blocked steps since the path was planned. */
+        int bumps {0};
+        /** The next way round is tried counter-clockwise first. */
+        bool side {false};
     };
 
     /** An item property through which the creature can use a power. */
@@ -2028,7 +2203,7 @@ private:
     std::optional<CreaturePresentation> _presentation;
     uint8_t _textureVar {0};
     bool _partyInteract {false};
-    int32_t _walkRate {0};
+    int _walkRate {0};
     uint8_t _naturalAC {0};
     ArmorClassCache _armorClassCache;
     ArmorClassCursor _armorClassCursor;
@@ -2057,6 +2232,11 @@ private:
     int _willBonus {0};
     int _fortBonus {0};
     int _goodEvil {0};
+    /**
+     * TSL: a companion's own alignment, which its influence modulates into
+     * the good/evil value. A record without one takes its good/evil value.
+     */
+    int _baseCNPCAlignment {0};
     float _challengeRating {0};
     uint32_t _encounterId {script::kObjectInvalid};
     bool _leftEncounter {false};
@@ -2087,13 +2267,9 @@ private:
      */
     bool _spawnScriptFired {false};
 
-    // Door currently obstructing this creature, and the door the blocked event
-    // was last reported for. Object ids rather than pointers, so a door that is
-    // destroyed while remembered simply resolves to no object.
-    uint32_t _blockingDoorId {script::kObjectInvalid};
-    uint32_t _blockedEventDoorId {script::kObjectInvalid};
+    // The door the last blocked event was raised for, as an object id, so a
+    // door destroyed since resolves to no object.
     uint32_t _lastBlockingDoorId {script::kObjectInvalid};
-
     resource::LocString _firstName;
     resource::LocString _lastName;
 
@@ -2129,18 +2305,35 @@ private:
     bool _navigationFailed {false};
     /** The walk of navigateToUse under way. */
     std::optional<UseApproach> _useApproach;
+    RuntimeObjectRef<Object> _attemptedMovementTarget;
     glm::vec3 _pathVelocity;
-    glm::vec3 _previousPosition;
+    /**
+     * How much of its full speed a path walk goes at, which it carries from
+     * one walk to the next; and the same for the pace of its walk and run
+     * clips, which starts from nothing with each new model.
+     */
+    float _walkPace {1.0f};
+    float _clipPace {0.0f};
+    /** Unset for a frame that has no step to compare with. */
+    std::optional<glm::vec3> _previousPosition;
+    PathAvoidance _avoidance;
     // When there is no progress on the path, apply _stuckForce to steer the
     // creature in a random direction until the timer runs out.
     Timer _stuckTimer;
     glm::vec3 _stuckForce;
     std::optional<ForcedMove> _forcedMove;
 
+    /** The movement-rate row's walk and run speeds, metres a second. */
     float _walkSpeed {0.0f};
+    float _runSpeed {0.0f};
+    /** How far one loop of the walk and run animations carries the appearance. */
+    float _walkDistance {1.0f};
+    float _runDistance {1.0f};
+    /** The appearance's own sneaking pace. */
+    float _stealthWalkSpeed {0.0f};
     float _driveSpeed {0.0f};
     float _driveMaxSpeed {0.0f};
-    float _runSpeed {0.0f};
+    bool _running {false};
     float _personalSpace {0.6f};
     float _creaturePersonalSpace {0.6f};
     float _collisionHeight {0.5f};
@@ -2166,8 +2359,9 @@ private:
     /**
      * The AI capabilities the creature has. Applying an AI-state effect takes
      * away what its mask lacks, and removing one restores what the remaining
-     * effects allow unless the creature has none left; death takes them all
-     * and raising gives them all back. So it can differ from the effects.
+     * effects allow unless the creature has none left; death takes them all,
+     * raising gives them all back, and an immobile movement rate takes
+     * movement. So it can differ from the effects.
      */
     int _effectAIStateMask {kAIStateUnrestricted};
     bool _bodyFuel {false};
@@ -2192,6 +2386,7 @@ private:
     /** The kind of the round action most recently dispatched. */
     int _roundActionKind {0};
     bool _stealthMode {false};
+    bool _treatInjuryWorkDone {false};
     bool _conversationPaused {false};
     /** Milliseconds of excitement left, counted down by the frame time; 0 when not excited. */
     uint32_t _excitedMilliseconds {0};
@@ -2267,12 +2462,17 @@ private:
     float _hitRadius {0.0f};
     int _soundAppType {0};
     std::string _appearanceRace;
-    bool _isListening {false};
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
     bool _lightsaberIdlePowerDownPending {false};
     Timer _lightsaberIdlePowerDownTimer;
+    PoweredHands _poweredHands;
+    /**
+     * In KotOR a script can hold the hand items as it set them: nothing else
+     * powers them on or off until a script lets go.
+     */
+    bool _handPowerHeld {false};
 
     // Animation
 
@@ -2284,6 +2484,7 @@ private:
     std::optional<std::string> _castAnimation; /**< held by a cast or an item use */
     bool _equipmentHidden {false};             /**< an animation that hides equipped items put the hand weapons away */
     SpellCastVisuals _spellCastVisuals;
+    SpecialAttackVisuals _specialAttackVisuals;
     bool _disableInjuredAnim {false};
     /** The appearance breaks off a swing that is parried. */
     bool _abortOnParry {false};
@@ -2326,6 +2527,11 @@ private:
     // Refresh appearance-derived state (model type, size, speeds, footstep, envmap,
     // portrait) for the current _appearance, without building a scene node.
     void loadAppearanceProperties();
+    /**
+     * In an area, move to the nearest spot within reach where the creature's
+     * current size fits; stay put when there is none.
+     */
+    void standWhereAppearanceFits();
 
     // Presentation-only equipment snapshots retain their visual-only override.
     // Live equipment uses the Disguise effect provider and restores the original
@@ -2333,7 +2539,6 @@ private:
     void updateDisguise();
     void updateEquipmentPresentation();
     void updateCombat(float dt);
-    void setLightsabersPowered(bool powered, bool animate);
     void updateLightsaberSoundPositions();
 
     void runDeathScript();
@@ -2341,8 +2546,37 @@ private:
 
     ModelType parseModelType(const std::string &s) const;
 
+    /**
+     * Whether this creature walking into the other pushes it aside. In TSL the
+     * party leader pushes party members and puppets, but not while a
+     * conversation is under way: from the moment one is asked for, such as the
+     * click to talk that sends the leader walking over, until it ends. Nobody
+     * else pushes, and in KotOR nobody does.
+     */
+    bool canPushAside(const Creature &other) const;
+    /** Deals with walking into \p blocker on a step along \p stepDir. */
+    Bump bumpIntoCreature(const std::shared_ptr<Creature> &blocker, Pathfinder &pf, const glm::vec2 &stepDir);
+    /**
+     * Plans a way round \p blocker into the path. \p side picks the way tried
+     * first and is set to the way taken.
+     */
+    Avoidance plotPathAroundCreature(const std::shared_ptr<Creature> &blocker, Pathfinder &pf, const glm::vec2 &stepDir,
+                                     bool &side);
+    /** Drop any walk under way and plan one along the straight line to a point. */
+    void planStraightPath(const glm::vec3 &point);
+    /** The walk or run clip \p model shows for the creature's movement. */
+    MovementClip movementClip(const scene::ModelSceneNode &model) const;
+
     /** The area whose music this creature drives: its own, when the player controls it. */
     std::shared_ptr<Area> battleMusicArea() const;
+    /** Shouts one of the first five battle cries of the sound set, if the leader hears it. */
+    void playBattleCry();
+    /** Pure Good powers at good/evil 100, Pure Evil powers at 0, neither otherwise. */
+    void updatePureGoodEvilPowers();
+    /** Takes off the held Pure Good or Pure Evil powers. */
+    void removePureAlignmentPowers(bool good);
+    /** Held powers of the same kind are taken off and applied afresh. */
+    void addPureAlignmentPowers(bool good);
     /** The weapon swap and the flourish share one second of real time between uses. */
     bool isSwitchWeaponsCoolingDown() const;
     void startSwitchWeaponsCooldown();
@@ -2357,6 +2591,8 @@ private:
     void playTurnAnimation(float sign);
     void updateFidget();
     void updateStateHeartbeat(float dt);
+    /** Runs the heartbeat scripts of a living creature. */
+    void runHeartbeat();
     void updateRegeneration(float dt);
     void updateMineCheck(float dt);
     void reportMineDetection(const Trigger &trap, int roll, int rank, int dc);
@@ -2460,10 +2696,13 @@ private:
     /**
      * The hit of a melee swing sounds the weapon against the target, makes a
      * creature-model target that can react flinch at once, as a layer outside
-     * its queue, and may draw a pain grunt from a creature target. A parried
-     * or missed swing against a parrying target sounds the weapon's parry.
+     * its queue, may draw a pain grunt from a creature target, and shows the
+     * hit's sparks. A parried or missed swing against a parrying target sounds
+     * the weapon's parry.
      */
     void presentSwingHit();
+    /** The sparks of the swing's hit on a creature or a door. */
+    void presentSwingSparks(Object &target);
     /** The weapon of the swing's attack heard against the target, or its parry. */
     void playHitSound(const Object &target, bool parried);
     /** The item whose weapon sound the swing's attack makes, none for an unarmed or creature attack. */
@@ -2474,10 +2713,10 @@ private:
     void playSwingSound(const std::string &name, int variants);
     /** Plays a weaponsounds.2da sound at the creature. */
     void playWeaponSound(int weaponSoundRow, const std::string &column);
+    /** Plays the creature's body-fall sound for the surface under it. */
+    void playFallSound();
     /** The shown clip is a parry. */
     bool isShowingParry() const;
-    /** The leader is in the creature's area within 30 m, where it hears the creature's voice. */
-    bool isHeardByLeader() const;
     void queueLoopTransition(int newId, int oldId, float speed);
     void queueTransitionPair(const std::string &clip, int clipId, const std::string &follow, int followId);
     void switchOffOverlay(const RunningOneShot &oneShot);
@@ -2499,19 +2738,29 @@ private:
     std::string getHeadTalkAnimation() const;
     std::string getPauseAnimation(bool injured) const;
     std::string getReadyAnimation() const;
+    /** The ready pose of a class-0 character stands, showing the pause clip. */
+    bool showsClassZeroReady() const;
+    /** Hands with no flinch take the flinch pose, showing the pause clip. */
+    void holdDamageFlinchPose();
+    /** The flinch pose of hands with no flinch stands. */
+    bool showsDamageFlinchPose() const;
     std::string getDamageFlinchAnimation() const;
     std::string getRunAnimation() const;
     std::string getStealthWalkAnimation() const;
     std::string getTalkNormalAnimation() const;
     std::string getWalkAnimation() const;
+    /** A hand item powered on or off updates which hands count as powered. */
+    void updatePoweredHands(const Item &item, bool on);
+    /** Powers both hand items on or off, whether or not a script holds them. */
+    void powerHandItems(bool powered, bool animate);
+    /** Powers the item in \p slot on or off; only a lightsaber in a hand lights. */
+    void powerSlotItem(int slot, bool powered, bool animate);
 
     /**
      * @return creatureAnim if model type is creature, elseAnim otherwise
      */
     inline std::string getFirstIfCreatureModel(std::string creatureAnim, std::string elseAnim) const;
 
-    bool getWeaponInfo(WeaponType &type, WeaponWield &wield) const;
-    int getReadyWeaponClass() const;
     /**
      * The attack penalty of fighting with two weapons when attacking with
      * \p weapon, if any. A light off-hand weapon eases the main hand's

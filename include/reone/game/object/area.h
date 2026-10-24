@@ -22,7 +22,6 @@
 #include <functional>
 #include <optional>
 
-#include "reone/game/messagebus.h"
 #include "reone/game/minigame.h"
 #include "reone/game/transitioncandidate.h"
 #include "reone/graphics/aabb.h"
@@ -52,6 +51,7 @@ const float kHeartbeatInterval = 6.0f;
 
 class AreaOfEffect;
 class Creature;
+class Door;
 class Location;
 class Object;
 class Room;
@@ -106,6 +106,10 @@ public:
         std::optional<std::reference_wrapper<const Creature>> blocker;
         /** Where the walk is stopped, by a wall or by that creature. */
         glm::vec3 stopPoint {0.0f};
+        /** The door whose wall stops the walk, when a door's wall does. */
+        std::optional<std::reference_wrapper<const Door>> door;
+        /** The normal where the walk is stopped: the wall's, or for a creature the way out from its centre. */
+        glm::vec3 normal {0.0f};
     };
 
     using SearchCriteriaList = std::vector<std::pair<CreatureType, int>>;
@@ -131,6 +135,11 @@ public:
 
     bool handle(const input::Event &event);
     void update(float dt) override;
+    /**
+     * The frame while the world is held: creatures new here run their creation
+     * script, then every object runs its actions with the clock stopped.
+     */
+    void runObjectActions();
 
     void destroyObject(const Object &object);
     /**
@@ -144,6 +153,15 @@ public:
      * ends, and its impact sound plays at the point. Nothing of it is saved.
      */
     void presentVisualAt(int visualEffectId, const glm::vec3 &position);
+    /**
+     * Shows a hit spark, as presentation only: the impact model of a visual
+     * effect at \p hook of \p target's body, turned by \p direction, the
+     * direction of the blow, against the target's facing. The spark follows
+     * the node's position but not its rotation, plays its impact animation
+     * once and goes when that ends. A creature shows at most twelve at once.
+     */
+    void presentHitSpark(const Creature &target, int visualEffectId, const glm::vec3 &direction,
+                         const std::string &hook);
     /** Place a new mine trigger in this area; see Trigger::initMine. */
     std::shared_ptr<Trigger> spawnMine(
         int trapType,
@@ -233,10 +251,21 @@ public:
     std::optional<glm::vec3> computeSafeLocation(
         const glm::vec3 &position, float radius, const Creature &creature, bool clearLine) const;
     /**
+     * The first spot in a direction from base where the creature fits. The
+     * spot one direction's length along is tried first. Then come rows one,
+     * two and more metres along, as many as whole personal spaces fit under
+     * radius, row n holding 2n+1 spots a metre apart across the direction,
+     * from its left. Last, computeSafeLocation round base. With clearLine, a
+     * row spot must also be reachable in a straight line from base, unless
+     * the first spot is off walkable ground or among walls.
+     */
+    std::optional<glm::vec3> computeSafeLocationInDirection(
+        const glm::vec3 &base, const glm::vec3 &direction, float radius, const Creature &creature, bool clearLine) const;
+    /**
      * Whether the creature fits at a point on the ground: over walkable ground,
      * no blocking walkmesh face within its personal space across its height,
-     * and no other living creature within their combined creature personal
-     * space.
+     * and no other creature within their combined creature personal space,
+     * other than the dead and party members down at no vitality.
      */
     bool isSafeLocationPoint(const glm::vec3 &point, const Creature &creature) const;
     /** Whether a straight line between two points meets the walls of a door as it stands. */
@@ -251,7 +280,8 @@ public:
     /**
      * Where a creature appearing near center goes: center itself when the
      * creature fits there, otherwise the first ring spot within twenty metres
-     * where it fits and that is in plain sight of center.
+     * where it fits, no more than thirty metres from center, and in plain
+     * sight of center.
      */
     std::optional<glm::vec3> findOpenSpotInSight(const glm::vec3 &center, const Creature &creature) const;
     /**
@@ -268,10 +298,17 @@ public:
     void updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce = true);
 
     /**
+     * The first creature the mover walks into on a step between two points,
+     * other than the dead and party members down at no vitality.
+     */
+    std::optional<std::reference_wrapper<const Creature>> findBlockingCreature(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const;
+    /**
      * Whether the creature can walk straight from one point to another. When
      * only another creature stands in the way, that creature is reported. The
      * point where the walk is stopped, by a wall or by that creature, is
-     * reported too. The ignored creature never stands in the way.
+     * reported too, and the door, when a door's wall stops it. The normal
+     * there is the wall's, or for a creature the way out from its centre
+     * through that point. The ignored creature never stands in the way.
      */
     DirectLineTest testDirectLine(
         const Creature &mover,
@@ -297,6 +334,23 @@ public:
      * creature stays where it is.
      */
     glm::vec3 computeAwayPoint(const Creature &mover, const glm::vec3 &threat, float distance) const;
+    /**
+     * A random point within range of a creature that it can walk straight to.
+     * A blocked point is brought in by a quarter, or once that would leave it
+     * nearer than two and a half metres, tried again at full distance in a
+     * new direction. After 22 tries, or once the distance falls under a metre,
+     * the creature's own position is the answer.
+     */
+    glm::vec3 randomDestination(const Creature &mover, int range) const;
+    /**
+     * A random point for a random walk: up to seven whole metres either way
+     * on each axis from its home, on the ground, which the walker can walk
+     * straight to from where it stands. A blocked point is brought in by a
+     * quarter while it stays at least three tenths of the full distance away;
+     * then the same bearing is tried level with the walker at full distance.
+     * After 22 tries, or once the distance falls under a metre, there is none.
+     */
+    std::optional<glm::vec3> randomWalkPoint(const Creature &walker, const glm::vec3 &home) const;
     void initCameras(const glm::vec3 &entryPosition, float entryFacing);
 
     void onPartyLeaderMoved(bool roomChanged = false);
@@ -320,9 +374,8 @@ public:
 
     /** How moving turns a creature. */
     enum class MoveFacing {
-        Instant, /**< at once toward the way asked, as the player steers it */
-        Turn,    /**< along the step taken, the model following */
-        Keep     /**< not at all */
+        Turn, /**< along the step taken, the model following */
+        Keep  /**< not at all */
     };
 
     /**
@@ -333,6 +386,13 @@ public:
     bool moveCreatureByDistance(const std::shared_ptr<Creature> &creature,
                                 const glm::vec2 &direction, float distance,
                                 MoveFacing facing = MoveFacing::Turn);
+    /**
+     * Step a creature to a point it has been found free to walk straight to:
+     * onto the ground there, noting its room, the leader's trail, triggers
+     * and subareas. False, and no step, when there is no ground at the point.
+     */
+    bool stepCreatureTo(const std::shared_ptr<Creature> &creature, const glm::vec2 &point,
+                        MoveFacing facing = MoveFacing::Turn);
 
     bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt,
                       float maxDistance = FLT_MAX, MoveFacing facing = MoveFacing::Turn);
@@ -343,6 +403,17 @@ public:
      * ARE entry.
      */
     int getRoomForceRating(const glm::vec3 &position) const;
+    /**
+     * The surface material under a point: the topmost face of any material in
+     * the room found under it, or 0 when no room lies under it.
+     */
+    int getSurfaceMaterial(const glm::vec3 &position) const;
+    /**
+     * The topmost room face of any material but Trigger met going down from
+     * z 1000 to z -1000 at a point, in whichever room it lies; false when
+     * there is none. Placeables, doors and creatures are not met.
+     */
+    bool testRoomSurface(const glm::vec2 &point, scene::Collision &outCollision) const;
 
     bool isUnescapable() const { return _unescapable; }
 
@@ -393,7 +464,10 @@ public:
 
     // Objects
 
-    std::shared_ptr<Object> createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location);
+    /**
+     * @param appear whether a created creature appears, holding its actions for a while
+     */
+    std::shared_ptr<Object> createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location, bool appear = false);
 
     /**
      * End this Area's ownership of an exact still-live runtime Object.
@@ -444,11 +518,20 @@ public:
     // Object Search
 
     /**
-     * Find the nth nearest object for which the specified predicate returns true.
+     * Find the nth nearest object around a target standing in the area. The
+     * target itself is never a result.
      *
      * @param nth a 0-based object index
      */
-    std::shared_ptr<Object> getNearestObject(const glm::vec3 &origin, int nth, const std::function<bool(const std::shared_ptr<Object> &)> &predicate);
+    std::optional<std::reference_wrapper<const Object>> getNearestObject(const Object &target, int nth, const std::function<bool(const Object &)> &matches) const;
+
+    /**
+     * Find the nth nearest object to a position. The first object at or beyond
+     * the position along the x axis is never a result.
+     *
+     * @param nth a 0-based object index
+     */
+    std::optional<std::reference_wrapper<const Object>> getNearestObjectToLocation(const glm::vec3 &position, int nth, const std::function<bool(const Object &)> &matches) const;
 
     /**
      * @param nth 0-based index of the creature
@@ -545,6 +628,7 @@ public:
 
     // Scripts
 
+    /** Runs the creation script of every creature here that has not run it yet. */
     void runSpawnScripts();
     void runOnExitScript();
     /**
@@ -566,8 +650,13 @@ public:
 
     // Listeners
 
-    MessageBus &messageBus() { return _messageBus; }
-    void updateMessageBus();
+    /**
+     * The speaker's words reach every object in the area, the speaker aside,
+     * that listens, is within the volume's range, perceives the speaker as the
+     * volume needs and has a pattern that matches. Each such object is sent
+     * one conversation event with its first matching pattern.
+     */
+    void broadcastDialog(Object &speaker, const std::string &message, int talkVolume);
 
     // END Listeners
 
@@ -692,6 +781,13 @@ private:
     std::vector<ReleasedBody> _corpseBagBodies;
     std::vector<std::shared_ptr<scene::ModelSceneNode>> _releasedEffectModels;
     std::vector<std::shared_ptr<scene::ModelSceneNode>> _presentedVisuals;
+    struct HitSpark {
+        std::weak_ptr<scene::ModelSceneNode> body;
+        std::string hook;
+        glm::quat orientation {1.0f, 0.0f, 0.0f, 0.0f};
+        std::shared_ptr<scene::ModelSceneNode> model;
+    };
+    std::vector<HitSpark> _hitSparks;
 
     /** Keep the body of a destroyed object in the scene, as a fading body, a kept corpse or a corpse bag's body. */
     void releaseDestroyedBody(const std::shared_ptr<Object> &object, std::optional<std::reference_wrapper<const Room>> room);
@@ -699,10 +795,6 @@ private:
     void updateReleasedPresentation(float dt);
 
     // END Objects
-
-    // Listeners
-    MessageBus _messageBus;
-    // END Listeners
 
     // Stealth
 
@@ -735,6 +827,8 @@ private:
     void doDestroyObject(uint32_t objectId, bool destroyRuntimeObject = true);
     void doDestroyObjects();
     void updateVisibility();
+    /** The first room in order with walkable surface under or over a point. */
+    std::optional<std::reference_wrapper<const Room>> getRoomUnder(const glm::vec3 &position) const;
 
     void loadPartyMember(
         const std::shared_ptr<Creature> &member,
@@ -798,6 +892,11 @@ private:
     std::shared_ptr<Creature> findNearestCreature(const glm::vec3 &origin, const Object &excluded,
                                                   std::optional<std::reference_wrapper<const Object>> searching,
                                                   const SearchCriteriaList &criterias, int nth);
+    /**
+     * The nth nearest object to origin that matches, walking out from the
+     * base entry of the x-ordered objects; see getNearestObject.
+     */
+    std::optional<std::reference_wrapper<const Object>> findNearestObject(const glm::vec3 &origin, size_t base, int nth, const std::function<bool(const Object &)> &matches) const;
     bool matchesCriterias(const Creature &creature, const SearchCriteriaList &criterias,
                           std::optional<std::reference_wrapper<const Object>> searching) const;
 

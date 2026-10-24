@@ -46,6 +46,7 @@ class Object;
 constexpr uint32_t kSavedIntegerParameter = static_cast<uint32_t>(SavedActionParameterType::Integer);
 constexpr uint32_t kSavedFloatParameter = static_cast<uint32_t>(SavedActionParameterType::Float);
 constexpr uint32_t kSavedObjectParameter = static_cast<uint32_t>(SavedActionParameterType::Object);
+constexpr uint32_t kSavedStringParameter = static_cast<uint32_t>(SavedActionParameterType::String);
 
 class Action : boost::noncopyable {
 public:

@@ -15,36 +15,35 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <limits>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <limits>
-
-#include "../fixtures/engine.h"
-
-#include "reone/game/action/closedoor.h"
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/closedoor.h"
+#include "reone/game/action/docommand.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/unlockobject.h"
-#include "reone/game/equipmentrules.h"
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/effect/abilityincrease.h"
 #include "reone/game/effect/bonusfeat.h"
 #include "reone/game/effect/invisibility.h"
 #include "reone/game/effect/trueseeing.h"
-#include "reone/game/d20/class.h"
-#include "reone/game/d20/classes.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
-#include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/actionbar.h"
+#include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/chargen/iconselection.h"
-#include "reone/game/gui/ingame.h"
-#include "reone/game/gui/loadscreen.h"
-#include "reone/game/gui/mainmenu.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/dialog.h"
 #include "reone/game/gui/hud.h"
+#include "reone/game/gui/ingame.h"
+#include "reone/game/gui/loadscreen.h"
+#include "reone/game/gui/mainmenu.h"
 #include "reone/game/gui/statussummary.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera/animated.h"
@@ -70,8 +69,8 @@
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/gui/control/button.h"
-#include "reone/gui/control/listbox.h"
 #include "reone/gui/control/label.h"
+#include "reone/gui/control/listbox.h"
 #include "reone/gui/gui.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
@@ -79,12 +78,13 @@
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
-#include "reone/scene/node/camera.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/scene/node/walkmesh.h"
-#include "reone/system/exception/validation.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/program.h"
+#include "reone/system/exception/validation.h"
+
+#include "../fixtures/engine.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -837,12 +837,14 @@ std::shared_ptr<Creature> makeMovingCreature(
     return creature;
 }
 
-// Navigation-driven step towards dest. Goes through Creature::advanceOnPath, so
-// it exercises the same path AI, scripts and actions take, unlike direct player
-// locomotion which calls Area::moveCreature.
-void navigationStep(Creature &creature, const glm::vec3 &dest, float dt = 1.0f) {
-    glm::vec3 dir = glm::normalize(dest - creature.position());
-    creature.advanceOnPath(dest, dir, /*run=*/false, /*distance=*/0.1f, dt);
+// One frame of a walk toward dest, as move actions take it: the step is
+// tested for walls and creatures before the creature moves. A walk that has
+// ended sets out afresh, straight at dest. True when the walk ended.
+bool walkerStep(Area &area, Creature &creature, const glm::vec3 &dest, float dt = 1.0f) {
+    if (!TestGameModule::hasAreaRuntimePath(creature)) {
+        TestGameModule::setAreaRuntimeStraightPath(creature, area.pathfinder(), dest);
+    }
+    return creature.navigateTo(dest, false, 0.1f, dt);
 }
 
 std::shared_ptr<Gff> makeTransitionTriggerGff(
@@ -4580,21 +4582,20 @@ TEST(CombatVisibility, retired_subject_does_not_remain_perceived) {
     EXPECT_FALSE(fixture.observer->perception().sees(strongStorage->id()));
 }
 
-TEST(CreatureBlockedByDoor, should_record_the_door_that_obstructs_navigation) {
+TEST(CreatureBlockedByDoor, should_run_the_blocked_script_when_a_closed_door_stops_a_walk) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
     fixture.countScriptRuns("k_def_blocked01");
 
-    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
-
     ScopedWalkObstruction obstruction(*fixture.door);
-    navigationStep(*npc, kFarDestination);
+    EXPECT_TRUE(walkerStep(*fixture.area, *npc, kFarDestination));
 
-    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
+    // The walk ends where the creature stands.
+    EXPECT_EQ(glm::vec3(0.0f), npc->position());
     EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
 }
 
-TEST(CreatureBlockedByDoor, should_dispatch_authored_blocked_script_once_per_continuous_obstruction) {
+TEST(CreatureBlockedByDoor, should_run_the_blocked_script_on_every_step_a_closed_door_stops) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
 
@@ -4602,39 +4603,37 @@ TEST(CreatureBlockedByDoor, should_dispatch_authored_blocked_script_once_per_con
 
     ScopedWalkObstruction obstruction(*fixture.door);
     for (int i = 0; i < 10; ++i) {
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
 
-    // Ten obstructed steps against the same door, one dispatch.
-    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+    // Each step ends the walk, and the next walk meets the door again.
+    EXPECT_EQ(10, fixture.scriptRuns("k_def_blocked01"));
 }
 
-TEST(CreatureBlockedByDoor, should_rearm_blocked_script_after_unobstructed_movement) {
+TEST(CreatureBlockedByDoor, should_walk_on_once_the_door_no_longer_stops_it) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
     fixture.countScriptRuns("k_def_blocked01");
 
     {
         ScopedWalkObstruction obstruction(*fixture.door);
-        navigationStep(*npc, kFarDestination);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
-    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+    EXPECT_EQ(2, fixture.scriptRuns("k_def_blocked01"));
 
-    // An unobstructed step re-arms.
-    navigationStep(*npc, kFarDestination);
-    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
+    EXPECT_FALSE(walkerStep(*fixture.area, *npc, kFarDestination));
+    EXPECT_GT(npc->position().y, 0.0f);
+    EXPECT_EQ(2, fixture.scriptRuns("k_def_blocked01"));
 
     ScopedWalkObstruction obstruction(*fixture.door);
-    navigationStep(*npc, kFarDestination);
-    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
-    EXPECT_EQ(2, fixture.scriptRuns("k_def_blocked01"));
+    walkerStep(*fixture.area, *npc, kFarDestination);
+    EXPECT_EQ(3, fixture.scriptRuns("k_def_blocked01"));
 }
 
-// A door keeps filling the doorway for the whole of its opening animation, so a
-// creature walking into one it has already reported keeps meeting the same
-// blocker for several frames. That is one obstruction, not one per frame.
-TEST(CreatureBlockedByDoor, should_not_repeat_while_the_door_it_reported_is_opening) {
+// A door keeps filling the doorway for the whole of its opening animation. It
+// still stops a walk then, but only a closed door runs the blocked script.
+TEST(CreatureBlockedByDoor, should_not_run_the_blocked_script_while_the_door_is_opening) {
     SwingingDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
     fixture.countScriptRuns("k_def_blocked01");
@@ -4642,8 +4641,7 @@ TEST(CreatureBlockedByDoor, should_not_repeat_while_the_door_it_reported_is_open
     fixture.syncObstruction();
     ASSERT_TRUE(doorwayBlocks(*fixture.door));
 
-    navigationStep(*npc, kFarDestination);
-    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
+    walkerStep(*fixture.area, *npc, kFarDestination);
     EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
 
     // What the authored AI does in response to that one report.
@@ -4657,9 +4655,8 @@ TEST(CreatureBlockedByDoor, should_not_repeat_while_the_door_it_reported_is_open
         stepDoor(*fixture.door, 0.4f);
         fixture.syncObstruction();
         ASSERT_TRUE(doorwayBlocks(*fixture.door)) << "frame " << frame;
-        navigationStep(*npc, kFarDestination);
+        EXPECT_TRUE(walkerStep(*fixture.area, *npc, kFarDestination)) << "frame " << frame;
         EXPECT_TRUE(fixture.door->isOpening()) << "frame " << frame;
-        EXPECT_EQ(fixture.door->id(), npc->blockingDoorId()) << "frame " << frame;
     }
     EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
 
@@ -4670,12 +4667,10 @@ TEST(CreatureBlockedByDoor, should_not_repeat_while_the_door_it_reported_is_open
     ASSERT_FALSE(doorwayBlocks(*fixture.door));
     ASSERT_TRUE(fixture.door->isOpen());
 
-    // The movement that was blocked all along now makes progress, and the
-    // blocked state clears so this door can report again another time.
+    // The walk that was stopped all along now makes progress.
     float before = npc->position().y;
-    navigationStep(*npc, kFarDestination);
+    walkerStep(*fixture.area, *npc, kFarDestination);
     EXPECT_GT(npc->position().y, before);
-    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
     EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
 }
 
@@ -4690,22 +4685,22 @@ TEST(CreatureBlockedByDoor, should_report_another_door_that_takes_over_the_obstr
 
     {
         ScopedWalkObstruction obstruction(*fixture.door);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
-    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
     EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
 
     {
         ScopedWalkObstruction obstruction(*other);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
-    EXPECT_EQ(other->id(), npc->blockingDoorId());
     EXPECT_EQ(2, fixture.scriptRuns("k_def_blocked01"));
 }
 
 TEST(CreatureBlockedByDoor, should_run_the_script_authored_on_each_creature) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
+    auto leader = fixture.addCreature("");
+    fixture.game.party().addMember(kNpcPlayer, leader);
     auto companion = fixture.addCreature("k_hen_blocked01");
     fixture.game.party().addAvailableMember(0, companion);
     fixture.game.party().addMember(0, companion);
@@ -4716,8 +4711,8 @@ TEST(CreatureBlockedByDoor, should_run_the_script_authored_on_each_creature) {
     fixture.countScriptRuns("k_hen_blocked01");
 
     ScopedWalkObstruction obstruction(*fixture.door);
-    navigationStep(*npc, kFarDestination);
-    navigationStep(*companion, kFarDestination);
+    walkerStep(*fixture.area, *npc, kFarDestination);
+    walkerStep(*fixture.area, *companion, kFarDestination);
 
     EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
     EXPECT_EQ(1, fixture.scriptRuns("k_hen_blocked01"));
@@ -4728,18 +4723,17 @@ TEST(CreatureBlockedByDoor, should_not_dispatch_for_directly_controlled_player_l
     auto leader = fixture.addCreature("k_hen_blocked01");
     fixture.game.party().addMember(kNpcPlayer, leader);
     fixture.game.party().setPlayer(leader);
+    ASSERT_EQ(leader, fixture.game.party().getLeader());
 
-    // Player::update drives the leader through Area::moveCreature directly and
-    // never through navigation, so no blocked event is raised.
+    // The leader is the creature the player controls. A walk of its own still
+    // stops at the closed door, but raises no blocked event.
     fixture.countScriptRuns("k_hen_blocked01");
 
     ScopedWalkObstruction obstruction(*fixture.door);
-    EXPECT_FALSE(fixture.area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.0f));
+    EXPECT_TRUE(walkerStep(*fixture.area, *leader, kFarDestination));
 
+    EXPECT_EQ(glm::vec3(0.0f), leader->position());
     EXPECT_EQ(0, fixture.scriptRuns("k_hen_blocked01"));
-
-    // The collision layer still records what obstructed the leader.
-    EXPECT_EQ(fixture.door->id(), leader->blockingDoorId());
 }
 
 TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
@@ -4747,11 +4741,12 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
     auto npc = fixture.addCreature("k_def_blocked01");
     fixture.countScriptRuns("k_def_blocked01");
 
+    // A wall that is not a door ends the walk all the same, with no report.
     Room room("testroom", glm::vec3(0.0f), nullptr, nullptr, nullptr);
     ScopedWalkObstruction obstruction(room);
-    navigationStep(*npc, kFarDestination);
+    EXPECT_TRUE(walkerStep(*fixture.area, *npc, kFarDestination));
 
-    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
+    EXPECT_EQ(glm::vec3(0.0f), npc->position());
     EXPECT_EQ(0, fixture.scriptRuns("k_def_blocked01"));
 }
 
@@ -4775,7 +4770,7 @@ TEST(BlockingDoorRoutines, get_blocking_door_reports_the_door_captured_by_the_ev
 
     {
         ScopedWalkObstruction obstruction(*fixture.door);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
     auto execution = blockedEventContext(npc->id());
 
@@ -4799,29 +4794,45 @@ TEST(BlockingDoorRoutines, get_blocking_door_reports_invalid_without_a_captured_
 TEST(BlockingDoorRoutines, get_blocking_door_follows_the_latest_blocked_event) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
-    fixture.countScriptRuns("k_def_blocked01");
     auto other = makePlainDoor(fixture.game, fixture.engine);
     fixture.area->add(other);
     Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
     routines.init();
 
-    // Blocked by the first door, and a continuation of that run holds it.
+    // An OnBlocked script that queues a continuation of itself on the creature:
+    // the compiled shape of ActionDoCommand(<empty body>).
+    auto program = std::make_shared<script::ScriptProgram>("k_def_blocked01");
+    program->add(script::Instruction::newSTORE_STATE(0, 0));
+    program->add(script::Instruction::newJMP(8));
+    program->add(script::Instruction(script::InstructionType::RETN));
+    program->add(script::Instruction::newACTION(routines.getIndexByName("ActionDoCommand"), 1));
+    program->add(script::Instruction(script::InstructionType::RETN));
+    EXPECT_CALL(fixture.engine.resourceModule().scripts(), get("k_def_blocked01"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(program));
+
+    // Blocked by the first door, and a continuation of that run is queued.
     {
         ScopedWalkObstruction obstruction(*fixture.door);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
-    ASSERT_EQ(fixture.door->id(), npc->blockingDoorId());
-    auto execution = blockedEventContext(npc->id());
+    ASSERT_EQ(1u, npc->actions().size());
+    auto first = dyn_cast<DoCommandAction>(npc->actions().front().get());
+    ASSERT_NE(nullptr, first);
+    auto firstContinuation = first->actionToDo();
 
     // The creature then runs into a different door entirely.
     {
         ScopedWalkObstruction obstruction(*other);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
-    ASSERT_EQ(other->id(), npc->blockingDoorId());
+    ASSERT_EQ(2u, npc->actions().size());
+    auto second = dyn_cast<DoCommandAction>(npc->actions().back().get());
+    ASSERT_NE(nullptr, second);
 
-    // The continuation sees the door of the latest blocked event.
-    EXPECT_EQ(other->id(), callGetBlockingDoor(routines, execution));
+    // Every continuation sees the door of the latest blocked event.
+    EXPECT_EQ(other->id(), callGetBlockingDoor(routines, *second->actionToDo()));
+    EXPECT_EQ(other->id(), callGetBlockingDoor(routines, *firstContinuation));
 }
 
 TEST(BlockingDoorRoutines, a_captured_door_that_is_destroyed_is_reported_but_not_valid) {
@@ -4832,7 +4843,7 @@ TEST(BlockingDoorRoutines, a_captured_door_that_is_destroyed_is_reported_but_not
 
     {
         ScopedWalkObstruction obstruction(*fixture.door);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
     auto execution = blockedEventContext(npc->id());
     TestGameModule::removeObject(fixture.game, fixture.door->id());
@@ -4865,7 +4876,7 @@ TEST(BlockingDoorRoutines, the_authored_blocked_script_can_act_on_the_door_that_
 
     {
         ScopedWalkObstruction obstruction(*fixture.door);
-        navigationStep(*npc, kFarDestination);
+        walkerStep(*fixture.area, *npc, kFarDestination);
     }
 
     // The door reached the script, so the argument survived dispatch.

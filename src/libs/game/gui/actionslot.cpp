@@ -43,6 +43,7 @@ namespace reone {
 namespace game {
 
 static std::string g_attackIcon("i_attack");
+static constexpr char kDoorSaberIcon[] = "i_doorsaber";
 
 /** The menu messages of a refused power. */
 static constexpr uint32_t kInsufficientForceMessage = 38613;
@@ -127,6 +128,9 @@ void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, S
     switch (action.type) {
     case ActionType::AttackObject:
         texture = services.resource.textures.get(g_attackIcon, graphics::TextureUsage::GUI);
+        break;
+    case ActionType::DoorSaber:
+        texture = services.resource.textures.get(kDoorSaberIcon, graphics::TextureUsage::GUI);
         break;
     case ActionType::UseFeat: {
         std::shared_ptr<Feat> feat(services.game.feats.get(action.feat));

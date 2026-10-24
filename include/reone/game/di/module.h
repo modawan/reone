@@ -26,6 +26,7 @@
 #include "../animations.h"
 #include "../camerastyles.h"
 #include "../combattables.h"
+#include "../creaturespeeds.h"
 #include "../d20/classes.h"
 #include "../d20/feats.h"
 #include "../d20/skills.h"
@@ -85,6 +86,7 @@ private:
 
     std::unique_ptr<CameraStyles> _cameraStyles;
     std::unique_ptr<Classes> _classes;
+    std::unique_ptr<CreatureSpeeds> _creatureSpeeds;
     std::unique_ptr<DifficultyOptions> _difficultyOptions;
     std::unique_ptr<Feats> _feats;
     std::unique_ptr<FootstepSounds> _footstepSounds;

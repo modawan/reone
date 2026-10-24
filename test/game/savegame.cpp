@@ -1534,6 +1534,8 @@ TEST_P(LoadTransactionFixture, retailShapedTemplateAutosaveRestoresAPlayableFres
     EXPECT_EQ(4321u, game->worldTimeOfDay());
     EXPECT_FLOAT_EQ(33.0f, game->party().player()->position().x);
     EXPECT_FLOAT_EQ(44.0f, game->party().player()->position().y);
+    EXPECT_EQ(0, spawnScriptLookups);
+    game->module()->area()->runSpawnScripts();
     EXPECT_EQ(1, spawnScriptLookups);
     auto fresh = game->module()->area()->getObjectByTag("fresh_spawn");
     ASSERT_TRUE(fresh);

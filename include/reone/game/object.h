@@ -34,6 +34,7 @@
 #include "action/playanimation.h"
 #include "castspell.h"
 #include "effect.h"
+#include "listenpattern.h"
 #include "runtimeref.h"
 #include "savedruntime.h"
 #include "saveprovenance.h"
@@ -93,6 +94,12 @@ public:
     static constexpr int kMaxDamageImmunity = 100;
     /** The spell of an object that is not running a spell-impact script. */
     static constexpr uint32_t kNoEffectSpellId = 0xffffffffu;
+    /**
+     * An object whose conversation script is "default" runs this one, as do
+     * a creature and a placeable whose script is empty; a door with an empty
+     * script runs nothing.
+     */
+    static constexpr char kFallbackConversationScript[] = "k_hen_dialogue01";
 
     enum class RuntimeState {
         Constructing,
@@ -114,6 +121,11 @@ public:
     void deserializePlacement(const resource::Gff &gff);
 
     virtual void update(float dt);
+    /**
+     * Runs the action queue on a frame with the clock stopped: what takes no
+     * time is done, what takes time waits.
+     */
+    virtual void runActions();
     virtual void damage(
         int amount,
         const std::shared_ptr<Object> &damager);
@@ -408,6 +420,8 @@ public:
      * clearable action of such a group is cancelled and removed.
      */
     void cancelActionGroups(const std::function<bool(const Action &)> &matches);
+    /** Drops every action queued behind one, kept saved actions included, without cancelling them. */
+    void removeActionsBehind(const Action &action);
     bool hasOrdinaryActionsPending() const { return !_actions.nodes.empty(); }
     uint32_t currentSerializedActionId() const {
         return _actions.nodes.empty() ? static_cast<uint32_t>(SavedActionType::Invalid) : _actions.nodes.front()->actionId;
@@ -526,6 +540,56 @@ public:
     void clearOnHeartbeat() { _onHeartbeat.clear(); }
 
     // END Scripts
+
+    // Listening
+
+    /**
+     * A shout the object heard, or a request to talk, which matched no
+     * pattern.
+     */
+    struct ConversationEvent {
+        /** The one who spoke. */
+        uint32_t speaker {script::kObjectInvalid};
+        /** The number of the pattern that matched; 0 for a request to talk. */
+        int32_t patternNumber {0};
+        /** The pieces of the match, after the whole string. */
+        std::vector<std::string> matchedPieces;
+    };
+
+    /** A pattern the object listens for and the number it answers with. */
+    struct ListenExpression {
+        int32_t number {0};
+        /** The last pattern that parsed, in lower case; this is what is saved. */
+        std::string pattern;
+        /** Nothing while the last pattern set failed to parse: it matches nothing. */
+        std::optional<ListenPattern> parsed;
+    };
+
+    bool isListening() const { return _listening; }
+    void setListening(bool listening) { _listening = listening; }
+    const std::vector<ListenExpression> &listenExpressions() const { return _listenExpressions; }
+    /**
+     * Sets the pattern for a number. A number already in use keeps its place
+     * and takes the new pattern; a new number goes last.
+     */
+    void setListenPattern(const std::string &pattern, int32_t number);
+    /**
+     * The number of the first pattern, in the order they were set, that
+     * matches; pieces receives that match's pieces.
+     */
+    std::optional<int32_t> testListenExpressions(const std::string &str, std::vector<std::string> &pieces) const;
+
+    uint32_t lastSpeaker() const { return _lastSpeaker; }
+    int32_t listenPatternNumber() const { return _listenPatternNumber; }
+    const std::vector<std::string> &matchedSubstrings() const { return _matchedSubstrings; }
+    /**
+     * A conversation event: a shout the object heard, or a request to talk.
+     * The speaker becomes the last speaker, and the event's pattern number
+     * and pieces the object's own; then its conversation script runs.
+     */
+    void receiveConversationEvent(ConversationEvent event);
+
+    // END Listening
 
 protected:
     friend class Game;
@@ -700,6 +764,20 @@ protected:
 
     // END Local variables
 
+    // Listening
+
+    bool _listening {false};
+    std::vector<ListenExpression> _listenExpressions;
+    /** None of these is saved. */
+    uint32_t _lastSpeaker {script::kObjectInvalid};
+    int32_t _listenPatternNumber {0};
+    std::vector<std::string> _matchedSubstrings;
+
+    /** Runs the object's conversation script, as a conversation event does. */
+    virtual void runConversationScript() {}
+
+    // END Listening
+
     Object(uint32_t id, ObjectType type, std::string sceneName,
            Game &game, ServicesView &services);
 
@@ -738,8 +816,16 @@ protected:
      */
     void removeActions(bool force, bool keepUnclearable);
     void removeCompletedActions();
+    /**
+     * The live node each kept saved action is saved again behind, by its
+     * index in _publishedSavedActions: the restored node it followed in its
+     * saved queue, or the nearest restored node before that one still saved;
+     * none when it is saved ahead of every live action.
+     */
+    std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> keptSavedActionAnchors() const;
 
     void executeActions(float dt);
+    void executeActionsIfAble(float dt);
 
     // END Actions
 

@@ -111,7 +111,7 @@ TEST(AssignCommand, should_run_the_assigned_command_in_place) {
     routines.init();
 
     auto subject = game.newCreature();
-    subject->addAction(game.newAction<RandomWalkAction>());
+    subject->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
     ASSERT_EQ(1u, subject->actions().size());
 
     // ClearAllActions acts on the caller, so it shows the instant it runs. A
@@ -160,8 +160,8 @@ TEST(AssignCommand, should_run_the_command_as_the_subject_not_the_saving_caller)
 
     auto saver = game.newCreature();
     auto subject = game.newCreature();
-    saver->addAction(game.newAction<RandomWalkAction>());
-    subject->addAction(game.newAction<RandomWalkAction>());
+    saver->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
+    subject->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
 
     // The context that saved the command belongs to someone else entirely.
     auto command = newCommandCalling(routines, "ClearAllActions");
@@ -211,9 +211,9 @@ TEST(AssignCommand, should_not_leak_the_rewritten_caller_into_the_saved_command)
     auto saver = game.newCreature();
     auto first = game.newCreature();
     auto second = game.newCreature();
-    saver->addAction(game.newAction<RandomWalkAction>());
-    first->addAction(game.newAction<RandomWalkAction>());
-    second->addAction(game.newAction<RandomWalkAction>());
+    saver->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
+    first->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
+    second->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
 
     auto command = newCommandCalling(routines, "ClearAllActions");
     command->args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(saver->id()));

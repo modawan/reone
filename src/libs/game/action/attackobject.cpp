@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "reone/game/action/usefeat.h"
 #include "reone/game/animations.h"
 #include "reone/game/attack.h"
 #include "reone/game/combat.h"
@@ -137,7 +138,6 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         finish(attacker);
         return;
     }
-    attacker.setAttemptedAttackTarget(target->id());
     // A creature outside the party cannot go on attacking one it does not see.
     if (!attacker.hasDetectedTarget(*target)) {
         finish(attacker);
@@ -158,6 +158,10 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         return;
     case AttackApproachStep::Reached:
         break;
+    }
+    // While the world is held, an attack in reach waits.
+    if (_game.holdsWorld()) {
+        return;
     }
 
     attacker.setDesiredFacingToward(target->position());
@@ -305,6 +309,29 @@ std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
     progress.state->fields().push_back(resource::Gff::Field::newByte("ContinueTaken", _continuationDispatched));
     result.physical = std::move(progress);
     return result;
+}
+
+std::shared_ptr<Action> AttackObjectAction::restore(const SavedActionRecord &record, Game &game) {
+    const auto command = SavedAttackCommand::fromAction(record);
+    auto target = command->target.boundObject();
+    if (!target) {
+        return nullptr;
+    }
+    if (command->feat != FeatType::Invalid) {
+        auto action = game.newAction<UseFeatAction>(command->feat, std::move(target));
+        if (record.physical) {
+            action->restorePhysicalState(*record.physical);
+        }
+        return action;
+    }
+    auto action = game.newAction<AttackObjectAction>(std::move(target));
+    if (command->cutscene) {
+        action->forceCutsceneAttack(*command->cutscene);
+    }
+    if (record.physical) {
+        action->restorePhysicalState(*record.physical);
+    }
+    return action;
 }
 
 void AttackObjectAction::restorePhysicalState(const SavedPhysicalAction &state) {

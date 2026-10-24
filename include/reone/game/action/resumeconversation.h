@@ -34,6 +34,10 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved ResumeConversation command. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 };
 
 } // namespace game

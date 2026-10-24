@@ -623,6 +623,8 @@ public:
         // doing; one that is fighting takes up its round's target again.
         subject->clearAllActions(true);
         _game.combat().discardEquipment(*subject);
+        // The item leaving the slot goes out at once, whatever the slot.
+        subject->putOutItemLeavingSlot(slot);
         auto outcome = applyEquipmentOperation(_game, *subject, *owner, item, slot);
         if (auto target = subject->isInCombat() ? subject->getRoundTarget() : nullptr) {
             _game.combat().scheduleAttack(*subject, target);

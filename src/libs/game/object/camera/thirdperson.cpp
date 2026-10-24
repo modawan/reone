@@ -122,10 +122,12 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
     }
 }
 
+// The turn keys work whether or not the mouse turns the camera. Either Ctrl
+// key, like the right button, turns the camera with the mouse while held.
 bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::A:
-        if (!event.repeat && !_mouseLookMode) {
+        if (!event.repeat) {
             _rotateCCW = true;
             _rotateCW = false;
             _rotationSpeed = kMinRotationSpeed;
@@ -133,13 +135,17 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
         }
         break;
     case input::KeyCode::D:
-        if (!event.repeat && !_mouseLookMode) {
+        if (!event.repeat) {
             _rotateCCW = false;
             _rotateCW = true;
             _rotationSpeed = kMinRotationSpeed;
             return true;
         }
         break;
+    case input::KeyCode::LeftControl:
+    case input::KeyCode::RightControl:
+        _mouseLookHeld = true;
+        return true;
     default:
         break;
     }
@@ -150,17 +156,15 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
 bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::A:
-        if (!_mouseLookMode) {
-            _rotateCCW = false;
-            return true;
-        }
-        break;
+        _rotateCCW = false;
+        return true;
     case input::KeyCode::D:
-        if (!_mouseLookMode) {
-            _rotateCW = false;
-            return true;
-        }
-        break;
+        _rotateCW = false;
+        return true;
+    case input::KeyCode::LeftControl:
+    case input::KeyCode::RightControl:
+        _mouseLookHeld = false;
+        return true;
     default:
         break;
     }
@@ -169,15 +173,17 @@ bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
 }
 
 bool ThirdPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) {
-    if (_mouseLookMode && event.xrel != 0) {
+    const bool mouseLook = isMouseLookMode();
+    if (mouseLook && event.xrel != 0) {
         releaseLookAt();
     }
     // The combat camera turns once a frame by the travel gathered here.
-    if (_mouseLookMode && _combat) {
+    if (mouseLook && _combat) {
         _mouseTurn += static_cast<float>(event.xrel);
         return false;
     }
-    if (_mouseLookMode) {
+    // A held turn key wins over the mouse.
+    if (mouseLook && !_rotateCW && !_rotateCCW) {
         _facing -= kMouseRotationSpeed * event.xrel;
         _facing = glm::mod(_facing, glm::two_pi<float>());
         updateSceneNode();
@@ -185,12 +191,11 @@ bool ThirdPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) 
     return false;
 }
 
+// The right button and the Ctrl keys share one hold: any press starts it and
+// any release ends it.
 bool ThirdPersonCamera::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Right) {
-        _mouseLookMode = true;
-        _rotateCCW = false;
-        _rotateCW = false;
-        _game.setRelativeMouseMode(true);
+        _mouseLookHeld = true;
         return true;
     }
     return false;
@@ -198,8 +203,7 @@ bool ThirdPersonCamera::handleMouseButtonDown(const input::MouseButtonEvent &eve
 
 bool ThirdPersonCamera::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Right) {
-        _mouseLookMode = false;
-        _game.setRelativeMouseMode(false);
+        _mouseLookHeld = false;
         return true;
     }
     return false;
@@ -248,8 +252,8 @@ float ThirdPersonCamera::integrateCombatTurn(float input, float dt) {
 void ThirdPersonCamera::updateCombatTurn(float dt) {
     const float input = _rotateCCW ? 1.0f : (_rotateCW ? -1.0f : 0.0f);
     float turned;
-    const float mouse = _mouseLookMode
-                            ? mouseFrameStrength(_mouseTurn) * kDefaultMouseSensitivity
+    const float mouse = isMouseLookMode()
+                            ? mouseFrameStrength(_mouseTurn) * mouseSensitivity(_game.options().game.mouse.sensitivity)
                             : 0.0f;
     _mouseTurn = 0.0f;
     if (input == 0.0f && mouse != 0.0f) {
@@ -347,10 +351,7 @@ void ThirdPersonCamera::updateSceneNode() {
 void ThirdPersonCamera::stopMovement() {
     _rotateCCW = false;
     _rotateCW = false;
-    if (_mouseLookMode) {
-        _game.setRelativeMouseMode(false);
-    }
-    _mouseLookMode = false;
+    _mouseLookHeld = false;
 }
 
 void ThirdPersonCamera::setTargetPosition(glm::vec3 position) {

@@ -88,6 +88,8 @@ constexpr uint32_t kControllerRumbleEventStructType = 0xffff;
 constexpr uint32_t kScriptEventParameterStructType = 0x69;
 // The struct type of a script situation an action takes as a parameter.
 constexpr uint32_t kActionSituationStructType = 2;
+// The struct type of a creature's ExpressionList entry: a listen pattern and its number.
+constexpr uint32_t kListenExpressionStructType = 5;
 
 // The pose a saved creature was last given (its Animation): one of the three
 // dead poses, a damage flinch, ready in combat, or the pause, injured or not.
@@ -1160,6 +1162,10 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newDword("Experience", creature._xp));
     put(record, Gff::Field::newInt("JoiningXP", creature._joiningXP));
     put(record, Gff::Field::newByte("GoodEvil", creature._goodEvil));
+    // A field label holds sixteen characters, so the base alignment's is cut short.
+    if (_game.isTSL()) {
+        put(record, Gff::Field::newChar("BaseCNPCAlignmen", creature._baseCNPCAlignment));
+    }
     put(record, Gff::Field::newByte("Race", static_cast<uint8_t>(creature._race)));
     put(record, Gff::Field::newByte("SubraceIndex", static_cast<uint8_t>(creature._subrace)));
     put(record, Gff::Field::newByte("Disarmable", creature._disarmable));
@@ -1204,7 +1210,16 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     }
     put(record, Gff::Field::newByte(
                     "MovementRate", static_cast<uint8_t>(std::clamp(creature._walkRate, 0, 255))));
-    put(record, Gff::Field::newByte("Listening", creature._isListening));
+    put(record, Gff::Field::newByte("Listening", creature._listening));
+    if (creature._listenExpressions.empty()) {
+        removeSaveField(record, "ExpressionList");
+    } else {
+        std::vector<std::shared_ptr<Gff>> expressions;
+        for (const auto &expression : creature._listenExpressions) {
+            expressions.push_back(Gff::Builder().type(kListenExpressionStructType).field(Gff::Field::newInt("ExpressionId", expression.number)).field(Gff::Field::newCExoString("ExpressionString", expression.pattern)).build());
+        }
+        put(record, Gff::Field::newList("ExpressionList", std::move(expressions)));
+    }
     put(record, Gff::Field::newByte("NaturalAC", creature._naturalAC));
     put(record, Gff::Field::newShort("refbonus", creature._refBonus));
     put(record, Gff::Field::newShort("willbonus", creature._willBonus));

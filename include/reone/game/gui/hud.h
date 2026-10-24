@@ -204,6 +204,8 @@ private:
     /** The time the shown combat-mode line lasts and the time it has left; zero for a line that stays. */
     float _combatMessageDuration {0.0f};
     float _combatMessageRemaining {0.0f};
+    /** The line last shown on the combat line. */
+    int _combatMessageStrref {0};
     bool _capturePresentation {false};
     bool _captureCombatPresentation {false};
     bool _captureTransitionPresentation {false};
@@ -212,6 +214,12 @@ private:
     void onGUILoaded() override;
     /** The main-interface indicator of a status row; the net shift and the influence and Force rows have none. */
     std::optional<std::reference_wrapper<gui::Label>> statusFlashLabel(StatusSummaryCategory category) const;
+    /**
+     * TSL: a summary whose light and dark side shifts differ plays the
+     * winning side's sting, and the player character, when leading, shows
+     * that side's visual.
+     */
+    void presentAlignmentShift(const StatusSummaryBatch &batch);
 
     void bindControls() {
         _controls.BTN_ABI = findControl<gui::Button>("BTN_ABI");

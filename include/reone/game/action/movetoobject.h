@@ -79,6 +79,8 @@ public:
     void onQueued(Object &actor) override;
 
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved MoveToObject command; none once the object is gone, or when its run flag, ranges or move flags are not ones a command carries. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     bool isRun() const { return _run; }
     const std::shared_ptr<Object> &target() const { return _moveTo; }

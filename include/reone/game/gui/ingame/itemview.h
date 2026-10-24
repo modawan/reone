@@ -157,7 +157,7 @@ public:
     // Handle zero explicitly requests clearing the selected slot.
     virtual void equip(uint64_t revision, uint64_t handle, int slot) = 0;
     virtual std::optional<EquipmentRequestResult> equipmentResult() const = 0;
-    /** Swaps the shown character's weapon sets at once. */
+    /** Asks for the shown character's weapon sets to be swapped; the slots show the swap once it is made. */
     virtual void switchWeapons() = 0;
 };
 

@@ -837,17 +837,23 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
     }
 
     // The module's load script and the player's area OnEnter are queued
-    // events, so no authored script runs inside the load once the party is
-    // placed. Fail the load after placement at the spawn script of the last
-    // creature placed, which runs once it is in the area.
+    // events, and creation scripts run at the first update, so no authored
+    // script runs inside the load once the party is placed. Fail the load
+    // after placement where the third-person camera turns to the leader:
+    // its line-of-sight test, the third the load makes after the two that
+    // set the camera up. The failure goes to whichever scene graph the shared
+    // engine serves; afterwards the graph answers as it did before.
     auto expectedLeader = game->party().player();
-    (puppet ? puppet : expectedLeader)->setOnSpawn("fail_on_spawn");
     std::shared_ptr<Area> failedArea;
     std::shared_ptr<Trigger> failedTrigger;
-    EXPECT_CALL(engine.resourceModule().scripts(), get("fail_on_spawn"))
+    auto &graph = static_cast<scene::MockSceneGraph &>(
+        engine.sceneModule().graphs().get(kSceneMain));
+    EXPECT_CALL(graph, testLineOfSight(_, _, _))
+        .WillOnce(DoDefault())
+        .WillOnce(DoDefault())
         .WillOnce(Invoke([this, &failedArea, &failedTrigger, expectedLeader, puppet](
-                             const std::string &)
-                             -> std::shared_ptr<ScriptProgram> {
+                             const glm::vec3 &, const glm::vec3 &, scene::Collision &)
+                             -> bool {
             failedArea = game->module()->area();
             TestGameModule::setAreaRuntimePath(
                 *expectedLeader, failedArea->pathfinder());
@@ -861,7 +867,7 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
             }
             throw std::runtime_error("injected post-placement failure");
         }))
-        .RetiresOnSaturation();
+        .WillRepeatedly(DoDefault());
 
     ASSERT_FALSE(game->loadModule("module_b"));
     ASSERT_TRUE(failedArea);

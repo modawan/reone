@@ -218,10 +218,6 @@ const char *argKindToString(ArgKind kind) {
         return "LastPerceptionVanished";
     case ArgKind::LastUsedBy:
         return "LastUsedBy";
-    case ArgKind::LastSpeaker:
-        return "LastSpeaker";
-    case ArgKind::ListenPatternNumber:
-        return "ListenPatternNumber";
     case ArgKind::LastAttacker:
         return "LastAttacker";
     case ArgKind::LastDamager:
@@ -327,12 +323,6 @@ Argument Argument::fromString(std::string str) {
     if (kind == "LastUsedBy") {
         return {ArgKind::LastUsedBy, Variable::ofObject(std::stoul(value))};
     }
-    if (kind == "LastSpeaker") {
-        return {ArgKind::LastSpeaker, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "ListenPatternNumber") {
-        return {ArgKind::ListenPatternNumber, Variable::ofInt(std::stoi(value))};
-    }
     if (kind == "LastAttacker") {
         return {ArgKind::LastAttacker, Variable::ofObject(std::stoul(value))};
     }
@@ -413,7 +403,6 @@ void Argument::verify() {
     case ArgKind::InventoryDisturbItem:
     case ArgKind::LastPerceived:
     case ArgKind::LastUsedBy:
-    case ArgKind::LastSpeaker:
     case ArgKind::LastAttacker:
     case ArgKind::SpellTargetObject:
     case ArgKind::LastSpellCaster:
@@ -430,7 +419,6 @@ void Argument::verify() {
     case ArgKind::LastPerceptionInaudible:
     case ArgKind::LastPerceptionSeen:
     case ArgKind::LastPerceptionVanished:
-    case ArgKind::ListenPatternNumber:
     case ArgKind::LastSpell:
     case ArgKind::LastSpellHarmful:
     case ArgKind::SpellForcePointCost:

@@ -83,7 +83,7 @@ public:
         }
         ON_CALL(_resourceModule->twoDas(), get(std::string("npc"))).WillByDefault(testing::Return(std::shared_ptr<resource::TwoDA>(fullShares.build())));
         for (const char *table : {"ranges", "traps", "skills", "animations", "dialoganimations", "tutorial",
-                                  "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups"}) {
+                                  "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups", "influence"}) {
             ON_CALL(_resourceModule->twoDas(), get(std::string(table))).WillByDefault(testing::Return(empty));
         }
         // The combat tables the game loads at start, with no rows but an

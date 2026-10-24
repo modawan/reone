@@ -44,6 +44,9 @@ void GUISounds::init() {
     // An item chosen for, or cleared from, an equipment slot.
     loadSound(*sounds, "Inventory_Select", _inventorySelect);
     loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
+    // TSL only: the light and dark side stings.
+    loadSound(*sounds, "DarkSide", _darkSide);
+    loadSound(*sounds, "LightSide", _lightSide);
     // A refused and an accepted action-menu selection, and a toggle button's click.
     _actionUnavailable = _audioClips.get(sounds->getString(kErrorSoundRow, "soundresref"));
     _actionAccepted = _audioClips.get(sounds->getString(kActionMenuUseSoundRow, "soundresref"));
@@ -66,6 +69,8 @@ void GUISounds::deinit() {
     _checkboxCheck.reset();
     _inventorySelect.reset();
     _inventoryDrop.reset();
+    _darkSide.reset();
+    _lightSide.reset();
 }
 
 } // namespace game

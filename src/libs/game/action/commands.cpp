@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <cmath>
+
+#include "reone/game/action/appear.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/surrendertoenemies.h"
@@ -234,6 +237,41 @@ std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
     return result;
 }
 
+std::shared_ptr<Action> PlayAnimationAction::restore(const SavedActionRecord &record, Game &game) {
+    // The animation is kept in the command's object slot. Any animation
+    // constant the command queues comes back; it is resolved as the action runs.
+    const auto animation = record.objectParameter(0).id;
+    const float speed = record.floatParameter(1);
+    const float duration = record.floatParameter(2);
+    const int32_t start = record.integerParameter(3);
+    const int32_t looping = record.integerParameter(4);
+    if (!std::isfinite(speed) || !std::isfinite(duration) ||
+        (start != 0 && start != 1) || (looping != 0 && looping != 1)) {
+        return nullptr;
+    }
+    return game.newAction<PlayAnimationAction>(static_cast<AnimationType>(animation), speed, duration, start == 0, looping != 0);
+}
+
+void AppearAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    _timer.update(dt);
+    if (!_timer.elapsed()) {
+        return;
+    }
+    if (auto *creature = dyn_cast<Creature>(&actor)) {
+        creature->resumeStateDrivenAnimation();
+    }
+    complete();
+}
+
+// An appearance taken up again holds the creature for its full two seconds.
+std::optional<SavedActionRecord> AppearAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::Appear, {});
+}
+
+std::shared_ptr<Action> AppearAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<AppearAction>();
+}
+
 void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     _timer.update(dt);
     if (_timer.elapsed()) {
@@ -251,6 +289,10 @@ std::optional<SavedActionRecord> WaitAction::saveFacingState() const {
     return result;
 }
 
+std::shared_ptr<Action> WaitAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<WaitAction>(record.floatParameter(0));
+}
+
 // Only non-player creatures are given this action; a player character's
 // surrender fails.
 void SurrenderToEnemiesAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -259,6 +301,14 @@ void SurrenderToEnemiesAction::execute(std::shared_ptr<Action> self, Object &act
         creature.surrenderToEnemies(false);
     }
     complete();
+}
+
+std::optional<SavedActionRecord> SurrenderToEnemiesAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::SurrenderToEnemies, {});
+}
+
+std::shared_ptr<Action> SurrenderToEnemiesAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<SurrenderToEnemiesAction>();
 }
 
 } // namespace game

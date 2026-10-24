@@ -215,19 +215,26 @@ std::string Animations::getNameById(uint32_t id) const {
 std::string Animations::getReactionAnimation(const std::string &attackAnim,
                                              CreatureWieldType targetWield,
                                              AttackReaction reaction) const {
+    // A swing without a row, or a row with no clip for the reaction and the
+    // target's wield, makes the target play the first row (walk).
+    static constexpr uint32_t kWalkAnimation = 0;
     auto it = _attackResults.find({attackAnim, targetWield});
     if (it == _attackResults.end()) {
-        return std::string();
+        return getNameById(kWalkAnimation);
     }
+    uint32_t id = kNoAnim;
     switch (reaction) {
     case AttackReaction::Dodge:
-        return getNameById(it->second.dodge);
+        id = it->second.dodge;
+        break;
     case AttackReaction::Parry:
-        return getNameById(it->second.parry);
+        id = it->second.parry;
+        break;
     case AttackReaction::Damage:
-        return getNameById(it->second.damage);
+        id = it->second.damage;
+        break;
     }
-    return std::string();
+    return getNameById(id == kNoAnim ? kWalkAnimation : id);
 }
 
 int Animations::getMeleeImpactTime(

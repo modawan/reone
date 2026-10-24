@@ -25,10 +25,15 @@ namespace game {
 
 class MoveToPointAction : public Action {
 public:
-    MoveToPointAction(Game &game, ServicesView &services, glm::vec3 point, bool run = true) :
+    /**
+     * @param range how near the point the walk ends; at zero it ends on the
+     *        point itself
+     */
+    MoveToPointAction(Game &game, ServicesView &services, glm::vec3 point, bool run = true, float range = 1.0f) :
         Action(game, services, ActionType::MoveToPoint),
         _point(std::move(point)),
-        _run(run) {
+        _run(run),
+        _range(range) {
     }
 
     static bool classof(Action *from) {
@@ -36,12 +41,14 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
 
     const glm::vec3 &point() const { return _point; }
 
 private:
     glm::vec3 _point;
     bool _run {true};
+    float _range {1.0f};
 };
 
 } // namespace game

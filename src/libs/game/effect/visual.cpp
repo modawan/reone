@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
@@ -108,16 +109,6 @@ static void collectBeamMeshes(scene::SceneNode &node, std::vector<scene::MeshSce
         collectBeamMeshes(*child, meshes);
     }
 }
-
-// Where a visual's models attach on an object. Creatures name their nodes;
-// a placeable prefixes its with its model name after the first four
-// characters, a door with its whole model name.
-enum class VisualSite {
-    Root,
-    Impact,
-    Head
-};
-
 static std::string placeableNodePrefix(const scene::ModelSceneNode &model) {
     const std::string &name = model.model().name();
     return name.substr(std::min<size_t>(4, name.size()));
@@ -134,6 +125,36 @@ static std::string visualSiteNode(const Object &object, const scene::ModelSceneN
     }
     static constexpr const char *nodes[] = {"root", "impact", "talkdummy"};
     return nodes[static_cast<int>(site)];
+}
+
+// The node of a visual site on an object's body. On a creature the head site
+// is on its head model when it has one.
+static std::optional<std::reference_wrapper<scene::SceneNode>> visualSiteHook(const Object &object,
+                                                                              scene::ModelSceneNode &body,
+                                                                              VisualSite site) {
+    auto *owner = &body;
+    if (site == VisualSite::Head && isa<Creature>(&object)) {
+        if (auto *head = dynamic_cast<scene::ModelSceneNode *>(body.getAttachment("headhook"))) {
+            owner = head;
+        }
+    }
+    auto *hook = owner->getNodeByName(visualSiteNode(object, body, site));
+    if (!hook) {
+        return std::nullopt;
+    }
+    return *hook;
+}
+
+// The node a program's attachment hooks. The breath hooks the head model,
+// and the body only when there is no head model.
+static std::optional<std::reference_wrapper<scene::SceneNode>> attachmentHook(scene::ModelSceneNode &body, int program,
+                                                                              const std::string &name) {
+    auto *head = program == kBreathProgram ? dynamic_cast<scene::ModelSceneNode *>(body.getAttachment("headhook")) : nullptr;
+    auto *hook = head ? head->getNodeByName(name) : body.getNodeByName(name);
+    if (!hook) {
+        return std::nullopt;
+    }
+    return *hook;
 }
 
 // The node a beam starts from on its source, by body part; the source's root
@@ -479,14 +500,11 @@ bool VisualEffect::startProgram(int program, Object &object, const EffectInstanc
         return false;
     }
     auto model = _services.resource.models.get(attachment->model);
-    // The breath hooks the head model, and the body only when there is no
-    // head model.
-    auto *head = program == kBreathProgram ? dynamic_cast<scene::ModelSceneNode *>(body->getAttachment("headhook")) : nullptr;
-    auto *hook = head ? head->getNodeByName(attachment->hook) : body->getNodeByName(attachment->hook);
+    const auto hook = attachmentHook(*body, program, attachment->hook);
     if (!model || !hook) {
         return false;
     }
-    _hookNode = hook;
+    _hookNode = &hook->get();
     _attachedOwner = body;
     _attachmentProgram = program;
     if (program == kBreathProgram) {
@@ -627,13 +645,13 @@ void VisualEffect::stopProgram(std::optional<std::reference_wrapper<Object>> hol
 // goes straight to its looping duration animation and any other holds the
 // model for a second.
 void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
-                                  std::optional<std::reference_wrapper<scene::SceneNode>> hook, bool orientationOff,
-                                  std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position,
-                                  bool restoring, int slot) {
+                                  std::optional<std::reference_wrapper<scene::SceneNode>> hook, VisualSite site,
+                                  bool orientationOff, std::shared_ptr<scene::ModelSceneNode> owner,
+                                  const glm::vec3 &position, bool restoring) {
     NodeModel nodeModel;
-    nodeModel.slot = slot;
     nodeModel.model = graph.newModel(model, scene::ModelUsage::Projectile);
     nodeModel.owner = std::move(owner);
+    nodeModel.site = site;
     nodeModel.hook = hook ? &hook->get() : nullptr;
     nodeModel.followsPositionOnly = hook && orientationOff;
     if (hook && !nodeModel.followsPositionOnly) {
@@ -660,8 +678,6 @@ void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &mo
 // is not shown.
 void VisualEffect::attachNodeModels(Object &object, const std::shared_ptr<scene::ModelSceneNode> &body,
                                     const VisualEffectDesc &desc, bool restoring) {
-    auto *creature = dyn_cast<Creature>(&object);
-    // The sites are also the slots the models take, in this order.
     const std::pair<const std::shared_ptr<graphics::Model> *, VisualSite> models[] = {
         {&desc.rootModel(visualTargetSize(object)), VisualSite::Root},
         {&desc.impactModel, VisualSite::Impact},
@@ -670,23 +686,71 @@ void VisualEffect::attachNodeModels(Object &object, const std::shared_ptr<scene:
         if (!*model) {
             continue;
         }
-        scene::ModelSceneNode *owner = body.get();
-        if (site == VisualSite::Head && creature) {
-            if (auto *head = dynamic_cast<scene::ModelSceneNode *>(body->getAttachment("headhook"))) {
-                owner = head;
-            }
-        }
-        auto *hook = owner->getNodeByName(visualSiteNode(object, *body, site));
+        const auto hook = visualSiteHook(object, *body, site);
         if (!hook) {
             continue;
         }
-        startNodeModel(body->graph(), **model, *hook, desc.orientationOff, body, glm::vec3 {0.0f}, restoring, static_cast<int>(site));
+        startNodeModel(body->graph(), **model, hook, site, desc.orientationOff, body, glm::vec3 {0.0f}, restoring);
+    }
+}
+
+void VisualEffect::detachFromBody() {
+    for (auto &nodeModel : _nodeModels) {
+        // A model standing at a point in the world is on no body, nor is one
+        // whose node an earlier body lacked.
+        if (!nodeModel.owner || !nodeModel.hook) {
+            continue;
+        }
+        if (nodeModel.followsPositionOnly) {
+            nodeModel.model->graph().removeRoot(*nodeModel.model);
+        } else {
+            nodeModel.hook->removeChild(*nodeModel.model);
+        }
+        nodeModel.hook = nullptr;
+    }
+    if (_hookNode && _attached) {
+        _hookNode->removeChild(*_attached);
+    }
+    _hookNode = nullptr;
+}
+
+void VisualEffect::reattachToBody(Object &object, scene::ModelSceneNode &body) {
+    for (auto &nodeModel : _nodeModels) {
+        if (!nodeModel.owner) {
+            continue;
+        }
+        const auto hook = visualSiteHook(object, body, nodeModel.site);
+        if (!hook) {
+            continue;
+        }
+        nodeModel.hook = &hook->get();
+        if (nodeModel.followsPositionOnly) {
+            nodeModel.model->setLocalTransform(glm::translate(nodeModel.hook->origin()));
+            body.graph().addRoot(nodeModel.model);
+        } else {
+            nodeModel.hook->addChild(*nodeModel.model);
+        }
+    }
+    if (_attached) {
+        // An attached model always comes from its program's attachment.
+        assert(_attachmentProgram && "attached model without its program");
+        const int program = *_attachmentProgram;
+        auto attachment = spellVisualForProgram(program);
+        if (!attachment) {
+            attachment = modelAttachmentForProgram(program, object.game().isTSL());
+        }
+        assert(attachment && "attached model of a program without an attachment");
+        if (const auto hook = attachmentHook(body, program, attachment->hook)) {
+            _hookNode = &hook->get();
+            _hookNode->addChild(*_attached);
+        }
     }
 }
 
 void VisualEffect::updateNodeModels(float dt) {
     for (auto &nodeModel : _nodeModels) {
-        if (nodeModel.followsPositionOnly) {
+        // A model whose node its body lacks has no place to follow.
+        if (nodeModel.followsPositionOnly && nodeModel.hook) {
             nodeModel.model->setLocalTransform(glm::translate(nodeModel.hook->origin()));
         }
         if (nodeModel.impactRemaining > 0.0f) {
@@ -726,7 +790,7 @@ std::optional<float> VisualEffect::startNodeModelCessation() {
         }
         nodeModel.model->playAnimation("cessation");
         nodeModel.impactRemaining = cessation->length();
-        lengths[nodeModel.slot] = cessation->length();
+        lengths[static_cast<int>(nodeModel.site)] = cessation->length();
     }
     std::optional<float> first;
     std::optional<float> last;
@@ -856,7 +920,8 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
         if (!_beam && (!instance.restoring || _kept)) {
             if (_location) {
                 if (desc.locationModel) {
-                    startNodeModel(*graph, *desc.locationModel, std::nullopt, desc.orientationOff, nullptr, position, instance.restoring, static_cast<int>(VisualSite::Root));
+                    startNodeModel(*graph, *desc.locationModel, std::nullopt, VisualSite::Root, desc.orientationOff,
+                                   nullptr, position, instance.restoring);
                 }
             } else if (body) {
                 attachNodeModels(object, body, desc, instance.restoring);

@@ -61,6 +61,29 @@ struct FeedbackOptions {
     void save(const std::filesystem::path &path) const;
 };
 
+/** The difficulty level in the configuration's Game Options section, or level when the configuration does not set it. */
+int loadDifficultyLevel(const std::filesystem::path &path, int level);
+/** Write the difficulty level into the configuration, keeping every other line. */
+void saveDifficultyLevel(const std::filesystem::path &path, int level);
+
+/** Each bit of the unlocked planet songs opens one group of the main menu's music list; there are eleven. */
+constexpr int kAllPlanetSongs = 0x7ff;
+/** Write the unlocked planet songs into the configuration, keeping every other line. */
+void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs);
+
+/** How the mouse turns the camera, kept in the configuration's Game Options section. */
+struct MouseOptions {
+    /** The mouse turns the camera unless the right button or a Ctrl key is held. */
+    bool mouseLook {false};
+    /** How far a frame of mouse travel turns the camera, from 0 to 255. */
+    int sensitivity {44};
+
+    /** The options in the configuration; an option it does not set keeps its default. */
+    static MouseOptions load(const std::filesystem::path &path);
+    /** Write the options into the configuration, keeping every other line. */
+    void save(const std::filesystem::path &path) const;
+};
+
 /** Situations that pause play on their own, stored in the configuration's Autopause Options section. */
 struct AutoPauseOptions {
     /** A combat round ends. */

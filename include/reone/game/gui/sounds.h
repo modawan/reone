@@ -52,6 +52,8 @@ public:
     virtual std::shared_ptr<audio::AudioClip> getInventorySelect() const = 0;
     /** The sound of an item cleared from an equipment slot. */
     virtual std::shared_ptr<audio::AudioClip> getInventoryDrop() const = 0;
+    /** TSL: the sting of a light (true) or dark side shift on the status summary. */
+    virtual std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const = 0;
 };
 
 class GUISounds : public IGUISounds, boost::noncopyable {
@@ -74,6 +76,9 @@ public:
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return _checkboxCheck; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return _inventorySelect; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return _inventoryDrop; }
+    std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const override {
+        return light ? _lightSide : _darkSide;
+    }
 
 private:
     resource::AudioClips &_audioClips;
@@ -87,6 +92,8 @@ private:
     std::shared_ptr<audio::AudioClip> _checkboxCheck;
     std::shared_ptr<audio::AudioClip> _inventorySelect;
     std::shared_ptr<audio::AudioClip> _inventoryDrop;
+    std::shared_ptr<audio::AudioClip> _darkSide;
+    std::shared_ptr<audio::AudioClip> _lightSide;
 
     void loadSound(const resource::TwoDA &twoDa, const std::string &label, std::shared_ptr<audio::AudioClip> &sound);
 };

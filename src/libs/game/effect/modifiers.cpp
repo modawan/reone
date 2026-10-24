@@ -763,7 +763,7 @@ EffectApplicationResult DisguiseEffect::onApply(Object &object, EffectInstance &
         object.removeEffectsById(previousId);
         break;
     }
-    creature->applyDisguiseAppearance(instance.integerParameter(0));
+    creature->applyDisguiseAppearance(instance.integerParameter(0), !instance.restoring);
     return EffectApplicationResult::Retained;
 }
 

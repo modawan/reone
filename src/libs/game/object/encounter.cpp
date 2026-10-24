@@ -481,7 +481,6 @@ void Encounter::spawnNext() {
     _pendingSpawns.erase(_pendingSpawns.begin());
     area->add(creature);
     area->signalEntered(*creature);
-    creature->runSpawnScript();
 }
 
 // A continuous encounter that resets re-arms once its reset time has passed

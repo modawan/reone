@@ -28,6 +28,72 @@ namespace reone {
 
 namespace game {
 
+// A driven step is tried at most this many times.
+static constexpr int kDriveTries = 6;
+// How far a driven leader standing where it does not fit looks for a spot
+// that does: square rings out to about a metre. In KotOR the search goes no
+// further than the spot itself.
+static constexpr float kDriveNudgeRadius = -1.01f;
+static constexpr float kKotorDriveNudgeRadius = 1.0f;
+
+// The leader is driven along a straight line to a point a step ahead. A
+// companion or puppet in the way is pushed aside first; when someone is still
+// in the way and the leader stands where it does not fit, the leader first
+// moves to the nearest spot that does. A point the leader cannot walk straight
+// to is slid: past a creature, onto the line through where they meet, across
+// the way out from that creature's centre; along a wall, as far along the wall
+// from where the leader stands. The leader steps only to a point it can walk
+// straight to. It stays where it is once six lines have failed, or when two
+// meetings in a row turn it opposite ways across its path, as in a corner.
+static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> &leader, const glm::vec2 &dir, float step) {
+    static constexpr glm::vec3 kUp {0.0f, 0.0f, 1.0f};
+    const glm::vec3 start {leader->position()};
+    glm::vec3 target {start.x + dir.x * step, start.y + dir.y * step, start.z};
+    const glm::vec2 back {-dir};
+    const float nudgeRadius = game.isTSL() ? kDriveNudgeRadius : kKotorDriveNudgeRadius;
+    glm::vec2 previousNormal {0.0f};
+    for (int attempt = 1;; ++attempt) {
+        auto line = area.testDirectLine(*leader, leader->position(), target);
+        if (line.result == Area::DirectLine::CreatureBlocked) {
+            leader->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), leader->position(), target, dir);
+            line = area.testDirectLine(*leader, leader->position(), target);
+            if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(leader->position(), *leader)) {
+                if (auto spot = area.computeSafeLocation(leader->position(), nudgeRadius, *leader, true)) {
+                    leader->setPosition(*spot);
+                    area.determineObjectRoom(*leader);
+                }
+                line = area.testDirectLine(*leader, leader->position(), target);
+            }
+        }
+        if (line.result == Area::DirectLine::Clear) {
+            area.stepCreatureTo(leader, glm::vec2(target), Area::MoveFacing::Keep);
+            return;
+        }
+        if (attempt == kDriveTries) {
+            return;
+        }
+
+        const glm::vec2 across {line.normal};
+        if (attempt > 1) {
+            const float now = glm::dot(back, glm::vec2(-across.y, across.x));
+            const float before = glm::dot(back, glm::vec2(-previousNormal.y, previousNormal.x));
+            if ((now > 0.0f && before < 0.0f) || (now < 0.0f && before > 0.0f)) {
+                return;
+            }
+        }
+        if (line.result == Area::DirectLine::CreatureBlocked) {
+            target -= glm::vec3(across, 0.0f) * glm::dot(across, glm::vec2(target - line.stopPoint));
+        } else {
+            const glm::vec3 position {leader->position()};
+            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
+            const glm::vec2 along {glm::normalize(glm::vec2(glm::cross(kUp, line.normal)))};
+            const glm::vec2 slide {along * (glm::sign(glm::dot(way, along)) * glm::length(way))};
+            target = glm::vec3(position.x + slide.x, position.y + slide.y, position.z);
+        }
+        previousNormal = across;
+    }
+}
+
 bool Player::handle(const input::Event &event) {
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
     if (!partyLeader)
@@ -167,13 +233,20 @@ void Player::update(float dt) {
         glm::vec2 dir(glm::normalize(glm::vec2(-glm::sin(facing), glm::cos(facing))));
         // A leader limited from running walks however it is driven.
         const bool run = !_walk && !partyLeader->isRunLimited();
-        _area.moveCreature(partyLeader, dir, run, dt, FLT_MAX, Area::MoveFacing::Instant);
+        // The leader turns at once toward where it is steered.
+        partyLeader->setFacing(-glm::atan(dir.x, dir.y));
+        const float step = (run ? partyLeader->runSpeed() : partyLeader->walkSpeed()) * dt;
+        driveLeader(_module.game(), _area, partyLeader, dir, step);
         _moving = true;
         partyLeader->setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
+        partyLeader->setRunning(run);
         // The driven speed, which the motion blur follows.
         partyLeader->setDriveSpeed(run ? partyLeader->runSpeed() : partyLeader->walkSpeed());
     } else if (partyLeader->actions().empty()) {
         partyLeader->setMovementType(Creature::MovementType::None);
+        // A leader coming to a halt under the player's control slows to a walk
+        // first, so it is no longer running.
+        partyLeader->setRunning(false);
     }
 }
 

@@ -72,6 +72,8 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved PlayAnimation command; none when its flags or times are not ones a command carries. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     AnimationType animation() const { return _animation; }
     float speed() const { return _speed; }

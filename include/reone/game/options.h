@@ -31,9 +31,11 @@ struct GameOptions {
     bool developer {false};
     bool neo {false};
     FeedbackOptions feedback;
-    uint8_t clientDifficulty {1}; // Easy=0, Normal=1, Difficult=2, Default=3
+    int clientDifficulty {1}; /**< Easy=0, Normal=1, Difficult=2, Default=3 */
     MenuPresentation menuPresentation;
     AutoPauseOptions autoPause;
+    /** How the mouse turns the camera. */
+    MouseOptions mouse;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 };
 

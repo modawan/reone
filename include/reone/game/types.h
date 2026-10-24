@@ -1030,12 +1030,14 @@ enum class ActionType {
     UseTalentAtLocation = 0x1018,
     MoveAwayFromLocation = 0x101a,
     SurrenderToEnemies = 0x101b,
-    EquipMostEffectiveArmor = 0x101e,
     BarkString = 0x1023,
     SwitchWeapons = 0x1024,
     PutDownItem = 0x1025,
     CombatDispatch = 0x1026,
     CombatStance = 0x1027,
+    Appear = 0x1028,
+    DoorSaber = 0x1029,
+    ChangeFacing = 0x102a,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe
@@ -1046,8 +1048,7 @@ enum class TalkVolume {
     Whisper = 1,
     Shout = 2,
     SilentTalk = 3,
-    SilentShout = 4,
-    Last = 4
+    SilentShout = 4
 };
 
 enum class ProjectilePathType {

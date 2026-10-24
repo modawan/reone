@@ -410,8 +410,7 @@ public:
     void update(Creature &caster, const Spell &spell, std::optional<int> itemType, std::optional<std::reference_wrapper<Creature>> targetCreature,
                 const glm::vec3 &targetPosition, const SpellSchedule &schedule, SpellSchedule::State state);
     /** Shows again what a restored cast was showing. */
-    void restore(Creature &caster, const Spell &spell, std::optional<int> itemType, std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                 const glm::vec3 &targetPosition, const SpellSchedule &schedule);
+    void restore(Creature &caster, const Spell &spell, const SpellSchedule &schedule);
 
 private:
     std::optional<ItemUsePresentation> _item;

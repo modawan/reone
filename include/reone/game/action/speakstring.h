@@ -18,7 +18,6 @@
 #pragma once
 
 #include "../action.h"
-#include "../object/creature.h"
 
 namespace reone {
 
@@ -39,13 +38,11 @@ public:
         return from->type() == ActionType::SpeakString;
     }
 
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
-        // A creature that speaks gives up stealth.
-        if (auto *creature = dyn_cast<Creature>(&actor)) {
-            creature->setStealthMode(false);
-        }
-        complete();
-    }
+    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    /** A saved SpeakString command: the text and the volume. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     std::string _stringToSpeak;

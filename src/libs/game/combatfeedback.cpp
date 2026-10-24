@@ -18,6 +18,7 @@
 #include "reone/game/combatfeedback.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <initializer_list>
 #include <map>
@@ -51,6 +52,8 @@ static constexpr int kStrRefDamageImmunity = 1458;
 static constexpr int kStrRefPoisonDamage = 41902;
 static constexpr int kStrRefPoisoned = 47873;
 static constexpr int kStrRefDeathExperience = 1407;
+static constexpr int kStrRefDamageTaken = 1402;
+static constexpr int kStrRefDamageDealt = 1403;
 static constexpr int kStrRefHitPointHealing = 1495;
 static constexpr int kStrRefForceHealing = 1031;
 static constexpr int kStrRefBlindnessImmunity = 0;
@@ -458,6 +461,74 @@ static void addMitigationLine(Game &game, Recipient damaged, Recipient other, co
                                          : game.getFeedbackText(game.isTSL() ? kStrRefUnknownObjectTSL : kStrRefUnknownObjectK1);
         return getMitigationText(game, damagedName, feedback);
     });
+}
+
+// The damage line names the creator and the damaged object, or only the
+// damaged object when there is no creator, with the total; then, in
+// parentheses, the physical damage and each other damage type present.
+static std::string getDamageText(Game &game, const std::shared_ptr<Object> &creator, const Object &damaged,
+                                 const std::array<int, DamageEffect::kSlotCount> &amounts) {
+    static constexpr std::array<std::pair<DamageType, int>, 11> kOtherDamageTypes {{
+        {DamageType::Universal, kStrRefUniversalDamage},
+        {DamageType::Acid, kStrRefAcidDamage},
+        {DamageType::Cold, kStrRefColdDamage},
+        {DamageType::LightSide, kStrRefLightSideDamage},
+        {DamageType::Electrical, kStrRefElectricalDamage},
+        {DamageType::Fire, kStrRefFireDamage},
+        {DamageType::DarkSide, kStrRefDarkSideDamage},
+        {DamageType::Sonic, kStrRefSonicDamage},
+        {DamageType::Ion, kStrRefIonDamage},
+        {DamageType::Blaster, kStrRefEnergyDamage},
+        {DamageType::Poison, kStrRefPoisonDamage},
+    }};
+    const auto total = std::to_string(amounts[DamageEffect::kTotal]);
+    auto text = creator ? game.getFeedbackText(kStrRefDamageDealt, {{0, creator->name()}, {1, damaged.name()}, {2, total}})
+                        : game.getFeedbackText(kStrRefDamageTaken, {{0, damaged.name()}, {1, total}});
+    std::vector<std::string> pieces;
+    const auto addPiece = [&](int strRef, int amount) {
+        pieces.push_back(game.getFeedbackText(strRef, {{0, std::to_string(amount)}}));
+    };
+    // Bludgeoning, piercing and slashing damage are told together as
+    // physical damage; a slot that took no part in the damage is negative.
+    const auto physical = {amounts[getDirectDamageSlot(static_cast<int>(DamageType::Bludgeoning))],
+                           amounts[getDirectDamageSlot(static_cast<int>(DamageType::Piercing))],
+                           amounts[getDirectDamageSlot(static_cast<int>(DamageType::Slashing))]};
+    if (std::any_of(physical.begin(), physical.end(), [](int amount) { return amount >= 0; })) {
+        int sum = 0;
+        for (int amount : physical) {
+            sum += std::max(0, amount);
+        }
+        addPiece(kStrRefPhysicalDamage, sum);
+    }
+    for (const auto &[type, strRef] : kOtherDamageTypes) {
+        const int amount = amounts[getDirectDamageSlot(static_cast<int>(type))];
+        if (amount >= 0) {
+            addPiece(strRef, amount);
+        }
+    }
+    text += " (";
+    for (size_t i = 0; i < pieces.size(); ++i) {
+        if (i > 0) {
+            text += " ";
+        }
+        text += pieces[i];
+    }
+    text += ")";
+    return text;
+}
+
+void addDamageFeedback(Game &game, const std::shared_ptr<Object> &creator, const Object &damaged,
+                       const std::array<int, DamageEffect::kSlotCount> &amounts) {
+    // A damaged creature tells its own side; a creature creator tells its
+    // side too when it is of another faction, or when the damaged object is
+    // a door or container.
+    const auto damagedCreature = Creature::asCreature(damaged);
+    Observed creatorSide = Creature::asCreature(creator);
+    if (creatorSide && damagedCreature && creatorSide->get().faction() == damagedCreature->get().faction()) {
+        creatorSide.reset();
+    }
+    tellCombatObservers(game, {damagedCreature, creatorSide},
+                        [&] { return getDamageText(game, creator, damaged, amounts); });
 }
 
 static std::optional<int> getEffectOutcomeMessageStrRef(int outcome) {

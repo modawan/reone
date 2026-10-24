@@ -51,6 +51,13 @@ const std::array<std::pair<std::string_view, bool FeedbackOptions::*>, 9> kFeedb
     {"Enable Tooltips", &FeedbackOptions::tooltips},
 }};
 
+// The Game Options keys of the difficulty level, the unlocked planet songs
+// and the mouse options.
+const std::string kDifficultyLevelKey {"Difficulty Level"};
+const std::string kUnlockedPlanetSongsKey {"UnlockedPlanetSongs"};
+const std::string kMouseLookKey {"Mouse Look"};
+const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
+
 // The Autopause Options keys.
 const std::array<std::pair<std::string_view, bool AutoPauseOptions::*>, 6> kAutoPauseKeys {{
     {"End Of Combat Round", &AutoPauseOptions::endOfCombatRound},
@@ -278,6 +285,39 @@ void FeedbackOptions::save(const std::filesystem::path &path) const {
         values.emplace_back(std::string(key), this->*option ? 1 : 0);
     }
     configuration.set(kGameOptionsSection, values);
+    configuration.write(path);
+}
+
+int loadDifficultyLevel(const std::filesystem::path &path, int level) {
+    return ConfigurationFile::read(path).number(kGameOptionsSection, kDifficultyLevelKey).value_or(level);
+}
+
+void saveDifficultyLevel(const std::filesystem::path &path, int level) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kDifficultyLevelKey, level}});
+    configuration.write(path);
+}
+
+void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kUnlockedPlanetSongsKey, songs}});
+    configuration.write(path);
+}
+
+MouseOptions MouseOptions::load(const std::filesystem::path &path) {
+    const auto configuration = ConfigurationFile::read(path);
+    MouseOptions result;
+    result.mouseLook = configuration.flag(kGameOptionsSection, kMouseLookKey).value_or(result.mouseLook);
+    result.sensitivity = configuration.number(kGameOptionsSection, kMouseSensitivityKey).value_or(result.sensitivity);
+    return result;
+}
+
+void MouseOptions::save(const std::filesystem::path &path) const {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {
+                                               {kMouseLookKey, mouseLook ? 1 : 0},
+                                               {kMouseSensitivityKey, sensitivity},
+                                           });
     configuration.write(path);
 }
 

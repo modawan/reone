@@ -12,15 +12,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
-#include "../fixtures/game.h"
-
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/effect.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/resource/gff.h"
+#include "reone/scene/collision.h"
+
+#include "../fixtures/engine.h"
+#include "../fixtures/game.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -184,7 +186,31 @@ TEST_P(WorldTimeFixture, forced_move_timeout_expires_after_the_scripted_real_dur
     advance(2.0f);
     action->execute(action, *actor, 0.0f);
     EXPECT_TRUE(action->isCompleted());
-    EXPECT_NEAR(actor->position().x, 100.0f, 0.001f);
+
+    // In an area with open ground at the destination, the mover that runs out
+    // of time is put down on it.
+    ON_CALL(*sceneGraph, testElevation(_, _))
+        .WillByDefault(Invoke([](const glm::vec3 &position, scene::Collision &collision) {
+            collision.intersection = glm::vec3(position.x, position.y, 0.0f);
+            return true;
+        }));
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    area->add(actor);
+    actor->setPosition({0.0f, 0.0f, 0.0f});
+
+    auto inArea = game.newAction<MoveToLocationAction>(destination, false, true, 30.0f);
+    inArea->execute(inArea, *actor, 0.0f);
+    advance(29.0f);
+    inArea->execute(inArea, *actor, 0.0f);
+    EXPECT_FALSE(inArea->isCompleted());
+    EXPECT_LT(glm::length(actor->position()), 1.0f);
+
+    advance(2.0f);
+    inArea->execute(inArea, *actor, 0.0f);
+    EXPECT_TRUE(inArea->isCompleted());
+    EXPECT_NEAR(100.0f, actor->position().x, 0.001f);
+    EXPECT_NEAR(0.0f, actor->position().y, 0.001f);
 }
 
 TEST_P(WorldTimeFixture, temporary_effect_expiry_round_trips_as_a_real_duration) {

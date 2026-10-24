@@ -112,6 +112,26 @@ private:
     /** The row whose description the panel shows, or -1 before any. */
     int _feedbackDescribedRow {-1};
 
+    /**
+     * Gameplay options panel, opened over the menu from BTN_GAMEPLAY. Only
+     * the difficulty level and mouse look are handled; the other options are
+     * drawn as laid out.
+     */
+    struct GameplayControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::Button> BTN_DIFFICULTY;
+        std::shared_ptr<gui::Button> BTN_DIFFLEFT;
+        std::shared_ptr<gui::Button> BTN_DIFFRIGHT;
+        std::shared_ptr<gui::ToggleButton> CB_INVERTCAM;
+        std::shared_ptr<gui::Label> LBL_TITLE;
+        std::shared_ptr<gui::ListBox> LB_DESC;
+    };
+
+    std::shared_ptr<gui::IGUI> _gameplayGUI;
+    GameplayControls _gameplayControls;
+    bool _gameplayOpen {false};
+
     void onGUILoaded() override;
 
     /** Load the feedback options panel and wire its rows and buttons. */
@@ -122,6 +142,17 @@ private:
     /** List one row per feedback option, checked when the option is on. */
     void showFeedbackOptions();
     void showFeedbackDescription(int row);
+
+    /** Load the gameplay options panel and wire its buttons. */
+    void loadGameplayPanel();
+    /** Open the gameplay panel on the current difficulty and Mouse Look. */
+    void openGameplayPanel();
+    void closeGameplayPanel();
+    /** Step the difficulty level down or up, within the levels the player can pick. */
+    void lowerDifficulty();
+    void raiseDifficulty();
+    /** Show the difficulty level's name, with an arrow on each side that has a level to step to. */
+    void showDifficulty();
 
     /** Load the autopause options panel and wire its checkboxes and buttons. */
     void loadAutoPausePanel();

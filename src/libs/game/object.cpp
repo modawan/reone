@@ -334,13 +334,25 @@ void Object::update(float dt) {
     updateActions(dt);
     updateEffects(dt);
     updateShownVisuals(dt);
+    executeActionsIfAble(dt);
+    if (_sceneNode && _sceneNode->type() == SceneNodeType::Model) {
+        std::static_pointer_cast<ModelSceneNode>(_sceneNode)->setPickable(isSelectable());
+    }
+}
+
+void Object::runActions() {
+    if (!isRuntimeLive()) {
+        return;
+    }
+    updateActions(0.0f);
+    executeActionsIfAble(0.0f);
+}
+
+void Object::executeActionsIfAble(float dt) {
     // An action that can no longer be cleared runs on whatever holds the object.
     const auto current = getCurrentAction();
     if (!isDead() && (canExecuteActions() || (current && !current->isClearable()))) {
         executeActions(dt);
-    }
-    if (_sceneNode && _sceneNode->type() == SceneNodeType::Model) {
-        std::static_pointer_cast<ModelSceneNode>(_sceneNode)->setPickable(isSelectable());
     }
 }
 
@@ -361,6 +373,37 @@ void Object::setLocalBoolean(int index, bool value) {
 void Object::setLocalNumber(int index, int value) {
     _localNumbers[index] = value;
 }
+
+void Object::setListenPattern(const std::string &pattern, int32_t number) {
+    auto expression = std::find_if(_listenExpressions.begin(), _listenExpressions.end(),
+                                   [number](const ListenExpression &entry) { return entry.number == number; });
+    if (expression == _listenExpressions.end()) {
+        expression = _listenExpressions.insert(_listenExpressions.end(), ListenExpression {number, "", std::nullopt});
+    }
+    // A pattern that fails to parse leaves the entry matching nothing, and
+    // the last pattern that parsed is still the one saved.
+    expression->parsed = ListenPattern::parse(pattern);
+    if (expression->parsed) {
+        expression->pattern = boost::to_lower_copy(pattern);
+    }
+}
+
+std::optional<int32_t> Object::testListenExpressions(const std::string &str, std::vector<std::string> &pieces) const {
+    for (const auto &expression : _listenExpressions) {
+        if (expression.parsed && expression.parsed->match(str, pieces)) {
+            return expression.number;
+        }
+    }
+    return std::nullopt;
+}
+
+void Object::receiveConversationEvent(ConversationEvent event) {
+    _lastSpeaker = event.speaker;
+    _listenPatternNumber = event.patternNumber;
+    _matchedSubstrings = std::move(event.matchedPieces);
+    runConversationScript();
+}
+
 void Object::deserializeRuntimeState(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -651,23 +694,11 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
     // A kept saved action is written back behind the restored node it followed
     // in its saved queue, or behind the nearest restored node before that one
     // still saved; with none, ahead of every live action.
-    auto isSaved = [this](const OrdinaryActionQueue::Node &node) {
-        return std::find(_actions.nodes.begin(), _actions.nodes.end(), node) != _actions.nodes.end() &&
-               !node->action->isCompleted() && !node->action->isCancelled();
-    };
-    std::vector<std::pair<OrdinaryActionQueue::Node, SavedActionRecord>> kept;
-    OrdinaryActionQueue::Node anchor;
-    for (const auto &published : _publishedSavedActions) {
-        if (published.kept) {
-            kept.emplace_back(anchor, *published.kept);
-        } else if (auto node = published.restored.lock(); node && isSaved(node)) {
-            anchor = std::move(node);
-        }
-    }
+    const auto kept = keptSavedActionAnchors();
     auto saveKeptBehind = [&](const OrdinaryActionQueue::Node &node) {
-        for (const auto &[after, record] : kept) {
+        for (const auto &[published, after] : kept) {
             if (after == node) {
-                result.push_back(record);
+                result.push_back(*_publishedSavedActions[published].kept);
             }
         }
     };
@@ -691,6 +722,24 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             throw unsupportedAction(*action, index);
         }
         saveKeptBehind(node);
+    }
+    return result;
+}
+
+std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> Object::keptSavedActionAnchors() const {
+    auto isSaved = [this](const OrdinaryActionQueue::Node &node) {
+        return std::find(_actions.nodes.begin(), _actions.nodes.end(), node) != _actions.nodes.end() &&
+               !node->action->isCompleted() && !node->action->isCancelled();
+    };
+    std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> result;
+    OrdinaryActionQueue::Node anchor;
+    for (size_t index = 0; index < _publishedSavedActions.size(); ++index) {
+        const auto &published = _publishedSavedActions[index];
+        if (published.kept) {
+            result.emplace_back(index, anchor);
+        } else if (auto node = published.restored.lock(); node && isSaved(node)) {
+            anchor = std::move(node);
+        }
     }
     return result;
 }
@@ -1100,6 +1149,27 @@ void Object::cancelActionGroups(const std::function<bool(const Action &)> &match
     }
 }
 
+void Object::removeActionsBehind(const Action &action) {
+    auto &nodes = _actions.nodes;
+    auto position = std::find_if(nodes.begin(), nodes.end(),
+                                 [&](const OrdinaryActionQueue::Node &node) { return node->action.get() == &action; });
+    if (position == nodes.end()) {
+        return;
+    }
+    // The kept saved actions queued behind it go with the rest.
+    const auto kept = keptSavedActionAnchors();
+    std::vector<size_t> dropped;
+    for (const auto &[published, after] : kept) {
+        if (after && std::find(position, nodes.end(), after) != nodes.end()) {
+            dropped.push_back(published);
+        }
+    }
+    for (auto it = dropped.rbegin(); it != dropped.rend(); ++it) {
+        _publishedSavedActions.erase(_publishedSavedActions.begin() + static_cast<std::ptrdiff_t>(*it));
+    }
+    nodes.erase(std::next(position), nodes.end());
+}
+
 void Object::requeueActionNode(const OrdinaryActionQueue::Node &node) {
     if (!isRuntimeLive() || !node) {
         return;
@@ -1147,6 +1217,11 @@ void Object::removeCompletedActions() {
 void Object::executeActions(float dt) {
     if (_actions.nodes.empty()) {
         _spellScriptContext.clearActiveTarget();
+        if (auto *creature = dyn_cast<Creature>(this)) {
+            creature->setAttemptedAttackTarget(script::kObjectInvalid);
+            creature->resetAttemptedMovementTarget();
+            creature->resetBlockingCreature();
+        }
         return;
     }
     auto node = _actions.nodes.front();

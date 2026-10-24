@@ -35,6 +35,8 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** A saved FollowLeader command. */
+    static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
 private:
     void glanceAtLeader(Creature &follower, const std::shared_ptr<Creature> &leader, bool moved);

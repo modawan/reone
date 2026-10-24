@@ -19,6 +19,8 @@
 
 #include "reone/game/action/equipitem.h"
 #include "reone/game/action/giveitem.h"
+#include "reone/game/action/pickupitem.h"
+#include "reone/game/action/putdownitem.h"
 #include "reone/game/action/switchweapons.h"
 #include "reone/game/action/takeitem.h"
 #include "reone/game/action/unequipitem.h"
@@ -84,6 +86,29 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     complete();
 }
 
+// A give is kept as the item and the receiver, the whole stack, given by a
+// script; taken up again it walks up afresh.
+static constexpr int32_t kWholeStack = -1;
+static constexpr int32_t kGivenByScript = 1;
+
+std::optional<SavedActionRecord> GiveItemAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::GiveItem, {
+                                                                     {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
+                                                                     {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_giveTo->id())},
+                                                                     {kSavedIntegerParameter, kWholeStack},
+                                                                     {kSavedIntegerParameter, kGivenByScript},
+                                                                 });
+}
+
+std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record, Game &game) {
+    auto item = std::dynamic_pointer_cast<Item>(record.objectParameter(0).boundObject());
+    auto receiver = record.objectParameter(1).boundObject();
+    if (!item || !receiver) {
+        return nullptr;
+    }
+    return game.newAction<GiveItemAction>(std::move(item), std::move(receiver));
+}
+
 // A creature or placeable takes the item. A creature that takes it from a
 // party member reports the item lost in the status summary.
 void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -104,6 +129,66 @@ void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     complete();
 }
 
+// A take is kept as the item and the giver, and a third value, always 1.
+static constexpr int32_t kTakeThirdValue = 1;
+
+std::optional<SavedActionRecord> TakeItemAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::TakeItem, {
+                                                                     {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
+                                                                     {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_takeFrom->id())},
+                                                                     {kSavedIntegerParameter, kTakeThirdValue},
+                                                                 });
+}
+
+std::shared_ptr<Action> TakeItemAction::restore(const SavedActionRecord &record, Game &game) {
+    auto item = std::dynamic_pointer_cast<Item>(record.objectParameter(0).boundObject());
+    auto giver = record.objectParameter(1).boundObject();
+    if (!item || !giver) {
+        return nullptr;
+    }
+    return game.newAction<TakeItemAction>(std::move(item), std::move(giver));
+}
+
+// A pick-up is kept as the item, from no container and no inventory slot.
+std::optional<SavedActionRecord> PickUpItemAction::saveFacingState() const {
+    static constexpr int32_t kNoInventorySlot = 0xff;
+    return SavedActionRecord::command(SavedActionType::PickUpItem, {
+                                                                       {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
+                                                                       {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(kSavedRuntimeInvalidObjectId)},
+                                                                       {kSavedIntegerParameter, kNoInventorySlot},
+                                                                   });
+}
+
+std::shared_ptr<Action> PickUpItemAction::restore(const SavedActionRecord &record, Game &game) {
+    auto item = std::dynamic_pointer_cast<Item>(record.objectParameter(0).boundObject());
+    if (!item) {
+        return nullptr;
+    }
+    return game.newAction<PickUpItemAction>(std::move(item));
+}
+
+// A put-down is kept as the item and where it goes down: at the feet of the one
+// holding it, or where it lies when nobody does.
+std::optional<SavedActionRecord> PutDownItemAction::saveFacingState() const {
+    auto holder = _game.getObjectById(_item->owner());
+    const glm::vec3 point = holder ? holder->position() : _item->position();
+    return SavedActionRecord::command(SavedActionType::PutDownItem, {
+                                                                        {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
+                                                                        {kSavedFloatParameter, point.x},
+                                                                        {kSavedFloatParameter, point.y},
+                                                                        {kSavedFloatParameter, point.z},
+                                                                        {kSavedIntegerParameter, int32_t {0}},
+                                                                    });
+}
+
+std::shared_ptr<Action> PutDownItemAction::restore(const SavedActionRecord &record, Game &game) {
+    auto item = std::dynamic_pointer_cast<Item>(record.objectParameter(0).boundObject());
+    if (!item) {
+        return nullptr;
+    }
+    return game.newAction<PutDownItemAction>(std::move(item));
+}
+
 void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (auto *creature = dyn_cast<Creature>(&actor); creature && canRunEquipmentCommand(_game, *creature)) {
         runEquip(_game, *creature, _item, _inventorySlot, _instant != 0);
@@ -117,15 +202,20 @@ std::optional<SavedActionRecord> EquipItemAction::saveFacingState() const {
         return std::nullopt;
     }
     // The item, the slot mask and the instant flag.
-    SavedActionRecord result;
-    result.actionId = static_cast<uint32_t>(SavedActionType::EquipItem);
-    result.declaredParameterCount = 3;
-    result.parameters = {
-        {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
-        {kSavedIntegerParameter, static_cast<int32_t>(slot)},
-        {kSavedIntegerParameter, _instant},
-    };
-    return result;
+    return SavedActionRecord::command(SavedActionType::EquipItem, {
+                                                                      {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
+                                                                      {kSavedIntegerParameter, static_cast<int32_t>(slot)},
+                                                                      {kSavedIntegerParameter, _instant},
+                                                                  });
+}
+
+std::shared_ptr<Action> EquipItemAction::restore(const SavedActionRecord &record, Game &game) {
+    auto item = std::dynamic_pointer_cast<Item>(record.objectParameter(0).boundObject());
+    if (!item) {
+        return nullptr;
+    }
+    const auto slot = *equipmentSlotFromMask(static_cast<uint32_t>(record.integerParameter(1)));
+    return game.newAction<EquipItemAction>(std::move(item), slot, record.integerParameter(2));
 }
 
 void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -176,6 +266,21 @@ std::optional<SavedActionRecord> UnequipItemAction::saveFacingState() const {
         result.parameters.push_back({kSavedIntegerParameter, int32_t {0}});
     }
     return result;
+}
+
+std::shared_ptr<Action> UnequipItemAction::restore(const SavedActionRecord &record, Game &game) {
+    auto item = std::dynamic_pointer_cast<Item>(record.objectParameter(0).boundObject());
+    if (!item) {
+        return nullptr;
+    }
+    const auto &reference = record.objectParameter(1);
+    auto container = std::dynamic_pointer_cast<Item>(reference.boundObject());
+    auto unequip = game.newAction<UnequipItemAction>(std::move(item), record.integerParameter(2), container);
+    // A container value that names no item is kept as it is.
+    if (!reference.isInvalid() && !container) {
+        unequip->overwriteContainer(static_cast<int32_t>(reference.id));
+    }
+    return unequip;
 }
 
 void SwitchWeaponsAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -236,9 +341,11 @@ bool SwitchWeaponsAction::cancel(std::shared_ptr<Action>, Object &actor) {
 }
 
 std::optional<SavedActionRecord> SwitchWeaponsAction::saveFacingState() const {
-    SavedActionRecord result;
-    result.actionId = static_cast<uint32_t>(SavedActionType::SwitchWeapons);
-    return result;
+    return SavedActionRecord::command(SavedActionType::SwitchWeapons, {});
+}
+
+std::shared_ptr<Action> SwitchWeaponsAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<SwitchWeaponsAction>();
 }
 
 } // namespace game

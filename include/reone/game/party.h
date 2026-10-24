@@ -31,6 +31,10 @@
 
 namespace reone {
 
+namespace resource {
+class TwoDA;
+}
+
 namespace game {
 
 class Area;
@@ -99,6 +103,8 @@ public:
     static constexpr int kForfeitNoForcePowers = 1;
     static constexpr int kForfeitNoItems = 2;
     static constexpr int kForfeitNoItemButShield = 128;
+    /** The saved influence of a party NPC whose influence was never set. */
+    static constexpr int kInfluenceNeverSet = -1;
 
     struct PersistedState {
         std::string pcName;
@@ -132,7 +138,7 @@ public:
 
         PersistedState() {
             npcSelectable.fill(true);
-            influence.fill(-1);
+            influence.fill(kInfluenceNeverSet);
             puppetSelectable.fill(true);
         }
     };
@@ -217,6 +223,18 @@ public:
     int lastForfeitViolation() const { return _persistedState.forfeitViolation; }
     void setLastForfeitViolation(int condition) { _persistedState.forfeitViolation = condition; }
 
+    /** The companions' base influence: influence.2da in TSL; none in KotOR, which has no influence. */
+    std::shared_ptr<resource::TwoDA> influenceTable() const;
+
+    /** Whether npc names a party NPC slot. */
+    static bool isNpcSlot(int npc) { return npc >= 0 && npc < static_cast<int>(kMaxNpcCount); }
+    /** A party NPC's influence (TSL); none while never set. */
+    std::optional<int> influence(int npc) const {
+        const int value = _persistedState.influence.at(static_cast<size_t>(npc));
+        return value == kInfluenceNeverSet ? std::nullopt : std::optional<int>(value);
+    }
+    void setInfluence(int npc, int value) { _persistedState.influence.at(static_cast<size_t>(npc)) = value; }
+
     /** Roster index of the actor standing in for the PC, or kNpcPlayer. */
     int controlledNpc() const { return _persistedState.controlledNpc; }
 
@@ -261,6 +279,8 @@ public:
     void endStealth();
     /** Members other than the player's own creature. */
     int companionCount() const;
+    /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
+    bool isCompanion(const Member &member) const;
 
     // Members
 
@@ -402,6 +422,8 @@ public:
     bool assignPuppet(int puppet, int npc);
     std::optional<int> assignedNpcForPuppet(int puppet) const;
     std::shared_ptr<Creature> puppetOwner(int puppet) const;
+    /** The owner of the puppet the creature is bound to, or none. */
+    std::shared_ptr<Creature> puppetOwner(const Creature &puppet) const;
 
     /** Complete live object graph retained by the session across Areas. */
     std::vector<std::shared_ptr<Object>> runtimeObjects() const;
@@ -631,8 +653,6 @@ private:
 
     // Apply the party XP pool value to every current member's creature XP.
     void syncMembersXP();
-    /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
-    bool isCompanion(const Member &member) const;
     /** PercentXP of an npc.2da row; a blank or missing cell counts as 0. */
     int percentXP(int row) const;
     /** Pay a creature its share of an award. */

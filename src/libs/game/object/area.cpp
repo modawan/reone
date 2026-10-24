@@ -26,11 +26,13 @@
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/action/appear.h"
 #include "reone/game/camerastyles.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/creaturestate.h"
 #include "reone/game/effect/linkeffects.h"
+#include "reone/game/effect/resurrection.h"
 #include "reone/game/effect/visual.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
@@ -111,10 +113,15 @@ static constexpr float kPartyPlacementRadius = 10.0f;
 // A creature placed by the area file or created by a script stands at the
 // first safe spot this far around its position that it can walk to.
 static constexpr float kCreaturePlacementRadius = 20.0f;
+// The leader enters an area on the first safe spot this near its entry point,
+// or on the entry point itself when there is none.
+static constexpr float kEntryPlacementRadius = 20.0f;
 // A safe spot's walkmesh check reaches this far below the feet.
 static constexpr float kSafeLocationFloorBand = 0.1f;
-// The open-spot search stops at rings this far out.
+// The open-spot search stops at rings this far out, and takes no ring spot
+// farther than this from the centre.
 static constexpr float kOpenSpotSearchExtent = 20.0f;
+static constexpr float kOpenSpotMaxDistance = 30.0f;
 // Creatures in the way of a corpse bag are looked for this far around its
 // collision box, and each is placed within this radius of its pushed spot.
 static constexpr float kBudgeMargin = 3.0f;
@@ -690,7 +697,7 @@ Area::~Area() {
     }
     // Corpses, fading bodies and released effect models go with the area.
     if (_fadingBodies.empty() && _corpses.empty() && _corpseBagBodies.empty() && _releasedEffectModels.empty() &&
-        _presentedVisuals.empty())
+        _presentedVisuals.empty() && _hitSparks.empty())
         return;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     for (auto &body : _fadingBodies) {
@@ -707,6 +714,9 @@ Area::~Area() {
     }
     for (auto &model : _presentedVisuals) {
         sceneGraph.removeRoot(*model);
+    }
+    for (auto &spark : _hitSparks) {
+        sceneGraph.removeRoot(*spark.model);
     }
 }
 
@@ -1117,6 +1127,65 @@ void Area::determineObjectRoom(Object &object) {
     object.setRoom(room);
 }
 
+// Room surfaces are looked for from this high above a point down to as far
+// below it.
+static constexpr float kRoomSurfaceReach = 1000.0f;
+static constexpr glm::vec3 kRoomSurfaceLift {0.0f, 0.0f, kRoomSurfaceReach};
+// The surface materials, and the Trigger material among them.
+static constexpr uint32_t kSurfaceMaterialCount = 32;
+static constexpr uint32_t kTriggerSurfaceMaterial = 30;
+
+// Casts down through a room's walkmesh from a point to twice kRoomSurfaceReach
+// below it, meeting only faces of the given materials seen from above.
+static graphics::Raycast raycastRoomDown(const Room &room, const std::set<uint32_t> &materials, const glm::vec3 &top) {
+    auto mesh = room.walkmesh();
+    auto localOrigin = glm::vec3(mesh->absoluteTransformInverse() * glm::vec4(top, 1.0f));
+    return mesh->walkmesh().raycast(
+        materials, localOrigin, glm::vec3(0.0f, 0.0f, -1.0f), 2.0f * kRoomSurfaceReach, /*ignoreBackface=*/true);
+}
+
+// Check walkable room surfaces along z +/-1000 and stop at the first hit.
+// Visibility, cached room pointers, and nearest-center distance do not select the room.
+std::optional<std::reference_wrapper<const Room>> Area::getRoomUnder(const glm::vec3 &position) const {
+    auto surfaces = _services.game.surfaces.getWalkableSurfaces();
+    for (const Room *room : _roomOrder) {
+        if (room->walkmesh() && raycastRoomDown(*room, surfaces, position + kRoomSurfaceLift).fail == graphics::RAYCAST_OK) {
+            return *room;
+        }
+    }
+    return std::nullopt;
+}
+
+bool Area::testRoomSurface(const glm::vec2 &point, Collision &outCollision) const {
+    // Every surface material but Trigger counts here, walkable or not.
+    static const std::set<uint32_t> surfaces = [] {
+        std::set<uint32_t> all;
+        for (uint32_t material = 0; material < kSurfaceMaterialCount; ++material) {
+            if (material != kTriggerSurfaceMaterial) {
+                all.insert(material);
+            }
+        }
+        return all;
+    }();
+    std::optional<float> nearest;
+    for (const Room *room : _roomOrder) {
+        auto mesh = room->walkmesh();
+        if (!mesh) {
+            continue;
+        }
+        auto raycast = raycastRoomDown(*room, surfaces, glm::vec3 {point, kRoomSurfaceReach});
+        if (raycast.fail != graphics::RAYCAST_OK || (nearest && raycast.distance >= *nearest)) {
+            continue;
+        }
+        nearest = raycast.distance;
+        outCollision.user = mesh->user();
+        outCollision.intersection = glm::vec3 {point, kRoomSurfaceReach - raycast.distance};
+        outCollision.normal = mesh->absoluteTransform() * glm::vec4(mesh->walkmesh().normals[raycast.face], 0.0f);
+        outCollision.material = static_cast<int>(mesh->walkmesh().materials[raycast.face]);
+    }
+    return nearest.has_value();
+}
+
 int Area::getRoomForceRating(const glm::vec3 &position) const {
     if (!_game.isTSL() || _roomForceRatings.empty()) {
         return 0;
@@ -1129,28 +1198,39 @@ int Area::getRoomForceRating(const glm::vec3 &position) const {
     // rating.
     static const glm::vec3 kRetryShift {0.001f * glm::normalize(glm::vec3 {1.0f, 1.0f, 0.0f})};
     auto surfaces = _services.game.surfaces.getWalkcheckSurfaces();
-    const glm::vec3 origin = position + glm::vec3(0.0f, 0.0f, 1000.0f);
-    const glm::vec3 direction {0.0f, 0.0f, -1.0f};
+    const glm::vec3 top = position + kRoomSurfaceLift;
     for (const Room *room : _roomOrder) {
-        auto mesh = room->walkmesh();
-        if (!mesh) {
+        if (!room->walkmesh()) {
             continue;
         }
         const auto hits = [&](const glm::vec3 &from) {
-            auto localOrigin = glm::vec3(
-                mesh->absoluteTransformInverse() * glm::vec4(from, 1.0f));
-            return mesh->walkmesh().raycast(
-                                       surfaces, localOrigin, direction, 2000.0f,
-                                       /*ignoreBackface=*/true)
-                       .fail == graphics::RAYCAST_OK;
+            return raycastRoomDown(*room, surfaces, from).fail == graphics::RAYCAST_OK;
         };
-        if (!hits(origin) && !hits(origin + kRetryShift)) {
+        if (!hits(top) && !hits(top + kRetryShift)) {
             continue;
         }
         auto found = _roomForceRatings.find(boost::to_lower_copy(room->name()));
         return found != _roomForceRatings.end() ? found->second : 0;
     }
     return 0;
+}
+
+int Area::getSurfaceMaterial(const glm::vec3 &position) const {
+    auto room = getRoomUnder(position);
+    if (!room) {
+        return 0;
+    }
+    // Every one of the surface materials counts here, walkable or not, so the
+    // walkable face that found the room is met at the latest.
+    static const std::set<uint32_t> surfaces = [] {
+        std::set<uint32_t> all;
+        for (uint32_t material = 0; material < kSurfaceMaterialCount; ++material) {
+            all.insert(material);
+        }
+        return all;
+    }();
+    auto raycast = raycastRoomDown(room->get(), surfaces, position + kRoomSurfaceLift);
+    return static_cast<int>(room->get().walkmesh()->walkmesh().materials[raycast.face]);
 }
 
 void Area::doDestroyObjects() {
@@ -1437,9 +1517,59 @@ void Area::presentVisualAt(int visualEffectId, const glm::vec3 &position) {
     }
 }
 
+static constexpr size_t kMaxHitSparksPerCreature = 12;
+// The spark is tipped one radian about the world's X axis.
+static constexpr float kHitSparkTilt = 1.0f;
+// A blow shorter than this has no direction.
+static constexpr float kShortestBlow = 1e-9f;
+
+// The spark turns about the vertical by the angle from the target's facing to
+// the blow, counter-clockwise, and keeps that turn against the world's axes
+// whichever way the target faces.
+void Area::presentHitSpark(const Creature &target, int visualEffectId, const glm::vec3 &direction,
+                           const std::string &hook) {
+    // A creature without a body model, or whose model lacks the hook node,
+    // shows no spark; nor does a visual effect without an impact model.
+    auto body = std::static_pointer_cast<ModelSceneNode>(target.sceneNode());
+    if (!body) {
+        return;
+    }
+    const auto shown = std::count_if(_hitSparks.begin(), _hitSparks.end(), [&body](const HitSpark &spark) {
+        return spark.body.lock() == body;
+    });
+    if (static_cast<size_t>(shown) >= kMaxHitSparksPerCreature) {
+        return;
+    }
+    const VisualEffectDesc &desc = *_services.game.visualEffects.get(visualEffectId);
+    auto *node = body->getNodeByName(hook);
+    if (!desc.impactModel || !node) {
+        return;
+    }
+    const float facing = target.getFacing();
+    const glm::vec3 front {-std::sin(facing), std::cos(facing), 0.0f};
+    // A blow with no length counts as one along the world's X axis.
+    const float length = glm::length(direction);
+    const glm::vec3 blow = length < kShortestBlow ? glm::vec3 {1.0f, 0.0f, 0.0f} : direction / length;
+    float angle = std::acos(std::min(glm::dot(blow, front), 1.0f));
+    if (front.y * blow.x - front.x * blow.y >= 0.0f) {
+        angle = -angle;
+    }
+    HitSpark spark;
+    spark.body = body;
+    spark.hook = hook;
+    spark.orientation = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
+                        glm::angleAxis(kHitSparkTilt, glm::vec3(1.0f, 0.0f, 0.0f));
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    spark.model = sceneGraph.newModel(*desc.impactModel, ModelUsage::Projectile);
+    sceneGraph.addRoot(spark.model);
+    spark.model->setLocalTransform(glm::translate(node->origin()) * glm::mat4_cast(spark.orientation));
+    spark.model->playAnimation("impact");
+    _hitSparks.push_back(std::move(spark));
+}
+
 void Area::updateReleasedPresentation(float dt) {
     if (_fadingBodies.empty() && _corpses.empty() && _corpseBagBodies.empty() && _releasedEffectModels.empty() &&
-        _presentedVisuals.empty())
+        _presentedVisuals.empty() && _hitSparks.empty())
         return;
     for (auto &body : _corpses) {
         if (body.room) {
@@ -1485,6 +1615,22 @@ void Area::updateReleasedPresentation(float dt) {
         } else {
             ++it;
         }
+    }
+    // A spark keeps to its node while the body shows it.
+    for (auto it = _hitSparks.begin(); it != _hitSparks.end();) {
+        if (it->model->isAnimationFinished()) {
+            sceneGraph.removeRoot(*it->model);
+            it = _hitSparks.erase(it);
+            continue;
+        }
+        // A spark whose body has gone, or whose rebuilt body lacks the node,
+        // stays where it is.
+        auto body = it->body.lock();
+        auto *node = body ? body->getNodeByName(it->hook) : nullptr;
+        if (node) {
+            it->model->setLocalTransform(glm::translate(node->origin()) * glm::mat4_cast(it->orientation));
+        }
+        ++it;
     }
 }
 
@@ -1666,7 +1812,7 @@ bool Area::isSafeLocationPoint(const glm::vec3 &point, const Creature &creature)
     const float ownRadius = creature.creaturePersonalSpace() + kCreatureCollisionEpsilon;
     for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
         const auto &other = static_cast<const Creature &>(*object);
-        if (&other == &creature || other.isDead()) {
+        if (&other == &creature || other.isDead() || other.isTemporarilyDead()) {
             continue;
         }
         const float reach = ownRadius + other.creaturePersonalSpace();
@@ -1777,6 +1923,43 @@ bool Area::crossesDoor(const glm::vec3 &from, const glm::vec3 &to) const {
     return false;
 }
 
+std::optional<glm::vec3> Area::computeSafeLocationInDirection(
+    const glm::vec3 &base, const glm::vec3 &direction, float radius, const Creature &creature, bool clearLine) const {
+    static constexpr float kProbe = 0.01f;
+    static constexpr float kRowRounding = 0.01f;
+    // Spots stand on the ground, or at zero height off it.
+    const auto spotAt = [this](const glm::vec2 &point) {
+        const auto ground = groundHeight(glm::vec3(point, scene::kElevationTestZ));
+        return std::make_pair(glm::vec3(point, ground.value_or(0.0f)), ground.has_value());
+    };
+    const auto [first, walkable] = spotAt(glm::vec2(base + direction));
+    if (isSafeLocationPoint(first, creature)) {
+        return first;
+    }
+    const glm::vec3 probe {kProbe, kProbe, 0.0f};
+    if (!walkable || testDirectLine(creature, first - probe, first + probe).result == DirectLine::Blocked) {
+        clearLine = false;
+    }
+
+    const float step = creature.personalSpace();
+    const glm::vec2 along {glm::normalize(glm::vec2(direction))};
+    const glm::vec2 across {along.y, -along.x};
+    for (float width = step; radius > width; width += step) {
+        const int row = static_cast<int>((width + kRowRounding) / step);
+        for (int i = -row; i <= row; ++i) {
+            const glm::vec3 spot {spotAt(glm::vec2(base) + static_cast<float>(row) * along + static_cast<float>(i) * across).first};
+            if (!isSafeLocationPoint(spot, creature)) {
+                continue;
+            }
+            if (clearLine && testDirectLine(creature, base, spot).result == DirectLine::Blocked) {
+                continue;
+            }
+            return spot;
+        }
+    }
+    return computeSafeLocation(base, radius, creature, clearLine);
+}
+
 std::optional<glm::vec3> Area::findOpenSpotInSight(const glm::vec3 &center, const Creature &creature) const {
     const auto height = groundHeight(center);
     const glm::vec3 grounded {center.x, center.y, height.value_or(0.0f)};
@@ -1786,6 +1969,9 @@ std::optional<glm::vec3> Area::findOpenSpotInSight(const glm::vec3 &center, cons
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     return searchSquareRings(center, 1.0f, creature.personalSpace(), [](float width) { return width < kOpenSpotSearchExtent; }, [&](const glm::vec3 &spot, bool) -> std::optional<glm::vec3> {
             if (!isSafeLocationPoint(spot, creature)) {
+                return std::nullopt;
+            }
+            if (glm::distance(center, spot) > kOpenSpotMaxDistance) {
                 return std::nullopt;
             }
             Collision collision;
@@ -1852,6 +2038,12 @@ void Area::jumpCarriedAreaEffects(const Creature &carrier) {
     }
 }
 
+std::optional<std::reference_wrapper<const Creature>> Area::findBlockingCreature(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const {
+    CreatureCollision collision;
+    findCreatureCollision(mover, from, to, collision);
+    return collision.creature;
+}
+
 Area::DirectLineTest Area::testDirectLine(
     const Creature &mover,
     const glm::vec3 &from,
@@ -1865,6 +2057,10 @@ Area::DirectLineTest Area::testDirectLine(
     if (sceneGraph.testWalk(from + lift, to + lift, &mover, collision)) {
         test.result = DirectLine::Blocked;
         test.stopPoint = collision.intersection - lift;
+        if (auto door = dynamic_cast<const Door *>(collision.user)) {
+            test.door = *door;
+        }
+        test.normal = collision.normal;
         return test;
     }
     CreatureCollision creatureCollision;
@@ -1872,8 +2068,100 @@ Area::DirectLineTest Area::testDirectLine(
         test.result = DirectLine::CreatureBlocked;
         test.blocker = creatureCollision.creature;
         test.stopPoint = from + (to - from) * creatureCollision.time;
+        test.normal = glm::vec3 {creatureCollision.normal, 0.0f};
     }
     return test;
+}
+
+glm::vec3 Area::randomDestination(const Creature &mover, int range) const {
+    static constexpr int kTries = 22;
+    static constexpr float kShrink = 0.75f;
+    static constexpr float kShortestShrunk = 2.5f;
+    static constexpr float kShortest = 1.0f;
+    static constexpr int kRandMax = 0x7fff;
+
+    const glm::vec3 &origin = mover.position();
+    const int span = 2 * range;
+    const int dx = randomInt(0, kRandMax) % span - range;
+    const int dy = randomInt(0, kRandMax) % span - range;
+    glm::vec3 target {origin.x + static_cast<float>(dx), origin.y + static_cast<float>(dy), 0.0f};
+    target.z = groundHeight(target).value_or(0.0f);
+
+    glm::vec3 direction {target - origin};
+    const float fullDistance = glm::length(direction);
+    if (fullDistance > 0.0f) {
+        direction /= fullDistance;
+    }
+    float distance = fullDistance;
+    for (int attempt = 0; attempt < kTries; ++attempt) {
+        if (testDirectLine(mover, origin, target).result == DirectLine::Clear) {
+            return target;
+        }
+        if (kShrink * distance >= kShortestShrunk) {
+            distance *= kShrink;
+        } else {
+            // The new direction is a quarter turn either way, keeping only its
+            // level part, or straight back; the distance starts over.
+            switch (randomInt(0, kRandMax) % 3) {
+            case 1:
+                direction = glm::vec3(-direction.y, direction.x, 0.0f);
+                break;
+            case 2:
+                direction = glm::vec3(direction.y, -direction.x, 0.0f);
+                break;
+            default:
+                direction = -direction;
+                break;
+            }
+            distance = fullDistance;
+        }
+        target = origin + direction * distance;
+        if (distance < kShortest) {
+            return origin;
+        }
+    }
+    return origin;
+}
+
+std::optional<glm::vec3> Area::randomWalkPoint(const Creature &walker, const glm::vec3 &home) const {
+    static constexpr int kTries = 22;
+    static constexpr int kSpan = 15;
+    static constexpr int kReach = 7;
+    static constexpr float kShrink = 0.75f;
+    static constexpr float kShortestShare = 0.3f;
+    static constexpr float kShortest = 1.0f;
+    static constexpr int kRandMax = 0x7fff;
+
+    const int dx = randomInt(0, kRandMax) % kSpan - kReach;
+    const int dy = randomInt(0, kRandMax) % kSpan - kReach;
+    glm::vec3 target {home.x + static_cast<float>(dx), home.y + static_cast<float>(dy), 0.0f};
+    target.z = groundHeight(target).value_or(0.0f);
+
+    const glm::vec3 &origin = walker.position();
+    glm::vec3 direction {target - origin};
+    const float fullDistance = glm::length(direction);
+    if (fullDistance > 0.0f) {
+        direction /= fullDistance;
+    }
+    const float shortestShrunk = kShortestShare * fullDistance;
+    float distance = fullDistance;
+    for (int attempt = 0; attempt < kTries; ++attempt) {
+        if (testDirectLine(walker, origin, target).result == DirectLine::Clear) {
+            return target;
+        }
+        if (kShrink * distance >= shortestShrunk) {
+            distance *= kShrink;
+        } else {
+            // The level part of the same bearing, with the distance started over.
+            direction.z = 0.0f;
+            distance = fullDistance;
+        }
+        target = origin + direction * distance;
+        if (distance < kShortest) {
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
 }
 
 glm::vec3 Area::computeAwayPoint(const Creature &mover, const glm::vec3 &threat, float distance) const {
@@ -1967,9 +2255,6 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 
     add(member);
-    if (!preserveSavedPlacement) {
-        member->runSpawnScript();
-    }
 }
 
 void Area::retireCreatureAreaRuntime(const std::shared_ptr<Creature> &creature) {
@@ -2004,8 +2289,31 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
         return;
     }
 
+    // A party brought into the world anew, not restored from a saved game,
+    // spawns each companion the player does not control: one that lay dying
+    // gets up, and each joins the player's faction and, once placed, catches
+    // up with the party's experience. A puppet only gets up.
+    const bool spawnsAnew = !_game.isLoadingFromSaveGame();
+    const auto spawnsCompanion = [&](const Party::Member &member) {
+        return spawnsAnew && member.creature && party.isCompanion(member);
+    };
+    const auto revive = [this](Creature &creature) {
+        if (creature.currentHitPoints() > 0) {
+            return;
+        }
+        creature.setRaiseable(true);
+        creature.applyEffect(_game.newEffect<ResurrectionEffect>(0), DurationType::Instant);
+    };
+    for (const auto &member : party.members()) {
+        if (!spawnsCompanion(member)) {
+            continue;
+        }
+        revive(*member.creature);
+        party.spawnIntoPlayerFaction(*member.creature);
+    }
+
     if (!preserveSavedPlacement) {
-        leader->setPosition(position);
+        leader->setPosition(computeSafeLocation(position, kEntryPlacementRadius, *leader, true).value_or(position));
         leader->setFacing(facing);
     }
     loadPartyMember(leader, 0, preserveSavedPlacement);
@@ -2029,9 +2337,17 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
         }
         loadPartyMember(member.creature, i, preserveSavedPlacement);
     }
+    for (const auto &member : party.members()) {
+        if (spawnsCompanion(member)) {
+            party.catchUpExperience(member.npc, *member.creature);
+        }
+    }
     int formationIndex = party.getSize();
     for (int puppet : party.persistedState().puppetIds) {
         if (auto creature = party.getAvailablePuppet(puppet, true)) {
+            if (spawnsAnew) {
+                revive(*creature);
+            }
             creature->clearAllActions(true, true);
             loadPartyMember(creature, formationIndex++, preserveSavedPlacement);
         }
@@ -2084,7 +2400,6 @@ void Area::repositionPartyMember(
     }
 
     add(member);
-    member->runSpawnScript();
 }
 
 void Area::placeControlledCreature(
@@ -2160,6 +2475,12 @@ void Area::update(float dt) {
         return;
     }
 
+    // A creature placed since the last update runs its creation script first,
+    // even when a time stop holds it.
+    runSpawnScripts();
+    if (held()) {
+        return;
+    }
     // Creatures look around before they act.
     updatePerception(dt);
     // Update can create new objects, so iterate with indices. Objects held by
@@ -2174,8 +2495,25 @@ void Area::update(float dt) {
         return;
     }
     updateLeaderTriggerOccupancy();
-    updateMessageBus();
     updateStampedHeartbeat(_onHeartbeat);
+}
+
+void Area::runObjectActions() {
+    // A movie started by an object holds the objects after it.
+    auto held = [this]() { return static_cast<bool>(_game.movie()); };
+    runActions();
+    if (held()) {
+        return;
+    }
+    runSpawnScripts();
+    // Actions can create new objects, so iterate with indices. Objects held
+    // by a time stop stand still.
+    for (size_t i = 0; i < _objects.size() && !held(); ++i) {
+        if (_game.isFrozenByTimeStop(*_objects[i])) {
+            continue;
+        }
+        _objects[i]->runActions();
+    }
 }
 
 bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt,
@@ -2195,12 +2533,6 @@ bool Area::moveCreatureByDistance(const std::shared_ptr<Creature> &creature,
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     Collision collision;
 
-    // The player turns the creature at once toward where it is steered.
-
-    if (facing == MoveFacing::Instant) {
-        creature->setFacing(-glm::atan(dir.x, dir.y));
-    }
-
     // Test obstacle between origin and destination
 
     glm::vec3 origin(creature->position());
@@ -2211,18 +2543,6 @@ bool Area::moveCreatureByDistance(const std::shared_ptr<Creature> &creature,
     dest.y += dir.y * speedDt;
 
     bool obstructed = sceneGraph.testWalk(origin, dest, creature.get(), collision);
-
-    // Remember a door that obstructs the intended direction of travel, so that
-    // navigation can raise the blocked event and GetBlockingDoor can report it.
-    // This is taken from the test against the intended direction: the slide
-    // below may still salvage some sideways motion, but the door did block
-    // where the creature wanted to go.
-    auto *blockingDoor = obstructed ? dynamic_cast<Door *>(collision.user) : nullptr;
-    if (blockingDoor) {
-        creature->setBlockingDoor(blockingDoor->id());
-    } else {
-        creature->clearBlockingDoor();
-    }
 
     if (obstructed) {
         // Try moving along the surface
@@ -2266,8 +2586,17 @@ bool Area::moveCreatureByDistance(const std::shared_ptr<Creature> &creature,
         }
     }
 
+    return stepCreatureTo(creature, glm::vec2(dest), facing);
+}
+
+bool Area::stepCreatureTo(const std::shared_ptr<Creature> &creature, const glm::vec2 &point, MoveFacing facing) {
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    Collision collision;
+
     // Test elevation at destination
 
+    const glm::vec3 origin {creature->position()};
+    const glm::vec3 dest {point, origin.z + 0.1f};
     if (!sceneGraph.testElevation(dest, collision)) {
         return false;
     }
@@ -2278,7 +2607,8 @@ bool Area::moveCreatureByDistance(const std::shared_ptr<Creature> &creature,
     creature->setRoom(userRoom);
     creature->setPosition(glm::vec3(dest.x, dest.y, collision.intersection.z));
     creature->setWalkmeshMaterial(collision.material);
-    // Otherwise a step turns it along the way it actually went.
+    // A step turns the creature along the way it actually went, unless
+    // asked to keep its facing.
     const glm::vec2 step {glm::vec2(dest) - glm::vec2(origin)};
     if (facing == MoveFacing::Turn && step != glm::vec2(0.0f)) {
         creature->turnAlongStep(step);
@@ -2306,7 +2636,7 @@ bool Area::findCreatureCollision(
 
     for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
         const auto &other = static_cast<const Creature &>(*object);
-        if (&other == &creature || (ignoredCreature && &other == &ignoredCreature->get()) || other.isDead()) {
+        if (&other == &creature || (ignoredCreature && &other == &ignoredCreature->get()) || other.isDead() || other.isTemporarilyDead()) {
             continue;
         }
 
@@ -2352,8 +2682,12 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
 }
 
 void Area::runSpawnScripts() {
-    for (auto &creature : _objectsByType[ObjectType::Creature]) {
-        static_cast<Creature &>(*creature).runSpawnScript();
+    // Creation scripts can create creatures, so iterate with indices. A movie
+    // started by one holds the rest until it ends.
+    auto &creatures = _objectsByType[ObjectType::Creature];
+    for (size_t i = 0; i < creatures.size() && !_game.movie(); ++i) {
+        auto creature = std::static_pointer_cast<Creature>(creatures[i]);
+        creature->runSpawnScript();
     }
 }
 
@@ -2690,7 +3024,7 @@ void Area::setAmbientSoundNightVolume(int volume) {
     _ambientAudio.ambientSoundNightVolume = volume;
 }
 
-std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location) {
+std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location, bool appear) {
     std::shared_ptr<Object> object;
     switch (type) {
     case ObjectType::Item: {
@@ -2734,8 +3068,13 @@ std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &b
     add(object);
 
     auto creature = std::dynamic_pointer_cast<Creature>(object);
-    if (creature) {
-        creature->runSpawnScript();
+    // An appearing creature starts with the appear action, which the actions
+    // of its creation script, run later, wait behind.
+    if (creature && appear) {
+        creature->clearAllActions(true);
+        if (creature->isCommandable()) {
+            creature->addAction(_game.newAction<AppearAction>());
+        }
     }
 
     return object;
@@ -2750,7 +3089,8 @@ void Area::updateObjectSelection() {
     auto cameraPos = camera->sceneNode()->origin();
 
     if (_hilightedObject) {
-        if (!_hilightedObject->isSelectable()) {
+        // Turning the camera with the mouse drops the object under the pointer.
+        if (camera->isMouseLookMode() || !_hilightedObject->isSelectable()) {
             _hilightedObject.reset();
         } else {
             Collision collision;
@@ -2772,22 +3112,61 @@ void Area::selectObject(std::shared_ptr<Object> object, bool force) {
     _forceSelection = force;
 }
 
-std::shared_ptr<Object> Area::getNearestObject(const glm::vec3 &origin, int nth, const std::function<bool(const std::shared_ptr<Object> &)> &predicate) {
-    std::vector<std::pair<std::shared_ptr<Object>, float>> candidates;
+std::optional<std::reference_wrapper<const Object>> Area::getNearestObject(const Object &target, int nth, const std::function<bool(const Object &)> &matches) const {
+    if (!isObjectResident(target)) {
+        return std::nullopt;
+    }
+    auto base = std::find(_objectsByX.begin(), _objectsByX.end(), &target);
+    return findNearestObject(target.position(), static_cast<size_t>(base - _objectsByX.begin()), nth, matches);
+}
 
-    for (auto &object : _objects) {
-        if (predicate(object)) {
-            candidates.push_back(std::make_pair(object, object->getSquareDistanceTo(origin)));
+std::optional<std::reference_wrapper<const Object>> Area::getNearestObjectToLocation(const glm::vec3 &position, int nth, const std::function<bool(const Object &)> &matches) const {
+    auto base = std::lower_bound(
+        _objectsByX.begin(), _objectsByX.end(), position.x,
+        [](const Object *entry, float x) { return entry->position().x < x; });
+    // With no object at or beyond the position along the x axis there is nothing to find.
+    if (base == _objectsByX.end()) {
+        return std::nullopt;
+    }
+    return findNearestObject(position, static_cast<size_t>(base - _objectsByX.begin()), nth, matches);
+}
+
+// The search walks outwards from the base entry of the x-ordered list: one
+// step east, one west, two west, two east, three east, three west, and so on.
+// The base entry is never visited. Matches rank by distance, ties in the
+// order the walk finds them.
+std::optional<std::reference_wrapper<const Object>> Area::findNearestObject(const glm::vec3 &origin, size_t base, int nth,
+                                                                            const std::function<bool(const Object &)> &matches) const {
+    std::vector<std::pair<std::reference_wrapper<const Object>, float>> candidates;
+    const auto count = static_cast<std::ptrdiff_t>(_objectsByX.size());
+    const auto start = static_cast<std::ptrdiff_t>(base);
+    auto visit = [&](std::ptrdiff_t index) {
+        if (index < 0 || index >= count) {
+            return;
         }
+        const Object &object = *_objectsByX[index];
+        // A linked door's transition trigger stands in for the door and is
+        // never a result.
+        const auto *trigger = dyn_cast<Trigger>(&object);
+        if ((trigger && trigger->isLinkedDoorTransition()) || !matches(object)) {
+            return;
+        }
+        candidates.emplace_back(object, object.getSquareDistanceTo(origin));
+    };
+    for (std::ptrdiff_t step = 1; step <= count; ++step) {
+        const std::ptrdiff_t first = step % 2 ? step : -step;
+        visit(start + first);
+        visit(start - first);
     }
-    sort(candidates.begin(), candidates.end(), [](auto &left, auto &right) { return left.second < right.second; });
 
-    int candidateCount = static_cast<int>(candidates.size());
-    if (nth >= candidateCount) {
-        debug(str(boost::format("getNearestObject: nth is out of bounds: %d/%d") % nth % candidateCount));
-        return nullptr;
+    std::stable_sort(candidates.begin(), candidates.end(), [](auto &left, auto &right) {
+        return left.second < right.second;
+    });
+
+    // A script asking for an nth object past the matches gets none.
+    if (nth < 0 || nth >= static_cast<int>(candidates.size())) {
+        return std::nullopt;
     }
-
     return candidates[nth].first;
 }
 
@@ -3379,18 +3758,74 @@ void Area::updatePerceptionPair(
     }
 }
 
-void Area::updateMessageBus() {
-    _messageBus.update([this](
-                           uint32_t speakerId,
-                           const std::shared_ptr<Creature> &listener,
-                           int32_t number,
-                           TalkVolume volume) {
-        bool heard = listener->perception().hears(speakerId);
-        if (!listener->isListening() || !heard) {
-            return;
+// How far each talk volume carries. Talk and silent shout carry the farthest.
+static constexpr float kTalkRange = 1000.0f;
+static constexpr float kWhisperRange = 3.0f;
+static constexpr float kShoutRange = 250.0f;
+static constexpr float kSilentTalkRange = 35.0f;
+// Silent talk reaches a creature that does not see the speaker only within this distance.
+static constexpr float kSilentTalkUnseenRange = 10.0f;
+// The script event a listener hearing a matching pattern is sent.
+static constexpr int kConversationEvent = 7;
+
+void Area::broadcastDialog(Object &speaker, const std::string &message, int talkVolume) {
+    // Any volume other than these is talk.
+    float range = kTalkRange;
+    bool silent = false;
+    switch (static_cast<TalkVolume>(talkVolume)) {
+    case TalkVolume::Whisper:
+        range = kWhisperRange;
+        break;
+    case TalkVolume::Shout:
+        range = kShoutRange;
+        break;
+    case TalkVolume::SilentTalk:
+        range = kSilentTalkRange;
+        silent = true;
+        break;
+    default:
+        break;
+    }
+    const bool creatureSpeaker = isa<Creature>(&speaker);
+    std::vector<std::string> pieces;
+    for (const auto &object : _objects) {
+        if (object.get() == &speaker) {
+            continue;
         }
-        listener->runDialogueScript(speakerId, number);
-    });
+        const float squareDistance = speaker.getSquareDistanceTo(*object);
+        if (squareDistance > range * range || !object->isListening()) {
+            continue;
+        }
+        if (auto listener = dyn_cast<Creature>(object.get())) {
+            if (creatureSpeaker) {
+                // A creature hears another creature only as it perceives it;
+                // silent talk also needs it seen or near.
+                const auto &perception = listener->perception();
+                if (!perception.hears(speaker.id())) {
+                    continue;
+                }
+                if (silent && !perception.sees(speaker.id()) && squareDistance >= kSilentTalkUnseenRange * kSilentTalkUnseenRange) {
+                    continue;
+                }
+            } else {
+                // Anything else it hears within its hearing range.
+                const float listenRange = listener->listenRange();
+                if (squareDistance > listenRange * listenRange) {
+                    continue;
+                }
+            }
+        }
+        const auto number = object->testListenExpressions(message, pieces);
+        if (!number) {
+            continue;
+        }
+        // The event carries the piece count, the pattern number and the
+        // pieces after the whole string, whose place stays empty.
+        std::vector<std::string> strings = pieces;
+        strings[0].clear();
+        _game.queueScriptEvent(*object, speaker,
+                               Event(kConversationEvent, {static_cast<int32_t>(pieces.size()), *number}, {}, std::move(strings), {}));
+    }
 }
 
 Object *Area::getObjectAt(int x, int y) const {

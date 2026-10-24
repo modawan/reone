@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <array>
 #include <functional>
 
@@ -26,6 +27,7 @@
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/spells.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/creaturestate.h"
 #include "reone/game/effect/linkeffects.h"
 #include "reone/game/effect/visual.h"
@@ -33,6 +35,7 @@
 #include "reone/game/event.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
+#include "reone/game/menupresentation.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
@@ -187,6 +190,13 @@ static Variable AssignCommand(const std::vector<Variable> &args, const RoutineCo
     // ActionMoveToLocation is still in flight, then queues a head turn behind
     // that move - a sequence that only reads correctly if the overlay lands
     // immediately and the head turn waits.
+    //
+    // The subject takes the command as it takes any event: a creature that has
+    // not yet run its creation script runs it first, so what that script
+    // queues comes before the command.
+    if (auto creature = dyn_cast<Creature>(oActionSubject)) {
+        creature->runSpawnScript();
+    }
     runCommandAsActor(*aActionToAssign, *oActionSubject);
     return Variable::ofNull();
 }
@@ -486,12 +496,14 @@ static Variable GetFacing(const std::vector<Variable> &args, const RoutineContex
 
 static Variable GetItemPossessor(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    auto oItem = getObjectOrNull(args, 0, ctx);
 
     // Transform
+    auto item = oItem ? dyn_cast<Item>(oItem) : nullptr;
 
-    // Execute
-    throw RoutineNotImplementedException("GetItemPossessor");
+    // Execute: whoever holds the item (the player character for the party
+    // inventory, or a container or store); none for an item on the ground.
+    return Variable::ofObject(item ? item->owner() : kObjectInvalid);
 }
 
 static Variable GetItemPossessedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -622,13 +634,14 @@ static Variable PlaySound(const std::vector<Variable> &args, const RoutineContex
     throw RoutineNotImplementedException("PlaySound");
 }
 
-static std::shared_ptr<Object> getSpellCaller(const RoutineContext &ctx) {
+// The script's caller; none when it no longer exists.
+static std::shared_ptr<Object> getCallerOrNull(const RoutineContext &ctx) {
     const auto caller = ctx.execution.findArg(ArgKind::Caller);
     return caller ? ctx.game.getObjectById(caller->objectId) : nullptr;
 }
 
 static Variable GetSpellTargetObject(const std::vector<Variable> &, const RoutineContext &ctx) {
-    const auto caller = getSpellCaller(ctx);
+    const auto caller = getCallerOrNull(ctx);
     const auto target = caller && (isa<Creature>(caller) || isa<Placeable>(caller))
                             ? caller->spellScriptContext().target()
                             : nullptr;
@@ -659,7 +672,7 @@ static Variable GetMaxHitPoints(const std::vector<Variable> &args, const Routine
 
 static Variable GetLastItemEquipped(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastItemEquipped");
+    return Variable::ofObject(ctx.game.module()->itemEvents().equipped);
 }
 
 static Variable GetSubScreenID(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1447,12 +1460,10 @@ static Variable SoundObjectSetFixedVariance(const std::vector<Variable> &args, c
 
 static Variable GetGoodEvilValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("GetGoodEvilValue");
+    // Execute: anything but a creature reads -1.
+    return Variable::ofInt(creature ? creature->goodEvil() : -1);
 }
 
 static Variable GetPartyMemberCount(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1462,12 +1473,10 @@ static Variable GetPartyMemberCount(const std::vector<Variable> &args, const Rou
 
 static Variable GetAlignmentGoodEvil(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("GetAlignmentGoodEvil");
+    // Execute: anything but a creature reads -1.
+    return Variable::ofInt(creature ? static_cast<int>(creature->alignment()) : -1);
 }
 
 struct ShapeParams {
@@ -1628,9 +1637,16 @@ static Variable GetNextObjectInShape(
 }
 
 static Variable SignalEvent(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    auto object = getObject(args, 0, ctx);
-    auto caller = getCaller(ctx);
-    ctx.game.queueScriptEvent(*object, *caller, *getEvent(args, 1));
+    auto object = getObjectOrNull(args, 0, ctx);
+    // An event for an object that does not exist is dropped and the script
+    // goes on. A caller that no longer exists sends it as no one.
+    if (object) {
+        std::optional<std::reference_wrapper<const Object>> caller;
+        if (auto callerObject = getCallerOrNull(ctx)) {
+            caller = *callerObject;
+        }
+        ctx.game.queueScriptEvent(*object, caller, *getEvent(args, 1));
+    }
     return Variable::ofNull();
 }
 
@@ -2075,7 +2091,7 @@ static Variable ResistForce(const std::vector<Variable> &args, const RoutineCont
     // use set for its impact, else, for a power from a class, its total
     // level without drained levels. Anything else, a spell-like ability and
     // a power from no class use the power's innate level.
-    const auto caller = getSpellCaller(ctx);
+    const auto caller = getCallerOrNull(ctx);
     auto *source = dyn_cast<Creature>(sourceObject.get());
     const auto *areaOfEffect = caller ? dyn_cast<AreaOfEffect>(caller.get()) : nullptr;
     int level = 2 * spell->innateLevel - 1;
@@ -2139,39 +2155,34 @@ static Variable ChangeFaction(const std::vector<Variable> &args, const RoutineCo
 
 static Variable GetIsListening(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
-    auto creature = checkCreature(oObject);
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    return Variable::ofInt(creature->isListening());
+    return Variable::ofInt(oObject && oObject->isListening() ? 1 : 0);
 }
 
 static Variable SetListening(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
+    auto oObject = getObjectOrNull(args, 0, ctx);
     auto bValue = getInt(args, 1);
 
-    // Transform
-    auto creature = checkCreature(oObject);
-
     // Execute
-    creature->setIsListening(bValue);
+    if (oObject) {
+        oObject->setListening(bValue != 0);
+    }
     return Variable::ofNull();
 }
 
 static Variable SetListenPattern(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
+    auto oObject = getObjectOrNull(args, 0, ctx);
     auto sPattern = getString(args, 1);
     auto nNumber = getIntOrElse(args, 2, 0);
 
-    // Transform
-    auto creature = checkCreature(oObject);
-
     // Execute
-    ctx.game.module()->area()->messageBus().addListener(creature, sPattern, nNumber);
+    if (oObject) {
+        oObject->setListenPattern(sPattern, nNumber);
+    }
     return Variable::ofNull();
 }
 
@@ -2181,24 +2192,30 @@ static Variable TestStringAgainstPattern(const std::vector<Variable> &args, cons
     auto sStringToTest = getString(args, 1);
 
     // Transform
+    auto pattern = ListenPattern::parse(sPattern);
 
     // Execute
-    throw RoutineNotImplementedException("TestStringAgainstPattern");
+    return Variable::ofInt(pattern && pattern->match(sStringToTest) ? 1 : 0);
 }
 
 static Variable GetMatchedSubstring(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nString = getInt(args, 0);
-
-    // Transform
+    auto caller = getCallerOrNull(ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetMatchedSubstring");
+    if (!caller || nString < 0 || static_cast<size_t>(nString) >= caller->matchedSubstrings().size()) {
+        return Variable::ofString("");
+    }
+    return Variable::ofString(caller->matchedSubstrings()[nString]);
 }
 
 static Variable GetMatchedSubstringsCount(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto caller = getCallerOrNull(ctx);
+
     // Execute
-    throw RoutineNotImplementedException("GetMatchedSubstringsCount");
+    return Variable::ofInt(caller ? static_cast<int>(caller->matchedSubstrings().size()) : 0);
 }
 
 // A faction query weighs every creature of the member's faction, the member
@@ -2416,11 +2433,11 @@ static Variable GetGlobalString(const std::vector<Variable> &args, const Routine
 }
 
 static Variable GetListenPatternNumber(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    if (const Variable *number = ctx.execution.findArg(ArgKind::ListenPatternNumber)) {
-        return *number;
-    }
+    // Load
+    auto caller = getCallerOrNull(ctx);
 
-    return Variable::ofInt(-1);
+    // Execute
+    return Variable::ofInt(caller ? caller->listenPatternNumber() : 0);
 }
 
 static Variable GetWaypointByTag(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2469,17 +2486,108 @@ static Variable GetObjectByTag(const std::vector<Variable> &args, const RoutineC
     return Variable::ofObject(getObjectIdOrInvalid(object));
 }
 
+// The good/evil value halfway between the dark and light sides.
+static constexpr int kBalancedGoodEvil = 50;
+
+// The good/evil change an alignment award makes: toward the dark or light
+// side by the shift, or toward balance without passing it. Any other
+// alignment changes nothing.
+static int alignmentShift(int alignment, int shift, int current) {
+    switch (static_cast<Alignment>(alignment)) {
+    case Alignment::DarkSide:
+        return -shift;
+    case Alignment::LightSide:
+        return shift;
+    case Alignment::Neutral:
+        return current > kBalancedGoodEvil ? std::max(kBalancedGoodEvil - current, -shift) : std::min(shift, kBalancedGoodEvil - current);
+    default:
+        return 0;
+    }
+}
+
+// TSL keeps running totals of the player character's shifts for scripts. A
+// total that reached 127 stays there; none goes above it.
+static void addAlignmentTotal(Game &game, const std::string &name, int amount) {
+    static constexpr int kMaxTotal = 127;
+    const int total = game.getGlobalNumber(name);
+    if (total == kMaxTotal) {
+        return;
+    }
+    game.setGlobalNumber(name, std::min(total + amount, kMaxTotal));
+}
+
 static Variable AdjustAlignment(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSubject = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
     auto nAlignment = getInt(args, 1);
     auto nShift = getInt(args, 2);
     auto bDontModifyNPCs = getIntOrElse(args, 3, 0);
 
     // Transform
+    const bool dontModifyNPCs = ctx.game.isTSL() && bDontModifyNPCs != 0;
 
     // Execute
-    throw RoutineNotImplementedException("AdjustAlignment");
+    if (!creature) {
+        return Variable::ofNull();
+    }
+    static constexpr char kLightTotalGlobal[] = "G_PC_Light_Total";
+    static constexpr char kDarkTotalGlobal[] = "G_PC_Dark_Total";
+    static constexpr int kAlignmentShiftStrRef = 1471;
+    static constexpr int kLargeShiftStrRef = 41921;
+    static constexpr int kMediumShiftStrRef = 41922;
+    static constexpr int kSmallShiftStrRef = 41923;
+    static constexpr int kLightSideStrRef = 41924;
+    static constexpr int kDarkSideStrRef = 41925;
+    // An award above this size is large, and one below the other small.
+    static constexpr int kLargestMediumShift = 9;
+    static constexpr int kSmallestMediumShift = 5;
+    const int current = creature->goodEvil();
+    const int shift = alignmentShift(nAlignment, nShift, current);
+    if (ctx.game.isTSL() && creature->isPlayerCreated() && !dontModifyNPCs) {
+        switch (static_cast<Alignment>(nAlignment)) {
+        case Alignment::LightSide:
+            addAlignmentTotal(ctx.game, kLightTotalGlobal, nShift);
+            break;
+        case Alignment::DarkSide:
+            addAlignmentTotal(ctx.game, kDarkTotalGlobal, nShift);
+            break;
+        case Alignment::Neutral:
+            if (shift > 0) {
+                addAlignmentTotal(ctx.game, kLightTotalGlobal, shift);
+            }
+            if (shift < 0) {
+                addAlignmentTotal(ctx.game, kDarkTotalGlobal, -shift);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    creature->modifyAlignment(shift, dontModifyNPCs);
+    if (dontModifyNPCs) {
+        return Variable::ofNull();
+    }
+    // The controlled creature is told the side and size of the award asked
+    // for, not the change made. An award toward balance names the side it
+    // moves toward.
+    if (creature == ctx.game.party().getLeader()) {
+        int side = nAlignment;
+        int size = nShift;
+        if (static_cast<Alignment>(nAlignment) == Alignment::Neutral) {
+            side = static_cast<int>(current > kBalancedGoodEvil ? Alignment::DarkSide : Alignment::LightSide);
+            size = std::abs(nShift);
+        }
+        const int sizeStrRef = size > kLargestMediumShift ? kLargeShiftStrRef : (size < kSmallestMediumShift ? kSmallShiftStrRef : kMediumShiftStrRef);
+        const int sideStrRef = side == static_cast<int>(Alignment::LightSide) ? kLightSideStrRef : kDarkSideStrRef;
+        ctx.game.addFeedbackMessage(kAlignmentShiftStrRef, {{0, ctx.game.getInterfaceText(sizeStrRef)},
+                                                            {1, ctx.game.getInterfaceText(sideStrRef)}});
+    }
+    if (shift != 0 && ctx.game.party().isMember(*creature)) {
+        ctx.game.submitStatusSummary(
+            shift > 0 ? StatusSummaryCategory::LightSideShift : StatusSummaryCategory::DarkSideShift,
+            std::abs(shift));
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetAreaTransitionBMP(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2656,23 +2764,18 @@ static Variable SpeakString(const std::vector<Variable> &args, const RoutineCont
     // Load
     auto sStringToSpeak = getString(args, 0);
     auto nTalkVolume = getIntOrElse(args, 1, 0);
-
-    // Transform
-    auto object = getCaller(ctx);
-
-    if (nTalkVolume < 0 || nTalkVolume > (int32_t)TalkVolume::Last) {
-        throw RoutineArgumentException(str(boost::format("Invalid talk volume: %d") % nTalkVolume));
-    }
-
-    auto volume = static_cast<TalkVolume>(nTalkVolume);
+    auto caller = getCallerOrNull(ctx);
 
     // Execute
-    ctx.game.module()->area()->messageBus().addMessage(object->id(), sStringToSpeak, volume);
+    // Only an object placed in an area is heard.
+    if (auto area = caller ? caller->spatialArea() : std::nullopt) {
+        area->get().broadcastDialog(*caller, sStringToSpeak, nTalkVolume);
+    }
     return Variable::ofNull();
 }
 
 static Variable GetSpellTargetLocation(const std::vector<Variable> &, const RoutineContext &ctx) {
-    const auto caller = getSpellCaller(ctx);
+    const auto caller = getCallerOrNull(ctx);
     return Variable::ofLocation(caller && (isa<Creature>(caller) || isa<Placeable>(caller))
                                     ? caller->spellScriptContext().location()
                                     : nullptr);
@@ -2708,48 +2811,59 @@ static Variable GetNearestCreatureToLocation(const std::vector<Variable> &args, 
     return Variable::ofObject(getObjectIdOrInvalid(creature));
 }
 
+// The object type argument is a mask of object types. A mask holding every
+// type bit matches any object.
+static bool matchesObjectTypeMask(const Object &object, int mask) {
+    const int all = static_cast<int>(ObjectType::All);
+    return (mask & static_cast<int>(object.type())) != 0 || (mask & all) == all;
+}
+
 static Variable GetNearestObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto nObjectType = getIntOrElse(args, 0, 32767);
-    auto oTarget = getObjectOrCaller(args, 1, ctx);
+    auto nObjectType = getIntOrElse(args, 0, static_cast<int>(ObjectType::All));
+    auto oTarget = getObjectOrNull(args, 1, ctx);
     auto nNth = getIntOrElse(args, 2, 1);
 
-    // Transform
-    auto objectType = static_cast<ObjectType>(nObjectType);
-
     // Execute
-    auto object = ctx.game.module()->area()->getNearestObject(oTarget->position(), nNth - 1, [&objectType](auto &object) {
-        return object->type() == objectType;
+    if (!oTarget) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    auto object = ctx.game.module()->area()->getNearestObject(*oTarget, nNth - 1, [nObjectType](const Object &object) {
+        return matchesObjectTypeMask(object, nObjectType);
     });
-    return Variable::ofObject(getObjectIdOrInvalid(object));
+    return Variable::ofObject(object ? object->get().id() : kObjectInvalid);
 }
 
 static Variable GetNearestObjectToLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto nObjectType = getInt(args, 0);
+    auto nObjectType = getIntOrElse(args, 0, static_cast<int>(ObjectType::All));
     auto lLocation = getLocationArgument(args, 1);
     auto nNth = getIntOrElse(args, 2, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetNearestObjectToLocation");
+    auto object = ctx.game.module()->area()->getNearestObjectToLocation(lLocation->position(), nNth - 1, [nObjectType](const Object &object) {
+        return matchesObjectTypeMask(object, nObjectType);
+    });
+    return Variable::ofObject(object ? object->get().id() : kObjectInvalid);
 }
 
 static Variable GetNearestObjectByTag(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sTag = getString(args, 0);
-    auto oTarget = getObjectOrCaller(args, 1, ctx);
+    auto oTarget = getObjectOrNull(args, 1, ctx);
     auto nNth = getIntOrElse(args, 2, 1);
 
     // Transform
     auto tag = boost::to_lower_copy(sTag);
 
     // Execute
-    auto object = ctx.game.module()->area()->getNearestObject(oTarget->position(), nNth - 1, [&tag](auto &object) {
-        return object->tag() == tag;
+    if (!oTarget) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    auto object = ctx.game.module()->area()->getNearestObject(*oTarget, nNth - 1, [&tag](const Object &object) {
+        return object.tag() == tag;
     });
-    return Variable::ofObject(getObjectIdOrInvalid(object));
+    return Variable::ofObject(object ? object->get().id() : kObjectInvalid);
 }
 
 static Variable IntToFloat(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2803,7 +2917,7 @@ static std::optional<int> getTargetRegardForSource(const std::vector<Variable> &
     if (!target) {
         return std::nullopt;
     }
-    auto source = args.size() > 1 ? getObjectOrNull(args, 1, ctx) : getSpellCaller(ctx);
+    auto source = args.size() > 1 ? getObjectOrNull(args, 1, ctx) : getCallerOrNull(ctx);
     return source ? getObjectReputation(*target, *source, ctx.game) : kNeutralReputation;
 }
 
@@ -2907,7 +3021,7 @@ static Variable CreateObject(const std::vector<Variable> &args, const RoutineCon
     auto tmplt = boost::to_lower_copy(sTemplate);
 
     // Execute
-    auto object = ctx.game.module()->area()->createObject(objectType, tmplt, lLocation);
+    auto object = ctx.game.module()->area()->createObject(objectType, tmplt, lLocation, bUseAppearAnimation != 0);
     return Variable::ofObject(getObjectIdOrInvalid(object));
 }
 
@@ -2944,7 +3058,7 @@ static Variable GetUserDefinedEventNumber(const std::vector<Variable> &args, con
 }
 
 static Variable GetSpellId(const std::vector<Variable> &, const RoutineContext &ctx) {
-    const auto caller = getSpellCaller(ctx);
+    const auto caller = getCallerOrNull(ctx);
     return Variable::ofInt(caller && isa<Creature>(caller) ? caller->spellCastContext().spellId : -1);
 }
 
@@ -2969,11 +3083,14 @@ static Variable GetName(const std::vector<Variable> &args, const RoutineContext 
 }
 
 static Variable GetLastSpeaker(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    if (const Variable *speaker = ctx.execution.findArg(ArgKind::LastSpeaker)) {
-        return *speaker;
-    }
+    // Load
+    auto caller = getCallerOrNull(ctx);
 
-    return Variable::ofObject(kObjectInvalid);
+    // Execute
+    // Only a creature answers, though placeables and doors keep a last
+    // speaker too.
+    auto creature = caller ? dyn_cast<Creature>(caller) : nullptr;
+    return Variable::ofObject(creature ? creature->lastSpeaker() : kObjectInvalid);
 }
 
 static Variable BeginConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3267,7 +3384,10 @@ static Variable GetModuleItemLostBy(const std::vector<Variable> &args, const Rou
 
 static Variable EventConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("EventConversation");
+    static constexpr int kConversationEvent = 7;
+    return Variable::ofEvent(ctx.game.newEvent(kConversationEvent,
+                                               std::vector<int32_t>(), std::vector<float>(), std::vector<std::string>(),
+                                               std::vector<std::shared_ptr<Object>>()));
 }
 
 static Variable SetEncounterDifficulty(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3572,13 +3692,9 @@ static Variable GetClickingObject(const std::vector<Variable> &args, const Routi
 }
 
 static Variable SetAssociateListenPatterns(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oTarget = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetAssociateListenPatterns");
+    // Does nothing in either game.
+    return Variable::ofNull();
 }
 
 static Variable GetLastWeaponUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4074,15 +4190,26 @@ static Variable StopRumblePattern(const std::vector<Variable> &args, const Routi
     throw RoutineNotImplementedException("StopRumblePattern");
 }
 
+// An empty text adds no line to the message list.
+static void addScriptFloatingText(std::string text, const RoutineContext &ctx) {
+    if (text.empty()) {
+        return;
+    }
+    ctx.game.messageLog().add(MessageLog::kFeedbackMessageType, MessageLog::Style::Normal, std::move(text));
+}
+
+// The text reaches the message list only when the creature is the controlled
+// one.
 static Variable SendMessageToPC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlayer = getObject(args, 0, ctx);
+    auto oPlayer = getObjectOrNull(args, 0, ctx);
     auto szMessage = getString(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SendMessageToPC");
+    if (oPlayer && oPlayer == ctx.game.party().getLeader()) {
+        addScriptFloatingText(szMessage, ctx);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetAttemptedSpellTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4282,23 +4409,36 @@ static Variable GetBaseItemType(const std::vector<Variable> &args, const Routine
 
 static Variable GetItemHasItemProperty(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    auto oItem = getObjectOrNull(args, 0, ctx);
     auto nProperty = getInt(args, 1);
 
     // Transform
+    auto item = oItem ? dyn_cast<Item>(oItem) : nullptr;
 
-    // Execute
-    throw RoutineNotImplementedException("GetItemHasItemProperty");
+    // Execute: only the property type is compared. A use property counts only
+    // when its upgrade is installed; any other property counts regardless.
+    if (item) {
+        for (const auto &property : item->properties()) {
+            if (property.propertyName != nProperty) {
+                continue;
+            }
+            if (!Item::isUseProperty(property.propertyName) || item->isPropertyActive(property)) {
+                return Variable::ofInt(1);
+            }
+        }
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetItemACValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    auto oItem = getObjectOrNull(args, 0, ctx);
 
     // Transform
+    auto item = oItem ? dyn_cast<Item>(oItem) : nullptr;
 
-    // Execute
-    throw RoutineNotImplementedException("GetItemACValue");
+    // Execute: every armour class bonus counts, installed upgrade or not.
+    return Variable::ofInt(item ? item->armorValue(false) : 0);
 }
 
 static Variable ExploreAreaForPlayer(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4343,9 +4483,10 @@ static Variable GetIsEncounterCreature(const std::vector<Variable> &args, const 
     return Variable::ofInt(creature->isEncounterCreature() ? 1 : 0);
 }
 
+// Nothing in either game ever notes a dying player.
 static Variable GetLastPlayerDying(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastPlayerDying");
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetStartingLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4457,15 +4598,19 @@ static Variable GetLastRespawnButtonPresser(const std::vector<Variable> &args, c
 
 static Variable SetLightsaberPowered(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
     auto bOverride = getInt(args, 1);
     auto bPowered = getIntOrElse(args, 2, 1);
     auto bShowTransition = getIntOrElse(args, 3, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetLightsaberPowered");
+    // Anything but a creature is ignored. Both hand items are powered on or
+    // off, with the power-up or power-down clip and sound only when the
+    // transition is shown.
+    if (creature) {
+        creature->overrideLightsabers(bOverride, bPowered != 0, bShowTransition != 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetIsWeaponEffective(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4494,12 +4639,13 @@ static Variable GetLastSpellHarmful(const std::vector<Variable> &args, const Rou
 
 static Variable EventActivateItem(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    auto oItem = getObjectOrNull(args, 0, ctx);
     auto lTarget = getLocationArgument(args, 1);
     auto oTarget = getObjectOrNull(args, 2, ctx);
 
-    // Transform: the script caller activates; the location keeps only its position.
-    auto caller = getCaller(ctx);
+    // Transform: the script caller activates; the location keeps only its
+    // position. An item or caller that doesn't exist is carried as none.
+    auto caller = getCallerOrNull(ctx);
     const glm::vec3 &position = lTarget->position();
 
     // Execute
@@ -4648,12 +4794,12 @@ static Variable AmbientSoundChangeNight(const std::vector<Variable> &args, const
 }
 
 static Variable GetLastKiller(const std::vector<Variable> &, const RoutineContext &ctx) {
-    const auto caller = getSpellCaller(ctx);
+    const auto caller = getCallerOrNull(ctx);
     return Variable::ofObject(caller ? caller->getLastKiller() : script::kObjectInvalid);
 }
 
 static Variable GetSpellCastItem(const std::vector<Variable> &, const RoutineContext &ctx) {
-    const auto caller = getSpellCaller(ctx);
+    const auto caller = getCallerOrNull(ctx);
     const auto item = caller && isa<Creature>(caller) ? caller->spellScriptContext().item() : nullptr;
     return Variable::ofObject(item ? item->id() : script::kObjectInvalid);
 }
@@ -4961,17 +5107,21 @@ static Variable GetNearestTrapToObject(const std::vector<Variable> &args, const 
 
 static Variable GetAttemptedMovementTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetAttemptedMovementTarget");
+    auto caller = dyn_cast<Creature>(getCaller(ctx).get());
+    return Variable::ofObject(caller ? caller->attemptedMovementTarget() : kObjectInvalid);
 }
 
+// The creature a walking creature last walked into and planned a way round.
+// Any other object answers OBJECT_INVALID.
 static Variable GetBlockingCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oTarget = getObjectOrCaller(args, 0, ctx);
+    auto oTarget = getObjectOrNull(args, 0, ctx);
 
     // Transform
+    auto creature = dyn_cast<Creature>(oTarget.get());
 
     // Execute
-    throw RoutineNotImplementedException("GetBlockingCreature");
+    return Variable::ofObject(creature ? creature->blockingCreature() : kObjectInvalid);
 }
 
 // Creatures answer with their current save; doors and placeables with the
@@ -5015,24 +5165,26 @@ static Variable GetChallengeRating(const std::vector<Variable> &args, const Rout
     return Variable::ofFloat(creature ? creature->challengeRating() : 0.0f);
 }
 
+// The last hostile creature a walking creature found blocking it or standing
+// on its way round. Any other object answers OBJECT_INVALID.
 static Variable GetFoundEnemyCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oTarget = getObjectOrCaller(args, 0, ctx);
+    auto oTarget = getObjectOrNull(args, 0, ctx);
 
     // Transform
+    auto creature = dyn_cast<Creature>(oTarget.get());
 
     // Execute
-    throw RoutineNotImplementedException("GetFoundEnemyCreature");
+    return Variable::ofObject(creature ? creature->foundEnemyCreature() : kObjectInvalid);
 }
 
 static Variable GetMovementRate(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
-
-    // Transform
+    auto oCreature = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetMovementRate");
+    auto creature = dyn_cast<Creature>(oCreature.get());
+    return Variable::ofInt(creature ? creature->movementRateRow() : 0);
 }
 
 static Variable GetSubRace(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5135,16 +5287,22 @@ static Variable SetLockHeadFollowInDialog(const std::vector<Variable> &args, con
     return Variable::ofNull();
 }
 
+// The caller moves, to the object if it is still there when the move is
+// taken, else to the point.
 static Variable CutsceneMove(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
+    auto oObject = getObjectOrNull(args, 0, ctx);
     auto vPosition = getVector(args, 1);
     auto nRun = getInt(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("CutsceneMove");
+    // Only a creature moves.
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!caller) {
+        return Variable::ofNull();
+    }
+    ctx.game.combat().scheduleCutsceneMove(*caller, oObject, vPosition, nRun != 0);
+    return Variable::ofNull();
 }
 
 static Variable EnableVideoEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5219,7 +5377,7 @@ static Variable GetGameDifficulty(const std::vector<Variable> &args, const Routi
     // TSL scripts read the difficulty chosen in the gameplay options; KotOR
     // scripts always read the normal difficulty.
     return Variable::ofInt(ctx.game.isTSL()
-                               ? static_cast<int>(ctx.game.options().game.clientDifficulty)
+                               ? ctx.game.options().game.clientDifficulty
                                : static_cast<int>(GameDifficulty::Normal));
 }
 
@@ -5271,19 +5429,23 @@ static Variable ShowTutorialWindow(const std::vector<Variable> &args, const Rout
     return Variable::ofNull();
 }
 
+// The optional second argument names the music played with the credits. The
+// sequel's routine does nothing.
 static Variable StartCreditSequence(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto bTransparentBackground = getInt(args, 0);
-
-    // Transform
+    auto sMusic = getStringOrElse(args, 1, "");
 
     // Execute
-    throw RoutineNotImplementedException("StartCreditSequence");
+    if (!ctx.game.isTSL()) {
+        ctx.game.startCreditSequence(bTransparentBackground != 0, sMusic);
+    }
+    return Variable::ofNull();
 }
 
 static Variable IsCreditSequenceInProgress(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("IsCreditSequenceInProgress");
+    return Variable::ofInt(ctx.game.isCreditSequenceInProgress() ? 1 : 0);
 }
 
 static Variable GetCurrentAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5299,9 +5461,11 @@ static Variable GetCurrentAction(const std::vector<Variable> &args, const Routin
     return Variable::ofInt(oObject->currentScriptAction());
 }
 
+// The multiplier of the chosen difficulty (difficultyopt.2da MULTIPLIER).
 static Variable GetDifficultyModifier(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetDifficultyModifier");
+    const int difficulty = ctx.game.options().game.clientDifficulty;
+    return Variable::ofFloat(ctx.services.game.difficultyOptions.get(difficulty).damageMultiplier);
 }
 
 static Variable GetAppearanceType(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5320,13 +5484,6 @@ static bool isScriptFloatingTextShown(const std::vector<Variable> &args, const R
     }
     auto leader = ctx.game.party().getLeader();
     return leader && leader->id() == creature->id();
-}
-
-static void addScriptFloatingText(std::string text, const RoutineContext &ctx) {
-    if (text.empty()) {
-        return;
-    }
-    ctx.game.messageLog().add(MessageLog::kFeedbackMessageType, MessageLog::Style::Normal, std::move(text));
 }
 
 static Variable FloatingTextStrRefOnCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5578,18 +5735,10 @@ static Variable FaceObjectAwayFromObject(const std::vector<Variable> &args, cons
     return Variable::ofNull();
 }
 
+// The death panel request is discarded when it arrives, so nothing shows.
 static Variable PopUpDeathGUIPanel(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oPC = getObject(args, 0, ctx);
-    auto bRespawnButtonEnabled = getIntOrElse(args, 1, 1);
-    auto bWaitForHelpButtonEnabled = getIntOrElse(args, 2, 1);
-    auto nHelpStringReference = getIntOrElse(args, 3, 0);
-    auto sHelpString = getStringOrElse(args, 4, "");
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PopUpDeathGUIPanel");
+    return Variable::ofNull();
 }
 
 static Variable SetTrapDisabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5717,10 +5866,9 @@ static Variable EndGame(const std::vector<Variable> &args, const RoutineContext 
     // Load
     auto nShowEndGameGui = getIntOrElse(args, 0, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("EndGame");
+    ctx.game.endGame(nShowEndGameGui != 0);
+    return Variable::ofNull();
 }
 
 static Variable GetRunScriptVar(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5821,6 +5969,10 @@ static Variable AddPartyMember(const std::vector<Variable> &args, const RoutineC
 
     // Execute
     bool added = ctx.game.party().addMember(nNPC, creature);
+    // A companion joining the party takes up the alignment its influence gives.
+    if (added && nNPC >= 0) {
+        creature->recomputeInfluenceAlignment();
+    }
     return Variable::ofInt(static_cast<int>(added));
 }
 
@@ -6178,8 +6330,9 @@ static Variable SpawnAvailableNPC(const std::vector<Variable> &args, const Routi
         area->objects().end();
     if (!alreadyResident) {
         area->add(member);
-        member->runSpawnScript();
     }
+    // A spawned companion takes up the alignment its influence gives.
+    member->recomputeInfluenceAlignment();
     return Variable::ofObject(member->id());
 }
 
@@ -6658,15 +6811,26 @@ static Variable ResetDialogState(const std::vector<Variable> &args, const Routin
     throw RoutineNotImplementedException("ResetDialogState");
 }
 
+// The good/evil value runs from 0, the dark side, to 100, the light side.
+static constexpr int kMinGoodEvil = 0;
+static constexpr int kMaxGoodEvil = 100;
+
 static Variable SetGoodEvilValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
     auto nAlignment = getInt(args, 1);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("SetGoodEvilValue");
+    // Execute: TSL writes the value alone; KotOR moves the alignment to it,
+    // Pure Good or Evil powers following.
+    if (!creature) {
+        return Variable::ofNull();
+    }
+    if (ctx.game.isTSL()) {
+        creature->setGoodEvil(std::clamp(nAlignment, kMinGoodEvil, kMaxGoodEvil));
+    } else {
+        creature->modifyAlignment(nAlignment - creature->goodEvil(), false);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetIsPoisoned(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6987,10 +7151,27 @@ static Variable GetInfluence(const std::vector<Variable> &args, const RoutineCon
     // Load
     auto nNPC = getInt(args, 0);
 
-    // Transform
+    // Execute: an NPC outside the party's reads 0, and one whose influence
+    // was never set reads -1.
+    static constexpr int kNeverSetInfluence = -1;
+    if (!Party::isNpcSlot(nNPC)) {
+        return Variable::ofInt(0);
+    }
+    return Variable::ofInt(ctx.game.party().influence(nNPC).value_or(kNeverSetInfluence));
+}
 
-    // Execute
-    throw RoutineNotImplementedException("GetInfluence");
+// Influence runs from 0 to 100.
+static constexpr int kMinInfluence = 0;
+static constexpr int kMaxInfluence = 100;
+
+// A changed influence is reported on the status summary, and the companion,
+// if it has a creature, takes up the alignment the influence gives.
+static void reportInfluenceChange(const RoutineContext &ctx, int npc, bool gained) {
+    ctx.game.submitStatusSummary(
+        gained ? StatusSummaryCategory::InfluenceGained : StatusSummaryCategory::InfluenceLost, npc);
+    if (auto companion = ctx.game.party().getAvailableMember(npc)) {
+        companion->recomputeInfluenceAlignment();
+    }
 }
 
 static Variable SetInfluence(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6999,9 +7180,19 @@ static Variable SetInfluence(const std::vector<Variable> &args, const RoutineCon
     auto nInfluence = getInt(args, 1);
 
     // Transform
+    const int influence = std::clamp(nInfluence, kMinInfluence, kMaxInfluence);
 
-    // Execute
-    throw RoutineNotImplementedException("SetInfluence");
+    // Execute: an NPC outside the party's is ignored.
+    if (!Party::isNpcSlot(nNPC)) {
+        return Variable::ofNull();
+    }
+    Party &party = ctx.game.party();
+    const auto previous = party.influence(nNPC);
+    party.setInfluence(nNPC, influence);
+    if (previous != influence) {
+        reportInfluenceChange(ctx, nNPC, previous < influence);
+    }
+    return Variable::ofNull();
 }
 
 static Variable ModifyInfluence(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7009,10 +7200,20 @@ static Variable ModifyInfluence(const std::vector<Variable> &args, const Routine
     auto nNPC = getInt(args, 0);
     auto nModifier = getInt(args, 1);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("ModifyInfluence");
+    // Execute: an NPC outside the party's is ignored, and influence never set
+    // starts from 50.
+    static constexpr int kStartingInfluence = 50;
+    if (!Party::isNpcSlot(nNPC)) {
+        return Variable::ofNull();
+    }
+    Party &party = ctx.game.party();
+    const int previous = party.influence(nNPC).value_or(kStartingInfluence);
+    const int influence = std::clamp(previous + nModifier, kMinInfluence, kMaxInfluence);
+    party.setInfluence(nNPC, influence);
+    if (previous != influence) {
+        reportInfluenceChange(ctx, nNPC, nModifier > 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetRacialSubType(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7213,13 +7414,20 @@ static Variable GetHealTarget(const std::vector<Variable> &args, const RoutineCo
 
 static Variable GetRandomDestination(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto oCreature = getObjectOrNull(args, 0, ctx);
     auto rangeLimit = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetRandomDestination");
+    auto creature = dyn_cast<Creature>(oCreature.get());
+    auto area = ctx.game.module()->area();
+    if (!creature || !area->isObjectResident(*creature)) {
+        return Variable::ofVector(glm::vec3(0.0f));
+    }
+    // With a range of nothing the creature stays where it is.
+    if (rangeLimit == 0) {
+        return Variable::ofVector(creature->position());
+    }
+    return Variable::ofVector(area->randomDestination(*creature, rangeLimit));
 }
 
 static Variable IsFormActive(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7317,12 +7525,10 @@ static Variable ForceHeartbeat(const std::vector<Variable> &args, const RoutineC
 
 static Variable IsRunning(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
-
-    // Transform
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("IsRunning");
+    return Variable::ofInt(creature && creature->isRunning());
 }
 
 static Variable SetForfeitConditions(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7471,7 +7677,6 @@ static Variable SpawnAvailablePUP(const std::vector<Variable> &args, const Routi
         area->objects().end();
     if (!alreadyResident) {
         area->add(puppet);
-        puppet->runSpawnScript();
     }
     return Variable::ofObject(puppet->id());
 }
@@ -7493,13 +7698,7 @@ static Variable GetPUPOwner(const std::vector<Variable> &args, const RoutineCont
 
     // Execute
     auto creature = dyn_cast<Creature>(oPUP);
-    auto identity = creature
-                        ? ctx.game.party().rosterIdentity(*creature)
-                        : std::nullopt;
-    if (!identity || identity->kind != RosterKind::Puppet) {
-        return Variable::ofObject(kObjectInvalid);
-    }
-    auto owner = ctx.game.party().puppetOwner(identity->slot);
+    auto owner = creature ? ctx.game.party().puppetOwner(*creature) : nullptr;
     return Variable::ofObject(getObjectIdOrInvalid(owner));
 }
 
@@ -7514,12 +7713,12 @@ static Variable GetIsPuppet(const std::vector<Variable> &args, const RoutineCont
 
 static Variable GetIsPartyLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCharacter = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto oCharacter = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetIsPartyLeader");
+    // Anything but the creature under the player's control, the party's
+    // first member, is not the leader.
+    return Variable::ofInt(oCharacter && oCharacter == ctx.game.party().getLeader() ? 1 : 0);
 }
 
 static Variable GetPartyLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7568,10 +7767,12 @@ static Variable ChangeObjectAppearance(const std::vector<Variable> &args, const 
     auto oObjectToChange = getObject(args, 0, ctx);
     auto nAppearance = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("ChangeObjectAppearance");
+    if (auto creature = dyn_cast<Creature>(oObjectToChange)) {
+        creature->changeAppearance(nAppearance);
+    }
+
+    return Variable::ofNull();
 }
 
 static Variable GetIsXBox(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7595,9 +7796,12 @@ static Variable PlayOverlayAnimation(const std::vector<Variable> &args, const Ro
     return Variable::ofNull();
 }
 
+// Every song of the main menu's music list becomes available, in the
+// configuration rather than the saved game.
 static Variable UnlockAllSongs(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("UnlockAllSongs");
+    saveUnlockedPlanetSongs(ctx.game.options().game.configurationPath, kAllPlanetSongs);
+    return Variable::ofNull();
 }
 
 static Variable DisableMap(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -8241,7 +8445,7 @@ void Routines::registerMainKotorRoutines() {
     insert(515, "RevealMap", R_VOID, {R_VECTOR, R_INT}, &RevealMap);
     insert(516, "SetTutorialWindowsEnabled", R_VOID, {R_INT}, &SetTutorialWindowsEnabled);
     insert(517, "ShowTutorialWindow", R_VOID, {R_INT}, &ShowTutorialWindow);
-    insert(518, "StartCreditSequence", R_VOID, {R_INT}, &StartCreditSequence);
+    insert(518, "StartCreditSequence", R_VOID, {R_INT, R_STRING}, &StartCreditSequence);
     insert(519, "IsCreditSequenceInProgress", R_INT, {}, &IsCreditSequenceInProgress);
     insert(522, "GetCurrentAction", R_INT, {R_OBJECT}, &GetCurrentAction);
     insert(523, "GetDifficultyModifier", R_FLOAT, {}, &GetDifficultyModifier);
@@ -8797,7 +9001,7 @@ void Routines::registerMainTslRoutines() {
     insert(515, "RevealMap", R_VOID, {R_VECTOR, R_INT}, &RevealMap);
     insert(516, "SetTutorialWindowsEnabled", R_VOID, {R_INT}, &SetTutorialWindowsEnabled);
     insert(517, "ShowTutorialWindow", R_VOID, {R_INT}, &ShowTutorialWindow);
-    insert(518, "StartCreditSequence", R_VOID, {R_INT}, &StartCreditSequence);
+    insert(518, "StartCreditSequence", R_VOID, {R_INT, R_STRING}, &StartCreditSequence);
     insert(519, "IsCreditSequenceInProgress", R_INT, {}, &IsCreditSequenceInProgress);
     insert(522, "GetCurrentAction", R_INT, {R_OBJECT}, &GetCurrentAction);
     insert(523, "GetDifficultyModifier", R_FLOAT, {}, &GetDifficultyModifier);

@@ -116,8 +116,6 @@ enum class ArgKind {
     LastPerceptionSeen,
     LastPerceptionVanished,
     LastUsedBy,
-    LastSpeaker,
-    ListenPatternNumber,
     LastAttacker,
     LastDamager,
     SpellId,

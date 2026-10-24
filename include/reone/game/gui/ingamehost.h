@@ -34,6 +34,7 @@ struct InGameMenuFooter {
     };
     std::array<Member, 3> members;
     bool subjectPresent {false};
+    bool subjectDebilitated {false};
     std::string name;
     std::array<std::string, 2> classes;
     std::array<std::string, 2> levels;
