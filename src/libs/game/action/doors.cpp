@@ -250,6 +250,11 @@ static constexpr float kDoorMovedWait = 0.5f;
 // script.
 void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (actor.type() == ObjectType::Creature) {
+        if (_door->actionState() != DoorState::Closed) {
+            // A creature has nothing to do at a door that is open or on its way.
+            complete();
+            return;
+        }
         auto &creature = static_cast<Creature &>(actor);
         if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false)) {
             _waitAfterApproach = _door->isPreciseUse() && _door->isLocked();
@@ -401,9 +406,6 @@ std::optional<SavedActionRecord> UnlockObjectAction::saveFacingState() const {
 // character model, one row per class from single sword on; anything else
 // works for two seconds without a clip.
 static constexpr int kBurnDoorAnimationRow = 387;
-// An animation constant from this one on names the animation row it is past
-// it by.
-static constexpr int kRowAnimationBase = 10000;
 static constexpr float kDoorSaberWorkSeconds = 2.0f;
 static constexpr int kNotLockedStrRef = 1430;
 static constexpr int kUnlockVoiceChance = 20;
@@ -445,7 +447,8 @@ void DoorSaberAction::execute(std::shared_ptr<Action> self, Object &actor, float
                                 wield == CreatureWieldType::DoubleBladedSword ||
                                 wield == CreatureWieldType::DualSwords;
         if (creature.modelType() != Creature::ModelType::Creature && swordClass) {
-            const auto animation = static_cast<AnimationType>(kRowAnimationBase + kBurnDoorAnimationRow + static_cast<int>(wield));
+            // An animation ID below 10000 names its animation row.
+            const int animation = kBurnDoorAnimationRow + static_cast<int>(wield);
             actor.addActionBefore(*this, _game.newAction<PlayAnimationAction>(animation, 1.0f, kDoorSaberWorkSeconds));
         } else {
             actor.addActionBefore(*this, _game.newAction<WaitAction>(kDoorSaberWorkSeconds));

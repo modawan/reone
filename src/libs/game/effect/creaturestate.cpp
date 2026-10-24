@@ -161,8 +161,7 @@ bool hasSlowImmunity(const Creature &target, std::optional<std::reference_wrappe
 }
 
 CreatureStateEffect::CreatureStateEffect(CreatureState state, bool bypassPackageInspection) :
-    CopyableEffect(EffectType::Invalid),
-    _state(state) {
+    CopyableEffect(EffectType::Invalid) {
     switch (state) {
     case CreatureState::Stun:
         _type = EffectType::Stunned;
@@ -227,10 +226,11 @@ EffectApplicationResult CreatureStateEffect::onApply(Object &object, EffectInsta
     if (!creature) {
         return EffectApplicationResult::Retained;
     }
-    if ((_state == CreatureState::MindTrick || _state == CreatureState::DroidScramble) && !object.game().isTSL()) {
+    const auto state = static_cast<CreatureState>(instance.integerParameter(0));
+    if ((state == CreatureState::MindTrick || state == CreatureState::DroidScramble) && !object.game().isTSL()) {
         return EffectApplicationResult::Rejected;
     }
-    if (!stateHasConsumer(_state)) {
+    if (!stateHasConsumer(state)) {
         return instance.restoring ? EffectApplicationResult::Retained : EffectApplicationResult::Rejected;
     }
     auto creator = instance.boundCreator();
@@ -239,9 +239,9 @@ EffectApplicationResult CreatureStateEffect::onApply(Object &object, EffectInsta
     // Sleep, fear and both confusions check their immunities even when the
     // package is not inspected. Restoring changes only how the children are
     // applied.
-    const bool checkStateImmunity = !bypass || _state == CreatureState::Sleep ||
-                                    _state == CreatureState::Fear || _state == CreatureState::Confusion ||
-                                    _state == CreatureState::DroidConfused;
+    const bool checkStateImmunity = !bypass || state == CreatureState::Sleep ||
+                                    state == CreatureState::Fear || state == CreatureState::Confusion ||
+                                    state == CreatureState::DroidConfused;
     if (!bypass && creature->isEffectLinkImmune(candidate)) {
         _result = StateApplicationResult::Immune;
         return EffectApplicationResult::Rejected;
@@ -249,8 +249,8 @@ EffectApplicationResult CreatureStateEffect::onApply(Object &object, EffectInsta
     // A state-specific immunity is reported to the creator and the target,
     // whatever applied the state.
     if (checkStateImmunity &&
-        hasStateSpecificImmunity(*creature, _state, Creature::asCreature(creator))) {
-        addStateImmunityFeedback(object.game(), creator, *creature, _state);
+        hasStateSpecificImmunity(*creature, state, Creature::asCreature(creator))) {
+        addStateImmunityFeedback(object.game(), creator, *creature, state);
         _result = StateApplicationResult::Immune;
         return EffectApplicationResult::Rejected;
     }

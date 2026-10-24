@@ -17,20 +17,27 @@
 
 #include "reone/game/gui/chargen.h"
 
-#include "reone/graphics/di/services.h"
-#include "reone/gui/control/label.h"
-#include "reone/gui/sceneinitializer.h"
-#include "reone/resource/provider/models.h"
-#include "reone/resource/resources.h"
-#include "reone/scene/di/services.h"
-#include "reone/scene/graphs.h"
+#include <algorithm>
+#include <cstdint>
+#include <unordered_set>
 
 #include "reone/game/d20/classes.h"
+#include "reone/game/d20/feats.h"
+#include "reone/game/d20/races.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
 #include "reone/game/portraits.h"
 #include "reone/game/types.h"
+#include "reone/graphics/di/services.h"
+#include "reone/gui/control/label.h"
+#include "reone/gui/sceneinitializer.h"
+#include "reone/resource/provider/models.h"
+#include "reone/resource/resources.h"
+#include "reone/resource/strings.h"
+#include "reone/scene/di/services.h"
+#include "reone/scene/graphs.h"
 
 using namespace reone::audio;
 
@@ -52,8 +59,26 @@ static constexpr int kNewCharacterGoodEvil = 50;
 /** The TSL globals that record the player character's alignment and level. */
 static constexpr char kPlayerAlignmentGlobal[] = "G_PC_Align_Val";
 static constexpr char kPlayerLevelGlobal[] = "G_PC_LEVEL";
+/** The title of the level-up panel. */
+static constexpr int kLevelUpTitleStrRef = 1071;
+/** The caption before the level a level-up rises to, on a panel without a separate level caption. */
+static constexpr int kLevelValueStrRef = 74696;
 /** The movement rate of the player's pace. */
 static constexpr int kPlayerMovementRate = 0;
+
+/** The controls the panel shows in both titles, at creation or on a level-up. */
+static const std::unordered_set<std::string> kPanelControls {
+    "MAIN_TITLE_LBL", "LBL_NAME", "LBL_CLASS", "LBL_LEVEL_VAL",
+    "STR_LBL", "DEX_LBL", "CON_LBL", "INT_LBL", "WIS_LBL", "CHA_LBL",
+    "STR_AB_LBL", "DEX_AB_LBL", "CON_AB_LBL", "INT_AB_LBL", "WIS_AB_LBL", "CHA_AB_LBL",
+    "NEW_FORT_LBL", "NEW_REFL_LBL", "NEW_WILL_LBL",
+    "LBL_BEVEL_L", "LBL_BEVEL_M", "LBL_BEVEL_R", "LBL_FORTITUDE", "LBL_REFLEX", "LBL_WILL",
+    "LBL_VIT", "LBL_DEF", "MODEL_LBL", "PORTRAIT_LBL"};
+/** The controls the panel also shows in KotOR: its separate level caption. */
+static const std::unordered_set<std::string> kK1PanelControls {"LBL_LEVEL"};
+/** The controls the panel also shows in TSL: its statistics frame and captions. */
+static const std::unordered_set<std::string> kTSLPanelControls {
+    "LBL_STATSBACK", "LBL_STATSBORDER", "LBL_PORTBORDER", "LBL_VIT_NAME", "LBL_DEF_NAME", "LBL_BAR1"};
 
 static constexpr float kModelScale = 1.1f;
 
@@ -61,32 +86,18 @@ CharacterGeneration::CharacterGeneration(Game &game, ServicesView &services) :
     GameGUI(game, services) {
     _resRef = guiResRef("maincg");
 
-    if (game.isTSL()) {
-        _musicResRef = "mus_main";
-        _loadScreenResRef = "load_default";
-    } else {
-        _musicResRef = "mus_theme_rep";
-        _loadScreenResRef = "load_chargen";
-    }
+    _musicResRef = game.isTSL() ? "mus_main" : "mus_theme_rep";
 }
 
 void CharacterGeneration::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
-    _controls.LBL_LEVEL_VAL->setVisible(false);
     _controls.LBL_NAME->setTextMessage("");
+    _creationTitle = _controls.MAIN_TITLE_LBL->text().text;
 
-    if (!_game.isTSL()) {
-        _controls.LBL_LEVEL->setVisible(false);
-        _controls.VIT_ARROW_LBL->setVisible(false);
-        _controls.DEF_ARROW_LBL->setVisible(false);
-        _controls.FORT_ARROW_LBL->setVisible(false);
-        _controls.REFL_ARROW_LBL->setVisible(false);
-        _controls.WILL_ARROW_LBL->setVisible(false);
-        _controls.OLD_LBL->setVisible(false);
-        _controls.NEW_LBL->setVisible(false);
-    }
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kTSLPanelControls : kK1PanelControls);
+    showLevelUpTitle(false);
 
     loadClassSelection();
     loadQuickOrCustom();
@@ -157,6 +168,11 @@ void CharacterGeneration::loadLevelUp() {
 }
 
 bool CharacterGeneration::handle(const input::Event &event) {
+    // Escape acts as the back button of the panel in front.
+    if (event.type == input::EventType::KeyDown && event.key.code == input::KeyCode::Escape && !event.key.repeat) {
+        getSubGUI()->clickControl(_screen == CharGenScreen::Powers ? "BACK_BTN" : "BTN_BACK");
+        return true;
+    }
     if (getSubGUI()->handle(event)) {
         return true;
     }
@@ -230,23 +246,27 @@ void CharacterGeneration::setAttributesVisible(bool visible) {
         _controls.CON_AB_LBL.get(),
         _controls.INT_AB_LBL.get(),
         _controls.WIS_AB_LBL.get(),
-        _controls.CHA_AB_LBL.get()};
-    if (!_game.isTSL()) {
-        attributesLabels.push_back(_controls.OLD_FORT_LBL.get());
-        attributesLabels.push_back(_controls.OLD_REFL_LBL.get());
-        attributesLabels.push_back(_controls.OLD_WILL_LBL.get());
-    } else {
-        attributesLabels.push_back(_controls.NEW_FORT_LBL.get());
-        attributesLabels.push_back(_controls.NEW_REFL_LBL.get());
-        attributesLabels.push_back(_controls.NEW_WILL_LBL.get());
-    }
+        _controls.CHA_AB_LBL.get(),
+        _controls.NEW_FORT_LBL.get(),
+        _controls.NEW_REFL_LBL.get(),
+        _controls.NEW_WILL_LBL.get()};
     for (auto &label : attributesLabels) {
         label->setVisible(visible);
     }
 }
 
+void CharacterGeneration::startCreation() {
+    _type = Type::Quick;
+    _character = Character();
+    _controls.LBL_NAME->setTextMessage("");
+    showLevelUpTitle(false);
+    _classSelection->setupClassButtons();
+    openClassSelection();
+}
+
 void CharacterGeneration::startCustom() {
     _type = Type::Custom;
+    showLevelUpTitle(false);
     _custom->setStep(0);
     openSteps();
 }
@@ -254,6 +274,10 @@ void CharacterGeneration::startCustom() {
 void CharacterGeneration::startQuick() {
     setAttributesVisible(true);
     _type = Type::Quick;
+    showLevelUpTitle(false);
+    // A quick character is given its class's feats as it is made.
+    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, kObjectTagPlayer, _game.isTSL(), true);
+    updateAttributes();
     _quick->setStep(0);
     openSteps();
 }
@@ -268,7 +292,36 @@ void CharacterGeneration::startLevelUp() {
     character.appearance = partyLeader->appearance();
     character.gender = partyLeader->gender();
     character.attributes = partyLeader->attributes();
+    // The attributes panel adds the coming level to the character as it is.
+    for (size_t ability = 0; ability < _levelUpBase.effectiveScores.size(); ++ability) {
+        _levelUpBase.effectiveScores[ability] = partyLeader->getEffectiveAbilityScore(static_cast<Ability>(ability));
+    }
+    _levelUpBase.race = partyLeader->racialType();
+    _levelUpBase.maxHitPoints = partyLeader->maxHitPoints();
+    _levelUpBase.vitalityConstitutionModifier = partyLeader->vitalityConstitutionModifier();
+    _levelUpBase.defense = partyLeader->getDefense();
+    _levelUpBase.dexterityModifier = partyLeader->getEffectiveAbilityModifier(Ability::Dexterity);
+    // While the character is debilitated, the armour's limit is not counted.
+    _levelUpBase.reflexDexterityLimit = partyLeader->isDebilitated(true)
+                                            ? 0
+                                            : partyLeader->defenseDexterityModifier() - _levelUpBase.dexterityModifier;
+    _levelUpBase.abilitiesAccepted = false;
     setCharacter(std::move(character));
+
+    // The level the character is rising to, after its caption when the
+    // panel has no separate level caption.
+    const std::string level = std::to_string(partyLeader->attributes().getAggregateLevel() + 1);
+    _controls.LBL_LEVEL_VAL->setTextMessage(_game.isTSL() ? _services.resource.strings.getText(kLevelValueStrRef) + level : level);
+    showLevelUpTitle(true);
+
+    // The coming level grants its feats and powers at once when it offers no
+    // choice of them, and otherwise when their screens open.
+    if (!_levelUp->hasFeatChoices()) {
+        addLevelFeats();
+    }
+    if (!_levelUp->hasPowerChoices()) {
+        addLevelPowers();
+    }
 
     int nextLevel = partyLeader->attributes().getAggregateLevel() + 1;
     bool hasAttributes = nextLevel % 4 == 0;
@@ -322,12 +375,46 @@ void CharacterGeneration::openSkills() {
 }
 
 void CharacterGeneration::openFeats() {
-    _charGenFeats->reset(_type == Type::LevelUp);
+    // A level-up that gains no normal feats chooses its bonus feats.
+    bool bonus = false;
+    if (_type == Type::LevelUp) {
+        const auto levelled = levelledAttributes();
+        const auto &[clazz, classLevel] = levelled.classLevels().back();
+        bonus = clazz->getFeatGain(classLevel) == 0;
+    }
+    openFeatsScreen(bonus);
+}
+
+void CharacterGeneration::openBonusFeats() {
+    openFeatsScreen(true);
+}
+
+void CharacterGeneration::openFeatsScreen(bool bonus) {
+    std::set<FeatType> originalFeats;
+    std::vector<FeatType> grantedFeats;
+    if (bonus) {
+        originalFeats = _character.attributes.feats();
+    } else if (_type == Type::LevelUp) {
+        originalFeats = _character.attributes.feats();
+        grantedFeats = addLevelFeats();
+    } else {
+        // A new character's feats screen starts from the feats its class
+        // grants, taking back any it was given before.
+        grantedFeats = regrantCreationFeats(true);
+    }
+    _charGenFeats->reset(_type == Type::LevelUp, bonus, std::move(originalFeats), grantedFeats);
+    if (_charGenFeats->remainingPicks() == 0) {
+        _charGenFeats->accept();
+        return;
+    }
     _controls.MODEL_LBL->setVisible(false);
     changeScreen(CharGenScreen::Feats);
 }
 
 void CharacterGeneration::openPowers() {
+    if (_type == Type::LevelUp) {
+        addLevelPowers();
+    }
     _charGenPowers->reset();
     _controls.MODEL_LBL->setVisible(false);
     changeScreen(CharGenScreen::Powers);
@@ -346,6 +433,22 @@ void CharacterGeneration::openLevelUp() {
     _levelUp->reset();
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::LevelUp);
+}
+
+void CharacterGeneration::resetCreationFeats() {
+    regrantCreationFeats(false);
+}
+
+std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacter) {
+    auto held = _character.attributes.featOrder();
+    for (auto feat : held) {
+        _character.attributes.removeFeat(feat);
+    }
+    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, kObjectTagPlayer, _game.isTSL(), newCharacter);
+}
+
+void CharacterGeneration::acceptAbilities() {
+    _levelUpBase.abilitiesAccepted = true;
 }
 
 void CharacterGeneration::cancel() {
@@ -490,23 +593,35 @@ void CharacterGeneration::updateAttributes() {
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(_character.attributes.getEffectiveClass()));
     _controls.LBL_CLASS->setTextMessage(clazz->name());
 
-    const auto &classLevels = _character.attributes.classLevels();
-    int vitality = _character.attributes.getLevelHistoryMaxHitPoints(
-        [&classLevels](int level) {
-            // Each class level records that class's hit die.
-            for (const auto &[levelClass, count] : classLevels) {
-                if (level < count) {
-                    return levelClass->hitdie();
-                }
-                level -= count;
-            }
-            return 0;
-        },
-        _character.attributes.getAbilityModifier(Ability::Constitution),
-        [this](FeatType feat) { return _character.attributes.hasFeat(feat); });
+    const CreatureAttributes &attributes = _character.attributes;
+    const int hitDie = attributes.classLevels().back().first->hitdie();
+    const int constitution = panelAbilityModifier(Ability::Constitution);
+    const int dexterity = panelAbilityModifier(Ability::Dexterity);
+    int vitality = 0;
+    int defense = 0;
+    SavingThrows throws;
+    int reflexDexterityLimit = 0;
+    if (_type == Type::LevelUp) {
+        // A level-up shows the character with its coming level: its maximum
+        // vitality with the level's gain, which also follows the change to
+        // the Constitution modifier over the earlier levels and is at least
+        // 1; its defense with the change to its Dexterity modifier; and the
+        // saving throws of its classes at their new levels.
+        const int level = attributes.getAggregateLevel();
+        // The gain wraps as a signed byte.
+        const int gain = static_cast<int8_t>(hitDie + constitution + level * (constitution - _levelUpBase.vitalityConstitutionModifier));
+        vitality = _levelUpBase.maxHitPoints + std::max(1, gain);
+        defense = _levelUpBase.defense - _levelUpBase.dexterityModifier + dexterity;
+        throws = levelledAttributes().getAggregateSavingThrows();
+        reflexDexterityLimit = _levelUpBase.reflexDexterityLimit;
+    } else {
+        // A new character's vitality is its class's hit die and its
+        // Constitution modifier.
+        vitality = hitDie + constitution;
+        defense = 10 + attributes.getAggregateDefenseBonus(_game.isTSL()) + dexterity;
+        throws = attributes.getAggregateSavingThrows();
+    }
     _controls.LBL_VIT->setTextMessage(std::to_string(vitality));
-
-    int defense = _character.attributes.getDefense();
     _controls.LBL_DEF->setTextMessage(std::to_string(defense));
 
     _controls.STR_AB_LBL->setTextMessage(std::to_string(_character.attributes.strength()));
@@ -516,16 +631,60 @@ void CharacterGeneration::updateAttributes() {
     _controls.WIS_AB_LBL->setTextMessage(std::to_string(_character.attributes.wisdom()));
     _controls.CHA_AB_LBL->setTextMessage(std::to_string(_character.attributes.charisma()));
 
-    const SavingThrows &throws = clazz->getSavingThrows(1);
+    // Each saving throw adds its ability's modifier, and is summed in a signed
+    // byte; on a level-up, the Reflex save also counts what armour takes off
+    // the Dexterity modifier.
+    const int fortitude = static_cast<int8_t>(throws.fortitude + constitution);
+    const int reflex = static_cast<int8_t>(throws.reflex + dexterity + reflexDexterityLimit);
+    const int will = static_cast<int8_t>(throws.will + panelAbilityModifier(Ability::Wisdom));
+    _controls.NEW_FORT_LBL->setTextMessage(std::to_string(fortitude));
+    _controls.NEW_REFL_LBL->setTextMessage(std::to_string(reflex));
+    _controls.NEW_WILL_LBL->setTextMessage(std::to_string(will));
+}
 
-    if (_game.isTSL()) {
-        _controls.NEW_FORT_LBL->setTextMessage(std::to_string(throws.fortitude));
-        _controls.NEW_REFL_LBL->setTextMessage(std::to_string(throws.reflex));
-        _controls.NEW_WILL_LBL->setTextMessage(std::to_string(throws.will));
-    } else {
-        _controls.OLD_FORT_LBL->setTextMessage(std::to_string(throws.fortitude));
-        _controls.OLD_REFL_LBL->setTextMessage(std::to_string(throws.reflex));
-        _controls.OLD_WILL_LBL->setTextMessage(std::to_string(throws.will));
+void CharacterGeneration::showLevelUpTitle(bool levelUp) {
+    _controls.MAIN_TITLE_LBL->setTextMessage(levelUp ? _services.resource.strings.getText(kLevelUpTitleStrRef) : _creationTitle);
+    _controls.LBL_LEVEL_VAL->setVisible(levelUp);
+    if (!_game.isTSL()) {
+        _controls.LBL_LEVEL->setVisible(levelUp);
+    }
+}
+
+int CharacterGeneration::panelAbilityModifier(Ability ability) const {
+    const int index = static_cast<int>(ability);
+    if (_type == Type::LevelUp && !_levelUpBase.abilitiesAccepted) {
+        return getAbilityModifierFromScore(_levelUpBase.effectiveScores[index]);
+    }
+    const RacialType race = _type == Type::LevelUp ? _levelUpBase.race : RacialType::Human;
+    const int adjustment = _services.game.races.get(race).abilityAdjustments[index];
+    return getAbilityModifierFromScore((_character.attributes.getAbilityScore(ability) + adjustment) & 0xff);
+}
+
+CreatureAttributes CharacterGeneration::levelledAttributes() const {
+    auto levelled = _character.attributes;
+    levelled.addClassLevels(levelled.classLevels().back().first, 1);
+    return levelled;
+}
+
+std::vector<FeatType> CharacterGeneration::addLevelFeats() {
+    auto levelled = levelledAttributes();
+    auto partyLeader = _game.party().getLeader();
+    auto granted = _services.game.feats.addGrantedFeats(levelled, partyLeader->racialType(), partyLeader->tag(), _game.isTSL(), false);
+    for (auto feat : levelled.featOrder()) {
+        _character.attributes.addFeat(feat);
+    }
+    return granted;
+}
+
+void CharacterGeneration::addLevelPowers() {
+    auto partyLeader = _game.party().getLeader();
+    auto levelled = levelledAttributes();
+    _services.game.spells.addGrantedPowers(levelled, _game.isTSL());
+    const ClassType newest = levelled.getEffectiveClass();
+    for (auto power : levelled.spellsForClass(newest)) {
+        if (partyLeader->canLearnPower(power, newest)) {
+            _character.attributes.addSpell(power);
+        }
     }
 }
 

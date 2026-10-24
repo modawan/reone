@@ -1446,7 +1446,11 @@ enum class AttackBonus {
     Offhand = 2,
     /** An attack with the left creature weapon. */
     CreatureWeapon = 3,
-    Unarmed = 7
+    /** An on-hand attack with a weapon while the on-hand attack count is below zero. */
+    ExtraOnhand = 6,
+    Unarmed = 7,
+    /** An unarmed attack while the on-hand attack count is below zero. */
+    ExtraUnarmed = 8
 };
 
 enum class BodyNode {

@@ -61,7 +61,17 @@ private:
         PlayerToContainer,
     };
 
+    /** Where a give stands in refreshing the list. */
+    enum class GiveRefresh {
+        None,
+        /** A give was asked for this frame; the list waits a frame. */
+        AfterNextFrame,
+        /** The list is shown again on this frame. */
+        Due,
+    };
+
     Mode _mode {Mode::ContainerToPlayer};
+    GiveRefresh _giveRefresh {GiveRefresh::None};
     RuntimeObjectRef<Object> _container;
     /**
      * The list shows the container as it is once the world update in which
@@ -87,6 +97,8 @@ private:
     void switchMode();
     void transferItemsToPlayer();
     void onItemDoubleClick(const std::string &tag);
+    /** Lists the leader's items again once a give has had a frame to run. */
+    void updateGiveRefresh();
     void close(bool takeAll = false);
 };
 

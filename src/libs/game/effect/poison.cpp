@@ -189,7 +189,6 @@ EffectApplicationResult PoisonEffect::onApply(Object &object, EffectInstance &in
             return queueRemoval(object, instance.id);
         }
         addPoisonedFeedback(game, *creature, data.nameStrRef);
-        creature->playSound(resource::SoundSetEntry::Poisoned);
         // The first damage sees the record as it stands but for its start
         // time and factor; the rest of its timing is kept afterwards.
         instance.floatParameters[0] = kInitialPoisonFactor;

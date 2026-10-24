@@ -120,6 +120,8 @@ enum class SavedSignalEventType : uint16_t {
     InventoryClosed = 23,
     Used = 25,
     Locked = 28,
+    /** A creature walked up to the trigger it was heading for. */
+    Clicked = 30,
     FailToOpen = 34,
     ItemEquipped = 38,
 };
@@ -306,6 +308,11 @@ struct SavedActionParameter {
     SavedActionParameterPayload payload;
     /** The saved parameter entry of an empty parameter, saved again unchanged. */
     std::shared_ptr<const resource::Gff> unread;
+    /**
+     * The type the parameter was saved with, when it is read as another type;
+     * a record saved again as it was loaded keeps it.
+     */
+    std::optional<uint32_t> savedType;
 
     static SavedActionParameter fromGff(
         const resource::Gff &gff,
@@ -343,14 +350,16 @@ struct SavedAttackCommand {
 };
 
 /**
- * A spell cast order as the game saves it: the twelve parameters of a
- * CastSpell command. They name the spell, the class and caster level it is
- * cast with, the object or point it is cast at, its projectile path, its
- * associated feat, and whether the cast is fake or instant.
+ * A spell cast order as a save records it: the parameters of a CastSpell
+ * command. A creature's command has twelve: the spell, the class and caster
+ * level it is cast with, the object or point it is cast at, its projectile
+ * path, its associated feat, and whether the cast is fake or instant. A
+ * placeable's has seven: the spell, the metamagic, the object or point it is
+ * cast at, and its projectile path with whether the cast is fake.
  */
 struct SavedSpellCommand {
-    /** An item use is queued as an ItemCastSpell command, with the same parameters. */
-    bool itemUse {false};
+    /** The command is a placeable's. */
+    bool placeable {false};
     int spellId {-1};
     SpellSelection selection;
     /** The object the spell is cast at; invalid for a cast at a location. */
@@ -369,7 +378,28 @@ struct SavedSpellCommand {
 
     /** Reads the order from a command, or none when its parameters have another shape. */
     static std::optional<SavedSpellCommand> fromAction(const SavedActionRecord &record);
-    /** Writes the order as the parameters of a CastSpell or ItemCastSpell command. */
+    /** Writes the order as the parameters of a CastSpell command. */
+    void toAction(SavedActionRecord &record) const;
+};
+
+/**
+ * An item use as a save records it: the seven parameters of an ItemCastSpell
+ * command. They name the item, the property it is used through by its place
+ * among the item's use properties, a value the command carries and nothing
+ * reads, and the object or point it is used at. A use under way carries more
+ * parameters, which have no type.
+ */
+struct SavedItemUseCommand {
+    SavedObjectReference item;
+    /** The property's place among the properties the item is used through. */
+    int useProperty {0};
+    /** The object the item is used at; invalid for a use at a location. */
+    SavedObjectReference target;
+    glm::vec3 position {0.0f};
+
+    /** Reads the use from a command, or none when its parameters have another shape. */
+    static std::optional<SavedItemUseCommand> fromAction(const SavedActionRecord &record);
+    /** Writes the use as the seven parameters of an ItemCastSpell command. */
     void toAction(SavedActionRecord &record) const;
 };
 
@@ -407,16 +437,9 @@ struct SavedMoveCommand {
 /**
  * What a cast under way keeps beyond its command's parameters, saved beside
  * them as CastState: how far the cast has got, the context it was paid with,
- * a cheat order and an item use.
+ * a cheat order and the caster level an item use was ordered with.
  */
 struct SavedCastAction {
-    /** The item a cast uses, and what it uses of it. */
-    struct ItemUse {
-        SavedObjectReference item;
-        std::optional<int> property;
-        std::optional<int> casterLevel;
-    };
-
     /** The phase of the cast's schedule, the time spent in it, and the phase timings. */
     int phase {0};
     float elapsed {0.0f};
@@ -443,6 +466,10 @@ struct SavedCastAction {
     bool admitted {false};
     /** The caster is walking up to the range it was out of when the cast was dispatched. */
     bool approaching {false};
+    /** The cast goes ahead from where its caster stands, whatever the range. */
+    bool skipsApproach {false};
+    /** The cast waits for its caster to stand in use range of its object, with a clear line to it. */
+    bool checksUseLine {false};
     bool started {false};
     bool commitAttempted {false};
     bool committed {false};
@@ -451,10 +478,10 @@ struct SavedCastAction {
     /** The cast holds its caster's movement. */
     bool movementOwned {false};
     /**
-     * The item an item use uses. An item use keeps no progress across a load:
-     * it starts over from its command.
+     * The caster level an item use was ordered with, if any. An item use
+     * keeps no progress across a load: it starts over from its command.
      */
-    std::optional<ItemUse> itemUse;
+    std::optional<int> itemCasterLevel;
 
     static SavedCastAction fromGff(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
     std::shared_ptr<resource::Gff> toGff() const;

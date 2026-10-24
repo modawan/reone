@@ -96,7 +96,9 @@ public:
     enum class DirectLine {
         Clear,
         Blocked,
-        CreatureBlocked
+        CreatureBlocked,
+        /** The walk starts off the rooms, or runs out of them before anything stands in its way. */
+        LeavesRooms
     };
 
     /** The outcome of a straight walk. */
@@ -140,6 +142,8 @@ public:
      * script, then every object runs its actions with the clock stopped.
      */
     void runObjectActions();
+    /** Run the area's heartbeat script when one is due. */
+    void updateHeartbeat();
 
     void destroyObject(const Object &object);
     /**
@@ -244,9 +248,11 @@ public:
      * itself, dropped onto the ground, is tried first; then, when radius
      * exceeds a metre, square rings around it from one metre out, stepped by
      * the creature's personal space, rows before columns. With clearLine, and
-     * the position walkable and clear of any door, a row spot must also be
-     * reachable in a straight line from the position, but for other creatures,
-     * and no spot may lie across a door from it. Empty when nothing fits.
+     * the position walkable and clear of any door wall, a row spot must also
+     * be reachable in a straight line to the position, but for other
+     * creatures, a column spot's line to it must stay within the rooms, and
+     * no door wall may come within the creature's personal space of either
+     * line. Empty when nothing fits.
      */
     std::optional<glm::vec3> computeSafeLocation(
         const glm::vec3 &position, float radius, const Creature &creature, bool clearLine) const;
@@ -262,21 +268,55 @@ public:
     std::optional<glm::vec3> computeSafeLocationInDirection(
         const glm::vec3 &base, const glm::vec3 &direction, float radius, const Creature &creature, bool clearLine) const;
     /**
-     * Whether the creature fits at a point on the ground: over walkable ground,
-     * no blocking walkmesh face within its personal space across its height,
-     * and no other creature within their combined creature personal space,
-     * other than the dead and party members down at no vitality.
+     * Whether the creature fits at a point on the ground: over a room (looked
+     * for a hundredth of a metre back along x and y and a tenth of a metre
+     * below the point), no blocking walkmesh face within its personal space
+     * across its height, and no other creature within their combined creature
+     * personal space, other than the dead and party members down at no
+     * vitality.
      */
     bool isSafeLocationPoint(const glm::vec3 &point, const Creature &creature) const;
-    /** Whether a straight line between two points meets the walls of a door as it stands. */
-    bool crossesDoor(const glm::vec3 &from, const glm::vec3 &to) const;
     /**
-     * Whether a wall of a door as it stands lies within the creature's
-     * personal space of a point on the ground, up to the creature's height.
+     * Whether a wall of a door as it stands comes within the creature's
+     * personal space of the level line between two points, between two
+     * heights.
      */
-    bool isNearDoorWall(const glm::vec3 &point, const Creature &creature) const;
-    /** The ground height under a point searched down from it, if it stands over walkable ground. */
-    std::optional<float> groundHeight(const glm::vec3 &position) const;
+    bool hasDoorWallAlong(const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
+    /**
+     * The door or placeable with a wall, as it stands, within the creature's
+     * personal space of a point, between two heights.
+     */
+    std::optional<std::reference_wrapper<const Object>> findStaticWallNear(
+        const glm::vec3 &point, const Creature &creature, float minZ, float maxZ) const;
+    /** Which face of the room under a point gives the ground height there. */
+    enum class GroundFace {
+        Locating, /**< the walk-check face by which the room is found, within a thousand units of the point's height */
+        Top       /**< the topmost face of any material in the room */
+    };
+    /**
+     * The ground height at a point: the height of a face of the room found
+     * under the point (see ISceneGraph::findRoomWalkmesh), 0 when no room lies
+     * there, and -9 when the room has no face for the top probe.
+     *
+     * @param face which face of the room gives the height
+     */
+    float groundHeight(const glm::vec3 &position, GroundFace face) const;
+    /**
+     * The upward normal of the ground at a point: that of the face by which
+     * the room under the point is found, or straight up over no room.
+     */
+    glm::vec3 groundNormal(const glm::vec3 &position) const;
+    /** Whether a room lies under a point (see ISceneGraph::findRoomWalkmesh). */
+    bool hasRoomAt(const glm::vec3 &position) const;
+    /**
+     * Whether a point stands on walkable ground for placing a creature or
+     * choosing a use point. Only the room found under the point counts (see
+     * ISceneGraph::findRoomWalkmesh), and a point over no room is not walkable.
+     * The surface is that of the room's walk-check face on the point's
+     * vertical (see ISceneGraph::findRoomFace), or the first
+     * surface when there is no such face; its walk cell must not be zero.
+     */
+    bool isPositionWalkable(const glm::vec3 &position) const;
     /**
      * Where a creature appearing near center goes: center itself when the
      * creature fits there, otherwise the first ring spot within twenty metres
@@ -285,12 +325,14 @@ public:
      */
     std::optional<glm::vec3> findOpenSpotInSight(const glm::vec3 &center, const Creature &creature) const;
     /**
-     * Moves the creatures that no longer fit where they stand once a corpse
-     * bag with this collision box lands at center: each is pushed a metre
-     * straight away from center, to the first spot within ten metres where it
-     * fits.
+     * Moves the creatures that no longer fit where they stand once an object
+     * with this collision box comes to rest at center: a corpse bag landing,
+     * or a door arriving open or shut. Each goes to the first spot within ten
+     * metres where it fits, searched from a metre straight away from center,
+     * or, round a door that has shut, from the door's nearest use point.
      */
-    void budgeCreatures(const glm::vec3 &center, const graphics::AABB &bounds);
+    void budgeCreatures(const glm::vec3 &center, const graphics::AABB &bounds,
+                        std::optional<std::reference_wrapper<const Door>> shutDoor = std::nullopt);
     /**
      * Note a creature's new position in every encounter and area of effect,
      * signalling entries and exits when announce is set.
@@ -303,18 +345,30 @@ public:
      */
     std::optional<std::reference_wrapper<const Creature>> findBlockingCreature(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const;
     /**
-     * Whether the creature can walk straight from one point to another. When
-     * only another creature stands in the way, that creature is reported. The
-     * point where the walk is stopped, by a wall or by that creature, is
+     * Whether the creature can walk straight from one point to another. A
+     * walk from no room leaves the rooms at once; otherwise only what stands
+     * before the point where the walk runs out of the rooms counts, a door or
+     * placeable wall at that point included, and with nothing there it leaves
+     * them at that point. The walk is settled room by room: a creature in an
+     * earlier room stops it before a wall in a later one. When only another creature
+     * stands in the way, that creature is reported. The point where the walk
+     * is stopped, by a wall, by that creature or by leaving the rooms, is
      * reported too, and the door, when a door's wall stops it. The normal
-     * there is the wall's, or for a creature the way out from its centre
-     * through that point. The ignored creature never stands in the way.
+     * there is the wall's or the room edge's, or for a creature the way out
+     * from its centre through that point. The ignored creature never stands
+     * in the way.
      */
     DirectLineTest testDirectLine(
         const Creature &mover,
         const glm::vec3 &from,
         const glm::vec3 &to,
         std::optional<std::reference_wrapper<const Creature>> ignored = std::nullopt) const;
+    /**
+     * Whether a wall stands anywhere along the creature's straight walk from
+     * one point to another, tested just above the ground. Creatures and room
+     * bounds do not count.
+     */
+    bool isWalkLineBlocked(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const;
     /**
      * Whether nothing but the observer or the target, when there is one,
      * stands between two eye points, or stands only beyond the far one. A line
@@ -354,12 +408,58 @@ public:
     void initCameras(const glm::vec3 &entryPosition, float entryFacing);
 
     void onPartyLeaderMoved(bool roomChanged = false);
+    /**
+     * Picks the rooms and objects drawn. With the area's visibility loaded,
+     * the room shown around is the room found under the leader (see
+     * ISceneGraph::findRoomWalkmesh), or, while a conversation under way uses
+     * a camera of its own, under that camera; where none is found the last
+     * one stays, the first room of the layout at first. That room and those
+     * its visibility lists are shown, and an object is drawn when it is in a
+     * shown room (see isModelInShownRoom). Without the area's visibility, or
+     * before any room, everything is drawn.
+     */
     void updateRoomVisibility();
+    /**
+     * Whether a model is in a shown room. A model is in each room whose box
+     * holds its centre seen from above: the origin of a character model, the
+     * centre of its bounding box for any other. A model no box holds, or one
+     * whose subclassification marks it so, is in every room.
+     */
+    bool isModelInShownRoom(const scene::ModelSceneNode &model) const;
+    /**
+     * Where the room shown around is looked for: the leader's position, or
+     * the camera of a conversation under way that uses one of its own; none
+     * without a leader.
+     */
+    std::optional<glm::vec3> roomViewPosition() const;
 
     void startDialog(const std::shared_ptr<Object> &object, const std::string &resRef);
     void update3rdPersonCameraFacing();
     void update3rdPersonCameraTarget();
-    bool landObject(Object &object);
+    /**
+     * Puts an object on the ground where it stands: at the height of the face
+     * by which the room under it is found, or at height 0 over no room.
+     */
+    void landObject(Object &object);
+    /**
+     * Keeps a creature on the ground, as each of its updates does after its
+     * actions: at the height of the face by which the room under it is found,
+     * or at height 0 over no room. In TSL the room it was last found in is
+     * tried first. A party member other than the leader that stands over no
+     * room, while no conversation is under way (see Game::isDialogUnderWay),
+     * goes back to its follow point: to the
+     * first spot within five metres of it where it fits, reachable from it,
+     * at the height found where it stood; or, when there is none, to the
+     * follow point itself.
+     */
+    void groundCreature(Creature &creature);
+    /**
+     * Where a party member or puppet spawned at a location goes: over a room,
+     * the first spot within twenty metres where it fits, reachable from the
+     * location, or the location itself when there is none; over no room, the
+     * area's origin.
+     */
+    glm::vec3 partySpawnPosition(const glm::vec3 &location, const Creature &creature) const;
     void add(const std::shared_ptr<Object> &object);
 
     /** Keep a moved object in X order; it passes only objects strictly before or after it. */
@@ -388,14 +488,20 @@ public:
                                 MoveFacing facing = MoveFacing::Turn);
     /**
      * Step a creature to a point it has been found free to walk straight to:
-     * onto the ground there, noting its room, the leader's trail, triggers
-     * and subareas. False, and no step, when there is no ground at the point.
+     * onto the ground there, at the height of the face by which the room
+     * under the point is found, noting that room, the leader's trail,
+     * triggers and subareas. False, and no step, when no room lies under the
+     * point.
+     *
+     * @param point where the creature steps; its height is where the room is
+     *        looked for from
      */
-    bool stepCreatureTo(const std::shared_ptr<Creature> &creature, const glm::vec2 &point,
+    bool stepCreatureTo(const std::shared_ptr<Creature> &creature, const glm::vec3 &point,
                         MoveFacing facing = MoveFacing::Turn);
 
     bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt,
                       float maxDistance = FLT_MAX, MoveFacing facing = MoveFacing::Turn);
+    /** Puts an object in the room found under it (see ISceneGraph::findRoomWalkmesh), or in none. */
     void determineObjectRoom(Object &object);
     /**
      * The TSL Force rating of the first room whose WalkCheck walkmesh lies
@@ -404,8 +510,10 @@ public:
      */
     int getRoomForceRating(const glm::vec3 &position) const;
     /**
-     * The surface material under a point: the topmost face of any material in
-     * the room found under it, or 0 when no room lies under it.
+     * The surface material under a point: that of the room's face of any
+     * material on the point's vertical (see ISceneGraph::findRoomFace),
+     * in the room found under the point (see ISceneGraph::findRoomWalkmesh);
+     * 0 when no room lies under the point or the room has no face there.
      */
     int getSurfaceMaterial(const glm::vec3 &position) const;
     /**
@@ -420,7 +528,12 @@ public:
     bool hasMinigame() const { return _miniGameSpec.has_value(); }
     const MinigameSpec &miniGame() const { return *_miniGameSpec; }
 
-    Object *getObjectAt(int x, int y) const;
+    /**
+     * The object whose model is under a screen point, as the party leader
+     * sees it; a kept corpse is answered by its body bag. Empty without a
+     * leader or when no object's model is there.
+     */
+    std::optional<std::reference_wrapper<Object>> getObjectAt(int x, int y) const;
 
     // Presentation-active module transitions, for the destination banner.
     // Read-only: no tenants, scripts or transitions are touched.
@@ -450,8 +563,10 @@ public:
     const AmbientAudio &ambientAudio() const { return _ambientAudio; }
     void playMusic(bool play);
     void setMusicDelay(int delay);
-    void setMusicDayTrack(int track);
-    void setMusicNightTrack(int track);
+    /** Set the day track; \p playsThroughMovies lets the music play on through a movie that allows it. */
+    void setMusicDayTrack(int track, bool playsThroughMovies);
+    /** Set the night track; \p playsThroughMovies lets the music play on through a movie that allows it. An unchanged track changes nothing. */
+    void setMusicNightTrack(int track, bool playsThroughMovies);
     void playBattleMusic(bool play);
     void setBattleMusicTrack(int track);
     void playAmbientSound(bool play);
@@ -566,6 +681,10 @@ public:
 
     /** End one retained creature's current Area lifetime. */
     void retireCreatureAreaRuntime(const std::shared_ptr<Creature> &creature);
+    /**
+     * A roster creature leaves the area while the module plays on: its Area
+     * lifetime ends, and a live one that stood here signals its exit.
+     */
     void retirePartyMemberAreaRuntime(const std::shared_ptr<Creature> &member);
     void loadParty(
         const glm::vec3 &position,
@@ -641,6 +760,13 @@ public:
      * answer is the one the event captured; the live answer is restored after.
      */
     void receiveEnteredSignal(const std::shared_ptr<Object> &entering, bool loadFromSaveGame);
+    /**
+     * Announce a live creature that left the area: the area's OnExit runs
+     * for it when the event is due.
+     */
+    void signalExited(Creature &creature);
+    /** Record the exiting object, which is none once it is gone, and run OnExit. */
+    void receiveExitedSignal(const std::shared_ptr<Object> &exiting);
     /** The object the area's last enter event was for, kept until the next one. */
     uint32_t lastEnteredId() const { return _lastEnteredId; }
     /** The object the area's last exit event was for, kept until the next one. */
@@ -680,8 +806,19 @@ private:
      * visible room. Keep that order separately from the name index.
      */
     std::vector<Room *> _roomOrder;
+    /** The rooms' walkmeshes by their place in the layout; empty for a room loaded without one. */
+    std::vector<std::shared_ptr<scene::WalkmeshSceneNode>> _layoutWalkmeshes;
     std::unordered_map<std::string, int> _roomForceRatings;
     resource::Visibility _visibility;
+    /** Whether the area's visibility was loaded, so rooms and objects are culled by it. */
+    bool _visibilityGraph {false};
+    /** The room shown around (see updateRoomVisibility); none before any. */
+    Room *_shownRoom {nullptr};
+    /** Whether only some rooms are shown this frame. */
+    bool _cullingRooms {false};
+    /** The test the scene graph culls models by while this area lasts (see ISceneGraph::setRoomTest). */
+    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(
+        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); })};
     CameraStyle _camStyleDefault;
     CameraStyle _camStyleCombat;
     AmbientAudio _ambientAudio;
@@ -769,8 +906,6 @@ private:
     struct ReleasedBody {
         std::shared_ptr<Object> owner;
         std::shared_ptr<scene::ModelSceneNode> model;
-        /** The room the body stood in, whose visibility it follows. */
-        std::optional<std::reference_wrapper<const Room>> room;
         float delay {0.0f};
         float hold {0.0f};
         float elapsed {0.0f};
@@ -790,8 +925,8 @@ private:
     std::vector<HitSpark> _hitSparks;
 
     /** Keep the body of a destroyed object in the scene, as a fading body, a kept corpse or a corpse bag's body. */
-    void releaseDestroyedBody(const std::shared_ptr<Object> &object, std::optional<std::reference_wrapper<const Room>> room);
-    /** Fade and remove released bodies and effect models, and show kept ones with their rooms. */
+    void releaseDestroyedBody(const std::shared_ptr<Object> &object);
+    /** Fade and remove released bodies and effect models, and show kept ones. */
     void updateReleasedPresentation(float dt);
 
     // END Objects
@@ -826,9 +961,6 @@ private:
 
     void doDestroyObject(uint32_t objectId, bool destroyRuntimeObject = true);
     void doDestroyObjects();
-    void updateVisibility();
-    /** The first room in order with walkable surface under or over a point. */
-    std::optional<std::reference_wrapper<const Room>> getRoomUnder(const glm::vec3 &position) const;
 
     void loadPartyMember(
         const std::shared_ptr<Creature> &member,
@@ -844,6 +976,15 @@ private:
         glm::vec2 normal {0.0f};
     };
 
+    /**
+     * Finds the first wall along the creature's straight walk from one point
+     * to another, tested just above the ground.
+     *
+     * @param outCollision the wall met, its intersection at ground level
+     * @return whether a wall stands along the walk
+     */
+    bool findWalkLineWall(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to, scene::Collision &outCollision) const;
+
     bool findCreatureCollision(
         const Creature &creature,
         const glm::vec3 &origin,
@@ -854,11 +995,14 @@ private:
     /**
      * Visit ground spots on square rings around center, starting halfWidth
      * out and widening by step while continues(halfWidth) holds: along the
-     * bottom and top rows, then up the left and right columns. The first spot
-     * accept returns wins.
+     * bottom and top rows, then up the left and right columns. Each spot
+     * stands at the top ground height (GroundFace::Top), the room under it
+     * looked for around the height of the spot before, the first around
+     * height. The first spot accept returns wins.
      */
     std::optional<glm::vec3> searchSquareRings(
         const glm::vec3 &center,
+        float height,
         float halfWidth,
         float step,
         const std::function<bool(float)> &continues,

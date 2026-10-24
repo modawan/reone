@@ -233,6 +233,7 @@ protected:
 TEST_F(ConversationTest, ordinary_static_dialogue_keeps_its_own_gui) {
     auto dialog = makeDialog();
     dialog->entries[0].cameraId = 1;
+    dialog->entries[0].cameraAngle = 6;
     auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
     _conversation->setGUIForTest(gui);
     EXPECT_CALL(_engine.guiModule().guis(), get(_, _)).Times(0);

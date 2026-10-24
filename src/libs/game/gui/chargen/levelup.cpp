@@ -35,8 +35,19 @@ namespace reone {
 
 namespace game {
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_BACK", "BTN_CANCEL", "BTN_STEPNAME1", "BTN_STEPNAME2", "BTN_STEPNAME3", "BTN_STEPNAME4",
+    "BTN_STEPNAME5", "LBL_1", "LBL_2", "LBL_3", "LBL_4", "LBL_5",
+    "LBL_NUM1", "LBL_NUM2", "LBL_NUM3", "LBL_NUM4", "LBL_NUM5"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"LBL_BG"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void LevelUpMenu::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
     if (_game.isTSL()) {
         for (auto &control : {_controls.LBL_1, _controls.LBL_2, _controls.LBL_3, _controls.LBL_4, _controls.LBL_5}) {

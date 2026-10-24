@@ -642,7 +642,7 @@ bool releaseAreaOwnedItem(
     return area && area->releaseObject(item);
 }
 
-bool transferItemTo(
+ItemTransfer transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
     Object &receiver) {
@@ -650,11 +650,12 @@ bool transferItemTo(
         (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
         (item->isPresentationOnly() != receiver.isPresentationOnly()) ||
         item.get() == &receiver) {
-        return false;
+        return {};
     }
 
     uint32_t ownerId = item->owner();
-    if (ownerId == receiver.id() && !item->isEquipped()) return true;
+    if (ownerId == receiver.id() && !item->isEquipped())
+        return {true, item};
 
     if (!item->isHeld()) {
         // owner() describes nested inventory/equipment ownership; it does not
@@ -664,27 +665,27 @@ bool transferItemTo(
         if (item->isPresentationOnly() || item->isEquipped() ||
             std::find(receiver.items().begin(), receiver.items().end(), item) !=
                 receiver.items().end()) {
-            return false;
+            return {};
         }
         if (!releaseAreaOwnedItem(game, item)) {
-            return false;
+            return {};
         }
-        receiver.addItem(item);
-        return true;
+        return {true, receiver.addItem(item)};
     }
 
     auto owner = game.getObjectById(ownerId);
-    if (!owner) return false;
+    if (!owner)
+        return {};
 
     if (auto creature = std::dynamic_pointer_cast<Creature>(owner);
         creature && item->isEquipped()) {
-        if (!creature->takeEquippedItem(item)) return false;
+        if (!creature->takeEquippedItem(item))
+            return {};
     } else if (!owner->removeItemStack(item)) {
-        return false;
+        return {};
     }
 
-    receiver.addItem(item);
-    return true;
+    return {true, receiver.addItem(item)};
 }
 
 } // namespace game

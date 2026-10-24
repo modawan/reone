@@ -53,6 +53,11 @@ public:
 
     void setStep(int step);
 
+    /** Whether the coming level offers a choice of feats. */
+    bool hasFeatChoices() const;
+    /** Whether the coming level offers a choice of powers. */
+    bool hasPowerChoices() const;
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_BACK;
@@ -105,8 +110,6 @@ private:
     }
 
     void doSetStep(int step);
-    bool hasFeatChoices() const;
-    bool hasPowerChoices() const;
 };
 
 } // namespace game

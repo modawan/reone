@@ -57,7 +57,10 @@ enum class StateApplicationResult {
     Applied
 };
 
-/** Holds a creature in a state for the effect's duration. */
+/**
+ * Holds a creature in a state for the effect's duration. The state is integer
+ * 0 and the package inspection bypass integer 1.
+ */
 class CreatureStateEffect : public CopyableEffect<CreatureStateEffect> {
 public:
     /**
@@ -71,13 +74,10 @@ public:
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
     void onRemove(Object &, const EffectInstance &) override;
 
-    /** The state the effect holds the creature in. */
-    CreatureState state() const { return _state; }
     /** What the last application did. */
     StateApplicationResult result() const { return _result; }
 
 private:
-    CreatureState _state;
     StateApplicationResult _result {StateApplicationResult::Rejected};
 };
 

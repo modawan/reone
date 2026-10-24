@@ -88,6 +88,19 @@ public:
     void setItemsInteractive(bool interactive);
     void setScrollBarEnabled(bool enabled);
     void setProtoMatchContent(bool match);
+    /**
+     * Make the rows the lines of one block of text, a line of the
+     * prototype's font high each, drawn as one block inside the list's
+     * border, less an enabled scroll bar, and clipped to that room. The block
+     * sits the list's padding in from the room's left and below its top; a
+     * block that fits is placed by the prototype's vertical alignment in the
+     * row the room stretches it to. The prototype's own position plays no
+     * part. It overflows when its height and the padding exceed the room
+     * inside the border; it then scrolls a line at a time, one position per
+     * line beyond those the room holds whole, and the last position puts its
+     * bottom the padding above the room's bottom.
+     */
+    void setTextLineRows(bool lines);
     void setRenderItemIconsForButtonProto(bool render);
     void scrollToBottom();
 
@@ -134,6 +147,8 @@ public:
      */
     int getItemWidth() const;
     int getItemCount() const;
+    /** Whether the rows need more room than the list has, so that it scrolls. */
+    bool isOverflowing() const { return _overflowing; }
     const Item &getItemAt(int index) const;
     int getItemOffset() const { return _itemOffset; }
     void setItemOffset(int offset);
@@ -163,6 +178,8 @@ private:
     bool _scrollBarEnabled {true};
     bool _leftScrollBar {false}; /**< authored side for the scroll bar */
     bool _protoMatchContent {false}; /**< proto item height must match its content */
+    bool _textLineRows {false};      /**< rows are the lines of one block of text */
+    bool _overflowing {false};       /**< the rows need more room than the list has */
     bool _renderItemIconsForButtonProto {false};
     float _layoutScale {1.0f};
     BackgroundRenderer _backgroundRenderer;
@@ -178,6 +195,16 @@ private:
     void updateItemsLayout();
     int getInnerHeight() const;
     float getItemPitch(const Item &item) const;
+    /**
+     * How far below the padding a block of text-line rows that fits starts:
+     * the offset of its \p content height inside the row the room stretches
+     * it to, under the prototype's vertical alignment.
+     */
+    int getTextBlockAlignmentOffset(int content, int room, int padding) const;
+    /** The height of a line of text-line rows: the prototype's font height. */
+    int getTextLineHeight() const;
+    /** Draws text-line rows as one block, clipped inside the border. */
+    void renderTextLineRows(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass);
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;

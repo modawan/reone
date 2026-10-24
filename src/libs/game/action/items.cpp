@@ -30,6 +30,7 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/game/statussummary.h"
 
@@ -40,13 +41,33 @@ namespace game {
 // Beyond this squared distance from the receiver's use point the giver runs.
 static constexpr float kGiveRunDistance2 = 25.0f;
 
+// The giver must hold the item, or it and the item's holder must both be in
+// the party, and it must take commands.
+bool GiveItemAction::queue(Game &game, Object &giver, std::shared_ptr<Item> item, std::shared_ptr<Object> giveTo, int count, bool givenByScript) {
+    if (!giver.isCommandable()) {
+        return false;
+    }
+    auto &party = game.party();
+    auto possessor = game.getObjectById<Creature>(item->owner());
+    const bool partyItem = possessor && isa<Creature>(giver) && party.isMember(*possessor) && party.isMember(giver);
+    if (item->owner() != giver.id() && !partyItem) {
+        return false;
+    }
+    count = std::min(count, item->stackSize());
+    giver.addAction(game.newAction<GiveItemAction>(std::move(item), std::move(giveTo), count, givenByScript));
+    return true;
+}
+
 // A creature gives from within use range of the receiver: out of it, it goes
 // to the receiver's use point, running when it sets off more than five metres
 // from it, and turns to that point. Credits it gives come out of its credits,
-// and a pazaak card out of the party's collection. A creature or placeable
+// and a pazaak card out of the party's collection. A count short of the stack
+// is split off it; otherwise the stack moves. A creature or placeable
 // receives the item (a creature counts credits and the other counted items it
-// acquires); an item received by a party member is reported in the status
-// summary.
+// acquires). A party member that receives an item a script gave reports it in
+// the status summary. A placeable that receives one, unless it is destroyed
+// once empty, runs its inventory disturbed script for the stack that holds
+// it, disturbed by the item's holder before the give.
 void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     if (auto *giver = dyn_cast<Creature>(&actor)) {
@@ -68,14 +89,39 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
             party.removePazaakCards(_item->modelVariation() - 1, _item->stackSize());
         }
     }
+    // The item's holder before the give disturbs the receiver: the creature
+    // holding the item, or holding the item it is inside.
+    uint32_t disturber = _item->owner();
+    if (auto holder = _game.getObjectById<Item>(disturber)) {
+        if (_game.getObjectById<Creature>(holder->owner())) {
+            disturber = holder->owner();
+        }
+    }
+    std::shared_ptr<Item> split;
+    if (_count > 0 && _count < _item->stackSize()) {
+        split = _game.newItemClone(*_item);
+        split->setStackSize(_count);
+        _item->setStackSize(_item->stackSize() - _count);
+    }
+    const auto deliver = [&](Object &receiver) -> ItemTransfer {
+        if (split) {
+            return {true, receiver.addItem(split)};
+        }
+        return transferItemTo(_game, _item, receiver);
+    };
     switch (_giveTo->type()) {
-    case ObjectType::Placeable:
-        transferItemTo(_game, _item, *_giveTo);
+    case ObjectType::Placeable: {
+        auto &placeable = static_cast<Placeable &>(*_giveTo);
+        auto delivered = deliver(placeable);
+        if (delivered && !placeable.dieWhenEmpty()) {
+            placeable.runOnInvDisturbed(disturber, InventoryDisturbType::Added, delivered.held->id());
+        }
         break;
+    }
     case ObjectType::Creature: {
         const std::string name = _item->localizedName();
-        transferItemTo(_game, _item, *party.sharedInventoryReceiver(_giveTo));
-        if (party.isMember(*_giveTo)) {
+        deliver(*party.sharedInventoryReceiver(_giveTo));
+        if (_givenByScript && party.isMember(*_giveTo)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsReceived, 0, {name});
         }
         break;
@@ -86,17 +132,14 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     complete();
 }
 
-// A give is kept as the item and the receiver, the whole stack, given by a
-// script; taken up again it walks up afresh.
-static constexpr int32_t kWholeStack = -1;
-static constexpr int32_t kGivenByScript = 1;
-
+// A give is kept as the item, the receiver, the count and whether a script
+// gave it; taken up again it walks up afresh.
 std::optional<SavedActionRecord> GiveItemAction::saveFacingState() const {
     return SavedActionRecord::command(SavedActionType::GiveItem, {
                                                                      {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
                                                                      {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_giveTo->id())},
-                                                                     {kSavedIntegerParameter, kWholeStack},
-                                                                     {kSavedIntegerParameter, kGivenByScript},
+                                                                     {kSavedIntegerParameter, static_cast<int32_t>(_count)},
+                                                                     {kSavedIntegerParameter, static_cast<int32_t>(_givenByScript ? 1 : 0)},
                                                                  });
 }
 
@@ -106,7 +149,7 @@ std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record,
     if (!item || !receiver) {
         return nullptr;
     }
-    return game.newAction<GiveItemAction>(std::move(item), std::move(receiver));
+    return game.newAction<GiveItemAction>(std::move(item), std::move(receiver), record.integerParameter(2), record.integerParameter(3) != 0);
 }
 
 // A creature or placeable takes the item. A creature that takes it from a

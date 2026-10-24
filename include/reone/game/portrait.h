@@ -28,7 +28,8 @@ struct Portrait {
     int appearanceNumber {0};
     int appearanceS {0};
     int appearanceL {0};
-    bool forPC {false};
+    /** The forpc cell; zero for a portrait no player character uses. */
+    int forPC {0};
     int sex {0};
 };
 

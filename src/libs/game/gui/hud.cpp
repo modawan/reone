@@ -51,6 +51,8 @@
 #include "reone/gui/guis.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/provider/fonts.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
 #include "reone/system/smallvector.h"
@@ -223,22 +225,8 @@ static const std::string kDefensiveStanceIcon {"i_stancedef"};
 static const std::string kSwitchWeaponsIcon {"i_swtchwpn"};
 /** The number of icons in the action queue. */
 static constexpr size_t kActionQueueSize = 4;
-
-/** The queue icon of a pending round entry of \p type whose command shows no icon. */
-static const std::string &scheduledEntryIcon(int type) {
-    switch (type) {
-    case SavedScheduledAction::kEquipType:
-        return kEquipIcon;
-    case SavedScheduledAction::kUnequipType:
-        return kUnequipIcon;
-    case SavedScheduledAction::kCombatStanceType:
-        return kDefensiveStanceIcon;
-    case SavedScheduledAction::kSwitchWeaponsType:
-        return kSwitchWeaponsIcon;
-    default:
-        return g_attackIcon;
-    }
-}
+/** The alpha of the queue's first icon while no round action is under way. */
+static constexpr float kIdleActionQueueOpacity = 0.25f;
 
 /**
  * A cast shows its spell's icon. The use of an item shows the item's icon
@@ -253,6 +241,21 @@ static std::shared_ptr<graphics::Texture> castIcon(const Spell &spell, const std
 
 /** Authored-canvas gap between the minimap frame and the TSL bark bubble. */
 static constexpr int kBarkBubbleMapGap = 8;
+
+/**
+ * TSL's box of the action bar's announcements and prompts: its place on the
+ * authored canvas, its frame in the interface's green, its fill tinted like
+ * the rest of the HUD, and its text in the highlight colour.
+ */
+static constexpr char kNoticeBoxTag[] = "LBL_ACTIONNOTICE";
+static const gui::Control::Extent kNoticeBoxExtent {4, 398, 252, 96};
+static constexpr char kNoticeBoxCorner[] = "uibit_brdr_16bct";
+static constexpr char kNoticeBoxEdge[] = "uibit_brdr_16bet";
+static constexpr char kNoticeBoxFill[] = "uibit_fill_2bt";
+static constexpr int kNoticeBoxBorderDimension = 16;
+static const glm::vec3 kNoticeBoxBorderColor {0.05f, 0.35f, 0.27f};
+static const glm::vec3 kNoticeBoxTextColor {0.7f, 0.7f, 0.6f};
+static constexpr char kNoticeBoxFont[] = "dialogfont16x16";
 
 /** The combat line shown while the leader is held helpless. */
 static constexpr int kLeaderDebilitatedCombatMessage = 47915;
@@ -318,6 +321,9 @@ void HUD::onGUILoaded() {
     _actionBar.addDescription(
         findControl<gui::Label>("LBL_ACTIONDESC"),
         findControl<gui::Label>("LBL_ACTIONDESCBG"));
+    if (_game.isTSL()) {
+        loadNoticeBox();
+    }
 
     // TSL adds a sixth slot, the forms.
     const int actionSlots = _game.isTSL() ? 6 : 5;
@@ -442,24 +448,47 @@ void HUD::onGUILoaded() {
     // Clear All leaves combat mode and clears the leader's actions, which one
     // that cannot be commanded keeps, its pending round entries and its targets.
     // The button shows only while the leader is in combat mode.
+    // It also takes the rejection message off the action bar.
     _controls.BTN_CLEARALL->setOnClick([this]() {
         const auto leader = _game.party().getLeader();
         leader->setClientCombatMode(false);
         _game.combat().clearAllOrders(*leader);
+        _actionBar.clearRejection();
     });
     // Both clear-one buttons clear one action.
     _controls.BTN_CLEARONE->setOnClick([this]() { _game.clearOneAction(); });
     _controls.BTN_CLEARONE2->setOnClick([this]() { _game.clearOneAction(); });
+    // While the action bar waits for the party member to use an item on, a
+    // portrait picks its member, and pointing at one names it.
+    const std::array<std::shared_ptr<gui::Button>, 3> portraitButtons {
+        _controls.BTN_CHAR1, _controls.BTN_CHAR2, _controls.BTN_CHAR3};
+    for (int portrait = 0; portrait < 3; ++portrait) {
+        portraitButtons[portrait]->setOnSelectionChanged([this, portrait](bool selected) {
+            _actionBar.pointAtPartyItemTarget(selected ? portraitMemberIndex(portrait) : std::nullopt);
+        });
+    }
     _controls.BTN_CHAR1->setOnClick([this]() {
-        _game.openInGameMenu(InGameMenuTab::Equipment);
-    });
-    // A member who is down cannot take control.
-    auto selectMember = [this](int index) {
-        auto member = _game.party().getMember(index);
-        if (!member || member->isDead() || member->isTemporarilyDead()) {
+        if (_actionBar.isChoosingPartyItemTarget()) {
+            _actionBar.usePartyItemOn(0);
             return;
         }
-        _game.party().setPartyLeaderByIndex(index);
+        _game.openInGameMenu(InGameMenuTab::Equipment);
+    });
+    // Otherwise a member who is down cannot take control.
+    auto selectMember = [this](int portrait) {
+        auto index = portraitMemberIndex(portrait);
+        if (!index) {
+            return;
+        }
+        if (_actionBar.isChoosingPartyItemTarget()) {
+            _actionBar.usePartyItemOn(*index);
+            return;
+        }
+        auto member = _game.party().getMember(*index);
+        if (member->isDead() || member->isTemporarilyDead()) {
+            return;
+        }
+        _game.party().setPartyLeaderByIndex(*index);
     };
     _controls.BTN_CHAR2->setOnClick([selectMember]() { selectMember(1); });
     _controls.BTN_CHAR3->setOnClick([selectMember]() { selectMember(2); });
@@ -483,6 +512,40 @@ void HUD::onGUILoaded() {
     _areaTransition->init();
 
     loadPausePanel();
+}
+
+void HUD::loadNoticeBox() {
+    auto notice = std::static_pointer_cast<gui::Button>(std::shared_ptr<Control>(_gui->newControl(ControlType::Button, kNoticeBoxTag)));
+    notice->setAuthoredExtent(kNoticeBoxExtent);
+    gui::Control::Border border;
+    border.corner = _services.resource.textures.get(kNoticeBoxCorner, TextureUsage::GUI);
+    border.edge = _services.resource.textures.get(kNoticeBoxEdge, TextureUsage::GUI);
+    border.fill = _services.resource.textures.get(kNoticeBoxFill, TextureUsage::GUI);
+    border.color = kNoticeBoxBorderColor;
+    border.dimension = kNoticeBoxBorderDimension;
+    notice->setBorder(border);
+    notice->setHilight(border);
+    notice->setTintBorderFill(true);
+    notice->setTextFont(_services.resource.fonts.get(kNoticeBoxFont));
+    notice->setTextAlignment(Control::TextAlign::LeftTop);
+    notice->setTextColor(kNoticeBoxTextColor);
+    _actionBar.addNotice(notice);
+    _gui->addControlToFront(notice, IGUI::ControlCoordinates::Authored);
+}
+
+std::optional<int> HUD::portraitMemberIndex(int portrait) const {
+    const Party &party = _game.party();
+    int index = portrait;
+    if (party.getSize() == 2 && portrait > 0) {
+        if (portrait == 1) {
+            return std::nullopt;
+        }
+        index = 1;
+    }
+    if (!party.getMember(index)) {
+        return std::nullopt;
+    }
+    return index;
 }
 
 void HUD::loadPausePanel() {
@@ -826,7 +889,8 @@ void HUD::update(float dt) {
             LBL_LVLUPBG = lvlUpBgLabels[i];
         }
 
-        std::shared_ptr<Creature> member(party.getMember(i));
+        auto memberIndex = portraitMemberIndex(i);
+        std::shared_ptr<Creature> member(memberIndex ? party.getMember(*memberIndex) : nullptr);
         if (member) {
             LBL_CHAR.setVisible(true);
             LBL_CHAR.setBorderFill(member->portrait());
@@ -836,6 +900,12 @@ void HUD::update(float dt) {
             const bool down = member->isDead() || member->isTemporarilyDead();
             const bool levelUp = !down && member->isLevelUpPending();
             const bool debilitated = !down && !levelUp && member->isDebilitated();
+            // A member standing able to level up raises the level-up chime
+            // once, until it levels up again.
+            if (levelUp && member->isLevelUpChimeArmed()) {
+                summary.submitLevelUpSound();
+                member->setLevelUpChimeArmed(false);
+            }
             LBL_LEVELUP.setVisible(levelUp);
             if (!_game.isTSL()) {
                 LBL_LVLUPBG->setVisible(levelUp);
@@ -844,7 +914,7 @@ void HUD::update(float dt) {
             // A helpless leader says so on the combat line. Any member able
             // to act, the leader included, returns it to the idle line, so
             // it stays only while the whole party is helpless or fallen.
-            if (i == 0 && debilitated) {
+            if (*memberIndex == 0 && debilitated) {
                 setCombatMessage(kLeaderDebilitatedCombatMessage);
             }
             if (!member->isDebilitated() && _combatMessageStrref == kLeaderDebilitatedCombatMessage) {
@@ -1134,13 +1204,26 @@ void HUD::refreshActionQueueItems() const {
         *_controls.LBL_QUEUE1,
         *_controls.LBL_QUEUE2,
         *_controls.LBL_QUEUE3};
+    // The leader's round action under way, if any.
+    const auto current = _game.combat().currentRoundAction(*leader);
+    // An icon takes the next slot and no icon takes none. The first slot is
+    // dimmed while nothing is under way.
     size_t shown = 0;
-    auto show = [&](const auto &icon) {
-        queueLabels[shown++].get().setBorderFill(icon);
+    auto show = [&](const std::shared_ptr<graphics::Texture> &icon) {
+        if (!icon || shown == queueLabels.size()) {
+            return;
+        }
+        Label &label = queueLabels[shown].get();
+        label.setBorderFill(icon);
+        label.setBorderFillOpacity(shown == 0 && !current ? kIdleActionQueueOpacity : 1.0f);
+        label.setVisible(true);
+        ++shown;
     };
-
-    // The icon an order shows: a power or item use its own, a feat its own.
-    auto commandIcon = [this](Action &action) -> std::optional<std::shared_ptr<graphics::Texture>> {
+    auto namedIcon = [this](const std::string &resRef) {
+        return _services.resource.textures.get(resRef, graphics::TextureUsage::GUI);
+    };
+    // A cast shows its spell's icon or its item's, a feat its own.
+    auto commandIcon = [this](Action &action) -> std::shared_ptr<graphics::Texture> {
         if (auto *cast = dyn_cast<CastSpellAction>(&action)) {
             return castIcon(*cast->spell(), cast->item());
         }
@@ -1148,60 +1231,76 @@ void HUD::refreshActionQueueItems() const {
             std::shared_ptr<Feat> row(_services.game.feats.get(feat->feat()));
             return row ? row->icon : nullptr;
         }
-        return std::nullopt;
+        return nullptr;
     };
-    // Each queued order takes a slot; the round dispatcher shows each entry
-    // it holds, or else the stance or attack its round serves. Entries still
-    // pending with no dispatcher in the queue follow the orders.
-    SmallVector<Combat::PendingEntry, kActionQueueSize> pending;
-    _game.combat().pendingScheduled(*leader, pending);
-    auto showPending = [&]() {
-        for (const auto &entry : pending) {
-            if (shown == queueLabels.size()) {
-                return;
-            }
-            if (auto icon = entry.command ? commandIcon(entry.command->get().combatAction()) : std::nullopt) {
-                show(*icon);
-            } else {
-                show(scheduledEntryIcon(entry.type));
-            }
+    // The icon of a round entry. A stance or a weapon swap shows only on the
+    // round dispatcher; a pause or a move shows nothing.
+    auto roundActionIcon = [&](const Combat::PendingEntry &entry, bool dispatcher) -> std::shared_ptr<graphics::Texture> {
+        switch (entry.type) {
+        case SavedScheduledAction::kAttackType:
+            return namedIcon(g_attackIcon);
+        case SavedScheduledAction::kEquipType:
+            return namedIcon(kEquipIcon);
+        case SavedScheduledAction::kUnequipType:
+            return namedIcon(kUnequipIcon);
+        case SavedScheduledAction::kCastSpellType:
+        case SavedScheduledAction::kItemCastSpellType:
+        case SavedScheduledAction::kFeatAttackType:
+            return entry.command ? commandIcon(entry.command->get().combatAction()) : nullptr;
+        case SavedScheduledAction::kCombatStanceType:
+            return dispatcher ? namedIcon(kDefensiveStanceIcon) : nullptr;
+        case SavedScheduledAction::kSwitchWeaponsType:
+            return dispatcher ? namedIcon(kSwitchWeaponsIcon) : nullptr;
+        default:
+            return nullptr;
         }
     };
-    bool dispatcherShown = false;
-    for (const auto &queued : leader->actions()) {
+
+    // Only attacks, casts, item uses and the round dispatcher show. The first
+    // attack, cast or item use, or the dispatcher while a round action is
+    // under way, shows the action under way: an attack as that action, a cast
+    // or item use as itself. Without one an attack shows nothing. The
+    // dispatcher then shows each entry still pending, or with none pending
+    // and nothing shown yet, the stance or attack its round serves.
+    SmallVector<Combat::PendingEntry, kActionQueueSize> pending;
+    _game.combat().pendingScheduled(*leader, pending);
+    bool currentShown = false;
+    for (const auto &node : leader->actions().nodes) {
         if (shown == queueLabels.size()) {
             break;
         }
-        if (queued->isCompleted() || queued->isCancelled()) {
+        if (!node->action || node->action->isCompleted() || node->action->isCancelled()) {
             continue;
         }
-        Action &displayAction = queued->combatAction();
-        switch (displayAction.type()) {
-        case ActionType::AttackObject:
-            show(g_attackIcon);
-            break;
-        case ActionType::CombatDispatch:
-            dispatcherShown = true;
-            if (pending.empty()) {
-                show(leader->isInTotalDefense() ? kDefensiveStanceIcon : g_attackIcon);
-            } else {
-                showPending();
+        const SavedActionType type = node->type();
+        const bool dispatcher = type == SavedActionType::CombatDispatch;
+        const bool cast = type == SavedActionType::CastSpell || type == SavedActionType::ItemCastSpell;
+        if (((dispatcher && current) || cast || type == SavedActionType::AttackObject) && !currentShown) {
+            currentShown = true;
+            if (cast) {
+                show(commandIcon(node->action->combatAction()));
+            } else if (current) {
+                show(roundActionIcon(*current, dispatcher));
             }
-            break;
-        default:
-            if (auto icon = commandIcon(displayAction)) {
-                show(*icon);
-            } else {
-                show(std::string());
+        }
+        if (!dispatcher) {
+            continue;
+        }
+        if (pending.empty()) {
+            if (!currentShown) {
+                show(namedIcon(leader->isInTotalDefense() ? kDefensiveStanceIcon : g_attackIcon));
             }
-            break;
+            continue;
+        }
+        for (const auto &entry : pending) {
+            if (shown == queueLabels.size()) {
+                break;
+            }
+            show(roundActionIcon(entry, true));
         }
     }
-    if (!dispatcherShown) {
-        showPending();
-    }
-    while (shown < queueLabels.size()) {
-        show(std::string());
+    for (size_t i = shown; i < queueLabels.size(); ++i) {
+        queueLabels[i].get().setVisible(false);
     }
 }
 
@@ -1227,17 +1326,18 @@ void HUD::renderEffectStacks() {
     auto &context = _services.graphics.context;
 
     _gui->withRenderPass([&](scene::IRenderPass &pass) {
-        for (int memberIndex = 0; memberIndex < 3; ++memberIndex) {
-            auto member = party.getMember(memberIndex);
-            if (!member) {
+        for (int portraitIndex = 0; portraitIndex < 3; ++portraitIndex) {
+            auto memberIndex = portraitMemberIndex(portraitIndex);
+            if (!memberIndex) {
                 continue;
             }
-            const bool leader = memberIndex == 0;
-            const auto &portrait = portraits[memberIndex]->extent();
+            auto member = party.getMember(*memberIndex);
+            const bool leader = *memberIndex == 0;
+            const auto &portrait = portraits[portraitIndex]->extent();
             auto counts = member->effectStackCounts();
-            renderEffectStack(*beneficialIcons[memberIndex], portrait, counts.positive, leader, true,
+            renderEffectStack(*beneficialIcons[portraitIndex], portrait, counts.positive, leader, true,
                               scalar, screenSize, controlOffset, pass, context);
-            renderEffectStack(*harmfulIcons[memberIndex], portrait, counts.negative, leader, false,
+            renderEffectStack(*harmfulIcons[portraitIndex], portrait, counts.negative, leader, false,
                               scalar, screenSize, controlOffset, pass, context);
         }
     });

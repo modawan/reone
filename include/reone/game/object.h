@@ -340,7 +340,7 @@ public:
     std::optional<std::reference_wrapper<EffectInstance>> findEffectApplication(uint64_t applicationOrder);
     std::vector<EffectInstance> saveEffectSnapshot() const;
     bool hasEffect(EffectType type) const;
-    /** An applied effect came from the spell. */
+    /** An applied effect came from the spell; never for spell -1. */
     bool hasSpellEffect(int spell) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
@@ -360,6 +360,13 @@ public:
     void startStuntMode();
 
     void stopStuntMode();
+
+    /**
+     * Places the model at the world origin, unrotated, for an animation
+     * authored in world space, or puts it back where the object stands. An
+     * object already in stunt mode keeps its staging either way.
+     */
+    void setPlacedAtOrigin(bool placed);
 
     // END Stunt mode
 
@@ -444,9 +451,13 @@ public:
     /** Moves a queued node behind every other queued node. */
     void moveActionNodeToBack(const OrdinaryActionQueue::Node &node);
 
-    /** Drop live execution and object bindings after their Area was captured. */
+    /**
+     * Drop live execution and object bindings after their Area was captured.
+     *
+     * @param retainedObjectIds ids of the session objects that outlive the Area
+     */
     void retireAreaRuntimeState(
-        const std::set<const Object *> &retainedObjects);
+        const std::set<uint32_t> &retainedObjectIds);
 
     // END Actions
 
@@ -475,6 +486,26 @@ public:
     void setLastDamageAmounts(const std::array<int, 15> &amounts) {
         _lastDamageAmounts = amounts;
     }
+
+    /**
+     * Record the spell-cast-at event the object is handling. The values stay
+     * until the next such event and are not saved.
+     *
+     * @param caster the caster the object records
+     * @param spell the spell cast
+     * @param harmful whether the spell is harmful
+     */
+    void setLastSpellCast(uint32_t caster, int spell, int harmful) {
+        _lastSpellCaster = caster;
+        _lastSpell = spell;
+        _lastSpellHarmful = harmful;
+    }
+    /** The caster of the last spell cast at the object, or no object. */
+    uint32_t getLastSpellCaster() const { return _lastSpellCaster; }
+    /** The last spell cast at the object, or -1. */
+    int getLastSpell() const { return _lastSpell; }
+    /** Whether the last spell cast at the object was harmful; 0 before any. */
+    int getLastSpellHarmful() const { return _lastSpellHarmful; }
 
     // END Combat
 
@@ -567,7 +598,9 @@ public:
     const std::vector<ListenExpression> &listenExpressions() const { return _listenExpressions; }
     /**
      * Sets the pattern for a number. A number already in use keeps its place
-     * and takes the new pattern; a new number goes last.
+     * and takes the new pattern; a new number goes last. The pattern a number
+     * already has changes nothing, and an empty pattern in place of another
+     * matches only an empty string.
      */
     void setListenPattern(const std::string &pattern, int32_t number);
     /**
@@ -695,6 +728,8 @@ protected:
     std::vector<uint64_t> _removingEffectApplications;
     bool _open {false};
     bool _stunt {false};
+    /** Stunt mode was entered for a world-space animation and ends with it. */
+    bool _placedAtOrigin {false};
     std::string _activeAnimName;
     std::string _feedbackText;
     float _feedbackTextRemaining {0.0f};
@@ -732,6 +767,9 @@ protected:
     RuntimeObjectRef<Object> _lastDamager;
     uint32_t _lastKillerId {script::kObjectInvalid};
     std::array<int, 15> _lastDamageAmounts;
+    uint32_t _lastSpellCaster {script::kObjectInvalid};
+    int _lastSpell {-1};
+    int _lastSpellHarmful {0};
     std::optional<uint32_t> _savedLastDamagerId;
 
     // Local variables
@@ -782,6 +820,11 @@ protected:
     /** The orientation the scene node shows. */
     virtual glm::quat presentedOrientation() const { return _orientation; }
     virtual bool canExecuteActions() const { return true; }
+    /**
+     * Whether the object takes up its queued actions this frame, each then
+     * running or failing by its own rule; by default, while it can act.
+     */
+    virtual bool takesUpActions() const { return canExecuteActions(); }
 
     void deserializeOwnedItems(
         const resource::Gff &gff,

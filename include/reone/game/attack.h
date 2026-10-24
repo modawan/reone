@@ -492,6 +492,9 @@ public:
     bool addPhysicalAttacks(Creature &attacker, Object &target,
                             FeatType feat = FeatType::Invalid);
 
+    /** The feat the round's attacks are made with; Invalid for plain attacks. */
+    FeatType feat() const { return _feat; }
+
     /**
      * Publish the round's summary on its attack records. Every hit is already
      * resolved, so nothing is mitigated or rolled again; the round's resolved

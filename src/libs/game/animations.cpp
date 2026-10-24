@@ -96,7 +96,7 @@ static std::vector<CombatAnimColumn> parseCombatAnimColumns(TwoDA &combatAnimDa)
     std::vector<CombatAnimColumn> result;
 
     for (const std::string &columnName : combatAnimDa.columns()) {
-        std::pair<std::string, int> pair = splitStrInt(columnName);
+        std::pair<std::string, int> pair = splitStrInt(boost::to_lower_copy(columnName));
         if (pair.first.empty()) {
             continue;
         }
@@ -123,7 +123,7 @@ static std::vector<CombatAnimColumn> parseCombatAnimColumns(TwoDA &combatAnimDa)
 
 void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
     const std::vector<std::string> &columnNames = combatAnimDa.columns();
-    if (columnNames.size() < 2 || columnNames.front() != "hits") {
+    if (columnNames.size() < 2 || !boost::iequals(columnNames.front(), "hits")) {
         throw ValidationException(
             "combatanimations.2da: invalid attack columns");
     }
@@ -152,10 +152,7 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
         std::vector<int> impactTimes;
         impactTimes.reserve(columnNames.size() - 1);
         for (size_t column = 1; column < columnNames.size(); ++column) {
-            impactTimes.push_back(combatAnimDa.getInt(
-                row,
-                columnNames[column],
-                0));
+            impactTimes.push_back(combatAnimDa.getInt(row, static_cast<int>(column), 0));
         }
         if (!_meleeImpactTimes.emplace(
                                   attackAnim.name,
@@ -197,6 +194,9 @@ void Animations::parseDialogAnims(TwoDA &dialogAnimDa) {
         DialogAnimation anim;
         anim.name = boost::to_lower_copy(dialogAnimDa.getString(row, "name"));
         anim.dialog = isDialogAnimationRow(dialogAnimDa, row);
+        anim.looping = dialogAnimDa.getBool(row, "looping");
+        anim.fireForget = dialogAnimDa.getBool(row, "fireforget");
+        anim.pullBack = dialogAnimDa.getFloat(row, "cu_pb_range", 0.0f);
         _dialogAnims.push_back(std::move(anim));
     }
 }

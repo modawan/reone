@@ -102,7 +102,7 @@ void uniwalkLoadRoom(struct Uniwalk &uni, graphics::Walkmesh &data, std::set<uin
     uni.faces.reserve(uni.faces.size() + data.faces.size());
     for (uint32_t i = 0; i < data.faces.size(); ++i) {
         uint32_t material = data.materials[i];
-        if (!walkableMaterial.count(material)) {
+        if (!graphics::Walkmesh::hasSurfaceMaterial(walkableMaterial, material)) {
             continue;
         }
 

@@ -548,6 +548,7 @@ void Party::respawnVacantFollowers() {
             creature->setPerceptionRangeRow(&member == &_members.front() ? kPlayerPerceptionRangeRow
                                                                          : kPartyPerceptionRangeRow);
             member.creature = std::move(creature);
+            member.creature->refreshDeath();
         }
     }
 }
@@ -590,6 +591,7 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     member.npc = npc;
     member.creature = creature;
     _members.push_back(std::move(member));
+    creature->refreshDeath();
     // A companion's carried items join the party's; then a member whose body
     // armour was refused on load joins in the party's clothing.
     if (npc != kNpcPlayer) {
@@ -874,21 +876,19 @@ void Party::init() {
 
     auto npcs = getRequiredTwoDA(twoDas, "npc");
     _percentXP.clear();
+    _percentXPFraction.clear();
     for (int row = 0; row < npcs->getRowCount(); ++row) {
-        _percentXP.push_back(npcs->getFloatOpt(row, "percentxp"));
+        _percentXP.push_back(npcs->getInt(row, "percentxp", 0));
+        _percentXPFraction.push_back(npcs->getFloat(row, "percentxp", 0.0f));
     }
 
     auto scripts = getRequiredTwoDA(twoDas, "aiscripts");
     _aiScripts.clear();
-    // aiscripts.2da names its columns in either case.
-    const auto nameColumn = findColumnIgnoringCase(*scripts, "name_strref").value_or("name_strref");
-    const auto descriptionColumn = findColumnIgnoringCase(*scripts, "description_strref").value_or("description_strref");
-    const auto stateColumn = findColumnIgnoringCase(*scripts, "aistate").value_or("aistate");
     for (int row = 0; row < scripts->getRowCount(); ++row) {
         AIScriptRow script;
-        script.nameStrRef = scripts->getInt(row, nameColumn, 0);
-        script.descriptionStrRef = scripts->getInt(row, descriptionColumn, script.descriptionStrRef);
-        script.state = scripts->getInt(row, stateColumn, 0);
+        script.nameStrRef = scripts->getInt(row, "name_strref", 0);
+        script.descriptionStrRef = scripts->getInt(row, "description_strref", script.descriptionStrRef);
+        script.state = scripts->getInt(row, "aistate", 0);
         _aiScripts.push_back(script);
     }
 
@@ -910,14 +910,17 @@ std::optional<int> Party::baseInfluence(const std::string &tag) const {
 
 // A blank or missing share pays nothing.
 int Party::percentXP(int row) const {
-    return static_cast<int>(percentXPFraction(row));
+    if (row < 0 || row >= static_cast<int>(_percentXP.size())) {
+        return 0;
+    }
+    return _percentXP[row];
 }
 
 float Party::percentXPFraction(int row) const {
-    if (row < 0 || row >= static_cast<int>(_percentXP.size())) {
+    if (row < 0 || row >= static_cast<int>(_percentXPFraction.size())) {
         return 0.0f;
     }
-    return _percentXP[row].value_or(0.0f);
+    return _percentXPFraction[row];
 }
 
 // A roster companion takes its npc.2da share and every recipient the
@@ -1420,6 +1423,7 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
     member.npc = npc;
     member.creature = creature;
     _members.insert(_members.begin(), std::move(member));
+    creature->refreshDeath();
 
     // The controlled creature is a player character.
     creature->setPC(true);
@@ -1460,7 +1464,11 @@ bool Party::removeMember(int npc) {
     if (maybeMember == _members.end()) {
         return false;
     }
+    const auto removed = maybeMember->creature;
     _members.erase(maybeMember);
+    if (removed) {
+        removed->refreshDeath();
+    }
     // Solo mode ends with the last companion.
     if (companionCount() == 0) {
         _solo = false;
@@ -1534,10 +1542,12 @@ void Party::resetFollowSlots() {
 }
 
 bool Party::isTrailLineClear(
-    const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, bool &clear) const {
-    const auto line = area.testDirectLine(walker, from, to);
-    clear = line.result == Area::DirectLine::Clear;
-    return clear || (line.result == Area::DirectLine::CreatureBlocked && line.blocker && isMember(line.blocker->get()));
+    const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, TrailLine &line) const {
+    const auto test = area.testDirectLine(walker, from, to);
+    line = test.result == Area::DirectLine::Clear         ? TrailLine::Clear
+           : test.result == Area::DirectLine::LeavesRooms ? TrailLine::LeavesRooms
+                                                          : TrailLine::Blocked;
+    return line == TrailLine::Clear || (test.result == Area::DirectLine::CreatureBlocked && test.blocker && isMember(test.blocker->get()));
 }
 
 void Party::recordLeaderStep(const Area &area, const glm::vec3 &position, float facing) {
@@ -1551,14 +1561,14 @@ void Party::recordLeaderStep(const Area &area, const glm::vec3 &position, float 
     }
 
     const glm::vec3 offset {position - previous};
-    bool clear = false;
-    if (!isTrailLineClear(area, *leader, previous, position, clear)) {
+    TrailLine line {TrailLine::Clear};
+    if (!isTrailLineClear(area, *leader, previous, position, line)) {
         // The way round a corner goes through the last point reached in a clear line.
         _followSteps[_followHead].position = _lastClearStep;
         _followHead = stepAfter(_followHead);
     }
     _lastClearStep = position;
-    if (glm::dot(offset, offset) < kFollowStepMinimum2 && clear) {
+    if (glm::dot(offset, offset) < kFollowStepMinimum2 && line == TrailLine::Clear) {
         return;
     }
 
@@ -1755,8 +1765,8 @@ void Party::smoothFollowPath(const Area &area) {
     // In TSL, whether the leader can walk straight to the newest step: a
     // follower whose point cannot be laid out afterwards then goes for that
     // step.
-    bool clear = false;
-    const bool newestInSight = _game.isTSL() && isTrailLineClear(area, *leader, leader->position(), _followSteps[start].position, clear);
+    TrailLine line {TrailLine::Clear};
+    const bool newestInSight = _game.isTSL() && isTrailLineClear(area, *leader, leader->position(), _followSteps[start].position, line);
     int anchor = _followSlots[closestFollower()].index;
     if (anchor < 0 || anchor >= kFollowSteps) {
         anchor = 0;
@@ -1770,7 +1780,7 @@ void Party::smoothFollowPath(const Area &area) {
         const glm::vec3 &to = _followSteps[current].position;
         const glm::vec3 gap {from - to};
         const bool visible = static_cast<double>(glm::dot(gap, gap)) <= kFollowSameStep2 ||
-                             isTrailLineClear(area, *leader, from, to, clear);
+                             isTrailLineClear(area, *leader, from, to, line);
         if (visible) {
             last = current;
             current = stepAfter(current);
@@ -1782,10 +1792,14 @@ void Party::smoothFollowPath(const Area &area) {
         } else {
             corners.push_back(_followSteps[last].position);
         }
+        // A walk that runs out of the rooms ends the search for corners.
+        if (line == TrailLine::LeavesRooms) {
+            break;
+        }
     }
     if (corners.size() < kFollowCorners) {
-        isTrailLineClear(area, *leader, corners.back(), _followSteps[current].position, clear);
-        if (!clear) {
+        isTrailLineClear(area, *leader, corners.back(), _followSteps[current].position, line);
+        if (line != TrailLine::Clear) {
             corners.push_back(_followSteps[last].position);
         }
         corners.push_back(_followSteps[current].position);

@@ -93,7 +93,7 @@ TEST(Area, failed_room_attachment_rolls_back_area_ownership) {
     NiceMock<scene::MockSceneGraph> sceneGraph;
     ON_CALL(engine.sceneModule().graphs(), get(_))
         .WillByDefault(ReturnRef(sceneGraph));
-    EXPECT_CALL(sceneGraph, testElevation(_, _))
+    EXPECT_CALL(sceneGraph, findRoomWalkmesh(_))
         .WillOnce(Throw(ValidationException("injected room attachment failure")));
 
     auto area = game.newArea();

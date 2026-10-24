@@ -24,6 +24,7 @@
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/animations.h"
+#include "reone/game/animationutil.h"
 #include "reone/game/attack.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/death.h"
@@ -265,7 +266,7 @@ void Placeable::damage(
     if (!leader || (_game.isTSL() && glm::distance(leader->position(), _position) >= kBrokenOpenReach)) {
         return;
     }
-    setOpenStateAnimation(kOpenAnimationId);
+    setStateAnimation(kOpenAnimationId);
     SavedEventRecord event;
     const uint64_t when = _game.worldTimeMilliseconds() + kBrokenOpenDelayMilliseconds;
     event.day = static_cast<uint32_t>(when / _game.millisecondsPerWorldDay());
@@ -364,6 +365,7 @@ void Placeable::runDamagedScript() {
 void Placeable::enterDestroyedState() {
     _game.closeContainer(*this);
     _animation = kDeadAnimationId;
+    _shownAnimation = kDeadAnimationId;
     _animationState = kDeadAnimationId;
     if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
         model->playAnimation(_services.game.animations.getNameById(kDestroyedAnimation));
@@ -619,10 +621,7 @@ void Placeable::updateBodyBagPresentation() {
 
 // Inventory
 
-static constexpr uint32_t kOpenLoopRow = 310;
-static constexpr uint32_t kCloseLoopRow = 311;
 static constexpr uint32_t kCloseToOpenRow = 312;
-static constexpr uint32_t kOpenToCloseRow = 313;
 static constexpr int kInventoryOpenedEvent = 22;
 static constexpr int kInventoryClosedEvent = 23;
 // A use of a placeable with no body waits this long for it to open.
@@ -650,7 +649,7 @@ float Placeable::beginOpeningInventory() {
             wait = sound->duration();
         }
     }
-    setOpenStateAnimation(kOpenAnimationId);
+    setStateAnimation(kOpenAnimationId);
     _inventoryOpenPending = true;
     return wait;
 }
@@ -672,7 +671,7 @@ void Placeable::openInventory(Object &opener) {
         return;
     }
     if (&opener != _game.party().getLeader().get()) {
-        setOpenStateAnimation(kCloseAnimationId);
+        setStateAnimation(kCloseAnimationId);
         return;
     }
     _game.openContainer(_game.getObjectById(_id));
@@ -688,7 +687,7 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
         moveAllItemsTo(closer);
     }
     _game.queueScriptEvent(*this, closer, Event(kInventoryClosedEvent));
-    setOpenStateAnimation(kCloseAnimationId);
+    setStateAnimation(kCloseAnimationId);
     _open = false;
     if (!_hasInventory || !_dieWhenEmpty || !_items.empty()) {
         return;
@@ -697,22 +696,31 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
     _game.postObjectDestruction(*this, *this, 0.0f, false);
 }
 
-// A clip the model lacks is passed over.
-void Placeable::setOpenStateAnimation(int animation) {
-    const int previous = _animation;
+// The clip an animation ID shows on a placeable: the one its row names, else
+// its cut clip or the default pose.
+static std::string getPlaceableClip(const IAnimations &animations, int id) {
+    const int row = placeableAnimationRow(id);
+    std::string clip = row >= 0 ? animations.getNameById(static_cast<uint32_t>(row)) : std::string();
+    return clip.empty() ? placeableFallbackClip(id) : clip;
+}
+
+// A loop the model lacks leaves the placeable showing what it shows, and a
+// swing the model lacks is passed over.
+void Placeable::setStateAnimation(int animation) {
     _animation = animation;
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
-    if (_isCorpse || !model || animation == previous) {
+    if (_isCorpse || !model || animation == _shownAnimation) {
         return;
     }
     auto &animations = _services.game.animations;
-    _openStateLoop = animations.getNameById(animation == kOpenAnimationId ? kOpenLoopRow : kCloseLoopRow);
-    std::string swing;
-    if (animation == kOpenAnimationId) {
-        swing = animations.getNameById(kCloseToOpenRow);
-    } else if (previous == kOpenAnimationId) {
-        swing = animations.getNameById(kOpenToCloseRow);
+    const std::string loop = getPlaceableClip(animations, animation);
+    if (!model->model().getAnimation(loop)) {
+        return;
     }
+    const auto swingRow = stateLoopSwingRow(_shownAnimation, _shownAnimation, animation, false);
+    _shownAnimation = animation;
+    _openStateLoop = loop;
+    const std::string swing = swingRow ? animations.getNameById(static_cast<uint32_t>(*swingRow)) : std::string();
     if (!swing.empty() && model->model().getAnimation(swing)) {
         model->playAnimation(swing);
         return;
@@ -720,6 +728,21 @@ void Placeable::setOpenStateAnimation(int animation) {
     updateOpenStateAnimation();
 }
 
+float Placeable::animationLength(int id) const {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (!model) {
+        return 0.0f;
+    }
+    auto clip = model->model().getAnimation(getPlaceableClip(_services.game.animations, id));
+    return clip ? clip->length() : 0.0f;
+}
+
+bool Placeable::playsAnimationOnce(int id) const {
+    const int row = placeableAnimationRow(id);
+    return isFireForgetCutClip(id) || (row >= 0 && _services.game.animations.isFireForgetById(static_cast<uint32_t>(row)));
+}
+
+// The loop that follows a one-shot stands where the placeable does.
 void Placeable::updateOpenStateAnimation() {
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (_openStateLoop.empty() || !model) {
@@ -730,8 +753,46 @@ void Placeable::updateOpenStateAnimation() {
     if (swinging) {
         return;
     }
+    setPlacedAtOrigin(false);
     model->playAnimation(_openStateLoop, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
     _openStateLoop.clear();
+}
+
+bool Placeable::showAnimationLoop(int id) {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    const std::string clip = getPlaceableClip(_services.game.animations, id);
+    if (_isCorpse || !model || clip.empty() || !model->model().getAnimation(clip)) {
+        return false;
+    }
+    setPlacedAtOrigin(isWorldSpaceCutClip(id));
+    _openStateLoop.clear();
+    _shownAnimation = id;
+    model->playAnimation(clip, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+    return true;
+}
+
+// The default pose comes first: a loop the model lacks leaves it, and a
+// one-shot returns to it.
+void Placeable::playDialogAnimation(int id, bool looping) {
+    if (looping) {
+        if (!showAnimationLoop(id)) {
+            showAnimationLoop(kDefaultAnimationId);
+        }
+        return;
+    }
+    showAnimationLoop(kDefaultAnimationId);
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    const std::string clip = getPlaceableClip(_services.game.animations, id);
+    if (_isCorpse || !model || clip.empty() || !model->model().getAnimation(clip)) {
+        return;
+    }
+    setPlacedAtOrigin(isWorldSpaceCutClip(id));
+    model->playAnimation(clip);
+    _openStateLoop = getPlaceableClip(_services.game.animations, kDefaultAnimationId);
+}
+
+void Placeable::showStateAnimation() {
+    showAnimationLoop(_animation);
 }
 
 // END Inventory

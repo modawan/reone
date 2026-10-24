@@ -598,6 +598,47 @@ void Combat::pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &e
     }
 }
 
+std::optional<Combat::PendingEntry> Combat::currentRoundAction(const Creature &actor) const {
+    auto found = _scheduled.find(actor.id());
+    if (found != _scheduled.end() && found->second->actor.resolve().get() == &actor && !found->second->actions.empty()) {
+        const auto &head = found->second->actions.front();
+        if (head->saved.applied) {
+            PendingEntry current;
+            current.type = head->saved.type;
+            if (head->node && head->node->action) {
+                current.command = *head->node->action;
+            }
+            return current;
+        }
+    }
+    for (const auto &round : _rounds) {
+        for (const auto &entry : round->actions) {
+            if (!entry.running() || entry.attacker.resolve().get() != &actor) {
+                continue;
+            }
+            // A round with no command of its own, a duel partner's side or a
+            // round restored from a save, carries out nothing handed on.
+            Action &command = entry.action->combatAction();
+            if (isa<WaitAction>(&command)) {
+                continue;
+            }
+            PendingEntry current;
+            current.command = command;
+            if (auto *cast = dyn_cast<CastSpellAction>(&command)) {
+                current.type = cast->item() ? SavedScheduledAction::kItemCastSpellType : SavedScheduledAction::kCastSpellType;
+            } else if (isa<UseFeatAction>(&command)) {
+                current.type = SavedScheduledAction::kFeatAttackType;
+            } else if (isa<CombatStanceAction>(&command)) {
+                current.type = SavedScheduledAction::kCombatStanceType;
+            } else {
+                current.type = SavedScheduledAction::kAttackType;
+            }
+            return current;
+        }
+    }
+    return std::nullopt;
+}
+
 void Combat::ensureDispatcher(Creature &actor, bool toFront) {
     for (const auto &node : actor.actions().nodes)
         if (node->type() == SavedActionType::CombatDispatch && node->action && !node->action->isCompleted() && !node->action->isCancelled()) {
@@ -1125,6 +1166,9 @@ void Combat::scheduleCast(Creature &actor, const std::shared_ptr<Action> &cast) 
     SavedActionRecord command;
     command.actionId = static_cast<uint32_t>(commandType);
     entry->saved.command = std::move(command);
+    if (!itemUse) {
+        entry->spell = spellCast.spell()->type;
+    }
     entry->node = std::make_shared<ActionQueueNode>();
     entry->node->action = cast;
     entry->node->actionId = static_cast<uint32_t>(commandType);
@@ -1338,7 +1382,8 @@ void Combat::removeAllScheduled(Creature &actor) {
     }
 }
 
-// An item use is handed on unless it is aimed at a creature that has died.
+// An item use is handed on unless it is aimed at a creature that has died or,
+// in the party, is down.
 // A hostile item spell takes its user out of stealth. An item spell the
 // hostile menu does not list, aimed at another object, is used at the use's
 // location instead; in TSL only a hostile spell, and never a grenade's or a
@@ -1347,7 +1392,7 @@ bool Combat::dispatchItemUse(Creature &actor, ScheduledEntry &entry) {
     const auto &use = static_cast<const CastSpellAction &>(*entry.node->action);
     const auto &target = use.target();
     if (const auto creature = Creature::asCreature(target);
-        creature && creature->get().isRuntimeLive() && creature->get().isDead())
+        creature && creature->get().isRuntimeLive() && (creature->get().isDead() || creature->get().isTemporarilyDead()))
         return false;
     const auto &item = use.item();
     const auto &property = use.itemProperty();
@@ -1376,15 +1421,22 @@ bool Combat::dispatchItemUse(Creature &actor, ScheduledEntry &entry) {
 }
 
 // TSL powers whose cast, handed on by the dispatcher, leaves its caster in stealth.
-static bool castKeepsStealth(const Game &game, const Action &cast) {
-    if (!game.isTSL()) {
-        return false;
-    }
+static bool isStealthPower(SpellType spell) {
     static constexpr std::array<SpellType, 6> kStealthPowers {
         SpellType::MindTrick, SpellType::BeastTrick, SpellType::BeastConfusion,
         SpellType::Confusion, SpellType::DroidTrick, SpellType::DroidConfusion};
-    const auto type = static_cast<const CastSpellAction &>(cast).spell()->type;
-    return std::find(kStealthPowers.begin(), kStealthPowers.end(), type) != kStealthPowers.end();
+    return std::find(kStealthPowers.begin(), kStealthPowers.end(), spell) != kStealthPowers.end();
+}
+
+bool Combat::entryKeepsStealth(const ScheduledEntry &entry) const {
+    const int type = entry.saved.type;
+    if (type == SavedScheduledAction::kItemCastSpellType) {
+        return true;
+    }
+    if (!_game.isTSL()) {
+        return false;
+    }
+    return type == SavedScheduledAction::kCombatStanceType || (entry.spell && isStealthPower(*entry.spell));
 }
 
 void Combat::dispatchScheduled(Creature &actor, const ScheduledEntry &entry) {
@@ -1544,11 +1596,16 @@ void Combat::beginEquipmentPause(Creature &actor, ScheduledEntry &entry) {
 Combat::EntryTake Combat::useUpEntry(Creature &actor, ScheduledOwner &owner, ScheduledEntry &entry) {
     // An equip or unequip is still taken: its creature leaves stealth and
     // holds its round for the entry's pause, but nothing is equipped or taken
-    // off. Any other entry is dropped, and the dispatcher goes behind the
-    // queued commands.
+    // off. Any other entry still becomes the round's action and takes its
+    // creature out of stealth as a carried-out one would; it is dropped, and
+    // the dispatcher goes behind the queued commands.
     if (entry.saved.isEquipment()) {
         beginEquipmentPause(actor, entry);
         return EntryTake::Paused;
+    }
+    actor.setRoundActionKind(entry.saved.type);
+    if (!entryKeepsStealth(entry)) {
+        actor.setStealthMode(false);
     }
     owner.actions.pop_front();
     moveDispatcherBehind(actor);
@@ -1586,14 +1643,14 @@ Combat::EntryTake Combat::takeEntry(Creature &actor, ScheduledOwner &owner, cons
         return useUpEntry(actor, owner, *entry);
     }
     auto action = entry->node->action;
-    // A creature that may not act yet keeps its entry waiting.
+    // A creature that may not act yet keeps its entry waiting; a party member
+    // at zero vitality takes it up, and what it hands on fails.
     if (!actor.permitsAction(*action)) {
-        return EntryTake::Waiting;
+        return actor.isTemporarilyDead() ? useUpEntry(actor, owner, *entry) : EntryTake::Waiting;
     }
     if (saved.type == SavedScheduledAction::kCombatStanceType || saved.type == SavedScheduledAction::kSwitchWeaponsType) {
         owner.actions.pop_front();
-        // Every dispatched kind but the stance leaves stealth.
-        if (saved.type == SavedScheduledAction::kSwitchWeaponsType) {
+        if (!entryKeepsStealth(*entry)) {
             actor.setStealthMode(false);
         }
         dispatchScheduled(actor, *entry);
@@ -1643,7 +1700,7 @@ Combat::EntryTake Combat::takeCast(Creature &actor, ScheduledOwner &owner, const
         return useUpEntry(actor, owner, *entry);
     }
     actor.setRoundActionKind(saved.type);
-    if (saved.type == SavedScheduledAction::kCastSpellType && !castKeepsStealth(_game, *entry->node->action)) {
+    if (!entryKeepsStealth(*entry)) {
         actor.setStealthMode(false);
     }
     // An item use aimed at a creature that has died is dropped, and the
@@ -1661,6 +1718,10 @@ Combat::EntryTake Combat::takeCast(Creature &actor, ScheduledOwner &owner, const
     if (!actor.isCommandable() || !action->runtimeDependenciesLive() ||
         refusesUnperceivedTarget(actor, static_cast<const CastSpellAction &>(*action))) {
         return useUpEntry(actor, owner, *entry);
+    }
+    // An item use taken up checks its line to its object.
+    if (saved.type == SavedScheduledAction::kItemCastSpellType) {
+        static_cast<CastSpellAction &>(*action).requireUseLineCheck();
     }
     owner.actions.pop_front();
     action->setScheduledCommand(true);

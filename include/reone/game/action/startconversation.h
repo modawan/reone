@@ -66,7 +66,12 @@ public:
     void admit();
 
     std::optional<SavedActionRecord> saveFacingState() const override;
-    /** A saved StartConversation command; none once the one talked to is gone, or when the dialog name or the private flag is not one a command carries. */
+    /**
+     * A saved StartConversation command, with whether its speaker has set off
+     * toward the partner and the companion that handed it on; none once the
+     * one talked to is gone, or when the dialog name or the private flag is
+     * not one a command carries.
+     */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
     bool isStartRangeIgnored() const { return _ignoreStartRange; }

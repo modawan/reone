@@ -128,9 +128,6 @@ enum class ArgKind {
     ScriptParam4,
     ScriptParam5,
     ScriptStringParam,
-    LastSpellCaster,
-    LastSpell,
-    LastSpellHarmful,
     LastDisarmed,
 };
 

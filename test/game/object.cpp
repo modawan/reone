@@ -212,7 +212,7 @@ public:
 
     static void updateAnimationsForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
         gui._currentEntry = &entry;
-        gui.updateParticipantAnimations();
+        gui.updateParticipantAnimations(entry);
     }
 
     static bool isActive(DialogGUI &gui, const std::string &tag) {
@@ -221,7 +221,7 @@ public:
 
     static void restoreForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
         gui._currentEntry = &entry;
-        gui.restoreInactiveStuntParticipants();
+        gui.restoreInactiveStuntParticipants(entry);
     }
 
     static void finish(DialogGUI &gui) {
@@ -431,13 +431,13 @@ std::shared_ptr<TwoDA> makeLightsaberBaseItemsTable() {
 
 std::shared_ptr<TwoDA> makeAppearanceTable() {
     TwoDA::Builder builder;
-    builder.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
-    builder.row({"S", "1", "1", "-1", "", "", ""});
-    builder.row({"S", "1", "1", "-1", "", "", ""});
-    builder.row({"S", "1", "1", "-1", "", "", ""});
+    builder.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex", "creperspace"});
+    builder.row({"S", "1", "1", "-1", "", "", "", "0.6"});
+    builder.row({"S", "1", "1", "-1", "", "", "", "0.6"});
+    builder.row({"S", "1", "1", "-1", "", "", "", "0.6"});
     // Row 3 is a body model rather than a creature model, so tests can cover
     // the humanoid side of the animation naming split.
-    builder.row({"B", "1", "1", "-1", "", "", ""});
+    builder.row({"B", "1", "1", "-1", "", "", "", "0.6"});
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
@@ -476,7 +476,7 @@ struct VitalityTestClass {
     Classes classes {strings, twoDas};
     std::shared_ptr<CreatureClass> clazz;
 
-    explicit VitalityTestClass(int hitDie) {
+    explicit VitalityTestClass(int hitDie, ClassType type = ClassType::Soldier) {
         TwoDA::Builder skills;
         auto skillsTable = std::shared_ptr<TwoDA>(skills.build());
         TwoDA::Builder saves;
@@ -486,24 +486,28 @@ struct VitalityTestClass {
         TwoDA::Builder attacks;
         attacks.columns({"bab"}).row({"0"});
         auto attacksTable = std::shared_ptr<TwoDA>(attacks.build());
+        TwoDA::Builder defenses;
+        defenses.columns({"def"}).row({"2"}).row({"2"});
+        auto defensesTable = std::shared_ptr<TwoDA>(defenses.build());
 
         ON_CALL(twoDas, get("skills")).WillByDefault(Return(skillsTable));
         ON_CALL(twoDas, get("save")).WillByDefault(Return(savesTable));
         ON_CALL(twoDas, get("attack")).WillByDefault(Return(attacksTable));
+        ON_CALL(twoDas, get("acbonus")).WillByDefault(Return(defensesTable));
 
         TwoDA::Builder classesTable;
         classesTable.columns({
             "name", "description", "hitdie", "skillpointbase",
             "str", "dex", "con", "int", "wis", "cha",
             "skillstable", "savingthrowtable", "attackbonustable",
-            "featstable", "featgain", "spellgaintable"})
+            "armorclasscolumn", "featstable", "featgain", "spellgaintable"})
             .row({
                 "0", "0", std::to_string(hitDie), "0",
                 "10", "10", "10", "10", "10", "10",
-                "unused", "save", "attack", "", "", ""});
+                "unused", "save", "attack", "def", "", "", ""});
 
         clazz = std::make_shared<CreatureClass>(
-            ClassType::Soldier, classes, strings, twoDas);
+            type, classes, strings, twoDas);
         clazz->load(*classesTable.build(), 0);
     }
 };
@@ -678,16 +682,22 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                 collision.material = 0;
                 return true;
             }));
-        ON_CALL(graph, testElevation(_, _))
-            .WillByDefault(Invoke([](const glm::vec3 &position, scene::Collision &collision) {
-                collision.intersection = position;
-                collision.intersection.z = 0.0f;
-                collision.material = 0;
-                collision.user = nullptr;
-                return true;
-            }));
+        // The ground is one room's walkable surface, material 0, at height 0.
+        static graphics::Walkmesh roomWalkmesh;
+        static auto room = std::make_shared<scene::WalkmeshSceneNode>(
+            roomWalkmesh,
+            graph,
+            engine.services().graphics,
+            engine.services().audio,
+            engine.services().resource);
+        ON_CALL(graph, findRoomWalkmesh(_))
+            .WillByDefault(Return(room));
+        ON_CALL(graph, findRoomFace(_, _, _))
+            .WillByDefault(Return(std::optional<scene::RoomFace>(scene::RoomFace {0, 0.0f, glm::vec3(0.0f, 0.0f, 1.0f)})));
         initialized = true;
     }
+    ON_CALL(static_cast<MockSurfaces &>(engine.services().game.surfaces), isWalkable(0))
+        .WillByDefault(Return(true));
     return graph;
 }
 
@@ -1671,6 +1681,7 @@ std::shared_ptr<scene::ModelSceneNode> modelNodeOf(const std::shared_ptr<Creatur
 std::function<std::optional<std::reference_wrapper<const DialogAnimation>>(int)> makeDialogAnimations() {
     auto rows = std::make_shared<std::vector<DialogAnimation>>(227);
     (*rows)[30].name = "talk_normal";
+    (*rows)[30].looping = true;
     (*rows)[35].name = "bow";
     (*rows)[40].name = "talk_forceful";
     (*rows)[44].name = "victory";
@@ -1719,20 +1730,20 @@ TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
     }
 }
 
-TEST(DialogGUI, should_decode_direct_k1_dialog_animation_rows) {
+TEST(DialogGUI, should_not_read_lower_k1_ordinals_as_dialog_animation_rows) {
     TestEngine engine;
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
+    // Ordinals below 10000 are animations.2da rows in KotOR too.
     EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
-        .Times(4)
-        .WillRepeatedly(makeDialogAnimations());
+        .Times(0);
 
-    EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(gui, 35));
-    EXPECT_EQ(AnimationType::LoopingTalkForceful, MixedStuntTestAccess::dialogAnimationType(gui, 40));
-    EXPECT_EQ(AnimationType::FireForgetVictory1, MixedStuntTestAccess::dialogAnimationType(gui, 44));
-    EXPECT_EQ(AnimationType::FireForgetInject, MixedStuntTestAccess::dialogAnimationType(gui, 70));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 35));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 40));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 44));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 70));
 }
 
 TEST(DialogGUI, should_preserve_offset_dialog_animation_rows_and_k2_rejection) {
@@ -1929,9 +1940,9 @@ TEST(DialogGUI, should_return_a_finished_cut_clip_to_the_pause_until_the_next_au
     EXPECT_FALSE(node->isAnimationFinished());
     EXPECT_EQ(node->activeAnimationName(), "cut013l");
 
-    // Finishing the dialogue hands the creature back to state-driven animation.
+    // Finishing the dialogue leaves the last list's participants as they are.
     MixedStuntTestAccess::finish(gui);
-    EXPECT_EQ(node->activeAnimationName(), "cpause1");
+    EXPECT_EQ(node->activeAnimationName(), "cut013l");
 }
 
 TEST(DialogGUI, should_drive_stunt_and_ordinary_participants_from_one_animated_cut_entry) {
@@ -2086,6 +2097,9 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
     EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
         .Times(1)
         .WillRepeatedly(makeDialogAnimations());
+    // Only a dialog animation is played.
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), isDialogAnimation(10030))
+        .WillRepeatedly(Return(true));
     engine.initCombatTables();
 
     auto dialog = std::make_shared<Dialog>();
@@ -2657,7 +2671,7 @@ TEST(CameraProjection, should_follow_a_resolution_change_after_all_camera_types_
 
     auto firstPerson = game.newFirstPersonCamera(glm::radians(75.0f));
     auto thirdPerson = game.newThirdPersonCamera({"", 3.2f, 83.0f, 0.45f, 55.0f});
-    auto dialog = game.newDialogCamera({"", 3.2f, 83.0f, 0.45f, 55.0f});
+    auto dialog = game.newDialogCamera();
     auto animated = game.newAnimatedCamera();
     auto stationary = game.newStaticCamera();
 
@@ -3423,6 +3437,13 @@ std::shared_ptr<Door> makeLifecycleDoor(
             .WillRepeatedly(Return(makeDoorWalkmesh()));
     }
 
+    // The swings are animations.2da rows 334-337.
+    auto &animations = static_cast<MockAnimations &>(engine.services().game.animations);
+    ON_CALL(animations, getNameById(334)).WillByDefault(Return("opening1"));
+    ON_CALL(animations, getNameById(335)).WillByDefault(Return("opening2"));
+    ON_CALL(animations, getNameById(336)).WillByDefault(Return("closing1"));
+    ON_CALL(animations, getNameById(337)).WillByDefault(Return("closing2"));
+
     auto gff = Gff::Builder()
                    .field(Gff::Field::newByte("GenericType", 1))
                    .field(Gff::Field::newByte("Static", 0))
@@ -3729,9 +3750,10 @@ TEST(DoorLifecycle, should_keep_an_open_door_passable_when_opened_again) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto door = makeLifecycleDoor(game, engine, /*openState=*/1);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/2);
     ASSERT_FALSE(doorwayBlocks(*door));
 
+    // With no opener the door opens to its second side, where it already is.
     door->open();
     EXPECT_FALSE(doorwayBlocks(*door));
     stepDoor(*door, 0.1f);
@@ -3739,9 +3761,9 @@ TEST(DoorLifecycle, should_keep_an_open_door_passable_when_opened_again) {
     EXPECT_FALSE(doorwayBlocks(*door));
     EXPECT_TRUE(door->isOpen());
     EXPECT_EQ(DoorTransition::None, door->transition());
-    EXPECT_EQ(DoorState::Opened1, door->state());
-    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
-    EXPECT_EQ("opened1", doorPose(*door));
+    EXPECT_EQ(DoorState::Opened2, door->state());
+    EXPECT_TRUE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_EQ("opened2", doorPose(*door));
 }
 
 // Opening an already opening door must not rewind the leaf, which would push
@@ -4148,6 +4170,158 @@ TEST(ScriptedPlotXP, rejected_duplicate_journal_entry_does_not_award_again) {
     EXPECT_EQ(
         200,
         game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP).amount);
+}
+
+TEST(AddMultiClass, k1_class_starts_at_level_zero_and_the_party_shares_the_experience_to_the_next_level) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    VitalityTestClass guardian(10, ClassType::JediGuardian);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::JediGuardian))
+        .WillOnce(Return(guardian.clazz));
+    auto player = game.newCreature();
+    // Neutral creatures: no Pure Good or Evil powers are applied.
+    player->setGoodEvil(50);
+    player->attributes().addClassLevels(soldier.clazz.get(), 3);
+    // Level 3 with enough experience for level 4: the next level counted is 5.
+    player->setXP(7000);
+    auto companion = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addAvailableMember(0, companion);
+    game.party().addMember(0, companion);
+    Routines routines(GameID::KotOR, &game, &engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+
+    routines.get(389).invoke(
+        {script::Variable::ofInt(static_cast<int>(ClassType::JediGuardian)),
+         script::Variable::ofObject(player->id())},
+        execution);
+
+    const auto &classes = player->attributes().classLevels();
+    ASSERT_EQ(2u, classes.size());
+    EXPECT_EQ(ClassType::Soldier, classes[0].first->type());
+    EXPECT_EQ(3, classes[0].second);
+    EXPECT_EQ(ClassType::JediGuardian, classes[1].first->type());
+    EXPECT_EQ(0, classes[1].second);
+    EXPECT_EQ(3000, game.party().xp());
+    EXPECT_EQ(10000, player->xp());
+    EXPECT_EQ(3000, companion->xp());
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(AddMultiClass, tsl_companion_takes_the_experience_alone_and_the_player_counts_from_its_levels) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    VitalityTestClass scoundrel(6, ClassType::Scoundrel);
+    VitalityTestClass sentinel(8, ClassType::JediSentinel);
+    VitalityTestClass guardian(10, ClassType::JediGuardian);
+    VitalityTestClass weaponMaster(10, ClassType::JediWeaponMaster);
+    VitalityTestClass master(8, ClassType::JediMaster);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::JediSentinel))
+        .WillOnce(Return(sentinel.clazz));
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::JediWeaponMaster))
+        .WillOnce(Return(weaponMaster.clazz));
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::JediMaster))
+        .WillOnce(Return(master.clazz));
+    auto player = game.newCreature();
+    // Neutral creatures: no Pure Good or Evil powers are applied.
+    player->setGoodEvil(50);
+    player->setPlayerCreated(true);
+    player->attributes().addClassLevels(guardian.clazz.get(), 3);
+    // Past the experience level 4 needs: nothing is awarded.
+    player->setXP(7000);
+    auto companion = game.newCreature();
+    companion->setGoodEvil(50);
+    companion->attributes().addClassLevels(scoundrel.clazz.get(), 2);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addAvailableMember(1, companion);
+    game.party().addMember(1, companion);
+    companion->setXP(1500);
+    companion->setJoiningXP(200);
+    Routines routines(GameID::TSL, &game, &engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+
+    routines.get(389).invoke(
+        {script::Variable::ofInt(static_cast<int>(ClassType::JediSentinel)),
+         script::Variable::ofObject(companion->id())},
+        execution);
+    routines.get(389).invoke(
+        {script::Variable::ofInt(static_cast<int>(ClassType::JediWeaponMaster)),
+         script::Variable::ofObject(player->id())},
+        execution);
+    // A third class is added after the other two.
+    routines.get(389).invoke(
+        {script::Variable::ofInt(static_cast<int>(ClassType::JediMaster)),
+         script::Variable::ofObject(player->id())},
+        execution);
+
+    ASSERT_EQ(2u, companion->attributes().classLevels().size());
+    EXPECT_EQ(ClassType::JediSentinel, companion->attributes().classLevels()[1].first->type());
+    EXPECT_EQ(0, companion->attributes().classLevels()[1].second);
+    EXPECT_EQ(3000, companion->xp());
+    EXPECT_EQ(1700, companion->joiningXP());
+    const auto &playerClasses = player->attributes().classLevels();
+    ASSERT_EQ(3u, playerClasses.size());
+    EXPECT_EQ(ClassType::JediGuardian, playerClasses[0].first->type());
+    EXPECT_EQ(3, playerClasses[0].second);
+    EXPECT_EQ(ClassType::JediWeaponMaster, playerClasses[1].first->type());
+    EXPECT_EQ(0, playerClasses[1].second);
+    EXPECT_EQ(ClassType::JediMaster, playerClasses[2].first->type());
+    EXPECT_EQ(0, playerClasses[2].second);
+    EXPECT_EQ(7000, player->xp());
+    EXPECT_EQ(0, game.party().xp());
+}
+
+TEST(AddMultiClass, classes_without_levels_add_no_bonus_but_k1_defense) {
+    VitalityTestClass soldier(10);
+    VitalityTestClass scout(8, ClassType::Scout);
+    VitalityTestClass guardian(10, ClassType::JediGuardian);
+    CreatureAttributes attributes;
+
+    attributes.addClassLevels(soldier.clazz.get(), 0);
+    attributes.addClassLevels(scout.clazz.get(), 0);
+    attributes.addClassLevels(guardian.clazz.get(), 0);
+
+    EXPECT_EQ(3u, attributes.classLevels().size());
+    EXPECT_EQ(0, attributes.getAggregateLevel());
+    EXPECT_EQ(0, attributes.getAggregateAttackBonus());
+    // KotOR adds each class's level 0 defense bonus; TSL adds none.
+    EXPECT_EQ(6, attributes.getAggregateDefenseBonus(false));
+    EXPECT_EQ(0, attributes.getAggregateDefenseBonus(true));
+    const SavingThrows saves = attributes.getAggregateSavingThrows();
+    EXPECT_EQ(0, saves.fortitude);
+    EXPECT_EQ(0, saves.reflex);
+    EXPECT_EQ(0, saves.will);
+}
+
+TEST(AddMultiClass, a_third_class_casts_a_power_for_a_script) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    VitalityTestClass scout(8, ClassType::Scout);
+    VitalityTestClass guardian(10, ClassType::JediGuardian);
+    auto creature = game.newCreature();
+    creature->attributes().addClassLevels(soldier.clazz.get(), 1);
+    creature->attributes().addClassLevels(scout.clazz.get(), 1);
+    creature->attributes().addClassLevels(guardian.clazz.get(), 1);
+    Spell spell;
+    spell.type = static_cast<SpellType>(9);
+    spell.classLevelRequirements[ClassType::JediGuardian] = 1;
+
+    const auto selection = scriptCastingSource(*creature, spell);
+
+    ASSERT_TRUE(selection.has_value());
+    EXPECT_EQ(2, selection->classIndex);
 }
 
 TEST(XPStatusSummary, should_format_plot_xp_text_and_leave_token_zero_set) {
@@ -5268,7 +5442,7 @@ TEST(OverlayAnimation, should_leave_the_action_queue_alone) {
         "test", game, engine.services());
     creature->setSceneNode(fixture.node);
     creature->setMovementType(Creature::MovementType::Run);
-    auto pending = game.newAction<PlayAnimationAction>(AnimationType::LoopingPause, 1.0f, 0.0f);
+    auto pending = game.newAction<PlayAnimationAction>(10000, 1.0f, 0.0f);
     creature->addAction(pending);
     ASSERT_EQ(1u, creature->actions().size());
 

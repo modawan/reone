@@ -248,8 +248,8 @@ EffectApplicationResult ACDecreaseEffect::onApply(
                : EffectApplicationResult::Retained;
 }
 
-EffectApplicationResult AttackIncreaseEffect::onApply(Object &object, EffectInstance &) {
-    if (isa<Creature>(&object) && _bonus <= 0) {
+EffectApplicationResult AttackIncreaseEffect::onApply(Object &object, EffectInstance &instance) {
+    if (isa<Creature>(&object) && instance.integerParameter(0) <= 0) {
         return EffectApplicationResult::Rejected;
     }
     return EffectApplicationResult::Retained;
@@ -339,22 +339,24 @@ static void restoreImmunityWithout(Object &object, int flags, int amount) {
 }
 
 EffectApplicationResult DamageImmunityIncreaseEffect::onApply(
-    Object &object, EffectInstance &) {
-    if (_percentImmunity < 0) {
+    Object &object, EffectInstance &instance) {
+    const int percentImmunity = instance.integerParameter(1);
+    if (percentImmunity < 0) {
         return EffectApplicationResult::Rejected;
     }
-    const int flags = static_cast<int>(_damageType);
-    object.setDamageImmunity(flags, wrapImmunity(object.damageImmunity(flags) + _percentImmunity));
+    const int flags = instance.integerParameter(0);
+    object.setDamageImmunity(flags, wrapImmunity(object.damageImmunity(flags) + percentImmunity));
     return EffectApplicationResult::Retained;
 }
 
-void DamageImmunityIncreaseEffect::onRemove(Object &object, const EffectInstance &) {
-    restoreImmunityWithout(object, static_cast<int>(_damageType), _percentImmunity);
+void DamageImmunityIncreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
+    restoreImmunityWithout(object, instance.integerParameter(0), instance.integerParameter(1));
 }
 
 EffectApplicationResult DamageImmunityDecreaseEffect::onApply(
     Object &object, EffectInstance &instance) {
-    if (_percentImmunity < 0 || object.plotFlag()) {
+    const int percentImmunity = instance.integerParameter(1);
+    if (percentImmunity < 0 || object.plotFlag()) {
         return EffectApplicationResult::Rejected;
     }
     auto *target = dyn_cast<Creature>(&object);
@@ -365,14 +367,14 @@ EffectApplicationResult DamageImmunityDecreaseEffect::onApply(
             return EffectApplicationResult::Rejected;
         }
     }
-    const int flags = static_cast<int>(_damageType);
-    object.setDamageImmunity(flags, wrapImmunity(object.damageImmunity(flags) - _percentImmunity));
+    const int flags = instance.integerParameter(0);
+    object.setDamageImmunity(flags, wrapImmunity(object.damageImmunity(flags) - percentImmunity));
     return EffectApplicationResult::Retained;
 }
 
 // The decrease is still counted when it is taken out, so it is subtracted twice.
-void DamageImmunityDecreaseEffect::onRemove(Object &object, const EffectInstance &) {
-    restoreImmunityWithout(object, static_cast<int>(_damageType), _percentImmunity);
+void DamageImmunityDecreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
+    restoreImmunityWithout(object, instance.integerParameter(0), instance.integerParameter(1));
 }
 
 EffectApplicationResult DamageResistanceEffect::onApply(Object &, EffectInstance &) {
@@ -483,8 +485,8 @@ void MovementSpeedDecreaseEffect::onRemove(Object &object, const EffectInstance 
     }
 }
 
-EffectApplicationResult SavingThrowIncreaseEffect::onApply(Object &object, EffectInstance &) {
-    if (isa<Creature>(&object) && _value <= 0) {
+EffectApplicationResult SavingThrowIncreaseEffect::onApply(Object &object, EffectInstance &instance) {
+    if (isa<Creature>(&object) && instance.integerParameter(0) <= 0) {
         return EffectApplicationResult::Rejected;
     }
     return EffectApplicationResult::Retained;
@@ -797,7 +799,8 @@ EffectApplicationResult FactionModifierEffect::onApply(Object &object, EffectIns
         return EffectApplicationResult::Retained;
     }
     const auto oldFaction = factionOf(object);
-    if (!oldFaction || !isNpcFaction(object, _newFaction)) {
+    const int newFaction = instance.integerParameter(0);
+    if (!oldFaction || !isNpcFaction(object, newFaction)) {
         return EffectApplicationResult::Rejected;
     }
     if (auto *creature = dyn_cast<Creature>(&object); creature && creature->isPC()) {
@@ -805,7 +808,7 @@ EffectApplicationResult FactionModifierEffect::onApply(Object &object, EffectIns
     }
 
     instance.setIntegerParameter(1, static_cast<int>(*oldFaction));
-    changeFaction(object, static_cast<Faction>(_newFaction));
+    changeFaction(object, static_cast<Faction>(newFaction));
     return EffectApplicationResult::Retained;
 }
 

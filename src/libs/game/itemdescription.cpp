@@ -68,7 +68,7 @@ constexpr int kTSLDifficultyClassStrRef = 48756;
 constexpr int kK1DifficultyClassStrRef = 49135;
 constexpr int kOffHandStrRef = 42145;
 constexpr int kAttackModifierStrRef = 38566;
-constexpr int kUnarmedAttackSuffixStrRef = 113136;
+constexpr int kUnarmedAttackSuffixStrRef = 114160;
 constexpr int kDefenseStrRef = 38593;
 constexpr int kMaxDexterityBonusStrRef = 42144;
 constexpr int kSingleUseStrRef = 783;
@@ -191,7 +191,9 @@ public:
             addImmunities();
             addSaves();
             addSkills();
-            addDeflection();
+            if (_tsl) {
+                addDeflection();
+            }
             addOtherProperties();
         }
         std::string description(_item.descIdentified());
@@ -475,10 +477,11 @@ private:
 
     void addDamage() {
         if (hasProperty(ItemProperty::NoDamage)) {
-            _text += gui(kDamageStrRef) + ": 1\n";
+            _text += gui(kDamageStrRef) + (_tsl ? ": 1\n" : ": 0\n");
         } else {
             // Enhancement and damage of the weapon's own kinds raise its
-            // range, damage penalties lower it; the minimum is at least 1.
+            // range, damage penalties lower it. In TSL the minimum is at
+            // least 1 and a weapon without damage shows no line.
             const int flags = _item.damageFlags();
             int minimum = _item.numDice();
             int maximum = _item.numDice() * _item.dieToRoll();
@@ -504,10 +507,10 @@ private:
                     break;
                 }
             }
-            if (minimum <= 0) {
+            if (_tsl && minimum <= 0) {
                 minimum = 1;
             }
-            if (maximum != 0) {
+            if (!_tsl || maximum != 0) {
                 _text += gui(kDamageStrRef) + ": ";
                 if (_tsl && _item.baseItemType() == kGauntletsBaseItem) {
                     if (!kinds.empty()) {
@@ -522,7 +525,7 @@ private:
                 }
             }
         }
-        addGroupDamage(ItemProperty::DamageBonusVsAlignmentGroup, "\n");
+        addGroupDamage(ItemProperty::DamageBonusVsAlignmentGroup, _tsl ? "\n" : "\n\n");
         addGroupDamage(ItemProperty::DamageBonusVsRacialGroup, "\n\n");
         addDamageReduction();
         addExtraDamage();
@@ -629,7 +632,8 @@ private:
         _text += str(boost::format("%s: %dm\n") % gui(kRangeStrRef) % static_cast<int>(_item.attackRange())) + "\n";
     }
 
-    // Keen doubles the threat range; massive criticals add their damage.
+    // Keen doubles the threat range; massive criticals add their damage. In
+    // KotOR only the highest of a subtype counts.
     void addCriticalThreat() {
         _text += gui(kCriticalThreatStrRef) + ":\n";
         int threat = _item.criticalThreat();
@@ -639,7 +643,7 @@ private:
         int minimum = 0;
         int maximum = 0;
         for (const auto *property : _active) {
-            if (type(*property) != static_cast<int>(ItemProperty::MassiveCriticals)) {
+            if (type(*property) != static_cast<int>(ItemProperty::MassiveCriticals) || (!_tsl && isOutvalued(*property))) {
                 continue;
             }
             const auto [low, high] = damageRange(property->costValue);
@@ -688,13 +692,13 @@ private:
             case kOnHitKnockdown: {
                 _text += prefix + effect.subtype + " ";
                 const auto odds = onHitOdds(property->costValue, property->paramValue);
-                _text += str(boost::format("%s %d\n") % gui(difficultyClassStrRef()) % odds.difficulty);
+                _text += str(boost::format("%s %d\n\n") % gui(difficultyClassStrRef()) % odds.difficulty);
                 break;
             }
             default: {
                 _text += prefix + effect.subtype + " ";
                 const auto odds = onHitOdds(property->costValue, property->paramValue);
-                _text += str(boost::format("%d%% %s, %d %s, %s %d\n") % odds.chance % gui(kChanceStrRef) %
+                _text += str(boost::format("%d%% %s, %d %s, %s %d\n\n") % odds.chance % gui(kChanceStrRef) %
                              (odds.durationRounds * kSecondsPerRound) % gui(kDurationStrRef) %
                              gui(difficultyClassStrRef()) % odds.difficulty);
                 break;
@@ -731,10 +735,9 @@ private:
         const std::string suffix(_tsl && _item.baseItemType() == kGauntletsBaseItem
                                      ? _services.resource.strings.getText(kUnarmedAttackSuffixStrRef)
                                      : std::string());
-        if (total > 0) {
-            _text += str(boost::format("%s: +%d%s\n") % gui(kAttackModifierStrRef) % total % suffix);
-        } else if (total < 0) {
-            _text += str(boost::format("%s: %d%s\n") % gui(kAttackModifierStrRef) % total % suffix);
+        // A nonzero total is written with its sign.
+        if (total != 0) {
+            _text += str(boost::format("%s: %+d%s\n") % gui(kAttackModifierStrRef) % total % suffix);
         }
         static constexpr ItemProperty kVersusKinds[] {
             ItemProperty::EnhancementBonusVsAlignmentGroup,
@@ -967,14 +970,34 @@ private:
             if (count > 0) {
                 _text += ", ";
             }
-            _text += strings.subtype + " " + strings.cost;
+            _text += strings.subtype + " " + penaltyOrCost(kind == ItemProperty::DecreasedSkillModifier, strings.cost);
             ++count;
         }
         _text += "\n\n";
     }
 
-    // The deflection bonuses and penalties are summed; the line is titled
-    // with the part of the first property's name before its colon.
+    /**
+     * The cost text of a bonus or penalty. KotOR shows a penalty as "-N",
+     * with N read from its cost name; TSL shows the cost name.
+     */
+    std::string penaltyOrCost(bool penalty, const std::string &cost) const {
+        if (penalty && !_tsl) {
+            return "-" + std::to_string(namedAmount(cost, "%*s -%d"));
+        }
+        return cost;
+    }
+
+    /**
+     * The title of a deflection line: the part of the property name before
+     * its colon, followed by ": ". A name without a colon is used whole.
+     */
+    static std::string deflectionTitle(const std::string &name) {
+        const size_t colon = name.find(':');
+        return colon != std::string::npos ? name.substr(0, colon) + ": " : name;
+    }
+
+    // TSL sums the deflection bonuses and penalties; the line is titled with
+    // the part of the first property's name before its colon.
     void addDeflection() {
         if (!hasProperty(ItemProperty::BlasterBoltDeflectIncrease) && !hasProperty(ItemProperty::BlasterBoltDeflectDecrease)) {
             return;
@@ -1012,7 +1035,21 @@ private:
                     break;
                 }
                 const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
-                _text += strings.subtype + ": " + strings.cost + "\n\n";
+                _text += strings.subtype + ": " + penaltyOrCost(kind == static_cast<int>(ItemProperty::DecreasedAbilityScore), strings.cost) + "\n\n";
+                break;
+            }
+            // KotOR lists each deflection property among the others.
+            case ItemProperty::BlasterBoltDeflectIncrease:
+            case ItemProperty::BlasterBoltDeflectDecrease: {
+                if (_tsl || isOutvalued(*property)) {
+                    break;
+                }
+                const auto strings = propertyStrings(kind, std::nullopt, property->costValue, std::nullopt);
+                if (kind == static_cast<int>(ItemProperty::BlasterBoltDeflectIncrease)) {
+                    _text += deflectionTitle(strings.name) + "+" + std::to_string(property->costValue) + "\n\n";
+                } else {
+                    _text += deflectionTitle(strings.name) + " -" + std::to_string(namedAmount(strings.cost, "%*s -%d")) + "\n\n";
+                }
                 break;
             }
             case ItemProperty::BonusFeat: {

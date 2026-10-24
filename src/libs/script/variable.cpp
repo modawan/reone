@@ -222,12 +222,6 @@ const char *argKindToString(ArgKind kind) {
         return "LastAttacker";
     case ArgKind::LastDamager:
         return "LastDamager";
-    case ArgKind::LastSpellCaster:
-        return "LastSpellCaster";
-    case ArgKind::LastSpell:
-        return "LastSpell";
-    case ArgKind::LastSpellHarmful:
-        return "LastSpellHarmful";
     case ArgKind::LastDisarmed:
         return "LastDisarmed";
     case ArgKind::SpellId:
@@ -321,15 +315,6 @@ Argument Argument::fromString(std::string str) {
     if (kind == "LastDamager") {
         return {ArgKind::LastDamager, Variable::ofObject(std::stoul(value))};
     }
-    if (kind == "LastSpellCaster") {
-        return {ArgKind::LastSpellCaster, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "LastSpell") {
-        return {ArgKind::LastSpell, Variable::ofInt(std::stoi(value))};
-    }
-    if (kind == "LastSpellHarmful") {
-        return {ArgKind::LastSpellHarmful, Variable::ofInt(std::stoi(value))};
-    }
     if (kind == "LastDisarmed") {
         return {ArgKind::LastDisarmed, Variable::ofObject(std::stoul(value))};
     }
@@ -384,7 +369,6 @@ void Argument::verify() {
     case ArgKind::LastPerceived:
     case ArgKind::LastUsedBy:
     case ArgKind::LastAttacker:
-    case ArgKind::LastSpellCaster:
     case ArgKind::LastDisarmed:
     case ArgKind::LastDamager: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
@@ -398,8 +382,6 @@ void Argument::verify() {
     case ArgKind::LastPerceptionInaudible:
     case ArgKind::LastPerceptionSeen:
     case ArgKind::LastPerceptionVanished:
-    case ArgKind::LastSpell:
-    case ArgKind::LastSpellHarmful:
     case ArgKind::SpellId:
     case ArgKind::InventoryDisturbType: {
         if (var.type != VariableType::Int) {

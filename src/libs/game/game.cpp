@@ -40,6 +40,7 @@
 #include "reone/game/action/useskill.h"
 #include "reone/game/combat.h"
 #include "reone/game/d20/classes.h"
+#include "reone/game/d20/races.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
@@ -493,12 +494,10 @@ static std::optional<pazaak::SideDeck> loadPazaakOpponentDeck(
     if (row < 0 || row >= decks.getRowCount()) {
         return std::nullopt;
     }
-    const auto &columns = decks.columns();
     std::vector<pazaak::CardDefinition> cards;
     cards.reserve(pazaak::kSideDeckSize);
     for (size_t i = 0; i < pazaak::kSideDeckSize; ++i) {
-        auto card = parsePazaakDeckCard(
-            i < columns.size() ? decks.getString(row, columns[i]) : std::string(), tsl);
+        auto card = parsePazaakDeckCard(decks.getString(row, static_cast<int>(i)), tsl);
         if (!card) {
             return std::nullopt;
         }
@@ -656,19 +655,19 @@ void Game::initTables() {
         token.action = tokens->getInt(row, "actioncode", -1);
         _stringTokens.emplace(tokens->getString(row, "token"), token);
     }
+    initInputEvents();
 
-    // Each game reads its own message columns, named in either case; the
-    // pages run while the table has a column for them.
+    // Each game reads its own message columns; the pages run while the table
+    // has a column for them.
     auto tutorials = getRequiredTwoDA(twoDas, "tutorial");
     const std::string messagePrefix = tsl ? "Message_PC" : "Message";
-    const auto iconColumn = findColumnIgnoringCase(*tutorials, "Icon").value_or("Icon");
     std::vector<std::string> messageColumns;
     for (int page = 0;; ++page) {
-        auto column = findColumnIgnoringCase(*tutorials, messagePrefix + std::to_string(page));
-        if (!column) {
+        auto column = messagePrefix + std::to_string(page);
+        if (tutorials->getColumnIndex(column) == -1) {
             break;
         }
-        messageColumns.push_back(std::move(*column));
+        messageColumns.push_back(std::move(column));
     }
     _tutorials.clear();
     for (int row = 0; row < tutorials->getRowCount(); ++row) {
@@ -676,7 +675,7 @@ void Game::initTables() {
         for (const auto &column : messageColumns) {
             tutorial.messages.push_back(tutorials->getIntOpt(row, column));
         }
-        tutorial.icon = tutorials->getString(row, iconColumn);
+        tutorial.icon = tutorials->getString(row, "Icon");
         _tutorials.push_back(std::move(tutorial));
     }
 
@@ -687,7 +686,7 @@ void Game::initTables() {
     }
 
     _trapTypes = Trap::readTypes(twoDas);
-    _areaMusic.init();
+    _areaMusic.init(isTSL());
     _party.init();
 }
 
@@ -834,6 +833,14 @@ void Game::setSceneSurfaces() {
 }
 
 bool Game::handle(const input::Event &event) {
+    // Either Shift is the alternate actions key: pressing one holds it and
+    // releasing one lets it go. KotOR does not take it while the container
+    // screen is open, so it stays as it was when the screen opened.
+    if ((event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
+        (event.key.code == input::KeyCode::LeftShift || event.key.code == input::KeyCode::RightShift) &&
+        (isTSL() || _screen != Screen::Container)) {
+        _alternateActionsHeld = event.type == input::EventType::KeyDown;
+    }
     if (_playerInputBlocked && event.type != input::EventType::KeyUp &&
         event.type != input::EventType::MouseButtonUp) {
         return true;
@@ -952,6 +959,7 @@ void Game::update(float frameTime) {
     float dt = frameTime * _gameSpeed * _deathTimeScale;
     if (_movie) {
         _worldClockSample.reset();
+        _areaMusic.updateMusicFade();
         updateMovie(dt);
         return;
     }
@@ -990,7 +998,7 @@ void Game::update(float frameTime) {
     }
     // Sounds wait while a movie runs and resume once the frame's module
     // transition, if any, has been made.
-    _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie));
+    _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie), nullptr);
     syncClientCombatMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
@@ -1125,6 +1133,11 @@ void Game::update(float frameTime) {
                 heldModule->dispatchDueSavedEvents();
             }
         }
+    }
+    // The room view is redone on every frame the area is there to show,
+    // paused, under a menu or in a conversation alike.
+    if (_module && _module->area() && !_movie) {
+        _module->area()->updateRoomVisibility();
     }
     // A companion brought into being outside the area, such as one the party
     // selection screen shows, runs its creation script on the next frame,
@@ -1647,143 +1660,144 @@ bool Game::loadPreparedModule(
     const auto sourceScreen = _screen;
     bool commitStarted = false;
     try {
-        withLoadingScreen("load_" + name, [this,
-                                            &prepared,
-                                            &name,
-                                            &entry,
-                                            initialSaveRestore,
-                                            resourcesCommitted,
-                                            &sourceWorkingState,
-                                            &partyTransitionState,
-                                            &commitStarted,
-                                            &loaded]() {
-        try {
-            commitStarted = true;
-            _globalFade.request(GlobalFade::Direction::Out);
-            endSourceSession(name);
+        withLoadingScreen(name, [this,
+                                 &prepared,
+                                 &name,
+                                 &entry,
+                                 initialSaveRestore,
+                                 resourcesCommitted,
+                                 &sourceWorkingState,
+                                 &partyTransitionState,
+                                 &commitStarted,
+                                 &loaded]() {
+            try {
+                commitStarted = true;
+                _globalFade.request(GlobalFade::Direction::Out);
+                endSourceSession(name);
 
-            if (!resourcesCommitted) {
-                _services.resource.director.commitModuleLoad(
-                    std::move(prepared.resources));
+                if (!resourcesCommitted) {
+                    _services.resource.director.commitModuleLoad(
+                        std::move(prepared.resources));
+                }
+
+                // Resource publication is the only fallible destination commit.
+                // Adopt the frozen source snapshot only after it succeeds, so a
+                // destination that never publishes does not alter working state.
+                if (sourceWorkingState) {
+                    _services.resource.director.adoptSaveWorkingState(
+                        std::move(sourceWorkingState));
+                }
+
+                loadInGameMenus();
+
+                if (_loadScreen) {
+                    _loadScreen->setProgress(50);
+                }
+                render();
+
+                _services.scene.graphs.get(kSceneMain).clear();
+                // A module starts with no conversation under way.
+                _dialogUnderWay = false;
+
+                const auto &ifo = prepared.ifo;
+                ModuleLoadContext context = prepared.context;
+                bool restoringSavedWorld = restoresSavedWorld(context);
+
+                // Every module start takes its hour length from the module. A
+                // restored save has already set the calendar day and time of day
+                // from its own module record; any other start (a new game or a
+                // transition) keeps the day and time of day the world had and
+                // counts them in the destination's hours.
+                if (!initialSaveRestore) {
+                    restoreWorldTime(*ifo, worldTimeDay(), worldTimeOfDay());
+                }
+
+                publishDestinationModule(name, *ifo, restoringSavedWorld);
+                _fadeArrival = _globalFade.beginArrival();
+                _fadeArrivalModule = _module;
+                auto destination = _module;
+                auto arrival = _fadeArrival;
+                auto stillCurrent = [&]() {
+                    return destination == _module && arrival == _fadeArrival;
+                };
+                destination->load(
+                    name,
+                    *ifo,
+                    *prepared.are,
+                    *prepared.git,
+                    restoringSavedWorld);
+                if (!stillCurrent()) {
+                    return;
+                }
+                _loadedModules.insert(std::make_pair(name, destination));
+
+                // Structural construction is complete and the destination module
+                // is now the authoritative script caller. Authored gameplay begins
+                // here; failures from this point are terminal rather than rolled
+                // back as if arbitrary NWScript mutation were transactional. The
+                // creatures run their creation scripts on the area's first update,
+                // after the events the load has queued.
+
+                // Only a session without a player character gets the default
+                // party; one whose controlled companion was taken out keeps its
+                // parked player character.
+                if (_party.isEmpty() && !_party.actualPlayer()) {
+                    loadDefaultParty();
+                }
+                // A follower whose creature was destroyed is still listed with
+                // the party, and comes back from its roster record.
+                _party.respawnVacantFollowers();
+
+                // The game makes restored effects, actions and events visible before
+                // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
+                // remains explicit and graph-local; only publication moves ahead
+                // of the entry hooks.
+                bindSavedRuntimeState();
+
+                restorePartyTransitionState(partyTransitionState);
+                publishSavedRuntimeState();
+
+                // Whether the world came from persisted state decides what gets
+                // restored, not whether the module's authored entry hook runs.
+                // Content relies on that hook every time it is entered, including
+                // when revisiting a module whose world state is restored. It runs
+                // as an event after the area's creature entries.
+                destination->signalLoaded();
+
+                // The party is formed anew in the destination: a place that names
+                // no one does not come along, and the first member there leads.
+                _party.removeVacantMembers();
+                signalPartyEquipment();
+                destination->loadParty(entry, preservesSavedPlacement(context));
+                if (!stillCurrent()) {
+                    return;
+                }
+                signalKeptEquippedOnLoad();
+
+                info("Module '" + name + "' loaded successfully");
+
+                if (_loadScreen) {
+                    _loadScreen->setProgress(100);
+                }
+                render();
+
+                // The area's music replaces any menu music. It starts on arrival.
+                playMusic("");
+                _areaMusic.load(_module->area());
+
+                _globalFade.finishLoading(arrival);
+                if (!isConversationActive()) {
+                    openInGame();
+                }
+                loaded = true;
+            } catch (const std::exception &e) {
+                error("Failed loading module '" + name + "': " + std::string(e.what()));
+                // Source retirement is the commit boundary for an ordinary
+                // transition, just as resetGame is for a disk load. Authored or
+                // otherwise post-commit failure cannot resurrect the old world;
+                // retire the partial destination and land somewhere deliberate.
+                retireToMainMenu();
             }
-
-            // Resource publication is the only fallible destination commit.
-            // Adopt the frozen source snapshot only after it succeeds, so a
-            // destination that never publishes does not alter working state.
-            if (sourceWorkingState) {
-                _services.resource.director.adoptSaveWorkingState(
-                    std::move(sourceWorkingState));
-            }
-
-            loadInGameMenus();
-
-            if (_loadScreen) {
-                _loadScreen->setProgress(50);
-            }
-            render();
-
-            _services.scene.graphs.get(kSceneMain).clear();
-
-            const auto &ifo = prepared.ifo;
-            ModuleLoadContext context = prepared.context;
-            bool restoringSavedWorld = restoresSavedWorld(context);
-
-            // Every module start takes its hour length from the module. A
-            // restored save has already set the calendar day and time of day
-            // from its own module record; any other start (a new game or a
-            // transition) keeps the day and time of day the world had and
-            // counts them in the destination's hours.
-            if (!initialSaveRestore) {
-                restoreWorldTime(*ifo, worldTimeDay(), worldTimeOfDay());
-            }
-
-            publishDestinationModule(name, *ifo, restoringSavedWorld);
-            _fadeArrival = _globalFade.beginArrival();
-            _fadeArrivalModule = _module;
-            auto destination = _module;
-            auto arrival = _fadeArrival;
-            auto stillCurrent = [&]() {
-                return destination == _module && arrival == _fadeArrival;
-            };
-            destination->load(
-                name,
-                *ifo,
-                *prepared.are,
-                *prepared.git,
-                restoringSavedWorld);
-            if (!stillCurrent()) {
-                return;
-            }
-            _loadedModules.insert(std::make_pair(name, destination));
-
-            // Structural construction is complete and the destination module
-            // is now the authoritative script caller. Authored gameplay begins
-            // here; failures from this point are terminal rather than rolled
-            // back as if arbitrary NWScript mutation were transactional. The
-            // creatures run their creation scripts on the area's first update,
-            // after the events the load has queued.
-
-            // Only a session without a player character gets the default
-            // party; one whose controlled companion was taken out keeps its
-            // parked player character.
-            if (_party.isEmpty() && !_party.actualPlayer()) {
-                loadDefaultParty();
-            }
-            // A follower whose creature was destroyed is still listed with
-            // the party, and comes back from its roster record.
-            _party.respawnVacantFollowers();
-
-            // The game makes restored effects, actions and events visible before
-            // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
-            // remains explicit and graph-local; only publication moves ahead
-            // of the entry hooks.
-            bindSavedRuntimeState();
-
-            restorePartyTransitionState(partyTransitionState);
-            publishSavedRuntimeState();
-
-            // Whether the world came from persisted state decides what gets
-            // restored, not whether the module's authored entry hook runs.
-            // Content relies on that hook every time it is entered, including
-            // when revisiting a module whose world state is restored. It runs
-            // as an event after the area's creature entries.
-            destination->signalLoaded();
-
-            // The party is formed anew in the destination: a place that names
-            // no one does not come along, and the first member there leads.
-            _party.removeVacantMembers();
-            signalPartyEquipment();
-            destination->loadParty(entry, preservesSavedPlacement(context));
-            if (!stillCurrent()) {
-                return;
-            }
-            signalKeptEquippedOnLoad();
-
-            info("Module '" + name + "' loaded successfully");
-
-            if (_loadScreen) {
-                _loadScreen->setProgress(100);
-            }
-            render();
-
-            // The area's music replaces any menu or minigame music. It starts
-            // on arrival.
-            playMusic("");
-            _areaMusic.load(_module->area());
-
-            _globalFade.finishLoading(arrival);
-            if (!isConversationActive()) {
-                openInGame();
-            }
-            loaded = true;
-        } catch (const std::exception &e) {
-            error("Failed loading module '" + name + "': " + std::string(e.what()));
-            // Source retirement is the commit boundary for an ordinary
-            // transition, just as resetGame is for a disk load. Authored or
-            // otherwise post-commit failure cannot resurrect the old world;
-            // retire the partial destination and land somewhere deliberate.
-            retireToMainMenu();
-        }
         });
     } catch (const std::exception &e) {
         error("Module load escaped its failure boundary for '" + name +
@@ -2034,7 +2048,6 @@ void Game::resetGame() {
 
     _party.reset();
     _journal.reset();
-    _messageLog.reset();
     _floatingText.reset();
     _cheatUsed = false;
     _playedTimeFraction = 0.0;
@@ -2701,7 +2714,7 @@ bool Game::killRosterCreature(const RosterIdentity &identity) {
         _module->dropPendingEvents(*creature);
     }
     if (_module && _module->area()) {
-        _module->area()->retireCreatureAreaRuntime(creature);
+        _module->area()->retirePartyMemberAreaRuntime(creature);
     }
     destroyRuntimeObjectGraph(creature);
     return true;
@@ -2839,9 +2852,9 @@ void Game::setCursorType(CursorType type) {
     _pointer->setType(type);
 }
 
-void Game::playVideo(const std::string &name) {
+void Game::playVideo(const std::string &name, bool streamingMusic) {
     _moduleTransitionMovies = std::queue<std::string>();
-    startVideo(name);
+    startVideo(name, streamingMusic);
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -2853,7 +2866,7 @@ void Game::playMusic(const std::string &resRef) {
         _music.reset();
     }
     _musicResRef = resRef;
-    // Menu and minigame music suspends the area music.
+    // Menu music suspends the area music.
     if (!resRef.empty()) {
         _areaMusic.stopSounds();
     }
@@ -3525,7 +3538,7 @@ void Game::beginRuntimeObjectGraphReplacement(
     _stagedRuntimeObjectGraph->obsoleteGraph =
         collectRuntimeObjectGraph(obsoleteObjects);
     for (const auto &object : _stagedRuntimeObjectGraph->obsoleteGraph) {
-        _stagedRuntimeObjectGraph->replaceableObjects.insert(object.get());
+        _stagedRuntimeObjectGraph->replaceableObjectIds.insert(object->id());
     }
 }
 
@@ -3662,7 +3675,7 @@ void Game::registerSavedObjectIdentity(
     auto existing = getObjectBySavedId(id);
     if (existing && existing.get() != object.get() &&
         (!_stagedRuntimeObjectGraph ||
-         !_stagedRuntimeObjectGraph->replaceableObjects.count(existing.get()))) {
+         !_stagedRuntimeObjectGraph->replaceableObjectIds.count(existing->id()))) {
         throw ValidationException(
             "Duplicate authoritative saved ObjectId mapping: " +
             std::to_string(id));
@@ -4334,14 +4347,6 @@ void Game::postObjectDestruction(Object &target, std::optional<std::reference_wr
     _module->enqueueSaveEvent(std::move(event), nullptr, keepsCallerFade);
 }
 
-void Game::queueObjectDestruction(Object &target, float delay) {
-    if (!delayedWorldTime(delay)) {
-        return;
-    }
-    cancelObjectDestruction(target);
-    postObjectDestruction(target, delay);
-}
-
 void Game::postObjectDestruction(Object &target, float delay) {
     const auto time = delayedWorldTime(delay);
     if (!time) {
@@ -4354,12 +4359,6 @@ void Game::postObjectDestruction(Object &target, float delay) {
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     const bool bound = bindSavedObjectReference(event.object);
     _module->enqueueBoundSaveEvent(std::move(event), bound);
-}
-
-void Game::cancelObjectDestruction(Object &target) {
-    if (_module) {
-        _module->cancelObjectDestruction(target);
-    }
 }
 
 void Game::queueEffectRemoval(Object &target, EffectId id) {
@@ -4481,8 +4480,7 @@ void Game::settleFadeArrival() {
     }
     if (_fadeArrivalModule.lock() == _module && _module) {
         // The area's music and ambient loop start on arrival, after the enter
-        // script and any movie it plays. Menu or minigame music keeps them
-        // suspended.
+        // script and any movie it plays. Menu music keeps them suspended.
         if (_musicResRef.empty()) {
             _areaMusic.start();
         }
@@ -4786,7 +4784,7 @@ void Game::updateMusic() {
         return;
     }
     auto clip = _services.resource.audioClips.get(_musicResRef);
-    _music = _services.audio.mixer.play(std::move(clip), AudioType::Music);
+    _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, _areaMusic.musicGroupGain());
 }
 
 void Game::loadNextModule() {
@@ -4923,16 +4921,18 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
     }
 }
 
-bool Game::startVideo(const std::string &name) {
+bool Game::startVideo(const std::string &name, bool streamingMusic) {
     _movie = _services.resource.movies.get(name);
     _timingDiscontinuity = true;
     if (!_movie) {
         return false;
     }
     // A movie ends the area's music and ambient loop for good. Every other
-    // sound waits for it, including sounds started before it is first shown.
+    // sound waits for it, including sounds started before it is first shown;
+    // a movie that lets music play leaves area music set to play through
+    // movies sounding while it fades.
     _areaMusic.stopSounds();
-    _services.audio.mixer.setSoundsHeldForMovie(true);
+    _services.audio.mixer.setSoundsHeldForMovie(true, streamingMusic ? _areaMusic.musicPlayingThroughMovies() : nullptr);
     return true;
 }
 
@@ -4941,7 +4941,7 @@ bool Game::playNextModuleTransitionMovie() {
         auto name = std::move(_moduleTransitionMovies.front());
         _moduleTransitionMovies.pop();
 
-        if (startVideo(name)) {
+        if (startVideo(name, false)) {
             return true;
         }
     }
@@ -5133,8 +5133,13 @@ static constexpr int kFirstControllerKey = 110;
 static constexpr int kNonKeyboardKeyStrRefK1 = 48144;
 static constexpr int kNonKeyboardKeyStrRefTSL = 48724;
 static constexpr char kUnnamedKey[] = "N/A";
-// Input events numbered from this one take their keys from keymap.2da.
+// Single-key input events in this range take their keys from keymap.2da rows
+// "action<event>", two-key ones from rows "action<event>a" and "b".
 static constexpr int kFirstMappedInputEvent = 200;
+static constexpr int kLastMappedInputEventK1 = 265;
+static constexpr int kLastMappedInputEventTSL = 269;
+static constexpr int kFirstTwoKeyInputEvent = 280;
+static constexpr int kLastTwoKeyInputEvent = 286;
 
 /** An input event the engine defines itself, and the key it takes. */
 struct EngineInputEvent {
@@ -5142,7 +5147,7 @@ struct EngineInputEvent {
     int key {0};
 };
 
-static constexpr std::array<EngineInputEvent, 24> kEngineInputEventsK1 {{
+static constexpr std::array<EngineInputEvent, 23> kEngineInputEventsK1 {{
     {0x03, 110},
     {0x04, 111},
     {0x07, 111},
@@ -5166,7 +5171,6 @@ static constexpr std::array<EngineInputEvent, 24> kEngineInputEventsK1 {{
     {0xb8, 7},
     {0xb9, 8},
     {0xbb, 88},
-    {0xbc, 89},
 }};
 static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
     {0x01, 125},
@@ -5200,48 +5204,71 @@ static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
     {0xbb, 88},
 }};
 
-// The key an input event takes by default, or none when no such event
-// exists. A two-key event takes its alternate key when asked for it.
-static std::optional<int> inputEventKey(resource::ITwoDAs &twoDas, bool tsl, int event, bool alternateKey) {
-    if (event >= kFirstMappedInputEvent) {
-        auto keymap = getRequiredTwoDA(twoDas, "keymap");
-        // A disabled row makes no event.
-        const auto enabledRow = [&keymap](const std::string &label) -> std::optional<int> {
-            const int row = keymap->indexByLabel(label);
-            if (row == -1 || keymap->getInt(row, "disabled", 0) == 1) {
-                return std::nullopt;
-            }
-            return row;
-        };
-        const std::string label = "action" + std::to_string(event);
-        if (auto row = enabledRow(label)) {
-            return keymap->getInt(*row, "language0", 0);
+void Game::initInputEvents() {
+    _inputEvents.clear();
+    const auto addEngineEvents = [this](const auto &events) {
+        for (const EngineInputEvent &engineEvent : events) {
+            _inputEvents[engineEvent.event] = InputEventKeys {engineEvent.key, std::nullopt};
         }
-        // A two-key event is made from its A and B rows when both name a key:
-        // the B key is its key and the A key its alternate. Only the A row can
-        // disable it.
-        const auto rowA = enabledRow(label + "a");
-        const int rowB = keymap->indexByLabel(label + "b");
-        if (!rowA || rowB == -1) {
-            return std::nullopt;
-        }
-        const int keyA = keymap->getInt(*rowA, "language0", -1);
-        const int keyB = keymap->getInt(rowB, "language0", -1);
-        if (keyA < 0 || keyB < 0) {
-            return std::nullopt;
-        }
-        return alternateKey ? keyA : keyB;
-    }
-    const auto find = [event](const auto &events) -> std::optional<int> {
-        auto it = std::find_if(events.begin(), events.end(), [event](const EngineInputEvent &engineEvent) {
-            return engineEvent.event == event;
-        });
-        if (it == events.end()) {
-            return std::nullopt;
-        }
-        return it->key;
     };
-    return tsl ? find(kEngineInputEventsTSL) : find(kEngineInputEventsK1);
+    if (isTSL()) {
+        addEngineEvents(kEngineInputEventsTSL);
+    } else {
+        addEngineEvents(kEngineInputEventsK1);
+    }
+
+    auto keymap = getRequiredTwoDA(_services.resource.twoDas, "keymap");
+    const int lastMappedEvent = isTSL() ? kLastMappedInputEventTSL : kLastMappedInputEventK1;
+    const auto rowOf = [&keymap](int event, const std::string &suffix) {
+        return keymap->indexByLabel("action" + std::to_string(event) + suffix);
+    };
+    // A disabled row makes no event.
+    const auto enabled = [&keymap](int row) {
+        return row != -1 && keymap->getInt(row, "disabled", 0) != 1;
+    };
+    // Keys are read from the column of the talk table's language when an
+    // enabled single-key row gives a key there, else from the first
+    // language's.
+    std::string column = "language" + std::to_string(_services.resource.strings.languageId());
+    bool languageHasKeys = false;
+    for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
+        const int row = rowOf(event, "");
+        languageHasKeys = enabled(row) && keymap->getInt(row, column, -1) >= 0;
+    }
+    if (!languageHasKeys) {
+        column = "language0";
+    }
+    // A single-key row makes an event only when it gives a key that is not
+    // negative.
+    for (int event = kFirstMappedInputEvent; event <= lastMappedEvent; ++event) {
+        const int row = rowOf(event, "");
+        const int key = enabled(row) ? keymap->getInt(row, column, -1) : -1;
+        if (key >= 0) {
+            _inputEvents[event] = InputEventKeys {key, std::nullopt};
+        }
+    }
+    // A two-key event is made from its A and B rows when both give a key that
+    // is not negative and the two differ, or are both 0: the B key is its key
+    // and the A key its alternate. Only the A row can disable it.
+    for (int event = kFirstTwoKeyInputEvent; event <= kLastTwoKeyInputEvent; ++event) {
+        const int rowA = rowOf(event, "a");
+        const int rowB = rowOf(event, "b");
+        if (!enabled(rowA) || rowB == -1) {
+            continue;
+        }
+        const int keyA = keymap->getInt(rowA, column, -1);
+        const int keyB = keymap->getInt(rowB, column, -1);
+        if (keyA < 0 || keyB < 0 || (keyA == keyB && keyA != 0)) {
+            continue;
+        }
+        _inputEvents[event] = InputEventKeys {keyB, keyA};
+    }
+
+    auto keys = getRequiredTwoDA(_services.resource.twoDas, "bindablekeys");
+    _keyNameStrRefs.clear();
+    for (int row = 0; row < keys->getRowCount(); ++row) {
+        _keyNameStrRefs.push_back(keys->getInt(row, "keynamestrref", -1));
+    }
 }
 
 // Text between "<" and ">" names a token; "<<" and "{{" stand for "<" and
@@ -5362,13 +5389,13 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
             break;
         case StringTokenAction::Race:
         case StringTokenAction::RaceLower: {
-            const auto &names = subject->get().raceNames();
-            value = strings.getText(action == StringTokenAction::Race ? names.converName : names.converNameLower);
+            const Race &race = subject->get().race();
+            value = strings.getText(action == StringTokenAction::Race ? race.converName : race.converNameLower);
             break;
         }
         case StringTokenAction::Subrace:
             // A creature without subrace text reads its race's name.
-            value = strings.getText(subject->get().raceNames().name);
+            value = strings.getText(subject->get().race().name);
             break;
         case StringTokenAction::Class:
         case StringTokenAction::ClassLower:
@@ -5439,17 +5466,21 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
             // more. Without an event or a key it reads string 0. A keyboard
             // key is named by its bindablekeys.2da text.
             value = strings.getText(0);
-            const auto key = inputEventKey(_services.resource.twoDas, isTSL(), defaultValue, strRef(0) >= 2);
-            if (!key || *key == 0) {
+            const auto event = _inputEvents.find(defaultValue);
+            if (event == _inputEvents.end()) {
                 break;
             }
-            if (*key < kFirstKeyboardKey || *key >= kFirstControllerKey) {
+            const auto &eventKeys = event->second;
+            const int key = eventKeys.alternateKey && strRef(0) >= 2 ? *eventKeys.alternateKey : eventKeys.key;
+            if (key == 0) {
+                break;
+            }
+            if (key < kFirstKeyboardKey || key >= kFirstControllerKey) {
                 value = strings.getText(isTSL() ? kNonKeyboardKeyStrRefTSL : kNonKeyboardKeyStrRefK1);
                 break;
             }
-            auto keys = getRequiredTwoDA(_services.resource.twoDas, "bindablekeys");
-            const int keyRow = *key - kFirstKeyboardKey;
-            value = keyRow < keys->getRowCount() ? strings.getText(keys->getInt(keyRow, "keynamestrref", -1)) : kUnnamedKey;
+            const size_t keyRow = key - kFirstKeyboardKey;
+            value = keyRow < _keyNameStrRefs.size() ? strings.getText(_keyNameStrRefs[keyRow]) : kUnnamedKey;
             break;
         }
         case StringTokenAction::MouseButton: {
@@ -5469,7 +5500,12 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
             break;
         }
     }
-    value.erase(0, value.find_first_not_of(' '));
+    // TSL trims the spaces from both ends of a token's value; KotOR keeps it
+    // as it is.
+    if (isTSL()) {
+        value.erase(0, value.find_first_not_of(' '));
+        value.erase(value.find_last_not_of(' ') + 1);
+    }
     return value;
 }
 
@@ -5570,12 +5606,12 @@ bool Game::relativeMouseMode() const {
     return getActiveCamera()->isMouseLookMode();
 }
 
-void Game::withLoadingScreen(const std::string &imageResRef, const std::function<void()> &block) {
+void Game::withLoadingScreen(const std::string &moduleName, const std::function<void()> &block) {
     if (!_loadScreen) {
         _loadScreen = tryLoadGUI<LoadingScreen>();
     }
     if (_loadScreen) {
-        _loadScreen->setImage(imageResRef);
+        _loadScreen->setModuleImage(moduleName);
         _loadScreen->setProgress(0);
     }
     changeScreen(Screen::Loading);
@@ -6125,8 +6161,10 @@ void Game::sendMenuCast(Creature &caster, const std::shared_ptr<Spell> &spell, c
     if (!caster.isInCombat()) {
         caster.clearOrdersUnlessBusy();
     }
+    // The player's cast at an object checks its line to the object.
     auto action = newAction<CastSpellAtObjectAction>(spell, target, std::nullopt);
     action->setUserAction(true);
+    action->requireUseLineCheck();
     _combat.scheduleCast(caster, action);
     breakForfeitCondition(caster, Party::kForfeitNoForcePowers);
 }
@@ -7476,10 +7514,6 @@ void Game::openTurret() {
     // visibility on exit.
     setPartyVisible(false);
 
-    if (!mg.music.empty()) {
-        playMusic(mg.music);
-    }
-
     debug(str(boost::format("turret: started track=%s anchor=%s models=%zu banks=%zu enemies=%zu hp=%d camfov=%.0f clip=[%.2f,%.0f]")
               % mg.player.trackResRef
               % _turret.anchorSource()
@@ -7650,6 +7684,8 @@ void Game::applyTurretResult(const std::string &turretModule, Turret::Outcome ou
 
 void Game::openInGameMenu(InGameMenuTab tab) {
     setCursorType(CursorType::Default);
+    // The menus end the choice of a party member to use an item on.
+    cancelPartyItemTarget();
     switch (tab) {
     case InGameMenuTab::Equipment:
         _inGame->openEquipment();
@@ -8330,10 +8366,6 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     if (!_party.isMember(creature)) {
         return;
     }
-    // The chime waits for the status summary.
-    if (newlyAvailable) {
-        _statusSummary.submitLevelUpSound();
-    }
     // Only the controlled creature is told.
     if (&creature != _party.getLeader().get()) {
         return;
@@ -8350,6 +8382,9 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     }
 }
 
+/** The name character generation loads under. */
+static constexpr char kClassSelectionLoadScreen[] = "classsel";
+
 void Game::startCharacterGeneration() {
     resetGame();
     if (!_charGen) {
@@ -8358,7 +8393,10 @@ void Game::startCharacterGeneration() {
     if (!_charGen) {
         return;
     }
-    withLoadingScreen(_charGen->loadScreenResRef(), [this]() {
+    // Character generation loads as the class selection does, and every new
+    // character starts from a new class selection.
+    withLoadingScreen(kClassSelectionLoadScreen, [this]() {
+        _charGen->startCreation();
         _loadScreen->setProgress(100);
         render();
         playMusic(_charGen->musicResRef());
@@ -8382,11 +8420,13 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     } catch (const std::exception &e) {
         warn("Game: conversation load failed: " + resRef + ": " + e.what());
         _globalFade.finishDialog(admission);
+        _dialogUnderWay = false;
         return;
     }
     if (!dialog) {
         warn("Game: conversation not found or invalid: " + resRef);
         _globalFade.finishDialog(admission);
+        _dialogUnderWay = false;
         return;
     }
 
@@ -8394,6 +8434,7 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     auto conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
     if (!conversation) {
         _globalFade.finishDialog(admission);
+        _dialogUnderWay = false;
         return;
     }
 
@@ -8401,6 +8442,7 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
     changeScreen(Screen::Conversation);
+    _dialogUnderWay = true;
 
     // A computer conversation leaves everyone's stealth alone.
     if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
@@ -8497,13 +8539,14 @@ int Game::inventoryMenuCharacter() const {
 }
 
 void Game::finishPostDialogCharacterSwitch() {
-    auto companion = _postDialogCharacterSwitch.resolve();
-    _postDialogCharacterSwitch.reset();
-    if (!companion) {
+    if (_postDialogCharacterSwitch.empty()) {
         return;
     }
+    auto companion = _postDialogCharacterSwitch.resolve();
+    _postDialogCharacterSwitch.reset();
     // The lead passes to the next member, one step at a time, until the
-    // companion leads; each step is a leader change of its own.
+    // companion leads; each step is a leader change of its own. A companion
+    // that is gone never leads, so the lead goes once round the party.
     for (int step = 0; step < _party.getSize() && _party.getLeader() != companion; ++step) {
         _party.switchLeader(false);
     }
@@ -8586,6 +8629,12 @@ void Game::addFeedbackMessage(int strRef, const std::map<int, std::string> &toke
 void Game::presentCombatMessage(int strref) {
     if (_hud) {
         _hud->setCombatMessage(strref);
+    }
+}
+
+void Game::cancelPartyItemTarget() {
+    if (_hud) {
+        _hud->cancelPartyItemTarget();
     }
 }
 

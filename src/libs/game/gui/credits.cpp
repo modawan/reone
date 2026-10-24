@@ -82,8 +82,11 @@ void CreditsGUI::onGUILoaded() {
     for (int row = 0; row < table->getRowCount(); ++row) {
         _strRefs.push_back(table->getInt(row, "name"));
     }
+    // The music plays as a sound effect, at the area-wide ambient priority
+    // group's volume.
     if (!_musicResRef.empty()) {
-        _music = _services.audio.mixer.play(_services.resource.audioClips.get(_musicResRef), audio::AudioType::Music);
+        _music = _services.audio.mixer.play(_services.resource.audioClips.get(_musicResRef), audio::AudioType::Sound,
+                                            _game.areaMusic().ambientGroupGain());
     }
     showNextText();
 }

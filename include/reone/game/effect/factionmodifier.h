@@ -23,19 +23,19 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Moves the object to a faction: the new faction is integer 0, and integer 1
+ * keeps the old one while it lasts.
+ */
 class FactionModifierEffect : public CopyableEffect<FactionModifierEffect> {
 public:
     FactionModifierEffect(int newFaction) :
-        CopyableEffect(EffectType::FactionModifier),
-        _newFaction(newFaction) {
+        CopyableEffect(EffectType::FactionModifier) {
         setSaveFacingInteger(0, newFaction);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
     void onRemove(Object &object, const EffectInstance &) override;
-
-private:
-    int _newFaction;
 };
 
 } // namespace game

@@ -164,16 +164,16 @@ void Reputes::loadBase(
     // Row r holds faction r's standings and column c, after the label column,
     // the standing toward faction c. A blank cell is read as 0 and ends the
     // loading; cells beyond the factions are ignored.
-    const auto &columns = repute.columns();
+    const size_t columnCount = repute.columns().size();
     for (int row = 0; row < repute.getRowCount(); ++row) {
-        for (size_t column = 0; column < columns.size(); ++column) {
+        for (size_t column = 0; column < columnCount; ++column) {
             if (column == 0) {
-                if (repute.getString(row, columns[column]).empty()) {
+                if (repute.getString(row, static_cast<int>(column)).empty()) {
                     return;
                 }
                 continue;
             }
-            const auto reputation = repute.getIntOpt(row, columns[column]);
+            const auto reputation = repute.getIntOpt(row, static_cast<int>(column));
             if (static_cast<size_t>(row) < factionCount && column < factionCount) {
                 values[row][column] = std::clamp(reputation.value_or(0), kMinRepute, kMaxReputation);
             }

@@ -44,7 +44,9 @@ void Skills::init() {
         skill->name = std::move(name);
         skill->description = std::move(description);
         skill->icon = std::move(icon);
-        skill->untrained = skills->getInt(row, "untrained", 0) != 0;
+        // The untrained and all-classes flags are the low bits of their cells.
+        skill->untrained = (skills->getInt(row, "untrained", 0) & 1) != 0;
+        skill->allClassesCanUse = (skills->getInt(row, "allclassescanuse", 0) & 1) != 0;
         const auto key = skills->getString(row, "keyability");
         if (key == "DEX") {
             skill->keyAbility = Ability::Dexterity;

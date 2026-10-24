@@ -42,6 +42,12 @@ struct DialogAnimation {
     std::string name;
     /** Whether the row is a looping or fire-and-forget dialog animation. */
     bool dialog {false};
+    /** The pose loops. */
+    bool looping {false};
+    /** The pose plays once; a row may both loop and play once. */
+    bool fireForget {false};
+    /** How far a face shot of a speaker in this pose pulls back, in metres. */
+    float pullBack {0.0f};
 };
 
 class IAnimations {

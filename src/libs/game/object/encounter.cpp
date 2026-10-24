@@ -476,6 +476,7 @@ void Encounter::spawnNext() {
     }
     creature->joinEncounter(*this);
     creature->setPosition(*placed);
+    area->landObject(*creature);
     if (atSpawnPoint && spawnFacing) {
         creature->setFacing(*spawnFacing);
     }

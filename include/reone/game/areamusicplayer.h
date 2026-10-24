@@ -56,8 +56,13 @@ public:
         _services(services) {
     }
 
-    /** Reads the music, ambient sound and priority group tables once, at start-up. */
-    void init();
+    /**
+     * Reads the music, ambient sound and priority group tables once, at start-up.
+     *
+     * @param tsl whether the title is TSL, which reads the PC volumes of the
+     *            priority groups and plays the music group louder
+     */
+    void init(bool tsl);
 
     /**
      * Take the area being entered. Its music and ambient loop wait for the
@@ -75,12 +80,32 @@ public:
 
     /** The area turned its background music on or off. */
     void playMusic(const Area &area, bool play);
+    /** The area set its music delay; a delay of zero or less leaves the one in use. */
+    void musicDelayChanged(const Area &area);
     /** The area turned its battle music on or off. */
     void playBattleMusic(const Area &area, bool play);
-    /** The area set its day track, restarting the background music; previousTrack is the row it replaced. */
-    void musicDayTrackChanged(const Area &area, int previousTrack);
-    /** The area set its night track, restarting the background music; previousTrack is the row it replaced. */
-    void musicNightTrackChanged(const Area &area, int previousTrack);
+    /**
+     * The area set its day track, restarting the background music.
+     *
+     * @param previousTrack the row it replaced
+     * @param playsThroughMovies whether the background music plays on through
+     *        a movie that lets music play
+     */
+    void musicDayTrackChanged(const Area &area, int previousTrack, bool playsThroughMovies);
+    /**
+     * The area set its night track, restarting the background music.
+     *
+     * @param previousTrack the row it replaced
+     * @param playsThroughMovies whether the background music plays on through
+     *        a movie that lets music play
+     */
+    void musicNightTrackChanged(const Area &area, int previousTrack, bool playsThroughMovies);
+    /** The background music that plays on through a movie that lets music play; none when it does not. */
+    std::shared_ptr<audio::AudioSource> musicPlayingThroughMovies() const {
+        return _musicPlaysThroughMovies ? _music : nullptr;
+    }
+    /** Advance the music's fade, as it goes on while a movie plays. */
+    void updateMusicFade() { isMusicPlaying(); }
     /** The area set its battle track; previousTrack is the row it replaced. */
     void battleMusicTrackChanged(const Area &area, int previousTrack);
 
@@ -92,6 +117,11 @@ public:
     void ambientNightTrackChanged(const Area &area);
     /** The area set its ambient day volume. */
     void ambientDayVolumeChanged(const Area &area);
+
+    /** The gain of streamed music, menu music included: its priority group's volume as a share of the loudest. */
+    float musicGroupGain() const { return _musicGroupGain; }
+    /** The gain of the area-wide ambient priority group, which the credits music plays in too. */
+    float ambientGroupGain() const { return _ambientGroupGain; }
 
 private:
     /** An ambientmusic.2da row: the track and the stingers that may end it. */
@@ -110,6 +140,10 @@ private:
     std::vector<Track> _tracks;
     /** The ambientsound.2da sounds, by row; empty for none. */
     std::vector<std::string> _ambientTracks;
+    /** The volume of the streamed music priority group, as a share of the loudest. */
+    float _musicGroupGain {0.0f};
+    /** The volume of the stinger priority group, as a share of the loudest. */
+    float _stingerGroupGain {0.0f};
     /** The volume of the area-wide ambient priority group, as a share of the loudest. */
     float _ambientGroupGain {0.0f};
 
@@ -119,6 +153,8 @@ private:
     std::shared_ptr<const Area> _area;
     /** The area has been arrived in, and its music and ambient loop play. */
     bool _started {false};
+    /** The background music plays on through a movie that lets music play; set by the last track change. */
+    bool _musicPlaysThroughMovies {false};
 
     // Playing state. Whether each part is on starts from the area's settings
     // on load and then follows what plays: a hand-over to battle music turns
@@ -130,6 +166,12 @@ private:
     /** The ambient track failed to play, and is not retried until the area asks again. */
     bool _ambientFailed {false};
 
+    /**
+     * Milliseconds before the background music repeats. It is taken from the
+     * area on load, where zero is one and a negative delay is read as unsigned,
+     * and follows later changes above zero.
+     */
+    uint32_t _musicDelay {0};
     /** Milliseconds until the music track is repeated, retried or handed over. */
     uint32_t _countdown {0};
     /** The clock time of the last update, in milliseconds. */

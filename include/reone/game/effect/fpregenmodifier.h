@@ -23,20 +23,17 @@ namespace reone {
 
 namespace game {
 
+/** Modifies Force point regeneration: the percentage is integer 0. */
 class FPRegenModifierEffect : public CopyableEffect<FPRegenModifierEffect> {
 public:
     FPRegenModifierEffect(int percent) :
-        CopyableEffect(EffectType::FPRegenModifier),
-        _percent(percent) {
+        CopyableEffect(EffectType::FPRegenModifier) {
         setSaveFacingInteger(0, percent);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override {
         return EffectApplicationResult::Retained;
     }
-
-private:
-    int _percent;
 };
 
 } // namespace game

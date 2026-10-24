@@ -363,7 +363,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
         }
         if (!success && total < dc - 10) {
             if (trigger) {
-                trigger->fireMine(actorPtr, false);
+                trigger->enterMine(actorPtr, false);
             } else if (door) {
                 door->triggerTrap(actorPtr, false);
             } else {
@@ -397,7 +397,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
             awardXP(dc);
         } else if (total < dc - 5) {
             if (trigger) {
-                trigger->fireMine(actorPtr, false);
+                trigger->enterMine(actorPtr, false);
             } else if (door) {
                 door->triggerTrap(actorPtr, false);
             } else {
@@ -517,7 +517,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
         // A critical failure sets the mine off on its setter.
         if (result == SkillCriticalFailure) {
             if (groundMine) {
-                groundMine->fireMine(actorPtr, true);
+                groundMine->enterMine(actorPtr, true);
             } else if (auto *door = dyn_cast<Door>(_target.get())) {
                 door->triggerTrap(actorPtr, true);
             } else if (auto *placeable = dyn_cast<Placeable>(_target.get())) {

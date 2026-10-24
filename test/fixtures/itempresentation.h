@@ -52,6 +52,7 @@ public:
     std::shared_ptr<audio::AudioClip> getOnEnter() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getActionAccepted() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return nullptr; }

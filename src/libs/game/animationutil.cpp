@@ -46,6 +46,24 @@ static constexpr int kFirstCutClip = 1000;
 static constexpr int kLastCutClip = 1327;
 static constexpr int kFirstLoopingCutClip = 1400;
 static constexpr int kLastLoopingCutClip = 1727;
+// Each band of cut clip IDs names up to 128 clips, with its own suffix.
+static constexpr int kCutClipBandSize = 128;
+
+namespace {
+
+struct CutClipBand {
+    int first;
+    const char *suffix;
+    bool worldSpace;
+    bool loops;
+};
+
+} // namespace
+
+static constexpr std::array<CutClipBand, 4> kCutClipBands {{{1000, "", false, false},
+                                                            {1200, "w", true, false},
+                                                            {1400, "l", false, true},
+                                                            {1600, "wl", true, true}}};
 
 bool isAnimationLooping(AnimationType animation) {
     int ordinal = static_cast<int>(animation);
@@ -89,6 +107,138 @@ int scriptAnimationId(int constant, bool tsl, bool characterModel) {
     return kPauseAnimationId;
 }
 
+int placeableScriptAnimationId(int constant) {
+    static constexpr int kFirstPlaceableConstant = 200;
+    static const std::array<int, 14> kPlaceable {
+        10073, 10074, 10075, 10076, 10106, 10107, 10108, 10110, 10111, 10112, 10113, 10114, 10115, 10116};
+    const int index = constant - kFirstPlaceableConstant;
+    if (index < 0 || index >= static_cast<int>(kPlaceable.size())) {
+        return kPauseAnimationId;
+    }
+    return kPlaceable[index];
+}
+
+int placeableAnimationRow(int id) {
+    struct PlaceableAnimationRow {
+        int id;
+        int row;
+    };
+    static constexpr std::array<PlaceableAnimationRow, 22> kRows {{
+        {10000, 304}, // default
+        {10014, 305}, // damage
+        {10072, 307}, // dead
+        {10073, 308}, // on
+        {10074, 309}, // off
+        {10075, 310}, // open
+        {10076, 311}, // closed
+        {10077, 305}, // damage
+        {10106, 316}, // the animation loops
+        {10107, 317},
+        {10108, 318},
+        {10110, 319},
+        {10111, 320},
+        {10112, 321},
+        {10113, 322},
+        {10114, 323},
+        {10115, 324},
+        {10116, 325},
+        {10213, 305}, // damage
+        {10214, 305},
+        {10215, 305},
+        {10216, 305},
+    }};
+    if (id >= 0 && id < kDialogAnimationBase) {
+        return id;
+    }
+    const auto found = std::find_if(kRows.begin(), kRows.end(), [id](const PlaceableAnimationRow &row) { return row.id == id; });
+    return found != kRows.end() ? found->row : -1;
+}
+
+std::optional<int> stateLoopSwingRow(int shown, int current, int next, bool door) {
+    static constexpr int kClosed = 10022;
+    static constexpr int kOpened = 10050;
+    static constexpr int kDead = 10072;
+    static constexpr int kOn = 10073;
+    static constexpr int kOff = 10074;
+    static constexpr int kOpen = 10075;
+    static constexpr std::array<int, 10> kAnimationLoops {10106, 10107, 10108, 10110, 10111, 10112, 10113, 10114, 10115, 10116};
+    static constexpr int kOpening1 = 334;
+    static constexpr int kOpening2 = 335;
+    static constexpr int kClosing1 = 336;
+    static constexpr int kClosing2 = 337;
+    static constexpr int kCloseToOpen = 312;
+    static constexpr int kOpenToClose = 313;
+    static constexpr int kOnToOff = 314;
+    static constexpr int kOffToOn = 315;
+    static constexpr int kPlaceableDie = 306;
+    static constexpr int kDoorDie = 329;
+    std::optional<int> row;
+    if (next == kClosed) {
+        row = current == kOpened ? kClosing1 : kClosing2;
+    }
+    if (shown == kClosed) {
+        row = next == kOpened ? kOpening1 : kOpening2;
+    }
+    if (std::find(kAnimationLoops.begin(), kAnimationLoops.end(), next) == kAnimationLoops.end()) {
+        if (next == kOpen) {
+            row = kCloseToOpen;
+        }
+        if (shown == kOpen) {
+            row = kOpenToClose;
+        }
+        if (next == kOff) {
+            row = kOnToOff;
+        }
+        if (shown == kOff) {
+            row = kOffToOn;
+        }
+        if (next == kOn) {
+            row = kOffToOn;
+        }
+        if (shown == kOn) {
+            row = kOnToOff;
+        }
+    }
+    if (next == kDead) {
+        row = door ? kDoorDie : kPlaceableDie;
+    }
+    return row;
+}
+
+int doorAnimationRow(int id) {
+    struct DoorAnimationRow {
+        int id;
+        int row;
+    };
+    static constexpr std::array<DoorAnimationRow, 12> kRows {{
+        {10014, 328}, // damage
+        {10022, 333}, // closed
+        {10050, 331}, // opened1
+        {10051, 332}, // opened2
+        {10072, 330}, // dead
+        {10077, 328}, // damage
+        {10153, 366}, // busted
+        {10213, 328}, // damage
+        {10214, 328},
+        {10215, 328},
+        {10216, 328},
+        {10269, 344}, // trans
+    }};
+    if (id >= 0 && id < kDialogAnimationBase) {
+        return id;
+    }
+    const auto found = std::find_if(kRows.begin(), kRows.end(), [id](const DoorAnimationRow &row) { return row.id == id; });
+    return found != kRows.end() ? found->row : -1;
+}
+
+std::string placeableFallbackClip(int id) {
+    static constexpr char kDefaultClip[] = "default";
+    if (id >= kFirstCutClip && id <= kLastLoopingCutClip) {
+        return cutClipName(id);
+    }
+    return kDefaultClip;
+}
+
 int scriptAnimationRow(int id, bool characterModel) {
     // An animation ID, and the rows it names on a character and on a creature
     // model; -1 where the model has none.
@@ -97,7 +247,8 @@ int scriptAnimationRow(int id, bool characterModel) {
         int characterRow;
         int creatureRow;
     };
-    static constexpr std::array<ScriptAnimationRows, 63> kRows {{
+    static constexpr std::array<ScriptAnimationRows, 64> kRows {{
+        {10000, 6, 256},   // pause1 / cpause1
         {10006, 81, 275},  // dead / cdead
         {10017, 63, -1},   // force cast
         {10021, 310, 310}, // open
@@ -360,6 +511,34 @@ bool isDialogAnimationRow(const TwoDA &table, int row) {
 
 bool isDialogCutClip(int id) {
     return (id >= kFirstCutClip && id <= kLastCutClip) || (id >= kFirstLoopingCutClip && id <= kLastLoopingCutClip);
+}
+
+std::string cutClipName(int id) {
+    for (const auto &band : kCutClipBands) {
+        const int offset = id - band.first;
+        if (offset >= 0 && offset < kCutClipBandSize) {
+            return str(boost::format("cut%03d%s") % (offset + 1) % band.suffix);
+        }
+    }
+    return "";
+}
+
+bool isWorldSpaceCutClip(int id) {
+    for (const auto &band : kCutClipBands) {
+        if (band.worldSpace && id >= band.first && id < band.first + kCutClipBandSize) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isFireForgetCutClip(int id) {
+    for (const auto &band : kCutClipBands) {
+        if (!band.loops && id >= band.first && id < band.first + kCutClipBandSize) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace game

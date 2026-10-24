@@ -260,7 +260,13 @@ public:
      */
     bool consumeTimingDiscontinuity();
 
-    void playVideo(const std::string &name);
+    /**
+     * Play a movie, ending any module transition movies.
+     *
+     * @param streamingMusic whether area music set to play through movies
+     *        plays on while it runs
+     */
+    void playVideo(const std::string &name, bool streamingMusic = false);
 
     bool isPaused() const { return _paused; }
     /**
@@ -401,6 +407,22 @@ public:
         }
     }
     bool isDialogHeadFollowLocked(uint32_t objectId) const { return _dialogHeadFollowLocks.count(objectId) > 0; }
+    /**
+     * The party leader, rather than the player character, answers in
+     * conversations. A script starting a conversation asks for it or not; it
+     * holds until a conversation ends.
+     */
+    void setLeaderAnswersInDialog(bool leader) { _leaderAnswersInDialog = leader; }
+    /** The party leader, rather than the player character, answers in conversations. */
+    bool leaderAnswersInDialog() const { return _leaderAnswersInDialog; }
+    /**
+     * Whether a conversation is under way: from the moment one is asked for,
+     * by a click to talk or a script, through the walk to the one talked to,
+     * until it ends, its start fails or its request is dropped, or a module
+     * starts.
+     */
+    bool isDialogUnderWay() const { return _dialogUnderWay; }
+    void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
 
     /** Show a message box dismissed with OK. False when the popup cannot be loaded. */
     bool showMessagePopup(
@@ -476,11 +498,15 @@ public:
     /** Control returns to this party member when the conversation it handed on ends. */
     void setPostDialogCharacterSwitch(const std::shared_ptr<Creature> &creature) { _postDialogCharacterSwitch = creature; }
     void cancelPostDialogCharacterSwitch() { _postDialogCharacterSwitch.reset(); }
+    /**
+     * When a member was stored, pass the lead on one member at a time, at most
+     * once round the party, until that member leads.
+     */
     void finishPostDialogCharacterSwitch();
     void openLevelUp();
     /**
      * A party member has enough experience to level up; newly when this
-     * award brought it there.
+     * award brought it there. The level-up chime is the main interface's.
      */
     void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
     void openContainer(const std::shared_ptr<Object> &container);
@@ -548,6 +574,8 @@ public:
     void setBarkBubbleText(std::string text, float durartion);
     /** Show a combat-mode line for the controlled character. */
     void presentCombatMessage(int strref);
+    /** End the choice of a party member to use an item on, if the main interface is making one. */
+    void cancelPartyItemTarget();
     /** Append a feedback line from a string reference, filling the given custom tokens. */
     void addFeedbackMessage(int strRef, const std::map<int, std::string> &tokens = {});
 
@@ -731,6 +759,8 @@ public:
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
+    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    bool alternateActionsHeld() const { return _alternateActionsHeld; }
     /**
      * Ask for tutorial window id (a tutorial.2da row). It shows on the next
      * frame, at most once per game, while tutorials are on and no conversation
@@ -1001,8 +1031,8 @@ public:
         return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<DialogCamera> newDialogCamera(CameraStyle style, std::string sceneName = kSceneMain) {
-        return newObject<DialogCamera>(std::move(style), std::move(sceneName), *this, _services);
+    inline std::shared_ptr<DialogCamera> newDialogCamera(std::string sceneName = kSceneMain) {
+        return newObject<DialogCamera>(std::move(sceneName), *this, _services);
     }
 
     inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, std::string sceneName = kSceneMain) {
@@ -1060,11 +1090,11 @@ public:
     void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event);
     /** Remove an effect from the target through the module's event queue. */
     void queueEffectRemoval(Object &target, EffectId id);
-    /** Destroy the target after the delay, replacing a destruction already pending for it. */
-    void queueObjectDestruction(Object &target, float delay);
-    /** Destroy the target after the delay, leaving a destruction already pending for it. */
+    /**
+     * Destroy the target after the delay. A destruction already pending for
+     * it stays pending; whichever falls due first destroys it.
+     */
     void postObjectDestruction(Object &target, float delay);
-    void cancelObjectDestruction(Object &target);
     /** World time after a script delay, or none when the delay is dropped. */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
     /** DelayCommand: a timed event that runs command as owner when due. */
@@ -1500,6 +1530,14 @@ private:
         int action {-1};
     };
 
+    /** The keys an input event takes by default. */
+    struct InputEventKeys {
+        /** The key. */
+        int key {0};
+        /** The alternate key of a two-key event; none for a single-key one. */
+        std::optional<int> alternateKey;
+    };
+
     /** A tutorial window (tutorial.2da): this game's message of each page, none where blank, and its icon. */
     struct TutorialRow {
         /** The message of each page, none where blank. */
@@ -1519,6 +1557,10 @@ private:
     std::vector<VideoEffectRow> _videoEffects;
     /** By token; the first row of a token is the one used. */
     std::unordered_map<std::string, StringTokenRow> _stringTokens;
+    /** The input events, by number: the built-in ones and keymap.2da's. */
+    std::unordered_map<int, InputEventKeys> _inputEvents;
+    /** The key-name strings of bindablekeys.2da, by keyboard key from the first. */
+    std::vector<int> _keyNameStrRefs;
     std::vector<TutorialRow> _tutorials;
     /** The feedbacktext.2da strings; none where blank. */
     std::vector<std::optional<int>> _feedbackTexts;
@@ -1532,6 +1574,8 @@ private:
     bool _soloModeQueryOpen {false};
     bool _freeLook {false};
     bool _playerInputBlocked {false};
+    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    bool _alternateActionsHeld {false};
     /** The world time a click was last shut off at, and for how long. */
     uint32_t _noClickDay {0};
     uint32_t _noClickTime {0};
@@ -1604,6 +1648,9 @@ private:
     float _attackMashTime {0.0f};
     std::set<uint32_t> _dialogOrientationLocks;
     std::set<uint32_t> _dialogHeadFollowLocks;
+    bool _leaderAnswersInDialog {false};
+    /** See isDialogUnderWay. */
+    bool _dialogUnderWay {false};
     std::vector<HostileHilite> _hostileHilites;
 
     void showTarget(const std::shared_ptr<Object> &object, bool look, bool camera);
@@ -1728,7 +1775,7 @@ private:
         std::set<uint32_t> publishedRuntimeObjectIds;
         std::map<uint32_t, std::weak_ptr<Object>> objectBySavedId;
         std::map<const Object *, uint32_t> savedIdByObject;
-        std::set<const Object *> replaceableObjects;
+        std::set<uint32_t> replaceableObjectIds;
         std::set<uint32_t> reservedSavedObjectIdsToRelease;
         std::vector<std::shared_ptr<Object>> obsoleteGraph;
         std::vector<std::shared_ptr<Object>> candidateObjects;
@@ -2055,7 +2102,8 @@ private:
 
     // Updates
 
-    bool startVideo(const std::string &name);
+    /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
+    bool startVideo(const std::string &name, bool streamingMusic);
     bool playNextModuleTransitionMovie();
     void updateMovie(float dt);
     void updateMusic();
@@ -2109,7 +2157,8 @@ private:
 
     void changeScreen(Screen screen);
 
-    void withLoadingScreen(const std::string &imageResRef, const std::function<void()> &block);
+    /** Runs \p block behind the loading screen, showing the loading picture of the module named \p moduleName. */
+    void withLoadingScreen(const std::string &moduleName, const std::function<void()> &block);
 
     template <class T>
     std::unique_ptr<T> tryLoadGUI() {
@@ -2131,6 +2180,8 @@ private:
     void initJournalNotifications();
     /** Read the video effects, dialogue tokens, tutorial windows and feedback texts, and the party's tables. */
     void initTables();
+    /** Builds the input events and their default keys, and reads the key names. */
+    void initInputEvents();
     int getPlotXPByIndex(int plotIndex);
 
     using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);

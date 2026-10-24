@@ -23,19 +23,16 @@ namespace reone {
 
 namespace game {
 
+/** Speeds movement: the speed percentage is integer 0. */
 class MovementSpeedIncreaseEffect : public CopyableEffect<MovementSpeedIncreaseEffect> {
 public:
     MovementSpeedIncreaseEffect(int newSpeedPercent) :
-        CopyableEffect(EffectType::MovementSpeedIncrease),
-        _newSpeedPercent(newSpeedPercent) {
+        CopyableEffect(EffectType::MovementSpeedIncrease) {
         setSaveFacingInteger(0, newSpeedPercent);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
     void onRemove(Object &object, const EffectInstance &) override;
-
-private:
-    int _newSpeedPercent;
 };
 
 } // namespace game

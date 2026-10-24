@@ -91,8 +91,18 @@ static std::map<SpellType, glm::ivec2> getPowerIconPositions(
     return result;
 }
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "ACCEPT_BTN", "BACK_BTN", "LBL_POWER", "LB_DESC", "LB_POWERS", "MAIN_TITLE_LBL",
+    "RECOMMENDED_BTN", "REMAINING_BOX_LBL", "REMAINING_SELECTIONS_LBL", "SELECTIONS_REMAINING_LBL", "SELECT_BTN", "SUB_TITLE_LBL"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"DESC_LBL"};
+/** The controls the panel also shows in TSL. */
+static const std::unordered_set<std::string> kTSLPanelControls {"LBL_BAR1", "LBL_BAR2"};
+
 void CharGenPowers::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kTSLPanelControls : kK1PanelControls);
     _defaultPowerNameText = _controls.LBL_POWER->text().text;
 
     styleChargenTitles(_game, *_controls.SELECTIONS_REMAINING_LBL, *_controls.LB_DESC);

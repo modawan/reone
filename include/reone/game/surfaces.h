@@ -33,13 +33,26 @@ class ISurfaces {
 public:
     virtual ~ISurfaces() = default;
 
+    /**
+     * Whether a position over a surface stands on walkable ground: the
+     * surface's walk cell is not zero. A surface without a row is not.
+     */
     virtual bool isWalkable(int index) const = 0;
 
+    /** A surface's row; a surface the table has no row for reads as a blank row. */
     virtual const Surface &getSurface(int index) const = 0;
 
+    /**
+     * The surfaces whose faces grow grass: grass cell not zero. Like the sets
+     * below, it is taken over the table's first
+     * graphics::Walkmesh::kSurfaceMaterialCount rows only.
+     */
     virtual std::set<uint32_t> getGrassSurfaces() const = 0;
+    /** The surfaces whose faces are walkable in a walkmesh: walk cell 1. */
     virtual std::set<uint32_t> getWalkableSurfaces() const = 0;
+    /** The surfaces whose faces are checked when walking: walkcheck cell 1. */
     virtual std::set<uint32_t> getWalkcheckSurfaces() const = 0;
+    /** The surfaces whose faces block line of sight: lineofsight cell 1. */
     virtual std::set<uint32_t> getLineOfSightSurfaces() const = 0;
 };
 

@@ -27,6 +27,12 @@ struct CameraStyle {
     float pitch {0.0f};
     float height {0.0f};
     float viewAngle {0.0f};
+    /** How far the exploration view may tilt up, in degrees. */
+    float tiltUp {0.0f};
+    /** How far the exploration view may tilt down, in degrees. */
+    float tiltDown {0.0f};
+    /** The exploration view's tilt speed. */
+    float tiltSpeed {0.0f};
     /** Free-look tilt speed, in degrees per second. */
     float freeLookTiltSpeed {60.0f};
     /** Free-look turn speed, in degrees per second. */

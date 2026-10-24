@@ -233,11 +233,11 @@ static glm::vec3 spellRangedMissPoint(std::optional<std::reference_wrapper<const
                       2.0f * targetPosition.z + 1.0f};
 }
 
-// The size a visual chooses its root model by: an object that is not a
-// creature counts as medium.
-static CreatureSize visualTargetSize(const Object &object) {
+// The size category a visual chooses its root model by: a creature's, or
+// medium for a creature without one and for any other object.
+static int visualTargetSize(const Object &object) {
     auto *creature = dyn_cast<Creature>(&object);
-    return creature ? creature->size() : CreatureSize::Medium;
+    return static_cast<int>(creature && creature->hasSizeCategory() ? creature->size() : CreatureSize::Medium);
 }
 
 // The parts of a body a shell covers: the body, its head model, and the
@@ -269,8 +269,6 @@ void clearShell(scene::ModelSceneNode &body) {
 
 VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &services) :
     CopyableEffect(EffectType::Visual),
-    _visualEffectId(visualEffectId),
-    _missEffect(missEffect),
     _services(services) {
     setSaveFacingInteger(0, visualEffectId);
     setSaveFacingInteger(2, missEffect ? 1 : 0);
@@ -278,8 +276,6 @@ VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &se
 
 VisualEffect::VisualEffect(const VisualEffect &other) :
     CopyableEffect(other),
-    _visualEffectId(other._visualEffectId),
-    _missEffect(other._missEffect),
     _location(other._location),
     _services(other._services) {
     // Scene nodes, beams, shells and sounds belong to one application.
@@ -289,7 +285,7 @@ VisualEffect::~VisualEffect() {
     clearPresentation();
 }
 
-void VisualEffect::retireAreaRuntime(const std::set<const Object *> &) {
+void VisualEffect::retireAreaRuntime(const std::set<uint32_t> &) {
     // A held motion blur comes back when its holder is presented again.
     const bool motionBlur = _motionBlurProgram;
     clearPresentation();
@@ -342,7 +338,7 @@ void VisualEffect::removeNodeModels() {
 }
 
 float VisualEffect::duration() const {
-    const auto row = _services.game.visualEffects.get(_visualEffectId);
+    const auto row = _services.game.visualEffects.get(saveFacingInteger(0));
     if (!row) {
         return 0.0f;
     }
@@ -679,7 +675,7 @@ void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &mo
 void VisualEffect::attachNodeModels(Object &object, const std::shared_ptr<scene::ModelSceneNode> &body,
                                     const VisualEffectDesc &desc, bool restoring) {
     const std::pair<const std::shared_ptr<graphics::Model> *, VisualSite> models[] = {
-        {&desc.rootModel(visualTargetSize(object)), VisualSite::Root},
+        {&desc.rootModel(visualTargetSize(object)).model, VisualSite::Root},
         {&desc.impactModel, VisualSite::Impact},
         {&desc.headModel, VisualSite::Head}};
     for (const auto &[model, site] : models) {
@@ -823,7 +819,9 @@ float VisualEffect::nodeModelsPresentationLength() const {
 }
 
 EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &instance) {
-    const auto row = _services.game.visualEffects.get(_visualEffectId);
+    const int visualEffectId = instance.integerParameter(0);
+    const bool missEffect = instance.integerParameter(2) != 0;
+    const auto row = _services.game.visualEffects.get(visualEffectId);
     // A second Speed Knight visual is not shown while the object still shows
     // one, kept or shown once; the application itself is kept or not as any
     // other.
@@ -831,10 +829,10 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
         return applied.type() == EffectType::Visual && applied.integerParameter(0) == kSpeedKnightVisual;
     };
     const auto shown = object.shownVisuals();
-    if (_visualEffectId == kSpeedKnightVisual &&
+    if (visualEffectId == kSpeedKnightVisual &&
         (std::any_of(object.effects().begin(), object.effects().end(), isSpeedKnight) ||
          std::any_of(shown.begin(), shown.end(), [&](const EffectInstance &visual) { return isSpeedKnight(visual); }))) {
-        _kept = instance.durationType() != DurationType::Instant && !_missEffect && !(row && row->get().fireAndForget);
+        _kept = instance.durationType() != DurationType::Instant && !missEffect && !(row && row->get().fireAndForget);
         return _kept ? EffectApplicationResult::Retained : EffectApplicationResult::Applied;
     }
     if (row) {
@@ -842,11 +840,11 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     }
     // A row the table does not have shows nothing, but a timed application
     // that hit is kept all the same, and a miss still draws its point.
-    if (_missEffect) {
+    if (missEffect) {
         auto caster = instance.boundCreator();
         spellRangedMissPoint(caster ? std::optional<std::reference_wrapper<const Object>>(*caster) : std::nullopt, object);
     }
-    _kept = instance.durationType() != DurationType::Instant && !_missEffect;
+    _kept = instance.durationType() != DurationType::Instant && !missEffect;
     return _kept ? EffectApplicationResult::Retained : EffectApplicationResult::Applied;
 }
 
@@ -854,8 +852,9 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(object.sceneNode());
     scene::ISceneGraph *graph = body ? &body->graph() : nullptr;
     const bool tsl = object.game().isTSL();
-    // A visual that shows a root model on its target runs no programs.
-    const bool rooted = desc.rootModel(visualTargetSize(object)) != nullptr;
+    // A visual whose root cell for its target names a model runs no programs,
+    // whether or not that model is found.
+    const bool rooted = desc.rootModel(visualTargetSize(object)).named;
     const int impactProgramId = rooted ? -1 : desc.progFXImpact;
     const int durationProgramId = rooted ? -1 : desc.progFXDuration;
     // Only a timed application that hit, of a row that is not fire-and-forget,
@@ -863,7 +862,8 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     // runs the duration program; a beam shown once still runs it for the
     // application's duration.
     const bool beamRow = !beamModelForProgram(durationProgramId, tsl).empty();
-    _kept = instance.durationType() != DurationType::Instant && !_missEffect && !desc.fireAndForget;
+    const bool missEffect = instance.integerParameter(2) != 0;
+    _kept = instance.durationType() != DurationType::Instant && !missEffect && !desc.fireAndForget;
     const bool runsDuration = _kept || (beamRow && instance.duration != 0.0f);
     std::optional<int> durationProgram;
     if (runsDuration && durationProgramId >= 0) {
@@ -877,7 +877,7 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
     // the target's feet and its root otherwise; any other missed visual is
     // shown at the point. TSL still draws the point's random terms but aims
     // every miss at the world origin.
-    if (_missEffect) {
+    if (missEffect) {
         auto caster = instance.boundCreator();
         const auto drawnPoint = spellRangedMissPoint(
             caster ? std::optional<std::reference_wrapper<const Object>>(*caster) : std::nullopt, object);

@@ -440,7 +440,7 @@ TEST(Action, start_conversation_survives_when_no_conversation_is_active) {
     EXPECT_FALSE(action->isCompleted());
 }
 
-// D. Routine 701 reports the same conversation-active state the guard uses.
+// D. Routine 701 reports whether a conversation is under way.
 TEST(Action, get_is_conversation_active_reports_the_shared_predicate) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -452,10 +452,10 @@ TEST(Action, get_is_conversation_active_reports_the_shared_predicate) {
 
     script::ExecutionContext ctx;
 
-    setScreen(game, Game::Screen::InGame);
+    game.setDialogUnderWay(false);
     EXPECT_EQ(0, routine.invoke({}, ctx).intValue);
 
-    setScreen(game, Game::Screen::Conversation);
+    game.setDialogUnderWay(true);
     EXPECT_EQ(1, routine.invoke({}, ctx).intValue);
 }
 

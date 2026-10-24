@@ -34,6 +34,8 @@ public:
     /** The talk-table text as written, its tokens and {...} notes included. */
     virtual std::string getText(int strRef) = 0;
     virtual std::string getSound(int strRef) = 0;
+    /** The language of the main talk table; 0 when none is loaded. */
+    virtual int languageId() const = 0;
 };
 
 class Strings : public IStrings {
@@ -49,6 +51,7 @@ public:
 
     std::string getText(int strRef) override;
     std::string getSound(int strRef) override;
+    int languageId() const override;
 
 private:
     std::array<std::shared_ptr<TalkTable>, kTalkTableSlotCount> _tables;

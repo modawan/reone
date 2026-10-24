@@ -23,18 +23,15 @@ namespace reone {
 
 namespace game {
 
+/** Resurrects a creature: the hit point percentage is integer 0. */
 class ResurrectionEffect : public CopyableEffect<ResurrectionEffect> {
 public:
     ResurrectionEffect(int hpPercent) :
-        CopyableEffect(EffectType::Resurrection),
-        _hpPercent(hpPercent) {
+        CopyableEffect(EffectType::Resurrection) {
         setSaveFacingInteger(0, hpPercent);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    int _hpPercent;
 };
 
 } // namespace game

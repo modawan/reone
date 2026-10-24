@@ -23,6 +23,10 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Absorbs spells: the highest level is integer 0, the total levels integer 1,
+ * the school integer 2 and the unlimited mark integer 3.
+ */
 class SpellLevelAbsorptionEffect : public CopyableEffect<SpellLevelAbsorptionEffect> {
 public:
     /**
@@ -30,10 +34,7 @@ public:
      * levels in all, of \p spellSchool; a total of zero is marked unlimited.
      */
     SpellLevelAbsorptionEffect(int maxSpellLevelAbsorbed, int totalSpellLevelsAbsorbed, int spellSchool) :
-        CopyableEffect(EffectType::SpellLevelAbsorption),
-        _maxSpellLevelAbsorbed(maxSpellLevelAbsorbed),
-        _totalSpellLevelsAbsorbed(totalSpellLevelsAbsorbed),
-        _spellSchool(spellSchool) {
+        CopyableEffect(EffectType::SpellLevelAbsorption) {
         setSaveFacingInteger(0, maxSpellLevelAbsorbed);
         setSaveFacingInteger(1, totalSpellLevelsAbsorbed);
         setSaveFacingInteger(2, spellSchool);
@@ -44,11 +45,6 @@ public:
     EffectApplicationResult onApply(Object &object, EffectInstance &) override {
         return EffectApplicationResult::Retained;
     }
-
-private:
-    int _maxSpellLevelAbsorbed;
-    int _totalSpellLevelsAbsorbed;
-    int _spellSchool;
 };
 
 } // namespace game

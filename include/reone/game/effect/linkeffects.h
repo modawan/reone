@@ -40,7 +40,7 @@ public:
     void setCategory(EffectCategory category) override;
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
     void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) override;
+        const std::set<uint32_t> &retainedObjectIds) override;
     const std::shared_ptr<Effect> &childEffect() const { return _childEffect; }
     const std::shared_ptr<Effect> &parentEffect() const { return _parentEffect; }
 

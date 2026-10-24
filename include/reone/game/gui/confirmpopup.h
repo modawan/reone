@@ -34,8 +34,8 @@ namespace game {
 
 /**
  * Centered in-game message popup based on the game's confirmation dialog,
- * dismissed with the OK button. An optional icon is shown left of the
- * message text.
+ * dismissed with the OK button. An optional icon is shown above the message
+ * text.
  */
 class ConfirmPopup : public GameGUI {
 public:
@@ -53,7 +53,7 @@ public:
     void hide();
     /** Close as its key would: cancelled when it offers Cancel, otherwise confirmed. */
     void close();
-    /** Relabel OK until the next show. */
+    /** Relabel OK until the next show; the box is laid out again for the new label. */
     void setConfirmText(const std::string &text);
 
     bool isVisible() const { return _visible; }
@@ -72,31 +72,48 @@ private:
     std::string _defaultConfirmText;
 
     std::shared_ptr<gui::Control> _icon;
-    gui::Control::Extent _messageExtent;
-    int _iconSize {0};
-    int _iconPadding {0};
+    /** The message shown, its tokens resolved. */
+    std::string _message;
+    /** Whether an icon is shown above the message. */
+    bool _hasIcon {false};
 
     // The box as loaded; every message is laid out again from it.
     gui::Control::Extent _rootExtent;
     gui::Control::Extent _listExtent;
+    gui::Control::Extent _messageExtent;
     gui::Control::Extent _okExtent;
     gui::Control::Extent _cancelExtent;
     gui::Control::Extent _scrollBarExtent;
-    gui::Control::Extent _iconExtent;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
 
     /**
-     * Lays the message out in the box as loaded. A message that does not fit
-     * grows the box, wider and taller, up to a limit; only a message that
-     * still does not fit then shows the scroll bar, its text wrapped clear of
-     * it.
+     * Shows a message, with OK and, when asked for, Cancel.
      *
-     * @param text the message, its tokens resolved
-     * @param hasIcon whether an icon is shown left of the text
+     * @param message the message; its tokens are resolved
+     * @param icon the icon shown above the message, if any
+     * @param allowCancel whether Cancel is offered
      */
-    void layoutMessage(const std::string &text, bool hasIcon);
+    void open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel);
+
+    /**
+     * Lays the message out from the box as loaded. An icon makes the box
+     * taller and the box loses the Cancel row when Cancel is not offered. The
+     * buttons are sized to their labels and the box widened to hold them. A
+     * message that does not fit grows the box, wider and taller, up to a
+     * limit; only a message that still does not fit then shows the scroll
+     * bar, its text wrapped clear of it. The icon, OK and Cancel are then
+     * stacked, centred, from the top and below the message.
+     */
+    void layoutMessage();
+
+    /**
+     * The width a message box button takes for its label: a minimum width
+     * grown in steps until the label fits on one line inside the border, plus
+     * the border on both sides.
+     */
+    int buttonWidth(const gui::Button &button) const;
 
     void bindControls() {
         _controls.BTN_CANCEL = findControl<gui::Button>("BTN_CANCEL");

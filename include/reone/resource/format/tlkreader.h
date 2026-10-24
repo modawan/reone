@@ -39,6 +39,7 @@ public:
 private:
     BinaryReader _tlk;
 
+    uint32_t _languageId {0};
     uint32_t _stringCount {0};
     uint32_t _stringsOffset {0};
     std::shared_ptr<TalkTable> _table;

@@ -349,7 +349,7 @@ void Object::runActions() {
 void Object::executeActionsIfAble(float dt) {
     // An action that can no longer be cleared runs on whatever holds the object.
     const auto current = getCurrentAction();
-    if (!isDead() && (canExecuteActions() || (current && !current->isClearable()))) {
+    if (!isDead() && (takesUpActions() || (current && !current->isClearable()))) {
         executeActions(dt);
     }
 }
@@ -378,11 +378,23 @@ void Object::setListenPattern(const std::string &pattern, int32_t number) {
     if (expression == _listenExpressions.end()) {
         expression = _listenExpressions.insert(_listenExpressions.end(), ListenExpression {number, "", std::nullopt});
     }
+    // The pattern the entry already has changes nothing; a new entry has the
+    // empty pattern and matches nothing.
+    const std::string lowered = boost::to_lower_copy(pattern);
+    if (lowered == expression->pattern) {
+        return;
+    }
+    // An empty pattern in place of another matches only an empty string.
+    if (lowered.empty()) {
+        expression->parsed = ListenPattern::emptyString();
+        expression->pattern.clear();
+        return;
+    }
     // A pattern that fails to parse leaves the entry matching nothing, and
     // the last pattern that parsed is still the one saved.
     expression->parsed = ListenPattern::parse(pattern);
     if (expression->parsed) {
-        expression->pattern = boost::to_lower_copy(pattern);
+        expression->pattern = lowered;
     }
 }
 
@@ -752,7 +764,7 @@ void Object::endEffectPresentations() {
 }
 
 void Object::retireAreaRuntimeState(
-    const std::set<const Object *> &retainedObjects) {
+    const std::set<uint32_t> &retainedObjectIds) {
     // The authoritative source snapshot was captured before this boundary.
     // Discard rather than cancel: cancellation callbacks are live gameplay and
     // must not mutate the already-frozen outgoing world.
@@ -777,9 +789,9 @@ void Object::retireAreaRuntimeState(
 
     for (auto &effect : _effects) {
         if (effect.effect) {
-            effect.effect->retireAreaRuntime(retainedObjects);
+            effect.effect->retireAreaRuntime(retainedObjectIds);
         }
-        effect.retireAreaRuntimeBindings(retainedObjects);
+        effect.retireAreaRuntimeBindings(retainedObjectIds);
     }
     _shownVisuals.clear();
     _savedEffects.clear();
@@ -794,16 +806,17 @@ void Object::retireAreaRuntimeState(
     std::map<std::string, RuntimeObjectRef<Object>> retainedReferences;
     for (const auto &[field, binding] : _savedReferences) {
         auto object = binding.resolve();
-        if (!object || retainedObjects.count(object.get()) == 0) continue;
+        if (!object || retainedObjectIds.count(object->id()) == 0)
+            continue;
         retainedReferenceIds.emplace(field, object->id());
         retainedReferences.emplace(field, object);
     }
     _savedReferenceIds = std::move(retainedReferenceIds);
     _savedReferences = std::move(retainedReferences);
-    _spellScriptContext.retireAreaRuntime(retainedObjects);
+    _spellScriptContext.retireAreaRuntime(retainedObjectIds);
     _lastHostileActor.reset();
     auto lastDamager = _lastDamager.resolve();
-    if (!lastDamager || retainedObjects.count(lastDamager.get()) == 0) {
+    if (!lastDamager || retainedObjectIds.count(lastDamager->id()) == 0) {
         _lastDamager.reset();
         _lastDamageAmounts.fill(-1);
         if (_savedLastDamagerId) {
@@ -1228,7 +1241,10 @@ void Object::executeActions(float dt) {
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
         return;
     }
-    const bool refused = creature && action->isClearable() && !creature->permitsAction(*action);
+    // An action that cannot be cleared is refused only to a party member at
+    // zero vitality.
+    const bool refused = creature && (action->isClearable() || creature->isTemporarilyDead()) &&
+                         !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
     // ends the creature's combat modes.
     Action &command = action->combatAction();
@@ -1929,6 +1945,10 @@ bool Object::hasEffect(EffectType type) const {
 }
 
 bool Object::hasSpellEffect(int spell) const {
+    // No spell is never applied.
+    if (spell == -1) {
+        return false;
+    }
     return std::any_of(
         _effects.begin(),
         _effects.end(),
@@ -1977,6 +1997,7 @@ void Object::damage(
 }
 
 void Object::startStuntMode() {
+    _placedAtOrigin = false;
     if (_sceneNode) {
         _sceneNode->setLocalTransform(glm::mat4(1.0f));
         _sceneNode->setCullingEnabled(false);
@@ -1993,6 +2014,21 @@ void Object::stopStuntMode() {
         _sceneNode->setCullingEnabled(true);
     }
     _stunt = false;
+}
+
+void Object::setPlacedAtOrigin(bool placed) {
+    if (!placed) {
+        if (_placedAtOrigin) {
+            stopStuntMode();
+            _placedAtOrigin = false;
+            updateTransform();
+        }
+        return;
+    }
+    if (!_stunt) {
+        startStuntMode();
+        _placedAtOrigin = true;
+    }
 }
 
 std::shared_ptr<Effect> Object::getFirstEffect() {

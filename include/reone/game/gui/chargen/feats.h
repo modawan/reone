@@ -40,6 +40,15 @@ class CharacterGeneration;
 
 class CharGenFeats : public GameGUI {
 public:
+    /** A feat's place on the screen. */
+    enum class FeatStatus {
+        Available,
+        Chosen,
+        Granted,
+        Owned,
+        Unavailable
+    };
+
     CharGenFeats(
         CharacterGeneration &charGen,
         Game &game,
@@ -49,7 +58,28 @@ public:
         _resRef = guiResRef("ftchrgen");
     }
 
-    void reset(bool levelUp);
+    /**
+     * Opens the screen's choice of feats.
+     *
+     * @param levelUp true for a level-up, false for a new character
+     * @param bonus true for the choice of the level's bonus feats, false for
+     *        that of its normal feats
+     * @param originalFeats the feats the character held before the screen
+     *        granted the level's feats
+     * @param grantedFeats the feats the screen's grant lists as granted;
+     *        those among the original feats do not count as granted
+     */
+    void reset(bool levelUp, bool bonus, std::set<FeatType> originalFeats, const std::vector<FeatType> &grantedFeats);
+
+    /** @return the feats still to choose */
+    int remainingPicks() const { return _remaining; }
+
+    /**
+     * Accepts the chosen feats, unless feats are still to choose and one can
+     * be chosen. After the normal feats, a level with bonus feats goes on to
+     * their choice.
+     */
+    void accept();
 
     /** Selects the first selectable grid entry, for scripted captures. */
     void selectFirstEntryForCapture();
@@ -77,10 +107,28 @@ private:
 
     CharacterGeneration &_charGen;
     std::vector<FeatDisplayEntry> _displayEntries;
+    /** The feats chosen on the screen. */
     std::set<FeatType> _selectedFeats;
+    /** The feats held before the screen granted the level's feats; TSL leaves out the feats no character chooses. */
+    std::set<FeatType> _originalFeats;
+    /** The feats the screen's grant listed that are not among the original feats. */
+    std::set<FeatType> _grantedFeats;
+    /** The feats the character's effects give it. */
+    std::set<FeatType> _effectFeats;
+    /** The feats that can be chosen; a choice adds to them and a removal rebuilds them. */
+    std::set<FeatType> _availableFeats;
     std::string _defaultFeatNameText;
+    std::string _defaultMainTitleText;
+    std::string _defaultSubTitleText;
+    /** The level's normal and bonus feats. */
+    int _normalFeats {0};
+    int _bonusFeats {0};
+    /** The feats the screen offers to choose: the normal or the bonus feats. */
     int _points {0};
+    /** The feats still to choose. */
+    int _remaining {0};
     bool _levelUp {false};
+    bool _bonus {false};
 
     void onGUILoaded() override;
 
@@ -102,14 +150,28 @@ private:
     }
 
     void loadDisplayEntries();
+    /** @return the character as the feats screen counts it: with its coming level on a level-up */
+    CreatureAttributes choiceAttributes() const;
+    /** Adds the feats that can now be chosen to those that could. */
+    void buildAvailableFeats();
+    /** @return the feat's place on the screen */
+    FeatStatus getFeatStatus(FeatType feat) const;
+    /** Responds to a pick of the feat: chooses it, takes it back or says why it cannot be chosen. */
+    void pickFeat(FeatType feat);
+    /** Chooses an available feat, using a pick. */
+    void addChosenFeat(FeatType feat);
+    /** Takes the feat back, and with it every chosen feat left without its prerequisites. */
+    void removeChosenFeat(FeatType feat);
+    /** Shows the message in a message box. */
+    void showMessage(int strRef);
     void refreshControls();
     void refreshSelectionControls();
     void refreshIconChain();
-    void refreshIconChainSelection();
+    /** Updates the icon chain's states and selection after a pick, keeping its focus. */
+    void refreshIconChainStates();
     void refreshIconChainLinks();
     void refreshListBox();
     void updateCharacter();
-    void toggleSelectedFeat(FeatType feat);
     void showFeatDescription(FeatType feat);
     void resetFocusedFeatName();
     void onFeatFocused(const std::string &feat);

@@ -24,8 +24,8 @@ namespace reone {
 namespace game {
 
 /**
- * Heals vitality at once, or, when integer 1 selects them, Force points.
- * Integer 2 makes the healing quiet.
+ * Heals the amount in integer 0 of vitality at once, or, when integer 1
+ * selects them, of Force points. Integer 2 makes the healing quiet.
  */
 class HealEffect : public CopyableEffect<HealEffect> {
 public:
@@ -33,15 +33,11 @@ public:
     static constexpr int kForcePointsResource = 54;
 
     HealEffect(int damageToHeal) :
-        CopyableEffect(EffectType::Heal),
-        _damageToHeal(damageToHeal) {
+        CopyableEffect(EffectType::Heal) {
         setSaveFacingInteger(0, damageToHeal);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    int _damageToHeal;
 };
 
 } // namespace game

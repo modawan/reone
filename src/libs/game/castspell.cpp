@@ -260,12 +260,12 @@ std::shared_ptr<resource::Gff> SpellScriptContext::save(
     return result.build();
 }
 
-void SpellScriptContext::retireAreaRuntime(const std::set<const Object *> &retainedObjects) {
+void SpellScriptContext::retireAreaRuntime(const std::set<uint32_t> &retainedObjectIds) {
     _needsBind = false;
     _savedIds.fill(kSavedRuntimeInvalidObjectId);
     for (auto *reference : {&_target, &_item, &_activeTarget}) {
         const auto object = reference->resolve();
-        if (!object || retainedObjects.count(object.get()) == 0) {
+        if (!object || retainedObjectIds.count(object->id()) == 0) {
             reference->reset();
         }
     }
@@ -554,12 +554,18 @@ const ItemUsePresentation &CastPresenter::itemUse(const Creature &user, const Sp
     return *_item;
 }
 
+// The line the controlled caster reads when its cast fails to entanglement.
+static constexpr int kEntangledCastStrRef = 0;
+
 bool interruptEntangledCast(Creature &caster) {
     if (!caster.hasEffect(EffectType::Entangle)) {
         return false;
     }
     caster.showReadyAnimation();
     caster.setOrientationLock(script::kObjectInvalid);
+    if (caster.game().party().getLeader().get() == &caster) {
+        caster.game().addFeedbackMessage(kEntangledCastStrRef);
+    }
     return true;
 }
 
@@ -819,8 +825,7 @@ std::optional<ProjectilePathType> projectilePathFromScript(int value) {
 
 std::optional<SpellSelection> scriptCastingSource(const Creature &caster, const Spell &spell) {
     const auto &classes = caster.attributes().classLevels();
-    // A third class never casts for a script command; the spell-like ability is tried instead.
-    for (size_t index = 0; index < classes.size() && index < 2; ++index) {
+    for (size_t index = 0; index < classes.size(); ++index) {
         const ClassType clazz = classes[index].first->type();
         if (!isForceUsingClass(clazz, caster.game().isTSL()) || !caster.hasSpellUsesLeft(spell, index)) {
             continue;
@@ -1056,7 +1061,7 @@ void useItemAtOnce(Game &game, Creature &user, const std::shared_ptr<Item> &item
         presentSpellRelease(user, *spell);
     }
     if (item->consumeSpellUse(index)) {
-        game.queueObjectDestruction(*item, 0.0f);
+        game.postObjectDestruction(*item, 0.0f);
     }
     if (user.isInCombat()) {
         user.startItemUseCooldown();

@@ -387,11 +387,14 @@ static Variable ActionCastSpellAtObject(const std::vector<Variable> &args, const
     if (!scriptCastSource(*caller, *spell, cheat, selection)) {
         return Variable::ofNull();
     }
-    // Only a creature's cast can be instant.
+    // Only a creature's cast can be instant. Any instant value casts at once,
+    // but only 1 also skips the range test and approach.
+    const bool creatureInstant = instantSpell && isa<Creature>(caller.get());
     auto action = ctx.game.newAction<CastSpellAtObjectAction>(std::move(spell), std::move(oTarget), /*item=*/std::nullopt,
-                                                              cheat, *projectilePathType, instantSpell && isa<Creature>(caller.get()),
+                                                              cheat, *projectilePathType, creatureInstant,
                                                               std::nullopt, std::nullopt, selection);
     action->setCommandParameters(nDomainLevel, 0, 0);
+    action->setSkipsApproach(creatureInstant && bInstantSpell == 1);
     submitScriptCast(ctx.game, *caller, std::move(action));
     return Variable::ofNull();
 }
@@ -407,18 +410,10 @@ static Variable ActionGiveItem(const std::vector<Variable> &args, const RoutineC
     auto item = std::dynamic_pointer_cast<Item>(oItem);
 
     // Execute
-    if (!item || !oGiveTo || refusesCommand(ctx)) {
+    if (!item || !oGiveTo) {
         return Variable::ofNull();
     }
-    auto caller = getCaller(ctx);
-    auto &party = ctx.game.party();
-    auto possessor = ctx.game.getObjectById<Creature>(item->owner());
-    const bool partyItem = possessor && isa<Creature>(*caller) && party.isMember(*possessor) && party.isMember(*caller);
-    if (item->owner() != caller->id() && !partyItem) {
-        return Variable::ofNull();
-    }
-    auto action = ctx.game.newAction<GiveItemAction>(std::move(item), std::move(oGiveTo));
-    caller->addAction(std::move(action));
+    GiveItemAction::queue(ctx.game, *getCaller(ctx), std::move(item), std::move(oGiveTo), GiveItemAction::kWholeStack, true);
     return Variable::ofNull();
 }
 
@@ -507,7 +502,8 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto sDialogResRef = getStringOrElse(args, 1, "");
     auto bPrivateConversation = getIntOrElse(args, 2, 0);
     auto nConversationType = getIntOrElse(args, 3, 0);
-    auto bIgnoreStartRange = getIntOrElse(args, 4, 0);
+    // bIgnoreStartRange (4) changes nothing: a scripted conversation starts
+    // wherever its speaker stands.
     auto sNameObjectToIgnore1 = getStringOrElse(args, 5, "");
     auto sNameObjectToIgnore2 = getStringOrElse(args, 6, "");
     auto sNameObjectToIgnore3 = getStringOrElse(args, 7, "");
@@ -524,7 +520,6 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto caller = getCaller(ctx);
     auto privateConversation = static_cast<bool>(bPrivateConversation);
     auto conversationType = static_cast<resource::ConversationType>(nConversationType);
-    auto ignoreStartRange = static_cast<bool>(bIgnoreStartRange);
     auto namesToIgnore = std::vector<std::string> {sNameObjectToIgnore1,
                                                    sNameObjectToIgnore2,
                                                    sNameObjectToIgnore3,
@@ -535,8 +530,10 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto dontClearAllActions = static_cast<bool>(bDontClearAllActions);
 
     // Execute
-    // The party leader drops its actions and its orders, as the player's
-    // controls clear them, even when the conversation is then refused.
+    // Whether the leader answers in conversations holds from now on, and the
+    // party leader drops its actions and its orders, as the player's controls
+    // clear them, even when the conversation is then refused.
+    ctx.game.setLeaderAnswersInDialog(useLeader);
     auto &party = ctx.game.party();
     if (auto leader = party.getLeader()) {
         ctx.game.combat().clearAllOrders(*leader);
@@ -575,7 +572,9 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
             member->applyEffect(std::move(revive), DurationType::Instant);
         }
     }
-    // Unless told not to, the caller drops what it was doing first.
+    // The conversation is under way from now on. Unless told not to, the
+    // caller drops what it was doing first.
+    ctx.game.setDialogUnderWay(true);
     if (!dontClearAllActions) {
         caller->clearAllActions(true);
     }
@@ -584,7 +583,7 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
         dialogResRef,
         privateConversation,
         conversationType,
-        ignoreStartRange,
+        /*ignoreStartRange=*/true,
         namesToIgnore,
         useLeader,
         nBarkX,
@@ -696,7 +695,7 @@ static Variable ActionUseFeat(const std::vector<Variable> &args, const RoutineCo
     if (!creature || !creature->spatialArea()) {
         return Variable::ofNull();
     }
-    if (creature->attackFeatToUse(feat) == FeatType::Invalid) {
+    if (creature->useFeat(feat) == FeatType::Invalid) {
         return Variable::ofNull();
     }
     ctx.game.combat().addRoundAttack(*creature, oTarget);

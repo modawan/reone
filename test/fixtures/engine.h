@@ -88,7 +88,7 @@ public:
                                   "feedbacktext", "aiscripts"}) {
             ON_CALL(_resourceModule->twoDas(), get(std::string(table))).WillByDefault(testing::Return(empty));
         }
-        // A creature reads its race's row when it loads; every adjustment is blank.
+        // The races the game reads at start; every adjustment is blank.
         resource::TwoDA::Builder races;
         races.columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"});
         for (int race = 0; race < kRacialTypeCount; ++race) {
@@ -96,6 +96,7 @@ public:
         }
         std::shared_ptr<resource::TwoDA> racialTypes(races.build());
         ON_CALL(_resourceModule->twoDas(), get(std::string("racialtypes"))).WillByDefault(testing::Return(racialTypes));
+        _gameModule->races().init(_resourceModule->twoDas());
         // The combat tables the game loads at start, with no rows but an
         // excitement of no duration.
         testing::NiceMock<resource::MockTwoDAs> combatTables;

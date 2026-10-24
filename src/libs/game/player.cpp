@@ -66,7 +66,9 @@ static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> 
             }
         }
         if (line.result == Area::DirectLine::Clear) {
-            area.stepCreatureTo(leader, glm::vec2(target), Area::MoveFacing::Keep);
+            // TSL looks for the room under the step around height 0, KotOR
+            // around the leader's height.
+            area.stepCreatureTo(leader, glm::vec3(glm::vec2(target), game.isTSL() ? 0.0f : start.z), Area::MoveFacing::Keep);
             return;
         }
         if (attempt == kDriveTries) {
@@ -228,7 +230,7 @@ void Player::update(float dt) {
         partyLeader->clearPath();
         // Moving by input releases the leader's orientation lock and ends its
         // engaged exchange.
-        partyLeader->setOrientationLock(script::kObjectInvalid);
+        partyLeader->dropOrientationLock();
         partyLeader->setEngagedExchange(false);
         glm::vec2 dir(glm::normalize(glm::vec2(-glm::sin(facing), glm::cos(facing))));
         // A leader limited from running walks however it is driven.

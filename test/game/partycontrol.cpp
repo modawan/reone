@@ -21,7 +21,6 @@
 #include "reone/game/script/routines.h"
 #include "reone/game/types.h"
 #include "reone/resource/types.h"
-#include "reone/scene/collision.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/variable.h"
 
@@ -164,13 +163,14 @@ public:
         _engine.initCombatTables();
         ON_CALL(_engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(_sceneGraph));
-        ON_CALL(_sceneGraph, testElevation(_, _))
-            .WillByDefault(Invoke([this](
-                                      const glm::vec3 &position,
-                                      scene::Collision &collision) {
-                collision.intersection = position;
-                collision.user = &_room;
-                return true;
+        _roomNode = std::make_shared<scene::WalkmeshSceneNode>(
+            _roomWalkmesh, _sceneGraph, _engine.services().graphics, _engine.services().audio, _engine.services().resource);
+        _roomNode->setUser(_room);
+        ON_CALL(_sceneGraph, findRoomWalkmesh(_))
+            .WillByDefault(Return(_roomNode));
+        ON_CALL(_sceneGraph, findRoomFace(_, _, _))
+            .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
+                return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
             }));
 
         _game = std::make_unique<Game>(
@@ -219,6 +219,8 @@ private:
     TestEngine _engine;
     NiceMock<scene::MockSceneGraph> _sceneGraph;
     Room _room;
+    graphics::Walkmesh _roomWalkmesh;
+    std::shared_ptr<scene::WalkmeshSceneNode> _roomNode;
     StubConsole _console;
     std::unique_ptr<Game> _game;
     std::unique_ptr<Routines> _routines;

@@ -29,6 +29,7 @@
 #include "../creaturespeeds.h"
 #include "../d20/classes.h"
 #include "../d20/feats.h"
+#include "../d20/races.h"
 #include "../d20/skills.h"
 #include "../d20/spells.h"
 #include "../difficultyoptions.h"
@@ -100,6 +101,7 @@ private:
     std::unique_ptr<Animations> _animations;
     std::unique_ptr<VisualEffects> _visualEffects;
     std::unique_ptr<CombatTables> _combatTables;
+    std::unique_ptr<Races> _races;
 
     std::unique_ptr<GameServices> _services;
 };

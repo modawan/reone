@@ -104,6 +104,14 @@ private:
     float _turnVelocity {0.0f}; /**< degrees per second */
     float _turnInput {0.0f};    /**< turn input of the previous frame */
     float _mouseTurn {0.0f};    /**< mouse travel this frame while looking */
+    float _mouseRise {0.0f};    /**< vertical mouse travel this frame */
+    float _mouseTilt {0.0f};    /**< TSL: the tilt the last mouse look asked for */
+    /**
+     * The tilt the view keeps, in degrees: TSL's offset from level, KotOR's
+     * pitch the view eases to.
+     */
+    float _tiltOffset {0.0f};
+    float _viewPitch {0.0f}; /**< the view's pitch, in degrees from straight down */
     glm::vec3 _eyePosition {0.0f};
 
     // Look-at swing
@@ -136,6 +144,12 @@ private:
     void updateSceneNode();
     /** Places the combat camera behind the target, pulled in where the view is obstructed. */
     void updateCombatSceneNode();
+    /** Turns the camera outside combat by the mouse look's travel this frame. */
+    void updateMouseTurn();
+    /** Tilts the view outside combat by the mouse's vertical travel over \p dt seconds. */
+    void updateTilt(float dt);
+    /** Starts the tilt when the camera is built: at the style pitch, held within the style's limits in TSL. */
+    void resetTilt();
     /** Turns the combat camera by \p dt seconds of the turn keys or the mouse look. */
     void updateCombatTurn(float dt);
     /** The degrees the combat camera turns over \p dt seconds under the turn \p input. */

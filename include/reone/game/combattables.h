@@ -241,8 +241,9 @@ public:
     virtual float killExperience(int row, int column) const = 0;
 
     /**
-     * A weapon sound (weaponsounds.2da) in lower case; empty when the cell is
-     * blank, the row is outside the table or there is no such column.
+     * A weapon sound (weaponsounds.2da) in lower case, its column named
+     * ignoring case; empty when the cell is blank, the row is outside the
+     * table or there is no such column.
      */
     virtual const std::string &weaponSound(int row, const std::string &column) const = 0;
 

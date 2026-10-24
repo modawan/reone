@@ -50,6 +50,7 @@ static constexpr uint32_t kInsufficientForceMessage = 38613;
 static constexpr uint32_t kForbiddenEquipmentMessage = 38614;
 static constexpr uint32_t kRequiredEquipmentMessage = 38615;
 static constexpr uint32_t kMinimumRangeMessage = 42422;
+static constexpr uint32_t kNoOneToHealMessage = 42498;
 /** The seconds a rejection message is shown. */
 static constexpr float kRejectionDuration = 5.0f;
 /** The seconds a form, implant-mode or behaviour selection announces itself. */
@@ -71,6 +72,9 @@ void ActionMenuFeedback::reject(PowerUnavailableReason reason, ServicesView &ser
     case PowerUnavailableReason::MinimumRange:
         _message = kMinimumRangeMessage;
         break;
+    case PowerUnavailableReason::NoOneToHeal:
+        _message = kNoOneToHealMessage;
+        break;
     case PowerUnavailableReason::InsufficientVitality:
     case PowerUnavailableReason::None:
         // These reasons have no message of their own: the last one shows
@@ -86,6 +90,11 @@ void ActionMenuFeedback::reject(PowerUnavailableReason reason, ServicesView &ser
 
 void ActionMenuFeedback::accept(ServicesView &services) {
     auto clip = services.game.guiSounds.getActionAccepted();
+    _sound = services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+}
+
+void ActionMenuFeedback::scroll(ServicesView &services) {
+    auto clip = services.game.guiSounds.getActionMenuScroll();
     _sound = services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
 }
 
@@ -116,7 +125,7 @@ float ActionMenuFeedback::descriptionOpacity() const {
     return active() ? std::min(1.0f, 2.0f * _remaining / kRejectionDuration) : 1.0f;
 }
 
-void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, ServicesView &services) {
+void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, bool enabled, ServicesView &services) {
     std::shared_ptr<graphics::Texture> texture;
 
     if (action.implant) {
@@ -171,10 +180,10 @@ void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, S
 
     services.graphics.context.bindTexture(*texture);
 
-    services.graphics.uniforms.setLocals([transform, available = action.availability.available()](auto &locals) {
+    services.graphics.uniforms.setLocals([transform, enabled](auto &locals) {
         locals.reset();
         locals.model = transform;
-        locals.color.a = available ? 1.0f : kUnavailableIconOpacity;
+        locals.color.a = enabled ? 1.0f : kUnavailableIconOpacity;
     });
     services.graphics.context.useProgram(services.graphics.shaderRegistry.get(graphics::ShaderProgramId::mvpIcon));
     services.graphics.meshRegistry.get(graphics::MeshName::quad).draw(services.graphics.statistic);

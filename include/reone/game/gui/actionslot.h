@@ -47,8 +47,14 @@ public:
     void reject(PowerUnavailableReason reason, ServicesView &services);
     /** Sound the acceptance of a selection. */
     void accept(ServicesView &services);
+    /** Sound a menu scrolling to another entry. */
+    void scroll(ServicesView &services);
     /** Show \p message, the outcome of a selection, for a while; none shows an empty line. */
     void announce(std::optional<uint32_t> message);
+    /** Take the rejection message away. */
+    void clearRejection() { _remaining = 0.0f; }
+    /** Take the announcement away. */
+    void clearAnnouncement() { _announcementRemaining = 0.0f; }
     void update(float dt);
 
     /** The rejection message is shown. */
@@ -73,8 +79,8 @@ struct ActionSlot {
     size_t indexSelected {0};
 };
 
-/** Draw the icon of \p action, dimmed when it cannot be used. */
-void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, ServicesView &services);
+/** Draw the icon of \p action, dimmed unless \p enabled. */
+void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, bool enabled, ServicesView &services);
 
 } // namespace game
 } // namespace reone

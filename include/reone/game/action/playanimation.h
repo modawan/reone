@@ -27,9 +27,11 @@ namespace reone {
 namespace game {
 
 /**
- * PlayAnimation and ActionPlayAnimation. A negative duration plays the
- * animation at once at its own speed, for the lower constants only.
- * Otherwise a commandable caller queues it: behind its actions, or with
+ * PlayAnimation and ActionPlayAnimation. The constant stands for an
+ * animation ID on the caller: a creature's or a placeable's, or the constant
+ * itself on any other object. A negative duration plays the animation at
+ * once at its own speed, for the lower constants only. Otherwise a
+ * commandable caller queues the animation ID: behind its actions, or with
  * replaceActions in place of them all. A speaker or listener of the running
  * dialogue first shows its plain pause.
  */
@@ -37,33 +39,22 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
 
 class PlayAnimationAction : public Action {
 public:
+    /**
+     * @param animation the animation ID the action plays, as the queued
+     *        constant stands for it on the actor
+     * @param firstRun the action has not run yet
+     */
     PlayAnimationAction(Game &game,
                         ServicesView &services,
-                        AnimationType animation,
-                        float speed,
-                        float durationSeconds) :
-        Action(game, services, ActionType::PlayAnimation),
-        _animation(animation),
-        _speed(speed),
-        _durationSeconds(durationSeconds) {
-    }
-
-    PlayAnimationAction(Game &game,
-                        ServicesView &services,
-                        AnimationType animation,
+                        int animation,
                         float speed,
                         float durationSeconds,
-                        bool started,
-                        bool looping) :
+                        bool firstRun = true) :
         Action(game, services, ActionType::PlayAnimation),
         _animation(animation),
         _speed(speed),
         _durationSeconds(durationSeconds),
-        _looping(looping),
-        _playing(started) {
-        if (started) {
-            _timer.reset(durationSeconds);
-        }
+        _firstRun(firstRun) {
     }
 
     static bool classof(Action *from) {
@@ -71,20 +62,27 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    /** The command's animation ID, speed, requested duration and first-run flag. */
     std::optional<SavedActionRecord> saveFacingState() const override;
-    /** A saved PlayAnimation command; none when its flags or times are not ones a command carries. */
+    /**
+     * A saved PlayAnimation command. A command that has run already times its
+     * animation again from the load.
+     */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
-    AnimationType animation() const { return _animation; }
+    /** The animation ID the action plays. */
+    int animation() const { return _animation; }
     float speed() const { return _speed; }
 
 private:
-    AnimationType _animation;
+    int _animation;
     float _speed;
     float _durationSeconds;
 
     Timer _timer;
-    std::optional<bool> _looping;
+    /** The action has not run yet. */
+    bool _firstRun {true};
+    /** The animation is being timed since the action was made or loaded. */
     bool _playing {false};
     bool _shown {false}; /**< the clip was put on the actor since the action was made or loaded */
 };

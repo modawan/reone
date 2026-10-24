@@ -22,16 +22,17 @@ namespace reone {
 namespace game {
 
 void GameModule::init() {
+    _races = std::make_unique<Races>();
     _cameraStyles = std::make_unique<CameraStyles>(_resource.twoDas());
     _classes = std::make_unique<Classes>(_resource.strings(), _resource.twoDas());
     _creatureSpeeds = std::make_unique<CreatureSpeeds>(_resource.twoDas());
     _difficultyOptions = std::make_unique<DifficultyOptions>(_resource.twoDas());
-    _feats = std::make_unique<Feats>(_resource.textures(), _resource.strings(), _resource.twoDas());
+    _skills = std::make_unique<Skills>(_resource.textures(), _resource.strings(), _resource.twoDas());
+    _feats = std::make_unique<Feats>(_resource.textures(), _resource.strings(), _resource.twoDas(), *_races, *_skills);
     _footstepSounds = std::make_unique<FootstepSounds>(_resource.twoDas());
     _guiSounds = std::make_unique<GUISounds>(_resource.audioClips(), _resource.twoDas());
     _portraits = std::make_unique<Portraits>(_resource.textures(), _resource.twoDas());
     _reputes = std::make_unique<Reputes>(_resource.twoDas());
-    _skills = std::make_unique<Skills>(_resource.textures(), _resource.strings(), _resource.twoDas());
     _spells = std::make_unique<Spells>(_resource.textures(), _resource.audioClips(), _resource.models(), _resource.strings(), _resource.twoDas());
     _surfaces = std::make_unique<Surfaces>(_resource.twoDas());
     _projectiles = std::make_unique<Projectiles>(_resource.twoDas());
@@ -55,8 +56,10 @@ void GameModule::init() {
         *_projectiles,
         *_animations,
         *_visualEffects,
-        *_combatTables);
+        *_combatTables,
+        *_races);
 
+    _races->init(_resource.twoDas());
     _cameraStyles->init();
     _creatureSpeeds->init();
     _difficultyOptions->init();
@@ -79,16 +82,17 @@ void GameModule::deinit() {
     _combatTables.reset();
     _surfaces.reset();
     _spells.reset();
-    _skills.reset();
     _reputes.reset();
     _portraits.reset();
     _guiSounds.reset();
     _footstepSounds.reset();
     _feats.reset();
+    _skills.reset();
     _difficultyOptions.reset();
     _creatureSpeeds.reset();
     _classes.reset();
     _cameraStyles.reset();
+    _races.reset();
 }
 
 } // namespace game

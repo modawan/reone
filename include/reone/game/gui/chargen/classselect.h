@@ -56,6 +56,12 @@ public:
         _resRef = guiResRef("classsel");
     }
 
+    /**
+     * Gives each class button a new character of its class and gender, with
+     * a random appearance, as each new character creation does.
+     */
+    void setupClassButtons();
+
 private:
     struct ClassButton {
         gui::Control *control {nullptr};
@@ -113,7 +119,6 @@ private:
         _controls.LBL_INSTRUCTION = findControl<gui::Label>("LBL_INSTRUCTION");
     }
 
-    void setupClassButtons();
     void setupClassButton(int index, Gender gender, ClassType clazz);
 
     std::shared_ptr<scene::ModelSceneNode> getCharacterModel(int appearance, scene::ISceneGraph &sceneGraph);

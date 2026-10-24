@@ -36,12 +36,15 @@ public:
     virtual void stopAll() = 0;
     /**
      * Holds every sound while a movie plays, or lets them go on. Movie audio
-     * keeps playing; every other source, music included, waits paused, and a
-     * source started while sounds are held starts held.
+     * and the source that plays through the movie keep playing; every other
+     * source, music included, waits paused, and a source started while sounds
+     * are held starts held.
      *
      * @param held whether sounds are held for a movie
+     * @param playingThrough the source that keeps playing when the hold
+     *        begins; none for a movie that holds every sound
      */
-    virtual void setSoundsHeldForMovie(bool held) = 0;
+    virtual void setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -60,7 +63,7 @@ public:
     void render() override;
     void stop(AudioType type) override;
     void stopAll() override;
-    void setSoundsHeldForMovie(bool held) override;
+    void setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,

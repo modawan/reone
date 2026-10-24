@@ -138,10 +138,13 @@ static bool isHoverHostile(const Object &object, const Creature &leader, const M
     }
 }
 
-static void cycleActionSlot(ActionSlot &slot, bool previous) {
-    if (slot.actions.empty())
+// A slot of two or more entries scrolls to the previous or next one,
+// wrapping, and sounds it.
+static void cycleActionSlot(ActionSlot &slot, bool previous, ActionMenuFeedback &feedback, ServicesView &services) {
+    if (slot.actions.size() < 2)
         return;
 
+    feedback.scroll(services);
     if (previous) {
         if (slot.indexSelected == 0) {
             slot.indexSelected = static_cast<uint32_t>(slot.actions.size() - 1);
@@ -236,15 +239,18 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         event.y >= frameY + kActionHeight * scale)
         return false;
 
+    // The arrows and the entries end the choice of a party member to use an
+    // item on.
+    _game.cancelPartyItemTarget();
     float actionY = event.y - frameY;
     if (actionY < kActionArrowHeight * scale) {
-        cycleActionSlot(slot, true);
+        cycleActionSlot(slot, true, _feedback, _services);
         _game.requestAutoPause(AutoPauseReason::ActionMenu);
         _game.requestTutorialWindow(kActionMenuTutorial);
         return true;
     }
     if (actionY >= (kActionArrowHeight + kActionWidth) * scale) {
-        cycleActionSlot(slot, false);
+        cycleActionSlot(slot, false, _feedback, _services);
         _game.requestAutoPause(AutoPauseReason::ActionMenu);
         _game.requestTutorialWindow(kActionMenuTutorial);
         return true;
@@ -429,7 +435,8 @@ bool SelectionOverlay::handleMouseWheel(const input::MouseWheelEvent &event) {
         return false;
 
     // A wheel notch over a slot scrolls it like its arrows.
-    cycleActionSlot(slot, event.y > 0);
+    _game.cancelPartyItemTarget();
+    cycleActionSlot(slot, event.y > 0, _feedback, _services);
     _game.requestAutoPause(AutoPauseReason::ActionMenu);
     _game.requestTutorialWindow(kActionMenuTutorial);
     return true;
@@ -757,7 +764,7 @@ void SelectionOverlay::renderActionIcon(int index) {
     transform = glm::translate(transform, glm::vec3(frameX, y, 0.0f));
     transform = glm::scale(transform, glm::vec3(kActionWidth * scale, kActionWidth * scale, 1.0f));
 
-    renderContextActionIcon(action, transform, _services);
+    renderContextActionIcon(action, transform, action.availability.available(), _services);
 }
 
 float SelectionOverlay::layoutScale() const {

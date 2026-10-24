@@ -327,9 +327,13 @@ public:
      * longer read afterwards.
      */
     virtual void onUpdate(Object &object, const EffectInstance &instance, float dt);
-    /** Release executable payload owned by the outgoing Area lifetime. */
+    /**
+     * Release executable payload owned by the outgoing Area lifetime.
+     *
+     * @param retainedObjectIds ids of the session objects that outlive the Area
+     */
     virtual void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) {}
+        const std::set<uint32_t> &retainedObjectIds) {}
 
     /**
      * Build the saved effect value, as a script's saved state carries it.
@@ -362,6 +366,10 @@ public:
     EffectType type() const { return _type; }
 
 protected:
+    /** The saved integer at \p index; 0 when the effect has none there. */
+    int32_t saveFacingInteger(size_t index) const {
+        return index < _saveFacingIntegers.size() ? _saveFacingIntegers[index] : 0;
+    }
     void setSaveFacingInteger(size_t index, int32_t value);
     void setSaveFacingFloat(size_t index, float value);
     void setSaveFacingString(size_t index, std::string value);
@@ -378,6 +386,8 @@ private:
     std::array<float, 4> _saveFacingFloats {};
     std::array<std::string, 6> _saveFacingStrings {};
     RuntimeObjectRef<Object> _saveFacingCreator;
+    /** The creator's id, kept after the creator is gone. */
+    uint32_t _saveFacingCreatorId {kSavedEffectInvalidObjectId};
     std::array<RuntimeObjectRef<Object>, 4> _saveFacingObjects;
     uint32_t _saveFacingSpellId {std::numeric_limits<uint32_t>::max()};
     bool _saveFacingRepresentable {true};
@@ -499,9 +509,11 @@ struct EffectInstance {
      * a saved-graph identity and a module-owned runtime object both retire with
      * the outgoing Area. Only bindings to explicitly retained session objects
      * survive, rewritten as runtime-session identities.
+     *
+     * @param retainedObjectIds ids of the session objects that outlive the Area
      */
     void retireAreaRuntimeBindings(
-        const std::set<const Object *> &retainedObjects);
+        const std::set<uint32_t> &retainedObjectIds);
 
 private:
     friend class Game;

@@ -54,9 +54,11 @@ public:
     MOCK_METHOD(void, removeRoot, (GrassSceneNode &), (override));
     MOCK_METHOD(void, removeRoot, (SoundSceneNode &), (override));
 
-    MOCK_METHOD(bool, testElevation, (const glm::vec3 &, Collision &), (const override));
     MOCK_METHOD(bool, testLineOfSight, (const glm::vec3 &, const glm::vec3 &, Collision &), (const override));
     MOCK_METHOD(bool, testWalk, (const glm::vec3 &, const glm::vec3 &, const IUser *, Collision &), (const override));
+    MOCK_METHOD(std::shared_ptr<WalkmeshSceneNode>, findRoomWalkmesh, (const glm::vec3 &), (const override));
+    MOCK_METHOD(std::optional<RoomFace>, findRoomFace, (const WalkmeshSceneNode &, const glm::vec3 &, RoomFaceProbe), (const override));
+    MOCK_METHOD(bool, testRoomWalk, (const glm::vec3 &, const glm::vec3 &, float, float, std::optional<int>, std::vector<float> &, Collision &), (const override));
 
     MOCK_METHOD(ModelSceneNode *, pickModelAt, (int, int, IUser *), (const override));
     MOCK_METHOD(std::optional<std::reference_wrapper<ModelSceneNode>>, pickModelRay, (const glm::vec3 &, const glm::vec3 &), (const override));
@@ -69,6 +71,8 @@ public:
 
     MOCK_METHOD(void, setWalkableSurfaces, (std::set<uint32_t>), (override));
     MOCK_METHOD(void, setWalkcheckSurfaces, (std::set<uint32_t>), (override));
+    MOCK_METHOD(void, setRoomWalkmeshes, (std::vector<std::shared_ptr<WalkmeshSceneNode>>), (override));
+    MOCK_METHOD(void, setRoomTest, (std::weak_ptr<const RoomTest>), (override));
     MOCK_METHOD(void, setLineOfSightSurfaces, (std::set<uint32_t>), (override));
 
     MOCK_METHOD(void, setActiveCamera, (CameraSceneNode *), (override));

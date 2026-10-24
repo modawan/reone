@@ -38,7 +38,9 @@ static constexpr int kStrRefFeedback = 42167;
 static constexpr int kStrRefShowFeedback = 42142;
 static constexpr int kStrRefShowDialog = 42143;
 
+/** A feedback line's colour: KotOR's and TSL's; a highlighted line's in both. */
 static const glm::vec3 kFeedbackColor(0.0f, 0.66f, 0.98f);
+static const glm::vec3 kTSLFeedbackColor(0.1f, 0.7f, 0.55f);
 static const glm::vec3 kCombatColor(0.74f, 0.11f, 0.0f);
 
 // In TSL a feedback or combat line, or a conversation line's speaker name,
@@ -135,7 +137,7 @@ void MessagesMenu::refresh() {
         item.text = _game.isTSL() ? getTslMessageLine(_game, entry.text) : entry.text;
         item.textColor = entry.style == MessageLog::Style::Combat
                              ? kCombatColor
-                             : kFeedbackColor;
+                             : (_game.isTSL() ? kTSLFeedbackColor : kFeedbackColor);
         // The list follows the line's buffer; the colour follows its highlight flag.
         if (_game.isTSL() && entry.buffer == MessageLog::Buffer::Combat) {
             _controls.LB_COMBAT->addItem(std::move(item));

@@ -27,9 +27,10 @@
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/savedsituation.h"
-#include "reone/scene/animproperties.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
 #include "reone/script/program.h"
@@ -125,23 +126,43 @@ static constexpr int kLastImmediateAnimation = 32;
 static constexpr int kFirstQueuedAnimationTSL = 47;
 static constexpr int kFirstImmediateDialogAnimationTSL = 10001;
 
+// The animation ID a PlayAnimation constant stands for on its caller.
+static int callerAnimationId(const Game &game, Object &caller, int constant) {
+    if (auto *creature = dyn_cast<Creature>(&caller)) {
+        return scriptAnimationId(constant, game.isTSL(), creature->modelType() != Creature::ModelType::Creature);
+    }
+    if (isa<Placeable>(caller)) {
+        return placeableScriptAnimationId(constant);
+    }
+    return constant;
+}
+
 void requestScriptAnimation(Game &game, Object &caller, int constant, float speed, float seconds, bool replaceActions) {
     auto *creature = dyn_cast<Creature>(&caller);
     if (creature && game.isConversationSpeakerOrListener(caller)) {
-        creature->playScriptAnimation(creature->getScriptAnimation(static_cast<int>(AnimationType::LoopingPause)), 1.0f);
+        creature->playScriptAnimation(
+            creature->getScriptAnimation(callerAnimationId(game, caller, static_cast<int>(AnimationType::LoopingPause))), 1.0f);
     }
+    const int animation = callerAnimationId(game, caller, constant);
     if (seconds < 0.0f) {
         const bool direct = game.isTSL() ? (constant < kFirstQueuedAnimationTSL || constant >= kFirstImmediateDialogAnimationTSL)
                                          : constant <= kLastImmediateAnimation;
-        if (direct && creature) {
-            creature->playScriptAnimation(creature->getScriptAnimation(constant), 1.0f);
+        if (!direct) {
+            return;
+        }
+        if (creature) {
+            creature->playScriptAnimation(creature->getScriptAnimation(animation), 1.0f);
+        } else if (auto *placeable = dyn_cast<Placeable>(&caller)) {
+            placeable->setStateAnimation(animation);
+        } else if (auto *door = dyn_cast<Door>(&caller)) {
+            door->setStateAnimation(animation);
         }
         return;
     }
     if (!caller.isCommandable()) {
         return;
     }
-    auto action = game.newAction<PlayAnimationAction>(static_cast<AnimationType>(constant), speed, seconds);
+    auto action = game.newAction<PlayAnimationAction>(animation, speed, seconds);
     if (replaceActions) {
         caller.clearAllActions();
         caller.addActionOnTop(std::move(action));
@@ -153,58 +174,62 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
 // The clip plays for its length at the speed given, and a loop given a
 // duration plays for that long; without a clip the action takes a second.
 // From 30 seconds on, the same animation queued right behind it at the same
-// speed is dropped. At the end a creature goes back to its pause or ready
-// pose.
+// speed is dropped. A placeable or door takes the animation as its state on
+// every update while the action runs, and keeps it at the end; a creature
+// then goes back to its pause or ready pose.
 void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto *creature = dyn_cast<Creature>(&actor);
-    // A downed party member cannot play it.
-    if (creature && creature->isTemporarilyDead()) {
-        complete();
-        return;
-    }
-    const int constant = static_cast<int>(_animation);
+    auto *placeable = dyn_cast<Placeable>(&actor);
+    auto *door = dyn_cast<Door>(&actor);
     // The clip is looked up only while it is still to be timed or shown.
     std::optional<Creature::ScriptAnimation> animation;
     if (creature && (!_playing || !_shown)) {
-        animation = creature->getScriptAnimation(constant);
+        animation = creature->getScriptAnimation(_animation);
     }
     if (_playing) {
         _timer.update(dt);
     } else {
-        float duration = animation && animation->length > 0.0f ? animation->length : kNoClipSeconds;
+        float length = 0.0f;
+        bool fireForget = false;
+        if (animation) {
+            length = animation->length;
+            fireForget = !animation->loop;
+        } else if (placeable) {
+            length = placeable->animationLength(_animation);
+            fireForget = placeable->playsAnimationOnce(_animation);
+        } else if (door) {
+            length = door->animationLength(_animation);
+            fireForget = door->playsAnimationOnce(_animation);
+        }
+        float duration = length > 0.0f ? length : kNoClipSeconds;
         if (_speed != 0.0f) {
             duration /= std::abs(_speed);
         }
-        const bool fireForget = animation && !animation->loop;
         if (_durationSeconds > 0.0f && !fireForget) {
             duration = _durationSeconds;
         }
         _timer.reset(duration);
         _playing = true;
+        _firstRun = false;
     }
     if (_durationSeconds >= kCoalescingSeconds) {
-        const bool characterModel = creature && creature->modelType() != Creature::ModelType::Creature;
-        const int id = scriptAnimationId(constant, _game.isTSL(), characterModel);
         actor.removeActionsBehind(*this, [&](const Action &next) {
             if (next.type() != ActionType::PlayAnimation) {
                 return false;
             }
             const auto &other = static_cast<const PlayAnimationAction &>(next);
-            return scriptAnimationId(static_cast<int>(other.animation()), _game.isTSL(), characterModel) == id &&
-                   other.speed() == _speed;
+            return other.animation() == _animation && other.speed() == _speed;
         });
     }
     if (!_timer.elapsed()) {
-        if (!_shown) {
-            if (animation) {
-                creature->playScriptAnimation(*animation, _speed);
-            } else {
-                AnimationProperties properties;
-                properties.speed = _speed;
-                actor.playAnimation(_animation, std::move(properties));
-            }
-            _shown = true;
+        if (placeable) {
+            placeable->setStateAnimation(_animation);
+        } else if (door) {
+            door->setStateAnimation(_animation);
+        } else if (!_shown && animation) {
+            creature->playScriptAnimation(*animation, _speed);
         }
+        _shown = true;
         return;
     }
     if (creature) {
@@ -214,42 +239,17 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
 }
 
 std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
-    SavedActionRecord result;
-    result.actionId = static_cast<uint32_t>(SavedActionType::PlayAnimation);
-    result.declaredParameterCount = 5;
-    result.parameters = {
-        SavedActionParameter {
-            kSavedObjectParameter,
-            SavedObjectReference::rawValue(
-                static_cast<uint32_t>(_animation))},
-        SavedActionParameter {
-            kSavedFloatParameter, _speed},
-        SavedActionParameter {
-            kSavedFloatParameter,
-            _playing ? _timer.remaining() : _durationSeconds},
-        SavedActionParameter {
-            kSavedIntegerParameter,
-            static_cast<int32_t>(_playing ? 0 : 1)},
-        SavedActionParameter {
-            kSavedIntegerParameter,
-            static_cast<int32_t>(_looping.value_or(isAnimationLooping(_animation)) ? 1 : 0)},
-    };
-    return result;
+    return SavedActionRecord::command(SavedActionType::PlayAnimation, {
+                                                                          {kSavedIntegerParameter, int32_t {_animation}},
+                                                                          {kSavedFloatParameter, _speed},
+                                                                          {kSavedFloatParameter, _durationSeconds},
+                                                                          {kSavedIntegerParameter, int32_t {_firstRun ? 1 : 0}},
+                                                                      });
 }
 
 std::shared_ptr<Action> PlayAnimationAction::restore(const SavedActionRecord &record, Game &game) {
-    // The animation is kept in the command's object slot. Any animation
-    // constant the command queues comes back; it is resolved as the action runs.
-    const auto animation = record.objectParameter(0).id;
-    const float speed = record.floatParameter(1);
-    const float duration = record.floatParameter(2);
-    const int32_t start = record.integerParameter(3);
-    const int32_t looping = record.integerParameter(4);
-    if (!std::isfinite(speed) || !std::isfinite(duration) ||
-        (start != 0 && start != 1) || (looping != 0 && looping != 1)) {
-        return nullptr;
-    }
-    return game.newAction<PlayAnimationAction>(static_cast<AnimationType>(animation), speed, duration, start == 0, looping != 0);
+    return game.newAction<PlayAnimationAction>(record.integerParameter(0), record.floatParameter(1),
+                                               record.floatParameter(2), record.integerParameter(3) == 1);
 }
 
 void AppearAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

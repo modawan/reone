@@ -26,6 +26,7 @@
 #include "reone/game/creaturespeeds.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/races.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
@@ -126,9 +127,10 @@ public:
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(std::shared_ptr<Feat>, get, (FeatType type), (const override));
     MOCK_METHOD(int, getLevelUpChoiceCount, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(bool, isLevelUpCandidate, (FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
+    MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
+    MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {
@@ -143,6 +145,7 @@ public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnEnter, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionAccepted, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionUnavailable, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionMenuScroll, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
@@ -189,6 +192,7 @@ public:
     MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+    MOCK_METHOD(void, addGrantedPowers, (CreatureAttributes & attributes, bool tsl), (const override));
 
 private:
     RangeRow _blankRange;
@@ -423,6 +427,7 @@ public:
         _animations = std::make_unique<MockAnimations>();
         _visualEffects = std::make_unique<MockVisualEffects>();
         _combatTables = std::make_unique<CombatTables>();
+        _races = std::make_unique<Races>();
 
         _services = std::make_unique<GameServices>(
             *_cameraStyles,
@@ -440,7 +445,8 @@ public:
             *_projectiles,
             *_animations,
             *_visualEffects,
-            *_combatTables);
+            *_combatTables,
+            *_races);
     }
 
     GameServices &services() {
@@ -451,6 +457,7 @@ public:
     MockSpells &spells() { return *_spells; }
     MockPortraits &portraits() { return *_portraits; }
     CombatTables &combatTables() { return *_combatTables; }
+    Races &races() { return *_races; }
 
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;
@@ -469,6 +476,7 @@ private:
     std::unique_ptr<MockAnimations> _animations;
     std::unique_ptr<MockVisualEffects> _visualEffects;
     std::unique_ptr<CombatTables> _combatTables;
+    std::unique_ptr<Races> _races;
 
     std::unique_ptr<GameServices> _services;
 };

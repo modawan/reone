@@ -71,6 +71,8 @@ private:
     void loadMaterials();
     void loadNormals();
     void loadAABB();
+    /** Reads the perimeter edges of an area walkmesh and the rooms they lead into. */
+    void loadPerimeter();
 };
 
 } // namespace graphics

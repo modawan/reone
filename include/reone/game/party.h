@@ -55,7 +55,7 @@ enum class XPSource {
     Stealth,
     Console,
     Skill, /**< disarming and recovering mines */
-    Script /**< a script award naming a creature outside the party */
+    Script /**< a script award naming a creature outside the party, or a class gained */
 };
 
 enum class RosterKind {
@@ -250,7 +250,7 @@ public:
      * influence.
      */
     std::optional<int> baseInfluence(const std::string &tag) const;
-    /** The npc.2da share of experience, a whole percentage, of a row; a blank cell, or a row outside the table, is none. */
+    /** The npc.2da share of experience of a row, read as a whole percentage; a blank cell, or a row outside the table, is none. */
     int percentXP(int row) const;
     /**
      * The npc.2da share of experience of a row as the cell reads, fractions
@@ -630,6 +630,15 @@ private:
     /** The leader's trail keeps this many steps. */
     static constexpr int kFollowSteps = 100;
 
+    /** How a straight walk along the leader's trail goes. */
+    enum class TrailLine {
+        Clear,
+        /** Something stands in the way. */
+        Blocked,
+        /** The walk runs out of the rooms before anything stands in its way. */
+        LeavesRooms
+    };
+
     /** A point of the leader's trail and the way the leader faced there. */
     struct FollowStep {
         glm::vec3 position {0.0f};
@@ -649,8 +658,10 @@ private:
 
     // Tables
 
-    /** The npc.2da share of each row, as the cell reads; none where the cell is blank. */
-    std::vector<std::optional<float>> _percentXP;
+    /** The npc.2da share of each row, read as a whole number; 0 where the cell is blank. */
+    std::vector<int> _percentXP;
+    /** The npc.2da share of each row, read with its fraction; 0 where the cell is blank. */
+    std::vector<float> _percentXPFraction;
     std::vector<AIScriptRow> _aiScripts;
     /** Each companion's base influence by its lower-case tag (TSL). */
     std::map<std::string, int> _baseInfluence;
@@ -735,9 +746,12 @@ private:
     int closestFollower() const;
     /** Squared distance from the leader to the slot's follow point. */
     float followerLag2(int slot) const;
-    /** A straight walk the trail can take: clear, or blocked only by a party member. */
+    /**
+     * A straight walk the trail can take: clear, or blocked only by a party
+     * member. How the walk goes is kept in line.
+     */
     bool isTrailLineClear(
-        const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, bool &clear) const;
+        const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, TrailLine &line) const;
     void smoothFollowPath(const Area &area);
     bool turnBack();
 };

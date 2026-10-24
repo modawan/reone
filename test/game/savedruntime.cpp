@@ -1161,8 +1161,8 @@ TEST(SavedAction, start_conversation_uses_retail_action_24_shape) {
 
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 24u);
-    EXPECT_EQ(exported->declaredParameterCount, 3);
-    ASSERT_EQ(exported->parameters.size(), 3);
+    EXPECT_EQ(exported->declaredParameterCount, 6);
+    ASSERT_EQ(exported->parameters.size(), 6);
     EXPECT_EQ(exported->parameters[0].type, 3u);
     EXPECT_EQ(exported->parameters[1].type, 4u);
     EXPECT_EQ(exported->parameters[2].type, 1u);

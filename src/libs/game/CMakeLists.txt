@@ -80,6 +80,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/d20/feat.h
     ${GAME_INCLUDE_DIR}/d20/feats.h
     ${GAME_INCLUDE_DIR}/d20/itemattributes.h
+    ${GAME_INCLUDE_DIR}/d20/races.h
     ${GAME_INCLUDE_DIR}/d20/savingthrows.h
     ${GAME_INCLUDE_DIR}/d20/skill.h
     ${GAME_INCLUDE_DIR}/d20/skills.h
@@ -388,6 +389,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/d20/classes.cpp
     ${GAME_SOURCE_DIR}/d20/feats.cpp
     ${GAME_SOURCE_DIR}/d20/itemattributes.cpp
+    ${GAME_SOURCE_DIR}/d20/races.cpp
     ${GAME_SOURCE_DIR}/d20/skills.cpp
     ${GAME_SOURCE_DIR}/d20/spells.cpp
     ${GAME_SOURCE_DIR}/debug.cpp

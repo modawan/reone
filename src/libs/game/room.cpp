@@ -17,6 +17,11 @@
 
 #include "reone/game/room.h"
 
+#include <stack>
+
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
+#include "reone/graphics/types.h"
 #include "reone/scene/node/model.h"
 
 #include "reone/game/object.h"
@@ -30,25 +35,49 @@ namespace game {
 
 void Room::addTenant(Object *object) {
     _tenants.insert(object);
-    object->setVisible(_visible);
 }
 
 void Room::removeTenant(Object *object) {
     _tenants.erase(object);
 }
 
-void Room::setVisible(bool visible) {
-    for (auto &tenant : _tenants) {
-        tenant->setVisible(visible);
+bool Room::boxHolds(const glm::vec2 &point) const {
+    return point.x >= _boxMin.x && point.y >= _boxMin.y && _boxMax.x >= point.x && _boxMax.y >= point.y;
+}
+
+void Room::computeBox() {
+    if (!_model) {
+        return;
     }
+    std::stack<std::reference_wrapper<const ModelNode>> nodes;
+    nodes.push(*_model->model().rootNode());
+    while (!nodes.empty()) {
+        const ModelNode &node = nodes.top();
+        nodes.pop();
+        for (const auto &child : node.children()) {
+            nodes.push(*child);
+        }
+        if (!node.isMesh() || (node.flags() & MdlNodeFlags::anim) != 0) {
+            continue;
+        }
+        if (node.mesh()->backgroundGeometry) {
+            _backgroundGeometry = true;
+            continue;
+        }
+        for (const auto &vertex : node.mesh()->mesh->vertices()) {
+            const glm::vec3 point {_position + glm::vec3(node.absoluteTransform() * glm::vec4(vertex.position, 1.0f))};
+            _boxMin = glm::min(_boxMin, point);
+            _boxMax = glm::max(_boxMax, point);
+        }
+    }
+}
+
+void Room::setVisible(bool visible) {
     if (_visible == visible) {
         return;
     }
     if (_model) {
         _model->setEnabled(visible);
-    }
-    if (_walkmesh) {
-        _walkmesh->setEnabled(visible);
     }
     if (_grass) {
         _grass->setEnabled(visible);

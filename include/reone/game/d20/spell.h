@@ -96,7 +96,11 @@ struct Spell {
     float range {0.0f};
     /** The spells.2da range tag as written. */
     std::string rangeTag;
-    /** The least distance the power menu offers the power at; none without a single-letter range tag. */
+    /**
+     * The least distance the power menu offers the power at, from the row of
+     * its range tag; none when the tag names no range (see
+     * unrangedPowerMinimumRange).
+     */
     std::optional<float> minimumRange;
     /** The combat forms the power works in (TSL). */
     uint32_t formMask {0};

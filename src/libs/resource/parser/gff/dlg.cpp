@@ -29,6 +29,7 @@ static DLG_EntryReplyList_EntriesRepliesList parseDLG_EntryReplyList_EntriesRepl
     DLG_EntryReplyList_EntriesRepliesList strct;
     strct.Active = gff.getString("Active");
     strct.Active2 = gff.getString("Active2");
+    strct.DisplayInactive = gff.getUint("DisplayInactive");
     strct.Index = gff.getUint("Index");
     strct.IsChild = gff.getUint("IsChild");
     strct.LinkComment = gff.getString("LinkComment");

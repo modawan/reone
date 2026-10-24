@@ -270,6 +270,13 @@ public:
      * spike, trap or computer spike, in list order.
      */
     std::optional<size_t> firstUseProperty() const;
+    /**
+     * The place of property \p property among the properties the item is used
+     * through: the number of them before it, in list order.
+     */
+    size_t usePropertyPlace(size_t property) const;
+    /** The property the item is used through at place \p place among them, if it has one there. */
+    std::optional<size_t> usePropertyAt(size_t place) const;
     /** A cast-spell property with a use left, whatever its upgrade. */
     bool hasSpellUse(size_t property) const;
     /** A cast-spell property with a use left that the item's upgrades leave in force. */

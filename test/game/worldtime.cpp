@@ -19,7 +19,6 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/resource/gff.h"
-#include "reone/scene/collision.h"
 
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
@@ -189,11 +188,13 @@ TEST_P(WorldTimeFixture, forced_move_timeout_expires_after_the_scripted_real_dur
 
     // In an area with open ground at the destination, the mover that runs out
     // of time is put down on it.
-    ON_CALL(*sceneGraph, testElevation(_, _))
-        .WillByDefault(Invoke([](const glm::vec3 &position, scene::Collision &collision) {
-            collision.intersection = glm::vec3(position.x, position.y, 0.0f);
-            return true;
-        }));
+    static graphics::Walkmesh groundWalkmesh;
+    auto ground = std::make_shared<scene::WalkmeshSceneNode>(
+        groundWalkmesh, *sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+    ON_CALL(*sceneGraph, findRoomWalkmesh(_))
+        .WillByDefault(Return(ground));
+    ON_CALL(*sceneGraph, findRoomFace(_, _, _))
+        .WillByDefault(Return(std::optional<scene::RoomFace>(scene::RoomFace {0, 0.0f, glm::vec3(0.0f, 0.0f, 1.0f)})));
     auto area = game.newArea();
     TestGameModule::setActiveModuleArea(game, area);
     area->add(actor);

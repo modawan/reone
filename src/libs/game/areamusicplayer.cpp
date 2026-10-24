@@ -49,11 +49,18 @@ static constexpr uint32_t kMusicRetryMilliseconds = 10000;
 // Setting a track restarts the background music on the next update.
 static constexpr uint32_t kTrackChangeRestartMilliseconds = 1;
 static constexpr uint32_t kAmbientFadeMilliseconds = 6000;
+static constexpr int kStingerPriorityGroup = 1;
+static constexpr int kMusicPriorityGroup = 2;
 static constexpr int kAreaWideAmbientPriorityGroup = 4;
-static constexpr int kMaxAmbientVolume = 127;
+static constexpr int kMaxVolume = 127;
+// TSL plays the streamed music group louder than its table volume.
+static constexpr float kTslMusicGroupBoost = 1.4f;
 
-// The area-wide ambient loop plays at the volume of its priority group.
-void AreaMusicPlayer::init() {
+// Music, battle music and menu music play at the volume of the streamed music
+// priority group, stingers at the stinger group's and the area-wide ambient
+// loop at the area-wide ambient group's. A group without a volume plays at the
+// loudest.
+void AreaMusicPlayer::init(bool tsl) {
     auto &twoDas = _services.resource.twoDas;
 
     auto music = getRequiredTwoDA(twoDas, "ambientmusic");
@@ -74,7 +81,14 @@ void AreaMusicPlayer::init() {
     }
 
     auto groups = getRequiredTwoDA(twoDas, "prioritygroups");
-    _ambientGroupGain = groups->getInt(kAreaWideAmbientPriorityGroup, "volume") / static_cast<float>(kMaxAmbientVolume);
+    const std::string volumeColumn {tsl ? "volume_pc" : "volume"};
+    auto groupGain = [&](int group, float boost) {
+        auto volume = groups->getIntOpt(group, volumeColumn);
+        return (volume ? static_cast<int>(*volume * boost) : kMaxVolume) / static_cast<float>(kMaxVolume);
+    };
+    _musicGroupGain = groupGain(kMusicPriorityGroup, tsl ? kTslMusicGroupBoost : 1.0f);
+    _stingerGroupGain = groupGain(kStingerPriorityGroup, 1.0f);
+    _ambientGroupGain = groupGain(kAreaWideAmbientPriorityGroup, 1.0f);
 }
 
 // A row outside a table reads as blank, as every 2DA row outside its table does.
@@ -94,7 +108,7 @@ const std::string &AreaMusicPlayer::ambientTrack(int row) const {
 
 float AreaMusicPlayer::ambientVolumeScale() const {
     const int volume = _area->ambientAudio().ambientSoundDayVolume;
-    return std::min(volume, kMaxAmbientVolume) / static_cast<float>(kMaxAmbientVolume);
+    return std::min(volume, kMaxVolume) / static_cast<float>(kMaxVolume);
 }
 
 // A fading track sounds until its fade ends.
@@ -129,7 +143,7 @@ bool AreaMusicPlayer::playTrack(const std::string &resRef) {
     if (resRef.empty()) {
         return false;
     }
-    _music = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music);
+    _music = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, _musicGroupGain);
     _fadeEnd.reset();
     _playingResRef = resRef;
     return static_cast<bool>(_music);
@@ -147,12 +161,17 @@ void AreaMusicPlayer::playStinger(const Track &track) {
     }
     int count = track.stingers[1].empty() ? 1 : (track.stingers[2].empty() ? 2 : 3);
     const std::string &resRef = track.stingers[randomInt(0, count - 1)];
-    _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music);
+    _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, _stingerGroupGain);
 }
 
+// The delay is taken from the area as it is entered; a delay of zero repeats
+// after a millisecond, and a negative one is read as unsigned, so the music
+// does not come back.
 void AreaMusicPlayer::load(std::shared_ptr<const Area> area) {
     _area = std::move(area);
+    _musicPlaysThroughMovies = false;
     const auto &audio = _area->ambientAudio();
+    _musicDelay = audio.musicDelay == 0 ? 1 : static_cast<uint32_t>(audio.musicDelay);
     _musicOn = audio.musicPlaying;
     _battleOn = audio.battleMusicPlaying;
     _ambientOn = audio.ambientSoundPlaying;
@@ -302,14 +321,24 @@ void AreaMusicPlayer::playBattleMusic(const Area &area, bool play) {
     }
 }
 
-void AreaMusicPlayer::musicDayTrackChanged(const Area &area, int previousTrack) {
+// A later delay of zero or less is ignored and the previous one is kept.
+void AreaMusicPlayer::musicDelayChanged(const Area &area) {
+    const int delay = area.ambientAudio().musicDelay;
+    if (plays(area) && delay > 0) {
+        _musicDelay = static_cast<uint32_t>(delay);
+    }
+}
+
+void AreaMusicPlayer::musicDayTrackChanged(const Area &area, int previousTrack, bool playsThroughMovies) {
     if (plays(area)) {
+        _musicPlaysThroughMovies = playsThroughMovies;
         restartMusic(previousTrack);
     }
 }
 
-void AreaMusicPlayer::musicNightTrackChanged(const Area &area, int previousTrack) {
+void AreaMusicPlayer::musicNightTrackChanged(const Area &area, int previousTrack, bool playsThroughMovies) {
     if (plays(area)) {
+        _musicPlaysThroughMovies = playsThroughMovies;
         restartMusic(previousTrack);
     }
 }
@@ -354,7 +383,7 @@ void AreaMusicPlayer::ambientDayVolumeChanged(const Area &area) {
 }
 
 // A track that ends is repeated after a gap: one second for battle music,
-// the area's delay for background music. Music is on only while an area is
+// the music delay for background music. Music is on only while an area is
 // loaded.
 void AreaMusicPlayer::update() {
     // An ambient loop that is on but has ended, after a fade or a track
@@ -379,9 +408,7 @@ void AreaMusicPlayer::update() {
             }
         }
     } else if (_musicOn || _battleOn) {
-        // An area without a delay of its own repeats at once.
-        _countdown = _battleOn ? kBattleRepeatGapMilliseconds
-                               : static_cast<uint32_t>(std::max(1, _area->ambientAudio().musicDelay));
+        _countdown = _battleOn ? kBattleRepeatGapMilliseconds : _musicDelay;
     }
     _lastUpdateTime = now;
 }

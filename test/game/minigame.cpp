@@ -125,7 +125,6 @@ TEST(MinigameSpec, turret_area_is_recognized) {
     EXPECT_FLOAT_EQ(spec->cameraViewAngle, 65.0f);
     EXPECT_FLOAT_EQ(spec->nearClip, 0.1f);
     EXPECT_FLOAT_EQ(spec->farClip, 2000.0f);
-    EXPECT_EQ(spec->music, "mus_bat_sithbs");
     EXPECT_EQ(spec->mouse.axisX, 3u);
     EXPECT_FALSE(spec->mouse.flipAxisX);
 }

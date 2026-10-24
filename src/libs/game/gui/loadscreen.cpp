@@ -18,6 +18,8 @@
 #include "reone/game/gui/loadscreen.h"
 
 #include "reone/game/game.h"
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
 #include "reone/resource/resources.h"
 
 using namespace reone::audio;
@@ -45,10 +47,24 @@ void LoadingScreen::onGUILoaded() {
     bindControls();
 
     _controls.LBL_HINT->setTextMessage("");
+    _loadScreens = getRequiredTwoDA(_services.resource.twoDas, "loadscreens");
 }
 
-void LoadingScreen::setImage(const std::string &resRef) {
-    _gui->rootControl().setBorderFill(resRef);
+void LoadingScreen::setModuleImage(const std::string &moduleName) {
+    static constexpr char kImageColumn[] = "bmpresref";
+    static constexpr char kDefaultRow[] = "default";
+    std::string image;
+    const int row = _loadScreens->indexByLabel(moduleName);
+    if (auto named = row != -1 ? _loadScreens->getStringOpt(row, kImageColumn) : std::nullopt) {
+        image = *named;
+    } else if (const std::string own = "load_" + moduleName;
+               _services.resource.resources.find(ResourceId(own, ResType::Tga)) ||
+               _services.resource.resources.find(ResourceId(own, ResType::Tpc))) {
+        image = own;
+    } else {
+        image = _loadScreens->getString(_loadScreens->indexByLabel(kDefaultRow), kImageColumn);
+    }
+    _gui->rootControl().setBorderFill(image);
 }
 
 void LoadingScreen::setProgress(int progress) {

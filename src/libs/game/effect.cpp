@@ -874,7 +874,7 @@ EffectInstance Effect::saveFacingInstance() const {
     result.serializedType = serializedEffectType(_type);
     result.setCategory(_category);
     result.exposed = 1;
-    result.creatorId = kSavedEffectInvalidObjectId;
+    result.creatorId = _saveFacingCreatorId;
     result.spellId = _saveFacingSpellId;
     result.integerParameters = _saveFacingIntegers;
     result.floatParameters = _saveFacingFloats;
@@ -897,16 +897,20 @@ EffectInstance Effect::saveFacingInstance() const {
 
 void Effect::setSaveFacingCreator(const std::shared_ptr<Object> &creator) {
     _saveFacingCreator = creator;
+    _saveFacingCreatorId = creator ? creator->id() : kSavedEffectInvalidObjectId;
 }
 
 void Effect::setCreatorFromCaller(const std::shared_ptr<Object> &caller) {
-    _saveFacingCreator = caller;
+    setSaveFacingCreator(caller);
     if (!caller || isa<Area>(caller.get()) || isa<Module>(caller.get())) {
         return;
     }
     _saveFacingSpellId = caller->effectSpellId();
     if (auto areaOfEffect = dyn_cast<AreaOfEffect>(caller.get())) {
-        _saveFacingCreator = areaOfEffect->creator();
+        // The area of effect's creator is passed on even when it is gone.
+        setSaveFacingCreator(areaOfEffect->creator());
+        const uint32_t creatorId = areaOfEffect->creatorId();
+        _saveFacingCreatorId = creatorId == script::kObjectInvalid ? kSavedEffectInvalidObjectId : creatorId;
     }
 }
 
@@ -990,8 +994,12 @@ void Effect::captureSaveFacingScriptArguments(
     for (const auto &argument : arguments) {
         switch (argument.type) {
         case script::VariableType::Int:
-            if (_type == EffectType::Visual && integerIndex == 1) {
-                setSaveFacingInteger(2, argument.intValue);
+            if (_type == EffectType::Visual) {
+                // The visual keeps the id it shows, as constructed; the miss
+                // argument is kept as given.
+                if (integerIndex == 1) {
+                    setSaveFacingInteger(2, argument.intValue);
+                }
             } else if ((_type == EffectType::SavingThrowIncrease ||
                         _type == EffectType::SavingThrowDecrease) &&
                        integerIndex < 3) {
@@ -1445,12 +1453,12 @@ bool EffectInstance::bindObjectParameter(
 }
 
 void EffectInstance::retireAreaRuntimeBindings(
-    const std::set<const Object *> &retainedObjects) {
-    auto retain = [&retainedObjects](
+    const std::set<uint32_t> &retainedObjectIds) {
+    auto retain = [&retainedObjectIds](
                       RuntimeObjectRef<Object> &binding,
                       uint32_t &identity) {
         auto object = binding.resolve();
-        if (!object || retainedObjects.count(object.get()) == 0) {
+        if (!object || retainedObjectIds.count(object->id()) == 0) {
             binding.reset();
             identity = kSavedEffectInvalidObjectId;
             return;
@@ -1631,12 +1639,12 @@ EffectApplicationResult LinkEffectsEffect::onApply(Object &object, EffectInstanc
 }
 
 void LinkEffectsEffect::retireAreaRuntime(
-    const std::set<const Object *> &retainedObjects) {
+    const std::set<uint32_t> &retainedObjectIds) {
     if (_childEffect) {
-        _childEffect->retireAreaRuntime(retainedObjects);
+        _childEffect->retireAreaRuntime(retainedObjectIds);
     }
     if (_parentEffect) {
-        _parentEffect->retireAreaRuntime(retainedObjects);
+        _parentEffect->retireAreaRuntime(retainedObjectIds);
     }
 }
 

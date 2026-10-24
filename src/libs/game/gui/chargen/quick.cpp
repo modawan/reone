@@ -32,17 +32,29 @@ namespace reone {
 
 namespace game {
 
+/** The controls the panel shows in both titles. */
+static const std::unordered_set<std::string> kPanelControls {
+    "BTN_BACK", "BTN_CANCEL", "BTN_STEPNAME1", "BTN_STEPNAME2", "BTN_STEPNAME3", "LBL_1",
+    "LBL_2", "LBL_3", "LBL_NUM1", "LBL_NUM2", "LBL_NUM3"};
+/** The controls the panel also shows in KotOR. */
+static const std::unordered_set<std::string> kK1PanelControls {"LBL_DECORATION"};
+/** No further controls, for a title that names none of its own. */
+static const std::unordered_set<std::string> kNoTitleControls;
+
 void QuickCharacterGeneration::onGUILoaded() {
     bindControls();
+    showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
     doSetStep(0);
 
     _controls.BTN_CANCEL->setOnClick([this]() {
         setStep(0);
+        _charGen.resetCreationFeats();
         _charGen.openQuickOrCustom();
     });
     _controls.BTN_BACK->setOnClick([this]() {
         if (_step == 0) {
+            _charGen.resetCreationFeats();
             _charGen.openQuickOrCustom();
         } else {
             setStep(_step - 1);

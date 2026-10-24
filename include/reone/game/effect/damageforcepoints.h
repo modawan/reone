@@ -23,18 +23,15 @@ namespace reone {
 
 namespace game {
 
+/** Takes Force points: the amount is integer 0. */
 class DamageForcePointsEffect : public CopyableEffect<DamageForcePointsEffect> {
 public:
     DamageForcePointsEffect(int damage) :
-        CopyableEffect(EffectType::DamageForcePoints),
-        _damage(damage) {
+        CopyableEffect(EffectType::DamageForcePoints) {
         setSaveFacingInteger(0, damage);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    int _damage;
 };
 
 } // namespace game

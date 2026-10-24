@@ -486,14 +486,16 @@ bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
 
     // While the mouse turns the camera nothing is under the pointer.
     const Camera *camera = _game.getActiveCamera();
-    auto object = camera && camera->isMouseLookMode() ? nullptr : _area->getObjectAt(event.x, event.y);
-    if (object && object->isSelectable()) {
-        auto objectPtr = _game.getObjectById(object->id());
+    auto object = camera && camera->isMouseLookMode() ? std::nullopt : _area->getObjectAt(event.x, event.y);
+    if (object && object->get().isSelectable()) {
+        Object &picked = object->get();
+        auto objectPtr = _game.getObjectById(picked.id());
         _area->hilightObject(objectPtr);
 
-        bool hostile = object->type() == ObjectType::Creature && !object->isDead()
-            ? isHostileToPartyLeader(*static_cast<Creature *>(object)) : false;
-        cursor = contextualCursor(object->type(), object->isDead(), hostile);
+        bool hostile = picked.type() == ObjectType::Creature && !picked.isDead()
+                           ? isHostileToPartyLeader(static_cast<Creature &>(picked))
+                           : false;
+        cursor = contextualCursor(picked.type(), picked.isDead(), hostile);
     } else {
         _area->hilightObject(nullptr);
     }
@@ -508,10 +510,10 @@ bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
         return false;
     }
     auto object = _area->getObjectAt(event.x, event.y);
-    if (!object || !object->isSelectable()) {
+    if (!object || !object->get().isSelectable()) {
         return false;
     }
-    auto objectPtr = _game.getObjectById(object->id());
+    auto objectPtr = _game.getObjectById(object->get().id());
     if (!objectPtr) {
         return false;
     }
@@ -594,6 +596,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sou
             creature->face(*partyLeader);
         }
         partyLeader->clearAllActions(true);
+        _game.setDialogUnderWay(true);
         partyLeader->addAction(_game.newAction<StartConversationAction>(creature, ""));
     }
 }
@@ -641,6 +644,7 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
         }
     } else if (!placeable->conversation().empty()) {
         partyLeader->clearOrdersUnlessBusy();
+        _game.setDialogUnderWay(true);
         partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
     } else {
         partyLeader->clearOrdersUnlessBusy();
@@ -861,22 +865,6 @@ void Module::publishSavedEvent(size_t index) {
 void Module::dispatchDueSavedEvents() {
     publishSavedEventQueue();
     detail::dispatchDueSavedEvents(_publishedSavedEvents, _dispatchingSavedEvents, [&]() { return _game.worldTimeMilliseconds(); }, [&](PublishedSavedEvent &event) { deliverSavedEvent(event); }, [&]() { return static_cast<bool>(_game.movie()); });
-}
-
-void Module::cancelObjectDestruction(const Object &object) {
-    for (auto it = _pendingSavedEvents.begin(); it != _pendingSavedEvents.end();) {
-        const auto index = it->first;
-        const auto &event = it->second.record;
-        // Only the death fade is withdrawn. Its records carry no caller; a
-        // script's DestroyObject cannot be cancelled.
-        const bool matches = event.eventId == static_cast<uint32_t>(SavedEventType::DestroyObject) &&
-                             event.caller.isInvalid() &&
-                             event.object.boundObject().get() == &object;
-        ++it;
-        if (matches) {
-            cancelSaveEvent(index);
-        }
-    }
 }
 
 void Module::dropPendingEvents(const Object &target) {
@@ -1107,6 +1095,10 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         }
     } else if (auto area = dyn_cast<Area>(target); area && type == Signal::Entered) {
         area->receiveEnteredSignal(savedEvent.caller.boundObject(), !event.integers.empty() && event.integers[0] != 0);
+    } else if (auto area = dyn_cast<Area>(target); area && type == Signal::Exited) {
+        area->receiveExitedSignal(savedEvent.caller.boundObject());
+    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && type == Signal::Clicked) {
+        trigger->receiveClick(subject());
     } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
         // A conversation event reaches creatures, placeables and doors only;
         // the caller is the one who spoke.
@@ -1130,21 +1122,28 @@ void Module::deliverSpellCastAtSignal(const SavedScriptEvent &event, Object &tar
         creature->receiveSpellCastAt(casterId, spell, harmful);
         return;
     }
-    // A harmful spell at a door or placeable records its caster as the last
-    // hostile actor and excites the caster's spell row before the
-    // spell-cast-at script runs.
+    // A door or placeable records the spell cast at it with the caster the
+    // signal names, even one that no longer exists; a harmful one also
+    // records that caster as the last hostile actor and excites the caster's
+    // spell row before the spell-cast-at script runs. A caster restored from
+    // a save that no longer exists names no object.
     const bool doorOrPlaceable = isa<Door>(&target) || isa<Placeable>(&target);
+    uint32_t namedCasterId = casterId;
+    if (!caster && !event.objects.empty() && !event.objects[0].isInvalid() &&
+        !event.objects[0].isSerializedIdentity()) {
+        namedCasterId = event.objects[0].id;
+    }
+    if (doorOrPlaceable) {
+        target.setLastSpellCast(namedCasterId, spell, harmful);
+    }
     if (doorOrPlaceable && harmful != 0) {
-        target.setLastHostileActor(casterId);
+        target.setLastHostileActor(namedCasterId);
         if (auto casterCreature = caster ? dyn_cast<Creature>(caster) : nullptr) {
             casterCreature->setExcitedState(kSpellCasterExcitedState);
             casterCreature->removeCombatInvisibilityEffects();
         }
     }
-    _game.scriptRunner().run(target.getOnSpellCastAt(), {{script::ArgKind::Caller, script::Variable::ofObject(target.id())},
-                                                         {script::ArgKind::LastSpellCaster, script::Variable::ofObject(casterId)},
-                                                         {script::ArgKind::LastSpell, script::Variable::ofInt(spell)},
-                                                         {script::ArgKind::LastSpellHarmful, script::Variable::ofInt(harmful)}});
+    _game.scriptRunner().run(target.getOnSpellCastAt(), {{script::ArgKind::Caller, script::Variable::ofObject(target.id())}});
 }
 
 void Module::deliverAttackedEvent(const SavedEventRecord &savedEvent, Object &target) {
@@ -1278,7 +1277,6 @@ void Module::update(float dt) {
     if (held()) {
         return;
     }
-    _game.updateTimeStop();
 
     if (_game.cameraType() == CameraType::ThirdPerson) {
         _player->update(dt);
@@ -1297,7 +1295,20 @@ void Module::update(float dt) {
     if (held()) {
         return;
     }
-    updateStampedHeartbeat(_onHeartbeat);
+    // The module and its area take turns. On the module's turn a due
+    // heartbeat runs; without one, a time stop no creature holds any more
+    // ends. On the area's turn the area's heartbeat runs when due.
+    if (!_moduleTurn) {
+        _area->updateHeartbeat();
+        _moduleTurn = true;
+        return;
+    }
+    _moduleTurn = false;
+    if (isHeartbeatDueSince(_heartbeatDay, _heartbeatTime)) {
+        updateStampedHeartbeat(_onHeartbeat);
+    } else {
+        _game.updateTimeStop();
+    }
 }
 
 void Module::runObjectActions() {
@@ -1571,7 +1582,9 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
         return true;
     case input::KeyCode::Q:
     case input::KeyCode::E: {
-        // Target cycling: Q steps counter-clockwise, E clockwise.
+        // Target cycling: Q steps counter-clockwise, E clockwise. Either key
+        // ends the choice of a party member to use an item on.
+        _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
             return false;
         }

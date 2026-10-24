@@ -39,7 +39,6 @@
 #include "reone/resource/provider/models.h"
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
-#include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/model.h"
@@ -128,6 +127,7 @@ void Trigger::deserializeAll(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");
+    gff.readResRef(_onClick, "OnClick");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     _trap.deserialize(gff);
     if (gff.readString(_linkedTo, "LinkedTo")) {
@@ -196,7 +196,6 @@ void Trigger::deserializeAll(
     }
 
     // Not handled:
-    // - OnClick
     // - Cursor
     // - PortraitId
     // - VarTable
@@ -295,6 +294,7 @@ void Trigger::setTrapCreator(const std::shared_ptr<Object> &creator) {
 }
 
 void Trigger::initMine(
+    const Area &area,
     int trapType,
     const glm::vec3 &position,
     const std::shared_ptr<Object> &creator,
@@ -313,15 +313,14 @@ void Trigger::initMine(
         _name = _locName.str();
     }
     // A square four metres across, each corner on the ground beneath it, or
-    // level with the mine where there is no ground or the ground is at height
+    // level with the mine where there is no room or the ground is at height
     // zero.
     _position = position;
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto corner = [&](float x, float y) {
         glm::vec3 point {x, y, 0.0f};
-        Collision collision;
-        if (sceneGraph.testElevation(position + point, collision) && collision.intersection.z != 0.0f) {
-            point.z = collision.intersection.z - position.z;
+        const float ground = area.groundHeight(glm::vec3(position.x + x, position.y + y, 0.0f), Area::GroundFace::Locating);
+        if (ground != 0.0f) {
+            point.z = ground - position.z;
         }
         return point;
     };
@@ -360,7 +359,13 @@ bool Trigger::canFireMineOn(const Creature &creature, bool force) const {
     return fire;
 }
 
-void Trigger::fireMine(const std::shared_ptr<Creature> &creature, bool force) {
+void Trigger::enterMine(const std::shared_ptr<Creature> &creature, bool force) {
+    _lastEnteredId = creature->id();
+    fireMine(force);
+}
+
+void Trigger::fireMine(bool force) {
+    auto creature = _game.getObjectById<Creature>(_lastEnteredId);
     if (!creature || !canFireMineOn(*creature, force)) {
         return;
     }
@@ -487,7 +492,7 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     syncDebugVisual();
     // Stepping on a trap goes through the trap, which runs the enter script itself.
     if (_isTrap) {
-        fireMine(std::dynamic_pointer_cast<Creature>(object), false);
+        fireMine(false);
         return;
     }
     if (_onEnter.empty()) {
@@ -495,6 +500,22 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     }
 
     _game.scriptRunner().run(_onEnter, _id);
+}
+
+// The click script an area transition takes when it has none of its own, and
+// the name that stands for none.
+static constexpr char kTransitionClickScript[] = "nw_g0_transition";
+static constexpr char kDefaultClickScript[] = "default";
+
+void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
+    _lastEnteredId = clicker ? clicker->id() : script::kObjectInvalid;
+    if ((_onClick.empty() || _onClick == kDefaultClickScript) && isAreaTransition()) {
+        _onClick = kTransitionClickScript;
+    }
+    if (_onClick.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_onClick, _id);
 }
 
 void Trigger::removeTenant(const Object *object) {

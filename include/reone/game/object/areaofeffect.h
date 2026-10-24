@@ -87,6 +87,8 @@ public:
     void setDuration(DurationType type, float seconds);
 
     std::shared_ptr<Object> creator() const { return savedReference(kCreatorReference); }
+    /** The creator's id, kept after the creator is gone; no object when it has none. */
+    uint32_t creatorId() const;
     std::shared_ptr<Object> carrier() const { return _carrier.boundObject(); }
     std::shared_ptr<Object> lastEntered() const { return _lastEntered.boundObject(); }
     std::shared_ptr<Object> lastLeft() const { return _lastLeft.boundObject(); }
@@ -146,6 +148,9 @@ private:
     SavedObjectReference _lastEntered;
     SavedObjectReference _lastLeft;
     // END Serializable
+
+    /** The id of the creator set while the area of effect exists. */
+    uint32_t _creatorId {script::kObjectInvalid};
 
     std::set<uint32_t> _occupants;
     std::array<glm::vec2, 4> _corners {};

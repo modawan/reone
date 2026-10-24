@@ -580,8 +580,8 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     // The module archive is frozen before the live Area attachment retires.
     // Runtime execution must not leak into the destination merely because the
     // party creature survives, while persistent gameplay effects remain live.
-    std::set<const Object *> retainedObjects {player.get()};
-    player->retireAreaRuntime(area->pathfinder(), retainedObjects);
+    std::set<uint32_t> retainedObjectIds {player->id()};
+    player->retireAreaRuntime(area->pathfinder(), retainedObjectIds);
     EXPECT_TRUE(player->actions().empty());
     ASSERT_EQ(1u, player->effects().size());
 
@@ -1674,7 +1674,7 @@ TEST_F(SnapshotFixture, unsupported_live_action_fails_without_mutating_runtime_o
 
 TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action) {
     auto action = game.newAction<PlayAnimationAction>(
-        AnimationType::LoopingPause, 1.5f, 6.0f, true, true);
+        10000, 1.5f, 6.0f, false);
     SavedActionRecord provenance;
     provenance.groupActionId = 19;
     action->attachSavedAction(provenance);
@@ -1691,9 +1691,8 @@ TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action
         snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 6u);
     EXPECT_EQ(saved.groupActionId, 19);
-    ASSERT_EQ(saved.parameters.size(), 5);
-    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[0].payload).id,
-              static_cast<uint32_t>(AnimationType::LoopingPause));
+    ASSERT_EQ(saved.parameters.size(), 4);
+    EXPECT_EQ(std::get<int32_t>(saved.parameters[0].payload), 10000);
     EXPECT_EQ(std::get<int32_t>(saved.parameters[3].payload), 0);
     EXPECT_TRUE(saved.toRuntimeAction(game));
 }
@@ -2079,9 +2078,9 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
         EXPECT_NE(it, talentRecord->fields().end());
         return it == talentRecord->fields().end() ? Gff::FieldType::Byte : it->type;
     };
-    EXPECT_EQ(fieldType("ID"), Gff::FieldType::Dword);
-    EXPECT_EQ(fieldType("Type"), Gff::FieldType::Dword);
-    EXPECT_EQ(fieldType("ItemPropertyInde"), Gff::FieldType::Dword);
+    EXPECT_EQ(fieldType("ID"), Gff::FieldType::Int);
+    EXPECT_EQ(fieldType("Type"), Gff::FieldType::Int);
+    EXPECT_EQ(fieldType("ItemPropertyInde"), Gff::FieldType::Int);
 
     auto saved = SavedActionRecord::fromGff(
         *actionRecord, snapshotIdentityContext());
@@ -2480,7 +2479,7 @@ TEST_F(SnapshotFixture, pending_start_conversation_is_a_supported_transition_sna
         snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 24u);
     EXPECT_EQ(saved.groupActionId, 16);
-    EXPECT_EQ(saved.declaredParameterCount, 3);
+    EXPECT_EQ(saved.declaredParameterCount, 6);
     EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[0].payload).id,
               target->id());
     EXPECT_EQ(std::get<std::string>(saved.parameters[1].payload), "meeting");

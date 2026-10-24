@@ -23,13 +23,14 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Raises saving throws: the amount is integer 0, the save integer 1, the
+ * saving throw type integer 2 and the racial type integer 3.
+ */
 class SavingThrowIncreaseEffect : public CopyableEffect<SavingThrowIncreaseEffect> {
 public:
     SavingThrowIncreaseEffect(int save, int value, SavingThrowType savingThrowType) :
-        CopyableEffect(EffectType::SavingThrowIncrease),
-        _save(save),
-        _value(value),
-        _savingThrowType(savingThrowType) {
+        CopyableEffect(EffectType::SavingThrowIncrease) {
         setSaveFacingInteger(0, value);
         setSaveFacingInteger(1, save);
         setSaveFacingInteger(2, static_cast<int>(savingThrowType));
@@ -37,15 +38,6 @@ public:
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-    int save() const { return _save; }
-    int value() const { return _value; }
-    SavingThrowType savingThrowType() const { return _savingThrowType; }
-
-private:
-    int _save;
-    int _value;
-    SavingThrowType _savingThrowType;
 };
 
 } // namespace game

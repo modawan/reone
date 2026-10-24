@@ -387,6 +387,12 @@ std::string PresentationGUI::guiResRef(const std::string &base) const {
     return isTSL() ? base + "_p" : base;
 }
 
+void PresentationGUI::clickControl(const std::string &tag) {
+    auto control = _gui->findControl(tag);
+    onClick(tag);
+    control->handleClick(0, 0);
+}
+
 void PresentationGUI::onClick(const std::string &control) {
     auto clip = _presentation.sounds.getOnClick();
     _audioSource = _presentation.mixer.play(std::move(clip), AudioType::Sound);

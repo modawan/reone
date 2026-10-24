@@ -23,21 +23,19 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Makes a creature immune: the immunity type is integer 0 and the racial type
+ * integer 1.
+ */
 class ImmunityEffect : public CopyableEffect<ImmunityEffect> {
 public:
     ImmunityEffect(ImmunityType immunityType) :
-        CopyableEffect(EffectType::Immunity),
-        _immunityType(immunityType) {
+        CopyableEffect(EffectType::Immunity) {
         setSaveFacingInteger(0, static_cast<int>(immunityType));
         setSaveFacingInteger(1, static_cast<int>(RacialType::All));
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-    ImmunityType immunityType() const { return _immunityType; }
-
-private:
-    ImmunityType _immunityType;
 };
 
 } // namespace game

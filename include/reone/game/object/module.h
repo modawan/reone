@@ -194,8 +194,6 @@ public:
     /** Shows again the projectiles the loaded save had in flight. */
     void restoreProjectilePresentations();
     void dispatchDueSavedEvents();
-    /** Withdraws the death fade queued for the object; a script's destruction stays. */
-    void cancelObjectDestruction(const Object &object);
     /**
      * Drops every event still pending for target, whatever its kind: an
      * object that ceases to exist receives none of them, and none is saved.
@@ -257,6 +255,11 @@ private:
     std::map<SavedEventDeadline, PublishedSavedEvent> _publishedSavedEvents;
     bool _savedEventsPublished {false};
     bool _dispatchingSavedEvents {false};
+    /**
+     * The module's own update and its area's take turns, one per frame; the
+     * module's comes first.
+     */
+    bool _moduleTurn {true};
 
     void onCreatureClick(const std::shared_ptr<Creature> &creature, bool sound = true);
     void onDoorClick(const std::shared_ptr<Door> &door);

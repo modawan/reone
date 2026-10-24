@@ -23,7 +23,6 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/2das.h"
-#include "reone/system/exception/validation.h"
 
 using namespace reone::resource;
 
@@ -98,11 +97,10 @@ void CombatTables::init(ITwoDAs &twoDas, GameID gameId) {
 
     // The first column is the label; each further one is an immunity.
     auto gameEffects = getRequiredTwoDA(twoDas, "gameeffects");
-    const auto &columns = gameEffects->columns();
     for (int row = 0; row < gameEffects->getRowCount(); ++row) {
         std::vector<int> immunities;
-        for (int column = 1; column < static_cast<int>(columns.size()); ++column) {
-            if (gameEffects->getInt(row, columns[column], 0) != 0) {
+        for (int column = 1; column < gameEffects->getColumnCount(); ++column) {
+            if (gameEffects->getInt(row, column, 0) != 0) {
                 immunities.push_back(column - 1);
             }
         }
@@ -185,19 +183,17 @@ void CombatTables::init(ITwoDAs &twoDas, GameID gameId) {
         }
     }
 
-    // The thresholds are unsigned: the last level's is 0xFFFFFFFF.
+    // The thresholds are unsigned: the last level's is 0xFFFFFFFF. KotOR has 21
+    // level rows and TSL 51; a blank cell, or a row the table lacks, is 0.
+    const int levelRows = gameId == GameID::TSL ? 51 : 21;
     auto thresholds = getRequiredTwoDA(twoDas, "exptable");
-    for (int row = 0; row < thresholds->getRowCount(); ++row) {
-        auto threshold = thresholds->getUintOpt(row, "xp");
-        if (!threshold) {
-            throw ValidationException("Missing required exptable XP at row " + std::to_string(row));
-        }
-        _experienceThresholds.push_back(*threshold);
+    for (int row = 0; row < levelRows; ++row) {
+        _experienceThresholds.push_back(thresholds->getUint(row, "xp"));
     }
     auto experience = getRequiredTwoDA(twoDas, "xptable");
     for (int row = 0; row < experience->getRowCount(); ++row) {
         std::vector<float> cells;
-        for (const auto &column : experience->columns()) {
+        for (int column = 0; column < experience->getColumnCount(); ++column) {
             cells.push_back(experience->getFloat(row, column, 0.0f));
         }
         _killExperience.push_back(std::move(cells));
@@ -206,10 +202,12 @@ void CombatTables::init(ITwoDAs &twoDas, GameID gameId) {
     auto weaponSounds = getRequiredTwoDA(twoDas, "weaponsounds");
     for (int row = 0; row < weaponSounds->getRowCount(); ++row) {
         std::unordered_map<std::string, std::string> sounds;
+        // Sounds are looked up by column name, ignoring case; of columns
+        // whose names differ only in case, the first is found.
         for (const auto &column : weaponSounds->columns()) {
             auto sound = boost::to_lower_copy(weaponSounds->getString(row, column));
             if (!sound.empty()) {
-                sounds.emplace(column, std::move(sound));
+                sounds.emplace(boost::to_lower_copy(column), std::move(sound));
             }
         }
         _weaponSounds.push_back(std::move(sounds));
@@ -363,7 +361,7 @@ const std::string &CombatTables::weaponSound(int row, const std::string &column)
     if (row < 0 || row >= static_cast<int>(_weaponSounds.size())) {
         return kNoSound;
     }
-    auto sound = _weaponSounds[row].find(column);
+    auto sound = _weaponSounds[row].find(boost::to_lower_copy(column));
     return sound != _weaponSounds[row].end() ? sound->second : kNoSound;
 }
 

@@ -28,7 +28,9 @@ namespace reone {
 namespace game {
 
 /**
- * Rolling in-game feedback and conversation history.
+ * Rolling in-game feedback and conversation history. It lasts as long as the
+ * program: loading a game appends the saved lists, and neither a load, a
+ * return to the main menu nor a new character clears it.
  */
 class MessageLog {
 public:
@@ -71,10 +73,6 @@ public:
     void add(uint32_t type, Style style, std::string text, Buffer buffer = Buffer::Messages);
     /** A conversation line goes to the dialog list; one without text is not kept. */
     void addDialog(std::string speaker, std::string text);
-    void reset() {
-        _entries.clear();
-        _dialogEntries.clear();
-    }
 
     /** TSL enables the combat list; with it disabled, its lines go to the message list. */
     void setCombatBufferEnabled(bool enabled) { _combatBufferEnabled = enabled; }

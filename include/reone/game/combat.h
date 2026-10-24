@@ -438,6 +438,15 @@ public:
     bool hasScheduled(const Object &actor) const;
     /** Fills \p entries with the creature's round entries not yet taken up, in order. */
     void pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &entries) const;
+    /**
+     * The creature's round action under way: the scheduled entry holding its
+     * round for its pause, or else the command its running round carries
+     * out, of the kind of round entry it stands for: a cast, an item use, a
+     * feat attack, Total Defense or an attack. None while nothing is under
+     * way, and none for a round with no command of its own: a duel partner's
+     * side, or a round restored from a save.
+     */
+    std::optional<PendingEntry> currentRoundAction(const Creature &actor) const;
     /** Installs the round dispatcher: in front of the queue, or behind it when toFront is false. */
     void ensureDispatcher(Creature &actor, bool toFront = true);
     /** Hands the creature's pending equipment entries on to its queue. */
@@ -498,6 +507,8 @@ private:
         OrdinaryActionQueue::Node node;
         /** The objects the entry names were found when it was restored. */
         bool referencesBound {true};
+        /** The power a cast entry casts; a save does not keep it, so a restored entry has none. */
+        std::optional<SpellType> spell;
     };
 
     /** A creature's scheduled round entries and the time on its schedule. */
@@ -543,10 +554,18 @@ private:
     /** Takes up a due cast entry, or uses it up when its cast can no longer run. */
     EntryTake takeCast(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
     /**
-     * Uses up an entry that can no longer be carried out. It has no effect;
-     * an equip or unequip still holds its creature for its pause.
+     * Uses up an entry that can no longer be carried out. Its command has no
+     * effect, but the entry becomes the round's action and takes its creature
+     * out of stealth as a carried-out one would; an equip or unequip still
+     * holds its creature for its pause.
      */
     EntryTake useUpEntry(Creature &actor, ScheduledOwner &owner, ScheduledEntry &entry);
+    /**
+     * Whether taking up \p entry, carried out or not, leaves its creature in
+     * stealth: an item use does, and in TSL so do a stance and a cast of a
+     * power that keeps stealth; every other entry takes it out.
+     */
+    bool entryKeepsStealth(const ScheduledEntry &entry) const;
     /** Starts the pause of an equip or unequip: its creature leaves stealth and stops. */
     void beginEquipmentPause(Creature &actor, ScheduledEntry &entry);
     /** A scheduled entry's pause has ended: \p actor, and the partner of a pair it masters, take up their pose. */

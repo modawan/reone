@@ -41,7 +41,6 @@
 #include "reone/graphics/modelnode.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
-#include "reone/scene/collision.h"
 #include "reone/scene/node/model.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/variable.h"
@@ -800,13 +799,15 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     configureRuntimeMocks(engine, sceneGraph);
     Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
     Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    ON_CALL(sceneGraph, testElevation(_, _))
-        .WillByDefault(Invoke([&destinationRoom](
-                                  const glm::vec3 &position,
-                                  scene::Collision &collision) {
-            collision.intersection = position;
-            collision.user = &destinationRoom;
-            return true;
+    graphics::Walkmesh destinationRoomNodeWalkmesh;
+    auto destinationRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
+        destinationRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+    destinationRoomNode->setUser(destinationRoom);
+    ON_CALL(sceneGraph, findRoomWalkmesh(_))
+        .WillByDefault(Return(destinationRoomNode));
+    ON_CALL(sceneGraph, findRoomFace(_, _, _))
+        .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
+            return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
         }));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -887,13 +888,15 @@ TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
     Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    ON_CALL(sceneGraph, testElevation(_, _))
-        .WillByDefault(Invoke([&savedRoom](
-                                  const glm::vec3 &position,
-                                  scene::Collision &collision) {
-            collision.intersection = position;
-            collision.user = &savedRoom;
-            return true;
+    graphics::Walkmesh savedRoomNodeWalkmesh;
+    auto savedRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
+        savedRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+    savedRoomNode->setUser(savedRoom);
+    ON_CALL(sceneGraph, findRoomWalkmesh(_))
+        .WillByDefault(Return(savedRoomNode));
+    ON_CALL(sceneGraph, findRoomFace(_, _, _))
+        .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
+            return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
         }));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -950,6 +953,8 @@ struct PartyTransferHarness {
     NiceMock<scene::MockSceneGraph> sceneGraph;
     StubConsole console;
     Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    graphics::Walkmesh roomWalkmesh;
+    std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     std::unique_ptr<Game> game;
     std::shared_ptr<Creature> player;
     std::shared_ptr<Creature> companion;
@@ -958,13 +963,14 @@ struct PartyTransferHarness {
     explicit PartyTransferHarness(resource::GameID gameId) {
         engine.init();
         configureRuntimeMocks(engine, sceneGraph);
-        ON_CALL(sceneGraph, testElevation(_, _))
-            .WillByDefault(Invoke([this](
-                                      const glm::vec3 &position,
-                                      scene::Collision &collision) {
-                collision.intersection = position;
-                collision.user = &room;
-                return true;
+        roomNode = std::make_shared<scene::WalkmeshSceneNode>(
+            roomWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+        roomNode->setUser(room);
+        ON_CALL(sceneGraph, findRoomWalkmesh(_))
+            .WillByDefault(Return(roomNode));
+        ON_CALL(sceneGraph, findRoomFace(_, _, _))
+            .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
+                return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
             }));
         game = std::make_unique<Game>(
             gameId, "", engine.options(), engine.services(), console);
@@ -1768,6 +1774,8 @@ TEST(RuntimeObjectIntegrity, area_destruction_ends_registry_and_saved_visibility
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
+    // A creature destroyed in the area signals its exit through the module.
+    TestGameModule::setActiveModuleArea(game, area);
     auto saved = resource::Gff::Builder()
                      .field(resource::Gff::Field::newDword("ObjectId", 830))
                      .build();
@@ -3100,13 +3108,15 @@ TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_id
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
     Room room("partial", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    ON_CALL(sceneGraph, testElevation(_, _))
-        .WillByDefault(Invoke([&room](
-                                  const glm::vec3 &position,
-                                  scene::Collision &collision) {
-            collision.intersection = position;
-            collision.user = &room;
-            return true;
+    graphics::Walkmesh roomNodeWalkmesh;
+    auto roomNode = std::make_shared<scene::WalkmeshSceneNode>(
+        roomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+    roomNode->setUser(room);
+    ON_CALL(sceneGraph, findRoomWalkmesh(_))
+        .WillByDefault(Return(roomNode));
+    ON_CALL(sceneGraph, findRoomFace(_, _, _))
+        .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
+            return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
         }));
     StubConsole console;
     Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);

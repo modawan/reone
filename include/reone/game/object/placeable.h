@@ -71,6 +71,8 @@ public:
         const std::shared_ptr<Object> &damager) override;
 
     bool hasInventory() const { return _hasInventory; }
+    /** Whether the placeable is destroyed once its inventory is empty. */
+    bool dieWhenEmpty() const { return _dieWhenEmpty; }
     bool isSelectable() const override { return _usable; }
     glm::vec3 getSelectablePosition() const override;
     bool isUsable() const { return _usable; }
@@ -85,6 +87,30 @@ public:
     uint8_t closeLockDC() const { return _closeLockDC; }
     /** Run the script for being locked. */
     void onLocked();
+
+    /**
+     * Shows animation \p id for a conversation: as a loop, or once and then
+     * the default pose. A loop whose clip the model lacks shows the default
+     * pose. A world-space cut clip plays with the model at the world origin.
+     */
+    void playDialogAnimation(int id, bool looping);
+    /**
+     * The placeable takes animation \p animation as its state. When the model
+     * has the state's loop and does not show it already, the swing from the
+     * loop shown to it plays first (opening, closing, switching on or off,
+     * dying; none into an animation loop), then the loop. A corpse bag keeps
+     * its body's dead pose.
+     */
+    void setStateAnimation(int animation);
+    /**
+     * The length in seconds, at natural speed, of the clip animation \p id
+     * shows on the placeable; 0 when the model lacks it.
+     */
+    float animationLength(int id) const;
+    /** Animation \p id plays once on the placeable: a one-shot cut clip or row. */
+    bool playsAnimationOnce(int id) const;
+    /** Shows the loop of the placeable's own animation state again, as a conversation lets it go. */
+    void showStateAnimation();
 
     // Traps
 
@@ -242,13 +268,13 @@ private:
     void updateHeartbeat();
     void acquireItemsFrom(Object &source);
     void updateBodyBagPresentation();
-    /**
-     * The placeable takes an open-state animation: opening swings it open
-     * first and closing an open one swings it shut first, then the state's
-     * loop plays. A corpse bag keeps its body's dead pose.
-     */
-    void setOpenStateAnimation(int animation);
     void updateOpenStateAnimation();
+    /**
+     * Shows animation \p id as a loop. A corpse keeps its pose.
+     *
+     * @return whether the model has the clip and shows it
+     */
+    bool showAnimationLoop(int id);
 
     // Serializable
     resource::LocString _locName;
@@ -310,8 +336,10 @@ private:
 
     int _animationState {0};
     bool _inventoryOpenPending {false};
-    /** The loop that follows the open-state clip running now. */
+    /** The loop that follows the one-shot running now. */
     std::string _openStateLoop;
+    /** The animation whose loop the model shows; -1 while it shows none of its own. */
+    int _shownAnimation {-1};
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
 
     // Scripts

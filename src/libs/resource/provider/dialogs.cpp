@@ -43,6 +43,7 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
     dialog->endScript = dlg.EndConversation;
     dialog->abortScript = dlg.EndConverAbort;
     dialog->animatedCutscene = dlg.AnimatedCut;
+    dialog->oldHitCheck = dlg.OldHitCheck != 0;
     dialog->conversationType = static_cast<ConversationType>(dlg.ConversationType);
     dialog->computerType = static_cast<ComputerType>(dlg.ComputerType);
 
@@ -74,6 +75,7 @@ Dialog::EntryReplyLink Dialogs::getEntryReplyLink(const resource::generated::DLG
     link.params.str = dlg.ParamStrA;
     link.params2.ints = {dlg.Param1b, dlg.Param2b, dlg.Param3b, dlg.Param4b, dlg.Param5b};
     link.params2.str = dlg.ParamStrB;
+    link.displayInactive = dlg.DisplayInactive != 0;
 
     return link;
 }
@@ -103,6 +105,8 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.cameraAngle = dlg.CameraAngle;
     entry.cameraAnimation = dlg.CameraAnimation;
     entry.camFieldOfView = dlg.CamFieldOfView;
+    entry.camHeightOffset = dlg.CamHeightOffset;
+    entry.tarHeightOffset = dlg.TarHeightOffset;
     entry.camVidEffect = dlg.CamVidEffect;
 
     boost::to_lower(entry.speaker);

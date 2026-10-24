@@ -70,7 +70,6 @@ std::optional<MinigameSpec> parseMinigameSpec(const resource::generated::ARE &ar
     spec.bumpPlane = are.MiniGame.Bump_Plane;
     spec.depthOfField = are.MiniGame.DOF;
     spec.doBumping = are.MiniGame.DoBumping != 0;
-    spec.music = are.MiniGame.Music;
     spec.mouse.axisX = are.MiniGame.Mouse.AxisX;
     spec.mouse.axisY = are.MiniGame.Mouse.AxisY;
     spec.mouse.flipAxisX = are.MiniGame.Mouse.FlipAxisX != 0;

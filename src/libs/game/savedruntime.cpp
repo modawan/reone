@@ -110,6 +110,19 @@ constexpr int32_t kNoAssociatedFeat = -1;
 constexpr uint32_t kFakeCastBit = 0x80000000u;
 constexpr uint32_t kInstantCastBit = 0x40000000u;
 constexpr uint32_t kProjectilePathMask = 0xffu;
+// A placeable's CastSpell command: the spell, the metamagic, the target, the
+// location and the projectile path with the fake-cast bit. The metamagic
+// changes nothing and is saved as 0.
+constexpr size_t kPlaceableSpellCommandParameterCount = 7;
+
+// The ItemCastSpell command's parameters: the item, the place of the property
+// used among the item's use properties, a value nothing reads, the target and
+// the location. A use under way has grown to nine or twelve parameters, the
+// ones past these without a type.
+constexpr size_t kItemUseCommandParameterCount = 7;
+// A StartConversation command has six parameters.
+constexpr size_t kConversationParameterCount = 6;
+constexpr std::array<size_t, 3> kItemUseCommandCounts {7, 9, 12};
 
 // The fields of a saved struct whose labels are not among \p known, copied.
 std::vector<resource::Gff::Field> unknownFieldsOf(const resource::Gff &gff, const std::set<std::string_view> &known) {
@@ -690,20 +703,35 @@ void SavedAttackCommand::toAction(SavedActionRecord &record) const {
 
 std::optional<SavedSpellCommand> SavedSpellCommand::fromAction(const SavedActionRecord &record) {
     using Type = SavedActionParameterType;
-    const bool itemUse = record.type() == SavedActionType::ItemCastSpell;
-    if ((record.type() != SavedActionType::CastSpell && !itemUse) ||
-        !record.hasParameterTypes({Type::Integer, Type::Integer, Type::Integer, Type::Integer, Type::Integer,
+    if (record.type() != SavedActionType::CastSpell) {
+        return std::nullopt;
+    }
+    const auto value = [&record](size_t index) { return record.integerParameter(index); };
+    if (record.hasParameterTypes({Type::Integer, Type::Integer, Type::Object, Type::Float, Type::Float, Type::Float,
+                                  Type::Integer})) {
+        const auto path = static_cast<uint32_t>(value(6));
+        if ((path & ~(kProjectilePathMask | kFakeCastBit)) != 0) {
+            return std::nullopt;
+        }
+        SavedSpellCommand result;
+        result.placeable = true;
+        result.spellId = value(0);
+        result.target = record.objectParameter(2);
+        result.position = glm::vec3(record.floatParameter(3), record.floatParameter(4), record.floatParameter(5));
+        result.path = static_cast<ProjectilePathType>(path & kProjectilePathMask);
+        result.fake = (path & kFakeCastBit) != 0;
+        return result;
+    }
+    if (!record.hasParameterTypes({Type::Integer, Type::Integer, Type::Integer, Type::Integer, Type::Integer,
                                    Type::Object, Type::Float, Type::Float, Type::Float, Type::Integer,
                                    Type::Integer, Type::Integer})) {
         return std::nullopt;
     }
-    const auto value = [&record](size_t index) { return record.integerParameter(index); };
     const auto path = static_cast<uint32_t>(value(9));
     if ((path & ~(kProjectilePathMask | kFakeCastBit | kInstantCastBit)) != 0) {
         return std::nullopt;
     }
     SavedSpellCommand result;
-    result.itemUse = itemUse;
     // The domain level, the meta type and the spontaneous-cast parameter are
     // carried as the command gave them.
     result.domainLevel = value(2);
@@ -727,8 +755,23 @@ void SavedSpellCommand::toAction(SavedActionRecord &record) const {
     using Type = SavedActionParameterType;
     const auto integer = [](int32_t value) { return SavedActionParameter {static_cast<uint32_t>(Type::Integer), value}; };
     const auto real = [](float value) { return SavedActionParameter {static_cast<uint32_t>(Type::Float), value}; };
+    const auto object = SavedActionParameter {static_cast<uint32_t>(Type::Object), target};
+    record.actionId = static_cast<uint32_t>(SavedActionType::CastSpell);
+    if (placeable) {
+        const uint32_t packedPath = static_cast<uint32_t>(path) | (fake ? kFakeCastBit : 0u);
+        record.declaredParameterCount = kPlaceableSpellCommandParameterCount;
+        record.parameters = {
+            integer(spellId),
+            integer(0),
+            object,
+            real(position.x),
+            real(position.y),
+            real(position.z),
+            integer(static_cast<int32_t>(packedPath)),
+        };
+        return;
+    }
     const uint32_t packedPath = static_cast<uint32_t>(path) | (fake ? kFakeCastBit : 0u) | (instant ? kInstantCastBit : 0u);
-    record.actionId = static_cast<uint32_t>(itemUse ? SavedActionType::ItemCastSpell : SavedActionType::CastSpell);
     record.declaredParameterCount = kSpellCommandParameterCount;
     record.parameters = {
         integer(spellId),
@@ -736,13 +779,59 @@ void SavedSpellCommand::toAction(SavedActionRecord &record) const {
         integer(domainLevel),
         integer(metaType),
         integer(spontaneousCast),
-        SavedActionParameter {static_cast<uint32_t>(Type::Object), target},
+        object,
         real(position.x),
         real(position.y),
         real(position.z),
         integer(static_cast<int32_t>(packedPath)),
         integer(associatedFeat ? static_cast<int32_t>(*associatedFeat) : kNoAssociatedFeat),
         integer(selection.casterLevel),
+    };
+}
+
+std::optional<SavedItemUseCommand> SavedItemUseCommand::fromAction(const SavedActionRecord &record) {
+    using Type = SavedActionParameterType;
+    if (record.type() != SavedActionType::ItemCastSpell ||
+        std::find(kItemUseCommandCounts.begin(), kItemUseCommandCounts.end(), record.declaredParameterCount) ==
+            kItemUseCommandCounts.end() ||
+        record.parameters.size() != record.declaredParameterCount) {
+        return std::nullopt;
+    }
+    // The command's own parameters are typed; those a use under way has added
+    // are not.
+    const auto grown = record.parameters.begin() + kItemUseCommandParameterCount;
+    const auto command = SavedActionRecord::command(SavedActionType::ItemCastSpell,
+                                                    std::vector<SavedActionParameter>(record.parameters.begin(), grown));
+    const bool grownUntyped = std::all_of(grown, record.parameters.end(), [](const SavedActionParameter &parameter) {
+        return parameter.type == static_cast<uint32_t>(Type::Unsupported);
+    });
+    if (!grownUntyped ||
+        !command.hasParameterTypes({Type::Object, Type::Integer, Type::Integer, Type::Object, Type::Float, Type::Float,
+                                    Type::Float})) {
+        return std::nullopt;
+    }
+    SavedItemUseCommand result;
+    result.item = record.objectParameter(0);
+    result.useProperty = record.integerParameter(1);
+    result.target = record.objectParameter(3);
+    result.position = glm::vec3(record.floatParameter(4), record.floatParameter(5), record.floatParameter(6));
+    return result;
+}
+
+void SavedItemUseCommand::toAction(SavedActionRecord &record) const {
+    using Type = SavedActionParameterType;
+    const auto real = [](float value) { return SavedActionParameter {static_cast<uint32_t>(Type::Float), value}; };
+    record.actionId = static_cast<uint32_t>(SavedActionType::ItemCastSpell);
+    record.declaredParameterCount = kItemUseCommandParameterCount;
+    // Nothing reads the third parameter; it is saved as 0.
+    record.parameters = {
+        SavedActionParameter {static_cast<uint32_t>(Type::Object), item},
+        SavedActionParameter {static_cast<uint32_t>(Type::Integer), int32_t {useProperty}},
+        SavedActionParameter {static_cast<uint32_t>(Type::Integer), int32_t {0}},
+        SavedActionParameter {static_cast<uint32_t>(Type::Object), target},
+        real(position.x),
+        real(position.y),
+        real(position.z),
     };
 }
 
@@ -839,37 +928,25 @@ SavedCastAction SavedCastAction::fromGff(const resource::Gff &gff, const Seriali
     gff.readBool(result.cheat, "Cheat");
     gff.readBool(result.admitted, "Admitted");
     gff.readBool(result.approaching, "Approaching");
+    gff.readBool(result.skipsApproach, "SkipsApproach");
+    gff.readBool(result.checksUseLine, "ChecksUseLine");
     gff.readBool(result.started, "Started");
     gff.readBool(result.commitAttempted, "CommitAttempted");
     gff.readBool(result.committed, "Committed");
     gff.readBool(result.released, "Released");
     gff.readBool(result.movementOwned, "MovementOwned");
-    uint32_t item = 0;
-    if (gff.readDword(item, "Item")) {
-        auto &use = result.itemUse.emplace();
-        use.item = SavedObjectReference::fromSerializedId(item, identityContext);
-        int32_t value = 0;
-        if (gff.readInt(value, "Property")) {
-            use.property = value;
-        }
-        if (gff.readInt(value, "ItemLevel")) {
-            use.casterLevel = value;
-        }
+    int32_t itemCasterLevel = 0;
+    if (gff.readInt(itemCasterLevel, "ItemLevel")) {
+        result.itemCasterLevel = itemCasterLevel;
     }
     return result;
 }
 
 std::shared_ptr<resource::Gff> SavedCastAction::toGff() const {
     using G = resource::Gff;
-    auto result = G::Builder().type(0).field(G::Field::newInt("Phase", phase)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newFloat("ConjureTime", conjureTime)).field(G::Field::newFloat("CastTime", castTime)).field(G::Field::newFloat("CatchTime", catchTime)).field(G::Field::newFloat("FlightTime", projectileTime)).field(G::Field::newDword64("Presentation", presentationId)).field(G::Field::newInt("CasterLevel", casterLevel)).field(G::Field::newInt("MetaMagic", metaMagic)).field(G::Field::newInt("CastingClass", castingClass)).field(G::Field::newInt("ForceCost", forceCost)).field(G::Field::newByte("HasSelection", hasSelection)).field(G::Field::newByte("Cheat", cheat)).field(G::Field::newByte("Admitted", admitted)).field(G::Field::newByte("Approaching", approaching)).field(G::Field::newByte("Started", started)).field(G::Field::newByte("CommitAttempted", commitAttempted)).field(G::Field::newByte("Committed", committed)).field(G::Field::newByte("Released", released)).field(G::Field::newByte("MovementOwned", movementOwned)).build();
-    if (itemUse) {
-        result->fields().push_back(G::Field::newDword("Item", itemUse->item.id));
-        if (itemUse->property) {
-            result->fields().push_back(G::Field::newInt("Property", *itemUse->property));
-        }
-        if (itemUse->casterLevel) {
-            result->fields().push_back(G::Field::newInt("ItemLevel", *itemUse->casterLevel));
-        }
+    auto result = G::Builder().type(0).field(G::Field::newInt("Phase", phase)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newFloat("ConjureTime", conjureTime)).field(G::Field::newFloat("CastTime", castTime)).field(G::Field::newFloat("CatchTime", catchTime)).field(G::Field::newFloat("FlightTime", projectileTime)).field(G::Field::newDword64("Presentation", presentationId)).field(G::Field::newInt("CasterLevel", casterLevel)).field(G::Field::newInt("MetaMagic", metaMagic)).field(G::Field::newInt("CastingClass", castingClass)).field(G::Field::newInt("ForceCost", forceCost)).field(G::Field::newByte("HasSelection", hasSelection)).field(G::Field::newByte("Cheat", cheat)).field(G::Field::newByte("Admitted", admitted)).field(G::Field::newByte("Approaching", approaching)).field(G::Field::newByte("SkipsApproach", skipsApproach)).field(G::Field::newByte("ChecksUseLine", checksUseLine)).field(G::Field::newByte("Started", started)).field(G::Field::newByte("CommitAttempted", commitAttempted)).field(G::Field::newByte("Committed", committed)).field(G::Field::newByte("Released", released)).field(G::Field::newByte("MovementOwned", movementOwned)).build();
+    if (itemCasterLevel) {
+        result->fields().push_back(G::Field::newInt("ItemLevel", *itemCasterLevel));
     }
     return result;
 }
@@ -1011,8 +1088,8 @@ bool SavedScheduledAction::bindObjectReferences(const Game &game) {
     const bool repositoryBound = repository.isInvalid() || game.bindSavedObjectReference(repository);
     const bool commandBound = !command || command->bindObjectReferences(game);
     // A scheduled item use whose item is gone is used up without casting.
-    const bool itemBound = !command || !command->cast || !command->cast->itemUse ||
-                           command->cast->itemUse->item.boundObject() != nullptr;
+    const auto use = command ? SavedItemUseCommand::fromAction(*command) : std::nullopt;
+    const bool itemBound = !use || use->item.boundObject() != nullptr;
     return targetBound && repositoryBound && commandBound && itemBound;
 }
 
@@ -1027,6 +1104,17 @@ SavedActionRecord SavedActionRecord::fromGff(
     for (const auto &parameter : gff.getList("Paramaters")) {
         result.parameters.push_back(SavedActionParameter::fromGff(
             *parameter, identityContext));
+    }
+    // A conversation pushed back on its way to its partner names the
+    // companion that handed it on by an integer.
+    if (result.type() == SavedActionType::StartConversation && result.parameters.size() == kConversationParameterCount &&
+        result.parameters.back().type == static_cast<uint32_t>(SavedActionParameterType::Integer) &&
+        std::holds_alternative<int32_t>(result.parameters.back().payload)) {
+        auto &handedOffBy = result.parameters.back();
+        handedOffBy = {static_cast<uint32_t>(SavedActionParameterType::Object),
+                       SavedObjectReference::fromSerializedId(
+                           static_cast<uint32_t>(std::get<int32_t>(handedOffBy.payload)), identityContext)};
+        handedOffBy.savedType = static_cast<uint32_t>(SavedActionParameterType::Integer);
     }
     if (auto value = gff.findStruct("CastState")) {
         result.cast = SavedCastAction::fromGff(*value, identityContext);
@@ -1105,13 +1193,12 @@ bool isUnequipCommand(const SavedActionRecord &record) {
            record.hasParameterTypes({Type::Object, Type::Object, Type::Integer, Type::Integer, Type::Integer});
 }
 
-// An item use carries the item it uses beside its command; a cast does not.
 bool isSpellCommand(const SavedActionRecord &record) {
-    return SavedSpellCommand::fromAction(record).has_value() && !(record.cast && record.cast->itemUse);
+    return SavedSpellCommand::fromAction(record).has_value();
 }
 
 bool isItemUseCommand(const SavedActionRecord &record) {
-    return SavedSpellCommand::fromAction(record).has_value() && record.cast && record.cast->itemUse;
+    return SavedItemUseCommand::fromAction(record).has_value();
 }
 
 bool isAttackCommand(const SavedActionRecord &record) {
@@ -1120,6 +1207,14 @@ bool isAttackCommand(const SavedActionRecord &record) {
 
 bool isMoveCommand(const SavedActionRecord &record) {
     return SavedMoveCommand::fromAction(record).has_value();
+}
+
+// The range check in front of an attack, a cast or an item use is a
+// MoveToObject with two more flags.
+bool isMoveToObjectCommand(const SavedActionRecord &record) {
+    return record.hasParameterTypes({Type::Object, Type::Integer, Type::Float, Type::Float, Type::Integer}) ||
+           record.hasParameterTypes({Type::Object, Type::Integer, Type::Float, Type::Float, Type::Integer, Type::Integer,
+                                     Type::Integer});
 }
 
 // A wait keeps its seconds first.
@@ -1154,7 +1249,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::JumpToLocation,
      &hasParameters<Type::Float, Type::Float, Type::Float, Type::Object, Type::Integer, Type::Float, Type::Float, Type::Float>,
      &JumpToLocationAction::restore},
-    {SavedActionType::PlayAnimation, &hasParameters<Type::Object, Type::Float, Type::Float, Type::Integer, Type::Integer>,
+    {SavedActionType::PlayAnimation, &hasParameters<Type::Integer, Type::Float, Type::Float, Type::Integer>,
      &PlayAnimationAction::restore},
     {SavedActionType::PickUpItem, &hasParameters<Type::Object, Type::Object, Type::Integer>, &PickUpItemAction::restore},
     {SavedActionType::EquipItem, &isEquipCommand, &EquipItemAction::restore},
@@ -1164,12 +1259,12 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::AttackObject, &isAttackCommand, &AttackObjectAction::restore},
     {SavedActionType::SpeakString, &hasParameters<Type::String, Type::Integer>, &SpeakStringAction::restore},
     {SavedActionType::CastSpell, &isSpellCommand, &CastSpellAction::restore},
-    {SavedActionType::MoveToObject, &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Float, Type::Integer>,
-     &MoveToObjectAction::restore},
+    {SavedActionType::MoveToObject, &isMoveToObjectCommand, &MoveToObjectAction::restore},
     {SavedActionType::FaceObject, &hasParameters<Type::Object>, &ChangeFacingAction::restore},
     {SavedActionType::OpenDoor, &hasParameters<Type::Object, Type::Integer>, &OpenDoorAction::restore},
     {SavedActionType::CloseDoor, &hasParameters<Type::Object, Type::Integer>, &CloseDoorAction::restore},
-    {SavedActionType::StartConversation, &hasParameters<Type::Object, Type::String, Type::Integer>,
+    {SavedActionType::StartConversation,
+     &hasParameters<Type::Object, Type::String, Type::Integer, Type::Integer, Type::Integer, Type::Object>,
      &StartConversationAction::restore},
     {SavedActionType::DisarmMine, &hasParameters<Type::Object>, &UseSkillAction::restore},
     {SavedActionType::RecoverMine, &hasParameters<Type::Object>, &UseSkillAction::restore},
@@ -1247,11 +1342,6 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
 
 bool SavedActionRecord::bindObjectReferences(const Game &game) {
     bool allBound = true;
-    if (cast && cast->itemUse) {
-        // An item use whose item is gone still comes back; it fails as it
-        // runs.
-        game.bindSavedObjectReference(cast->itemUse->item);
-    }
     if (round) {
         game.bindSavedObjectReference(round->pauseOwner);
         game.bindSavedObjectReference(round->master);
@@ -1279,13 +1369,13 @@ bool SavedActionRecord::bindObjectReferences(const Game &game) {
     }
     for (size_t index = 0; index < parameters.size(); ++index) {
         auto &parameter = parameters[index];
-        // A PlayAnimation keeps its animation, not an object, in its object slot.
-        if (type() == SavedActionType::PlayAnimation && index == 0) {
-            continue;
-        }
         // An unequip whose container names no item still runs; it takes
-        // nothing off.
-        if (type() == SavedActionType::UnequipItem && index == 1) {
+        // nothing off. A conversation handed on by a companion that is gone
+        // still starts. An item use whose item or target object is gone
+        // still comes back; it fails as it runs.
+        if ((type() == SavedActionType::UnequipItem && index == 1) ||
+            (type() == SavedActionType::StartConversation && index == 5) ||
+            (type() == SavedActionType::ItemCastSpell && (index == 0 || index == 3))) {
             parameter.bindObjectReferences(game);
             continue;
         }

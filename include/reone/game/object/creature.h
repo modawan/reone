@@ -289,6 +289,7 @@ class Trigger;
 class Encounter;
 struct Spell;
 class ModuleSnapshotBuilder;
+struct Race;
 struct AttackBonusBreakdown;
 struct DefenseBreakdown;
 struct DeflectionBreakdown;
@@ -439,14 +440,6 @@ public:
         std::string fallWater;
     };
 
-    /** The names of a race (racialtypes.2da); a blank one is -1. */
-    struct RaceNames {
-        int name {-1};
-        /** The name conversations use, and its lower-case form. */
-        int converName {-1};
-        int converNameLower {-1};
-    };
-
     /** The creature's part in combat: whether it fights, how it was drawn in, and its targets. */
     struct CombatState {
         bool active {false};
@@ -537,14 +530,22 @@ public:
      * Invalidate state that only exists while this retained creature inhabits
      * one Area. The owning Area supplies its still-live Pathfinder so path
      * handles are released before that owner is destroyed.
+     *
+     * @param retainedObjectIds ids of the session objects that outlive the Area
      */
     void retireAreaRuntime(
         Pathfinder &pathfinder,
-        const std::set<const Object *> &retainedObjects);
+        const std::set<uint32_t> &retainedObjectIds);
 
     void update(float dt) override;
     /** Runs the action queue; with the clock stopped the frame takes no time, so nothing turns. */
     void runActions() override;
+    /**
+     * The room, by its place in the area's layout, in which the creature's
+     * ground was last found; -1 before any.
+     */
+    int groundRoomHint() const { return _groundRoomHint; }
+    void setGroundRoomHint(int room) { _groundRoomHint = room; }
 
     void clearAllActions(bool force = false, bool evenUncommandable = false) override;
     /**
@@ -567,6 +568,13 @@ public:
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
 
+    /**
+     * Adds experience. With two or more classes, every class other than the
+     * favoured one that is two or more levels below the highest of those
+     * classes takes a fifth of the amount, rounded down; the amount counts as
+     * unsigned. A race without a favoured class favours the highest-level
+     * class, the earliest on a tie.
+     */
     void giveXP(int amount);
     void setXP(int xp);
 
@@ -579,7 +587,12 @@ public:
     /** The leader is in the creature's area within 30 m, where it hears the creature's voice. */
     bool isHeardByLeader() const;
 
+    /**
+     * The head talks, lip-synced to \p animation when there is one, over
+     * whatever pose the body shows. A new line starts the talk over.
+     */
     void startTalking(const std::shared_ptr<graphics::LipAnimation> &animation);
+    /** The talking head blends out. */
     void stopTalking();
 
     bool isSelectable() const override;
@@ -654,6 +667,8 @@ public:
      * partyModifiers counts the party terms.
      */
     int adjustedSpellForcePointCost(const Spell &spell, bool partyModifiers) const;
+    /** What the Force point cost of \p spell is worked out from; \p partyModifiers counts the party terms. */
+    ForcePointCostTerms spellForcePointCostTerms(const Spell &spell, bool partyModifiers) const;
     /** Whether the power menu offers \p spell as ready against \p target, or why not. */
     PowerMenuStatus powerMenuStatus(const Spell &spell, std::optional<std::reference_wrapper<const Object>> target = std::nullopt) const;
     /**
@@ -749,13 +764,30 @@ public:
     bool movementLockedByAction() const { return _movementRestricted; }
     /** Whether the AI state lets the creature take \p action. */
     bool permitsAction(const Action &action) const;
+    /**
+     * A walk heading for \p target ends where the creature stands, as a click
+     * on it, whether or not the creature can move: \p target is a trigger
+     * that is not a mine, within use range, and the creature is neither dead
+     * nor a party member at zero vitality.
+     */
+    bool clicksTriggerInReach(const Object &target) const;
     /** Enough experience for the next level, below the title's maximum, neither dead nor downed. */
     bool isLevelUpPending() const;
+    /** The level-up chime may still sound for the creature: from its creation, and again after each level-up. */
+    bool isLevelUpChimeArmed() const { return _levelUpChimeArmed; }
+    void setLevelUpChimeArmed(bool armed) { _levelUpChimeArmed = armed; }
     /** The level the creature's experience reaches, up to the title's maximum. */
     int potentialLevel() const;
 
     glm::vec3 getSelectablePosition() const override;
     int getNeededXP() const;
+    /**
+     * The experience the creature lacks for its next level: KotOR counts from
+     * the level its experience reaches, TSL from the levels it has taken,
+     * scaled as an autobalanced creature's. At the title's maximum level, the
+     * unreachable amount less the experience held, which is negative.
+     */
+    int experienceToNextLevel() const;
 
     Gender gender() const { return _gender; }
     const std::string &firstName() const { return _firstName.str(); }
@@ -785,6 +817,8 @@ public:
     /** How far above its feet the creature's walking space reaches. */
     float collisionHeight() const { return _collisionHeight; }
     CreatureSize size() const { return _size; }
+    /** Whether the appearance gives a size category; without one, size() is Invalid. */
+    bool hasSizeCategory() const { return _hasSizeCategory; }
     CreatureAttributes &attributes() { return _attributes; }
     const CreatureAttributes &attributes() const { return _attributes; }
     ItemAttributes &itemAttributes() { return _itemAttributes; }
@@ -817,6 +851,11 @@ public:
      * Releasing a lock turns the creature once toward what it was locked on.
      */
     void setOrientationLock(uint32_t objectId, bool force = false);
+    /**
+     * Give up the object the creature keeps turning toward, without turning
+     * toward it. A dead or downed creature keeps its lock.
+     */
+    void dropOrientationLock();
     /**
      * The creature's last swing was in an engaged exchange. While it is, the
      * controlled leader at rest is not driven to its rest pose.
@@ -897,16 +936,15 @@ public:
 
     Alignment alignment() const;
     RacialType racialType() const { return _race; }
-    /** The race's names, read when the race is set. */
-    const RaceNames &raceNames() const { return _raceNames; }
-    /** Set the race and read its ability adjustments and names. */
+    /** The creature's race: its names, ability adjustments and favoured class. */
+    const Race &race() const;
+    /** Set the race; a race without a row of the race table is invalid. */
     void setRacialType(RacialType race);
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
     /** The creature scripts name for this one to heal. It is not saved. */
     uint32_t healTarget() const { return _healTarget; }
     void setHealTarget(uint32_t target) { _healTarget = target; }
-    int walkmeshMaterial() const { return _walkmeshMaterial; }
     bool isPC() const { return _isPC; }
     /** Whether a click to talk leaves the creature facing the way it was. */
     bool isNotReorienting() const { return _notReorienting; }
@@ -1009,6 +1047,8 @@ public:
     /** Set the serialized base maximum and preserve the existing damage. */
     void setMaxHitPoints(int baseHitPoints) override;
     int maxHitPoints() const override;
+    /** The Constitution modifier the maximum vitality counts for every level. */
+    int vitalityConstitutionModifier() const { return _vitalityConstitutionModifier; }
     void setCurrentHitPoints(int hitPoints) override;
 
     /**
@@ -1036,7 +1076,6 @@ public:
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }
     void setAssignedPuppet(int puppet) { _assignedPuppet = puppet; }
     void setPuppet(bool puppet) { _puppet = puppet; }
-    void setWalkmeshMaterial(int material) { _walkmeshMaterial = material; }
     void setCurrentForm(CombatForm form) { _currentForm = form; }
     bool isStealthed() const { return _stealthMode; }
     /** Enters or leaves stealth, with its presentation. */
@@ -1117,19 +1156,24 @@ public:
     float cameraHookHeight() const;
     /**
      * A creature that played a world-space cut clip cannot turn its head
-     * until a dialog animation change or the end of the conversation lifts it.
+     * until a later dialog animation, or the release of the list before the
+     * last one at the conversation's close, lifts it.
      */
     void setHeadLookSuspended(bool suspended) { _headLookSuspended = suspended; }
 
-    /** A PlayAnimation constant as this creature plays it. */
+    /** An animation ID as this creature plays it for a script. */
     struct ScriptAnimation {
         std::string clip; /**< empty without one */
         bool loop {false};
         float length {0.0f}; /**< seconds at natural speed, 0 when the model lacks the clip */
         AnimationSource source;
     };
-    /** The animation the PlayAnimation constant \p constant names for this creature. */
-    ScriptAnimation getScriptAnimation(int constant) const;
+    /**
+     * The animation that animation ID \p id names for this creature: its row's
+     * clip, else its cut clip, else the pause row, except 10098, which shows
+     * nothing.
+     */
+    ScriptAnimation getScriptAnimation(int id) const;
     /** Plays a script animation: a loop at once, a one-shot through the queue. */
     void playScriptAnimation(const ScriptAnimation &animation, float speed);
     int currentAnimationId() const { return _animationSource.id; }
@@ -1141,8 +1185,14 @@ public:
     void playAnimation(const std::string &name, scene::AnimationProperties properties = scene::AnimationProperties(),
                        AnimationSource source = AnimationSource());
     bool playAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
-    /** Plays a conversation clip: a loop until replaced, a one-shot until it ends in the pause. */
-    bool playExternalAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
+    /**
+     * Plays a conversation clip: a loop until replaced, a one-shot until it ends in the pause.
+     *
+     * @param source the clip's animation ID, when the clip is known by one
+     */
+    bool playExternalAnimation(const std::shared_ptr<graphics::Animation> &anim,
+                               scene::AnimationProperties properties = scene::AnimationProperties(),
+                               AnimationSource source = AnimationSource {-1, true});
     void resumeStateDrivenAnimation();
     /**
      * Shows the pause or combat-ready loop. At the end of a round pause an
@@ -1185,10 +1235,14 @@ public:
      */
     void playFireForgetAnimation(const std::string &clip, AnimationSource source, float speed = 1.0f);
     /**
-     * A dialog animation: a loop plays at once; a one-shot makes the pause
-     * the loop first and is queued.
+     * A dialog animation by its type's clip: a loop plays at once; a one-shot
+     * makes the pause the loop first and is queued.
+     *
+     * @param looping the clip loops rather than playing once
      */
-    void playDialogAnimation(AnimationType type, AnimationSource source);
+    void playDialogAnimation(AnimationType type, bool looping, AnimationSource source);
+    /** A dialog animation by its clip, as playDialogAnimation(AnimationType, bool, AnimationSource) plays it. */
+    void playDialogAnimation(const std::string &clip, bool looping, AnimationSource source);
     /** A weapon newly in hand is drawn; while play is paused the draw waits. */
     void playWeaponDraw();
     /** The flourish animation: a layer while the player drives, else queued. */
@@ -1356,6 +1410,9 @@ public:
 
     // Pathfinding
     /**
+     * Walk toward \p dest until within \p distance of it. A creature already
+     * within that distance of it, but without a clear line to it, walks all
+     * the way onto it instead, until that walk ends.
      * @param pathTarget the object a planned path is recorded as heading for
      * @param straight a new path is planned along the straight line to the
      *        destination, rather than round what lies between
@@ -1582,6 +1639,17 @@ public:
      */
     bool isDebilitated(bool meditating = false) const;
     bool isTemporarilyDead() const;
+    /**
+     * Whether the creature is dead follows its vitality anew, as it must
+     * once it has joined or left the party: a member never is, anyone else
+     * is at the death threshold.
+     */
+    void refreshDeath();
+    /**
+     * The creature lies in a dead pose: from its death, a downed party
+     * member's included, until it is raised.
+     */
+    bool liesDead() const { return _deathPose.has_value(); }
     /** The first force shield effect on the creature names a shield. */
     bool hasForceShield() const;
     /**
@@ -1627,6 +1695,11 @@ public:
      * points it grants.
      */
     void applyLevelUp(CreatureAttributes attributes, CreatureClass &clazz);
+    /**
+     * Gains a class at level 0, after any number already held; a class already
+     * held is unchanged. Its Pure Good or Evil powers are applied afresh.
+     */
+    void addClass(CreatureClass &clazz);
 
     /** The object the last planned path heads for, until the action queue empties or is cleared. */
     uint32_t attemptedMovementTarget() const {
@@ -1699,10 +1772,17 @@ public:
     bool hasAssuredHit() const { return _assuredHit; }
     /** Adds TSL's party leadership terms of an attack on \p target. */
     void addPartyLeadershipTerms(AttackBonusBreakdown &result, std::optional<std::reference_wrapper<const Creature>> target) const;
+    /**
+     * The attack bonus of an attack with \p weapon on \p target.
+     *
+     * @param handType the kind of attack whose hand-specific modifiers count;
+     *        by default that of an attack with \p weapon in the given hand
+     */
     AttackBonusBreakdown getAttackBonusBreakdown(
         std::optional<std::reference_wrapper<const Creature>> target,
         const std::shared_ptr<Item> &weapon,
-        bool offHand) const;
+        bool offHand,
+        std::optional<AttackBonus> handType = std::nullopt) const;
     int getAttackBonus(bool offHand = false) const;
     /** The touch-attack bonus: none when the right hand holds the other kind of weapon. */
     int getTouchAttackBonus(bool ranged) const;
@@ -1711,7 +1791,10 @@ public:
      * attack. A melee attack uses the left-hand weapon for the off hand unless
      * \p doubleBladed, and has none while that weapon is ranged; a ranged attack
      * has none while the right hand holds a melee weapon. \p meleeTwoWeapon
-     * keeps the two-weapon terms of a melee attack.
+     * keeps the two-weapon terms of a melee attack. The hand-specific
+     * modifiers counted are the queried hand's: the off hand's for a melee
+     * off hand, else the on hand's, except that TSL counts the off hand's for
+     * any off hand and the unarmed ones without a right-hand weapon.
      */
     AttackBonusBreakdown getHandAttackBonusBreakdown(
         bool ranged,
@@ -1724,7 +1807,11 @@ public:
     int getAbilityEffectModifier(Ability ability) const;
     int getEffectiveAbilityScore(Ability ability) const;
     int getEffectiveAbilityModifier(Ability ability) const;
+    /** The race's adjustment to \p ability. */
+    int racialAbilityAdjustment(Ability ability) const;
     bool hasEffectiveFeat(FeatType feat) const;
+    /** The feats the creature's live bonus feat effects give it. */
+    std::set<FeatType> effectFeats() const;
     /** The d6 a sneak attack adds: the rank of the highest Sneak Attack feat held, 0 without one. */
     int sneakAttackDice() const;
     /**
@@ -1732,6 +1819,11 @@ public:
      * without an attacker; \p touch for a touch attack.
      */
     DefenseBreakdown getDefenseBreakdown(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags, bool touch = false) const;
+    /**
+     * The Dexterity modifier the defense counts: the effective modifier,
+     * limited by worn body armour, and at most 0 while debilitated.
+     */
+    int defenseDexterityModifier() const;
     int getDefense(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags) const;
     int getDefense() const;
     /** Ordinary ranged defense consumes the same permission as active saber throws. */
@@ -1771,7 +1863,11 @@ public:
         bool offHand) const;
     /** The factor TSL's autobalance applies to the creature's physical damage, 1 without it. */
     int getPhysicalDamageAutoBalanceFactor() const;
-    /** The caster level spells use: the class levels, less negative levels, balanced in TSL. */
+    /**
+     * The caster level spells use: the class levels, less negative levels,
+     * balanced in TSL for a creature neither flagged as a player character
+     * nor in the party. The level is a byte.
+     */
     int getSpellLevel(bool applyNegativeLevels = true) const;
     ForceResistanceState &forceResistance() { return _forceResistance; }
     const ForceResistanceState &forceResistance() const { return _forceResistance; }
@@ -1780,17 +1876,27 @@ public:
     void getDamageResistanceFeatBonuses(
         int damage,
         DamageResolution &resolution) const;
-    /** The damage power of an attack: the low byte of its effect attack bonus. */
+    /**
+     * The damage power of an attack: the low byte of its effect attack bonus.
+     *
+     * @param handType the kind of attack whose hand-specific modifiers count;
+     *        by default that of an attack with \p weapon in the given hand
+     */
     DamagePower calculateDamagePower(
         std::optional<std::reference_wrapper<const Creature>> target,
         const std::shared_ptr<Item> &weapon,
-        bool offHand) const;
+        bool offHand,
+        std::optional<AttackBonus> handType = std::nullopt) const;
     /**
      * Adds the item and effect damage modifiers of one hit and returns the
      * miscellaneous amount added to its base damage, which KotOR never adds.
-     * The hand-specific modifiers are added by damage type, uncapped.
+     * The hand-specific modifiers are added by damage type, uncapped, their
+     * dice multiplied by \p criticalMultiplier: on a critical hit the on-hand
+     * weapon's multiplier, whichever hand attacks, else 1.
      * \p dice chooses whether the modifier dice are rolled or taken at a
      * fixed face; the lowest face applies to hand-specific dice only.
+     * \p handType is the kind of attack whose hand-specific modifiers count;
+     * by default that of an attack with \p weapon in the given hand.
      */
     int addPhysicalDamageModifiers(
         DamagePacket &damage,
@@ -1799,7 +1905,8 @@ public:
         const std::shared_ptr<Item> &weapon,
         bool offHand,
         int criticalMultiplier,
-        DamageDiceRoll dice = DamageDiceRoll::Rolled) const;
+        DamageDiceRoll dice = DamageDiceRoll::Rolled,
+        std::optional<AttackBonus> handType = std::nullopt) const;
     /**
      * Whether the weapon in the given hand would damage \p versus: its highest
      * damage after the target's immunity, resistance and reduction, plus its
@@ -1926,6 +2033,12 @@ public:
     /** Whether the class at \p classIndex can still pay \p spell. */
     bool hasSpellUsesLeft(const Spell &spell, size_t classIndex) const;
     /**
+     * Whether the creature can learn \p power in its class \p owner: the power
+     * has a row in the spell table, and a player character learns powers only
+     * in a Jedi class.
+     */
+    bool canLearnPower(SpellType power, ClassType owner) const;
+    /**
      * A random talent the AI may use, of \p category, ranked by challenge rating unless \p
      * crMax is -1, and not the excluded one; an invalid talent when there is none.
      */
@@ -1959,11 +2072,15 @@ public:
     /** Spends a use of \p feat, when it has uses per day. */
     void spendFeatUse(FeatType feat);
     /**
-     * The attack a request to use \p feat makes: nothing for a feat the
-     * creature lacks, otherwise the highest rank of its chain the creature
-     * holds, when that rank is an attack feat. Invalid means no attack.
+     * Uses \p feat: nothing for a feat the creature lacks, otherwise the
+     * highest rank of its chain the creature holds. A guard stance rank turns
+     * the guard stance on, or off when one is held.
+     *
+     * @return the rank used when it is an attack feat; Invalid means no attack
      */
-    FeatType attackFeatToUse(FeatType feat) const;
+    FeatType useFeat(FeatType feat);
+    /** Whether the creature holds a guard stance, in which its attacks are made without their feat. */
+    bool inGuardStance() const { return _guardStanceFeat != FeatType::Invalid; }
     /** The item and property through which the creature can use the power \p spellId, if any. */
     std::optional<std::pair<std::shared_ptr<Item>, size_t>> itemForPower(int spellId) const;
     /**
@@ -2039,6 +2156,8 @@ public:
 
 protected:
     bool canExecuteActions() const override;
+    /** A party member at zero vitality takes up its actions too, which mostly fail. */
+    bool takesUpActions() const override;
     glm::quat presentedOrientation() const override;
     /** Runs the conversation script, the fallback one for a creature with none or "default". */
     void runConversationScript() override;
@@ -2204,9 +2323,6 @@ private:
 
     // Serializable
     RacialType _race {RacialType::Unknown};
-    /** The race's adjustment to each ability, in Ability order (racialtypes.2da). */
-    std::array<int, 6> _racialAbilityAdjustments {};
-    RaceNames _raceNames;
     Subrace _subrace {Subrace::None};
     int _appearance {0};
     int _appearanceBeforeDisguise {0};
@@ -2270,6 +2386,7 @@ private:
     uint32_t _orientationLock {script::kObjectInvalid};
     bool _engagedExchange {false};
     uint32_t _xp {0};
+    bool _levelUpChimeArmed {true};
     int _joiningXP {0};
     CombatForm _currentForm {CombatForm::None};
     AutoBalanceContext _autoBalanceContext;
@@ -2330,6 +2447,8 @@ private:
     // the previous frame.
     std::optional<Path> _path;
     bool _navigationFailed {false};
+    /** The path under way walks all the way onto its destination. */
+    bool _walksOntoPoint {false};
     /** The walk of navigateToUse under way. */
     std::optional<UseApproach> _useApproach;
     RuntimeObjectRef<Object> _attemptedMovementTarget;
@@ -2368,6 +2487,7 @@ private:
     /** How far above its feet the creature's walking space reaches. */
     float _collisionHeight {kBlankCollisionHeight};
     CreatureSize _size {CreatureSize::Invalid};
+    bool _hasSizeCategory {false};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
 
@@ -2424,6 +2544,8 @@ private:
     RuntimeObjectRef<Object> _lastHostileTarget;
     int _lastAttackAction {-1};
     FeatType _lastCombatFeat {FeatType::Invalid};
+    /** The guard stance feat the creature holds; Invalid when it holds none. */
+    FeatType _guardStanceFeat {FeatType::Invalid};
     int _lastForcePowerUsed {-1};
     AttackResultType _lastAttackResult {AttackResultType::Invalid};
     int _modifiedAttacks {0};
@@ -2487,7 +2609,6 @@ private:
     float _headArcV {kDefaultHeadArcV};
 
     uint32_t _footstepType {0};
-    int _walkmeshMaterial {-1};
     int _gold {0}; /**< aka credits */
     std::string _envmap;
     /** The appearance's death visual and the body node it goes off at. */
@@ -2562,6 +2683,8 @@ private:
     /** The tilt last aimed for and the tilt shown, applied beneath the facing. */
     glm::quat _groundTiltTarget {1.0f, 0.0f, 0.0f, 0.0f};
     glm::quat _groundTilt {1.0f, 0.0f, 0.0f, 0.0f};
+    /** See groundRoomHint. */
+    int _groundRoomHint {-1};
 
     // END Ground tilt
 
@@ -2711,6 +2834,8 @@ private:
 
     // Ground tilt
 
+    /** After its actions, a creature in an area stands on its ground (see Area::groundCreature). */
+    void standOnGround();
     void updateGroundTilt();
     void updateTransform() override;
 
@@ -2744,7 +2869,11 @@ private:
      * them back and takes away the creature's thrown lightsaber still in flight.
      */
     void presentEquippedItems(const std::string &clip);
-    /** A new clip is shown; any but the plain pause restarts the fidget time. */
+    /**
+     * A new clip is shown; any but the plain pause restarts the fidget time.
+     * A world-space cut clip plays with the model at the world origin and
+     * suspends the head look; the next other clip puts the model back.
+     */
     void setAnimationSource(AnimationSource source);
     void playTopFireForgetAnimation();
     /**
@@ -2790,6 +2919,8 @@ private:
     /** The appearance's death visual, shown at its node on the body. */
     void presentDeathVisual();
     std::string getHeadTalkAnimation() const;
+    /** Takes the talking head off the body and the head: at once, or blending it out when \p fade. */
+    void removeHeadTalk(bool fade);
     std::string getPauseAnimation(bool injured) const;
     std::string getReadyAnimation() const;
     /** The ready pose of a class-0 character stands, showing the pause clip. */
@@ -2801,7 +2932,6 @@ private:
     std::string getDamageFlinchAnimation() const;
     std::string getRunAnimation() const;
     std::string getStealthWalkAnimation() const;
-    std::string getTalkNormalAnimation() const;
     std::string getWalkAnimation() const;
     /** A hand item powered on or off updates which hands count as powered. */
     void updatePoweredHands(const Item &item, bool on);

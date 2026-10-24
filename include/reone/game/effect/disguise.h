@@ -23,20 +23,17 @@ namespace reone {
 
 namespace game {
 
+/** Disguises a creature: the appearance is integer 0. */
 class DisguiseEffect : public CopyableEffect<DisguiseEffect> {
 public:
     DisguiseEffect(int appearance) :
-        CopyableEffect(EffectType::Disguise),
-        _appearance(appearance) {
+        CopyableEffect(EffectType::Disguise) {
         setSaveFacingInteger(0, appearance);
         setSaveFacingInteger(1, 0);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
     void onRemove(Object &object, const EffectInstance &instance) override;
-
-private:
-    int _appearance;
 };
 
 } // namespace game

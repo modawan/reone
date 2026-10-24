@@ -37,7 +37,6 @@ namespace game {
 static constexpr float kMinRotationSpeed = 1.0f;
 static constexpr float kMaxRotationSpeed = 2.5f;
 static constexpr float kRotationAcceleration = 1.0f;
-static constexpr float kMouseRotationSpeed = 0.001f;
 static constexpr float kTargetPadding = 0.05f;
 
 // Clearance kept around the combat camera, and the extra lift it may take.
@@ -98,6 +97,7 @@ static float wrapRadians(float angle) {
 void ThirdPersonCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
+    resetTilt();
     rebuildProjection();
 }
 
@@ -177,17 +177,11 @@ bool ThirdPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) 
     if (mouseLook && event.xrel != 0) {
         releaseLookAt();
     }
-    // The combat camera turns once a frame by the travel gathered here.
-    if (mouseLook && _combat) {
+    // The camera turns and tilts once a frame by the travel gathered here.
+    if (mouseLook) {
         _mouseTurn += static_cast<float>(event.xrel);
-        return false;
     }
-    // A held turn key wins over the mouse.
-    if (mouseLook && !_rotateCW && !_rotateCCW) {
-        _facing -= kMouseRotationSpeed * event.xrel;
-        _facing = glm::mod(_facing, glm::two_pi<float>());
-        updateSceneNode();
-    }
+    _mouseRise += static_cast<float>(event.yrel);
     return false;
 }
 
@@ -213,10 +207,13 @@ void ThirdPersonCamera::update(float dt) {
     Camera::update(dt);
 
     if (_deathOrbit) {
+        _mouseTurn = 0.0f;
+        _mouseRise = 0.0f;
         updateDeathOrbit(dt);
         return;
     }
     if (_combat) {
+        _mouseRise = 0.0f;
         updateCombatTurn(dt);
         return;
     }
@@ -224,11 +221,15 @@ void ThirdPersonCamera::update(float dt) {
     if (_dollyZoom) {
         updateSceneNode();
     }
-    if (_rotateCW || _rotateCCW) {
+    const bool turnKey = _rotateCW || _rotateCCW;
+    if (turnKey) {
         releaseLookAt();
     }
+    updateMouseTurn();
+    updateTilt(dt);
     updateLookAtSwing(dt);
-    if (!_rotateCW && !_rotateCCW)
+    // Under mouse look a held turn key turns the camera neither way.
+    if (!turnKey || isMouseLookMode())
         return;
 
     _rotationSpeed += kRotationAcceleration * dt;
@@ -240,6 +241,88 @@ void ThirdPersonCamera::update(float dt) {
     _facing = glm::mod(_facing, glm::two_pi<float>());
 
     updateSceneNode();
+}
+
+// A held turn key stops the mouse turn. Otherwise a mouse look turns the
+// camera by the frame's travel, scaled by the mouse sensitivity.
+void ThirdPersonCamera::updateMouseTurn() {
+    const float travel = _mouseTurn;
+    _mouseTurn = 0.0f;
+    if (_rotateCW || _rotateCCW || !isMouseLookMode()) {
+        return;
+    }
+    const float turned = mouseFrameStrength(travel) * mouseSensitivity(_game.options().game.mouse.sensitivity);
+    if (turned == 0.0f) {
+        return;
+    }
+    _facing = glm::mod(_facing + glm::radians(turned), glm::two_pi<float>());
+    updateSceneNode();
+}
+
+// Tilt input, read from the frame's vertical travel and the mouse
+// sensitivity: TSL scales it down by kTiltDivisorTSL; KotOR divides an input
+// stronger than one by kTiltDamping. TSL moves its offset at kTiltRateTSL
+// times the input per second, KotOR at the style's tilt speed, and KotOR's
+// view eases to its pitch by kTiltEasing a second.
+static constexpr float kTiltDivisorTSL = 10.0f;
+static constexpr float kTiltRateTSL = 100.0f;
+static constexpr float kTiltDamping = 75.0f;
+static constexpr float kTiltEasing = 0.5f;
+// TSL's view is level at a pitch of 90 degrees; its offset tilts from there.
+static constexpr float kLevelPitch = 90.0f;
+
+// TSL keeps its offset between the style's tilt-up limit, taken upward, and
+// its tilt-down limit, on every frame.
+static float clampTiltOffsetTSL(float offset, const CameraStyle &style) {
+    return std::min(style.tiltDown, std::max(-style.tiltUp, offset));
+}
+
+// A camera starts its tilt at the style pitch, which TSL then holds within
+// the style's limits.
+void ThirdPersonCamera::resetTilt() {
+    _tiltOffset = _style.pitch;
+    if (_game.isTSL()) {
+        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
+        _viewPitch = kLevelPitch + _tiltOffset;
+    } else {
+        _viewPitch = _style.pitch;
+    }
+}
+
+// TSL tilts only under mouse look: each mouse-look frame without a held turn
+// key sets the tilt, and a held key leaves the last one in force. KotOR reads
+// the tilt from every frame's travel and moves its pitch within the style's
+// limits around the style pitch.
+void ThirdPersonCamera::updateTilt(float dt) {
+    const float strength = mouseFrameStrength(_mouseRise);
+    _mouseRise = 0.0f;
+    const float sensitivity = mouseSensitivity(_game.options().game.mouse.sensitivity);
+    const float previousPitch = _viewPitch;
+    if (_game.isTSL()) {
+        const bool mouseLook = isMouseLookMode();
+        if (mouseLook && !_rotateCW && !_rotateCCW) {
+            _mouseTilt = -sensitivity * strength / kTiltDivisorTSL;
+        }
+        if (mouseLook && _mouseTilt != 0.0f) {
+            _tiltOffset += _mouseTilt * dt * kTiltRateTSL;
+        }
+        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
+        _viewPitch = kLevelPitch + _tiltOffset;
+    } else {
+        float tilt = -sensitivity * strength;
+        if (std::abs(tilt) > 1.0f) {
+            tilt /= kTiltDamping;
+        }
+        if (tilt > 0.0f) {
+            _tiltOffset = std::min(_style.pitch + _style.tiltUp, _tiltOffset + tilt * _style.tiltSpeed * dt);
+        } else if (tilt < 0.0f) {
+            _tiltOffset = std::max(_style.pitch - _style.tiltDown, _tiltOffset + tilt * _style.tiltSpeed * dt);
+        }
+        _viewPitch = _tiltOffset - (_tiltOffset - _viewPitch) * kTiltEasing * dt;
+    }
+    if (_viewPitch != previousPitch) {
+        updateSceneNode();
+    }
 }
 
 float ThirdPersonCamera::integrateCombatTurn(float input, float dt) {
@@ -306,8 +389,6 @@ void ThirdPersonCamera::updateCombatSceneNode() {
 }
 
 void ThirdPersonCamera::updateSceneNode() {
-    static glm::vec3 up {0.0f, 0.0f, 1.0f};
-
     // The death orbit alone places the camera.
     if (_deathOrbit) {
         return;
@@ -340,7 +421,8 @@ void ThirdPersonCamera::updateSceneNode() {
         cameraPos = collision.intersection;
     }
 
-    glm::quat orientation(glm::quatLookAt(glm::normalize(targetPos - cameraPos), up));
+    // The view faces the way the camera faces the target, at the view pitch.
+    glm::quat orientation(viewOrientation(glm::degrees(_facing), _viewPitch));
 
     glm::mat4 transform(1.0f);
     transform *= glm::translate(cameraPos);
@@ -373,8 +455,14 @@ bool ThirdPersonCamera::setDollyZoom(bool enabled) {
     return true;
 }
 
+// A new style keeps the tilt: TSL holds it within the new limits at once;
+// KotOR's moves into them only as the mouse tilts it.
 void ThirdPersonCamera::setStyle(CameraStyle style) {
     _style = std::move(style);
+    if (_game.isTSL()) {
+        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
+        _viewPitch = kLevelPitch + _tiltOffset;
+    }
     // A new style sets its own view angle.
     _viewAngleOverride.reset();
     rebuildProjection();

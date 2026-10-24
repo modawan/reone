@@ -108,8 +108,8 @@ public:
      */
     std::shared_ptr<resource::Gff> save(
         const std::function<uint32_t(const Object &)> &objectId) const;
-    /** Forgets the objects that leave with the area, keeping \p retainedObjects. */
-    void retireAreaRuntime(const std::set<const Object *> &retainedObjects);
+    /** Forgets the objects that leave with the area, keeping those whose ids are in \p retainedObjectIds. */
+    void retireAreaRuntime(const std::set<uint32_t> &retainedObjectIds);
 
 private:
     RuntimeObjectRef<Object> _target;
@@ -366,8 +366,8 @@ private:
 
 /**
  * An entangled caster's paid cast fails: the caster shows its combat-ready
- * pose, in combat or not, and its orientation is released. Returns whether
- * the cast was interrupted.
+ * pose, in combat or not, its orientation is released, and a controlled caster
+ * reads the failure line. Returns whether the cast was interrupted.
  */
 bool interruptEntangledCast(Creature &caster);
 

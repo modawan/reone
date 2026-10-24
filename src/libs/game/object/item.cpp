@@ -234,13 +234,14 @@ void Item::deserializeBase(const resource::Gff &gff) {
         _baseItem,
         "ac_enchant",
         static_cast<int>(ACBonus::Invalid)));
-    _weaponType = static_cast<WeaponType>(
-        baseItems->getInt(_baseItem, "weapontype", 0));
+    // The weapon type, wield and size are bytes: a cell is taken modulo 256.
+    _weaponType = static_cast<WeaponType>(static_cast<uint8_t>(
+        baseItems->getInt(_baseItem, "weapontype", 0)));
     _rangedWeapon = baseItems->getInt(_baseItem, "rangedweapon", 0) != 0;
-    _weaponWield = static_cast<WeaponWield>(
-        baseItems->getInt(_baseItem, "weaponwield", 0));
-    _weaponSize = static_cast<CreatureSize>(
-        baseItems->getInt(_baseItem, "weaponsize", 0));
+    _weaponWield = static_cast<WeaponWield>(static_cast<uint8_t>(
+        baseItems->getInt(_baseItem, "weaponwield", 0)));
+    _weaponSize = static_cast<CreatureSize>(static_cast<uint8_t>(
+        baseItems->getInt(_baseItem, "weaponsize", 0)));
     _weaponFocusFeat = static_cast<FeatType>(
         baseItems->getInt(_baseItem, "focfeat", 0));
     _weaponSpecializationFeat = static_cast<FeatType>(
@@ -435,6 +436,29 @@ std::optional<size_t> Item::firstUseProperty() const {
         if (isUseProperty(_properties[i].propertyName)) {
             return i;
         }
+    }
+    return std::nullopt;
+}
+
+size_t Item::usePropertyPlace(size_t property) const {
+    size_t place = 0;
+    for (size_t i = 0; i < property && i < _properties.size(); ++i) {
+        if (isUseProperty(_properties[i].propertyName)) {
+            ++place;
+        }
+    }
+    return place;
+}
+
+std::optional<size_t> Item::usePropertyAt(size_t place) const {
+    for (size_t i = 0; i < _properties.size(); ++i) {
+        if (!isUseProperty(_properties[i].propertyName)) {
+            continue;
+        }
+        if (place == 0) {
+            return i;
+        }
+        --place;
     }
     return std::nullopt;
 }

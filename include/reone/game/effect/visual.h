@@ -69,7 +69,7 @@ void clearShell(scene::ModelSceneNode &body);
 /**
  * A visualeffects.2da row shown on an object or at a point: its models,
  * sounds and programs. An application that is not kept lasts as long as what
- * it shows.
+ * it shows. The row is integer 0 and the miss flag integer 2.
  */
 class VisualEffect : public CopyableEffect<VisualEffect> {
 public:
@@ -81,7 +81,7 @@ public:
     void onRemove(Object &object, const EffectInstance &instance) override;
     void onUpdate(Object &object, const EffectInstance &, float dt) override;
     void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) override;
+        const std::set<uint32_t> &retainedObjectIds) override;
     /** A visual sent to an area carries the point it plays at in floats 0 to 2. */
     void setLocation(glm::vec3 loc) {
         for (size_t i = 0; i < 3; ++i) {
@@ -140,8 +140,6 @@ private:
         bool complete() const { return sourceNode && targetNode; }
     };
 
-    int _visualEffectId;
-    bool _missEffect;
     std::optional<glm::vec3> _location;
     ServicesView &_services;
 

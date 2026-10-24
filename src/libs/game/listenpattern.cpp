@@ -148,6 +148,13 @@ std::optional<ListenPattern> ListenPattern::parse(const std::string &pattern) {
     return result;
 }
 
+ListenPattern ListenPattern::emptyString() {
+    ListenPattern result;
+    result._nodes.push_back({NodeType::End});
+    result._head = 0;
+    return result;
+}
+
 bool ListenPattern::match(const std::string &str) const {
     std::vector<size_t> ends;
     return matchFrom(_head, boost::to_lower_copy(str), 0, ends) == Outcome::Match;

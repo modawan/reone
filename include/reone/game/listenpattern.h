@@ -44,6 +44,8 @@ public:
      * An empty pattern gives nothing too.
      */
     static std::optional<ListenPattern> parse(const std::string &pattern);
+    /** A pattern that matches only the empty string. */
+    static ListenPattern emptyString();
 
     /** Whether the pattern matches the whole string. */
     bool match(const std::string &str) const;

@@ -218,24 +218,16 @@ std::shared_ptr<Gff> scriptEventToGff(const SavedScriptEvent &event) {
     return result;
 }
 
-std::shared_ptr<Gff> talentToGff(const SavedTalentValue &talent, const Game *game) {
-    auto result = Gff::Builder().type(3)
+std::shared_ptr<Gff> talentToGff(const SavedTalentValue &talent) {
+    return Gff::Builder()
+        .field(Gff::Field::newInt("ID", talent.id))
+        .field(Gff::Field::newInt("Type", talent.type))
         .field(Gff::Field::newByte("MultiClass", talent.multiClass))
         .field(Gff::Field::newDword("Item", talent.item.id))
+        .field(Gff::Field::newInt("ItemPropertyInde", talent.itemPropertyIndex))
         .field(Gff::Field::newByte("CasterLevel", talent.casterLevel))
         .field(Gff::Field::newByte("MetaType", talent.metaType))
         .build();
-    if (game && !game->isTSL()) {
-        put(*result, Gff::Field::newDword("ID", static_cast<uint32_t>(talent.id)));
-        put(*result, Gff::Field::newDword("Type", static_cast<uint32_t>(talent.type)));
-        put(*result, Gff::Field::newDword(
-            "ItemPropertyInde", static_cast<uint32_t>(talent.itemPropertyIndex)));
-    } else {
-        put(*result, Gff::Field::newInt("ID", talent.id));
-        put(*result, Gff::Field::newInt("Type", talent.type));
-        put(*result, Gff::Field::newInt("ItemPropertyInde", talent.itemPropertyIndex));
-    }
-    return result;
 }
 
 std::shared_ptr<Gff> situationToGff(
@@ -244,15 +236,25 @@ std::shared_ptr<Gff> situationToGff(
 
     putUnknown(*result, situation.unknownFields);
 
+    // Each stack entry is numbered by its place, and the game-defined value
+    // of an effect, event, location or talent by its kind: 0 to 3, its stack
+    // type from 16 on.
+    static constexpr int8_t kFirstGameDefinedStackType = static_cast<int8_t>(SavedVmStackType::Effect);
     std::vector<std::shared_ptr<Gff>> values;
     for (const auto &saved : situation.stack) {
-        // A value that was not read goes back as it was saved.
+        // A value that was not read goes back as it was saved, numbered by
+        // its place.
         if (saved.unread) {
-            values.push_back(saved.unread->deepCopy());
+            auto value = saved.unread->deepCopy();
+            value->setType(static_cast<uint32_t>(values.size()));
+            values.push_back(std::move(value));
             continue;
         }
-        auto value = Gff::Builder().type(0)
-            .field(Gff::Field::newChar("Type", saved.type)).build();
+        auto value = Gff::Builder().type(static_cast<uint32_t>(values.size())).field(Gff::Field::newChar("Type", saved.type)).build();
+        const auto gameDefined = [&saved](std::shared_ptr<Gff> payload) {
+            payload->setType(static_cast<uint32_t>(saved.type - kFirstGameDefinedStackType));
+            return Gff::Field::newStruct("GameDefinedStrct", std::move(payload));
+        };
         switch (static_cast<SavedVmStackType>(saved.type)) {
         case SavedVmStackType::Integer:
             put(*value, Gff::Field::newInt("Value", std::get<int32_t>(saved.payload)));
@@ -267,26 +269,26 @@ std::shared_ptr<Gff> situationToGff(
             put(*value, Gff::Field::newDword("Value", std::get<SavedObjectReference>(saved.payload).id));
             break;
         case SavedVmStackType::Effect:
-            put(*value, Gff::Field::newStruct("GameDefinedStrct", effectToGff(std::get<EffectInstance>(saved.payload), game)));
+            put(*value, gameDefined(effectToGff(std::get<EffectInstance>(saved.payload), game)));
             break;
         case SavedVmStackType::Event:
-            put(*value, Gff::Field::newStruct("GameDefinedStrct", scriptEventToGff(std::get<SavedScriptEvent>(saved.payload))));
+            put(*value, gameDefined(scriptEventToGff(std::get<SavedScriptEvent>(saved.payload))));
             break;
         case SavedVmStackType::Location: {
             const auto &location = std::get<SavedLocationValue>(saved.payload);
-            auto payload = Gff::Builder().type(0)
-                .field(Gff::Field::newFloat("PositionX", location.position.x))
-                .field(Gff::Field::newFloat("PositionY", location.position.y))
-                .field(Gff::Field::newFloat("PositionZ", location.position.z))
-                .field(Gff::Field::newFloat("OrientationX", location.orientation.x))
-                .field(Gff::Field::newFloat("OrientationY", location.orientation.y))
-                .field(Gff::Field::newFloat("OrientationZ", location.orientation.z)).build();
-            put(*value, Gff::Field::newStruct("GameDefinedStrct", std::move(payload)));
+            auto payload = Gff::Builder()
+                               .field(Gff::Field::newFloat("PositionX", location.position.x))
+                               .field(Gff::Field::newFloat("PositionY", location.position.y))
+                               .field(Gff::Field::newFloat("PositionZ", location.position.z))
+                               .field(Gff::Field::newFloat("OrientationX", location.orientation.x))
+                               .field(Gff::Field::newFloat("OrientationY", location.orientation.y))
+                               .field(Gff::Field::newFloat("OrientationZ", location.orientation.z))
+                               .build();
+            put(*value, gameDefined(std::move(payload)));
             break;
         }
         case SavedVmStackType::Talent:
-            put(*value, Gff::Field::newStruct(
-                "GameDefinedStrct", talentToGff(std::get<SavedTalentValue>(saved.payload), game)));
+            put(*value, gameDefined(talentToGff(std::get<SavedTalentValue>(saved.payload))));
             break;
         default:
             throw ValidationException("unsupported live VM stack value");
@@ -325,10 +327,14 @@ std::shared_ptr<Gff> actionToGff(
             parameters.push_back(parameter.unread->deepCopy());
             continue;
         }
+        // A parameter read as another type is saved again with its own.
+        const auto savedType = parameter.savedType.value_or(parameter.type);
         auto record = Gff::Builder().type(1)
-            .field(Gff::Field::newDword("Type", parameter.type)).build();
+            .field(Gff::Field::newDword("Type", savedType)).build();
         if (auto value = std::get_if<int32_t>(&parameter.payload)) put(*record, Gff::Field::newInt("Value", *value));
         else if (auto value = std::get_if<float>(&parameter.payload)) put(*record, Gff::Field::newFloat("Value", *value));
+        else if (auto value = std::get_if<SavedObjectReference>(&parameter.payload); value && savedType == static_cast<uint32_t>(SavedActionParameterType::Integer))
+            put(*record, Gff::Field::newInt("Value", static_cast<int32_t>(value->id)));
         else if (auto value = std::get_if<SavedObjectReference>(&parameter.payload)) put(*record, Gff::Field::newDword("Value", value->id));
         else if (auto value = std::get_if<std::string>(&parameter.payload)) put(*record, Gff::Field::newCExoString("Value", *value));
         else if (auto value = std::get_if<SerializedScriptSituation>(&parameter.payload)) {
@@ -952,10 +958,6 @@ void ModuleSnapshotBuilder::normalizeSituationReferences(
 void ModuleSnapshotBuilder::normalizeActionReferences(
     SavedActionRecord &action,
     const ModuleObjectIdContext &ids) const {
-    if (action.cast && action.cast->itemUse) {
-        auto &item = action.cast->itemUse->item;
-        item.id = serializedReferenceId(item, ids);
-    }
     if (action.round) {
         action.round->pauseOwner.id = serializedReferenceId(action.round->pauseOwner, ids);
         action.round->master.id = serializedReferenceId(action.round->master, ids);
@@ -980,10 +982,6 @@ void ModuleSnapshotBuilder::normalizeActionReferences(
     }
     for (size_t index = 0; index < action.parameters.size(); ++index) {
         auto &parameter = action.parameters[index];
-        // A PlayAnimation keeps its animation, not an object, in its object slot.
-        if (action.type() == SavedActionType::PlayAnimation && index == 0) {
-            continue;
-        }
         if (auto reference = std::get_if<SavedObjectReference>(&parameter.payload)) {
             reference->id = serializedReferenceId(*reference, ids);
         } else if (auto situation = std::get_if<SerializedScriptSituation>(&parameter.payload)) {
@@ -1189,7 +1187,7 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
         }
     };
     put(record, Gff::Field::newInt("Animation",
-                                   creature._dead                 ? deadAnimation()
+                                   creature.liesDead()            ? deadAnimation()
                                    : creature._damageFlinchHeld   ? kDamageFlinchAnimation
                                    : creature._combatState.active ? kReadyAnimation
                                                                   : kPauseAnimation));
@@ -1487,6 +1485,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeTrigger(
     putTransform(*result, trigger);
     put(*result, Gff::Field::newResRef("ScriptOnEnter", trigger._onEnter));
     put(*result, Gff::Field::newResRef("ScriptOnExit", trigger._onExit));
+    put(*result, Gff::Field::newResRef("OnClick", trigger._onClick));
     put(*result, Gff::Field::newResRef("OnDisarm", trigger.trap().disarmScript()));
     put(*result, Gff::Field::newResRef("OnTrapTriggered", trigger.trap().triggeredScript()));
     put(*result, Gff::Field::newByte("TrapType", trigger.trapBaseType()));
@@ -1733,7 +1732,6 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
     put(*result, Gff::Field::newDword("StealthXPMax", static_cast<uint32_t>(std::max(0, area._maxStealthXP))));
     put(*result, Gff::Field::newDword("StealthXPCurrent", static_cast<uint32_t>(std::max(0, area._currentStealthXP))));
     put(*result, Gff::Field::newDword("StealthXPLoss", static_cast<uint32_t>(std::max(0, area._stealthXPDecrement))));
-    put(*result, Gff::Field::newStruct("SWVarTable", writeLocals(area)));
     return result;
 }
 
@@ -1754,6 +1752,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     // A runtime snapshot is an authoritative instance graph even when its
     // shadow originated in an installed template GIT.
     put(*result, Gff::Field::newByte("UseTemplates", 0));
+
+    // The area's locals are kept with its instances.
+    put(*result, Gff::Field::newStruct("SWVarTable", writeLocals(area)));
 
     // The pending transition is recorded at the top level too.
     put(*result, Gff::Field::newByte("TransPending", area._transitionPending));

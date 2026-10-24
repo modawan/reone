@@ -74,6 +74,8 @@ public:
      */
     void setCombatMessage(int strref);
     void resetStatusSummaryPresentation();
+    /** End the action bar's choice of a party member to use an item on. */
+    void cancelPartyItemTarget() { _actionBar.cancelPartyItemTarget(); }
 
     /** Exposes representative HUD state for the scripted gallery fixture. */
     void showCapturePresentation(bool combat);
@@ -322,6 +324,15 @@ private:
     void layoutPausePanel(PauseReason reason);
     /** Play is paused for a reason the indicator shows. */
     bool isPausePanelShown() const;
+
+    /**
+     * The index of the party member portrait \p portrait shows: a party of
+     * two shows its companion in the third portrait and leaves the second
+     * empty. None for an empty portrait.
+     */
+    std::optional<int> portraitMemberIndex(int portrait) const;
+    /** TSL: build the box the action bar's announcements and prompts show in. */
+    void loadNoticeBox();
 
     void toggleCombat(bool enabled);
     /** Fade the shown timed combat-mode line, then bring back the idle line. */

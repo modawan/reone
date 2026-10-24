@@ -221,6 +221,9 @@ static uint64_t restoredExpiry(const SavedMoveCommand &command, uint64_t millise
 
 // A move to an object in range always carries a move flag of 1.
 static constexpr int32_t kMoveToObjectFlags = 1;
+// A MoveToObject command has five parameters; the range check in front of an
+// attack, a cast or an item use has two more.
+static constexpr size_t kMoveToObjectParameterCount = 5;
 
 std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
     // A move to an object within a range is saved as a MoveToObject command; a
@@ -253,13 +256,19 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
         return result;
     }
 
-    return SavedActionRecord::command(SavedActionType::MoveToObject, {
-                                                                         {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_moveTo->id())},
-                                                                         {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
-                                                                         {kSavedFloatParameter, _range},
-                                                                         {kSavedFloatParameter, _checkRange.value_or(_range)},
-                                                                         {kSavedIntegerParameter, kMoveToObjectFlags},
-                                                                     });
+    auto result = SavedActionRecord::command(SavedActionType::MoveToObject, {
+                                                                                {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_moveTo->id())},
+                                                                                {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                                {kSavedFloatParameter, _range},
+                                                                                {kSavedFloatParameter, _checkRange.value_or(_range)},
+                                                                                {kSavedIntegerParameter, kMoveToObjectFlags},
+                                                                            });
+    if (_approachFlags) {
+        result.parameters.push_back({kSavedIntegerParameter, int32_t {_approachFlags->objectsInLine}});
+        result.parameters.push_back({kSavedIntegerParameter, int32_t {_approachFlags->clearLineWalk}});
+        result.declaredParameterCount = static_cast<uint16_t>(result.parameters.size());
+    }
+    return result;
 }
 
 std::shared_ptr<Action> MoveToObjectAction::restore(const SavedActionRecord &record, Game &game) {
@@ -274,7 +283,11 @@ std::shared_ptr<Action> MoveToObjectAction::restore(const SavedActionRecord &rec
         moveFlags != kMoveToObjectFlags) {
         return nullptr;
     }
-    return game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, true);
+    auto action = game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, true);
+    if (record.parameters.size() > kMoveToObjectParameterCount) {
+        action->_approachFlags = ApproachFlags {record.integerParameter(5), record.integerParameter(6)};
+    }
+    return action;
 }
 
 // A move order lets go of the orientation lock and ends a push or leap
@@ -622,7 +635,9 @@ std::shared_ptr<Action> FollowLeaderAction::restore(const SavedActionRecord &rec
 // creature that is no longer a puppet drops it.
 void FollowOwnerAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &puppet = cast<Creature>(actor);
-    if (!puppet.isPuppet()) {
+    // Only a puppet follows its owner, and it gives up when it is not free to
+    // move, even where the order can no longer be cleared.
+    if (!puppet.isPuppet() || (puppet.effectAIStateMask() & Creature::kAIStateMove) == 0) {
         complete();
         return;
     }

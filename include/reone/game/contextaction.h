@@ -39,6 +39,8 @@ enum class PowerUnavailableReason {
     RequiredEquipment,
     MinimumRange,
     InsufficientVitality,
+    /** KotOR: a healing kit while no one it would treat needs it. */
+    NoOneToHeal,
 };
 
 /**
@@ -88,6 +90,8 @@ struct ContextAction {
     int subSkill {0};
     std::shared_ptr<Spell> spell;
     std::shared_ptr<Item> item;
+    /** An item entry for an item its user wears rather than one from the party's inventory. */
+    bool worn {false};
     PowerMenuStatus availability;
     /** A power of an equipped item in a droid leader's power menu. */
     bool equipmentPower {false};

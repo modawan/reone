@@ -23,11 +23,11 @@ namespace reone {
 
 namespace game {
 
+/** Gives a chance to miss: the percentage is integer 0. */
 class MissChanceEffect : public CopyableEffect<MissChanceEffect> {
 public:
     MissChanceEffect(int percentage) :
-        CopyableEffect(EffectType::MissChance),
-        _percentage(percentage) {
+        CopyableEffect(EffectType::MissChance) {
         setSaveFacingInteger(0, percentage);
     }
 
@@ -37,9 +37,6 @@ public:
                    ? EffectApplicationResult::Retained
                    : EffectApplicationResult::Rejected;
     }
-
-private:
-    int _percentage;
 };
 
 } // namespace game

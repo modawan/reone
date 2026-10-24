@@ -101,19 +101,78 @@ public:
     int getColumnCount() const { return static_cast<int>(_columns.size()); }
     int getRowCount() const { return static_cast<int>(_rows.size()); }
 
+    /**
+     * Find a column by its name, folding ASCII case.
+     *
+     * @return index of the first column so named, or -1 when not found
+     */
+    int getColumnIndex(const std::string &column) const;
+
     std::string getString(int row, const std::string &column, std::string defValue = "") const;
+
+    /**
+     * An integer cell, read as a scanf "%i" conversion reads it: decimal,
+     * 0x-prefixed hexadecimal or 0-prefixed octal, ending at the first
+     * character that is not a digit. A cell with no digits reads as 0.
+     *
+     * @return the cell's value, or \p defValue when the row, the column or
+     *         the cell's text is missing
+     */
     int getInt(int row, const std::string &column, int defValue = 0) const;
+    /**
+     * An unsigned 32-bit cell: the integer getInt reads, taken as unsigned.
+     *
+     * @return the cell's value, or \p defValue when the row, the column or
+     *         the cell's text is missing
+     */
     uint32_t getUint(int row, const std::string &column, uint32_t defValue = 0) const;
     uint32_t getHexInt(int row, const std::string &column, uint32_t defValue = 0) const;
+    /**
+     * A real cell, read as a scanf "%f" conversion reads it: decimal or
+     * 0x-prefixed hexadecimal, with an optional exponent, ending at the first
+     * character that cannot continue the number. A cell with no number reads
+     * as 0.
+     *
+     * @return the cell's value, or \p defValue when the row, the column or
+     *         the cell's text is missing
+     */
     float getFloat(int row, const std::string &column, float defValue = 0.0f) const;
+    /**
+     * A flag cell: an integer, read as getInt reads it, that is not zero.
+     *
+     * @return the flag, or \p defValue when the row, the column or the
+     *         cell's text is missing
+     */
     bool getBool(int row, const std::string &column, bool defValue = false) const;
 
+    /** A cell read by its column's index rather than its name, as getString reads it. */
+    std::string getString(int row, int column, std::string defValue = "") const;
+    /** A cell read by its column's index rather than its name, as getInt reads it. */
+    int getInt(int row, int column, int defValue = 0) const;
+    /** A cell read by its column's index rather than its name, as getFloat reads it. */
+    float getFloat(int row, int column, float defValue = 0.0f) const;
+
     std::optional<std::string> getStringOpt(int row, const std::string &column) const;
+    /** A cell read by its column's index rather than its name, as getStringOpt reads it. */
+    std::optional<std::string> getStringOpt(int row, int column) const;
+
+    /**
+     * An integer cell, read as getInt reads it.
+     *
+     * @return the cell's value, or none when the row, the column or the
+     *         cell's text is missing
+     */
     std::optional<int> getIntOpt(int row, const std::string &column) const;
-    /** An unsigned 32-bit cell, decimal or 0x-prefixed hexadecimal; none when blank. */
+    /** A cell read by its column's index rather than its name, as getIntOpt reads it. */
+    std::optional<int> getIntOpt(int row, int column) const;
+    /** An unsigned 32-bit cell, read as getUint reads it; none when the row, the column or the cell's text is missing. */
     std::optional<uint32_t> getUintOpt(int row, const std::string &column) const;
     std::optional<uint32_t> getHexIntOpt(int row, const std::string &column) const;
+    /** A real cell, read as getFloat reads it; none when the row, the column or the cell's text is missing. */
     std::optional<float> getFloatOpt(int row, const std::string &column) const;
+    /** A cell read by its column's index rather than its name, as getFloatOpt reads it. */
+    std::optional<float> getFloatOpt(int row, int column) const;
+    /** A flag cell, read as getBool reads it; none when the row, the column or the cell's text is missing. */
     std::optional<bool> getBoolOpt(int row, const std::string &column) const;
 
     const std::vector<std::string> &columns() const { return _columns; }
@@ -130,8 +189,15 @@ private:
     std::vector<std::string> _columns;
     std::vector<Row> _rows;
 
-    int getColumnIndex(const std::string &column) const;
     std::vector<int> getColumnIndices(const std::vector<std::string> &columns) const;
+
+    /**
+     * A cell's text as the table holds it.
+     *
+     * @param column the column's index
+     * @return the cell's text, or none when the row or the column is missing
+     */
+    std::optional<std::string> getCellOpt(int row, int column) const;
 };
 
 } // namespace resource

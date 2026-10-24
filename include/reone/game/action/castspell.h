@@ -42,11 +42,15 @@ public:
 
     /**
      * A saved CastSpell or ItemCastSpell command. A cast takes up its
-     * progress; an item use starts over, and one whose item is gone fails on
-     * its first frame, leaving its user posed, and the queue goes on.
+     * progress; an item use starts over with the spell of the property it is
+     * used through, and one whose item, property, spell or target object is
+     * gone fails on its first frame, leaving its user posed, and the queue
+     * goes on.
      */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 
+    /** The cast notes whether a placeable casts it, which shapes its saved command. */
+    void onQueued(Object &actor) override;
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
@@ -71,8 +75,21 @@ public:
         _spontaneousCast = spontaneousCast;
     }
     /**
+     * Sets whether the cast skips its range test and approach. An instant cast
+     * skips them unless told otherwise; a script's instant cast skips them
+     * only when its instant argument is exactly 1.
+     */
+    void setSkipsApproach(bool skips) { _skipsApproach = skips; }
+    /**
+     * Has the cast check its line to its object before it starts, wherever
+     * its caster stands. The check is kept while the cast waits in a queue,
+     * and through a save.
+     */
+    void requireUseLineCheck() { _checksUseLine = true; }
+    /**
      * Starts an item use over from its saved command. It keeps the projectile
-     * it was holding only to let go of it when it starts again.
+     * it was holding only to let go of it when it starts again, and a pending
+     * check of its line to its target.
      */
     void restartItemUse(const SavedCastAction &state);
 
@@ -109,7 +126,11 @@ protected:
     bool _cheat;
     ProjectilePathType _projectilePathType;
     bool _instantSpell;
+    /** The cast goes ahead from where its caster stands, whatever the range. */
+    bool _skipsApproach;
     bool _fake;
+    /** A placeable casts the spell. */
+    bool _placeableCaster {false};
     /** The command's domain level, meta type and spontaneous-cast parameter. */
     int _domainLevel {0};
     int _metaType {0};
@@ -128,6 +149,8 @@ protected:
     bool _admitted {false};
     /** The caster was out of range when the cast was dispatched and is walking up to it. */
     bool _approaching {false};
+    /** The cast waits for its caster to stand in use range of its object, with a clear line to it. */
+    bool _checksUseLine {false};
     bool _started {false};
     bool _commitAttempted {false};
     bool _committed {false};
