@@ -36,6 +36,9 @@ public:
     virtual void clear() = 0;
 
     virtual std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
+
+    /** Advances the pulse every GUI shares, once a frame, by real time. */
+    virtual void updatePulsingAlpha(float dt) = 0;
 };
 
 class GUIs : public IGUIs, boost::noncopyable {
@@ -63,12 +66,18 @@ public:
         return _guis.insert(make_pair(resRef, std::move(gui))).first->second;
     }
 
+    void updatePulsingAlpha(float dt) override {
+        _pulsingAlpha.update(dt);
+    }
+
 private:
     graphics::GraphicsOptions &_graphicsOpt;
     scene::ISceneGraphs &_sceneGraphs;
     graphics::GraphicsServices &_graphicsSvc;
     resource::ResourceServices &_resourceSvc;
 
+    /** The pulse every GUI shares; declared before the GUIs that hold it, so it outlives them. */
+    PulsingAlpha _pulsingAlpha;
     std::unordered_map<std::string, std::shared_ptr<IGUI>> _guis;
 
     std::shared_ptr<IGUI> doGet(std::string resRef, std::function<void(IGUI &)> preload);

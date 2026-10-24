@@ -78,6 +78,7 @@
 #include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/guis.h"
 #include "reone/movie/format/bikreader.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -931,6 +932,8 @@ bool Game::consumeTimingDiscontinuity() {
 }
 
 void Game::update(float frameTime) {
+    // Every GUI's pulse runs on real time, whatever the screen.
+    _services.gui.guis.updatePulsingAlpha(frameTime);
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.

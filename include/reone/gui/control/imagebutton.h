@@ -50,7 +50,20 @@ public:
         const std::shared_ptr<graphics::Texture> &iconFrame,
         scene::IRenderPass &pass);
 
+    /**
+     * While selected, the icon frame takes this colour (unset, the hilight's)
+     * and, if pulsing, the GUI's pulsing alpha.
+     */
+    void setIconFrameHilight(std::optional<glm::vec3> color, bool pulsing) {
+        _iconFrameHilightColor = std::move(color);
+        _iconFrameHilightPulsing = pulsing;
+    }
+
 private:
+    /** The selected icon frame's colour; unset, the hilight's. */
+    std::optional<glm::vec3> _iconFrameHilightColor;
+    /** Whether the selected icon frame is drawn at the GUI's pulsing alpha. */
+    bool _iconFrameHilightPulsing {false};
     std::shared_ptr<graphics::Texture> _iconFrame;
     std::shared_ptr<graphics::Font> _iconFont;
 

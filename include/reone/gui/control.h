@@ -100,6 +100,10 @@ public:
         float alpha {1.0f};
         int dimension {0};
         FillTransform fillTransform {FillTransform::None};
+        /** While set, the corners and edges are drawn at the GUI's pulsing alpha instead of alpha. */
+        bool pulseFrame {false};
+        /** While set, the fill is drawn at the GUI's pulsing alpha instead of alpha. */
+        bool pulseFill {false};
     };
 
     struct Text {
@@ -108,6 +112,10 @@ public:
         glm::vec3 color {1.0f};
         TextAlign align {TextAlign::CenterCenter};
         float opacity {1.0f};
+        /** The text is drawn at the GUI's pulsing alpha. */
+        bool pulsing {false};
+        /** While the control is selected, the text is drawn at the GUI's pulsing alpha. */
+        bool hilightPulsing {false};
     };
 
     static ControlType getType(const resource::generated::GUI_BASECONTROL &gui);
@@ -189,6 +197,10 @@ public:
     void setText(Text text);
     void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
+    /** While selected, the text is drawn at the GUI's pulsing alpha. */
+    void setHilightTextPulsing(bool pulsing) { _text.hilightPulsing = pulsing; }
+    /** The hilight's frame and fill pulse, as chosen. */
+    void setHilightPulsing(bool frame, bool fill);
     /** Sets the alpha the text is drawn with. */
     void setTextOpacity(float opacity) { _text.opacity = opacity; }
     void setTextMessage(std::string text);
@@ -301,11 +313,19 @@ protected:
         _resourceSvc(resourceSvc) {
     }
 
+    /**
+     * Draws a border over the given size.
+     *
+     * @param part the parts of the border drawn
+     * @param pulsing whether the whole border is drawn at the GUI's pulsing
+     *                alpha, whatever the border's own pulse
+     */
     void renderBorder(const Border &border,
                       const glm::ivec2 &offset,
                       const glm::ivec2 &size,
                       scene::IRenderPass &pass,
-                      BorderRenderPart part = BorderRenderPart::All);
+                      BorderRenderPart part = BorderRenderPart::All,
+                      bool pulsing = false);
 
     void renderScene(const glm::ivec2 &screenSize,
                      const glm::ivec2 &offset,
