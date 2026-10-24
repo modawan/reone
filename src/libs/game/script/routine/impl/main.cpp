@@ -48,7 +48,6 @@
 #include "reone/game/script/routines.h"
 #include "reone/game/shaperules.h"
 #include "reone/game/talent.h"
-#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/gffs.h"
@@ -717,7 +716,6 @@ static Variable SetPlayerRestrictMode(const std::vector<Variable> &args, const R
     auto restrict = static_cast<bool>(bRestrict);
 
     // Execute
-    ctx.game.module()->player().setRestrictMode(restrict);
     if (auto area = ctx.game.module()->area()) {
         area->setPlayerRestrictMode(restrict);
     }
@@ -974,8 +972,7 @@ static Variable GetPlayerRestrictMode(const std::vector<Variable> &args, const R
     // Transform
 
     // Execute
-    bool restrict = ctx.game.module()->player().isRestrictMode();
-    return Variable::ofInt(static_cast<int>(restrict));
+    return Variable::ofInt(static_cast<int>(ctx.game.module()->area()->playerRestrictMode()));
 }
 
 static Variable GetCasterLevel(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1028,6 +1025,10 @@ static Variable GetEffectSubType(const std::vector<Variable> &args, const Routin
 
 static Variable GetEffectCreator(const std::vector<Variable> &args, const RoutineContext &ctx) {
     const auto record = getEffect(args, 0)->saveFacingInstance();
+    // An effect with no creator, or whose creator is gone, has none.
+    if (record.creatorId == kSavedEffectInvalidObjectId) {
+        return Variable::ofObject(kObjectInvalid);
+    }
     return Variable::ofObject(record.creatorId);
 }
 
@@ -1382,7 +1383,7 @@ static Variable GetSpellSaveDC(const std::vector<Variable> &args, const RoutineC
 }
 
 static Variable withEffectCategory(const std::vector<Variable> &args, EffectCategory category) {
-    auto effect = getEffect(args, 0)->cloneEffect();
+    auto effect = getEffect(args, 0);
     effect->setCategory(category);
     return Variable::ofEffect(std::move(effect));
 }
@@ -1793,9 +1794,7 @@ static std::string getFeedbackObjectName(const Object &object, const RoutineCont
         if (!object.name().empty()) {
             return object.name();
         }
-        auto placeables = getRequiredTwoDA(ctx.services.resource.twoDas, "placeables");
-        const auto &placeable = static_cast<const Placeable &>(object);
-        return strings.getText(placeables->getInt(placeable.appearance(), "strref", -1));
+        return strings.getText(static_cast<const Placeable &>(object).appearanceNameStrRef());
     }
     case ObjectType::Trigger:
         return object.name().empty() ? strings.getText(kStrRefUnnamedTrigger) : object.name();
@@ -3592,7 +3591,7 @@ static Variable GetLastAttackType(const std::vector<Variable> &args, const Routi
 
 static Variable GetLastAttackMode(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto creature = getCreatureOrNull(args, 0, ctx);
-    return Variable::ofInt(creature ? creature->getLastAttackMode() : kObjectInvalid);
+    return Variable::ofInt(creature ? creature->getLastAttackMode() : AttackHistory::kScriptModeNone);
 }
 
 static Variable GetDistanceBetween2D(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4125,14 +4124,9 @@ static Variable DisplayFeedBackText(const std::vector<Variable> &args, const Rou
     int textConstant = getInt(args, 1);
 
     std::string text {kBadStrRefText};
-    auto feedback = getRequiredTwoDA(
-        ctx.services.resource.twoDas,
-        "feedbacktext");
-    if (textConstant >= 0 && textConstant < feedback->getRowCount()) {
-        if (auto strRef = feedback->getIntOpt(textConstant, "strref")) {
-            if (*strRef != 0) {
-                text = ctx.services.resource.strings.getText(*strRef);
-            }
+    if (auto strRef = ctx.game.feedbackTextStrRef(textConstant)) {
+        if (*strRef != 0) {
+            text = ctx.services.resource.strings.getText(*strRef);
         }
     }
     object->setFeedbackText(std::move(text), kFeedbackTextSeconds);
@@ -5055,7 +5049,9 @@ static Variable visitTrap(const std::shared_ptr<Object> &object, Variable fallba
     return fallback;
 }
 
-static uint32_t getObjectIdOrCaller(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+// The object id an argument names, unresolved: OBJECT_SELF names the caller,
+// and a missing argument names no object.
+static uint32_t getObjectIdArgument(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
     if (index >= static_cast<int>(args.size()) || args[index].type != VariableType::Object) {
         return kObjectInvalid;
     }
@@ -5085,16 +5081,16 @@ static Variable GetNearestTrapToObject(const std::vector<Variable> &args, const 
     std::shared_ptr<Object> nearest;
     float nearestDistance2 = 1e8f;
     for (const auto &object : area->objects()) {
-        // Candidates are the area's traps; only a request for detected traps
-        // also requires the target to have found them.
-        const auto candidate = visitTrap(object, Variable::ofInt(0), [&oTarget, nTrapDetected](auto &trap) {
-            return Variable::ofInt(trap.isTrapped() &&
-                                           (nTrapDetected != 1 || trap.trapDetection().isDetectedBy(oTarget->id()))
-                                       ? 1
-                                       : 0);
-        });
-        if (candidate.intValue == 0) {
-            continue;
+        // A request for detected traps takes any trigger, door or placeable
+        // the target has found. Any other request takes every object, so the
+        // target itself, standing where it stands, is the nearest.
+        if (nTrapDetected == 1) {
+            const auto candidate = visitTrap(object, Variable::ofInt(0), [&oTarget](auto &trap) {
+                return Variable::ofInt(trap.trapDetection().isDetectedBy(oTarget->id()) ? 1 : 0);
+            });
+            if (candidate.intValue == 0) {
+                continue;
+            }
         }
         const float distance2 = oTarget->getSquareDistanceTo(*object);
         if (distance2 < nearestDistance2) {
@@ -5514,7 +5510,7 @@ static Variable GetTrapDetectedBy(const std::vector<Variable> &args, const Routi
     // Load
     auto oTrapObject = getObjectOrNull(args, 0, ctx);
     // The creature is matched by id and need not exist.
-    const uint32_t creatureId = getObjectIdOrCaller(args, 1, ctx);
+    const uint32_t creatureId = getObjectIdArgument(args, 1, ctx);
 
     // Execute
     return visitTrap(oTrapObject, Variable::ofInt(0), [creatureId](auto &trap) {
@@ -7100,7 +7096,7 @@ static Variable SpawnMine(const std::vector<Variable> &args, const RoutineContex
         faction = placeable->faction();
     }
     // A blank modifier adds nothing to the DC.
-    const auto row = Trap::typeRow(ctx.services.resource.twoDas, nMineType);
+    const auto &row = ctx.game.trapType(nMineType);
     ctx.game.module()->area()->spawnMine(
         nMineType,
         lPoint->position(),

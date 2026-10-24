@@ -323,6 +323,11 @@ void PartySelection::onAcceptButtonClick() {
     }
 }
 
+void PartySelection::clearSelection() {
+    releaseMaterialized();
+    GameGUI::clearSelection();
+}
+
 // Leaving the screen destroys each companion it brought into being that did
 // not join the party.
 void PartySelection::releaseMaterialized() {

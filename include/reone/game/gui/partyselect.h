@@ -37,6 +37,9 @@ public:
 
     void prepare(const PartySelectionContext &ctx);
 
+    /** Called whenever the screen is left, however it is left. */
+    void clearSelection() override;
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;

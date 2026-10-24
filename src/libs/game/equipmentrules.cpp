@@ -35,11 +35,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
-#include "reone/game/twodautil.h"
 #include "reone/game/types.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/di/services.h"
-#include "reone/resource/provider/2das.h"
 
 namespace reone {
 
@@ -135,10 +131,10 @@ std::optional<int> equipmentRefusalFeedback(EquipmentCandidateReason reason) {
 
 int minimumEquipLevel(const Creature &creature, const Item &item) {
     const int cost = item.cost(creature.game().baseItemCostMultiplier(item.baseItemType()));
-    auto table = getRequiredTwoDA(creature.services().resource.twoDas, "itemvalue");
-    const int rows = table->getRowCount();
+    const auto &limits = creature.services().game.combatTables.itemValueLimits();
+    const int rows = static_cast<int>(limits.size());
     int row = 0;
-    while (row < rows && cost > table->getInt(row, "maxsingleitemvalue", 0)) {
+    while (row < rows && cost > limits[row]) {
         ++row;
     }
     return row + 1;
@@ -284,12 +280,12 @@ static bool meetsPlayerCharacterLimits(const Creature &creature, const Item &ite
     if (!hasProperty(item, ItemProperty::LimitUseByPc)) {
         return true;
     }
-    auto table = getRequiredTwoDA(creature.services().resource.twoDas, "iprp_pc");
+    const auto &tables = creature.services().game.combatTables;
     return anyActiveProperty(item, ItemProperty::LimitUseByPc, [&](const Item::PropertyEntry &property) {
         if (property.subtype == kPlayerCreatedRow) {
             return creature.isPlayerCreated();
         }
-        return boost::iequals(table->getString(property.subtype, "expectedtag"), creature.tag());
+        return boost::iequals(tables.playerCharacterLimitTag(property.subtype), creature.tag());
     });
 }
 

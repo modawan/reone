@@ -33,12 +33,8 @@ namespace game {
 
 int ScriptRunner::run(const std::string &resRef, const std::vector<Argument> &args) {
     auto program = _scripts.get(resRef);
-    if (!program) {
-        if (!resRef.empty()) {
-            warn("Script not found: " + resRef, LogChannel::Script);
-        }
+    if (!program)
         return -1;
-    }
 
     auto ctx = std::make_unique<ExecutionContext>();
     ctx->routines = &_routines;

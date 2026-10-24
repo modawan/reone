@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/ingame/abilities.h"
 
+#include "reone/game/d20/skill.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
@@ -24,9 +26,7 @@
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
-#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 
@@ -107,15 +107,15 @@ void AbilitiesMenu::onGUILoaded() {
 }
 
 void AbilitiesMenu::loadSkills() {
-    std::shared_ptr<TwoDA> skills(_services.resource.twoDas.get("skills"));
-    for (int row = 0; row < skills->getRowCount(); ++row) {
-        auto skill = static_cast<SkillType>(row);
+    for (int type = static_cast<int>(SkillType::ComputerUse); type <= static_cast<int>(SkillType::TreatInjury); ++type) {
+        auto skill = static_cast<SkillType>(type);
+        const auto &rules = *_services.game.skills.get(skill);
 
         SkillInfo skillInfo;
         skillInfo.skill = skill;
-        skillInfo.name = _services.resource.strings.getText(skills->getInt(row, "name"));
-        skillInfo.description = _services.resource.strings.getText(skills->getInt(row, "description"));
-        skillInfo.icon = _services.resource.textures.get(skills->getString(row, "icon"), TextureUsage::GUI);
+        skillInfo.name = rules.name;
+        skillInfo.description = rules.description;
+        skillInfo.icon = rules.icon;
 
         _skills.insert(std::make_pair(skill, std::move(skillInfo)));
     }

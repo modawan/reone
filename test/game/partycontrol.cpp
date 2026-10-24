@@ -144,19 +144,24 @@ public:
         _engine.init();
         // A creature update searches for mines with its Awareness rank, which
         // includes the racial Wisdom adjustment.
-        ON_CALL(_engine.resourceModule().twoDas(), get("skills"))
-            .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
-                                                                       .columns({"label", "untrained", "keyability", "armorcheckpenalty"})
-                                                                       .row({"ComputerUse", "1", "INT", "0"})
-                                                                       .row({"Demolitions", "0", "INT", "1"})
-                                                                       .row({"Stealth", "0", "DEX", "1"})
-                                                                       .row({"Awareness", "1", "WIS", "0"})
-                                                                       .build())));
+        auto &skills = static_cast<MockSkills &>(_engine.services().game.skills);
+        auto skill = [](bool untrained, Ability keyAbility) {
+            auto result = std::make_shared<Skill>();
+            result->untrained = untrained;
+            result->keyAbility = keyAbility;
+            return result;
+        };
+        ON_CALL(skills, get(_)).WillByDefault(Return(nullptr));
+        ON_CALL(skills, get(SkillType::ComputerUse)).WillByDefault(Return(skill(true, Ability::Intelligence)));
+        ON_CALL(skills, get(SkillType::Demolitions)).WillByDefault(Return(skill(false, Ability::Intelligence)));
+        ON_CALL(skills, get(SkillType::Stealth)).WillByDefault(Return(skill(false, Ability::Dexterity)));
+        ON_CALL(skills, get(SkillType::Awareness)).WillByDefault(Return(skill(true, Ability::Wisdom)));
         ON_CALL(_engine.resourceModule().twoDas(), get("racialtypes"))
             .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
                                                                        .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                        .row({"0", "0", "0", "0", "0", "0"})
                                                                        .build())));
+        _engine.initCombatTables();
         ON_CALL(_engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(_sceneGraph));
         ON_CALL(_sceneGraph, testElevation(_, _))

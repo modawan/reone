@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "types.h"
@@ -53,6 +54,14 @@ void validateTwoDARowIndex(
 /** A race's adjustment to an ability (racialtypes.2da); a blank one is zero. */
 int readRacialAbilityAdjustment(
     const resource::TwoDA &table, int row, Ability ability);
+
+/**
+ * The name of the table's column \p column, matched ignoring case, for the
+ * tables the games name in either case.
+ *
+ * @return the column's name as the table spells it; none when it has no such column
+ */
+std::optional<std::string> findColumnIgnoringCase(const resource::TwoDA &table, const std::string &column);
 
 } // namespace game
 

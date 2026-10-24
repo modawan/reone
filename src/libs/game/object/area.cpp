@@ -28,6 +28,7 @@
 #include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
 #include "reone/game/camerastyles.h"
+#include "reone/game/combattables.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/creaturestate.h"
@@ -239,7 +240,6 @@ void Area::activate() {
     // Map is presentation state owned by Game, while loaded areas are cached.
     // Restore this area's map whenever a cached module becomes active again.
     _game.map().load(_name, _map);
-    _game.module()->player().setRestrictMode(_playerRestrictMode);
     applySceneProperties();
 
     for (auto &pair : _rooms) {
@@ -1427,10 +1427,9 @@ static constexpr float kEvictedCorpseHold = 45.0f;
 
 // Only the appearance's bag row decides whether a creature's body becomes its
 // corpse bag.
-static bool isCorpseBagAppearance(resource::ITwoDAs &twoDas, int appearance) {
-    const auto appearances = getRequiredTwoDA(twoDas, "appearance");
-    const auto row = appearances->getIntOpt(appearance, "body_bag");
-    return row && getRequiredTwoDA(twoDas, "bodybag")->getIntOpt(*row, "corpse").value_or(0) != 0;
+static bool isCorpseBagAppearance(const ICombatTables &tables, const Creature &creature) {
+    const auto row = creature.appearanceBodyBagRow();
+    return row && tables.bodyBag(*row).corpse;
 }
 
 void Area::releaseDestroyedBody(const std::shared_ptr<Object> &object, std::optional<std::reference_wrapper<const Room>> room) {
@@ -1448,7 +1447,7 @@ void Area::releaseDestroyedBody(const std::shared_ptr<Object> &object, std::opti
     _services.scene.graphs.get(_sceneName).addRoot(model);
     ReleasedBody body {object, std::move(model), room};
     body.bodyBagId = bodyBagId;
-    if (linked && isCorpseBagAppearance(_services.resource.twoDas, creature->appearance())) {
+    if (linked && isCorpseBagAppearance(_services.game.combatTables, *creature)) {
         _corpseBagBodies.push_back(std::move(body));
         return;
     }
@@ -3350,10 +3349,6 @@ bool Area::matchesCriterias(const Creature &creature, const SearchCriteriaList &
 
 void Area::updatePerception(float dt) {
     updatePerceptionPasses(dt, false);
-}
-
-void Area::doUpdatePerception() {
-    updatePerceptionPasses(0.0f, true);
 }
 
 // Each creature perceives on its own schedule. A creature outside the party

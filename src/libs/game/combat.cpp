@@ -27,7 +27,6 @@
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
-#include "reone/game/action/switchweapons.h"
 #include "reone/game/action/unequipitem.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/wait.h"
@@ -57,11 +56,6 @@ namespace game {
 // Reputations: hostile up to this one, friendly from the other.
 static constexpr int kHighestHostileReputation = 10;
 static constexpr int kLowestFriendReputation = 90;
-
-// Round entry types besides those SavedScheduledAction names: an entry with
-// no command, whose creature holds still for the entry's time, and a move.
-static constexpr int kPauseType = 3;
-static constexpr int kMoveType = 12;
 
 // The animations and times round entries start with.
 static constexpr int kStanceEntryAnimation = 10001;
@@ -863,18 +857,6 @@ bool Combat::hasReactionRoom(const Creature &creature, const Creature &attacker)
            paused->second.pausedBy.resolve().get() == &attacker;
 }
 
-std::optional<int> Combat::nextScheduledKind(const Object &actor) const {
-    auto found = _scheduled.find(actor.id());
-    if (found == _scheduled.end() || found->second->actor.resolve().get() != &actor) {
-        return std::nullopt;
-    }
-    for (const auto &entry : found->second->actions)
-        if (entry && !entry->saved.applied) {
-            return entry->saved.type;
-        }
-    return std::nullopt;
-}
-
 static bool isAttackEntry(const SavedScheduledAction &saved) {
     return saved.type == SavedScheduledAction::kAttackType || saved.type == SavedScheduledAction::kFeatAttackType;
 }
@@ -885,7 +867,7 @@ static bool isCastEntry(const SavedScheduledAction &saved) {
 
 static bool scheduledCommandMatches(const SavedScheduledAction &saved) {
     if (!saved.command) {
-        return saved.type == kPauseType;
+        return saved.type == SavedScheduledAction::kPauseType;
     }
     const auto type = saved.command->type();
     switch (saved.type) {
@@ -900,7 +882,7 @@ static bool scheduledCommandMatches(const SavedScheduledAction &saved) {
         return type == SavedActionType::CastSpell;
     case SavedScheduledAction::kItemCastSpellType:
         return type == SavedActionType::ItemCastSpell;
-    case kMoveType:
+    case SavedScheduledAction::kMoveType:
         return type == SavedActionType::MoveToPoint || type == SavedActionType::MoveToObject;
     case SavedScheduledAction::kCombatStanceType:
         return type == SavedActionType::TotalDefense || type == SavedActionType::Meditate;
@@ -1249,7 +1231,7 @@ static constexpr float kCutsceneMoveTimeout = 0.1f;
 
 void Combat::scheduleCutsceneMove(Creature &actor, const std::shared_ptr<Object> &object, const glm::vec3 &point, bool run) {
     auto entry = std::make_shared<ScheduledEntry>();
-    entry->saved.type = kMoveType;
+    entry->saved.type = SavedScheduledAction::kMoveType;
     entry->saved.target = SavedObjectReference::fromRuntimeId(object ? object->id() : kSavedRuntimeInvalidObjectId);
     // The point and the run flag travel in a forced walk's command.
     SavedMoveCommand move;
@@ -1539,10 +1521,152 @@ bool Combat::blocksOwnerActions(const Creature &actor) const {
     }
     // A due entry waits for the dispatcher, and a round action for the end of
     // the round its creature has acted in; whatever runs ahead of it goes on.
-    if (head->saved.type != kPauseType && (!dispatcherHeadsQueue(actor) ||
-                                           (!head->saved.isEquipment() && awaitsRoundEnd(actor, std::nullopt))))
+    if (head->saved.type != SavedScheduledAction::kPauseType && (!dispatcherHeadsQueue(actor) ||
+                                                                 (!head->saved.isEquipment() && awaitsRoundEnd(actor, std::nullopt))))
         return false;
     return head->saved.timer <= static_cast<int>(found->second->time * 1000.0f);
+}
+
+// A due entry's command is lost when it could not come back from a save, does
+// not match the entry's kind, or names an object that could not be found.
+static bool commandLost(const SavedScheduledAction &saved, bool referencesBound, const OrdinaryActionQueue::Node &node) {
+    return !referencesBound || !scheduledCommandMatches(saved) || !node || !node->action;
+}
+
+void Combat::beginEquipmentPause(Creature &actor, ScheduledEntry &entry) {
+    entry.saved.applied = true;
+    entry.saved.remainingPause = std::max(0, entry.saved.animationTime) / 1000.0f;
+    actor.setRoundActionKind(entry.saved.type);
+    actor.setStealthMode(false);
+    actor.setMovementType(Creature::MovementType::None);
+}
+
+Combat::EntryTake Combat::useUpEntry(Creature &actor, ScheduledOwner &owner, ScheduledEntry &entry) {
+    // An equip or unequip is still taken: its creature leaves stealth and
+    // holds its round for the entry's pause, but nothing is equipped or taken
+    // off. Any other entry is dropped, and the dispatcher goes behind the
+    // queued commands.
+    if (entry.saved.isEquipment()) {
+        beginEquipmentPause(actor, entry);
+        return EntryTake::Paused;
+    }
+    owner.actions.pop_front();
+    moveDispatcherBehind(actor);
+    return EntryTake::Left;
+}
+
+Combat::EntryTake Combat::takeEntry(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry) {
+    auto &saved = entry->saved;
+    if (saved.type == SavedScheduledAction::kPauseType) {
+        saved.applied = true;
+        saved.remainingPause = std::max(0, saved.animationTime) / 1000.0f;
+        actor.setRoundActionKind(SavedScheduledAction::kPauseType);
+        actor.setStealthMode(false);
+        return EntryTake::Paused;
+    }
+    if (saved.type == SavedScheduledAction::kMoveType) {
+        // A cutscene move is taken whether or not its object is still there.
+        // One restored without its point moves nowhere.
+        owner.actions.pop_front();
+        actor.setRoundActionKind(SavedScheduledAction::kMoveType);
+        actor.setStealthMode(false);
+        dispatchCutsceneMove(actor, *entry);
+        moveDispatcherBehind(actor);
+        return EntryTake::Left;
+    }
+    if (isAttackEntry(saved)) {
+        return takeAttack(actor, owner, entry);
+    }
+    if (isCastEntry(saved)) {
+        return takeCast(actor, owner, entry);
+    }
+    // Any other entry can no longer be carried out once its command is lost
+    // or an object its command acts on is gone.
+    if (commandLost(saved, entry->referencesBound, entry->node) || !entry->node->action->runtimeDependenciesLive()) {
+        return useUpEntry(actor, owner, *entry);
+    }
+    auto action = entry->node->action;
+    // A creature that may not act yet keeps its entry waiting.
+    if (!actor.permitsAction(*action)) {
+        return EntryTake::Waiting;
+    }
+    if (saved.type == SavedScheduledAction::kCombatStanceType || saved.type == SavedScheduledAction::kSwitchWeaponsType) {
+        owner.actions.pop_front();
+        // Every dispatched kind but the stance leaves stealth.
+        if (saved.type == SavedScheduledAction::kSwitchWeaponsType) {
+            actor.setStealthMode(false);
+        }
+        dispatchScheduled(actor, *entry);
+        moveDispatcherBehind(actor);
+        return EntryTake::Left;
+    }
+    // An equip or unequip is carried out where it stands and holds its
+    // creature for its pause.
+    beginEquipmentPause(actor, *entry);
+    action->execute(action, actor, 0.0f);
+    return EntryTake::Paused;
+}
+
+Combat::EntryTake Combat::takeAttack(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry) {
+    auto &saved = entry->saved;
+    if (commandLost(saved, entry->referencesBound, entry->node) || !entry->node->action->runtimeDependenciesLive()) {
+        return useUpEntry(actor, owner, *entry);
+    }
+    auto action = entry->node->action;
+    // An attack taken by a creature that cannot be commanded, or aimed at a
+    // friend, is used up without an attack. One taken up by a creature no
+    // longer able to attack fails at once and ends its combat modes.
+    const auto target = saved.target.boundObject();
+    const bool refused = refusesAttack(actor) || (target && refusesAttackOnFriend(actor, *target));
+    if (refused || !actor.permitsAction(*action)) {
+        if (!refused) {
+            actor.cancelAllCombatModes();
+        }
+        return useUpEntry(actor, owner, *entry);
+    }
+    actor.setRoundActionKind(saved.type);
+    actor.setStealthMode(false);
+    // Taking an attack entry queues its attack as the attack command does.
+    if (target) {
+        actor.recordQueuedAttack(*target);
+    }
+    owner.actions.pop_front();
+    action->setScheduledCommand(true);
+    actor.requeueActionNode(entry->node);
+    moveDispatcherBehind(actor);
+    return EntryTake::Left;
+}
+
+Combat::EntryTake Combat::takeCast(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry) {
+    auto &saved = entry->saved;
+    if (commandLost(saved, entry->referencesBound, entry->node)) {
+        return useUpEntry(actor, owner, *entry);
+    }
+    actor.setRoundActionKind(saved.type);
+    if (saved.type == SavedScheduledAction::kCastSpellType && !castKeepsStealth(_game, *entry->node->action)) {
+        actor.setStealthMode(false);
+    }
+    // An item use aimed at a creature that has died is dropped, and the
+    // dispatcher stays at the head.
+    if (saved.type == SavedScheduledAction::kItemCastSpellType && !dispatchItemUse(actor, *entry)) {
+        owner.actions.pop_front();
+        return EntryTake::Left;
+    }
+    // A cast handed on starts without spell targets. One whose target or item
+    // is gone, taken by a creature that cannot be commanded, or aimed at a
+    // creature its caster does not perceive, is used up without casting.
+    actor.setAttemptedSpellTarget(script::kObjectInvalid);
+    actor.spellScriptContext().clearActiveTarget();
+    auto action = entry->node->action;
+    if (!actor.isCommandable() || !action->runtimeDependenciesLive() ||
+        refusesUnperceivedTarget(actor, static_cast<const CastSpellAction &>(*action))) {
+        return useUpEntry(actor, owner, *entry);
+    }
+    owner.actions.pop_front();
+    action->setScheduledCommand(true);
+    actor.requeueActionNode(entry->node);
+    moveDispatcherBehind(actor);
+    return EntryTake::Left;
 }
 
 void Combat::updateEquipment(float dt) {
@@ -1601,16 +1725,6 @@ void Combat::updateEquipment(float dt) {
         float frame = std::max(0.0f, dt - externalPause);
         while (!owner->actions.empty()) {
             auto entry = owner->actions.front();
-            if (!std::isfinite(entry->saved.remainingPause) || entry->saved.remainingPause < 0.0f ||
-                (entry->saved.applied && (!entry->saved.isEquipment() && entry->saved.type != kPauseType))) {
-                if (!entry->refusalReported) {
-                    warn("Scheduled action state cannot execute", LogChannel::Combat);
-                    entry->refusalReported = true;
-                }
-                _equipmentTime[actor->id()] += frame;
-                frame = 0.0f;
-                break;
-            }
             if (!entry->saved.applied) {
                 const float wait = std::max(0.0f, entry->saved.timer / 1000.0f - owner->time);
                 const float used = std::min(frame, wait);
@@ -1621,143 +1735,26 @@ void Combat::updateEquipment(float dt) {
                 }
                 // Only the dispatcher, running at the head of the queue, takes an entry,
                 // and it takes no round action while its creature's round action is spent.
-                if (entry->saved.type != kPauseType && (!dispatcherHeadsQueue(*actor) ||
-                                                        (!entry->saved.isEquipment() && awaitsRoundEnd(*actor, std::nullopt))))
+                if (entry->saved.type != SavedScheduledAction::kPauseType && (!dispatcherHeadsQueue(*actor) ||
+                                                                              (!entry->saved.isEquipment() && awaitsRoundEnd(*actor, std::nullopt))))
                     break;
-                if (entry->saved.type == kPauseType) {
-                    entry->saved.applied = true;
-                    entry->saved.remainingPause = std::max(0, entry->saved.animationTime) / 1000.0f;
-                    actor->setRoundActionKind(kPauseType);
-                    actor->setStealthMode(false);
-                } else if (entry->saved.type == kMoveType) {
-                    // A cutscene move is taken whether or not its object is
-                    // still there. One restored without its point moves
-                    // nowhere.
-                    owner->actions.pop_front();
-                    actor->setRoundActionKind(kMoveType);
-                    actor->setStealthMode(false);
-                    dispatchCutsceneMove(*actor, *entry);
-                    moveDispatcherBehind(*actor);
+                const auto taken = takeEntry(*actor, *owner, entry);
+                if (taken == EntryTake::Left) {
                     frame = 0.0f;
                     break;
-                } else if (isAttackEntry(entry->saved) &&
-                           (!entry->node || !entry->node->action || !entry->node->action->runtimeDependenciesLive() ||
-                            !actor->permitsAction(*entry->node->action) || refusesAttack(*actor) ||
-                            (entry->saved.target.boundObject() &&
-                             refusesAttackOnFriend(*actor, *entry->saved.target.boundObject())))) {
-                    // An attack that cannot be taken, taken by a creature that
-                    // cannot be commanded, or aimed at a friend, is used up
-                    // without an attack. One taken up by a creature no longer
-                    // able to attack fails at once and ends its combat modes.
-                    const auto target = entry->saved.target.boundObject();
-                    if (entry->node && entry->node->action && entry->node->action->runtimeDependenciesLive() &&
-                        !refusesAttack(*actor) && !(target && refusesAttackOnFriend(*actor, *target)) &&
-                        !actor->permitsAction(*entry->node->action)) {
-                        actor->cancelAllCombatModes();
-                    }
-                    owner->actions.pop_front();
-                    moveDispatcherBehind(*actor);
-                    frame = 0.0f;
-                    break;
-                } else if (isCastEntry(entry->saved) &&
-                           (!entry->referencesBound || !entry->node || !entry->node->action)) {
-                    // A restored cast whose target or item is gone is used up
-                    // without casting.
-                    owner->actions.pop_front();
-                    moveDispatcherBehind(*actor);
-                    frame = 0.0f;
-                    break;
-                } else if (!entry->referencesBound || !scheduledCommandMatches(entry->saved) || !entry->node || !entry->node->action) {
-                    if (!entry->refusalReported) {
-                        warn("Scheduled action cannot execute: " + std::to_string(entry->saved.type), LogChannel::Combat);
-                        entry->refusalReported = true;
-                    }
+                }
+                if (taken == EntryTake::Waiting) {
                     _equipmentTime[actor->id()] += frame;
                     frame = 0.0f;
                     break;
                 }
-                if (entry->saved.type != kPauseType) {
-                    auto action = entry->node->action;
-                    const bool cast = isCastEntry(entry->saved);
-                    if (!cast && (!action->runtimeDependenciesLive() || !actor->permitsAction(*action))) {
-                        if (!entry->refusalReported) {
-                            warn("Scheduled action is not currently executable", LogChannel::Combat);
-                            entry->refusalReported = true;
-                        }
-                        _equipmentTime[actor->id()] += frame;
-                        frame = 0.0f;
-                        break;
-                    }
-                    if (entry->saved.type == SavedScheduledAction::kCombatStanceType ||
-                        entry->saved.type == SavedScheduledAction::kSwitchWeaponsType) {
-                        owner->actions.pop_front();
-                        // Every dispatched kind but the stance leaves stealth.
-                        if (entry->saved.type == SavedScheduledAction::kSwitchWeaponsType) {
-                            actor->setStealthMode(false);
-                        }
-                        dispatchScheduled(*actor, *entry);
-                        moveDispatcherBehind(*actor);
-                        frame = 0.0f;
-                        break;
-                    }
-                    if (!entry->saved.isEquipment()) {
-                        actor->setRoundActionKind(entry->saved.type);
-                        const bool attack = isAttackEntry(entry->saved);
-                        if (attack || (entry->saved.type == SavedScheduledAction::kCastSpellType &&
-                                       !castKeepsStealth(_game, *action))) {
-                            actor->setStealthMode(false);
-                        }
-                        if (cast) {
-                            // An item use aimed at a creature that has died is
-                            // dropped, and the dispatcher stays at the head.
-                            if (entry->saved.type == SavedScheduledAction::kItemCastSpellType &&
-                                !dispatchItemUse(*actor, *entry)) {
-                                owner->actions.pop_front();
-                                frame = 0.0f;
-                                break;
-                            }
-                            // A cast handed on starts without spell targets. One
-                            // whose target or item is gone, taken by a creature
-                            // that cannot be commanded, or aimed at a creature
-                            // its caster does not perceive, is used up without
-                            // casting.
-                            actor->setAttemptedSpellTarget(script::kObjectInvalid);
-                            actor->spellScriptContext().clearActiveTarget();
-                            if (!actor->isCommandable() || !entry->node->action->runtimeDependenciesLive() ||
-                                refusesUnperceivedTarget(*actor, static_cast<const CastSpellAction &>(*entry->node->action))) {
-                                owner->actions.pop_front();
-                                moveDispatcherBehind(*actor);
-                                frame = 0.0f;
-                                break;
-                            }
-                            action = entry->node->action;
-                        }
-                        // Taking an attack entry queues its attack as the attack command does.
-                        if (attack) {
-                            if (auto target = entry->saved.target.boundObject()) {
-                                actor->recordQueuedAttack(*target);
-                            }
-                        }
-                        owner->actions.pop_front();
-                        action->setScheduledCommand(true);
-                        actor->requeueActionNode(entry->node);
-                        moveDispatcherBehind(*actor);
-                        frame = 0.0f;
-                        break;
-                    }
-                    entry->saved.applied = true;
-                    entry->saved.remainingPause = std::max(0, entry->saved.animationTime) / 1000.0f;
-                    actor->setRoundActionKind(entry->saved.type);
-                    actor->setStealthMode(false);
-                    actor->setMovementType(Creature::MovementType::None);
-                    action->execute(action, *actor, 0.0f);
-                    const auto active = _scheduled.find(actor->id());
-                    if (active == _scheduled.end() || active->second != owner || !actor->isRuntimeLive()) {
-                        break;
-                    }
-                    if (owner->actions.empty() || owner->actions.front() != entry) {
-                        continue;
-                    }
+                // Carrying out an equip or unequip may end the schedule or the creature.
+                const auto active = _scheduled.find(actor->id());
+                if (active == _scheduled.end() || active->second != owner || !actor->isRuntimeLive()) {
+                    break;
+                }
+                if (owner->actions.empty() || owner->actions.front() != entry) {
+                    continue;
                 }
             }
             const float used = std::min(frame, entry->saved.remainingPause);
@@ -1977,10 +1974,6 @@ void Combat::finishOwner(Creature &actor, int runEndRound, bool suppressScript) 
         actor.showPauseReadyAnimation(false);
     }
     const auto leader = _game.party().getLeader();
-    // Only the controlled party member keeps its combat mode across rounds.
-    if (leader.get() != &actor) {
-        actor.setCombatMode(0);
-    }
     // The script is also withheld from a party member at zero vitality.
     if (runEndRound && !suppressScript && actor.currentSerializedActionId() != 1 &&
         leader.get() != &actor && !actor.isDead() && !actor.isTemporarilyDead())

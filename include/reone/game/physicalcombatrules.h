@@ -633,17 +633,6 @@ constexpr bool isMeleePowerAttackFeat(FeatType feat) {
     }
 }
 
-constexpr bool isMeleeFlurryFeat(FeatType feat) {
-    switch (feat) {
-    case FeatType::Flurry:
-    case FeatType::ImprovedFlurry:
-    case FeatType::MasterFlurry:
-        return true;
-    default:
-        return false;
-    }
-}
-
 constexpr bool isMeleeCriticalStrikeFeat(FeatType feat) {
     switch (feat) {
     case FeatType::CriticalStrike:

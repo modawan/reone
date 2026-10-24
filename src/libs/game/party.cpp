@@ -21,10 +21,12 @@
 #include <cmath>
 #include <vector>
 
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "reone/audio/mixer.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
@@ -867,13 +869,55 @@ void Party::setXP(int xp) {
     syncMembersXP();
 }
 
-std::shared_ptr<resource::TwoDA> Party::influenceTable() const {
-    return _game.isTSL() ? getRequiredTwoDA(_game.services().resource.twoDas, "influence") : nullptr;
+void Party::init() {
+    auto &twoDas = _game.services().resource.twoDas;
+
+    auto npcs = getRequiredTwoDA(twoDas, "npc");
+    _percentXP.clear();
+    for (int row = 0; row < npcs->getRowCount(); ++row) {
+        _percentXP.push_back(npcs->getFloatOpt(row, "percentxp"));
+    }
+
+    auto scripts = getRequiredTwoDA(twoDas, "aiscripts");
+    _aiScripts.clear();
+    // aiscripts.2da names its columns in either case.
+    const auto nameColumn = findColumnIgnoringCase(*scripts, "name_strref").value_or("name_strref");
+    const auto descriptionColumn = findColumnIgnoringCase(*scripts, "description_strref").value_or("description_strref");
+    const auto stateColumn = findColumnIgnoringCase(*scripts, "aistate").value_or("aistate");
+    for (int row = 0; row < scripts->getRowCount(); ++row) {
+        AIScriptRow script;
+        script.nameStrRef = scripts->getInt(row, nameColumn, 0);
+        script.descriptionStrRef = scripts->getInt(row, descriptionColumn, script.descriptionStrRef);
+        script.state = scripts->getInt(row, stateColumn, 0);
+        _aiScripts.push_back(script);
+    }
+
+    // Influence is TSL's alone.
+    _baseInfluence.clear();
+    if (_game.isTSL()) {
+        auto influence = getRequiredTwoDA(twoDas, "influence");
+        for (int row = 0; row < influence->getRowCount(); ++row) {
+            // The first row of a tag is the companion's.
+            _baseInfluence.emplace(boost::to_lower_copy(influence->getString(row, "tag")), influence->getInt(row, "baseinfluence"));
+        }
+    }
+}
+
+std::optional<int> Party::baseInfluence(const std::string &tag) const {
+    const auto it = _baseInfluence.find(boost::to_lower_copy(tag));
+    return it != _baseInfluence.end() ? std::optional<int>(it->second) : std::nullopt;
 }
 
 // A blank or missing share pays nothing.
 int Party::percentXP(int row) const {
-    return getRequiredTwoDA(_game.services().resource.twoDas, "npc")->getInt(row, "percentxp", 0);
+    return static_cast<int>(percentXPFraction(row));
+}
+
+float Party::percentXPFraction(int row) const {
+    if (row < 0 || row >= static_cast<int>(_percentXP.size())) {
+        return 0.0f;
+    }
+    return _percentXP[row].value_or(0.0f);
 }
 
 // A roster companion takes its npc.2da share and every recipient the
@@ -1614,7 +1658,7 @@ float Party::followRange() const {
     default:
         return kDefaultFollowRange;
     }
-    return getRequiredTwoDA(_game.services().resource.twoDas, "ranges")->getFloat(row, "primaryrange");
+    return _game.services().game.spells.range(row).primary.value_or(0.0f);
 }
 
 // Walk back from the leader's newest step, segment by segment, until the

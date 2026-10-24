@@ -77,7 +77,10 @@ struct Spell {
     /** The power's side (spells.2da GoodEvil): 'G' light, 'E' dark, 'N' neither. */
     char alignment {'N'};
     std::unordered_map<ClassType, int> classLevelRequirements;
+    /** The talent category: four four-bit fields. */
     uint32_t category {0};
+    /** The challenge rating that ranks the spell as a talent. */
+    int maxCR {0};
     std::string impactScript;
     SpellCastAnimation castAnimation {SpellCastAnimation::Other};
     std::shared_ptr<audio::AudioClip> castSound;
@@ -111,7 +114,10 @@ struct Spell {
     /** The head, hand and ground models shown while conjuring and after the release. */
     std::array<std::string, 3> conjureVisuals;
     std::array<std::string, 3> castVisuals;
-    /** Target kinds a hostile power menu does not offer the power against. */
+    /**
+     * Target kinds a hostile power menu does not offer the power against.
+     * Talent selection also tests it against the requested inclusion.
+     */
     uint32_t exclusion {0};
 
     /**

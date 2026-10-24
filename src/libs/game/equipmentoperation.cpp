@@ -77,25 +77,6 @@ static void presentHandChange(Creature &subject, int slot, bool instant) {
     subject.playWeaponDraw();
 }
 
-// A new hand configuration ends a combat mode that needs a different one.
-static void dropMismatchedCombatMode(Creature &subject) {
-    auto rightHand = subject.getEquippedItem(InventorySlots::rightWeapon);
-    auto leftHand = subject.getEquippedItem(InventorySlots::leftWeapon);
-    const bool rangedRightHand = rightHand && rightHand->isRanged();
-    const int mode = subject.combatMode();
-    bool drop = false;
-    if (mode >= 1 && mode <= 3) {
-        drop = rangedRightHand;
-    } else if (mode == 5) {
-        drop = rightHand || leftHand;
-    } else if (mode == 6) {
-        drop = !rangedRightHand;
-    }
-    if (drop) {
-        subject.setCombatMode(0);
-    }
-}
-
 // One ordered transaction serves queued commands, round dispatch and screens.
 // Occupants leave for the inventory before the candidate is taken, main hand
 // before its pair.
@@ -169,7 +150,6 @@ static EquipmentOperationOutcome equipFrom(
         return EquipmentOperationOutcome::Failed;
     }
     presentHandChange(subject, decision.actualSlot, instant);
-    dropMismatchedCombatMode(subject);
     game.finishEquip(subject, decision.actualSlot, candidate);
     return EquipmentOperationOutcome::Applied;
 }

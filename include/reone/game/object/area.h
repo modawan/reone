@@ -864,7 +864,6 @@ private:
         const std::function<bool(float)> &continues,
         const std::function<std::optional<glm::vec3>(const glm::vec3 &, bool)> &accept) const;
 
-    void doUpdatePerception();
     /** Each creature's perception pass that is due, or every creature's with all. */
     void updatePerceptionPasses(float dt, bool all);
     /**

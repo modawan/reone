@@ -35,6 +35,7 @@
 #include "reone/game/attack.h"
 #include "reone/game/castspell.h"
 #include "reone/game/combatfeedback.h"
+#include "reone/game/combattables.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -50,8 +51,6 @@
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/script/savedsituation.h"
-#include "reone/game/twodautil.h"
-#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/gffs.h"
@@ -106,12 +105,6 @@ void dispatchDueSavedEvents(Events &events, bool &dispatching, Clock now, Delive
 static constexpr int kSpellCasterExcitedState = 2;
 // A broadcast bolt leaves from its source's impact node, which hand 2 names.
 static constexpr int kSafeProjectileHand = 2;
-
-// The delay in milliseconds before a destroyed creature's body fades; blank
-// keeps the body as a corpse.
-static std::optional<int> readFadeDelayOnDeath(const resource::TwoDA &table, int row) {
-    return table.getIntOpt(row, "fadedelayondeath");
-}
 
 // The droid power offered against a mine (TSL). Minor mine types allow
 // Destroy, else Disable, else Stun; average types Destroy, else Disable; the
@@ -196,8 +189,7 @@ static bool canBashPlaceable(const Placeable &placeable) {
            placeable.isSelectable() &&
            !placeable.isDead() &&
            !placeable.plotFlag() &&
-           !placeable.isNotBlastable() &&
-           (placeable.hitPoints() > 0 || placeable.currentHitPoints() > 0);
+           !placeable.isNotBlastable();
 }
 
 void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
@@ -675,28 +667,25 @@ uint32_t Module::spawnBodyBag(Object &source) {
     if (!creature && source.items().empty()) {
         return script::kObjectInvalid;
     }
-    const auto bodyBags = getRequiredTwoDA(_services.resource.twoDas, "bodybag");
+    const auto &tables = _services.game.combatTables;
     std::optional<int> appearance;
     std::optional<int> nameStrRef;
     bool corpse = false;
     if (creature) {
         // A bag row of 0 takes the appearance's row.
-        const auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-        const int appearanceRow = appearances->getIntOpt(creature->appearance(), "body_bag").value_or(0);
+        const int appearanceRow = creature->appearanceBodyBagRow().value_or(0);
         const int row = creature->bodyBagRow() != 0 ? creature->bodyBagRow() : appearanceRow;
-        corpse = bodyBags->getIntOpt(row, "corpse").value_or(0) != 0;
+        corpse = tables.bodyBag(row).corpse;
         if (!corpse && creature->dropableItems().empty() && creature->gold() == 0) {
             return script::kObjectInvalid;
         }
-        appearance = bodyBags->getIntOpt(creature->bodyBagRow(), "appearance");
-        if (!appearance) {
-            appearance = bodyBags->getIntOpt(appearanceRow, "appearance");
-        }
-        nameStrRef = bodyBags->getIntOpt(creature->bodyBagRow(), "name");
+        const auto own = tables.bodyBag(creature->bodyBagRow());
+        appearance = own.appearance ? own.appearance : tables.bodyBag(appearanceRow).appearance;
+        nameStrRef = own.nameStrRef;
     } else {
-        const auto &placeable = cast<Placeable>(source);
-        appearance = bodyBags->getIntOpt(placeable.bodyBagRow(), "appearance");
-        nameStrRef = bodyBags->getIntOpt(placeable.bodyBagRow(), "name");
+        const auto bagRow = tables.bodyBag(cast<Placeable>(source).bodyBagRow());
+        appearance = bagRow.appearance;
+        nameStrRef = bagRow.nameStrRef;
     }
     std::vector<std::shared_ptr<Object>> noObsolete;
     std::shared_ptr<Placeable> bag;
@@ -1213,8 +1202,7 @@ void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keep
         // Any destruction but a script's takes the death fade: the
         // appearance's fade delay, or a kept corpse when it has none.
         if (!keepsCallerFade) {
-            const auto table = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-            if (const auto delay = readFadeDelayOnDeath(*table, creature->appearance())) {
+            if (const auto delay = creature->fadeDelayOnDeath()) {
                 creature->setFadeOutTime(static_cast<uint32_t>(*delay));
                 creature->setKeepCorpse(false);
             } else {
@@ -1416,6 +1404,9 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     if (!leader) {
         return actions;
     }
+    // A locked door or container offers no bash while the area restricts the
+    // player.
+    const bool playerRestricted = _area && _area->playerRestrictMode();
 
     switch (object->type()) {
     case ObjectType::Creature: {
@@ -1477,7 +1468,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
                                       weapon->sabersDoors());
         if (_game.isTSL() && door->isLocked() && !door->plotFlag() && !standingOpen && saber) {
             actions.push_back(ContextAction(ActionType::DoorSaber));
-        } else if (canBashDoor(*door)) {
+        } else if (!playerRestricted && canBashDoor(*door)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
@@ -1490,7 +1481,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     }
     case ObjectType::Placeable: {
         auto placeable = cast<Placeable>(object);
-        if (canBashPlaceable(*placeable)) {
+        if (!playerRestricted && canBashPlaceable(*placeable)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (canUseSecurityOnPlaceable(*placeable, *leader)) {

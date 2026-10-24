@@ -23,7 +23,6 @@
 #include "reone/audio/clip.h"
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
-#include "reone/game/action/pauseconversation.h"
 #include "reone/game/action/resumeconversation.h"
 #include "reone/game/console.h"
 #include "reone/game/game.h"
@@ -271,24 +270,20 @@ TEST_F(ConversationTest, game_resume_is_harmless_without_a_conversation) {
     _game->resumeConversation();
 }
 
-TEST_F(ConversationTest, pause_and_resume_actions_complete_without_a_conversation) {
+TEST_F(ConversationTest, pause_by_caller_and_resume_action_complete_without_a_conversation) {
     auto actor = _game->newCreature();
-    auto pause = _game->newAction<PauseConversationAction>();
     auto resume = _game->newAction<ResumeConversationAction>();
 
-    pause->execute(pause, *actor, 0.0f);
+    _game->pauseConversationBy(*actor);
     resume->execute(resume, *actor, 0.0f);
 
-    EXPECT_TRUE(pause->isCompleted());
     EXPECT_TRUE(resume->isCompleted());
 }
 
-TEST_F(ConversationTest, queued_pause_and_resume_actions_are_consumed_without_a_conversation) {
+TEST_F(ConversationTest, queued_resume_action_is_consumed_without_a_conversation) {
     auto actor = _game->newCreature();
-    actor->addAction(_game->newAction<PauseConversationAction>());
     actor->addAction(_game->newAction<ResumeConversationAction>());
 
-    actor->update(0.0f);
     actor->update(0.0f);
     actor->update(0.0f);
 

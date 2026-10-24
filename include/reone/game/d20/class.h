@@ -72,6 +72,8 @@ public:
     ClassType type() const { return _type; }
     const std::string &name() const { return _name; }
     const std::string &description() const { return _description; }
+    /** The lower-case name's string; -1 when blank. */
+    int lowerNameStrRef() const { return _lowerNameStrRef; }
     int hitdie() const { return _hitdie; }
     int forcedie() const { return _forcedie; }
     const CreatureAttributes &defaultAttributes() const { return _defaultAttributes; }
@@ -88,6 +90,7 @@ private:
     ClassType _type;
     std::string _name;
     std::string _description;
+    int _lowerNameStrRef {-1};
     int _hitdie {0};
     int _forcedie {0};
     CreatureAttributes _defaultAttributes;

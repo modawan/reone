@@ -80,7 +80,8 @@ constexpr int getAbilityEffectDecreaseCap(bool tsl) {
 /**
  * Whether a newly applied ability effect takes hold: never on a dead or
  * temporarily dead creature, never for nothing, and a decrease never on a
- * plot creature.
+ * plot creature. An effect restored from a save passes both dead flags as
+ * false: loading bypasses only those two gates.
  */
 constexpr bool admitsAbilityEffect(bool dead, bool temporarilyDead, int amount, bool decrease, bool plot) {
     return !dead && !temporarilyDead && amount > 0 && !(decrease && plot);
@@ -282,11 +283,6 @@ enum class EffectApplicationResult {
     Retained, /**< the effect is kept on the object */
 };
 
-enum class EffectRemovalResult {
-    Retained,
-    Removed
-};
-
 /** How the effect removal script commands match the effects they remove. */
 enum class ScriptEffectRemovalMatch {
     PackageId,
@@ -324,7 +320,7 @@ public:
     /** Applies the effect to \p object once, and says whether it is kept. */
     virtual EffectApplicationResult onApply(Object &object, EffectInstance &instance);
     /** Undoes the effect on \p object as it is removed. */
-    virtual EffectRemovalResult onRemove(Object &object, const EffectInstance &instance);
+    virtual void onRemove(Object &object, const EffectInstance &instance);
     /**
      * Advances a kept effect on \p object by \p dt seconds. \p instance is the
      * kept record, which an update that changes the object's effects must no

@@ -126,11 +126,9 @@ static void describeActivation(Game &game, const Creature &leader, const Item &i
     view.activation = InventoryActivation::Use;
 }
 
-// TSL appearances can lock slots (a mask of equipment slots); a blank cell
-// locks none. A locked hand also locks its alternate.
-static bool isEquipmentSlotLocked(ServicesView &services, const Creature &creature, int slot) {
-    auto appearances = getRequiredTwoDA(services.resource.twoDas, "appearance");
-    const auto locked = static_cast<uint32_t>(appearances->getInt(creature.appearance(), "equipslotslocked", 0));
+// TSL appearances can lock slots; a locked hand also locks its alternate.
+static bool isEquipmentSlotLocked(const Creature &creature, int slot) {
+    const uint32_t locked = creature.equipSlotsLocked();
     if (slot == InventorySlots::leftWeapon2) {
         slot = InventorySlots::leftWeapon;
     }
@@ -321,14 +319,19 @@ public:
         _browseRoster = _game.isTSL() && module && boost::iequals(module->name(), kRosterBrowsingModule);
         _browseIndex = kPlayerBrowseIndex;
         _browseSubject = _browseRoster ? _game.party().player() : nullptr;
-        _game.setInventoryMenuCharacter(kPlayerBrowseIndex);
     }
 
     void endEquipment() override {
         _browseRoster = false;
+        _browseIndex = kPlayerBrowseIndex;
         _browseSubject.reset();
-        _game.setInventoryMenuCharacter(kPlayerBrowseIndex);
     }
+
+    bool browsingRoster() const override { return _browseRoster; }
+    std::shared_ptr<Creature> browsedCharacter() const override {
+        return _browseRoster ? _browseSubject.resolve() : nullptr;
+    }
+    int browsedRosterIndex() const override { return _browseRoster ? _browseIndex : kPlayerBrowseIndex; }
 
     // Paging forward goes from the player through each available companion
     // standing aboard, which the party takes as that companion's creature,
@@ -338,19 +341,20 @@ public:
             return;
         }
         const auto &area = *_game.module()->area();
+        int index = _browseIndex;
         for (int attempts = 0; attempts < kRosterSize; ++attempts) {
-            if (++_browseIndex == kRosterSize) {
+            if (++index == kRosterSize) {
                 selectCharacter(kPlayerBrowseIndex, _game.party().player());
                 return;
             }
-            if (!_game.party().isMemberAvailable(_browseIndex)) {
+            if (!_game.party().isMemberAvailable(index)) {
                 continue;
             }
-            auto creature = _game.party().bindPlacedCompanion(_browseIndex, area);
+            auto creature = _game.party().bindPlacedCompanion(index, area);
             if (!creature) {
                 continue;
             }
-            selectCharacter(_browseIndex, creature);
+            selectCharacter(index, creature);
             return;
         }
     }
@@ -376,24 +380,25 @@ public:
         if (!_browseRoster) {
             return;
         }
+        int index = _browseIndex;
         for (int attempts = 0; attempts < kRosterSize; ++attempts) {
-            if (--_browseIndex == kPlayerBrowseIndex) {
+            if (--index == kPlayerBrowseIndex) {
                 selectCharacter(kPlayerBrowseIndex, _game.party().player());
                 return;
             }
             // Before the player comes the last companion.
-            if (_browseIndex < kPlayerBrowseIndex) {
-                _browseIndex = kRosterSize - 1;
+            if (index < kPlayerBrowseIndex) {
+                index = kRosterSize - 1;
             }
-            if (!_game.party().isMemberAvailable(_browseIndex)) {
+            if (!_game.party().isMemberAvailable(index)) {
                 continue;
             }
             // Paging back shows only companions the party already has a creature for.
-            auto creature = _game.party().getAvailableMember(_browseIndex);
+            auto creature = _game.party().getAvailableMember(index);
             if (!creature) {
                 continue;
             }
-            selectCharacter(_browseIndex, creature);
+            selectCharacter(index, creature);
             return;
         }
     }
@@ -449,9 +454,9 @@ public:
         return std::nullopt;
     }
 
-    EquipmentView readEquipment(int slot) override {
+    EquipmentView readEquipmentOverview() override {
         bindSubject();
-        _slot = slot;
+        _slot = -1;
         EquipmentView view;
         view.canBrowseCharacters = _browseRoster;
         view.revision = _revision;
@@ -508,6 +513,17 @@ public:
             }
             describeHand(right2, false, view.mainDamage2, raised, view.mainAttack2, raised);
         }
+        return view;
+    }
+
+    EquipmentView readEquipment(int slot) override {
+        EquipmentView view = readEquipmentOverview();
+        _slot = slot;
+        auto owner = _owner.resolve();
+        auto subject = _subject.resolve();
+        if (!owner || !subject) {
+            return view;
+        }
         // A slot opens unless the area restricts play, the slot is locked, it
         // is the armour slot in direct combat, it is the off hand under a
         // large weapon, or nothing can go in it.
@@ -522,7 +538,7 @@ public:
             if (_game.module()->area()->playerRestrictMode()) {
                 return refuse(kRestrictModeSlotStrRef);
             }
-            if (tsl && isEquipmentSlotLocked(_services, *subject, slot)) {
+            if (tsl && isEquipmentSlotLocked(*subject, slot)) {
                 return refuse(kLockedSlotStrRef);
             }
             if (slot == InventorySlots::body && isArmorChangeRefused(*subject)) {
@@ -543,7 +559,7 @@ public:
         const int otherHand = isMainHandWeaponSlot(slot) ? getPairedOffHandSlot(slot) : getPairedMainHandSlot(slot);
         auto other = weaponHand && !alternateHand ? subject->getEquippedItem(otherHand) : nullptr;
         const bool offHandLocked = tsl && isMainHandWeaponSlot(slot) &&
-                                   isEquipmentSlotLocked(_services, *subject, getPairedOffHandSlot(slot));
+                                   isEquipmentSlotLocked(*subject, getPairedOffHandSlot(slot));
         for (const auto &item : owner->items()) {
             if (!live(item) || item == equipped)
                 continue;
@@ -686,7 +702,6 @@ private:
     void selectCharacter(int npc, const std::shared_ptr<Creature> &creature) {
         _browseIndex = npc;
         _browseSubject = creature;
-        _game.setInventoryMenuCharacter(npc);
     }
     std::shared_ptr<Creature> selectedSubject() const {
         return _browseRoster ? _browseSubject.resolve() : _game.party().getLeader();

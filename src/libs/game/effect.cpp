@@ -255,16 +255,6 @@ uint16_t serializedEffectType(EffectType type) {
         return SavedEffectTypes::concealment;
     case EffectType::BonusFeat:
         return SavedEffectTypes::bonusFeat;
-    case EffectType::Confused:
-    case EffectType::Frightened:
-    case EffectType::Stunned:
-    case EffectType::Paralyze:
-    case EffectType::Sleep:
-    case EffectType::DroidStun:
-    case EffectType::Choke:
-    case EffectType::Horrified:
-    case EffectType::WhirlWind:
-        return SavedEffectTypes::setState;
     case EffectType::Slow:
         return SavedEffectTypes::slow;
     case EffectType::Entangle:
@@ -864,8 +854,7 @@ EffectApplicationResult Effect::onApply(Object &, EffectInstance &) {
     return EffectApplicationResult::Rejected;
 }
 
-EffectRemovalResult Effect::onRemove(Object &, const EffectInstance &) {
-    return EffectRemovalResult::Removed;
+void Effect::onRemove(Object &, const EffectInstance &) {
 }
 
 void Effect::onUpdate(Object &, const EffectInstance &, float) {
@@ -888,46 +877,6 @@ EffectInstance Effect::saveFacingInstance() const {
     result.creatorId = kSavedEffectInvalidObjectId;
     result.spellId = _saveFacingSpellId;
     result.integerParameters = _saveFacingIntegers;
-    // Every creature state is saved as the same type; its first integer says
-    // which state it is.
-    if (result.serializedType == SavedEffectTypes::setState) {
-        result.integerParameters.resize(std::max<size_t>(1, result.integerParameters.size()));
-        std::optional<CreatureState> state;
-        switch (_type) {
-        case EffectType::Confused:
-            state = CreatureState::Confusion;
-            break;
-        case EffectType::Frightened:
-            state = CreatureState::Fear;
-            break;
-        case EffectType::Stunned:
-            state = CreatureState::Stun;
-            break;
-        case EffectType::Paralyze:
-            state = CreatureState::Paralysis;
-            break;
-        case EffectType::Sleep:
-            state = CreatureState::Sleep;
-            break;
-        case EffectType::DroidStun:
-            state = CreatureState::DroidStun;
-            break;
-        case EffectType::Choke:
-            state = CreatureState::Choke;
-            break;
-        case EffectType::Horrified:
-            state = CreatureState::Horrified;
-            break;
-        case EffectType::WhirlWind:
-            state = CreatureState::Whirlwind;
-            break;
-        default:
-            break;
-        }
-        if (state) {
-            result.integerParameters[0] = static_cast<int>(*state);
-        }
-    }
     result.floatParameters = _saveFacingFloats;
     result.stringParameters = _saveFacingStrings;
     // Preserve the exact candidate binding even while its owner graph remains
@@ -1649,13 +1598,12 @@ EffectApplicationResult TimeStopEffect::onApply(Object &object, EffectInstance &
     return EffectApplicationResult::Applied;
 }
 
-EffectRemovalResult TimeStopEffect::onRemove(Object &object, const EffectInstance &) {
+void TimeStopEffect::onRemove(Object &object, const EffectInstance &) {
     // Ending a Time Stop always flips the stop; a stop left without an
     // excluded caster ends at the next module update.
     auto &game = object.game();
     game.toggleTimeStop();
     game.removeTimeStopExclusion(object);
-    return EffectRemovalResult::Removed;
 }
 
 void LinkEffectsEffect::setCategory(EffectCategory category) {

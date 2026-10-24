@@ -43,6 +43,15 @@ TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_sele
                                                 .row({"2", "armor"})
                                                 .row({"2", "armor"})
                                                 .build());
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(baseItems));
@@ -62,6 +71,7 @@ TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_sele
                                                                     .columns({"maxsingleitemvalue"})
                                                                     .row({"13500000"})
                                                                     .build())));
+    engine.initCombatTables();
     auto player = game.newCreature();
     game.party().setPlayer(player);
     ASSERT_TRUE(game.party().addMember(kNpcPlayer, player));

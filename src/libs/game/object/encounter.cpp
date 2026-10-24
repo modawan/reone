@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "reone/game/combattables.h"
 #include "reone/game/di/services.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
@@ -28,7 +29,6 @@
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/script/runner.h"
-#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
@@ -85,7 +85,9 @@ void Encounter::deserializeAll(
     gff.readInt(_difficultyIndex, "DifficultyIndex");
     // The difficulty comes from the table row; a row without a value leaves
     // it as it was.
-    _difficulty = getRequiredTwoDA(_services.resource.twoDas, "encdifficulty")->getInt(_difficultyIndex, "value", _difficulty);
+    if (const auto difficulty = _services.game.combatTables.encounterDifficulty(_difficultyIndex)) {
+        _difficulty = *difficulty;
+    }
 
     gff.readFloat(_position[0], "XPosition");
     gff.readFloat(_position[1], "YPosition");
@@ -240,11 +242,10 @@ void Encounter::setActive(bool active) {
     }
 }
 
-// A difficulty outside the table leaves the encounter's as it was.
+// A difficulty outside the table, or a blank one, leaves the encounter's as it was.
 void Encounter::setDifficulty(int difficultyIndex) {
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "encdifficulty");
-    if (difficultyIndex >= 0 && difficultyIndex < table->getRowCount()) {
-        _difficulty = static_cast<int>(table->getFloat(difficultyIndex, "value"));
+    if (const auto difficulty = _services.game.combatTables.encounterDifficulty(difficultyIndex)) {
+        _difficulty = *difficulty;
     }
 }
 
@@ -406,10 +407,11 @@ void Encounter::chooseWaveByCount() {
     }
 }
 
-// One chosen creature appears per update: at the spawn points in turn when the
-// encounter has them and knows who entered, otherwise at the first open spot
-// in sight of the encounter's position. A creature that cannot appear yet is
-// tried again next update.
+// One chosen creature appears per update. When the encounter has spawn points
+// it appears round the point chosen for whoever entered, or round the world
+// origin when no one did; failing that, or without spawn points, it appears at
+// the first open spot in sight of the encounter's position. A creature that
+// cannot appear yet is tried again next update.
 void Encounter::spawnNext() {
     if (_pendingSpawns.empty()) {
         return;
@@ -566,17 +568,17 @@ void Encounter::receiveExhaustedSignal() {
 
 float Encounter::creaturePoints(float challengeRating) const {
     if (challengeRating > 0.0f && challengeRating < 1.0f) {
-        const auto fractions = getRequiredTwoDA(_services.resource.twoDas, "fractionalcr");
-        if (challengeRating >= fractions->getFloat(0, "min")) {
+        const auto &tables = _services.game.combatTables;
+        if (challengeRating >= tables.fractionalChallengeMinimum(0)) {
             return 1.0f;
         }
-        if (challengeRating >= fractions->getFloat(1, "min")) {
+        if (challengeRating >= tables.fractionalChallengeMinimum(1)) {
             return 1.0f / kCreaturePointBase;
         }
-        if (challengeRating >= fractions->getFloat(2, "min")) {
+        if (challengeRating >= tables.fractionalChallengeMinimum(2)) {
             return std::pow(kCreaturePointBase, -2.0f);
         }
-        if (challengeRating >= fractions->getFloat(3, "min")) {
+        if (challengeRating >= tables.fractionalChallengeMinimum(3)) {
             return std::pow(kCreaturePointBase, -3.0f);
         }
         return std::pow(kCreaturePointBase, -4.0f);

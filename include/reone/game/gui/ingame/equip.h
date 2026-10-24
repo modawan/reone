@@ -70,7 +70,11 @@ public:
     /** The screen closes, leaving any roster browsing. */
     void endSession();
     /** Whether the screen pages through the roster rather than the party. */
-    bool browsingRoster() const { return _view.canBrowseCharacters; }
+    bool browsingRoster() const { return _backing && _backing->browsingRoster(); }
+    /** While the roster is browsed, the character shown, if it still exists. */
+    std::shared_ptr<Creature> browsedCharacter() const { return _backing ? _backing->browsedCharacter() : nullptr; }
+    /** While the roster is browsed, the roster index of the companion shown; -1 for the player or otherwise. */
+    int browsedRosterIndex() const { return _backing ? _backing->browsedRosterIndex() : -1; }
 
 private:
     static constexpr int kNumControlsBar = 5;

@@ -534,13 +534,11 @@ struct SavedProjectile {
     std::vector<Leg> legs;
     int leg {0};
     bool released {false};
-    bool initialized {false};
     bool clockwise {false};
     float elapsed {0.0f};
     glm::vec3 position {0.0f};
     glm::vec3 velocity {0.0f};
     glm::vec3 acceleration {0.0f};
-    bool parryBlocked {false};
     float activationDelay {0.0f};
     float travelRate {0.0f};
     std::string sourceHook;

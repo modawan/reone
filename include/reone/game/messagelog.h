@@ -78,7 +78,6 @@ public:
 
     /** TSL enables the combat list; with it disabled, its lines go to the message list. */
     void setCombatBufferEnabled(bool enabled) { _combatBufferEnabled = enabled; }
-    bool combatBufferEnabled() const { return _combatBufferEnabled; }
 
     const std::deque<Entry> &entries() const { return _entries; }
     const std::deque<DialogEntry> &dialogEntries() const { return _dialogEntries; }

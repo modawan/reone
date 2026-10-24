@@ -220,7 +220,7 @@ std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
     result.parameters = {
         SavedActionParameter {
             kSavedObjectParameter,
-            SavedObjectReference::fromRuntimeId(
+            SavedObjectReference::rawValue(
                 static_cast<uint32_t>(_animation))},
         SavedActionParameter {
             kSavedFloatParameter, _speed},

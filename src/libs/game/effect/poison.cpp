@@ -291,11 +291,10 @@ void PoisonEffect::applyDamage(Creature &creature, const EffectInstance &source,
     }
 }
 
-EffectRemovalResult PoisonEffect::onRemove(Object &object, const EffectInstance &instance) {
+void PoisonEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->clearActivePoisonEffectId(instance.id);
     }
-    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

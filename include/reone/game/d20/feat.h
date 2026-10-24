@@ -31,7 +31,15 @@ struct Feat {
     std::string name;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
+    /** The feat's name (its feat.2da name string). */
+    int nameStrRef {-1};
     int category {0}; /**< talent category */
+    /** The uses a day; zero for a feat whose uses are not counted. */
+    int usesPerDay {0};
+    /** The challenge rating that ranks the feat as a talent. */
+    int maxCR {0};
+    /** The talent inclusion mask. */
+    uint32_t exclusion {0};
     uint32_t minCharLevel {0};
     FeatType preReqFeat1 {FeatType::Invalid};
     FeatType preReqFeat2 {FeatType::Invalid};

@@ -32,7 +32,7 @@ public:
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
 
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
+    void onRemove(Object &object, const EffectInstance &) override;
 };
 
 } // namespace game

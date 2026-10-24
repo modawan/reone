@@ -13,7 +13,6 @@
 #include <limits>
 #include <map>
 #include <set>
-#include <sstream>
 
 #include "reone/game/action.h"
 #include "reone/game/d20/class.h"

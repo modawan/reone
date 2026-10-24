@@ -83,16 +83,37 @@ public:
         }
         ON_CALL(_resourceModule->twoDas(), get(std::string("npc"))).WillByDefault(testing::Return(std::shared_ptr<resource::TwoDA>(fullShares.build())));
         for (const char *table : {"ranges", "traps", "skills", "animations", "dialoganimations", "tutorial",
-                                  "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups", "influence"}) {
+                                  "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups", "influence",
+                                  "appearancesndset", "placeableobjsnds", "videoeffects", "stringtokens",
+                                  "feedbacktext", "aiscripts"}) {
             ON_CALL(_resourceModule->twoDas(), get(std::string(table))).WillByDefault(testing::Return(empty));
         }
+        // A creature reads its race's row when it loads; every adjustment is blank.
+        resource::TwoDA::Builder races;
+        races.columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"});
+        for (int race = 0; race < kRacialTypeCount; ++race) {
+            races.row({"", "", "", "", "", ""});
+        }
+        std::shared_ptr<resource::TwoDA> racialTypes(races.build());
+        ON_CALL(_resourceModule->twoDas(), get(std::string("racialtypes"))).WillByDefault(testing::Return(racialTypes));
         // The combat tables the game loads at start, with no rows but an
         // excitement of no duration.
         testing::NiceMock<resource::MockTwoDAs> combatTables;
-        std::shared_ptr<resource::TwoDA> excited(
-            resource::TwoDA::Builder().columns({"duration"}).row({"0"}).row({"0"}).row({"0"}).build());
-        ON_CALL(combatTables, get(testing::_)).WillByDefault(testing::Return(empty));
-        ON_CALL(combatTables, get("excitedduration")).WillByDefault(testing::Return(excited));
+        ON_CALL(combatTables, get(testing::_)).WillByDefault(testing::Invoke(&TestEngine::defaultCombatTable));
+        _gameModule->combatTables().init(combatTables, resource::GameID::KotOR);
+    }
+
+    /**
+     * Load the combat tables again from the tables the test gives; a table
+     * the test does not give reads as at start.
+     */
+    void initCombatTables() {
+        testing::NiceMock<resource::MockTwoDAs> combatTables;
+        ON_CALL(combatTables, get(testing::_)).WillByDefault([this](const std::string &resRef) {
+            auto table = _resourceModule->twoDas().get(resRef);
+            return table ? table : defaultCombatTable(resRef);
+        });
+        _gameModule->combatTables() = game::CombatTables();
         _gameModule->combatTables().init(combatTables, resource::GameID::KotOR);
     }
 
@@ -141,6 +162,17 @@ public:
     }
 
 private:
+    /** The rows of racialtypes.2da a creature may name. */
+    static constexpr int kRacialTypeCount = 9;
+
+    /** A combat table as the game loads it at start: no rows, but an excitement of no duration. */
+    static std::shared_ptr<resource::TwoDA> defaultCombatTable(const std::string &resRef) {
+        if (resRef == "excitedduration") {
+            return resource::TwoDA::Builder().columns({"duration"}).row({"0"}).row({"0"}).row({"0"}).build();
+        }
+        return resource::TwoDA::Builder().build();
+    }
+
     game::GameOptions _gameOpt;
     graphics::GraphicsOptions _graphicsOpt;
     audio::AudioOptions _audioOpt;

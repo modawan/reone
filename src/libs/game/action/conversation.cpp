@@ -16,7 +16,6 @@
  */
 
 #include "reone/game/action/barkstring.h"
-#include "reone/game/action/pauseconversation.h"
 #include "reone/game/action/resumeconversation.h"
 #include "reone/game/action/speakstring.h"
 #include "reone/game/action/speakstringbystrref.h"
@@ -332,11 +331,6 @@ std::shared_ptr<Action> StartConversationAction::restore(const SavedActionRecord
         return nullptr;
     }
     return game.newAction<StartConversationAction>(std::move(target), dialog, privateConversation != 0);
-}
-
-void PauseConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    _game.pauseConversationBy(actor);
-    complete();
 }
 
 void ResumeConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

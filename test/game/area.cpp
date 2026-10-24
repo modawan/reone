@@ -46,6 +46,7 @@ TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
                                                                    .columns({"destroyobjectdelay"})
                                                                    .row({""})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;

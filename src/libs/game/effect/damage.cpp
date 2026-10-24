@@ -44,9 +44,6 @@
 #include "reone/game/object/door.h"
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
-#include "reone/game/twodautil.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/system/logutil.h"
 
 namespace reone {
@@ -998,8 +995,8 @@ EffectApplicationResult HitPointChangeWhenDyingEffect::onApply(Object &object, E
 }
 
 void applyBloodVisual(Creature &creature) {
-    const auto appearance = getRequiredTwoDA(creature.services().resource.twoDas, "appearance");
-    const auto blood = appearance->getString(creature.appearance(), "bloodcolr");
+    // A creature of no blood colour shows visual 0.
+    const auto &blood = creature.bloodColour();
     int visualId = 0;
     if (blood == "R") {
         visualId = kRedBloodVisual;
@@ -1015,11 +1012,11 @@ void applyBloodVisual(Creature &creature) {
     creature.applyEffect(std::move(child));
 }
 
-EffectRemovalResult HitPointChangeWhenDyingEffect::onRemove(Object &object, const EffectInstance &instance) {
+void HitPointChangeWhenDyingEffect::onRemove(Object &object, const EffectInstance &instance) {
     auto *creature = dyn_cast<Creature>(&object);
     // Anything but a creature has nothing to change.
     if (!creature) {
-        return EffectRemovalResult::Removed;
+        return;
     }
     if (creature->isPC()) {
         const float rate = instance.floatParameters[0];
@@ -1042,7 +1039,6 @@ EffectRemovalResult HitPointChangeWhenDyingEffect::onRemove(Object &object, cons
         }
         object.applyEffect(std::move(child));
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult HealEffect::onApply(Object &object, EffectInstance &instance) {

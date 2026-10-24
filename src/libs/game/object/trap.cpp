@@ -78,17 +78,21 @@ Trap::Trap(Carrier carrier) :
     _oneShot(carrier != Carrier::Placeable) {
 }
 
-TrapTypeRow Trap::typeRow(ITwoDAs &twoDas, int type) {
+std::vector<TrapTypeRow> Trap::readTypes(ITwoDAs &twoDas) {
     auto traps = getRequiredTwoDA(twoDas, "traps");
-    TrapTypeRow row;
-    row.script = boost::to_lower_copy(traps->getString(type, "trapscript"));
-    row.model = boost::to_lower_copy(traps->getString(type, "model"));
-    row.kitResRef = boost::to_lower_copy(traps->getString(type, "resref"));
-    row.nameStrRef = traps->getIntOpt(type, "trapname");
-    row.setDC = traps->getIntOpt(type, "setdc");
-    row.detectDCMod = traps->getIntOpt(type, "detectdcmod");
-    row.disarmDCMod = traps->getIntOpt(type, "disarmdcmod");
-    return row;
+    std::vector<TrapTypeRow> types;
+    for (int type = 0; type < traps->getRowCount(); ++type) {
+        TrapTypeRow row;
+        row.script = boost::to_lower_copy(traps->getString(type, "trapscript"));
+        row.model = boost::to_lower_copy(traps->getString(type, "model"));
+        row.kitResRef = boost::to_lower_copy(traps->getString(type, "resref"));
+        row.nameStrRef = traps->getIntOpt(type, "trapname");
+        row.setDC = traps->getIntOpt(type, "setdc");
+        row.detectDCMod = traps->getIntOpt(type, "detectdcmod");
+        row.disarmDCMod = traps->getIntOpt(type, "disarmdcmod");
+        types.push_back(std::move(row));
+    }
+    return types;
 }
 
 bool Trap::isHostileTo(const Object &trapped, Faction faction, const Creature &creature) {
@@ -134,8 +138,8 @@ void Trap::deserializeArming(const Gff &gff, const Game &game, bool keepShiftedD
     }
 }
 
-void Trap::loadTypeDCs(ITwoDAs &twoDas) {
-    const auto row = typeRow(twoDas, _type);
+void Trap::loadTypeDCs(const Game &game) {
+    const auto &row = game.trapType(_type);
     _disarmDC = row.disarmDCMod.value_or(_disarmDC);
     _detectDC = row.detectDCMod.value_or(_detectDC);
 }
@@ -220,8 +224,7 @@ void Trap::runDisarmScript(Object &owner, const Object &caller) {
 }
 
 void Trap::armMine(
-    Game &game,
-    ITwoDAs &twoDas,
+    const Game &game,
     int trapType,
     int detectDC,
     int disarmDC,
@@ -232,7 +235,7 @@ void Trap::armMine(
     bool blast) {
     _armed = true;
     _type = trapType;
-    _triggeredScript = typeRow(twoDas, trapType).script;
+    _triggeredScript = game.trapType(trapType).script;
     _detectDC = detectDC;
     _disarmDC = disarmDC;
     _detectable = true;
@@ -245,14 +248,14 @@ void Trap::armMine(
     _mineBlastDelay = blast ? std::optional<float>(kMineBlastDelay) : std::nullopt;
 }
 
-void Trap::setUpMine(ITwoDAs &twoDas, int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill) {
+void Trap::setUpMine(const Game &game, int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill) {
     _type = trapType;
     _detectable = true;
     _disarmable = true;
     _detectDC = detectDC;
     _disarmDC = disarmDC;
     _ownerDemolitionsSkill = ownerDemolitionsSkill;
-    _triggeredScript = typeRow(twoDas, trapType).script;
+    _triggeredScript = game.trapType(trapType).script;
 }
 
 void Trap::hide() {

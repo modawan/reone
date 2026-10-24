@@ -583,16 +583,15 @@ TEST_P(EntryLifecycleFixture, fade_hold_transfers_to_reconstructed_party_convers
     player->setPC(false);
     player->setMaxHitPoints(10);
     player->setCurrentHitPoints(10);
-    ON_CALL(engine.resourceModule().twoDas(), get("skills"))
-        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
-                                                                   .columns({"label", "untrained"})
-                                                                   .build())));
+    ON_CALL(static_cast<MockSkills &>(engine.services().game.skills), get(_))
+        .WillByDefault(Return(nullptr));
     ON_CALL(engine.resourceModule().twoDas(), get("regeneration"))
         .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
                                                                    .columns({"label", "healthregen", "forceregen"})
                                                                    .row({"InCombat", "0.0", "0.0"})
                                                                    .row({"OutOfCombat", "0.0", "1.0"})
                                                                    .build())));
+    engine.initCombatTables();
     serveModule(/*savedModuleSnapshot=*/false);
     ASSERT_TRUE(game->loadModule("module_b"));
     game->globalFade().holdForDialog();
@@ -774,7 +773,7 @@ TEST_P(EntryLifecycleFixture, controlled_companion_uses_same_transition_continui
         controlled->actions().front()->originalSavedAction()->actionId);
 }
 
-TEST_P(EntryLifecycleFixture, k2_puppet_uses_same_transition_continuity) {
+TEST_P(EntryLifecycleFixture, k2_puppet_drops_its_actions_across_a_transition) {
     if (GetParam() != GameID::TSL) GTEST_SKIP();
     serveModule(/*savedModuleSnapshot=*/false);
     auto puppet = game->newCreature();

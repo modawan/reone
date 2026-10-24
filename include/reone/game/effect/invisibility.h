@@ -26,17 +26,12 @@ namespace game {
 class InvisibilityEffect : public CopyableEffect<InvisibilityEffect> {
 public:
     InvisibilityEffect(InvisibilityType type) :
-        CopyableEffect(EffectType::Invisibility),
-        _type(type) {
+        CopyableEffect(EffectType::Invisibility) {
         setSaveFacingInteger(0, static_cast<int>(type));
         setSaveFacingInteger(1, static_cast<int>(RacialType::All));
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
-
-private:
-    InvisibilityType _type;
 };
 
 } // namespace game

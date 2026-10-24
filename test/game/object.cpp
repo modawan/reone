@@ -292,7 +292,7 @@ void reone::game::TestGameModule::setOnNotice(
 }
 
 void reone::game::TestGameModule::updatePerception(Area &area) {
-    area.doUpdatePerception();
+    area.updatePerceptionPasses(0.0f, true);
 }
 
 void reone::game::TestGameModule::prepareFadeArrival(Game &game) {
@@ -1330,7 +1330,7 @@ TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_
     }
 }
 
-TEST(Creature, should_hold_completed_external_animation_until_assignment_is_released) {
+TEST(Creature, should_return_a_finished_external_animation_to_the_pause) {
     TestEngine engine;
     engine.init();
     StubConsole console;
@@ -1666,31 +1666,21 @@ std::shared_ptr<scene::ModelSceneNode> modelNodeOf(const std::shared_ptr<Creatur
     return std::static_pointer_cast<scene::ModelSceneNode>(creature->sceneNode());
 }
 
-std::shared_ptr<TwoDA> makeDialogAnimationsTable() {
-    TwoDA::Builder builder;
-    builder.columns({"name"});
-    for (int i = 0; i < 227; ++i) {
-        std::string name;
-        switch (i) {
-        case 30:
-            name = "Talk_Normal";
-            break;
-        case 35:
-            name = "Bow";
-            break;
-        case 40:
-            name = "Talk_Forceful";
-            break;
-        case 44:
-            name = "Victory";
-            break;
-        case 70:
-            name = "Inject";
-            break;
+// The dialoganimations.2da rows as the animations owner gives them: 227 rows,
+// a few of them named, none a dialog animation.
+std::function<std::optional<std::reference_wrapper<const DialogAnimation>>(int)> makeDialogAnimations() {
+    auto rows = std::make_shared<std::vector<DialogAnimation>>(227);
+    (*rows)[30].name = "talk_normal";
+    (*rows)[35].name = "bow";
+    (*rows)[40].name = "talk_forceful";
+    (*rows)[44].name = "victory";
+    (*rows)[70].name = "inject";
+    return [rows](int row) -> std::optional<std::reference_wrapper<const DialogAnimation>> {
+        if (row < 0 || row >= static_cast<int>(rows->size())) {
+            return std::nullopt;
         }
-        builder.row({name});
-    }
-    return builder.build();
+        return (*rows)[row];
+    };
 }
 
 TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
@@ -1735,11 +1725,9 @@ TEST(DialogGUI, should_decode_direct_k1_dialog_animation_rows) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
-    auto animations = makeDialogAnimationsTable();
-
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
         .Times(4)
-        .WillRepeatedly(Return(animations));
+        .WillRepeatedly(makeDialogAnimations());
 
     EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(gui, 35));
     EXPECT_EQ(AnimationType::LoopingTalkForceful, MixedStuntTestAccess::dialogAnimationType(gui, 40));
@@ -1755,11 +1743,9 @@ TEST(DialogGUI, should_preserve_offset_dialog_animation_rows_and_k2_rejection) {
     Game k2Game(GameID::TSL, "", engine.options(), engine.services(), console);
     DialogGUI k1Gui(k1Game, engine.services());
     DialogGUI k2Gui(k2Game, engine.services());
-    auto animations = makeDialogAnimationsTable();
-
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
         .Times(2)
-        .WillRepeatedly(Return(animations));
+        .WillRepeatedly(makeDialogAnimations());
 
     EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(k1Gui, 10035));
     EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(k2Gui, 10035));
@@ -1772,11 +1758,9 @@ TEST(DialogGUI, should_reject_invalid_and_unresolved_k1_dialog_animation_rows) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
-    auto animations = makeDialogAnimationsTable();
-
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
         .Times(AnyNumber())
-        .WillRepeatedly(Return(animations));
+        .WillRepeatedly(makeDialogAnimations());
 
     EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 0));
     EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, -1));
@@ -1794,7 +1778,7 @@ TEST(DialogGUI, should_preserve_cut_band_precedence_for_k1_direct_rows) {
     Dialog::EntryReply entry;
     entry.animations.push_back({"owner", 1000});
 
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations")).Times(0);
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_)).Times(0);
 
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 }
@@ -1883,7 +1867,7 @@ TEST(DialogGUI, should_animate_an_ordinary_participant_from_a_cut_band_ordinal) 
     EXPECT_FALSE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
 }
 
-TEST(DialogGUI, should_hold_an_authored_cut_pose_until_the_dialogue_releases_the_participant) {
+TEST(DialogGUI, should_return_a_finished_cut_clip_to_the_pause_until_the_next_authored_animation) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -2089,10 +2073,20 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
 
     EXPECT_CALL(engine.resourceModule().models(), get("owner_stunt"))
         .WillOnce(Return(stuntModel));
-    // Read once for the head-look rule and once to resolve the ordinal.
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
-        .Times(2)
-        .WillRepeatedly(Return(makeDialogAnimationsTable()));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
+    // The ordinal is resolved once.
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
+        .Times(1)
+        .WillRepeatedly(makeDialogAnimations());
+    engine.initCombatTables();
 
     auto dialog = std::make_shared<Dialog>();
     dialog->animatedCutscene = false;
@@ -2236,16 +2230,20 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
 
     auto missingAction = game.newAction<UnlockObjectAction>(std::shared_ptr<Object>());
     auto destroyedAction = game.newAction<UnlockObjectAction>(destroyed);
-    auto unsupportedAction = game.newAction<UnlockObjectAction>(actor);
+    auto unsupportedTarget = game.newCreature();
+    auto unsupportedAction = game.newAction<UnlockObjectAction>(unsupportedTarget);
+    // A placeable works at a lock at once, so the unsupported target is
+    // reached on the first tick.
+    auto worker = game.newPlaceable();
 
     EXPECT_NO_THROW(missingAction->execute(missingAction, *actor, 0.0f));
     EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *actor, 0.0f));
-    EXPECT_NO_THROW(unsupportedAction->execute(unsupportedAction, *actor, 0.0f));
+    EXPECT_NO_THROW(unsupportedAction->execute(unsupportedAction, *worker, 0.0f));
 
     EXPECT_TRUE(missingAction->isCompleted());
     EXPECT_TRUE(destroyedAction->isCompleted());
     EXPECT_TRUE(destroyed->isLocked());
-    EXPECT_FALSE(unsupportedAction->isCompleted());
+    EXPECT_TRUE(unsupportedAction->isCompleted());
 }
 
 TEST(TransitionPresentationLifecycle, should_construct_and_destroy_hud_before_gameplay_module_exists) {
@@ -2696,6 +2694,15 @@ TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_t
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     testSceneGraph(engine);
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     // Triggers load their trap data where present; the leader regenerates.
     EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
         .Times(AnyNumber())
@@ -2707,6 +2714,7 @@ TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_t
                                                                     .row({"InCombat", "0.0", "0.0"})
                                                                     .row({"OutOfCombat", "0.0", "1.0"})
                                                                     .build())));
+    engine.initCombatTables();
     auto area = game.newArea();
     auto leader = makeMovingCreature(game, engine);
     game.party().addMember(kNpcPlayer, leader);
@@ -2856,6 +2864,15 @@ TEST(LinkedDoorTransition, should_destroy_generated_threshold_with_its_source_do
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     // Triggers load their trap data where present; the leader regenerates.
     EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
         .Times(AnyNumber())
@@ -2867,6 +2884,7 @@ TEST(LinkedDoorTransition, should_destroy_generated_threshold_with_its_source_do
                                                                     .row({"InCombat", "0.0", "0.0"})
                                                                     .row({"OutOfCombat", "0.0", "1.0"})
                                                                     .build())));
+    engine.initCombatTables();
     auto area = game.newArea();
     auto door = makeTransitionDoor(game, engine);
     auto leader = makeMovingCreature(game, engine);
@@ -3929,7 +3947,7 @@ TEST(XPStatusSummary, should_preserve_zero_award_synchronization_without_notifyi
     EXPECT_TRUE(game.statusSummary().pending().empty());
 }
 
-TEST(XPStatusSummary, should_preserve_negative_accounting_without_received_notification) {
+TEST(XPStatusSummary, should_ignore_negative_awards_without_notification) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -4359,7 +4377,7 @@ TEST(Reputes, should_use_authored_creature_faction_dispositions) {
     ON_CALL(servicesReputes, state()).WillByDefault(Return(IReputes::State()));
 }
 
-TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_source) {
+TEST(AreaReputationSearch, judges_hostility_by_how_the_candidate_regards_the_creature_searched_around) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -4369,14 +4387,28 @@ TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_sour
     searching->setFaction(Faction::Hostile1);
     auto candidate = game.newCreature();
     candidate->setFaction(Faction::Friendly1);
-    area->add(candidate);
-
-    // The search is centred on `searching`, which is not in the area: the
-    // search finds nothing.
     Area::SearchCriteriaList criterias {
         {CreatureType::Reputation, static_cast<int>(ReputationType::Enemy)}};
 
+    // A search centred on a creature that is not in the area finds nothing.
+    area->add(candidate);
     EXPECT_EQ(nullptr, area->getNearestCreature(searching, criterias));
+
+    // The two factions regard each other differently: the candidate's is
+    // hostile to the searcher's, the searcher's friendly to the candidate's.
+    area->add(searching);
+    auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
+    ON_CALL(reputes, getReputation(Faction::Friendly1, Faction::Hostile1)).WillByDefault(Return(0));
+    ON_CALL(reputes, getReputation(Faction::Hostile1, Faction::Friendly1)).WillByDefault(Return(100));
+    EXPECT_EQ(candidate, area->getNearestCreature(searching, criterias));
+
+    // With the views swapped, the candidate is no enemy.
+    ON_CALL(reputes, getReputation(Faction::Friendly1, Faction::Hostile1)).WillByDefault(Return(100));
+    ON_CALL(reputes, getReputation(Faction::Hostile1, Faction::Friendly1)).WillByDefault(Return(0));
+    EXPECT_EQ(nullptr, area->getNearestCreature(searching, criterias));
+
+    // testEngine() is process-global: put the service's default answer back.
+    ON_CALL(reputes, getReputation(_, _)).WillByDefault(Return(0));
 }
 
 namespace {
@@ -4526,10 +4558,10 @@ TEST(CombatVisibility, invisibility_refreshes_sight_and_notices_only_transitions
     auto second = std::make_shared<InvisibilityEffect>(InvisibilityType::Normal);
     fixture.target->applyEffect(second, DurationType::Permanent);
     EXPECT_EQ(3, fixture.noticeRuns());
-    fixture.target->removeEffect(first);
+    fixture.target->removeEffectApplication(fixture.target->findEffectInstance(*first)->applicationOrder);
     EXPECT_EQ(3, fixture.noticeRuns());
 
-    fixture.target->removeEffect(second);
+    fixture.target->removeEffectApplication(fixture.target->findEffectInstance(*second)->applicationOrder);
     EXPECT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
     EXPECT_EQ(4, fixture.noticeRuns());
 }
@@ -4548,7 +4580,7 @@ TEST(CombatVisibility, true_seeing_gain_and_loss_refresh_effective_sight) {
     EXPECT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
     EXPECT_EQ(before + 1, fixture.noticeRuns());
 
-    fixture.observer->removeEffect(trueSeeing);
+    fixture.observer->removeEffectApplication(fixture.observer->findEffectInstance(*trueSeeing)->applicationOrder);
     EXPECT_FALSE(fixture.observer->perception().sees(fixture.target->id()));
     EXPECT_EQ(before + 2, fixture.noticeRuns());
 }
@@ -5699,6 +5731,15 @@ TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuse
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -5707,6 +5748,7 @@ TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuse
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -5735,6 +5777,15 @@ TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -5743,6 +5794,7 @@ TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -5770,6 +5822,15 @@ TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -5778,6 +5839,7 @@ TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -5811,6 +5873,15 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -5819,6 +5890,7 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -5862,9 +5934,9 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
     EXPECT_EQ(30, atton->maxHitPoints());
     EXPECT_EQ(18, atton->serializedCurrentHitPoints());
 
-    trask->removeEffect(traskCon);
-    carth->removeEffect(carthToughness);
-    atton->removeEffect(attonCon);
+    trask->removeEffectApplication(trask->findEffectInstance(*traskCon)->applicationOrder);
+    carth->removeEffectApplication(carth->findEffectInstance(*carthToughness)->applicationOrder);
+    atton->removeEffectApplication(atton->findEffectInstance(*attonCon)->applicationOrder);
     EXPECT_EQ(12, trask->getEffectiveAbilityScore(Ability::Constitution));
     EXPECT_FALSE(carth->hasEffectiveFeat(FeatType::MasterToughness));
     EXPECT_EQ(14, atton->getEffectiveAbilityScore(Ability::Constitution));
@@ -5881,6 +5953,15 @@ TEST(CreatureVitality, permanent_bonus_changes_preserve_damage) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -5889,6 +5970,7 @@ TEST(CreatureVitality, permanent_bonus_changes_preserve_damage) {
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -5922,12 +6004,22 @@ TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     VitalityTestClass soldier(10);
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
         .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
             TwoDA::Builder()
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     auto creature = game.newCreature();
     creature->attributes().addClassLevels(soldier.clazz.get(), 1);
     creature->attributes().setAbilityScore(Ability::Constitution, 12);
@@ -5940,7 +6032,7 @@ TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
     EXPECT_EQ(10, creature->serializedCurrentHitPoints());
 }
 
-TEST(CreatureVitality, dead_serialized_creature_is_not_healed_by_derivation) {
+TEST(CreatureVitality, creature_saved_at_zero_hit_points_loads_alive_with_the_rebuilt_pool) {
     TestEngine engine;
     engine.init();
     StubConsole console;
@@ -5948,6 +6040,15 @@ TEST(CreatureVitality, dead_serialized_creature_is_not_healed_by_derivation) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -5956,6 +6057,7 @@ TEST(CreatureVitality, dead_serialized_creature_is_not_healed_by_derivation) {
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -6197,6 +6299,15 @@ TEST(CreatureVitality, primary_player_publication_preserves_saved_damage) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
@@ -6205,6 +6316,7 @@ TEST(CreatureVitality, primary_player_publication_preserves_saved_damage) {
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    engine.initCombatTables();
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -6666,14 +6778,23 @@ struct StopMovementFixture {
     explicit StopMovementFixture(GameID gameId = GameID::KotOR) :
         game(gameId, "", engine.options(), engine.services(), console) {
         testSceneGraph(engine);
+        // The game reads its rule tables when it starts; the others are missing.
+        EXPECT_CALL(engine.resourceModule().twoDas(),
+                    get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                              "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                              "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                              "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                              "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                              "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+            .Times(AnyNumber());
         // Every creature update searches for mines with its Awareness rank and
         // regenerates; trigger trap data is read where present.
-        EXPECT_CALL(engine.resourceModule().twoDas(), get("skills"))
-            .Times(AnyNumber())
-            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+        ON_CALL(static_cast<MockSkills &>(engine.services().game.skills), get(_))
+            .WillByDefault(Return(nullptr));
         EXPECT_CALL(engine.resourceModule().twoDas(), get("regeneration"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+        engine.initCombatTables();
         EXPECT_CALL(engine.resourceModule().twoDas(), get("traps")).Times(AnyNumber());
         // Finishing a conversation runs each area creature's end-dialogue
         // script, which these creatures leave empty.

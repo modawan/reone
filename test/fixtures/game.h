@@ -177,10 +177,21 @@ public:
 
 class MockSpells : public ISpells, boost::noncopyable {
 public:
+    /** Every range reads as blank, as from an empty ranges table. */
+    MockSpells() {
+        ON_CALL(*this, range(testing::_)).WillByDefault(testing::ReturnRef(_blankRange));
+        ON_CALL(*this, findRange(testing::_)).WillByDefault(testing::Return(std::nullopt));
+    }
+
     MOCK_METHOD(std::shared_ptr<Spell>, get, (SpellType type), (const override));
+    MOCK_METHOD(const RangeRow &, range, (int row), (const override));
+    MOCK_METHOD((std::optional<std::reference_wrapper<const RangeRow>>), findRange, (int row), (const override));
     MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+
+private:
+    RangeRow _blankRange;
 };
 
 class MockSurfaces : public ISurfaces, boost::noncopyable {
@@ -202,6 +213,17 @@ public:
                 (override));
     MOCK_METHOD(void, update, (float, Game &, ServicesView &), (override));
     MOCK_METHOD(void, retireAreaRuntime, (), (override));
+    MOCK_METHOD(uint64_t, beginSpell,
+                (Object &, std::optional<std::reference_wrapper<const Object>>, const glm::vec3 &, const Spell &, ProjectilePathType, Game &, ServicesView &),
+                (override));
+    MOCK_METHOD(void, releaseSpell, (uint64_t, float, Game &, ServicesView &), (override));
+    MOCK_METHOD(void, cancelSpell, (uint64_t), (override));
+    MOCK_METHOD(void, dropThrownLightsaber, (const Creature &), (override));
+    MOCK_METHOD(void, launchSafeProjectile,
+                (Creature &, Object &, const Item &, const SafeProjectileShot &, Game &, ServicesView &),
+                (override));
+    MOCK_METHOD(std::vector<SavedProjectile>, savePresentations, (), (const override));
+    MOCK_METHOD(void, restorePresentations, (std::vector<SavedProjectile>, Game &, ServicesView &), (override));
     MOCK_METHOD(std::optional<ProjectileSpec>, discharge, (int animation, const Creature &attacker), (const override));
 };
 
@@ -211,6 +233,13 @@ public:
     MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
     MOCK_METHOD(std::string, getReactionAnimation, (const std::string &attackAnim, CreatureWieldType targetWield, AttackReaction reaction), (const override));
     MOCK_METHOD(int, getMeleeImpactTime, (const std::string &attackAnim, size_t attackIndex), (const override));
+    MOCK_METHOD(bool, isOverlay, (const std::string &), (const override));
+    MOCK_METHOD(bool, isLoopingById, (uint32_t), (const override));
+    MOCK_METHOD(bool, isFireForgetById, (uint32_t), (const override));
+    MOCK_METHOD(bool, isParry, (const std::string &), (const override));
+    MOCK_METHOD(bool, hidesEquippedItems, (const std::string &), (const override));
+    MOCK_METHOD(bool, isDialogAnimation, (int id), (const override));
+    MOCK_METHOD(std::optional<std::reference_wrapper<const DialogAnimation>>, findDialogAnimation, (int row), (const override));
 };
 
 class MockVisualEffects : public IVisualEffects, boost::noncopyable {

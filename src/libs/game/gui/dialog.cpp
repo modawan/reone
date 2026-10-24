@@ -21,15 +21,14 @@
 
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
+#include "reone/game/animations.h"
 #include "reone/game/animationutil.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
 #include "reone/graphics/di/services.h"
 #include "reone/gui/control/panel.h"
-#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/scene/types.h"
@@ -587,7 +586,7 @@ void DialogGUI::updateParticipantAnimations() {
         if (creature && !canPlayDialogAnimations(*creature)) {
             continue;
         }
-        if (creature && isDialogAnimation(_services.resource.twoDas, anim.animation)) {
+        if (creature && _services.game.animations.isDialogAnimation(anim.animation)) {
             creature->setHeadLookSuspended(false);
             creature->lookAt(nullptr, 0.0f);
         }
@@ -724,9 +723,8 @@ DialogGUI::DialogPose DialogGUI::getDialogPose(int ordinal) const {
         warn("Dialog: unsupported animation ordinal: " + std::to_string(ordinal));
         return {};
     }
-    std::shared_ptr<TwoDA> animations(_services.resource.twoDas.get("dialoganimations"));
-
-    if (index >= animations->getRowCount()) {
+    const auto row = _services.game.animations.findDialogAnimation(index);
+    if (!row) {
         if (ordinal < kDialogAnimationBase) {
             warn("Dialog: unsupported animation ordinal: " + std::to_string(ordinal));
         } else {
@@ -735,11 +733,10 @@ DialogGUI::DialogPose DialogGUI::getDialogPose(int ordinal) const {
         return {};
     }
 
-    std::string name(boost::to_lower_copy(animations->getString(index, "name")));
-    auto maybeAnimType = g_animTypeByName.find(name);
+    auto maybeAnimType = g_animTypeByName.find(row->get().name);
     DialogPose pose;
     pose.type = maybeAnimType != g_animTypeByName.end() ? maybeAnimType->second : AnimationType::Invalid;
-    pose.dialog = isDialogAnimationRow(*animations, index);
+    pose.dialog = row->get().dialog;
     return pose;
 }
 

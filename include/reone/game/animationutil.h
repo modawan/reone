@@ -23,10 +23,9 @@ namespace reone {
 
 namespace resource {
 
-class ITwoDAs;
 class TwoDA;
 
-} // namespace resource
+}
 
 namespace game {
 
@@ -86,14 +85,10 @@ LoopTransition loopTransition(int newId, int oldId, int currentId, bool characte
 /** The animations.2da row a transition's animation ID names, or -1 when the model has none. */
 int loopTransitionRow(int id, bool characterModel);
 
-/**
- * A looping or fire-and-forget dialog animation: dialoganimations.2da rows
- * from ID 10000, animations.2da rows below its row count, otherwise the cut
- * clip IDs (one-shot 1000-1327, looping 1400-1727).
- */
-bool isDialogAnimation(resource::ITwoDAs &twoDas, int id);
 /** The row of animations.2da or dialoganimations.2da is a looping or fire-and-forget dialog animation. */
 bool isDialogAnimationRow(const resource::TwoDA &table, int row);
+/** The animation ID is a cut clip a conversation plays: one-shot 1000-1327 or looping 1400-1727. */
+bool isDialogCutClip(int id);
 
 } // namespace game
 

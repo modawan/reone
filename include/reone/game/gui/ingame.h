@@ -58,9 +58,8 @@ public:
     void openEquipment();
     /** End the equipment screen's session and forget the character it browsed. */
     void closeEquipment();
-    /** The party NPC whose equipment the screen shows; -1 for the player. */
-    int inventoryCharacter() const { return _inventoryCharacter; }
-    void setInventoryCharacter(int npc) { _inventoryCharacter = npc; }
+    /** The roster index of the companion the equipment screen browses; -1 for the player or when it browses none. */
+    int inventoryCharacter() const;
     /** The character the equipment screen shows: the browsed roster member, or else the leader. */
     std::shared_ptr<Creature> equipmentCharacter() const;
 
@@ -79,7 +78,6 @@ public:
 
 private:
     std::unique_ptr<InGameMenuHost> _host;
-    int _inventoryCharacter {-1};
     /** The equipment screen's session is open. */
     bool _equipmentOpen {false};
     std::shared_ptr<CharacterMenu> _character;

@@ -196,6 +196,8 @@ public:
     bool isPreciseUse() const { return _preciseUse; }
     /** Whether the door's look blocks sight (a see-through door does not block a sight line that may pass one). */
     bool blocksSight() const { return _blocksSight; }
+    /** The armour type, in lower case, the door's look sounds as when struck (placeableobjsnds.2da). */
+    const std::string &soundArmorType() const { return _soundArmorType; }
 
     /**
      * The point a creature at from goes to in order to use the door: of the
@@ -272,6 +274,7 @@ private:
     bool _blocksSight {true};
     /** Seconds until a door whose lock a mine blew swings open, while it is due. */
     std::optional<float> _mineOpenDelay;
+    std::string _soundArmorType;
 
     // Walkmeshes
 

@@ -134,8 +134,6 @@ public:
         int amount,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction);
-    /** Heals a creature by \p amount; other objects are not healed. */
-    void heal(int amount);
 
     void face(const Object &other);
     void face(const glm::vec3 &point);
@@ -149,8 +147,6 @@ public:
     bool isMinOneHP() const { return _minOneHP; }
     virtual bool isDead() const { return _dead; }
     bool isDestroyable() const { return _destroyable; }
-    bool isRaiseable() const { return _raiseable; }
-    bool isSelectableWhenDead() const { return _selectableWhenDead; }
     void setRaiseable(bool value) { _raiseable = value; }
     /** Sets whether the object can be destroyed, raised, and selected while dead. */
     void setDestroyability(bool destroyable, bool raiseable, bool selectableWhenDead);
@@ -206,8 +202,10 @@ public:
     const std::string &conversation() const { return _conversation; }
     bool plotFlag() const { return _plot; }
     /**
-     * Damage immunity is kept per damage type: the lowest (most vulnerable)
-     * of the types in \p flags, within -100..100.
+     * Damage immunity is kept per damage type. For several types in \p flags,
+     * the types are taken in bit order: a running value of 0 takes the next
+     * type's value, and otherwise only a lower value replaces it. The result
+     * is within -100..100.
      */
     int damageImmunity(int flags) const;
     /** Stores \p value, within -100..100, for the lowest type in \p flags only. */
@@ -308,7 +306,6 @@ public:
      * commandable afterwards.
      */
     void clearAllEffects(bool retainOwn = false);
-    void removeEffect(const std::shared_ptr<Effect> &effect);
     /**
      * Hides the effects a script removes, chosen by \p match against \p value,
      * and queues their removal.

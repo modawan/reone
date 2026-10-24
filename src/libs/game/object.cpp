@@ -86,9 +86,7 @@ bool removeEffectApplication(Collection &effects, uint64_t order,
             stack(stack) { stack.push_back(order); }
         ~Invocation() { stack.pop_back(); }
     } invocation(inFlight, order);
-    if (remove(record) != EffectRemovalResult::Removed) {
-        return false;
-    }
+    remove(record);
     at = find();
     if (at == effects.end()) {
         return false;
@@ -1535,12 +1533,6 @@ void Object::setDamageImmunity(int flags, int value) {
     }
 }
 
-void Object::heal(int amount) {
-    if (auto *creature = dyn_cast<Creature>(this)) {
-        creature->applyHealingEffect(amount, nullptr, false);
-    }
-}
-
 bool Object::applyEffect(const std::shared_ptr<Effect> &effect,
                          DurationType durationType, float duration) {
     EffectInstance instance = effect->saveFacingInstance();
@@ -1664,16 +1656,15 @@ size_t Object::removeEffectsById(EffectId id) {
     std::optional<int> poolMaximum;
     const auto count = detail::removeEffectPackage(_effects, id, _removingEffectApplications, [&](const EffectInstance &value) {
             poolMaximum.reset();
-            const auto result = value.effect ? value.effect->onRemove(*this, value) : EffectRemovalResult::Removed;
-            if (result == EffectRemovalResult::Removed) {
-                if (auto *creature = dyn_cast<Creature>(this)) {
-                    creature->removeArmorClassEffect(value);
-                    poolMaximum = creature->abilityPoolMaximum(value);
-                }
+            if (value.effect) {
+                value.effect->onRemove(*this, value);
             }
-            changesVisibility |= result == EffectRemovalResult::Removed &&
-                (value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness);
-            return result; }, [&](const EffectInstance &value) {
+            if (auto *creature = dyn_cast<Creature>(this)) {
+                creature->removeArmorClassEffect(value);
+                poolMaximum = creature->abilityPoolMaximum(value);
+            }
+            changesVisibility |=
+                value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness; }, [&](const EffectInstance &value) {
             if (auto *creature = dyn_cast<Creature>(this)) {
                 creature->updateArmorClassEffectCursor();
                 if (poolMaximum) {
@@ -1694,16 +1685,15 @@ bool Object::removeEffectApplication(uint64_t order) {
     std::optional<int> poolMaximum;
     const bool removed = detail::removeEffectApplication(_effects, order, _removingEffectApplications, [&](const EffectInstance &value) {
             poolMaximum.reset();
-            const auto result = value.effect ? value.effect->onRemove(*this, value) : EffectRemovalResult::Removed;
-            if (result == EffectRemovalResult::Removed) {
-                if (auto *creature = dyn_cast<Creature>(this)) {
-                    creature->removeArmorClassEffect(value);
-                    poolMaximum = creature->abilityPoolMaximum(value);
-                }
+            if (value.effect) {
+                value.effect->onRemove(*this, value);
             }
-            changesVisibility |= result == EffectRemovalResult::Removed &&
-                (value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness);
-            return result; }, [&](const EffectInstance &value) {
+            if (auto *creature = dyn_cast<Creature>(this)) {
+                creature->removeArmorClassEffect(value);
+                poolMaximum = creature->abilityPoolMaximum(value);
+            }
+            changesVisibility |=
+                value.type() == EffectType::Invisibility || value.type() == EffectType::Blindness; }, [&](const EffectInstance &value) {
             if (auto *creature = dyn_cast<Creature>(this)) {
                 creature->updateArmorClassEffectCursor();
                 if (poolMaximum) {
@@ -1925,14 +1915,6 @@ void Object::clearAllEffects(bool retainOwn) {
 void Object::queueScriptEffectRemoval(ScriptEffectRemovalMatch match, const EffectInstance &value) {
     for (EffectId id : selectScriptEffectRemovals(_effects, match, value)) {
         _game.queueEffectRemoval(*this, id);
-    }
-}
-
-void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
-    auto at = std::find_if(_effects.begin(), _effects.end(),
-                           [&](const EffectInstance &record) { return record.effect == effect; });
-    if (at != _effects.end()) {
-        removeEffectApplication(at->applicationOrder);
     }
 }
 

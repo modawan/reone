@@ -22,6 +22,7 @@
 
 #include "reone/game/combat.h"
 #include "reone/game/combatfeedback.h"
+#include "reone/game/combattables.h"
 #include "reone/game/effect/abilitydecrease.h"
 #include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/attackdecrease.h"
@@ -43,8 +44,6 @@
 #include "reone/game/effect/visual.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
-#include "reone/game/twodautil.h"
-#include "reone/resource/2da.h"
 #include "reone/system/cast.h"
 
 namespace reone {
@@ -265,14 +264,13 @@ EffectApplicationResult CreatureStateEffect::onApply(Object &object, EffectInsta
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult CreatureStateEffect::onRemove(Object &object, const EffectInstance &instance) {
+void CreatureStateEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         // Losing any state makes the creature commandable again; a state that
         // remains takes that back when it is laid again.
         creature->setCommandable(true);
         creature->rebuildStateEffects(std::nullopt, instance.applicationOrder);
     }
-    return EffectRemovalResult::Removed;
 }
 
 CreatureStateInternalEffect::CreatureStateInternalEffect(CreatureState state) :
@@ -345,7 +343,7 @@ EffectApplicationResult CreatureStateInternalEffect::onApply(Object &object, Eff
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult CreatureStateInternalEffect::onRemove(Object &object, const EffectInstance &instance) {
+void CreatureStateInternalEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         const int state = instance.integerParameter(0);
         // The end-of-round script runs during a load too.
@@ -359,7 +357,6 @@ EffectRemovalResult CreatureStateInternalEffect::onRemove(Object &object, const 
             creature->perceiveAfresh();
         }
     }
-    return EffectRemovalResult::Removed;
 }
 
 CreatureAIStateEffect::CreatureAIStateEffect(int mask) :
@@ -382,14 +379,13 @@ EffectApplicationResult CreatureAIStateEffect::onApply(Object &object, EffectIns
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult CreatureAIStateEffect::onRemove(Object &object, const EffectInstance &instance) {
+void CreatureAIStateEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         // A creature whose AI has no action left gets none back.
         if (creature->effectAIStateMask() != 0) {
             creature->recomputeAIStateEffects(Creature::kAIStateUnrestricted, instance.applicationOrder);
         }
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectIconMarkerEffect::EffectIconMarkerEffect(int iconId) :
@@ -411,20 +407,18 @@ EffectApplicationResult EffectIconMarkerEffect::onApply(Object &object, EffectIn
     // Only an icon whose row gives its picture and priority is shown; TSL
     // also needs its side and name.
     const int row = instance.integerParameter(0);
-    const auto icons = getRequiredTwoDA(object.services().resource.twoDas, "effecticon");
-    if (icons->getString(row, "iconresref").empty() || !icons->getIntOpt(row, "priority") ||
-        (object.game().isTSL() && (!icons->getIntOpt(row, "good") || !icons->getIntOpt(row, "namestrref")))) {
+    const auto icon = object.services().game.combatTables.effectIcon(row);
+    if (!icon.hasIcon || !icon.priority || (object.game().isTSL() && (!icon.good || !icon.nameStrRef))) {
         return EffectApplicationResult::Rejected;
     }
     creature->addEffectIcon(row);
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult EffectIconMarkerEffect::onRemove(Object &object, const EffectInstance &instance) {
+void EffectIconMarkerEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->removeEffectIcon(instance.integerParameter(0));
     }
-    return EffectRemovalResult::Removed;
 }
 
 VisualEffectMarkerEffect::VisualEffectMarkerEffect(int visualEffectId) :
@@ -453,11 +447,10 @@ EffectApplicationResult LimitMovementSpeedEffect::onApply(Object &object, Effect
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult LimitMovementSpeedEffect::onRemove(Object &object, const EffectInstance &instance) {
+void LimitMovementSpeedEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->setRunLimited(hasMovementLimitSurvivor(object.effects(), instance.applicationOrder));
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectInstance WalkAnimationEffect::saveFacingInstance() const {
@@ -631,14 +624,13 @@ EffectApplicationResult KnockdownEffect::onApply(Object &object, EffectInstance 
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult KnockdownEffect::onRemove(Object &object, const EffectInstance &) {
+void KnockdownEffect::onRemove(Object &object, const EffectInstance &) {
     // A creature that is still alive stands ready and takes commands again.
     if (auto *creature = dyn_cast<Creature>(&object);
         creature && !creature->isDead() && !creature->isTemporarilyDead()) {
         creature->setCommandable(true);
         creature->showPauseReadyAnimation(false);
     }
-    return EffectRemovalResult::Removed;
 }
 
 BlindEffect::BlindEffect() :
@@ -683,11 +675,10 @@ EffectApplicationResult BlindEffect::onApply(Object &object, EffectInstance &ins
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult BlindEffect::onRemove(Object &object, const EffectInstance &instance) {
+void BlindEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->restoreBlindnessCounter(instance.integerParameter(0), instance.applicationOrder);
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult EntangleEffect::onApply(Object &object, EffectInstance &instance) {
@@ -719,19 +710,14 @@ EffectApplicationResult EntangleEffect::onApply(Object &object, EffectInstance &
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult EntangleEffect::onRemove(Object &object, const EffectInstance &) {
+void EntangleEffect::onRemove(Object &object, const EffectInstance &) {
     if (auto *creature = dyn_cast<Creature>(&object); creature && !creature->isPC()) {
         creature->perceiveAfresh();
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult InvisibilityEffect::onApply(Object &object, EffectInstance &) {
     return EffectApplicationResult::Retained;
-}
-
-EffectRemovalResult InvisibilityEffect::onRemove(Object &, const EffectInstance &) {
-    return EffectRemovalResult::Removed;
 }
 
 ParalyzeEffect::ParalyzeEffect(bool bypassPackageInspection) :
@@ -856,11 +842,10 @@ EffectApplicationResult TrueSeeingEffect::onApply(Object &object, EffectInstance
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult TrueSeeingEffect::onRemove(Object &object, const EffectInstance &instance) {
+void TrueSeeingEffect::onRemove(Object &object, const EffectInstance &instance) {
     // Removing True Seeing while another remains clears True Seeing and gives
     // Ultravision.
     removeVisibilityCounter(object, instance, EffectType::TrueSeeing, Creature::kTrueSeeingCounter, true);
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult SeeInvisibleEffect::onApply(Object &object, EffectInstance &) {
@@ -870,9 +855,8 @@ EffectApplicationResult SeeInvisibleEffect::onApply(Object &object, EffectInstan
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult SeeInvisibleEffect::onRemove(Object &object, const EffectInstance &instance) {
+void SeeInvisibleEffect::onRemove(Object &object, const EffectInstance &instance) {
     removeVisibilityCounter(object, instance, EffectType::SeeInvisible, Creature::kSeeInvisibleCounter);
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult UltravisionEffect::onApply(Object &object, EffectInstance &instance) {
@@ -886,9 +870,8 @@ EffectApplicationResult UltravisionEffect::onApply(Object &object, EffectInstanc
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult UltravisionEffect::onRemove(Object &object, const EffectInstance &instance) {
+void UltravisionEffect::onRemove(Object &object, const EffectInstance &instance) {
     removeVisibilityCounter(object, instance, EffectType::Ultravision, Creature::kUltravisionCounter);
-    return EffectRemovalResult::Removed;
 }
 
 EffectInstance VisionEffect::saveFacingInstance() const {

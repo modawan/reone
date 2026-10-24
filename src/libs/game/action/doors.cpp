@@ -26,7 +26,6 @@
 #include "reone/game/action/lockobject.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
-#include "reone/game/action/openlock.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/action/wait.h"
@@ -396,20 +395,6 @@ std::optional<SavedActionRecord> UnlockObjectAction::saveFacingState() const {
                                                                      {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(kSavedRuntimeInvalidObjectId)},
                                                                      {kSavedIntegerParameter, int32_t {0}},
                                                                  });
-}
-
-void OpenLockAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    if (_target->type() == ObjectType::Door) {
-        if (!workAtLock(*this, *_target, actor, _working, dt)) {
-            return;
-        }
-        unlockDoor(static_cast<Door &>(*_target), actor);
-        complete();
-        return;
-    }
-
-    warn("ActionExecutor: unsupported OpenLockAction target");
-    complete();
 }
 
 // A door saber's work is the burn-door clip of the wielder's sword class on a

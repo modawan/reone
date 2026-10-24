@@ -27,6 +27,8 @@
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/format.hpp>
 
+#include "reone/game/d20/feat.h"
+#include "reone/game/d20/feats.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/item.h"
@@ -103,7 +105,8 @@ constexpr int kCrystalItemType = 46;
 constexpr int kDroidPlatingItemType = 15;
 // TSL gauntlets list damage like a weapon.
 constexpr int kGauntletsBaseItem = 45;
-// Items that only Bao-Dur may use.
+// Items whose description names Bao-Dur among the party member requirements.
+// Bao-Dur also cannot equip base item 100, which is not on this list.
 constexpr int kBaoDurItems[] {35, 36, 37, 97, 98, 99, 102};
 constexpr int kBaoDurNpc = 1;
 
@@ -356,9 +359,11 @@ private:
         }
     }
 
-    // A feat name's colon reads " - ".
-    std::string featName(int feat) const {
-        std::string name(gui(requiredTable("feat")->getInt(feat, "name", -1)));
+    // A feat name's colon reads " - ". A feat.2da row without a name is no
+    // feat and names nothing.
+    std::string featName(FeatType type) const {
+        const auto feat = _services.game.feats.get(type);
+        std::string name(feat ? gui(feat->nameStrRef) : std::string());
         const size_t colon = name.find(':');
         if (colon != std::string::npos) {
             name = name.substr(0, colon) + " - " + name.substr(colon + 1);
@@ -383,7 +388,7 @@ private:
             }
         }
         bool listed = false;
-        const auto listFeat = [this, &listed](int feat) {
+        const auto listFeat = [this, &listed](FeatType feat) {
             if (!listed) {
                 _text += gui(kFeatRequirementsStrRef) + ":\n";
                 listed = true;
@@ -397,11 +402,11 @@ private:
             if (isArmourProficiency(feat) && feat != armour) {
                 continue;
             }
-            listFeat(static_cast<int>(feat));
+            listFeat(feat);
         }
         for (const auto *property : _active) {
             if (type(*property) == static_cast<int>(ItemProperty::UseLimitationFeat) && property->subtype != 0) {
-                listFeat(property->subtype);
+                listFeat(static_cast<FeatType>(property->subtype));
             }
         }
         if (listed) {
@@ -454,7 +459,7 @@ private:
         }
     }
 
-    // Once Bao-Dur has joined, the items only he may use say so.
+    // Once Bao-Dur has joined, the listed items name him.
     void addPartyMemberRequirements() {
         if (!_game.party().influence(kBaoDurNpc)) {
             return;
@@ -618,8 +623,7 @@ private:
     }
 
     void addRange() {
-        auto baseItems = requiredTable("baseitems");
-        if (baseItems->getInt(_item.baseItemType(), "rangedweapon", 0) == 0) {
+        if (!_item.isRanged()) {
             return;
         }
         _text += str(boost::format("%s: %dm\n") % gui(kRangeStrRef) % static_cast<int>(_item.attackRange())) + "\n";

@@ -30,12 +30,8 @@ public:
         std::shared_ptr<Object> target1,
         std::shared_ptr<Object> target2,
         std::shared_ptr<Object> target3,
-        int advancedDamage) :
-        CopyableEffect(EffectType::LightsaberThrow),
-        _target1(target1),
-        _target2(target2),
-        _target3(target3),
-        _advancedDamage(advancedDamage) {
+        int) :
+        CopyableEffect(EffectType::LightsaberThrow) {
         // The fourth argument is accepted but not stored. The three object slots
         // form the complete saved payload.
         setSaveFacingObject(0, target1);
@@ -44,22 +40,7 @@ public:
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
-    void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) override {
-        for (auto *target : {&_target1, &_target2, &_target3}) {
-            auto object = target->resolve();
-            if (!object || retainedObjects.count(object.get()) == 0) {
-                target->reset();
-            }
-        }
-    }
-
-private:
-    RuntimeObjectRef<Object> _target1;
-    RuntimeObjectRef<Object> _target2;
-    RuntimeObjectRef<Object> _target3;
-    int _advancedDamage;
+    void onRemove(Object &object, const EffectInstance &) override;
 };
 
 } // namespace game

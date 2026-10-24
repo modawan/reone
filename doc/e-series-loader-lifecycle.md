@@ -113,7 +113,7 @@ A disk save session and a saved module world are independent facts. `GIT.UseTemp
 - `UseTemplates == 0` identifies an authoritative persisted module graph and therefore a `ModuleGraph` context;
 - a template GIT identifies a fresh installed world even when the surrounding operation restores a disk save session.
 
-The latter is the normal retail transition-autosave topology when the save contains save-wide state but no archived current-module graph. Restoring the session never promotes template-local numbers into saved module identities.
+The latter is the game's normal transition-autosave topology when the save contains save-wide state but no archived current-module graph. Restoring the session never promotes template-local numbers into saved module identities.
 
 ### 4.1 Saved graph rules
 
@@ -134,7 +134,7 @@ Detached records may contain real effects/actions. Their parse context remains d
 
 ### 4.2 World clock and timed state
 
-Reone's canonical runtime clock is absolute simulation milliseconds. Retail saved module state decomposes it into `Mod_PauseDay` and `Mod_PauseTime`; `Mod_MinPerHour` defines the resulting world-day length and does not accelerate elapsed simulation time. Snapshot output writes this pair and normalizes `Mod_PauseTime` below one world day.
+This project's canonical runtime clock is absolute simulation milliseconds. The game's saved module state decomposes it into `Mod_PauseDay` and `Mod_PauseTime`; `Mod_MinPerHour` defines the resulting world-day length and does not accelerate elapsed simulation time. Snapshot output writes this pair and normalizes `Mod_PauseTime` below one world day.
 
 Reading uses only `Mod_PauseDay` and `Mod_PauseTime`. Template-world transition autosaves instead seed the clock from `AUTOSAVEPARAMS.TIME_PAUSEDAY` and `TIME_PAUSETIME`. Saved events, delayed commands, and effect expiry use the reconstructed absolute clock, so their original due schedule survives restoration or supported ordinary-travel continuation.
 
@@ -170,7 +170,7 @@ Availability, binding, membership, and runtime existence are separate authoritie
 
 Party does not own every creature merely because it is bound to a slot. In particular, removing availability neither destroys an independently Area/GIT-owned creature nor implicitly finalizes a detached materialization. Destruction requires an explicit kill/finalization operation.
 
-Tag is an authored lookup/association value used by explicit retail-compatible routines where their contract calls for it. It is not generic roster identity. Therefore all of these may legally coexist:
+Tag is an authored lookup/association value used by explicit game-compatible routines where their contract calls for it. It is not generic roster identity. Therefore all of these may legally coexist:
 
 - an available NPC record tagged `remote`;
 - an available K2 puppet record tagged `remote`;
@@ -208,9 +208,9 @@ The required source order is:
 OnExit -> snapshot durable state -> full Area retirement -> Module destruction
 ```
 
-For ordinary module travel, supported Party actions and timed commands continue through serialization and reconstruction rather than by retaining outgoing live action objects. Reone captures their save-facing forms while the source graph is authoritative, binds reference-bearing values to exact runtime incarnations, retires the live execution objects with the source Area, and republishes the supported continuation after destination publication. Outgoing-Area-only targets fail closed and cannot capture a destination object through numeric equality. Timed commands retain their original absolute world-time schedule and are not appended twice on repeated travel.
+For ordinary module travel, supported Party actions and timed commands continue through serialization and reconstruction rather than by retaining outgoing live action objects. This project captures their save-facing forms while the source graph is authoritative, binds reference-bearing values to exact runtime incarnations, retires the live execution objects with the source Area, and republishes the supported continuation after destination publication. Outgoing-Area-only targets fail closed and cannot capture a destination object through numeric equality. Timed commands retain their original absolute world-time schedule and are not appended twice on repeated travel.
 
-Full disk restoration follows the independently recovered retail `CreateParty` policy: detached NPC/PUP action queues are cleared when those representations are respawned, while saved module/player runtime state follows the saved-world restoration rules. Same-Area control transfer crosses no serialization or reconstruction boundary.
+Full disk restoration follows the game's independently recovered `CreateParty` policy: detached NPC/PUP action queues are cleared when those representations are respawned, while saved module/player runtime state follows the saved-world restoration rules. Same-Area control transfer crosses no serialization or reconstruction boundary.
 
 ### 6.2 Same-Area reposition or control transfer
 
@@ -372,7 +372,7 @@ exact SaveSlotDescriptor selected by discovery
     -> COMMIT: reset/retire old runtime session
     -> commitGameLoad: publish exact save session
     -> commitModuleLoad: publish destination module resources
-    -> restore reputation, globals, custom tokens, saved namespace and retail clock
+    -> restore reputation, globals, custom tokens, saved namespace and the game's clock
     -> restore Party, PC/controlled representation, and inventory
     -> stage/publish Module slot 0 and the Area/GIT/nested runtime graph
     -> bind saved references and publish query/mechanically visible effects/actions/events
@@ -385,7 +385,7 @@ The exact `SaveSlotDescriptor` is retained from enumeration through preparation 
 
 ### 11.3 Template-world disk autosave
 
-Retail transition autosaves may have a complete save session but no archived current-module graph. That is a distinct, valid topology:
+The game's transition autosaves may have a complete save session but no archived current-module graph. That is a distinct, valid topology:
 
 ```text
 prepare unpublished save session and installed destination resources
@@ -404,7 +404,7 @@ prepare unpublished save session and installed destination resources
     -> start music and publish Screen::InGame
 ```
 
-`*` denotes no explicit start waypoint. Template object numbers never enter saved-ID reservation or binding. The canonical PC remains distinct when `pifo.ifo` represents a controlled companion, and the saved authored companion Tag is preserved. Full disk `CreateParty` semantics clear detached follower NPC/PUP action queues where retail respawns those representations; this is intentionally different from ordinary module-travel continuation.
+`*` denotes no explicit start waypoint. Template object numbers never enter saved-ID reservation or binding. The canonical PC remains distinct when `pifo.ifo` represents a controlled companion, and the saved authored companion Tag is preserved. Full disk `CreateParty` semantics clear detached follower NPC/PUP action queues where the game respawns those representations; this is intentionally different from ordinary module-travel continuation.
 
 ### 11.4 Same-Area control transfer
 
@@ -563,7 +563,7 @@ Save/load imposes explicit identity and lifetime contracts on runtime systems, b
 
 The final restoration and hardening work added no lifecycle domain, second registry, shadow Party, parallel scene, or rollback journal, and did not enlarge C5 into a whole-world transaction. Template-autosave metadata handling and detached Party action policy are necessarily KOTOR-facing loader policy, but they remain at the save/module boundary. Generic runtime code does not need to know that a session came from a save. Moving shared-inventory disposition out of `Creature` and into action/UI policy reduced an actual KOTOR-policy leak.
 
-The architecture is modestly larger than pre-E Reone because previously implicit identities and ownership edges are now enforceable. It cannot be materially simplified without collapsing demonstrated independent lifetimes—for example equating save restoration with a saved world, Party availability with object existence, or registry storage with liveness. Normal forward play still follows resource preparation, object construction/publication, Area residency, and authored entry without invoking save-specific reconstruction.
+The architecture is modestly larger than this project before the E series because previously implicit identities and ownership edges are now enforceable. It cannot be materially simplified without collapsing demonstrated independent lifetimes—for example equating save restoration with a saved world, Party availability with object existence, or registry storage with liveness. Normal forward play still follows resource preparation, object construction/publication, Area residency, and authored entry without invoking save-specific reconstruction.
 
 ## 18. Relationship to the original E design
 
@@ -588,8 +588,8 @@ The architecture is modestly larger than pre-E Reone because previously implicit
 ### Corrected or refined
 
 - Preflight now extends beyond opening `SAVEGAME.sav` to core destination module structure before old-session retirement.
-- A saved session and an authoritative saved module world are independent; retail template-world autosaves restore save-wide state without inventing a `ModuleGraph`.
-- Retail world time is restored and written through `Mod_PauseDay`/`Mod_PauseTime`, with autosave time coming from `AUTOSAVEPARAMS`.
+- A saved session and an authoritative saved module world are independent; the game's template-world autosaves restore save-wide state without inventing a `ModuleGraph`.
+- The game's world time is restored and written through `Mod_PauseDay`/`Mod_PauseTime`, with autosave time coming from `AUTOSAVEPARAMS`.
 - Saved mechanically/query-visible runtime state is bound and published before destination entry hooks.
 - Source working-state mutation is adopted after destination resource publication rather than merely when a snapshot was produced.
 - Full Area retirement is not used for same-Area control switching.
@@ -616,7 +616,7 @@ E must not absorb those backend-migration tasks.
 The following are intentionally separate from E correctness:
 
 - Area-runtime retirement still enumerates mixed Creature fields. A later incremental `GameObject` durable/runtime/component split can turn that procedural boundary into a smaller owned component without changing E's lifetime law.
-- Retail writer parity for `Mod_NextCharId` remains future compatibility work.
+- Parity with the game's writer for `Mod_NextCharId` remains future compatibility work.
 - Some weather and transition-related saved GIT fields remain unmodelled.
 - Adding a new first-class GIT object type still requires explicit parser/factory/loader registration; metadata-driven registration may reduce that central enumeration later.
 - `TemporaryDiscovery` safely restores the current synchronous shared resource view, but true concurrent/background loading requires isolation or synchronization.
@@ -635,11 +635,11 @@ current layout and no development-version selectors or alternate-label readers.
 
 Object spell-query state is stored in `SpellContext`. A released spell event
 can contain `CastContext` with explicitly captured caster level, metamagic and
-facing. Original-game spell payloads have no such record. Loading or
+facing. Spell payloads saved by the game have no such record. Loading or
 re-exporting them does not fabricate one. A present but incomplete capture
 remains unsupported rather than being repaired as an uncaptured event.
 
-Original-game impact delivery updates the event-owned spell, target, position
+The game's impact delivery updates the event-owned spell, target, position
 and cost. It does not infer a previous casting action, level or metamagic byte.
 Current casting-state and query-provider integration remains a separate
 equivalence boundary, especially item-on-hit caster overrides and class/trap

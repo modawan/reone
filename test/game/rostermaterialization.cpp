@@ -1209,6 +1209,15 @@ TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
 
 TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_rematerialization) {
     RosterHarness harness;
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(testEngine().resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     EXPECT_CALL(testEngine().resourceModule().twoDas(), get("racialtypes"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
@@ -1216,6 +1225,7 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
                 .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                 .row({"0", "0", "0", "0", "0", "0"})
                 .build())));
+    testEngine().initCombatTables();
     NiceMock<MockStrings> strings;
     NiceMock<MockTwoDAs> twoDas;
     Classes classes(strings, twoDas);

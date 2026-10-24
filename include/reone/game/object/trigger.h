@@ -205,8 +205,6 @@ private:
     // END Serializable
 
     bool _isTrap {false};
-    /** The reach of a trap around its position, read when the trigger becomes a trap. */
-    float _trapRadius {0.0f};
     SavedObjectReference _creator;
     std::shared_ptr<scene::ModelSceneNode> _trapModel;
     bool _trapShown {false};
@@ -225,8 +223,8 @@ private:
     void loadTrapModel();
     void updateTrapPresentation();
     void setTrapCreator(const std::shared_ptr<Object> &creator);
-    /** Reads the reach of a trap around its position from ranges.2da. */
-    void loadTrapRadius();
+    /** The reach of a trap around its position: ranges.2da's trap row, or a metre without one. */
+    float trapRadius() const;
 
     void syncDebugVisual();
 };

@@ -18,6 +18,7 @@
 #include "reone/game/object/trigger.h"
 
 #include "reone/game/animations.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/messagelog.h"
@@ -100,9 +101,6 @@ void Trigger::deserialize(
         }
     }
     deserializeAll(gff, identityContext);
-    if (_isTrap) {
-        loadTrapRadius();
-    }
     loadAppearance();
     updateTransform();
 }
@@ -147,11 +145,11 @@ void Trigger::deserializeAll(
     gff.readEnum(_faction, "Faction");
     gff.readString(_keyName, "KeyName");
     // The detect and disarm DCs come from traps.2da, not from the record.
-    _trap.loadTypeDCs(_services.resource.twoDas);
+    _trap.loadTypeDCs(_game);
     // An empty or "default" trap script means the trap type's own script.
     static const std::string kDefaultTrapScript {"default"};
     if (_trap.triggeredScript().empty() || _trap.triggeredScript() == kDefaultTrapScript) {
-        _trap.setTriggeredScript(Trap::typeRow(_services.resource.twoDas, _trap.type()).script);
+        _trap.setTriggeredScript(_game.trapType(_trap.type()).script);
     }
     uint32_t creatorId = 0;
     if (gff.readDword(creatorId, "CreatorId")) {
@@ -199,7 +197,6 @@ void Trigger::deserializeAll(
 
     // Not handled:
     // - OnClick
-    // - CreatorId (IDs are not deserialized)
     // - Cursor
     // - PortraitId
     // - VarTable
@@ -222,7 +219,7 @@ void Trigger::loadTrapModel() {
         return;
     }
     // Every trap type names its model.
-    const std::string modelName = Trap::typeRow(_services.resource.twoDas, _trap.type()).model;
+    const std::string &modelName = _game.trapType(_trap.type()).model;
     auto model = _services.resource.models.get(modelName);
     if (!model) {
         throw ResourceNotFoundException("Trap model not found: " + modelName);
@@ -244,7 +241,7 @@ glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
         if (glm::dot(offset, offset) <= 1e-4f) {
             return from;
         }
-        return _position + glm::normalize(offset) * _trapRadius;
+        return _position + glm::normalize(offset) * trapRadius();
     }
     // Nearest point on the outline, edge by edge in vertex order.
     glm::vec3 nearest {0.0f};
@@ -307,12 +304,11 @@ void Trigger::initMine(
     int ownerDemolitionsSkill) {
     setTrapCreator(creator);
     _isTrap = true;
-    loadTrapRadius();
     // Saved as a trap trigger, so a reload keeps the mine.
     _triggerType = kTrapType;
-    _trap.setUpMine(_services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill);
+    _trap.setUpMine(_game, trapType, detectDC, disarmDC, ownerDemolitionsSkill);
     _faction = faction;
-    if (auto nameStrRef = Trap::typeRow(_services.resource.twoDas, trapType).nameStrRef) {
+    if (auto nameStrRef = _game.trapType(trapType).nameStrRef) {
         _locName = LocString(*nameStrRef, "", _services.resource.strings);
         _name = _locName.str();
     }
@@ -515,14 +511,16 @@ void Trigger::removeTenant(const Object *object) {
 bool Trigger::isIn(const glm::vec3 &point) const {
     if (_isTrap) {
         const glm::vec3 offset {point - _position};
-        return glm::dot(offset, offset) <= _trapRadius * _trapRadius;
+        const float radius = trapRadius();
+        return glm::dot(offset, offset) <= radius * radius;
     }
     auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
     return sceneNode && sceneNode->isIn(glm::vec2(point));
 }
 
-void Trigger::loadTrapRadius() {
-    _trapRadius = getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kTrapRadiusRange, "primaryrange", kDefaultTrapRadius);
+float Trigger::trapRadius() const {
+    const auto row = _services.game.spells.findRange(kTrapRadiusRange);
+    return row && row->get().primary ? *row->get().primary : kDefaultTrapRadius;
 }
 
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {

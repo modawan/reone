@@ -55,9 +55,6 @@
 #include "reone/game/shaperules.h"
 #include "reone/game/visualeffects.h"
 #include "reone/graphics/animation.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/di/services.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/graph.h"
 #include "reone/system/arrayref.h"
@@ -379,7 +376,7 @@ static void computeWeaponDamage(
     breakdown.preciseShotDamage = multiplier * physicalBonus.preciseShotDamage;
     breakdown.formDamage = multiplier * physicalBonus.formDamage;
     breakdown.otherSpecialBonus =
-        multiplier * (damageBonus + physicalBonus.furyDamage + physicalBonus.combatModeDamage) +
+        multiplier * (damageBonus + physicalBonus.furyDamage) +
         massiveCriticalDamage;
     breakdown.criticalMultiplier = criticalConfirmed
                                        ? criticalMultiplier
@@ -457,7 +454,7 @@ static void computeUnarmedDamage(
     breakdown.preciseShotDamage = multiplier * physicalBonus.preciseShotDamage;
     breakdown.formDamage = multiplier * physicalBonus.formDamage;
     breakdown.otherSpecialBonus =
-        multiplier * (damageBonus + physicalBonus.furyDamage + physicalBonus.combatModeDamage) +
+        multiplier * (damageBonus + physicalBonus.furyDamage) +
         massiveCriticalDamage;
     breakdown.criticalMultiplier = criticalConfirmed
                                        ? criticalMultiplier
@@ -3981,36 +3978,19 @@ void presentPhysicalAttack(
                        swing.engagedPlaceholder, swing.ranged, animations);
 }
 
-} // namespace game
-
-} // namespace reone
-
-namespace reone {
-namespace game {
-
-static int getDamageSlot(DamageType type) {
-    int damageFlags = static_cast<int>(type);
-    if (damageFlags <= 0) {
-        throw std::invalid_argument("Damage breakdown type must be positive");
-    }
-
-    int slot = 0;
-    while (damageFlags > 1) {
-        damageFlags >>= 1;
-        ++slot;
-    }
-    if (slot >= 14) {
-        throw std::invalid_argument("Damage breakdown type is out of range");
-    }
-    return slot;
-}
-
 DamageBreakdown::DamageBreakdown() {
     rawDamageSlots.fill(-1);
 }
 
 void DamageBreakdown::addRawDamage(int amount, DamageType type) {
-    int slot = getDamageSlot(type);
+    const int damageFlags = static_cast<int>(type);
+    if (damageFlags <= 0) {
+        throw std::invalid_argument("Damage breakdown type must be positive");
+    }
+    const auto slot = getDirectDamageSlot(damageFlags);
+    if (slot >= 14) {
+        throw std::invalid_argument("Damage breakdown type is out of range");
+    }
     int &current = rawDamageSlots[slot];
     int result;
     if (current > 0) {
@@ -4047,4 +4027,5 @@ bool isAttackSuccessful(AttackResultType result) {
 }
 
 } // namespace game
+
 } // namespace reone

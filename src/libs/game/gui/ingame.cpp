@@ -131,14 +131,17 @@ void InGameMenu::closeEquipment() {
         _equip->endSession();
     }
     _equipmentOpen = false;
-    _inventoryCharacter = -1;
+}
+
+int InGameMenu::inventoryCharacter() const {
+    return _equipmentOpen ? _equip->browsedRosterIndex() : -1;
 }
 
 std::shared_ptr<Creature> InGameMenu::equipmentCharacter() const {
     if (!_equipmentOpen || !_equip->browsingRoster()) {
         return _game.party().getLeader();
     }
-    return _inventoryCharacter == -1 ? _game.party().player() : _game.party().getAvailableMember(_inventoryCharacter);
+    return _equip->browsedCharacter();
 }
 
 void InGameMenu::openEquipment() {
@@ -185,8 +188,10 @@ void InGameMenu::openAbilities() {
 
 void InGameMenu::openPartySelection() {
     closeEquipment();
-    _partySelect->prepare(PartySelectionContext());
+    // The tab being left lets go of what it showed before the party screen
+    // brings its companions into being.
     _host->changeTab(InGameMenuTab::Party);
+    _partySelect->prepare(PartySelectionContext());
 }
 
 void InGameMenu::openMessages() {

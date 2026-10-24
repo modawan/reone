@@ -511,7 +511,7 @@ void Equipment::activateSlot(Slot slot) {
 }
 
 void Equipment::updateEquipment() {
-    _view = _backing ? _backing->readEquipment(_activeSlot == Slot::None ? -1 : getInventorySlot(_activeSlot)) : EquipmentView {};
+    _view = _backing ? _backing->readEquipmentOverview() : EquipmentView {};
     for (auto &[slot, label] : _lblInv) {
         auto equipped = _view.equipment.find(getInventorySlot(slot));
         label->setBorderFill(equipped == _view.equipment.end() ? getEmptySlotIcon(slot) : equipped->second);

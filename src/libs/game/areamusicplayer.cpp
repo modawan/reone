@@ -52,34 +52,49 @@ static constexpr uint32_t kAmbientFadeMilliseconds = 6000;
 static constexpr int kAreaWideAmbientPriorityGroup = 4;
 static constexpr int kMaxAmbientVolume = 127;
 
-AreaMusicPlayer::Track AreaMusicPlayer::readTrack(int row) const {
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "ambientmusic");
-    Track track;
-    track.resRef = boost::to_lower_copy(table->getString(row, "resource"));
-    for (size_t i = 0; i < track.stingers.size(); ++i) {
-        track.stingers[i] = boost::to_lower_copy(table->getString(row, "stinger" + std::to_string(i + 1)));
+// The area-wide ambient loop plays at the volume of its priority group.
+void AreaMusicPlayer::init() {
+    auto &twoDas = _services.resource.twoDas;
+
+    auto music = getRequiredTwoDA(twoDas, "ambientmusic");
+    _tracks.clear();
+    for (int row = 0; row < music->getRowCount(); ++row) {
+        Track entry;
+        entry.resRef = boost::to_lower_copy(music->getString(row, "resource"));
+        for (size_t i = 0; i < entry.stingers.size(); ++i) {
+            entry.stingers[i] = boost::to_lower_copy(music->getString(row, "stinger" + std::to_string(i + 1)));
+        }
+        _tracks.push_back(std::move(entry));
     }
-    return track;
+
+    auto sounds = getRequiredTwoDA(twoDas, "ambientsound");
+    _ambientTracks.clear();
+    for (int row = 0; row < sounds->getRowCount(); ++row) {
+        _ambientTracks.push_back(boost::to_lower_copy(sounds->getString(row, "resource")));
+    }
+
+    auto groups = getRequiredTwoDA(twoDas, "prioritygroups");
+    _ambientGroupGain = groups->getInt(kAreaWideAmbientPriorityGroup, "volume") / static_cast<float>(kMaxAmbientVolume);
 }
 
-AreaMusicPlayer::Track AreaMusicPlayer::battleTrack() const {
-    return readTrack(_area->ambientAudio().musicBattle);
+// A row outside a table reads as blank, as every 2DA row outside its table does.
+const AreaMusicPlayer::Track &AreaMusicPlayer::track(int row) const {
+    static const Track kNoTrack;
+    return row >= 0 && row < static_cast<int>(_tracks.size()) ? _tracks[row] : kNoTrack;
 }
 
-std::string AreaMusicPlayer::readAmbientTrack(int row) const {
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "ambientsound");
-    return boost::to_lower_copy(table->getString(row, "resource"));
+const AreaMusicPlayer::Track &AreaMusicPlayer::battleTrack() const {
+    return track(_area->ambientAudio().musicBattle);
+}
+
+const std::string &AreaMusicPlayer::ambientTrack(int row) const {
+    static const std::string kNoSound;
+    return row >= 0 && row < static_cast<int>(_ambientTracks.size()) ? _ambientTracks[row] : kNoSound;
 }
 
 float AreaMusicPlayer::ambientVolumeScale() const {
     const int volume = _area->ambientAudio().ambientSoundDayVolume;
     return std::min(volume, kMaxAmbientVolume) / static_cast<float>(kMaxAmbientVolume);
-}
-
-// The area-wide ambient loop plays at the volume of its priority group.
-float AreaMusicPlayer::ambientGroupGain() const {
-    auto groups = getRequiredTwoDA(_services.resource.twoDas, "prioritygroups");
-    return groups->getInt(kAreaWideAmbientPriorityGroup, "volume") / static_cast<float>(kMaxAmbientVolume);
 }
 
 // A fading track sounds until its fade ends.
@@ -194,7 +209,7 @@ void AreaMusicPlayer::switchMusic(bool play) {
     if (play) {
         if (!isMusicPlaying()) {
             _countdown = 0;
-            if (!playTrack(readTrack(_area->ambientAudio().musicDay).resRef)) {
+            if (!playTrack(track(_area->ambientAudio().musicDay).resRef)) {
                 _countdown = kMusicRetryMilliseconds;
             }
         }
@@ -255,8 +270,8 @@ void AreaMusicPlayer::switchAmbientSound(bool play) {
     }
     if (!isAmbientPlaying()) {
         _ambient = _services.audio.mixer.play(
-            _services.resource.audioClips.get(readAmbientTrack(_area->ambientAudio().ambientSoundDay)),
-            AudioType::Sound, ambientGroupGain(), true);
+            _services.resource.audioClips.get(ambientTrack(_area->ambientAudio().ambientSoundDay)),
+            AudioType::Sound, _ambientGroupGain, true);
         _ambientFadeEnd.reset();
         _ambientFailed = !_ambient;
         if (_ambient) {
@@ -268,7 +283,7 @@ void AreaMusicPlayer::switchAmbientSound(bool play) {
 
 // A track that was playing stops and the background music starts again.
 void AreaMusicPlayer::restartMusic(int previousTrack) {
-    if (isMusicPlaying() && _playingResRef == readTrack(previousTrack).resRef) {
+    if (isMusicPlaying() && _playingResRef == track(previousTrack).resRef) {
         switchMusic(false);
     }
     switchMusic(true);
@@ -304,7 +319,7 @@ void AreaMusicPlayer::battleMusicTrackChanged(const Area &area, int previousTrac
     if (!plays(area)) {
         return;
     }
-    const auto previous = readTrack(previousTrack);
+    const auto &previous = track(previousTrack);
     if (!isMusicPlaying() || _playingResRef != previous.resRef) {
         return;
     }

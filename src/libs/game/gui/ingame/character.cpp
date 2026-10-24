@@ -25,15 +25,12 @@
 #include "reone/game/gui/ingame.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
-#include "reone/game/twodautil.h"
 #include "reone/game/types.h"
 #include "reone/graphics/di/services.h"
 #include "reone/gui/guis.h"
 #include "reone/gui/sceneinitializer.h"
-#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
@@ -214,12 +211,12 @@ void CharacterMenu::loadScriptSelectPanel() {
     _scriptRows.clear();
     auto &list = *controls.LST_AIState;
     list.clearItems();
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "aiscripts");
-    for (int row = 0; row < table->getRowCount(); ++row) {
+    const auto &rows = _game.party().aiScripts();
+    for (int row = 0; row < static_cast<int>(rows.size()); ++row) {
         ScriptRow script;
-        script.style = static_cast<NPCAIStyle>(table->getInt(row, "AISTATE", 0));
-        script.nameStrRef = table->getInt(row, "NAME_STRREF", -1);
-        script.descriptionStrRef = table->getInt(row, "DESCRIPTION_STRREF", -1);
+        script.style = static_cast<NPCAIStyle>(rows[row].state);
+        script.nameStrRef = rows[row].nameStrRef;
+        script.descriptionStrRef = rows[row].descriptionStrRef;
         ListBox::Item item;
         item.tag = std::to_string(row);
         item.text = _services.resource.strings.getText(script.nameStrRef);

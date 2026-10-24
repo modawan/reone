@@ -356,13 +356,12 @@ EffectApplicationResult AreaOfEffectEffect::onApply(Object &object, EffectInstan
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult AreaOfEffectEffect::onRemove(Object &object, const EffectInstance &instance) {
+void AreaOfEffectEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (isa<Creature>(&object)) {
         if (auto areaOfEffect = instance.boundObjectParameter(0)) {
             object.game().postObjectDestruction(*areaOfEffect, std::nullopt, 0.0f, true);
         }
     }
-    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

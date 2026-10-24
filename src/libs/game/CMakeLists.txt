@@ -44,8 +44,6 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/movetopoint.h
     ${GAME_INCLUDE_DIR}/action/opencontainer.h
     ${GAME_INCLUDE_DIR}/action/opendoor.h
-    ${GAME_INCLUDE_DIR}/action/openlock.h
-    ${GAME_INCLUDE_DIR}/action/pauseconversation.h
     ${GAME_INCLUDE_DIR}/action/pickupitem.h
     ${GAME_INCLUDE_DIR}/action/playanimation.h
     ${GAME_INCLUDE_DIR}/action/putdownitem.h

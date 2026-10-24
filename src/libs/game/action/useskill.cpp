@@ -322,7 +322,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
     };
     auto recoverItem = [&]() {
         // A trap type with no kit recovers nothing.
-        const std::string resRef = Trap::typeRow(_services.resource.twoDas, trapType).kitResRef;
+        const std::string &resRef = _game.trapType(trapType).kitResRef;
         if (resRef.empty()) {
             return;
         }
@@ -448,7 +448,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
                                : 0;
     // A blank cell counts as 0. The DC, shifted by the difficulty in TSL, is
     // at least 1.
-    const auto row = Trap::typeRow(_services.resource.twoDas, trapType);
+    const auto &row = _game.trapType(trapType);
     int setDC = row.setDC.value_or(0);
     if (_game.isTSL()) {
         setDC += _game.trapDifficultyModifier();

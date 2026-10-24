@@ -1244,6 +1244,7 @@ TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publicat
                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                    .row({"0", "0", "0", "0", "0", "0"})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;

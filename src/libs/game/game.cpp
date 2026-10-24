@@ -606,6 +606,7 @@ void Game::init() {
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
     initConsole();
+    initTables();
     resetGalaxyMap();
     initLocalServices();
     setSceneSurfaces();
@@ -616,6 +617,87 @@ void Game::init() {
 
     playVideo("legal");
     openMainMenu();
+}
+
+// The number of strings a dialogue token may give, strref1 to strref4.
+static constexpr int kStringTokenStrRefCount = 4;
+
+void Game::initTables() {
+    auto &twoDas = _services.resource.twoDas;
+    const bool tsl = isTSL();
+
+    // TSL's table suffixes its colour columns with _pc.
+    auto effects = getRequiredTwoDA(twoDas, "videoeffects");
+    _videoEffects.clear();
+    for (int row = 0; row < effects->getRowCount(); ++row) {
+        VideoEffectRow effect;
+        effect.scanNoise = effects->getInt(row, "enablescannoise") != 0;
+        effect.saturation = effects->getInt(row, "enablesaturation") != 0;
+        effect.clairvoyance = effects->getInt(row, "enableclairvoyance") != 0 ||
+                              effects->getInt(row, "enableclairvoyancefull") != 0;
+        effect.forceSight = effects->getInt(row, "enableforcesight") != 0;
+        effect.fury = effects->getInt(row, "enablefury");
+        effect.modulation = glm::vec3(
+            effects->getFloat(row, tsl ? "modulationred_pc" : "modulationred"),
+            effects->getFloat(row, tsl ? "modulationgreen_pc" : "modulationgreen"),
+            effects->getFloat(row, tsl ? "modulationblue_pc" : "modulationblue"));
+        effect.saturationAmount = effects->getFloat(row, tsl ? "saturation_pc" : "saturation");
+        _videoEffects.push_back(effect);
+    }
+
+    auto tokens = getRequiredTwoDA(twoDas, "stringtokens");
+    _stringTokens.clear();
+    for (int row = 0; row < tokens->getRowCount(); ++row) {
+        StringTokenRow token;
+        for (int i = 0; i < kStringTokenStrRefCount; ++i) {
+            token.strRefs[i] = tokens->getInt(row, "strref" + std::to_string(i + 1), -1);
+        }
+        token.defaultStrRef = tokens->getInt(row, "default", -1);
+        token.action = tokens->getInt(row, "actioncode", -1);
+        _stringTokens.emplace(tokens->getString(row, "token"), token);
+    }
+
+    // Each game reads its own message columns, named in either case; the
+    // pages run while the table has a column for them.
+    auto tutorials = getRequiredTwoDA(twoDas, "tutorial");
+    const std::string messagePrefix = tsl ? "Message_PC" : "Message";
+    const auto iconColumn = findColumnIgnoringCase(*tutorials, "Icon").value_or("Icon");
+    std::vector<std::string> messageColumns;
+    for (int page = 0;; ++page) {
+        auto column = findColumnIgnoringCase(*tutorials, messagePrefix + std::to_string(page));
+        if (!column) {
+            break;
+        }
+        messageColumns.push_back(std::move(*column));
+    }
+    _tutorials.clear();
+    for (int row = 0; row < tutorials->getRowCount(); ++row) {
+        TutorialRow tutorial;
+        for (const auto &column : messageColumns) {
+            tutorial.messages.push_back(tutorials->getIntOpt(row, column));
+        }
+        tutorial.icon = tutorials->getString(row, iconColumn);
+        _tutorials.push_back(std::move(tutorial));
+    }
+
+    auto feedback = getRequiredTwoDA(twoDas, "feedbacktext");
+    _feedbackTexts.clear();
+    for (int row = 0; row < feedback->getRowCount(); ++row) {
+        _feedbackTexts.push_back(feedback->getIntOpt(row, "strref"));
+    }
+
+    _trapTypes = Trap::readTypes(twoDas);
+    _areaMusic.init();
+    _party.init();
+}
+
+std::optional<int> Game::feedbackTextStrRef(int row) const {
+    return row >= 0 && row < static_cast<int>(_feedbackTexts.size()) ? _feedbackTexts[row] : std::nullopt;
+}
+
+const TrapTypeRow &Game::trapType(int type) const {
+    static const TrapTypeRow kBlankType;
+    return type >= 0 && type < static_cast<int>(_trapTypes.size()) ? _trapTypes[type] : kBlankType;
 }
 
 void Game::initJournalNotifications() {
@@ -4131,47 +4213,37 @@ void Game::setSpeedBlurRatio(float ratio) {
 // The fury overlays fx_fury01 to fx_fury03, by fury level.
 static constexpr int kMaxFuryLevel = 3;
 
+// A row outside the table lays nothing.
 void Game::enableVideoEffect(int row) {
     disableVideoEffect();
-    if (row < 0) {
+    if (row < 0 || row >= static_cast<int>(_videoEffects.size())) {
         return;
     }
-    auto effects = getRequiredTwoDA(_services.resource.twoDas, "videoeffects");
-    // TSL's table suffixes its colour columns with _pc.
-    const bool tsl = isTSL();
+    const auto &video = _videoEffects[row];
     scene::VideoEffect effect;
-    const bool scanNoise = effects->getInt(row, "enablescannoise") != 0;
-    const bool saturation = effects->getInt(row, "enablesaturation") != 0;
-    // Both clairvoyance columns lay the same overlay. The fury level picks
-    // its texture and 0 is no fury.
-    const bool clairvoyance = effects->getInt(row, "enableclairvoyance") != 0 ||
-                              effects->getInt(row, "enableclairvoyancefull") != 0;
-    const bool forceSight = effects->getInt(row, "enableforcesight") != 0;
-    const int furyLevel = std::clamp(effects->getInt(row, "enablefury"), 0, kMaxFuryLevel);
+    // The fury level picks its texture and 0 is no fury.
+    const int furyLevel = std::clamp(video.fury, 0, kMaxFuryLevel);
     // A row enabling any of its parts is the current effect.
-    if (scanNoise || saturation || clairvoyance || forceSight || effects->getInt(row, "enablefury") != 0) {
+    if (video.scanNoise || video.saturation || video.clairvoyance || video.forceSight || video.fury != 0) {
         _videoEffectType = row;
     }
-    if (scanNoise) {
+    if (video.scanNoise) {
         effect.scanNoise = _services.resource.textures.get("filmnoisetex", TextureUsage::MainTex);
     }
-    effect.forceSight = forceSight;
-    if (clairvoyance || furyLevel > 0) {
+    effect.forceSight = video.forceSight;
+    if (video.clairvoyance || furyLevel > 0) {
         effect.distortion = _services.resource.textures.get("distortiontex", TextureUsage::MainTex);
     }
-    if (clairvoyance) {
+    if (video.clairvoyance) {
         effect.clairvoyance = _services.resource.textures.get("fx_clair01", TextureUsage::MainTex);
     }
     if (furyLevel > 0) {
         effect.fury = _services.resource.textures.get("fx_fury0" + std::to_string(furyLevel), TextureUsage::MainTex);
     }
-    if (saturation) {
+    if (video.saturation) {
         effect.saturation = true;
-        effect.modulation = glm::vec3(
-            effects->getFloat(row, tsl ? "modulationred_pc" : "modulationred"),
-            effects->getFloat(row, tsl ? "modulationgreen_pc" : "modulationgreen"),
-            effects->getFloat(row, tsl ? "modulationblue_pc" : "modulationblue"));
-        effect.saturationAmount = effects->getFloat(row, tsl ? "saturation_pc" : "saturation");
+        effect.modulation = video.modulation;
+        effect.saturationAmount = video.saturationAmount;
     }
     if (!effect.scanNoise && !effect.saturation && !effect.forceSight && !effect.clairvoyance && !effect.fury) {
         return;
@@ -4354,7 +4426,7 @@ void Game::renderGUI() {
     if (_credits) {
         _credits->render();
     } else {
-        _pointer->render(_options.graphics, _relativeMouseMode);
+        _pointer->render(_options.graphics, relativeMouseMode());
     }
     renderDeveloperOverlay();
 }
@@ -5237,21 +5309,19 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
         return it != customTokens.end() ? it->second : kUnrecognizedToken;
     }
 
-    auto tokens = getRequiredTwoDA(_services.resource.twoDas, "stringtokens");
-    const int row = tokens->indexByCellValue("token", name);
-    if (row == -1) {
+    const auto found = _stringTokens.find(name);
+    if (found == _stringTokens.end()) {
         return kUnrecognizedToken;
     }
+    const auto &token = found->second;
     auto &strings = _services.resource.strings;
-    const auto strRef = [&](int index) {
-        return tokens->getInt(row, "strref" + std::to_string(index + 1), -1);
-    };
-    const int defaultValue = tokens->getInt(row, "default", -1);
+    const auto strRef = [&](int index) { return token.strRefs[index]; };
+    const int defaultValue = token.defaultStrRef;
     // Interface text is itself parsed, on the same hiding state.
     const auto guiText = [&](int textStrRef) {
         return parseTokens(strings.getText(textStrRef), customTokens, subject, hideActions, hidden);
     };
-    const auto action = static_cast<StringTokenAction>(tokens->getInt(row, "actioncode", -1));
+    const auto action = static_cast<StringTokenAction>(token.action);
     // TSL also asks for a subject before naming the player.
     const bool needsSubject = (action >= StringTokenAction::FullName && action <= StringTokenAction::AlignmentLower) ||
                               action == StringTokenAction::GoodEvil ||
@@ -5262,7 +5332,6 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
     } else {
         const std::string pcName = _party.playerCharacterName();
         const size_t space = pcName.find(' ');
-        const auto racialTypes = [&]() { return getRequiredTwoDA(_services.resource.twoDas, "racialtypes"); };
         switch (action) {
         case StringTokenAction::Deity:
             value = guiText(strRef(0));
@@ -5292,15 +5361,14 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
             }
             break;
         case StringTokenAction::Race:
-        case StringTokenAction::RaceLower:
-            value = strings.getText(racialTypes()->getInt(static_cast<int>(subject->get().racialType()),
-                                                          action == StringTokenAction::Race ? "convername"
-                                                                                            : "convernamelower",
-                                                          -1));
+        case StringTokenAction::RaceLower: {
+            const auto &names = subject->get().raceNames();
+            value = strings.getText(action == StringTokenAction::Race ? names.converName : names.converNameLower);
             break;
+        }
         case StringTokenAction::Subrace:
             // A creature without subrace text reads its race's name.
-            value = strings.getText(racialTypes()->getInt(static_cast<int>(subject->get().racialType()), "name", -1));
+            value = strings.getText(subject->get().raceNames().name);
             break;
         case StringTokenAction::Class:
         case StringTokenAction::ClassLower:
@@ -5316,8 +5384,7 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
             } else if (action == StringTokenAction::Class) {
                 value = firstClass->name();
             } else {
-                value = strings.getText(getRequiredTwoDA(_services.resource.twoDas, "classes")
-                                            ->getInt(static_cast<int>(firstClass->type()), "lower", -1));
+                value = strings.getText(firstClass->lowerNameStrRef());
             }
             break;
         }
@@ -5798,28 +5865,18 @@ static constexpr int kAttackTutorial = 34;
 static constexpr int kAttackMashTutorial = 35;
 static constexpr int kMenuCastRefusedStrRef = 1434;
 
-// tutorial.2da names its columns in either case.
-static std::string tutorialColumn(const TwoDA &table, const std::string &column) {
-    const auto &columns = table.columns();
-    const auto found = std::find_if(columns.begin(), columns.end(), [&column](const std::string &name) {
-        return boost::iequals(name, column);
-    });
-    return found != columns.end() ? *found : column;
-}
-
 // A page of a tutorial window: the string reference of its message, none
-// when the cell is blank.
-static std::optional<int> tutorialMessage(const TwoDA &table, int row, bool tsl, int page) {
-    return table.getIntOpt(row, tutorialColumn(table, (tsl ? "Message_PC" : "Message") + std::to_string(page)));
+// when the cell is blank or the window has no such page.
+static std::optional<int> tutorialMessage(const std::vector<std::optional<int>> &messages, int page) {
+    return page >= 0 && page < static_cast<int>(messages.size()) ? messages[page] : std::nullopt;
 }
 
 // A tutorial window exists when its row has a first page.
 bool Game::isTutorialWindowValid(int id) const {
-    if (id < 0 || id > kLastTutorial) {
+    if (id < 0 || id > kLastTutorial || id >= static_cast<int>(_tutorials.size())) {
         return false;
     }
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "tutorial");
-    return id < table->getRowCount() && tutorialMessage(*table, id, isTSL(), 0).has_value();
+    return tutorialMessage(_tutorials[id].messages, 0).has_value();
 }
 
 bool Game::requestTutorialWindow(int id, uint32_t actor, uint32_t subject, uint32_t param) {
@@ -5863,15 +5920,15 @@ void Game::commitTutorialWindow() {
 }
 
 bool Game::showTutorialPage() {
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "tutorial");
-    auto message = tutorialMessage(*table, _tutorial->id, isTSL(), _tutorialPage);
+    const auto &tutorial = _tutorials[_tutorial->id];
+    auto message = tutorialMessage(tutorial.messages, _tutorialPage);
     if (!message) {
         return false;
     }
-    const bool hasNext = tutorialMessage(*table, _tutorial->id, isTSL(), _tutorialPage + 1).has_value();
+    const bool hasNext = tutorialMessage(tutorial.messages, _tutorialPage + 1).has_value();
 
     std::shared_ptr<Texture> icon;
-    auto iconResRef = table->getString(_tutorial->id, tutorialColumn(*table, "Icon"));
+    const auto &iconResRef = tutorial.icon;
     if (!iconResRef.empty()) {
         // TSL leaves out controller button glyphs.
         static const std::array<const char *, 14> controllerGlyphs {
@@ -8437,12 +8494,6 @@ void Game::loadInGameMenus() {
 
 int Game::inventoryMenuCharacter() const {
     return _screen == Screen::InGameMenu && _inGame ? _inGame->inventoryCharacter() : -1;
-}
-
-void Game::setInventoryMenuCharacter(int npc) {
-    if (_inGame) {
-        _inGame->setInventoryCharacter(npc);
-    }
 }
 
 void Game::finishPostDialogCharacterSwitch() {

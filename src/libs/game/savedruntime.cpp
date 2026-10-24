@@ -914,14 +914,12 @@ SavedProjectile SavedProjectile::fromGff(const resource::Gff &g, const Serialize
     p.model = g.getString("Model");
     p.leg = g.getInt("Leg");
     p.released = g.getBool("Released");
-    p.initialized = g.getBool("Initialized");
     p.clockwise = g.getBool("Clockwise");
     p.elapsed = g.getFloat("Elapsed");
     p.position = g.getVector("Position");
     p.velocity = g.getVector("Velocity");
     p.orientation = g.getOrientation("Orientation");
     p.acceleration = g.getVector("Acceleration");
-    p.parryBlocked = g.getBool("ParryBlocked");
     p.activationDelay = g.getFloat("ActivationDelay");
     p.travelRate = g.getFloat("TravelRate");
     p.sourceHook = g.getString("SourceHook");
@@ -955,7 +953,7 @@ std::shared_ptr<resource::Gff> SavedProjectile::toGff() const {
         }
         entries.push_back(std::move(entry));
     }
-    return G::Builder().type(0).field(G::Field::newDword64("Id", id)).field(G::Field::newInt("Kind", static_cast<int>(kind))).field(G::Field::newDword("Caster", caster.id)).field(G::Field::newDword("Weapon", weapon.id)).field(G::Field::newInt("Spell", spellId)).field(G::Field::newInt("Path", path)).field(G::Field::newResRef("Model", model)).field(G::Field::newInt("Leg", leg)).field(G::Field::newByte("Released", released)).field(G::Field::newByte("Initialized", initialized)).field(G::Field::newByte("Clockwise", clockwise)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newVector("Position", position)).field(G::Field::newVector("Velocity", velocity)).field(G::Field::newVector("Acceleration", acceleration)).field(G::Field::newByte("ParryBlocked", parryBlocked)).field(G::Field::newFloat("ActivationDelay", activationDelay)).field(G::Field::newFloat("TravelRate", travelRate)).field(G::Field::newCExoString("SourceHook", sourceHook)).field(G::Field::newCExoString("TargetHook", targetHook)).field(G::Field::newInt("CombatResult", combatResult)).field(G::Field::newInt("SoundVariant", soundVariant)).field(G::Field::newInt("OrientMode", orientationMode)).field(G::Field::newOrientation("Orientation", orientation)).field(G::Field::newList("Legs", std::move(entries))).build();
+    return G::Builder().type(0).field(G::Field::newDword64("Id", id)).field(G::Field::newInt("Kind", static_cast<int>(kind))).field(G::Field::newDword("Caster", caster.id)).field(G::Field::newDword("Weapon", weapon.id)).field(G::Field::newInt("Spell", spellId)).field(G::Field::newInt("Path", path)).field(G::Field::newResRef("Model", model)).field(G::Field::newInt("Leg", leg)).field(G::Field::newByte("Released", released)).field(G::Field::newByte("Clockwise", clockwise)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newVector("Position", position)).field(G::Field::newVector("Velocity", velocity)).field(G::Field::newVector("Acceleration", acceleration)).field(G::Field::newFloat("ActivationDelay", activationDelay)).field(G::Field::newFloat("TravelRate", travelRate)).field(G::Field::newCExoString("SourceHook", sourceHook)).field(G::Field::newCExoString("TargetHook", targetHook)).field(G::Field::newInt("CombatResult", combatResult)).field(G::Field::newInt("SoundVariant", soundVariant)).field(G::Field::newInt("OrientMode", orientationMode)).field(G::Field::newOrientation("Orientation", orientation)).field(G::Field::newList("Legs", std::move(entries))).build();
 }
 bool SavedProjectile::bindObjectReferences(const Game &game) {
     const bool live = game.bindSavedObjectReference(caster);

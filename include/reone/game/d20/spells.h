@@ -18,6 +18,8 @@
 #pragma once
 
 #include <functional>
+#include <optional>
+#include <vector>
 
 #include "reone/resource/types.h"
 
@@ -68,11 +70,27 @@ struct SpellDisplayEntry {
     int sourceOrder {0};
 };
 
+/**
+ * A row of ranges.2da: the distances spells, perception, party following and
+ * traps use; none where a cell is blank. Each use of a range says what a
+ * blank one counts as.
+ */
+struct RangeRow {
+    std::optional<float> primary;
+    std::optional<float> secondary;
+};
+
 class ISpells {
 public:
     virtual ~ISpells() = default;
 
     virtual std::shared_ptr<Spell> get(SpellType type) const = 0;
+
+    /** A row of ranges.2da; fails outside the table. */
+    virtual const RangeRow &range(int row) const = 0;
+
+    /** A row of ranges.2da, or none outside the table. */
+    virtual std::optional<std::reference_wrapper<const RangeRow>> findRange(int row) const = 0;
     /**
      * The powers a menu offers from \p candidates, one per slot in slot
      * order: of those \p offered admits, the highest priority of each slot,
@@ -121,6 +139,8 @@ public:
     void init(resource::GameID gameId);
 
     std::shared_ptr<Spell> get(SpellType type) const override;
+    const RangeRow &range(int row) const override;
+    std::optional<std::reference_wrapper<const RangeRow>> findRange(int row) const override;
     bool isLevelUpCandidate(
         SpellType type,
         const CreatureAttributes &attributes,
@@ -136,7 +156,10 @@ public:
         const std::set<SpellType> &chosen) const override;
 
 private:
+    /** The spells.2da rows, by spell. */
     std::unordered_map<SpellType, std::shared_ptr<Spell>> _spells;
+    /** The ranges.2da rows, by row. */
+    std::vector<RangeRow> _ranges;
 
     // Services
 

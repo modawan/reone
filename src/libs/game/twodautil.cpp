@@ -17,6 +17,10 @@
 
 #include "reone/game/twodautil.h"
 
+#include <algorithm>
+
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/2das.h"
@@ -67,6 +71,14 @@ int readRacialAbilityAdjustment(
     validateTwoDARow(table, "racialtypes", row);
     // A blank adjustment is zero.
     return table.getInt(row, kColumns[static_cast<int>(ability)], 0);
+}
+
+std::optional<std::string> findColumnIgnoringCase(const TwoDA &table, const std::string &column) {
+    const auto &columns = table.columns();
+    const auto found = std::find_if(columns.begin(), columns.end(), [&column](const std::string &name) {
+        return boost::iequals(name, column);
+    });
+    return found != columns.end() ? std::optional<std::string>(*found) : std::nullopt;
 }
 
 } // namespace game

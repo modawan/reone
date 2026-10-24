@@ -440,8 +440,6 @@ public:
     void pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &entries) const;
     /** Installs the round dispatcher: in front of the queue, or behind it when toFront is false. */
     void ensureDispatcher(Creature &actor, bool toFront = true);
-    /** The kind of the next scheduled round entry for the creature, if any. */
-    std::optional<int> nextScheduledKind(const Object &actor) const;
     /** Hands the creature's pending equipment entries on to its queue. */
     void transferEquipment(Creature &actor);
     /** Drops the creature's scheduled entries. */
@@ -484,13 +482,22 @@ public:
 private:
     using RoundQueue = std::deque<std::shared_ptr<CombatRound>>;
 
+    /** What taking up a due scheduled entry did with it. */
+    enum class EntryTake {
+        /** The entry left the schedule: handed on to its creature's queue, or used up. */
+        Left,
+        /** The entry holds its creature for its pause before it leaves. */
+        Paused,
+        /** The entry waits at the head until its creature may act. */
+        Waiting
+    };
+
     /** A scheduled round entry, with the command it runs once taken up. */
     struct ScheduledEntry {
         SavedScheduledAction saved;
         OrdinaryActionQueue::Node node;
         /** The objects the entry names were found when it was restored. */
         bool referencesBound {true};
-        bool refusalReported {false};
     };
 
     /** A creature's scheduled round entries and the time on its schedule. */
@@ -529,6 +536,19 @@ private:
 
     /** Advances every creature's scheduled entries by \p dt seconds, dispatching those that come due. */
     void updateEquipment(float dt);
+    /** Takes up the creature's due entry at the head of its schedule. */
+    EntryTake takeEntry(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
+    /** Takes up a due attack entry, or uses it up when its target can no longer be attacked. */
+    EntryTake takeAttack(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
+    /** Takes up a due cast entry, or uses it up when its cast can no longer run. */
+    EntryTake takeCast(Creature &actor, ScheduledOwner &owner, const std::shared_ptr<ScheduledEntry> &entry);
+    /**
+     * Uses up an entry that can no longer be carried out. It has no effect;
+     * an equip or unequip still holds its creature for its pause.
+     */
+    EntryTake useUpEntry(Creature &actor, ScheduledOwner &owner, ScheduledEntry &entry);
+    /** Starts the pause of an equip or unequip: its creature leaves stealth and stops. */
+    void beginEquipmentPause(Creature &actor, ScheduledEntry &entry);
     /** A scheduled entry's pause has ended: \p actor, and the partner of a pair it masters, take up their pose. */
     void readyAfterScheduledPause(Creature &actor);
     /** The scheduled entries of \p actor, started on the time of its running round when there are none yet. */

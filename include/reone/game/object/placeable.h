@@ -116,6 +116,8 @@ public:
     // END Traps
 
     int appearance() const { return _appearance; }
+    /** The name of the placeable's appearance, shown for a placeable that has none of its own. */
+    int appearanceNameStrRef() const { return _appearanceNameStrRef; }
     Faction faction() const { return _faction; }
     void setFaction(Faction faction) { _faction = faction; }
     /** The placeable's own saving throw from its template; effects never change it. */
@@ -123,6 +125,8 @@ public:
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh() const { return _walkmesh; }
     /** Whether a creature steps right up to the placeable's use point to use it. */
     bool isPreciseUse() const { return _preciseUse; }
+    /** The armour type, in lower case, the placeable's look sounds as when struck (placeableobjsnds.2da). */
+    const std::string &soundArmorType() const { return _soundArmorType; }
     /**
      * The point a creature at from goes to in order to use the placeable: the
      * nearer of its walkmesh's two use points, the second one on a tie; the
@@ -145,8 +149,7 @@ public:
      * script runs, and an armed trap goes off on an attacker close by.
      */
     void receiveAttackEvent(uint32_t attackerId, std::optional<std::reference_wrapper<const AttackEventFields>> fields);
-    int computerUseAdjustment() const { return _computerUseAdjustment; }
-    /** The conversation with the placeable ended: its script runs and the computer use adjustment clears. */
+    /** The conversation with the placeable ended: its script runs. */
     void runEndDialogScript();
     void update(float dt) override;
 
@@ -257,10 +260,15 @@ private:
     bool _usable {false};
     bool _hostileAppearance {false};
     bool _preciseUse {false};
+    /** The armour type of the appearance's sound type; a blank sound type sounds as the first. */
+    std::string _soundArmorType;
+    /** The sound the placeable plays when it opens; none for a blank sound type. */
+    std::string _openedSound;
     bool _static {false};
     bool _notBlastable {false};
     bool _groundPile {false};
     uint32_t _appearance {0};
+    int _appearanceNameStrRef {-1};
     uint8_t _hardness {0};
     uint8_t _fort {0};
     uint8_t _will {0};
@@ -304,11 +312,6 @@ private:
     bool _inventoryOpenPending {false};
     /** The loop that follows the open-state clip running now. */
     std::string _openStateLoop;
-    /**
-     * Runtime dialog input: constructed and cleared to zero. Do not derive a
-     * nonzero value from unrelated lock, trap or skill-effect parameters.
-     */
-    int _computerUseAdjustment {0};
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
 
     // Scripts

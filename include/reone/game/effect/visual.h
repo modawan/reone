@@ -78,7 +78,7 @@ public:
     ~VisualEffect();
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
     void onUpdate(Object &object, const EffectInstance &, float dt) override;
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override;

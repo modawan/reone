@@ -1010,10 +1010,10 @@ void VisualEffect::onUpdate(Object &object, const EffectInstance &instance, floa
 // already running from the start runs on. Sounds and beams end at once. The
 // models stay until both they and the cessation program are done; with
 // neither to wait for, everything goes at once.
-EffectRemovalResult VisualEffect::onRemove(Object &object, const EffectInstance &instance) {
+void VisualEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (!_kept || _ceasing) {
         clearPresentation(object);
-        return EffectRemovalResult::Removed;
+        return;
     }
     endSoundsAndBeams();
     const auto modelsDone = startNodeModelCessation();
@@ -1049,11 +1049,10 @@ EffectRemovalResult VisualEffect::onRemove(Object &object, const EffectInstance 
     const float done = std::max(modelsDone.value_or(0.0f), programDone.value_or(0.0f));
     if (done <= 0.0f) {
         clearPresentation(object);
-        return EffectRemovalResult::Removed;
+        return;
     }
     _ceasing = true;
     object.addShownVisual(instance, done);
-    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

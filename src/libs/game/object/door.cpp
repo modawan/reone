@@ -33,6 +33,7 @@
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/twodautil.h"
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -196,17 +197,22 @@ void Door::deserializeAll(
 // from its generic type in genericdoors. The walkmeshes follow the model.
 void Door::loadAppearance() {
     std::string modelName;
+    int soundType;
     if (_appearance != 0) {
         std::shared_ptr<TwoDA> types(_services.resource.twoDas.get("doortypes"));
         modelName = boost::to_lower_copy(types->getString(_appearance, "model"));
         _preciseUse = false;
         _blocksSight = types->getInt(_appearance, "blocksight", 1) != 0;
+        soundType = types->getInt(_appearance, "soundapptype");
     } else {
         std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
         modelName = boost::to_lower_copy(doors->getString(_genericType, "modelname"));
         _preciseUse = doors->getInt(_genericType, "preciseuse", 0) != 0;
         _blocksSight = doors->getInt(_genericType, "blocksight", 1) != 0;
+        soundType = doors->getInt(_genericType, "soundapptype");
     }
+    _soundArmorType = boost::to_lower_copy(
+        getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds")->getString(soundType, "armortype"));
 
     _linkedTransitionGeometry.clear();
     auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
@@ -694,8 +700,7 @@ bool canBashDoor(const Door &door) {
            door.isSelectable() &&
            !door.isDead() &&
            !door.plotFlag() &&
-           !door.isNotBlastable() &&
-           (door.hitPoints() > 0 || door.currentHitPoints() > 0);
+           !door.isNotBlastable();
 }
 
 void Door::updateTransform() {
@@ -754,7 +759,7 @@ void Door::triggerTrap(const std::shared_ptr<Creature> &caller, bool force) {
 void Door::armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                    const std::shared_ptr<Trigger> &linkedMine,
                    const std::shared_ptr<Creature> &setter, int blastBonus, bool blast) {
-    _trap.armMine(_game, _services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill,
+    _trap.armMine(_game, trapType, detectDC, disarmDC, ownerDemolitionsSkill,
                   linkedMine, setter, blastBonus, blast);
 }
 

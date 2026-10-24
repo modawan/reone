@@ -228,6 +228,9 @@ void Feats::init() {
         std::string description(_strings.getText(feats->getInt(row, "description", -1)));
         std::shared_ptr<Texture> icon(_textures.get(feats->getString(row, "icon"), TextureUsage::GUI));
         int category = feats->getInt(row, "category");
+        int usesPerDay = feats->getInt(row, "usesperday");
+        int maxCR = feats->getInt(row, "maxcr");
+        auto exclusion = static_cast<uint32_t>(feats->getInt(row, "exclusion"));
         uint32_t minCharLevel = feats->getInt(row, "mincharlevel");
         auto preReqFeat1 = static_cast<FeatType>(feats->getInt(row, "prereqfeat1"));
         auto preReqFeat2 = static_cast<FeatType>(feats->getInt(row, "prereqfeat2"));
@@ -237,9 +240,13 @@ void Feats::init() {
 
         auto feat = std::make_shared<Feat>();
         feat->name = std::move(name);
+        feat->nameStrRef = *nameStrRef;
         feat->description = std::move(description);
         feat->icon = std::move(icon);
         feat->category = category;
+        feat->usesPerDay = usesPerDay;
+        feat->maxCR = maxCR;
+        feat->exclusion = exclusion;
         feat->minCharLevel = minCharLevel;
         feat->preReqFeat1 = preReqFeat1;
         feat->preReqFeat2 = preReqFeat2;

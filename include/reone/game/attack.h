@@ -67,6 +67,9 @@ struct AttackHistory {
     /** The last attack mode scripts read for each combat mode from 1 to 6. */
     static constexpr std::array<int, 6> kScriptAttackModes {1, 2, 3, 0, 4, 5};
 
+    /** The script attack mode of an object not fighting, or not a creature: the invalid object id. */
+    static constexpr int kScriptModeNone = static_cast<int>(kSavedEffectInvalidObjectId);
+
     /** The feat the attack uses, or zero for an ordinary attack. */
     int type {0};
     /** The attacker's combat mode. */
@@ -97,7 +100,7 @@ struct AttackHistory {
      */
     int scriptMode(bool inCombat) const {
         if (!inCombat) {
-            return static_cast<int>(kSavedEffectInvalidObjectId);
+            return kScriptModeNone;
         }
         if (mode < 1 || mode > static_cast<int>(kScriptAttackModes.size())) {
             return 0;
@@ -429,7 +432,6 @@ struct PhysicalDamageBonus {
     int preciseShotDamage {0};
     int formDamage {0};
     int furyDamage {0};
-    int combatModeDamage {0};
     /**
      * The d4 dice of the two unarmed feat families, feats 209-211 and
      * 212-219. They are rolled once per attack, and a critical hit multiplies
@@ -441,8 +443,7 @@ struct PhysicalDamageBonus {
     /** The bonuses a critical hit multiplies, without the unarmed feat dice. */
     int total() const {
         return damageAbilityModifier + weaponSpecialization +
-               combatFeatDamage + preciseShotDamage + formDamage + furyDamage +
-               combatModeDamage;
+               combatFeatDamage + preciseShotDamage + formDamage + furyDamage;
     }
 };
 

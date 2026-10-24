@@ -26,15 +26,11 @@ namespace game {
 class ForceResistedEffect : public CopyableEffect<ForceResistedEffect> {
 public:
     ForceResistedEffect(std::shared_ptr<Object> source) :
-        CopyableEffect(EffectType::ForceResisted),
-        _source(source) {
+        CopyableEffect(EffectType::ForceResisted) {
         setSaveFacingObject(0, source);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-
-private:
-    RuntimeObjectRef<Object> _source;
 };
 
 } // namespace game

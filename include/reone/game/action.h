@@ -97,9 +97,9 @@ public:
      */
     virtual bool joinsRunningRound() const { return false; }
     /** The round of this action ends without its end-of-round script. */
-    virtual bool suppressesEndRoundScript() const { return _cutsceneAttack; }
-    bool isCutsceneAttack() const { return _cutsceneAttack; }
-    void setCutsceneAttack(bool value) { _cutsceneAttack = value; }
+    virtual bool suppressesEndRoundScript() const { return isCutsceneAttack(); }
+    /** A cutscene attack: forced swing, result and damage, no end-of-round script. */
+    virtual bool isCutsceneAttack() const { return false; }
 
     /** Clearing leaves an action that is not clearable running; only teardown removes it. */
     bool isClearable() const { return _clearable; }
@@ -172,7 +172,6 @@ protected:
     bool _cancelled {false};
     bool _locked {false};
     bool _clearable {true};
-    bool _cutsceneAttack {false};
     bool _scheduledCommand {false};
     std::optional<SavedActionRecord> _savedAction;
     std::vector<RuntimeObjectRef<Object>> _runtimeDependencies;

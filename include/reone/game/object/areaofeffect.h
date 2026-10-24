@@ -86,8 +86,6 @@ public:
     /** Only a temporary duration runs out. */
     void setDuration(DurationType type, float seconds);
 
-    int areaEffectId() const { return _areaEffectId; }
-    Shape shape() const { return _shape; }
     std::shared_ptr<Object> creator() const { return savedReference(kCreatorReference); }
     std::shared_ptr<Object> carrier() const { return _carrier.boundObject(); }
     std::shared_ptr<Object> lastEntered() const { return _lastEntered.boundObject(); }

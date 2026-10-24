@@ -37,7 +37,7 @@ public:
     }
 
     EffectApplicationResult onApply(Object &, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onRemove(Object &, const EffectInstance &) override;
     void onUpdate(Object &, const EffectInstance &, float) override;
 
 private:

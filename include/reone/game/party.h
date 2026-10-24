@@ -19,9 +19,12 @@
 
 #include <array>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
+#include <string>
 #include <tuple>
+#include <vector>
 
 #include <glm/vec3.hpp>
 
@@ -76,6 +79,17 @@ struct RosterIdentity {
     bool operator!=(const RosterIdentity &rhs) const {
         return !operator==(rhs);
     }
+};
+
+/**
+ * A party AI style (aiscripts.2da): its name, description and AI state. A
+ * blank name or state reads as 0; a style without a description (TSL's table
+ * has none) has none (-1).
+ */
+struct AIScriptRow {
+    int nameStrRef {-1};
+    int descriptionStrRef {-1};
+    int state {-1};
 };
 
 class Party {
@@ -156,6 +170,13 @@ public:
         resetFollowSlots();
     }
 
+    /**
+     * Read the party's tables: each roster slot's share of experience
+     * (npc.2da), the party AI styles (aiscripts.2da) and, in TSL, the
+     * companions' base influence (influence.2da).
+     */
+    void init();
+
     bool handle(const input::Event &event);
 
     // Clear the player, party members, available NPCs and set all other fields
@@ -223,8 +244,22 @@ public:
     int lastForfeitViolation() const { return _persistedState.forfeitViolation; }
     void setLastForfeitViolation(int condition) { _persistedState.forfeitViolation = condition; }
 
-    /** The companions' base influence: influence.2da in TSL; none in KotOR, which has no influence. */
-    std::shared_ptr<resource::TwoDA> influenceTable() const;
+    /**
+     * A companion's base influence by its tag (influence.2da, TSL); none for a
+     * tag the table does not name, and always none in KotOR, which has no
+     * influence.
+     */
+    std::optional<int> baseInfluence(const std::string &tag) const;
+    /** The npc.2da share of experience, a whole percentage, of a row; a blank cell, or a row outside the table, is none. */
+    int percentXP(int row) const;
+    /**
+     * The npc.2da share of experience of a row as the cell reads, fractions
+     * kept, as kill experience reads its general share; a blank cell, or a
+     * row outside the table, is none.
+     */
+    float percentXPFraction(int row) const;
+    /** The party AI styles, in table order. */
+    const std::vector<AIScriptRow> &aiScripts() const { return _aiScripts; }
 
     /** Whether npc names a party NPC slot. */
     static bool isNpcSlot(int npc) { return npc >= 0 && npc < static_cast<int>(kMaxNpcCount); }
@@ -612,6 +647,16 @@ private:
 
     Game &_game;
 
+    // Tables
+
+    /** The npc.2da share of each row, as the cell reads; none where the cell is blank. */
+    std::vector<std::optional<float>> _percentXP;
+    std::vector<AIScriptRow> _aiScripts;
+    /** Each companion's base influence by its lower-case tag (TSL). */
+    std::map<std::string, int> _baseInfluence;
+
+    // END Tables
+
     std::shared_ptr<Creature> _player;
     std::shared_ptr<Creature> _actualPlayer;
     std::map<int, std::shared_ptr<Creature>> _npcBindings;
@@ -653,8 +698,6 @@ private:
 
     // Apply the party XP pool value to every current member's creature XP.
     void syncMembersXP();
-    /** PercentXP of an npc.2da row; a blank or missing cell counts as 0. */
-    int percentXP(int row) const;
     /** Pay a creature its share of an award. */
     void receiveExperience(Creature &creature, int amount);
     /** A companion added to the roster starts from the pool. */

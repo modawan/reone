@@ -257,13 +257,21 @@ void configureEquipmentEffectTables(TestEngine &engine) {
         .Times(AnyNumber())
         .WillRepeatedly(Return(protectionTable));
     // The combat tables are read when the game starts.
-    engine.gameModule().combatTables() = CombatTables();
-    engine.gameModule().combatTables().init(engine.resourceModule().twoDas(), resource::GameID::KotOR);
+    engine.initCombatTables();
 }
 
 TEST(PassiveRegeneration, k1_uses_the_numeric_combat_rows_for_hit_points) {
     TestEngine engine;
     engine.init();
+    // The game reads its rule tables when it starts; the others are missing.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
+                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
+                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
+                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
+                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
+        .Times(AnyNumber());
     resource::TwoDA::Builder regeneration;
     regeneration.columns({"healthregen", "forceregen"})
         .row({"2", "0"})
@@ -272,6 +280,7 @@ TEST(PassiveRegeneration, k1_uses_the_numeric_combat_rows_for_hit_points) {
         .Times(AnyNumber())
         .WillRepeatedly(Return(
             std::shared_ptr<resource::TwoDA>(regeneration.build())));
+    engine.initCombatTables();
 
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -1425,6 +1434,9 @@ TEST(RuntimeObjectIntegrity, failed_graph_replacement_preserves_old_graph_and_cu
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(runtimeBaseItems()));
+    // The record's appearance names the creature's default movement rate.
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder().columns({"moverate"}).row({""}).build())));
     EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -2684,12 +2696,11 @@ TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
     TestEngine engine;
     engine.init();
     // Effective abilities include the racial adjustments.
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
-        .Times(AnyNumber())
-        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
-                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
-                                                                    .row({"0", "0", "0", "0", "0", "0"})
-                                                                    .build())));
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(runtimeBaseItems()));

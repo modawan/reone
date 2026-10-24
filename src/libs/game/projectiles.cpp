@@ -342,7 +342,6 @@ void Projectiles::launchLightsaberThrow(Creature &caster, const EffectInstance &
         route.spellId = static_cast<int>(spell->type);
         route.path = 1;
         route.model = modelName;
-        route.initialized = true;
         route.travelRate = rate;
         route.activationDelay = deadline / 1000.0f;
         route.released = deadline == 0;
@@ -523,7 +522,6 @@ uint64_t Projectiles::beginSpell(Object &caster, std::optional<std::reference_wr
     s.orientation = glm::angleAxis(caster.getFacing(), glm::vec3(0, 0, 1));
     s.position = spellSourcePosition(s.caster, s.sourceHook, caster.position());
     s.clockwise = selectedPath == ProjectilePathType::Spiral && randomInt(0, 1) != 0;
-    s.initialized = true;
     s.legs.push_back({s.caster, referenceTo(target, game), s.position, position, 0.0f});
     attachPresentation(*active, game, services, false);
     _active.push_back(active);
@@ -682,9 +680,6 @@ void Projectiles::cancelSpell(uint64_t id) {
                   }),
                   _active.end());
 }
-bool Projectiles::blocksRangedParry(const Creature &creature) const {
-    return creature.throwParryBlocked();
-}
 
 static glm::vec3 safeProjectileSourcePosition(Creature &source, int hand) {
     auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(source.sceneNode());
@@ -759,7 +754,6 @@ void Projectiles::launchSafeProjectile(Creature &source, Object &target, const I
     s.kind = ProjectileKind::AttackBolt;
     s.path = static_cast<int>(ProjectilePathType::Homing);
     s.released = true;
-    s.initialized = true;
     s.caster = referenceTo(source, game);
     s.weapon = referenceTo(weapon, game);
     s.model = ammunition->model->name();

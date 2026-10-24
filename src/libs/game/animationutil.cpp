@@ -20,9 +20,7 @@
 #include <algorithm>
 #include <array>
 
-#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
-#include "reone/resource/provider/2das.h"
 
 using namespace reone::resource;
 
@@ -360,15 +358,7 @@ bool isDialogAnimationRow(const TwoDA &table, int row) {
     return table.getBool(row, "dialog") && (table.getBool(row, "looping") || table.getBool(row, "fireforget"));
 }
 
-bool isDialogAnimation(ITwoDAs &twoDas, int id) {
-    auto dialogAnimations = getRequiredTwoDA(twoDas, "dialoganimations");
-    if (id >= kDialogAnimationBase && id < kDialogAnimationBase + dialogAnimations->getRowCount()) {
-        return isDialogAnimationRow(*dialogAnimations, id - kDialogAnimationBase);
-    }
-    auto animations = getRequiredTwoDA(twoDas, "animations");
-    if (id >= 0 && id < std::min(kDialogAnimationBase, animations->getRowCount())) {
-        return isDialogAnimationRow(*animations, id);
-    }
+bool isDialogCutClip(int id) {
     return (id >= kFirstCutClip && id <= kLastCutClip) || (id >= kFirstLoopingCutClip && id <= kLastLoopingCutClip);
 }
 

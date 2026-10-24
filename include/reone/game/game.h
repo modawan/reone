@@ -23,6 +23,8 @@
 #include <map>
 #include <optional>
 #include <queue>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "reone/audio/source.h"
@@ -468,7 +470,6 @@ public:
     void openInGameMenu(InGameMenuTab tab);
     /** The roster index whose inventory the menu shows, or -1 when it is closed. */
     int inventoryMenuCharacter() const;
-    void setInventoryMenuCharacter(int npc);
     /** Script cost multipliers per base item; they last for the process and are not saved. */
     float baseItemCostMultiplier(int baseItem) const;
     void setBaseItemCostMultiplier(int baseItem, float multiplier) { _baseItemCostMultipliers[baseItem] = multiplier; }
@@ -741,6 +742,13 @@ public:
         uint32_t actor = script::kObjectInvalid,
         uint32_t subject = script::kObjectInvalid,
         uint32_t param = 0);
+    /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
+    std::optional<int> feedbackTextStrRef(int row) const;
+    /**
+     * The traps.2da row of a trap type. A type outside the table reads as a
+     * blank row, as every 2DA row outside its table does.
+     */
+    const TrapTypeRow &trapType(int type) const;
     /**
      * Whether the caster can cast a Force power from the action menu: it needs
      * a Jedi class in its first two positions, except (TSL) for forms and the
@@ -1115,7 +1123,6 @@ public:
     bool handleDeathSequenceKey(const input::KeyEvent &event);
     /** The camera of a following death sequence orbits the last party member to fall. */
     void setLastPartyMemberTempKilled(const Creature &creature);
-    bool isGameOver() const { return _gameOver; }
     /** Leave the game-over state, ending the game or cancelling a pending end. */
     void leaveGameOver(bool endGame) {
         _gameOver = false;
@@ -1462,11 +1469,63 @@ private:
     /** A menu attack within this many seconds of the last one is a repeated attack. */
     static constexpr float kAttackMashWindow = 3.0f;
 
+    /**
+     * A video effect (videoeffects.2da) in this game's colours: the overlays it
+     * lays, its fury level and its desaturation. A blank cell is zero.
+     */
+    struct VideoEffectRow {
+        /** Whether the effect lays scan noise. */
+        bool scanNoise {false};
+        /** Whether the effect desaturates the screen. */
+        bool saturation {false};
+        /** Either clairvoyance column lays the same overlay. */
+        bool clairvoyance {false};
+        /** Whether the effect lays the Force Sight overlay. */
+        bool forceSight {false};
+        /** The effect's fury level. */
+        int fury {0};
+        /** The colour the screen is modulated by. */
+        glm::vec3 modulation {0.0f};
+        /** How much colour is kept while desaturated. */
+        float saturationAmount {0.0f};
+    };
+
+    /** A dialogue text token (stringtokens.2da). A blank cell is -1. */
+    struct StringTokenRow {
+        /** The strings the token may give, strref1 to strref4. */
+        std::array<int, 4> strRefs {-1, -1, -1, -1};
+        /** The string the token gives when none of the others applies. */
+        int defaultStrRef {-1};
+        /** The action the token's strings depend on. */
+        int action {-1};
+    };
+
+    /** A tutorial window (tutorial.2da): this game's message of each page, none where blank, and its icon. */
+    struct TutorialRow {
+        /** The message of each page, none where blank. */
+        std::vector<std::optional<int>> messages;
+        /** The window's icon. */
+        std::string icon;
+    };
+
     resource::GameID _gameId;
     std::filesystem::path _path;
     OptionsView &_options;
     ServicesView &_services;
     IConsole &_console;
+
+    // Tables
+
+    std::vector<VideoEffectRow> _videoEffects;
+    /** By token; the first row of a token is the one used. */
+    std::unordered_map<std::string, StringTokenRow> _stringTokens;
+    std::vector<TutorialRow> _tutorials;
+    /** The feedbacktext.2da strings; none where blank. */
+    std::vector<std::optional<int>> _feedbackTexts;
+    /** The trap types of traps.2da, by row. */
+    std::vector<TrapTypeRow> _trapTypes;
+
+    // END Tables
 
     Screen _screen {Screen::None};
     std::map<int, float> _baseItemCostMultipliers;
@@ -2070,6 +2129,8 @@ private:
 
     void initConsole();
     void initJournalNotifications();
+    /** Read the video effects, dialogue tokens, tutorial windows and feedback texts, and the party's tables. */
+    void initTables();
     int getPlotXPByIndex(int plotIndex);
 
     using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);

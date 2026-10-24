@@ -23,6 +23,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "reone/game/animationutil.h"
 #include "reone/game/attack.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
@@ -36,6 +37,9 @@ namespace reone {
 
 namespace game {
 
+// Animation IDs from 10000 name dialoganimations.2da rows.
+static constexpr int kDialogAnimationBase = 10000;
+
 void Animations::parseAnims(TwoDA &animDa) {
     for (int row = 0; row < animDa.getRowCount(); ++row) {
         Anim anim;
@@ -46,6 +50,7 @@ void Animations::parseAnims(TwoDA &animDa) {
         anim.fireForget = animDa.getBool(row, "fireforget");
         anim.parry = animDa.getBool(row, "parry");
         anim.hidesEquippedItems = animDa.getBool(row, "hideequippeditems");
+        anim.dialog = isDialogAnimationRow(animDa, row);
         _animIndexByName.emplace(boost::to_lower_copy(anim.name), _anims.size());
         _anims.push_back(anim);
     }
@@ -187,15 +192,19 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
     }
 }
 
-void Animations::init() {
-    std::shared_ptr<TwoDA> animDa(_twoDas.get("animations"));
-    if (!animDa) {
-        return;
+void Animations::parseDialogAnims(TwoDA &dialogAnimDa) {
+    for (int row = 0; row < dialogAnimDa.getRowCount(); ++row) {
+        DialogAnimation anim;
+        anim.name = boost::to_lower_copy(dialogAnimDa.getString(row, "name"));
+        anim.dialog = isDialogAnimationRow(dialogAnimDa, row);
+        _dialogAnims.push_back(std::move(anim));
     }
+}
 
-    parseAnims(*animDa);
-
+void Animations::init() {
+    parseAnims(*getRequiredTwoDA(_twoDas, "animations"));
     parseCombatAnim(*getRequiredTwoDA(_twoDas, "combatanimations"));
+    parseDialogAnims(*getRequiredTwoDA(_twoDas, "dialoganimations"));
 }
 
 void Animations::clear() {
@@ -203,6 +212,7 @@ void Animations::clear() {
     _animIndexByName.clear();
     _attackResults.clear();
     _meleeImpactTimes.clear();
+    _dialogAnims.clear();
 }
 
 std::string Animations::getNameById(uint32_t id) const {
@@ -240,7 +250,6 @@ std::string Animations::getReactionAnimation(const std::string &attackAnim,
 int Animations::getMeleeImpactTime(
     const std::string &attackAnim,
     size_t attackIndex) const {
-
     // A swing with no timing row or cell lands at once.
     auto it = _meleeImpactTimes.find(attackAnim);
     if (it == _meleeImpactTimes.end()) {
@@ -270,6 +279,23 @@ bool Animations::hidesEquippedItems(const std::string &name) const {
 bool Animations::isParry(const std::string &name) const {
     const auto anim = findByName(name);
     return anim && anim->get().parry;
+}
+
+bool Animations::isDialogAnimation(int id) const {
+    if (id >= kDialogAnimationBase && id < kDialogAnimationBase + static_cast<int>(_dialogAnims.size())) {
+        return _dialogAnims[id - kDialogAnimationBase].dialog;
+    }
+    if (id >= 0 && id < std::min(kDialogAnimationBase, static_cast<int>(_anims.size()))) {
+        return _anims[id].dialog;
+    }
+    return isDialogCutClip(id);
+}
+
+std::optional<std::reference_wrapper<const DialogAnimation>> Animations::findDialogAnimation(int row) const {
+    if (row < 0 || row >= static_cast<int>(_dialogAnims.size())) {
+        return std::nullopt;
+    }
+    return _dialogAnims[row];
 }
 
 } // namespace game

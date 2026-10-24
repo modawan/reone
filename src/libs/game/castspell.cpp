@@ -358,6 +358,18 @@ void SpellSchedule::restore(const SavedCastAction &record) {
     }
 }
 
+// The clips a spell shows: a conjure one-shot, then the cast clip, which loops
+// unless it is a one-shot, each with its animation ID. Creature models only
+// conjure, and only the monster fury loop has a creature row.
+struct CastPresentation {
+    std::string conjure;
+    std::string cast;
+    bool castLoops {false};
+    int conjureId {0};
+    // None when the code has no cast clip.
+    std::optional<int> castId;
+};
+
 static CastPresentation castClips(SpellCastAnimation code, bool creatureModel) {
     if (creatureModel) {
         switch (code) {
@@ -433,16 +445,16 @@ static std::optional<int> castAnimationId(SpellCastAnimation code) {
 }
 
 // The conjure's and the cast's animation IDs follow the code alone.
-CastPresentation castPresentation(SpellCastAnimation code, bool creatureModel) {
+static CastPresentation castPresentation(SpellCastAnimation code, bool creatureModel) {
     CastPresentation look = castClips(code, creatureModel);
     look.conjureId = conjureAnimationId(code);
     look.castId = castAnimationId(code);
     return look;
 }
 
-ItemUsePresentation itemUsePresentation(const Creature &user, int itemType, const Spell &spell,
-                                        std::optional<std::reference_wrapper<const Creature>> targetCreature,
-                                        const glm::vec3 &targetPosition) {
+static ItemUsePresentation itemUsePresentation(const Creature &user, int itemType, const Spell &spell,
+                                               std::optional<std::reference_wrapper<const Creature>> targetCreature,
+                                               const glm::vec3 &targetPosition) {
     const bool tsl = user.game().isTSL();
     // Only character and droid models use the item clips; others stand in their pose.
     const bool bodied = user.modelType() != Creature::ModelType::Creature;
@@ -886,12 +898,6 @@ uint32_t spellProjectileTimeMilliseconds(
         milliseconds += kSpiralExtraMilliseconds;
     }
     return milliseconds;
-}
-
-float spellProjectileTime(const Spell &spell, const glm::vec3 &origin,
-                          const glm::vec3 &destination, ProjectilePathType overridePath,
-                          bool tsl) {
-    return spellProjectileTimeMilliseconds(spell, origin, destination, overridePath, tsl) / 1000.0f;
 }
 
 bool equipmentAllowsSpell(const Creature &caster, const Spell &spell) {

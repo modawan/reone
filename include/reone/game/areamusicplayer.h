@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <boost/noncopyable.hpp>
 
@@ -54,6 +55,9 @@ public:
     AreaMusicPlayer(ServicesView &services) :
         _services(services) {
     }
+
+    /** Reads the music, ambient sound and priority group tables once, at start-up. */
+    void init();
 
     /**
      * Take the area being entered. Its music and ambient loop wait for the
@@ -100,6 +104,17 @@ private:
 
     ServicesView &_services;
 
+    // Tables
+
+    /** The ambientmusic.2da tracks, by row. */
+    std::vector<Track> _tracks;
+    /** The ambientsound.2da sounds, by row; empty for none. */
+    std::vector<std::string> _ambientTracks;
+    /** The volume of the area-wide ambient priority group, as a share of the loudest. */
+    float _ambientGroupGain {0.0f};
+
+    // END Tables
+
     /** The area being played, from its load until it is unloaded. */
     std::shared_ptr<const Area> _area;
     /** The area has been arrived in, and its music and ambient loop play. */
@@ -133,16 +148,14 @@ private:
     /** Whether \p area is the one the player follows. */
     bool plays(const Area &area) const { return _area.get() == &area; }
 
-    /** The ambientmusic.2da row \p row. */
-    Track readTrack(int row) const;
+    /** The ambientmusic.2da row \p row; a row outside the table is blank. */
+    const Track &track(int row) const;
     /** The area's battle track. */
-    Track battleTrack() const;
-    /** The sound of the ambientsound.2da row \p row. */
-    std::string readAmbientTrack(int row) const;
+    const Track &battleTrack() const;
+    /** The sound of the ambientsound.2da row \p row; empty for a row outside the table. */
+    const std::string &ambientTrack(int row) const;
     /** The area's ambient volume as a share of the loudest. */
     float ambientVolumeScale() const;
-    /** The volume of the area-wide ambient priority group, as a share of the loudest. */
-    float ambientGroupGain() const;
 
     /** Whether music sounds, a fading track until its fade ends. */
     bool isMusicPlaying();

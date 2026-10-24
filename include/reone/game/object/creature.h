@@ -54,6 +54,7 @@ namespace reone {
 namespace resource {
 class Gff;
 class IGffs;
+class TwoDA;
 }
 
 namespace game {
@@ -424,6 +425,28 @@ public:
         int playerLevelAtSpawn {0};
     };
 
+    /**
+     * The appearance's sound set (appearancesndset.2da): the weaponsounds.2da
+     * row of its own weapons, 0 for none, its armour type and its fall sounds,
+     * in lower case.
+     */
+    struct AppearanceSoundSet {
+        int weapon {0};
+        std::string armorType;
+        std::string fallDirt;
+        std::string fallHard;
+        std::string fallMetal;
+        std::string fallWater;
+    };
+
+    /** The names of a race (racialtypes.2da); a blank one is -1. */
+    struct RaceNames {
+        int name {-1};
+        /** The name conversations use, and its lower-case form. */
+        int converName {-1};
+        int converNameLower {-1};
+    };
+
     /** The creature's part in combat: whether it fights, how it was drawn in, and its targets. */
     struct CombatState {
         bool active {false};
@@ -562,14 +585,9 @@ public:
     bool isSelectable() const override;
     int effectState() const { return _effectState; }
     int effectAIStateMask() const { return _effectAIStateMask; }
-    int effectAmbientState() const { return _effectAmbientState; }
     EffectId activeStateRootId() const { return _activeStateRootId; }
     /** A state effect was admitted: a state stronger than the one laid takes its place. */
     void onStateRootApplied(const EffectInstance &pending);
-    bool isHasted() const { return _hasted; }
-    bool isSlowed() const { return _slowed; }
-    void setHasted(bool value) { _hasted = value; }
-    void setSlowed(bool value) { _slowed = value; }
     /**
      * Lays the strongest of the creature's state effects, with \p pending applied or the
      * effect applied as \p removingOrder going; none restores movement.
@@ -781,8 +799,6 @@ public:
     /** How an object of a faction outside the party regards this creature. */
     int getReputationFrom(Faction sourceFaction) const;
 
-    /** The encounter that spawned this creature, if any. */
-    uint32_t encounterId() const { return _encounterId; }
     bool isEncounterCreature() const { return _encounterId != script::kObjectInvalid; }
     /** The creature was spawned by \p encounter. */
     void joinEncounter(const Encounter &encounter);
@@ -801,7 +817,6 @@ public:
      * Releasing a lock turns the creature once toward what it was locked on.
      */
     void setOrientationLock(uint32_t objectId, bool force = false);
-    uint32_t orientationLock() const { return _orientationLock; }
     /**
      * The creature's last swing was in an engaged exchange. While it is, the
      * controlled leader at rest is not driven to its rest pose.
@@ -882,7 +897,10 @@ public:
 
     Alignment alignment() const;
     RacialType racialType() const { return _race; }
-    void setRacialType(RacialType race) { _race = race; }
+    /** The race's names, read when the race is set. */
+    const RaceNames &raceNames() const { return _raceNames; }
+    /** Set the race and read its ability adjustments and names. */
+    void setRacialType(RacialType race);
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
     /** The creature scripts name for this one to heal. It is not saved. */
@@ -907,6 +925,10 @@ public:
     void setPC(bool value) { _isPC = value; }
     /** The appearance's race label, which picks droid discharges. */
     const std::string &appearanceRace() const { return _appearanceRace; }
+    /** The appearance's blood colour: R, G, Y or none. */
+    const std::string &bloodColour() const { return _bloodColour; }
+    /** The equipment slots the appearance locks, as a mask. */
+    uint32_t equipSlotsLocked() const { return _equipSlotsLocked; }
     int goodEvil() const { return _goodEvil; }
     void setGoodEvil(int value) { _goodEvil = value; }
     /**
@@ -944,14 +966,9 @@ public:
     uint32_t totalDefenseDay() const { return _totalDefenseDay; }
     uint32_t totalDefenseTime() const { return _totalDefenseTime; }
     /**
-     * Combat mode: 1 parry, 2 power attack, 3 improved power attack,
-     * 4 counterspell, 5 flurry, 6 rapid shot. Only the forced setter exists:
-     * no command produces a non-zero mode, so play keeps it at 0.
+     * Releases the orientation lock, returns to the ready pose and strips
+     * special attacks from the round.
      */
-    int combatMode() const { return _combatMode; }
-    /** Sets the combat mode; false, keeping the old one, when the weapons in hand refuse it. */
-    bool setCombatMode(int mode);
-    /** Releases the ready pose and combat mode and strips special attacks from the round. */
     void cancelAllCombatModes();
     /** Record the kind of the round action most recently dispatched for this creature. */
     void setRoundActionKind(int kind) { _roundActionKind = kind; }
@@ -1071,11 +1088,6 @@ public:
      * starts battle music when an enemy is near.
      */
     void setExcitedState(int row);
-    bool isExcited() const { return _excitedMilliseconds != 0; }
-    void setAutoBalanceContext(AutoBalanceContext context) {
-        _autoBalanceContext = context;
-        _autoBalancePlayerLevelAtSpawnSet = true;
-    }
 
     // Animation
 
@@ -1158,7 +1170,6 @@ public:
     void refillForceShieldPools();
     /** Ends the hold of a cast or item use. */
     void releaseCastAnimation();
-    bool holdsCastAnimation() const { return _castAnimation.has_value(); }
     /** The conjure and cast visuals the creature's spells show on it. */
     SpellCastVisuals &spellCastVisuals() { return _spellCastVisuals; }
     /** The visuals the creature's special attacks show on its weapons. */
@@ -1301,8 +1312,6 @@ public:
         const std::shared_ptr<Item> &item,
         Object &receiver);
 
-    bool isSlotEquipped(int slot) const;
-
     std::shared_ptr<Item> getEquippedItem(int slot) const;
     CreatureWieldType getWieldType() const;
     /**
@@ -1331,6 +1340,10 @@ public:
     // Body bag
 
     int bodyBagRow() const { return _bodyBagId; }
+    /** The appearance's body bag row; blank has none. */
+    std::optional<int> appearanceBodyBagRow() const { return _appearanceBodyBag; }
+    /** The appearance's delay in milliseconds before a destroyed body fades; blank keeps the corpse. */
+    std::optional<int> fadeDelayOnDeath() const { return _fadeDelayOnDeath; }
     /** The items a body leaves in its bag: droppable equipment of the first sixteen slots, then droppable inventory. */
     std::vector<std::shared_ptr<Item>> dropableItems() const;
     /** The body shows no weapons in its hands; its equipment is unchanged. */
@@ -2034,6 +2047,17 @@ private:
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
 
+    /** The bone a head turns by when the appearance names none. */
+    static constexpr char kDefaultHeadBone[] = "hturn_g";
+    /** How far, in degrees, a head turns across when the appearance leaves it blank. */
+    static constexpr float kDefaultHeadArcH = 40.0f;
+    /** How far, in degrees, a head turns up and down when the appearance leaves it blank. */
+    static constexpr float kDefaultHeadArcV = 30.0f;
+    /** The seconds a dead creature's body waits before it is destroyed when the appearance leaves the delay blank. */
+    static constexpr float kDefaultDestroyObjectDelay = 3.0f;
+    /** How far above its feet the walking space reaches when the appearance leaves its height blank. */
+    static constexpr float kBlankCollisionHeight = 1.0f;
+
     /**
      * Which per-frame animation rules a creature follows: the controlled
      * leader acting freely is driven, a party member following the leader
@@ -2180,6 +2204,9 @@ private:
 
     // Serializable
     RacialType _race {RacialType::Unknown};
+    /** The race's adjustment to each ability, in Ability order (racialtypes.2da). */
+    std::array<int, 6> _racialAbilityAdjustments {};
+    RaceNames _raceNames;
     Subrace _subrace {Subrace::None};
     int _appearance {0};
     int _appearanceBeforeDisguise {0};
@@ -2336,7 +2363,10 @@ private:
     bool _running {false};
     float _personalSpace {0.6f};
     float _creaturePersonalSpace {0.6f};
-    float _collisionHeight {0.5f};
+    /** The appearance's height, which the head falls back on; zero when blank. */
+    float _height {0.0f};
+    /** How far above its feet the creature's walking space reaches. */
+    float _collisionHeight {kBlankCollisionHeight};
     CreatureSize _size {CreatureSize::Invalid};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
@@ -2350,8 +2380,6 @@ private:
 
     bool _movementRestricted {false};
     float _movementRate {1.0f};
-    bool _hasted {false};
-    bool _slowed {false};
     bool _runLimited {false};
     std::optional<MovementType> _movementTypeBeforeStateImmobilization;
     int _effectState {0};
@@ -2372,7 +2400,6 @@ private:
     CombatState _combatState;
     std::weak_ptr<Action> _currentCombatAction;
     bool _clientCombatMode {false};
-    int _combatMode {0};
     float _mineCheckTime {0.0f};
     uint32_t _lastWeaponUsed {script::kObjectInvalid};
     SavedObjectReference _incomingAttacker;
@@ -2450,6 +2477,14 @@ private:
     /** The buffer lookAtModels() fills. */
     mutable std::vector<std::reference_wrapper<scene::ModelSceneNode>> _lookAtModels;
     bool _headLookSuspended {false};
+    /**
+     * The appearance's head look: whether it turns its head, the bone it
+     * turns, and how far across and up.
+     */
+    bool _headTrack {false};
+    std::string _headBone {kDefaultHeadBone};
+    float _headArcH {kDefaultHeadArcH};
+    float _headArcV {kDefaultHeadArcV};
 
     uint32_t _footstepType {0};
     int _walkmeshMaterial {-1};
@@ -2458,10 +2493,25 @@ private:
     /** The appearance's death visual and the body node it goes off at. */
     std::optional<int> _deathVisual;
     std::string _deathVisualNode;
+    std::optional<int> _appearanceBodyBag;
+    std::optional<int> _fadeDelayOnDeath;
     /** Read from the appearance with the rest of its properties. */
     float _hitRadius {0.0f};
-    int _soundAppType {0};
+    AppearanceSoundSet _appearanceSoundSet;
+    /** How long the body stays after death, in seconds. */
+    float _destroyObjectDelay {kDefaultDestroyObjectDelay};
     std::string _appearanceRace;
+    /** The creaturespeed.2da name of the appearance's movement rate. */
+    std::string _appearanceMoveRate;
+    std::string _bloodColour;
+    /** The appearance's free-look video effect, -1 for none. */
+    int _freeLookEffect {-1};
+    /** The equipment slots the appearance locks, as a mask. */
+    uint32_t _equipSlotsLocked {0};
+    /** The appearance each armour body variation from A to L hands its model to, 0 for none. */
+    std::array<int, 12> _armourAppearances {};
+    /** The appearance's perception range row. */
+    int _appearancePerceptionRange {0};
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
@@ -2527,6 +2577,10 @@ private:
     // Refresh appearance-derived state (model type, size, speeds, footstep, envmap,
     // portrait) for the current _appearance, without building a scene node.
     void loadAppearanceProperties();
+    /** Read the appearance's sound set, a row of appearancesndset.2da. */
+    void loadAppearanceSoundSet(int row);
+    /** Read the appearance's movement rate, the one the default rate stands for. */
+    void loadAppearanceMoveRate(const resource::TwoDA &appearances);
     /**
      * In an area, move to the nearest spot within reach where the creature's
      * current size fits; stay put when there is none.

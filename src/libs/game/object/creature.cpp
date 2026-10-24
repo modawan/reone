@@ -46,6 +46,7 @@
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/d20/spell.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
@@ -88,7 +89,6 @@
 #include "reone/game/footstepsounds.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
-#include "reone/game/location.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
@@ -184,20 +184,16 @@ bool isBeamVisual(bool tsl, int visualId) {
 }
 
 inline bool isEffectPreservedOnDeath(const EffectInstance &record,
-                                     const resource::TwoDA &table, bool tsl) {
+                                     const std::vector<int> &keptTypes, bool tsl) {
     if (record.durationType() == DurationType::Innate ||
         record.durationType() == DurationType::Equipped)
         return true;
     const int scriptType = record.scriptEffectType(tsl);
-    for (int row = 0; row < table.getRowCount(); ++row) {
-        const auto exempt = table.getIntOpt(row, "effecttype");
-        if (!exempt) {
-            continue;
-        }
-        if (*exempt == scriptType) {
+    for (int kept : keptTypes) {
+        if (kept == scriptType) {
             return true;
         }
-        if (*exempt == static_cast<int>(EffectType::Beam) && record.serializedType == SavedEffectTypes::visualEffect &&
+        if (kept == static_cast<int>(EffectType::Beam) && record.serializedType == SavedEffectTypes::visualEffect &&
             isBeamVisual(tsl, record.integerParameter(0)))
             return true;
     }
@@ -312,30 +308,11 @@ struct DeathExperience {
     int reported {0}; // truncate: death feedback packet
 };
 
-inline std::vector<std::uint32_t> readExperienceThresholds(
-    const resource::TwoDA &table, bool tsl) {
-    const int size = tsl ? 51 : 21;
-    if (table.getRowCount() < size) {
-        throw ValidationException("Missing required exptable thresholds");
-    }
-    std::vector<std::uint32_t> values;
-    values.reserve(size);
-    for (int row = 0; row < size; ++row) {
-        // The thresholds are unsigned: the last row is 0xFFFFFFFF.
-        const auto value = table.getUintOpt(row, "xp");
-        if (!value) {
-            throw ValidationException("Missing required exptable XP at row " + std::to_string(row));
-        }
-        values.push_back(*value);
-    }
-    return values;
-}
-
 inline int getDeathExperienceRow(
-    const std::vector<std::uint32_t> &thresholds, std::uint32_t experience, bool tsl) {
+    const ICombatTables &tables, std::uint32_t experience, bool tsl) {
     const int top = tsl ? 50 : 20;
     for (int row = top; row >= 0; --row) {
-        if (experience >= thresholds[row]) {
+        if (experience >= tables.experienceThreshold(row)) {
             return tsl ? std::min(row, 30) : row;
         }
     }
@@ -358,22 +335,17 @@ inline int getDeathExperienceColumn(bool tsl, float challengeRating,
     return challenge + 1;
 }
 
+// The kill's share is the npc.2da general share row; each companion adds the
+// bonus row's share.
 inline DeathExperience resolveDeathExperience(
-    const resource::TwoDA &experienceTable, const resource::TwoDA &npcTable,
-    int row, int column, bool tsl, int companionCount) {
+    const ICombatTables &tables, const Party &party, int row, int column, bool tsl, int companionCount) {
     DeathExperience result;
     result.row = row;
     result.column = column;
-    // A kill outside the table's rows and columns, or at a blank cell, is
-    // worth nothing; so is a blank percentage.
-    float base = 0.0f;
-    if (row >= 0 && row < experienceTable.getRowCount() &&
-        column >= 0 && column < experienceTable.getColumnCount()) {
-        base = experienceTable.getFloatOpt(row, experienceTable.columns()[column]).value_or(0.0f);
-    }
-    const float percent = npcTable.getFloatOpt(tsl ? 13 : 9, "percentxp").value_or(0.0f);
+    const float base = tables.killExperience(row, column);
+    const float percent = party.percentXPFraction(tsl ? 13 : 9);
     result.amount = (percent / 100.0f) * base;
-    const int bonus = npcTable.getIntOpt(tsl ? 14 : 10, "percentxp").value_or(0);
+    const int bonus = party.percentXP(tsl ? 14 : 10);
     if (bonus > 0) {
         const float perCompanion = static_cast<float>(bonus) / 100.0f;
         const float factor = static_cast<float>(companionCount) * perCompanion + 1.0f;
@@ -420,33 +392,28 @@ int rollDamageShieldDice(const DamageCost &cost, Roll roll) {
     }
     return result;
 }
-// The seconds a destroyed creature's body waits; a blank delay is three.
-inline float readDestroyObjectDelay(const resource::TwoDA &table, int row) {
-    return table.getFloat(row, "destroyobjectdelay", 3.0f);
-}
-
-// The appearancesndset.2da column a creature falling onto a surface material
-// sounds from; empty for a surface with no fall sound.
-inline std::string fallSoundColumn(int material) {
+// The sound set entry a creature falling onto a surface material sounds
+// from; none for a surface with no fall sound.
+inline std::string Creature::AppearanceSoundSet::*fallSound(int material) {
     switch (material) {
     case 1:  // Dirt
     case 3:  // Grass
     case 14: // Leaves
-        return "falldirt";
+        return &Creature::AppearanceSoundSet::fallDirt;
     case 4:  // Stone
     case 5:  // Wood
     case 9:  // Carpet
     case 15: // Lava
-        return "fallhard";
+        return &Creature::AppearanceSoundSet::fallHard;
     case 6:  // Water
     case 11: // Puddles
     case 12: // Swamp
     case 13: // Mud
-        return "fallwater";
+        return &Creature::AppearanceSoundSet::fallWater;
     case 10: // Metal
-        return "fallmetal";
+        return &Creature::AppearanceSoundSet::fallMetal;
     default:
-        return "";
+        return nullptr;
     }
 }
 
@@ -600,13 +567,6 @@ static int getHighestTotalDefenseClassLevel(
 // Stealth
 static constexpr FeatType kStealthFeat = FeatType::PersonalCloakingShield;
 
-// Combat modes: parry, power attack, improved power attack, counterspell,
-// flurry and rapid shot.
-static constexpr int kParryMode = 1;
-static constexpr int kPowerAttackMode = 2;
-static constexpr int kImprovedPowerAttackMode = 3;
-static constexpr int kFlurryMode = 5;
-static constexpr int kRapidShotMode = 6;
 static constexpr int kStealthInCombatStrRef = 1452;
 static constexpr int kSkillUnusableStrRef = 1435;
 static constexpr int kStealthFieldVisual = 8002;
@@ -1205,21 +1165,18 @@ static void applyDeathExperience(
     if (!player) {
         return;
     }
-    const auto thresholds = readExperienceThresholds(
-        *getRequiredTwoDA(services.resource.twoDas, "exptable"), game.isTSL());
+    const auto &tables = services.game.combatTables;
     const auto &context = victim.autoBalanceContext();
     const bool autoBalance = game.isTSL() && context.multiplierSet != 0 &&
                              !game.party().isMember(victim);
     const int challengeModifier = autoBalance
-                                      ? services.game.combatTables.autoBalance(context.multiplierSet).challengeRatingModifier
+                                      ? tables.autoBalance(context.multiplierSet).challengeRatingModifier
                                       : 0;
-    const int row = getDeathExperienceRow(thresholds, std::uint32_t(player->xp()), game.isTSL());
+    const int row = getDeathExperienceRow(tables, std::uint32_t(player->xp()), game.isTSL());
     const int column = getDeathExperienceColumn(game.isTSL(), victim.challengeRating(),
                                                 autoBalance, context.playerLevelAtSpawn, challengeModifier);
-    const auto xp = resolveDeathExperience(
-        *getRequiredTwoDA(services.resource.twoDas, "xptable"),
-        *getRequiredTwoDA(services.resource.twoDas, "npc"), row, column, game.isTSL(),
-        game.party().companionCount());
+    const auto xp = resolveDeathExperience(tables, game.party(), row, column, game.isTSL(),
+                                           game.party().companionCount());
 
     // Kill experience goes to the party without the experience-gained line.
     // The killer is only credited in the death message.
@@ -1425,10 +1382,7 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
 }
 
 void Creature::loadAppearanceProperties() {
-    std::shared_ptr<TwoDA> appearances(_services.resource.twoDas.get("appearance"));
-    if (!appearances) {
-        throw ResourceNotFoundException("appearance 2DA not found");
-    }
+    auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
 
     const auto modelType = parseModelType(appearances->getString(_appearance, "modeltype"));
     // Which hands are powered belongs to the model's kind of animations: a
@@ -1443,7 +1397,11 @@ void Creature::loadAppearanceProperties() {
     _driveMaxSpeed = appearances->getFloat(_appearance, "drivemaxspeed", 0.0f);
     _personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
     _creaturePersonalSpace = appearances->getFloat(_appearance, "creperspace", _personalSpace);
-    _collisionHeight = appearances->getFloat(_appearance, "height", 0.5f);
+    // A blank height is zero where the head falls back on it, while the
+    // walking space of such an appearance reaches a metre up.
+    const auto height = appearances->getFloatOpt(_appearance, "height");
+    _height = height.value_or(0.0f);
+    _collisionHeight = height.value_or(kBlankCollisionHeight);
     _size = static_cast<CreatureSize>(appearances->getInt(
         _appearance,
         "sizecategory",
@@ -1456,15 +1414,51 @@ void Creature::loadAppearanceProperties() {
     _deathVisual = appearances->getIntOpt(_appearance, "deathvfx");
     // A death visual without a node of its own goes off at the impact node.
     _deathVisualNode = appearances->getString(_appearance, "deathvfxnode", "impact");
+    _appearanceBodyBag = appearances->getIntOpt(_appearance, "body_bag");
+    _fadeDelayOnDeath = appearances->getIntOpt(_appearance, "fadedelayondeath");
     _hitRadius = appearances->getFloat(_appearance, "hitradius");
-    _soundAppType = appearances->getInt(_appearance, "soundapptype");
+    loadAppearanceSoundSet(appearances->getInt(_appearance, "soundapptype"));
+    _destroyObjectDelay = appearances->getFloat(_appearance, "destroyobjectdelay", kDefaultDestroyObjectDelay);
     _appearanceRace = appearances->getString(_appearance, "race");
+    loadAppearanceMoveRate(*appearances);
+    _bloodColour = appearances->getString(_appearance, "bloodcolr");
+    _headTrack = appearances->getBool(_appearance, "headtrack");
+    _headBone = boost::to_lower_copy(appearances->getString(_appearance, "headbone"));
+    if (_headBone.empty()) {
+        _headBone = kDefaultHeadBone;
+    }
+    _headArcH = appearances->getFloat(_appearance, "head_arc_h", kDefaultHeadArcH);
+    _headArcV = appearances->getFloat(_appearance, "head_arc_v", kDefaultHeadArcV);
+    // A blank cell shows no video effect.
+    _freeLookEffect = appearances->getInt(_appearance, "freelookeffect", -1);
+    _equipSlotsLocked = static_cast<uint32_t>(appearances->getInt(_appearance, "equipslotslocked"));
+    // An appearance hands the model of a body variation over to another
+    // appearance by naming it as "&N".
+    for (size_t variation = 0; variation < _armourAppearances.size(); ++variation) {
+        const auto model = appearances->getString(_appearance, std::string("model") + static_cast<char>('a' + variation));
+        _armourAppearances[variation] = !model.empty() && model.front() == '&' ? std::stoi(model.substr(1)) : 0;
+    }
+    _appearancePerceptionRange = appearances->getInt(_appearance, "perceptiondist");
 
     if (_portraitId > 0) {
         _portrait = _services.game.portraits.getTextureByIndex(_portraitId);
     } else {
         _portrait = _services.game.portraits.getTextureByAppearance(_appearance);
     }
+}
+
+void Creature::loadAppearanceMoveRate(const TwoDA &appearances) {
+    _appearanceMoveRate = appearances.getString(_appearance, "moverate");
+}
+
+void Creature::loadAppearanceSoundSet(int row) {
+    auto soundSets = getRequiredTwoDA(_services.resource.twoDas, "appearancesndset");
+    _appearanceSoundSet.weapon = soundSets->getInt(row, "weapon");
+    _appearanceSoundSet.armorType = boost::to_lower_copy(soundSets->getString(row, "armortype"));
+    _appearanceSoundSet.fallDirt = boost::to_lower_copy(soundSets->getString(row, "falldirt"));
+    _appearanceSoundSet.fallHard = boost::to_lower_copy(soundSets->getString(row, "fallhard"));
+    _appearanceSoundSet.fallMetal = boost::to_lower_copy(soundSets->getString(row, "fallmetal"));
+    _appearanceSoundSet.fallWater = boost::to_lower_copy(soundSets->getString(row, "fallwater"));
 }
 
 void Creature::loadAppearance() {
@@ -1658,7 +1652,7 @@ void Creature::presentSwingSparks(Object &target) {
 void Creature::playHitSound(const Object &target, bool parried) {
     // The attacker's appearance may name its own weapon sounds; otherwise the
     // item the attack struck with does.
-    int row = getRequiredTwoDA(_services.resource.twoDas, "appearancesndset")->getInt(_soundAppType, "weapon", 0);
+    int row = _appearanceSoundSet.weapon;
     if (row == 0) {
         if (auto weapon = weaponForHitSound(_swingAttack->weaponKind)) {
             row = weapon->weaponMaterialType();
@@ -1682,13 +1676,11 @@ std::shared_ptr<Item> Creature::weaponForHitSound(PhysicalAttackKind kind) const
 // else as its body armour, else as leather. A door or placeable sounds as the
 // armour of its sound type.
 std::string Creature::hitSoundMaterial(const Object &target) const {
-    auto &twoDas = _services.resource.twoDas;
     if (const auto *creature = dyn_cast<const Creature>(&target)) {
         if (creature->hasForceShield()) {
             return "forcefield";
         }
-        auto material = boost::to_lower_copy(
-            getRequiredTwoDA(twoDas, "appearancesndset")->getString(creature->_soundAppType, "armortype"));
+        auto material = creature->_appearanceSoundSet.armorType;
         if (material.empty()) {
             if (auto armor = creature->getEquippedItem(InventorySlots::body)) {
                 material = armor->armorType();
@@ -1696,17 +1688,13 @@ std::string Creature::hitSoundMaterial(const Object &target) const {
         }
         return material.empty() ? "leather" : material;
     }
-    int soundType = 0;
     if (const auto *door = dyn_cast<const Door>(&target)) {
-        soundType = door->appearance() != 0
-                        ? getRequiredTwoDA(twoDas, "doortypes")->getInt(door->appearance(), "soundapptype", 0)
-                        : getRequiredTwoDA(twoDas, "genericdoors")->getInt(door->genericType(), "soundapptype", 0);
-    } else if (const auto *placeable = dyn_cast<const Placeable>(&target)) {
-        soundType = getRequiredTwoDA(twoDas, "placeables")->getInt(placeable->appearance(), "soundapptype", 0);
-    } else {
-        return "";
+        return door->soundArmorType();
     }
-    return boost::to_lower_copy(getRequiredTwoDA(twoDas, "placeableobjsnds")->getString(soundType, "armortype"));
+    if (const auto *placeable = dyn_cast<const Placeable>(&target)) {
+        return placeable->soundArmorType();
+    }
+    return "";
 }
 
 // The creature swings its right weapon, or a lightsaber in its left hand.
@@ -1729,8 +1717,7 @@ void Creature::playSwingSound(const std::string &name, int variants) {
 // A weapon sound plays once, 1.5 m above the creature's feet; a weapon with
 // no sound in the column plays nothing.
 void Creature::playWeaponSound(int weaponSoundRow, const std::string &column) {
-    const auto resRef = boost::to_lower_copy(
-        getRequiredTwoDA(_services.resource.twoDas, "weaponsounds")->getString(weaponSoundRow, column));
+    const auto &resRef = _services.game.combatTables.weaponSound(weaponSoundRow, column);
     if (resRef.empty()) {
         return;
     }
@@ -1743,12 +1730,11 @@ void Creature::playWeaponSound(int weaponSoundRow, const std::string &column) {
 // surface under its feet once, at its feet; another surface, or a sound set
 // with no sound for the surface, plays nothing.
 void Creature::playFallSound() {
-    const std::string column = fallSoundColumn(_game.module()->area()->getSurfaceMaterial(_position));
-    if (column.empty()) {
+    const auto sound = fallSound(_game.module()->area()->getSurfaceMaterial(_position));
+    if (!sound) {
         return;
     }
-    const auto resRef = boost::to_lower_copy(
-        getRequiredTwoDA(_services.resource.twoDas, "appearancesndset")->getString(_soundAppType, column));
+    const auto &resRef = _appearanceSoundSet.*sound;
     if (resRef.empty()) {
         return;
     }
@@ -1976,32 +1962,12 @@ void Creature::setCombatStance(CombatStance stance) {
     _animDirty = true;
 }
 
-bool Creature::setCombatMode(int mode) {
-    auto rightHand = getEquippedItem(InventorySlots::rightWeapon);
-    const bool rangedRightHand = rightHand && rightHand->isRanged();
-    bool allowed = true;
-    if (mode >= kParryMode && mode <= kImprovedPowerAttackMode) {
-        allowed = !rangedRightHand;
-    } else if (mode == kFlurryMode) {
-        allowed = !rightHand;
-    } else if (mode == kRapidShotMode) {
-        allowed = rangedRightHand;
-    }
-    // A refused mode keeps the old one; its feedback message is never displayed.
-    if (!allowed) {
-        return false;
-    }
-    _combatMode = mode;
-    return true;
-}
-
 void Creature::cancelAllCombatModes() {
     setOrientationLock(script::kObjectInvalid);
     // The ready pose is refused while dead or, for party members, at zero vitality.
     if (!isDead() && (!_game.party().isMember(*this) || currentHitPoints() > 0)) {
         resumeStateDrivenAnimation();
     }
-    setCombatMode(0);
     if (auto action = _currentCombatAction.lock()) {
         action->combatAction().clearSpecialAttacks();
     }
@@ -2414,8 +2380,6 @@ static constexpr int kSpectacularDeathVisual = 6003;
 
 // Head look-at
 
-// The bone a head turns by when the appearance names none.
-static const std::string kDefaultHeadBone("hturn_g");
 static const std::string kCameraHookNode("camerahook");
 static const std::string kFreeLookHookNode("freelookhook");
 static const std::string kHeadNode("head_g");
@@ -2453,7 +2417,7 @@ static glm::vec3 lookAtAimPoint(const Object &target) {
 }
 
 float Creature::headTurnHorizontal() const {
-    return getRequiredTwoDA(_services.resource.twoDas, "appearance")->getFloat(_appearance, "head_arc_h");
+    return _headArcH;
 }
 
 float Creature::headHeight() const {
@@ -2468,7 +2432,7 @@ float Creature::headHeight() const {
             return height;
         }
     }
-    return getRequiredTwoDA(_services.resource.twoDas, "appearance")->getFloat(_appearance, "height");
+    return _height;
 }
 
 glm::vec3 Creature::freeLookPoint() const {
@@ -2483,8 +2447,7 @@ glm::vec3 Creature::freeLookPoint() const {
 }
 
 int Creature::freeLookVideoEffect() const {
-    // A blank cell shows no video effect.
-    return getRequiredTwoDA(_services.resource.twoDas, "appearance")->getInt(_appearance, "freelookeffect", -1);
+    return _freeLookEffect;
 }
 
 float Creature::cameraHookHeight() const {
@@ -2504,9 +2467,7 @@ bool Creature::lookAt(const std::shared_ptr<Object> &target, float maxDistance) 
     if (models.empty()) {
         return false;
     }
-    auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-    const bool track = appearances->getBool(_appearance, "headtrack");
-    if (!track || !target) {
+    if (!_headTrack || !target) {
         _lookAtId = script::kObjectInvalid;
         _lookAtTarget.reset();
         _lookAtRunning = false;
@@ -2523,19 +2484,13 @@ bool Creature::lookAt(const std::shared_ptr<Object> &target, float maxDistance) 
     if (glm::dot(offset, offset) > maxDistance * maxDistance) {
         return false;
     }
-    std::string bone = appearances->getString(_appearance, "headbone");
-    if (bone.empty()) {
-        bone = kDefaultHeadBone;
-    }
-    const float arcH = headTurnHorizontal();
-    const float arcV = appearances->getFloat(_appearance, "head_arc_v");
     _lookAtId = id;
     _lookAtTarget = RuntimeObjectRef<Object>(target);
     _lookAtDistance = maxDistance;
     _lookAtRunning = false;
     const glm::vec3 aim {lookAtAimPoint(*target)};
     for (auto &model : models) {
-        if (model.get().beginLookAt(boost::to_lower_copy(bone), arcH, arcV)) {
+        if (model.get().beginLookAt(_headBone, _headArcH, _headArcV)) {
             model.get().setLookAtPoint(aim);
             _lookAtRunning = true;
         }
@@ -3491,11 +3446,6 @@ void Creature::setMaxHitPoints(int baseHitPoints) {
     updateDeathFromCurrentHitPoints();
 }
 
-// A regeneration value of TSL's regeneration table, named by its row label.
-static float regenerationValue(const TwoDA &table, const std::string &label) {
-    return table.getFloat(table.indexByLabel(label), "value");
-}
-
 int Creature::getUnopposedSkillRank(SkillType skill, bool baseOnly) const {
     return skillRank(skill, baseOnly, std::nullopt);
 }
@@ -3506,11 +3456,11 @@ int Creature::getSkillRankVersus(SkillType skill, const Creature &versus) const 
 
 int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &versus) const {
     // A skill the skills table has no row for, as a script may ask, has no rank.
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "skills");
-    const int row = static_cast<int>(skill);
-    if (row >= table->getRowCount()) {
+    const auto rules = _services.game.skills.get(skill);
+    if (!rules) {
         return 0;
     }
+    const int row = static_cast<int>(skill);
     int rank = _attributes.getSkillRank(skill);
     if (baseOnly) {
         return rank;
@@ -3518,8 +3468,7 @@ int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &
     if (_game.isTSL() && skill == SkillType::Stealth && rank == 0 &&
         _attributes.hasSpell(SpellType::ForceCamouflage))
         rank = 1;
-    const int untrained = table->getInt(row, "untrained", 0);
-    if (rank == 0 && !(untrained & 1)) {
+    if (rank == 0 && !rules->untrained) {
         return 0;
     }
 
@@ -3574,25 +3523,11 @@ int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &
     };
     rank += total(increases) - total(decreases);
 
-    const auto key = table->getString(row, "keyability");
-    Ability ability = Ability::Strength;
-    if (key == "DEX") {
-        ability = Ability::Dexterity;
-    } else if (key == "CON") {
-        ability = Ability::Constitution;
-    } else if (key == "INT") {
-        ability = Ability::Intelligence;
-    } else if (key == "WIS") {
-        ability = Ability::Wisdom;
-    } else if (key == "CHA") {
-        ability = Ability::Charisma;
-    }
+    const Ability ability = rules->keyAbility;
     rank += getEffectiveAbilityModifier(ability);
     if ((ability == Ability::Strength || ability == Ability::Dexterity) &&
         hasEffect(EffectType::Blindness))
         rank -= 4;
-
-    const auto computer = std::dynamic_pointer_cast<Placeable>(dialogOwner());
 
     switch (skill) {
     case SkillType::ComputerUse:
@@ -3630,9 +3565,6 @@ int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &
     default:
         break;
     }
-    if (skill == SkillType::ComputerUse && computer) {
-        rank += computer->computerUseAdjustment();
-    }
     if (_game.isTSL() && skill == SkillType::Stealth) {
         if (_attributes.hasSpell(SpellType::MasterForceCamouflage)) {
             rank += 8;
@@ -3662,12 +3594,10 @@ void Creature::updateRegeneration(float dt) {
 
 void Creature::updateK1HitPointRegeneration(float dt) {
     const int maximum = maxHitPoints();
-    const int row = !_combatState.active ||
-                            _combatState.activationType == CombatActivation::Indirect
-                        ? 1
-                        : 0;
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "regeneration");
-    const float rate = table->getFloat(row, "healthregen", 0.0f);
+    const int row = !_combatState.active || _combatState.activationType == CombatActivation::Indirect
+                        ? RegenerationRates::kOutOfCombatRow
+                        : RegenerationRates::kInCombatRow;
+    const float rate = _services.game.combatTables.regeneration().healthRegen[row];
     const float pointsPerSecond = std::max(
         0.0001f,
         static_cast<float>(maximum) * rate / 100.0f);
@@ -3687,13 +3617,14 @@ void Creature::updateHitPointRegeneration(float dt) {
     if (maxHitPoints() == currentHitPointsWithoutTemporary() ||
         _game.party().isHealthRegenerationDisabled())
         return;
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "regeneration");
-    const float timePerPoint = regenerationValue(*table, "TimePerHP");
-    float rate = regenerationValue(*table,
-                                   !_combatState.active || _combatState.activationType == CombatActivation::Indirect ? "OutOfCombatHPBase" : "InCombatHPBase");
-    rate += getEffectiveAbilityModifier(Ability::Constitution) * regenerationValue(*table, "ConModBonus");
+    const auto &rates = _services.game.combatTables.regeneration();
+    const float timePerPoint = rates.timePerHitPoint;
+    float rate = !_combatState.active || _combatState.activationType == CombatActivation::Indirect
+                     ? rates.outOfCombatHitPointBase
+                     : rates.inCombatHitPointBase;
+    rate += getEffectiveAbilityModifier(Ability::Constitution) * rates.constitutionBonus;
     const auto skill = racialType() == RacialType::Droid ? SkillType::Repair : SkillType::TreatInjury;
-    rate += getUnopposedSkillRank(skill) * regenerationValue(*table, "SkillRankBons");
+    rate += getUnopposedSkillRank(skill) * rates.skillRankBonus;
     if (hasEffectiveFeat(FeatType::RegenerateVitalityPoints)) {
         rate += 0.5f;
     }
@@ -3719,12 +3650,10 @@ void Creature::updateK1ForcePointRegeneration(float dt) {
         return;
     }
 
-    const int row = !_combatState.active ||
-                            _combatState.activationType == CombatActivation::Indirect
-                        ? 1
-                        : 0;
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "regeneration");
-    const float rate = table->getFloat(row, "forceregen", 0.0f);
+    const int row = !_combatState.active || _combatState.activationType == CombatActivation::Indirect
+                        ? RegenerationRates::kOutOfCombatRow
+                        : RegenerationRates::kInCombatRow;
+    const float rate = _services.game.combatTables.regeneration().forceRegen[row];
     const int totalMaximum = maximum + _temporaryForcePoints;
     const float pointsPerSecond = std::max(
         0.0001f,
@@ -3752,22 +3681,22 @@ void Creature::updateForcePointRegeneration(float dt) {
     }
     const int totalMaximum = maximum + _temporaryForcePoints;
     const int roomRating = area->get().getRoomForceRating(position());
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "regeneration");
-    const float time = regenerationValue(*table, "FPRegenTime");
+    const auto &rates = _services.game.combatTables.regeneration();
+    const float time = rates.forcePointTime;
     float rate;
     // Niman needs a lightsaber in the right hand.
     const auto right = getEquippedItem(InventorySlots::rightWeapon);
     const bool lightsaber = right && right->isLightsaber();
     if (!_combatState.active || _combatState.activationType == CombatActivation::Indirect) {
-        rate = regenerationValue(*table, "OutOfCombatFPBase");
+        rate = rates.outOfCombatForcePointBase;
     } else if (_currentForm == CombatForm::SaberVINiman && lightsaber) {
-        rate = regenerationValue(*table, "OutOfCombatFPBase") * 0.3f;
+        rate = rates.outOfCombatForcePointBase * 0.3f;
     } else if (_currentForm == CombatForm::ForceIIIAffinity) {
-        rate = regenerationValue(*table, "OutOfCombatFPBase") * 0.6f;
+        rate = rates.outOfCombatForcePointBase * 0.6f;
     } else {
-        rate = regenerationValue(*table, "InCombatFPBase");
+        rate = rates.inCombatForcePointBase;
     }
-    rate += getEffectiveAbilityModifier(Ability::Wisdom) * regenerationValue(*table, "WisModBonus");
+    rate += getEffectiveAbilityModifier(Ability::Wisdom) * rates.wisdomBonus;
     if (hasEffectiveFeat(FeatType::RegenerateForcePoints)) {
         rate += 0.25f;
     }
@@ -4191,12 +4120,12 @@ void Creature::playTurnAnimation(float sign) {
 }
 
 void Creature::removeEffectsOnDeath() {
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "removefxondeath");
+    const auto &keptTypes = _services.game.combatTables.deathKeptEffectTypes();
     std::vector<uint64_t> refused;
     for (;;) {
         auto found = std::find_if(_effects.begin(), _effects.end(), [&](const EffectInstance &record) {
             return std::find(refused.begin(), refused.end(), record.applicationOrder) == refused.end() &&
-                   !isEffectPreservedOnDeath(record, *table, _game.isTSL());
+                   !isEffectPreservedOnDeath(record, keptTypes, _game.isTSL());
         });
         if (found == _effects.end()) {
             break;
@@ -4339,8 +4268,7 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
     // Destroyability is tested when the destruction is delivered. A death
     // leaves a destruction an earlier death queued pending.
     if (!partyDeath && !noFadeAway) {
-        const auto table = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-        _game.postObjectDestruction(*this, readDestroyObjectDelay(*table, _appearance));
+        _game.postObjectDestruction(*this, _destroyObjectDelay);
     }
     return true;
 }
@@ -4959,7 +4887,7 @@ Creature::ScriptAnimation Creature::getScriptAnimation(int constant) const {
         result.loop = row < 0 || !_services.game.animations.isFireForgetById(static_cast<uint32_t>(row));
     }
     if (id >= 0) {
-        result.source = AnimationSource {id, isDialogAnimation(_services.resource.twoDas, id)};
+        result.source = AnimationSource {id, _services.game.animations.isDialogAnimation(id)};
     }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     auto anim = model && !result.clip.empty() ? model->model().getAnimation(result.clip) : nullptr;
@@ -5058,8 +4986,7 @@ static constexpr int kImmobileAIStateMask = Creature::kAIStateUnrestricted & Cre
 
 void Creature::setMovementRate(int row) {
     if (row == kDefaultMovementRate) {
-        const auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-        row = _services.game.creatureSpeeds.find(appearances->getString(_appearance, "moverate"));
+        row = _services.game.creatureSpeeds.find(_appearanceMoveRate);
     }
     _walkRate = row;
     const auto &speed = _services.game.creatureSpeeds.get(row);
@@ -5133,15 +5060,12 @@ void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
             changeAppearance(kHandmaidenArmouredAppearance);
         }
     }
-    // An appearance hands the model of a body variation over to another
-    // appearance by naming it as "&N".
-    const auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-    const auto model = appearances->getString(_appearance, std::string("model") + variation);
-    if (model.empty() || model.front() != '&') {
+    // A variation before A has no model column.
+    if (variation < 'a') {
         return;
     }
-    const int appearance = std::stoi(model.substr(1));
-    if (appearance != _appearance) {
+    const int appearance = _armourAppearances[variation - 'a'];
+    if (appearance != 0 && appearance != _appearance) {
         changeAppearance(appearance);
     }
 }
@@ -5415,10 +5339,6 @@ std::shared_ptr<Item> Creature::getEquippedItem(int slot) const {
     return equipped != _equipment.end() ? equipped->second : nullptr;
 }
 
-bool Creature::isSlotEquipped(int slot) const {
-    return _equipment.find(slot) != _equipment.end();
-}
-
 void Creature::setFaction(Faction faction) {
     if (faction == _faction) {
         return;
@@ -5426,7 +5346,6 @@ void Creature::setFaction(Faction faction) {
     _faction = faction;
     _factionJoinOrder = _game.nextFactionJoinOrder();
 }
-
 void Creature::setMovementType(MovementType type) {
     if (_movementType == type) {
         return;
@@ -5730,14 +5649,14 @@ bool Creature::isBlind() const {
 
 float Creature::spotRange() const {
     if (_combatState.active && _game.party().getLeader().get() != this) {
-        return getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kCombatPerceptionRangeRow, "primaryrange");
+        return _services.game.spells.range(kCombatPerceptionRangeRow).primary.value_or(0.0f);
     }
     return _perception.sightRange;
 }
 
 float Creature::listenRange() const {
     if (_combatState.active && _game.party().getLeader().get() != this) {
-        return getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kCombatPerceptionRangeRow, "secondaryrange");
+        return _services.game.spells.range(kCombatPerceptionRangeRow).secondary.value_or(0.0f);
     }
     return _perception.hearingRange;
 }
@@ -5757,15 +5676,15 @@ void Creature::resolvePerceptionRanges() {
     _pendingPerceptionRangeRow.reset();
     _pendingPerceptionRangeByAppearance = false;
     if (byAppearance) {
-        row = getRequiredTwoDA(_services.resource.twoDas, "appearance")->getInt(_appearance, "perceptiondist");
+        row = _appearancePerceptionRange;
     }
     // A row outside the ranges table gives no ranges.
-    auto ranges = getRequiredTwoDA(_services.resource.twoDas, "ranges");
-    if (row >= ranges->getRowCount()) {
+    const auto range = _services.game.spells.findRange(row);
+    if (!range) {
         return;
     }
-    _perception.sightRange = ranges->getFloat(row, "primaryrange");
-    _perception.hearingRange = ranges->getFloat(row, "secondaryrange");
+    _perception.sightRange = range->get().primary.value_or(0.0f);
+    _perception.hearingRange = range->get().secondary.value_or(0.0f);
 }
 
 // Stealth rolls are rerolled only while stealthed; awareness rolls always.
@@ -6853,15 +6772,8 @@ void Creature::recomputeInfluenceAlignment() {
     if (!identity || identity->kind != RosterKind::Npc) {
         return;
     }
-    const auto influenceTable = party.influenceTable();
-    std::optional<int> row;
-    for (int i = 0; i < influenceTable->getRowCount(); ++i) {
-        if (boost::iequals(influenceTable->getString(i, "tag"), _tag)) {
-            row = i;
-            break;
-        }
-    }
-    if (!row) {
+    const auto baseInfluence = party.baseInfluence(_tag);
+    if (!baseInfluence) {
         return;
     }
 
@@ -6894,7 +6806,7 @@ void Creature::recomputeInfluenceAlignment() {
     auto influence = party.influence(npc);
     // Influence never set starts at the companion's base influence.
     if (!influence) {
-        influence = influenceTable->getInt(*row, "baseinfluence");
+        influence = *baseInfluence;
         party.setInfluence(npc, *influence);
     }
     _goodEvil = influenceAlignment(_baseCNPCAlignment, *influence, charismaBonus, factor, playerAlignment);
@@ -6958,9 +6870,20 @@ int Creature::getAbilityEffectModifier(Ability ability) const {
     return reducer.total();
 }
 
-int Creature::getEffectiveAbilityScore(Ability ability) const {
+void Creature::setRacialType(RacialType race) {
+    _race = race;
     auto races = getRequiredTwoDA(_services.resource.twoDas, "racialtypes");
-    const int racial = readRacialAbilityAdjustment(*races, static_cast<int>(_race), ability);
+    const int row = static_cast<int>(_race);
+    for (size_t ability = 0; ability < _racialAbilityAdjustments.size(); ++ability) {
+        _racialAbilityAdjustments[ability] = readRacialAbilityAdjustment(*races, row, static_cast<Ability>(ability));
+    }
+    _raceNames.name = races->getInt(row, "name", -1);
+    _raceNames.converName = races->getInt(row, "convername", -1);
+    _raceNames.converNameLower = races->getInt(row, "convernamelower", -1);
+}
+
+int Creature::getEffectiveAbilityScore(Ability ability) const {
+    const int racial = _racialAbilityAdjustments[static_cast<int>(ability)];
     return getAbilityScoreFromParts(_attributes.getAbilityScore(ability),
                                     getAbilityEffectModifier(ability), racial);
 }
@@ -8176,12 +8099,6 @@ PhysicalDamageBonus Creature::getPhysicalDamageBonus(
     }
 
     PhysicalDamageBonus result {abilityModifier, strengthModifier, specialization};
-    // Power attack and improved power attack modes.
-    if (_combatMode == kPowerAttackMode) {
-        result.combatModeDamage = _game.isTSL() ? 3 : 5;
-    } else if (_combatMode == kImprovedPowerAttackMode) {
-        result.combatModeDamage = _game.isTSL() ? 7 : 10;
-    }
     if (_game.isTSL() && _furyDamageBonus > 0) {
         result.furyDamage = _furyDamageBonus;
     }
@@ -10135,6 +10052,7 @@ void Creature::deserializeAll(
 
     // index into racialtypes.2da
     gff.readEnum(_race, "Race");
+    setRacialType(_race);
 
     // index into subrace.2da
     gff.readEnum(_subrace, "SubraceIndex");
@@ -10190,6 +10108,8 @@ void Creature::deserializeAll(
     if (gff.readByte(movementRate, "MovementRate")) {
         _walkRate = movementRate;
     }
+    // The default rate is the appearance's, which the record has just named.
+    loadAppearanceMoveRate(*getRequiredTwoDA(_services.resource.twoDas, "appearance"));
     setMovementRate(_walkRate);
     gff.readBool(_listening, "Listening");
     for (const auto &expression : gff.getList("ExpressionList")) {
@@ -11192,18 +11112,16 @@ std::vector<ContextAction> Creature::behaviorMenuActions() {
         _aiStyle = NPCAIStyle::PartyAggro;
         break;
     }
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "aiscripts");
     // Every behaviour row but the defensive one is offered. The support row
     // (the fifth) is Jedi support for a creature whose last class is a Jedi
     // class, and grenadier support under another name for anyone else.
     static constexpr int kSupportRow = 4;
     static constexpr uint32_t kGrenadierSupportName = 126053;
     const bool jedi = isForceUsingClass(_attributes.getEffectiveClass(), true);
-    // A blank cell reads as 0.
-    for (int row = 0; row < table->getRowCount(); ++row) {
-        int nameStrRef = table->getInt(row, "NAME_STRREF", 0);
-        const int state = table->getInt(row, "AISTATE", 0);
-        const auto style = static_cast<NPCAIStyle>(state);
+    const auto &scripts = _game.party().aiScripts();
+    for (int row = 0; row < static_cast<int>(scripts.size()); ++row) {
+        int nameStrRef = scripts[row].nameStrRef;
+        const auto style = static_cast<NPCAIStyle>(scripts[row].state);
         if (style == NPCAIStyle::PartyDefense) {
             continue;
         }
@@ -11361,8 +11279,9 @@ void Creature::healForcePoints(int amount) {
 }
 
 void Creature::regenerateForcePoints(int amount) {
-    // Regeneration is measured against the whole pool, temporary points
-    // included, up to the maximum, and written to the ordinary points.
+    // Force points restored by a Heal effect count the temporary points toward
+    // the maximum, are written to the ordinary points, and always report the
+    // gain, unlike healForcePoints.
     const int current = _currentForce + _temporaryForcePoints;
     const int maximum = maxForcePoints();
     int result = current + amount;
@@ -11821,22 +11740,9 @@ void Creature::forceHeartbeat() {
 
 Creature::EffectStackCounts Creature::effectStackCounts() const {
     EffectStackCounts result;
-    if (_effectIconCounts.empty()) {
-        return result;
-    }
-
-    auto effectIcons = getRequiredTwoDA(
-        _services.resource.twoDas,
-        "effecticon");
-
     for (const auto &[iconId, count] : _effectIconCounts) {
-        if (count <= 0 || iconId < 0 ||
-            iconId >= effectIcons->getRowCount()) {
-            continue;
-        }
-
-        auto good = effectIcons->getBoolOpt(iconId, "good");
-        if (!good) {
+        const auto good = _services.game.combatTables.effectIcon(iconId).good;
+        if (count <= 0 || !good) {
             continue;
         }
         if (*good) {
@@ -11870,9 +11776,8 @@ bool categoryMatches(int requested, int actual) {
 
 // A talent without exclusions passes, and so does one whose exclusions and the
 // requested inclusions are both empty; the two are not intersected.
-bool inclusionMatches(const resource::TwoDA &table, int id, int inclusion) {
-    const int exclusion = table.getInt(id, "exclusion", 0);
-    return exclusion == 0 || (inclusion | exclusion) == 0;
+bool inclusionMatches(uint32_t exclusion, int inclusion) {
+    return exclusion == 0 || (static_cast<uint32_t>(inclusion) | exclusion) == 0;
 }
 
 // The challenge rating every ranked talent is first measured against.
@@ -11961,8 +11866,7 @@ int Creature::featRemainingUses(FeatType feat) const {
     if (!definition || !hasEffectiveFeat(feat)) {
         return 0;
     }
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "feat");
-    const int maximum = table->getInt(static_cast<int>(feat), "usesperday", 0);
+    const int maximum = definition->usesPerDay;
     // Only a learned feat with uses per day counts its uses; any other feat
     // the creature has is unlimited.
     if (maximum == 0 || !_attributes.hasFeat(feat)) {
@@ -11980,8 +11884,7 @@ void Creature::spendFeatUse(FeatType feat) {
     if (!definition || !_attributes.hasFeat(feat)) {
         return;
     }
-    const auto table = getRequiredTwoDA(_services.resource.twoDas, "feat");
-    if (table->getInt(static_cast<int>(feat), "usesperday", 0) != 0) {
+    if (definition->usesPerDay != 0) {
         _attributes.spendFeatUse(feat);
     }
 }
@@ -12094,8 +11997,9 @@ bool Creature::hasTalent(TalentType type, int id) const {
         if (rank > 0) {
             return true;
         }
-        const auto skills = getRequiredTwoDA(_services.resource.twoDas, "skills");
-        return (skills->getInt(id, "untrained", 0) & 1) != 0;
+        // A skill the skills table has no row for cannot be used untrained.
+        const auto skill = _services.game.skills.get(static_cast<SkillType>(id));
+        return skill && skill->untrained;
     }
     case TalentType::Spell: {
         const auto spell = _services.game.spells.get(static_cast<SpellType>(id));
@@ -12123,8 +12027,6 @@ bool Creature::hasTalent(TalentType type, int id) const {
 
 std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int inclusion,
                                                int excludeType, int excludeId) const {
-    const auto spells = getRequiredTwoDA(_services.resource.twoDas, "spells");
-    const auto feats = getRequiredTwoDA(_services.resource.twoDas, "feat");
     const bool ranked = crMax != -1;
     const int excludedSpell = excludeType == 0 ? excludeId : -1;
     const int excludedFeat = excludeType == 1 ? excludeId : -1;
@@ -12133,7 +12035,7 @@ std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int incl
         if (id == excluded || !hasTalent(TalentType::Spell, id)) {
             return false;
         }
-        return !spatialArea() || categoryMatches(category, spells->getInt(id, "category", 0));
+        return !spatialArea() || categoryMatches(category, static_cast<int>(spell.category));
     };
 
     const auto specialAbility = [&]() -> std::shared_ptr<Talent> {
@@ -12143,11 +12045,11 @@ std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int incl
                 continue;
             }
             const auto spell = _services.game.spells.get(static_cast<SpellType>(ability.spell));
-            if (!spell || !suitable(*spell, -1) || !inclusionMatches(*spells, ability.spell, inclusion)) {
+            if (!spell || !suitable(*spell, -1) || !inclusionMatches(spell->exclusion, inclusion)) {
                 continue;
             }
             pool.add({TalentType::Spell, ability.spell, kSpellLikeAbilityClass, script::kObjectInvalid, -1, ability.casterLevel},
-                     spells->getInt(ability.spell, "maxcr", 0), ranked);
+                     spell->maxCR, ranked);
         }
         return pool.choose(_game);
     };
@@ -12166,7 +12068,7 @@ std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int incl
                 }
                 const int id = static_cast<int>(type);
                 pool.addKnownPower({TalentType::Spell, id, static_cast<int>(index)},
-                                   spells->getInt(id, "maxcr", 0), ranked);
+                                   spell->maxCR, ranked);
             }
             if (auto selected = pool.choose(_game)) {
                 return selected;
@@ -12183,14 +12085,14 @@ std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int incl
                 continue;
             }
             if (source.equipped) {
-                if (!suitable(*spell, -1) || !inclusionMatches(*spells, id, inclusion)) {
+                if (!suitable(*spell, -1) || !inclusionMatches(spell->exclusion, inclusion)) {
                     continue;
                 }
-            } else if (!categoryMatches(category, spells->getInt(id, "category", 0))) {
+            } else if (!categoryMatches(category, static_cast<int>(spell->category))) {
                 continue;
             }
             pool.add({TalentType::Spell, id, kUnselectedCastingClass, source.item->id(), static_cast<int>(source.property)},
-                     spells->getInt(id, "maxcr", 0), ranked);
+                     spell->maxCR, ranked);
         }
         return pool.choose(_game);
     };
@@ -12200,11 +12102,12 @@ std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int incl
         // by effects count as held but are not drawn.
         for (const auto type : _attributes.featOrder()) {
             const int id = static_cast<int>(type);
-            if (!_services.game.feats.get(type) ||
-                !categoryMatches(category, feats->getInt(id, "category", 0)) ||
-                !inclusionMatches(*feats, id, inclusion) || id == excludedFeat || !hasTalent(TalentType::Feat, id))
+            const auto definition = _services.game.feats.get(type);
+            if (!definition || !categoryMatches(category, definition->category) ||
+                !inclusionMatches(definition->exclusion, inclusion) || id == excludedFeat ||
+                !hasTalent(TalentType::Feat, id))
                 continue;
-            pool.add({TalentType::Feat, id}, feats->getInt(id, "maxcr", 0), ranked);
+            pool.add({TalentType::Feat, id}, definition->maxCR, ranked);
         }
         return pool.choose(_game);
     };

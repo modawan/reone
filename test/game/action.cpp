@@ -134,6 +134,7 @@ TEST(CombatRoundReferences, dead_but_live_target_is_a_gameplay_condition) {
                                                                    .columns({"destroyobjectdelay"})
                                                                    .row({""})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     // The body's destruction is queued on the active module.
@@ -230,7 +231,7 @@ TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_ali
 }
 
 TEST(Action, use_talent_dispatch_to_use_feat) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
     engine.init();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -267,7 +268,7 @@ TEST(Action, use_talent_dispatch_to_use_feat) {
 }
 
 TEST(Action, use_talent_dispatch_to_cast_spell) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
     engine.init();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -516,8 +517,7 @@ TEST(Action, follow_leader_survives_when_the_party_has_a_leader) {
 
 // G. Following does not finish on arrival: a party member already within
 // following distance of the leader keeps the action running, as the follow
-// command stays in progress while the member stands with the leader. (This
-// assertion replaces the earlier completion on arrival, which was withdrawn.)
+// command stays in progress while the member stands with the leader.
 TEST(Action, follow_leader_keeps_running_once_the_follower_is_with_the_leader) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -746,6 +746,7 @@ TEST(PhysicalAttackResolution, natural_one_and_twenty_override_totals) {
                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                    .row({"0", "0", "0", "0", "0", "0"})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto attacker = game.newCreature();
@@ -774,6 +775,7 @@ TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                    .row({"0", "0", "0", "0", "0", "0"})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto attacker = game.newCreature();
@@ -799,6 +801,7 @@ TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                    .row({"0", "0", "0", "0", "0", "0"})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     // A confirmed critical hit checks whether the leader hears the attacker in the active area.
@@ -849,6 +852,7 @@ TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
                                                                    .row({"0", "0", "0", "0", "0", "0"})
                                                                    .build())));
+    engine.initCombatTables();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     // Combat runs in the active module.

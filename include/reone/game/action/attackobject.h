@@ -71,10 +71,8 @@ public:
 
     AttackResultType result() const { return _attacks.result(); }
     /** Make this a cutscene attack: forced swing, result and damage, no end-of-round script. */
-    void forceCutsceneAttack(const CutsceneAttack &cutscene) {
-        setCutsceneAttack(true);
-        _attacks.forceCutscene(cutscene);
-    }
+    void forceCutsceneAttack(const CutsceneAttack &cutscene) { _attacks.forceCutscene(cutscene); }
+    bool isCutsceneAttack() const override { return _attacks.cutscene().has_value(); }
     /** The attack the leader continues with when its round ends. */
     void markRoundContinuation() { _roundContinuation = true; }
     /** A continuation not yet dispatched: it has not executed since it was queued. */

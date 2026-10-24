@@ -44,6 +44,19 @@ void Skills::init() {
         skill->name = std::move(name);
         skill->description = std::move(description);
         skill->icon = std::move(icon);
+        skill->untrained = skills->getInt(row, "untrained", 0) != 0;
+        const auto key = skills->getString(row, "keyability");
+        if (key == "DEX") {
+            skill->keyAbility = Ability::Dexterity;
+        } else if (key == "CON") {
+            skill->keyAbility = Ability::Constitution;
+        } else if (key == "INT") {
+            skill->keyAbility = Ability::Intelligence;
+        } else if (key == "WIS") {
+            skill->keyAbility = Ability::Wisdom;
+        } else if (key == "CHA") {
+            skill->keyAbility = Ability::Charisma;
+        }
         _skills.insert(std::make_pair(static_cast<SkillType>(row), std::move(skill)));
     }
 }

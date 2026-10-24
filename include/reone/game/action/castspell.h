@@ -51,7 +51,7 @@ public:
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** An instant cast starts an ordinary round, which runs its end-of-round script. */
-    bool suppressesEndRoundScript() const override { return (_fake && !_instantSpell) || _cutsceneAttack; }
+    bool suppressesEndRoundScript() const override { return _fake && !_instantSpell; }
     bool holdsCombatRound() const override { return _schedule.holdsRound() && !isCompleted() && !isCancelled(); }
     /** An instant cast takes no action of its round. */
     bool tookRoundAction() const override { return _dispatched && !_fake && !_instantSpell; }

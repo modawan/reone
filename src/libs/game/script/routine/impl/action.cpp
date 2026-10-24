@@ -37,7 +37,6 @@
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
-#include "reone/game/action/openlock.h"
 #include "reone/game/action/pickupitem.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/putdownitem.h"

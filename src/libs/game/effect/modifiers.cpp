@@ -277,11 +277,10 @@ EffectApplicationResult AssuredHitEffect::onApply(Object &object, EffectInstance
                : EffectApplicationResult::Rejected;
 }
 
-EffectRemovalResult AssuredHitEffect::onRemove(Object &object, const EffectInstance &) {
+void AssuredHitEffect::onRemove(Object &object, const EffectInstance &) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->removeAssuredHit();
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult AssuredDeflectionEffect::onApply(Object &object, EffectInstance &instance) {
@@ -291,11 +290,10 @@ EffectApplicationResult AssuredDeflectionEffect::onApply(Object &object, EffectI
                : EffectApplicationResult::Rejected;
 }
 
-EffectRemovalResult AssuredDeflectionEffect::onRemove(Object &object, const EffectInstance &) {
+void AssuredDeflectionEffect::onRemove(Object &object, const EffectInstance &) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->removeAssuredDeflection();
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult BlasterDeflectionIncreaseEffect::onApply(Object &object, EffectInstance &) {
@@ -350,9 +348,8 @@ EffectApplicationResult DamageImmunityIncreaseEffect::onApply(
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult DamageImmunityIncreaseEffect::onRemove(Object &object, const EffectInstance &) {
+void DamageImmunityIncreaseEffect::onRemove(Object &object, const EffectInstance &) {
     restoreImmunityWithout(object, static_cast<int>(_damageType), _percentImmunity);
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult DamageImmunityDecreaseEffect::onApply(
@@ -374,9 +371,8 @@ EffectApplicationResult DamageImmunityDecreaseEffect::onApply(
 }
 
 // The decrease is still counted when it is taken out, so it is subtracted twice.
-EffectRemovalResult DamageImmunityDecreaseEffect::onRemove(Object &object, const EffectInstance &) {
+void DamageImmunityDecreaseEffect::onRemove(Object &object, const EffectInstance &) {
     restoreImmunityWithout(object, static_cast<int>(_damageType), _percentImmunity);
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult DamageResistanceEffect::onApply(Object &, EffectInstance &) {
@@ -401,11 +397,10 @@ EffectApplicationResult ForceResistanceIncreaseEffect::onApply(Object &object, E
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult ForceResistanceIncreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
+void ForceResistanceIncreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->forceResistance().removeIncrease(object.effects(), instance);
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult ForceResistanceDecreaseEffect::onApply(Object &object, EffectInstance &instance) {
@@ -425,11 +420,10 @@ EffectApplicationResult ForceResistanceDecreaseEffect::onApply(Object &object, E
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult ForceResistanceDecreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
+void ForceResistanceDecreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->forceResistance().removeDecrease(object.effects(), instance);
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult ModifyAttacksEffect::onApply(Object &object, EffectInstance &instance) {
@@ -447,11 +441,10 @@ EffectApplicationResult ModifyAttacksEffect::onApply(Object &object, EffectInsta
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult ModifyAttacksEffect::onRemove(Object &object, const EffectInstance &instance) {
+void ModifyAttacksEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->adjustModifiedAttacks(-instance.integerParameter(0));
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult MovementSpeedIncreaseEffect::onApply(Object &object, EffectInstance &instance) {
@@ -463,11 +456,10 @@ EffectApplicationResult MovementSpeedIncreaseEffect::onApply(Object &object, Eff
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult MovementSpeedIncreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
+void MovementSpeedIncreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->recomputeMovementRate(instance.id);
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult MovementSpeedDecreaseEffect::onApply(Object &object, EffectInstance &instance) {
@@ -485,11 +477,10 @@ EffectApplicationResult MovementSpeedDecreaseEffect::onApply(Object &object, Eff
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult MovementSpeedDecreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
+void MovementSpeedDecreaseEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->recomputeMovementRate(instance.id);
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult SavingThrowIncreaseEffect::onApply(Object &object, EffectInstance &) {
@@ -542,11 +533,10 @@ EffectApplicationResult TemporaryHitPointsEffect::onApply(Object &object, Effect
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult TemporaryHitPointsEffect::onRemove(Object &object, const EffectInstance &instance) {
+void TemporaryHitPointsEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->removeTemporaryHitPoints(instance.integerParameter(0));
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult TemporaryForcePointsEffect::onApply(Object &object, EffectInstance &instance) {
@@ -558,11 +548,10 @@ EffectApplicationResult TemporaryForcePointsEffect::onApply(Object &object, Effe
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult TemporaryForcePointsEffect::onRemove(Object &object, const EffectInstance &instance) {
+void TemporaryForcePointsEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->removeTemporaryForcePoints(instance.integerParameter(0));
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult RegenerateEffect::onApply(Object &object, EffectInstance &instance) {
@@ -692,15 +681,10 @@ EffectApplicationResult HasteSlowEffect::onApply(Object &object, EffectInstance 
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult HasteSlowEffect::onRemove(Object &object, const EffectInstance &instance) {
-    if (auto *creature = dyn_cast<Creature>(&object)) {
-        // The creature is neither hasted nor slowed until the haste or slow
-        // left over is applied again, even when it is not replaced.
-        creature->setHasted(false);
-        creature->setSlowed(false);
+void HasteSlowEffect::onRemove(Object &object, const EffectInstance &instance) {
+    if (isa<Creature>(&object)) {
         changeHasteSlowInternal(object, getHasteSlowTransition(object.effects(), instance.serializedType, true), std::nullopt);
     }
-    return EffectRemovalResult::Removed;
 }
 
 EffectInstance HasteSlowInternalEffect::saveFacingInstance() const {
@@ -710,8 +694,7 @@ EffectInstance HasteSlowInternalEffect::saveFacingInstance() const {
 }
 
 EffectApplicationResult HasteSlowInternalEffect::onApply(Object &object, EffectInstance &instance) {
-    auto *creature = dyn_cast<Creature>(&object);
-    if (!creature) {
+    if (!isa<Creature>(&object)) {
         return EffectApplicationResult::Retained;
     }
     std::vector<EffectInstance> members;
@@ -730,20 +713,7 @@ EffectApplicationResult HasteSlowInternalEffect::onApply(Object &object, EffectI
         member.markGeneratedForLoad();
     }
     object.applyEffectPackage(members);
-    creature->setHasted(_haste);
-    creature->setSlowed(!_haste);
     return EffectApplicationResult::Retained;
-}
-
-EffectRemovalResult HasteSlowInternalEffect::onRemove(Object &object, const EffectInstance &) {
-    if (auto *creature = dyn_cast<Creature>(&object)) {
-        if (_haste) {
-            creature->setHasted(false);
-        } else {
-            creature->setSlowed(false);
-        }
-    }
-    return EffectRemovalResult::Removed;
 }
 
 EffectApplicationResult DisguiseEffect::onApply(Object &object, EffectInstance &instance) {
@@ -756,31 +726,19 @@ EffectApplicationResult DisguiseEffect::onApply(Object &object, EffectInstance &
         if (record.serializedType != SavedEffectTypes::disguise || record.id == instance.id) {
             continue;
         }
-        const EffectId previousId = record.id;
-        if (auto previous = object.findEffectApplication(record.applicationOrder)) {
-            previous->get().setIntegerParameter(1, 1);
-        }
-        object.removeEffectsById(previousId);
+        object.removeEffectsById(record.id);
         break;
     }
     creature->applyDisguiseAppearance(instance.integerParameter(0), !instance.restoring);
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult DisguiseEffect::onRemove(Object &object, const EffectInstance &instance) {
+void DisguiseEffect::onRemove(Object &object, const EffectInstance &) {
     auto *creature = dyn_cast<Creature>(&object);
     if (!creature || (creature->isDead() && !creature->isPC() && object.isDestroyable())) {
-        return EffectRemovalResult::Removed;
-    }
-    if (instance.integerParameter(1) == 0) {
-        if (auto record = object.findEffectApplication(instance.applicationOrder)) {
-            record->get().setIntegerParameter(1, 1);
-            record->get().setDurationType(DurationType::Temporary);
-            record->get().duration = 0.0f;
-        }
+        return;
     }
     creature->removeDisguiseAppearance();
-    return EffectRemovalResult::Removed;
 }
 
 namespace {
@@ -851,7 +809,7 @@ EffectApplicationResult FactionModifierEffect::onApply(Object &object, EffectIns
     return EffectApplicationResult::Retained;
 }
 
-EffectRemovalResult FactionModifierEffect::onRemove(Object &object, const EffectInstance &instance) {
+void FactionModifierEffect::onRemove(Object &object, const EffectInstance &instance) {
     // The end of a confusion power clears the global its script set.
     switch (static_cast<SpellType>(instance.spellId)) {
     case SpellType::BeastConfusion:
@@ -867,7 +825,6 @@ EffectRemovalResult FactionModifierEffect::onRemove(Object &object, const Effect
         break;
     }
     changeFaction(object, static_cast<Faction>(instance.integerParameter(1)));
-    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

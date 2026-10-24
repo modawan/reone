@@ -248,11 +248,16 @@ static std::optional<int> getSpellRangeRow(const std::string &range) {
 }
 
 void Spells::init(resource::GameID gameId) {
+    // A blank range stays blank; each use says what it counts as.
+    const auto ranges = getRequiredTwoDA(_twoDas, "ranges");
+    for (int row = 0; row < ranges->getRowCount(); ++row) {
+        _ranges.push_back({ranges->getFloatOpt(row, "primaryrange"), ranges->getFloatOpt(row, "secondaryrange")});
+    }
+
     std::shared_ptr<TwoDA> spells(_twoDas.get("spells"));
     if (!spells)
         return;
 
-    const auto ranges = getRequiredTwoDA(_twoDas, "ranges");
     for (int row = 0; row < spells->getRowCount(); ++row) {
         SpellType type = static_cast<SpellType>(row);
         std::string name(_strings.getText(spells->getInt(row, "name", -1)));
@@ -310,6 +315,7 @@ void Spells::init(resource::GameID gameId) {
             }
         }
         spell->category = category;
+        spell->maxCR = spells->getInt(row, "maxcr");
         spell->impactScript = impactScript;
         spell->castAnimation = parseCastAnimation(castAnim, gameId);
         spell->castSound = castSound.empty() ? nullptr : _audioClips.get(castSound);
@@ -318,16 +324,16 @@ void Spells::init(resource::GameID gameId) {
         spell->itemTargeting = itemTargeting;
         spell->requireItemMask = static_cast<uint32_t>(spells->getInt(row, "requireitemmask", 0));
         spell->forbidItemMask = static_cast<uint32_t>(spells->getInt(row, "forbiditemmask", 0));
-        const auto range = spells->getString(row, "range");
-        const auto rangeRow = getSpellRangeRow(range);
+        const auto rangeTag = spells->getString(row, "range");
+        const auto rangeRow = getSpellRangeRow(rangeTag);
         if (rangeRow) {
-            spell->range = ranges->getFloat(*rangeRow, "primaryrange", 0.0f);
+            spell->range = this->range(*rangeRow).primary.value_or(0.0f);
         }
-        spell->rangeTag = range;
+        spell->rangeTag = rangeTag;
         // Casting uses the primary range and the menu's minimum the secondary
         // one, both from the row of the tag's first letter.
         if (rangeRow) {
-            spell->minimumRange = ranges->getFloat(*rangeRow, "secondaryrange", 0.0f);
+            spell->minimumRange = this->range(*rangeRow).secondary.value_or(0.0f);
         }
         spell->formMask = formMask;
         spell->hostile = hostile;
@@ -337,6 +343,18 @@ void Spells::init(resource::GameID gameId) {
         spell->projModel = projModel.empty() ? nullptr : _models.get(projModel);
         _spells.insert(std::make_pair(type, std::move(spell)));
     }
+}
+
+const RangeRow &Spells::range(int row) const {
+    validateTwoDARowIndex("ranges", row, static_cast<int>(_ranges.size()));
+    return _ranges[row];
+}
+
+std::optional<std::reference_wrapper<const RangeRow>> Spells::findRange(int row) const {
+    if (row < 0 || row >= static_cast<int>(_ranges.size())) {
+        return std::nullopt;
+    }
+    return std::cref(_ranges[row]);
 }
 
 std::shared_ptr<Spell> Spells::get(SpellType type) const {
