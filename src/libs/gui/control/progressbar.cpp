@@ -42,8 +42,7 @@ void ProgressBar::load(const resource::generated::GUI_BASECONTROL &gui, bool pro
     auto &controlStruct = *static_cast<const resource::generated::GUI_CONTROLS *>(&gui);
     _startFromLeft = controlStruct.STARTFROMLEFT != 0;
     if (controlStruct.PROGRESS) {
-        _progress.fill = _resourceSvc.textures.get(controlStruct.PROGRESS->FILL, TextureUsage::GUI);
-        _progress.color = controlStruct.PROGRESS->COLOR;
+        _progress = createBorder(*controlStruct.PROGRESS);
     }
 }
 
@@ -57,9 +56,10 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
     // colour - draws at full size behind the cropped fill, so a partially
     // filled bar keeps its full silhouette.
     Control::render(screenSize, offset, pass);
-    if (_value == 0 || !_progress.fill) {
+    if (_value == 0 || !_progress || !_progress->fill) {
         return;
     }
+    const glm::vec4 color {_progress->color, _progress->pulseFill ? _gui.pulsingAlpha() : _progress->alpha};
     // The fill fraction follows the bar's long axis, keeping the full
     // authored size on the cross axis, and crops the art to the visible
     // fraction instead of squashing it. Tall bars - the party vitality and
@@ -74,10 +74,10 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
         uv[1][1] = fraction;
         uv[2][1] = 0.0f;
         pass.drawImage(
-            *_progress.fill,
+            *_progress->fill,
             {_extent.left + offset.x, top},
             {_extent.width, bottom - top},
-            glm::vec4(_progress.color, 1.0f),
+            color,
             uv);
     } else {
         int left = _extent.left + offset.x;
@@ -91,10 +91,10 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
         uv[0][0] = fraction;
         uv[2][0] = _startFromLeft ? 0.0f : 1.0f - fraction;
         pass.drawImage(
-            *_progress.fill,
+            *_progress->fill,
             {fillLeft, _extent.top + offset.y},
             {fillRight - fillLeft, _extent.height},
-            glm::vec4(_progress.color, 1.0f),
+            color,
             uv);
     }
 }

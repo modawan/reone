@@ -28,6 +28,12 @@ namespace resource {
 struct Dialog {
     struct WaitFlags {
         static constexpr int waitAnimFinish = 1;
+        /** The node waits for its sound to finish. */
+        static constexpr int waitSoundFinish = 2;
+        /** The node waits for its participants' dialog animations to finish. */
+        static constexpr int waitParticipantAnimFinish = 4;
+        /** The node waits for its fade to finish. */
+        static constexpr int waitFadeFinish = 8;
     };
 
     struct Stunt {
@@ -66,6 +72,8 @@ struct Dialog {
 
         std::string speaker;
         std::string text;
+        /** The talk table string of the node's text, or -1 for none. */
+        int textStrRef {-1};
         std::string voResRef;
         std::string script;
         std::string script2;
@@ -77,8 +85,35 @@ struct Dialog {
         float plotXPPercentage {0.0f};
         ActionParams actionParams;
         ActionParams actionParams2;
+        /** Seconds the node stays, or -1 for none of its own. */
         int delay {0};
         int waitFlags {0};
+        /** The node's sound is a recorded voice, which times the node by the dialog's entry delay. */
+        bool soundExists {false};
+        /**
+         * TSL: the node's sound, or else its voice-over, takes a variation
+         * number added to its name, as alien speech does.
+         */
+        bool soundTakesVariation {false};
+        /**
+         * TSL: the node is authored as having its variation number already:
+         * a shown entry adds none, though a barked one-liner still does.
+         */
+        bool soundVariationAdded {false};
+        /**
+         * The node is spoken by its voice-over alone: with subtitles off, the
+         * cinematic panel does not show its text.
+         */
+        bool voiceOverOnly {false};
+        /** TSL: the entry cannot be skipped, even in a skippable conversation. */
+        bool nodeUnskippable {false};
+        /** How the entry fades the screen: 0 not at all; 1 and 4 towards the colour, others away from it. */
+        int fadeType {0};
+        glm::vec3 fadeColor {0.0f};
+        /** Seconds before the fade starts. */
+        float fadeDelay {0.0f};
+        /** Seconds the fade takes; none for types 1 and 2, which cut. */
+        float fadeLength {0.0f};
         int cameraId {-1};
         int cameraAngle {0};
         int cameraAnimation {0};
@@ -104,6 +139,8 @@ struct Dialog {
     std::string abortScript;
     int entryIndex {-1};
     bool animatedCutscene {false};
+    /** Seconds a voiced node without a delay of its own stays, besides waiting for its voice. */
+    uint32_t entryDelay {0};
     /** Shots frame the participants' models where they stand, rather than their camera hooks. */
     bool oldHitCheck {false};
     std::vector<Stunt> stunts;

@@ -345,11 +345,13 @@ void CharacterGeneration::openSteps() {
 }
 
 void CharacterGeneration::openQuick() {
+    _quick->refreshStep();
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::Quick);
 }
 
 void CharacterGeneration::openCustom() {
+    _custom->refreshStep();
     setAttributesVisible(_custom->step() > 1);
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::Custom);
@@ -441,6 +443,7 @@ void CharacterGeneration::openNameEntry() {
 
 void CharacterGeneration::openLevelUp() {
     _levelUp->reset();
+    _levelUp->refreshStep();
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::LevelUp);
 }

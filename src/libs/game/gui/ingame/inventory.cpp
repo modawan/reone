@@ -127,9 +127,6 @@ void InventoryMenu::onGUILoaded() {
             if (_onExit) _onExit();
         });
     }
-    if (_controls.BTN_ALL) {
-        _controls.BTN_ALL->setSelected(true);
-    }
 
     configureItemsListBox();
     configureFilterControls();

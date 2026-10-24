@@ -49,6 +49,8 @@ public:
     MOCK_METHOD(float, borderScale, (), (const override));
     float listScale() const override { return 1.0f; }
     MOCK_METHOD(bool, tintBorderFills, (), (const override));
+    MOCK_METHOD(bool, imageButtonTextPulses, (), (const override));
+    MOCK_METHOD(float, pulsingAlpha, (), (const override));
     bool sceneRenderEnabled() const override { return true; }
 
     MOCK_METHOD(void, setEventListener, (IGUIEventListener & listener), (override));
@@ -56,6 +58,7 @@ public:
     MOCK_METHOD(void, setScaling, (ScalingMode), (override));
     MOCK_METHOD(void, setTextScale, (float), (override));
     MOCK_METHOD(void, setTintBorderFills, (bool), (override));
+    MOCK_METHOD(void, setImageButtonTextPulses, (bool), (override));
     MOCK_METHOD(void, setControlScaling, (const std::string &, ScalingMode), (override));
     MOCK_METHOD(void, setDefaultHilightColor, (glm::vec3), (override));
     MOCK_METHOD(void, setBackground, (std::shared_ptr<graphics::Texture>), (override));
@@ -72,6 +75,7 @@ class MockGUIs : public IGUIs, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
+    MOCK_METHOD(void, updatePulsingAlpha, (float), (override));
 };
 
 class TestGUIModule : boost::noncopyable {

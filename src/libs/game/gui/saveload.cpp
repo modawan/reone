@@ -178,6 +178,7 @@ void SaveLoad::onGUILoaded() {
     _saveNameGUI = _services.gui.guis.get(guiResRef("savename"), [this](IGUI &gui) {
         gui.setResolution(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
         gui.setScaling(GUI::ScalingMode::Center);
+        gui.setImageButtonTextPulses(_game.isTSL());
     });
     if (_saveNameGUI) {
         _saveNameControls.BTN_CANCEL = std::static_pointer_cast<Button>(_saveNameGUI->findControl("BTN_CANCEL"));

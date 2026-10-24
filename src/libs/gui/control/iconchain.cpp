@@ -29,8 +29,6 @@ namespace gui {
 
 static constexpr glm::vec3 kDarkItemColor {0.45f};
 static constexpr glm::vec3 kSelectedItemColor {1.0f};
-static constexpr float kFocusedBorderPulseCyclesPerSecond = 1.0f;
-static constexpr float kFocusedBorderPulseMinFactor = 0.55f;
 
 void IconChain::clearItems() {
     _items.clear();
@@ -123,12 +121,6 @@ bool IconChain::handleClick(int x, int y, int clicks) {
         _onItemDoubleClick(_items[itemIdx].tag);
     }
     return true;
-}
-
-void IconChain::update(float dt) {
-    Control::update(dt);
-    _focusedBorderPulsePhase += dt * kFocusedBorderPulseCyclesPerSecond;
-    _focusedBorderPulsePhase -= std::floor(_focusedBorderPulsePhase);
 }
 
 void IconChain::render(const glm::ivec2 &screenSize,
@@ -392,11 +384,6 @@ glm::vec4 IconChain::getItemIconColor(const Item &item) const {
     return glm::vec4(1.0f);
 }
 
-float IconChain::getFocusedBorderPulseFactor() const {
-    float wave = 0.5f - 0.5f * std::cos(glm::two_pi<float>() * _focusedBorderPulsePhase);
-    return glm::mix(kFocusedBorderPulseMinFactor, 1.0f, wave);
-}
-
 void IconChain::renderLink(
     const Link &link,
     const glm::ivec2 &offset,
@@ -498,6 +485,10 @@ void IconChain::renderItemBorder(
     if (_cellStyle.onlyDrawItemBorderWhenBright && !isItemBright(item)) {
         return;
     }
+    // A node with a focused frame has that one frame only.
+    if (getFocusedBorderColor(item, focused)) {
+        return;
+    }
 
     const std::shared_ptr<Border> &border = _cellStyle.itemBorder
                                                ? _cellStyle.itemBorder
@@ -540,15 +531,16 @@ void IconChain::renderFocusedBorder(
 
     Extent originalExtent(_extent);
     _extent = extent;
-    setBorderColorOverride(*maybeColor * getFocusedBorderPulseFactor());
+    setBorderColorOverride(*maybeColor);
     setUseBorderColorOverride(true);
-    if (_cellStyle.drawItemBorderFill || !border->fill) {
-        renderBorder(*border, offset, {extent.width, extent.height}, pass);
-    } else {
-        Border borderWithoutFill(*border);
-        borderWithoutFill.fill.reset();
-        renderBorder(borderWithoutFill, offset, {extent.width, extent.height}, pass);
-    }
+    // The focused frame pulses.
+    renderBorder(
+        *border,
+        offset,
+        {extent.width, extent.height},
+        pass,
+        _cellStyle.drawItemBorderFill ? BorderRenderPart::All : BorderRenderPart::Frame,
+        true);
     setUseBorderColorOverride(false);
     _extent = originalExtent;
 }

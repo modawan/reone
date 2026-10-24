@@ -2718,10 +2718,12 @@ static Variable GetIsPC(const std::vector<Variable> &args, const RoutineContext 
     // Transform
     auto creature = checkCreature(oCreature);
 
-    // Execute: TSL reads the creature's own player-character flag; KotOR
-    // asks whether it is the creature the player controls.
-    const bool pc = ctx.game.isTSL() ? creature->isPC() : creature == ctx.game.party().getLeader();
-    return Variable::ofInt(static_cast<int>(pc));
+    // Execute: TSL returns the record's IsPC as stored; KotOR asks whether
+    // it is the creature the player controls.
+    if (ctx.game.isTSL()) {
+        return Variable::ofInt(creature->isPCValue());
+    }
+    return Variable::ofInt(static_cast<int>(creature == ctx.game.party().getLeader()));
 }
 
 static Variable FeetToMeters(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4391,9 +4393,9 @@ static Variable SetXP(const std::vector<Variable> &args, const RoutineContext &c
     // Transform
     auto creature = checkCreature(oCreature);
 
-    // Execute: only the named creature changes, and a script cannot lower
-    // its experience.
-    if (nXpAmount >= creature->xp()) {
+    // Execute: only the named creature changes, a negative amount is ignored,
+    // and a script cannot lower its experience; experience compares unsigned.
+    if (nXpAmount >= 0 && static_cast<uint32_t>(nXpAmount) >= static_cast<uint32_t>(creature->xp())) {
         creature->setXP(nXpAmount);
     }
     return Variable::ofNull();
@@ -5877,7 +5879,7 @@ static Variable GetFactionLeader(const std::vector<Variable> &args, const Routin
             continue;
         }
         if (!npcFaction) {
-            if (member->isPC()) {
+            if (member->actsAsPC()) {
                 return Variable::ofObject(member->id());
             }
             continue;

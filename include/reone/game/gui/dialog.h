@@ -42,6 +42,8 @@ public:
     }
 
     void update(float dt) override;
+    /** Draws the letterbox fade under the conversation's panel. */
+    void render() override;
 
     /** Selects, but does not activate, a reply for a scripted visual capture. */
     void selectReplyForCapture(int index);
@@ -96,6 +98,8 @@ private:
 
     /** The previous list's animation per participant, so unchanged ones are left alone. */
     std::map<std::string, int> _previousAnimations;
+    /** The participants whose dialog animations the current node waits for, in list order. */
+    std::vector<std::string> _waitedParticipants;
     /** The animations of the list before the previous one, whose participants the end of the conversation releases. */
     std::map<std::string, int> _lastButOneAnimations;
     /** The pull-back of the face shots in a row, while one is set. */
@@ -181,7 +185,11 @@ private:
     void applyDialogAnimation(const std::string &participant, int ordinal);
     /** Mixed-stunt participants that \p node does not drive from their stunt model leave their staging. */
     void restoreInactiveStuntParticipants(const resource::Dialog::EntryReply &node);
-    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation, bool looping);
+    /**
+     * Stages a mixed-stunt participant in \p animation, a loop or a one-shot,
+     * shown as animation \p animationId.
+     */
+    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation, bool looping, int animationId);
     void leaveMixedStunt(Participant &participant);
 
     static std::optional<CutAnimation> decodeCutAnimation(int ordinal);
@@ -202,12 +210,16 @@ private:
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;
+    std::shared_ptr<gui::ListBox> replyList() const override;
 
     void onStart() override;
     void onFinish() override;
     void onLoadEntry() override;
     void onEntryEnded() override;
     void onReplyPicked(const resource::Dialog::EntryReply &reply) override;
+    void onReplyTaken(const resource::Dialog::EntryReply &reply) override;
+    /** A creature named by the last list of animations still shows a dialog animation. */
+    bool isDialogAnimationPlaying() const override;
 
     // Loading
 

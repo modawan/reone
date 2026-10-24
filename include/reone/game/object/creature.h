@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -330,6 +331,8 @@ class Creature : public Object, public scene::IAnimationEventListener {
 public:
     /** The Fury damage bonus of a creature that is not in a Fury. */
     static constexpr int kNoFuryDamageBonus = -1;
+    /** The most experience a creature holds; an addition past it is refused. */
+    static constexpr int kMaxExperience = std::numeric_limits<int>::max();
 
     // AI state
 
@@ -571,9 +574,11 @@ public:
     /**
      * Adds experience. With two or more classes, every class other than the
      * favoured one that is two or more levels below the highest of those
-     * classes takes a fifth of the amount, rounded down; the amount counts as
-     * unsigned. A race without a favoured class favours the highest-level
-     * class, the earliest on a tie.
+     * classes takes a fifth of the amount, rounded down. A race without a
+     * favoured class favours the highest-level class, the earliest on a tie;
+     * five or more such classes take the whole amount. Experience only
+     * grows: a negative amount, or a positive one that would take it past
+     * kMaxExperience, changes nothing.
      */
     void giveXP(int amount);
     void setXP(int xp);
@@ -771,21 +776,35 @@ public:
      * nor a party member at zero vitality.
      */
     bool clicksTriggerInReach(const Object &target) const;
-    /** Enough experience for the next level, below the title's maximum, neither dead nor downed. */
+    /**
+     * Enough experience for the next level by the experience table, below the
+     * title's maximum, neither dead nor downed.
+     */
     bool isLevelUpPending() const;
     /** The level-up chime may still sound for the creature: from its creation, and again after each level-up. */
     bool isLevelUpChimeArmed() const { return _levelUpChimeArmed; }
     void setLevelUpChimeArmed(bool armed) { _levelUpChimeArmed = armed; }
-    /** The level the creature's experience reaches, up to the title's maximum. */
+    /**
+     * The level the creature's experience reaches by the experience table, up
+     * to the title's maximum, for a creature whose IsPC is exactly 1; any
+     * other creature's level, as getSpellLevel(false) gives it.
+     */
     int potentialLevel() const;
 
     glm::vec3 getSelectablePosition() const override;
-    int getNeededXP() const;
     /**
-     * The experience the creature lacks for its next level: KotOR counts from
-     * the level its experience reaches, TSL from the levels it has taken,
-     * scaled as an autobalanced creature's. At the title's maximum level, the
-     * unreachable amount less the experience held, which is negative.
+     * The experience table's amount at the creature's level, up to and
+     * including the title's maximum level; none past it. The maximum level's
+     * row normally holds 0xFFFFFFFF, the amount no experience reaches.
+     */
+    std::optional<uint32_t> getNeededXP() const;
+    /**
+     * The experience the creature lacks for its next level, from the
+     * experience table: KotOR up to the first row its experience falls short
+     * of, counted from the first row; TSL from the levels it has taken,
+     * scaled as an autobalanced creature's, a level past the table reading
+     * the maximum level's row. The difference wraps as 32 bits, so it is
+     * negative when the creature has more, as at the maximum level.
      */
     int experienceToNextLevel() const;
 
@@ -945,7 +964,22 @@ public:
     /** The creature scripts name for this one to heal. It is not saved. */
     uint32_t healTarget() const { return _healTarget; }
     void setHealTarget(uint32_t target) { _healTarget = target; }
-    bool isPC() const { return _isPC; }
+    /**
+     * Whether the creature's record marks it a player character: its IsPC is
+     * not 0. The record's value is saved with the creature.
+     */
+    bool isPC() const { return _isPC != 0; }
+    /** The record's IsPC as stored, 0 to 255; a player character's is 1. */
+    int isPCValue() const { return _isPC; }
+    /**
+     * Whether the creature acts as a player character: its own copy of the
+     * record's IsPC, taken whenever the record is read, cleared when an
+     * encounter spawns the creature, and set with the record's when control
+     * of the party changes hands. The copy is not 0.
+     */
+    bool actsAsPC() const { return _actsAsPC != 0; }
+    /** The creature's own copy of IsPC as it stands, 0 to 255. */
+    int actsAsPCValue() const { return _actsAsPC; }
     /** Whether a click to talk leaves the creature facing the way it was. */
     bool isNotReorienting() const { return _notReorienting; }
     /** The character was made by the player (TSL item limitation). */
@@ -957,10 +991,14 @@ public:
     void forceEquipClothing();
     void setPlayerCreated(bool value) { _playerCreated = value; }
     /**
-     * The player-character flag a creature record carries as IsPC. A creature
-     * whose record does not carry it is a player character.
+     * Sets the player-character flag, both the record's IsPC and the
+     * creature's own copy, to 1 or 0. A creature whose record does not carry
+     * IsPC is a player character.
      */
-    void setPC(bool value) { _isPC = value; }
+    void setPC(bool value) {
+        _isPC = value ? 1 : 0;
+        _actsAsPC = _isPC;
+    }
     /** The appearance's race label, which picks droid discharges. */
     const std::string &appearanceRace() const { return _appearanceRace; }
     /** The appearance's blood colour: R, G, Y or none. */
@@ -2329,7 +2367,10 @@ private:
     bool _disguised {false};
     Gender _gender {Gender::Male};
     uint16_t _portraitId {0};
-    bool _isPC {true};
+    /** The record's IsPC byte; any value but 0 marks a player character. */
+    uint8_t _isPC {1};
+    /** The creature's own copy of IsPC (see actsAsPC()); not saved. */
+    uint8_t _actsAsPC {1};
     bool _playerCreated {false};
     /** Body armour this creature could not wear when it was loaded. */
     bool _bodyRefusedOnLoad {false};
@@ -2385,7 +2426,7 @@ private:
     bool _leftEncounter {false};
     uint32_t _orientationLock {script::kObjectInvalid};
     bool _engagedExchange {false};
-    uint32_t _xp {0};
+    int _xp {0};
     bool _levelUpChimeArmed {true};
     int _joiningXP {0};
     CombatForm _currentForm {CombatForm::None};

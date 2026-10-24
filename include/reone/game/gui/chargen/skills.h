@@ -170,7 +170,8 @@ private:
 
     void onMinusButtonClick(SkillType skill);
     void onPlusButtonClick(SkillType skill);
-    void onSkillLabelSelectionChanged(SkillType skill, bool selected);
+    /** Pulses the row's name and points while the row is hovered, and describes its skill. */
+    void onSkillLabelSelectionChanged(SkillType skill, gui::Label &label, gui::Button &points, bool selected);
 };
 
 } // namespace game

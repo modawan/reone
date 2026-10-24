@@ -204,6 +204,8 @@ void DialogGUI::configureReplies() {
             safeArea.height});
     }
     _controls.LB_REPLIES->setProtoMatchContent(true);
+    // The selected reply stays selected when the pointer moves off it.
+    _controls.LB_REPLIES->setKeepsSelection(true);
     _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
     _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
     _controls.LB_REPLIES->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
@@ -211,11 +213,22 @@ void DialogGUI::configureReplies() {
     _controls.LB_REPLIES->protoItem().setTextColor(_baseColor);
 }
 
+void DialogGUI::render() {
+    const EntryFade &fade = entryFade();
+    if (fade.alpha > 0.0f) {
+        _game.renderScreenFill(fade.color, fade.alpha);
+    }
+    Conversation::render();
+}
+
 void DialogGUI::onStart() {
+    // The letterbox shows with the conversation, without a fade.
+    resetEntryFade();
     _currentSpeaker = owner();
     endSpeakerPair();
     _previousAnimations.clear();
     _lastButOneAnimations.clear();
+    _waitedParticipants.clear();
     loadStuntParticipants();
 
     _dialogCameraStale = true;
@@ -324,7 +337,7 @@ void DialogGUI::restoreInactiveStuntParticipants(const Dialog::EntryReply &node)
     }
 }
 
-bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation, bool looping) {
+bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation, bool looping, int animationId) {
     auto creature = participant.creature.resolve();
     if (!creature) {
         participant.mixedStuntActive = false;
@@ -338,7 +351,7 @@ bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<
     AnimationProperties properties;
     properties.flags = AnimationFlags::propagate | (looping ? AnimationFlags::loop : 0);
     properties.scale = 1.0f;
-    if (!creature->playExternalAnimation(animation, std::move(properties))) {
+    if (!creature->playExternalAnimation(animation, std::move(properties), AnimationSource {animationId, true})) {
         return false;
     }
 
@@ -659,7 +672,9 @@ void DialogGUI::updateParticipantAnimations(const Dialog::EntryReply &node) {
     // listener and the speaker take their poses unless the list names them.
     std::map<std::string, int> animations;
     std::vector<std::shared_ptr<Object>> listed;
+    _waitedParticipants.clear();
     for (auto &anim : node.animations) {
+        _waitedParticipants.push_back(anim.participant);
         animations[anim.participant] = anim.animation;
         if (auto object = participantObject(anim.participant)) {
             listed.push_back(std::move(object));
@@ -838,7 +853,7 @@ bool DialogGUI::applyCutAnimation(const std::string &participant, const CutAnima
         const std::string name = stuntCreature ? getCutClipName(cut.name, *stuntCreature) : cut.name;
         if (auto animation = stunt.model->getAnimation(name)) {
             if (!_dialog->isAnimatedCutscene()) {
-                return enterMixedStunt(stunt, animation, cut.looping);
+                return enterMixedStunt(stunt, animation, cut.looping, cut.id);
             }
             // The clip's ID decides whether it plays at the world origin.
             AnimationProperties properties;
@@ -982,6 +997,7 @@ void DialogGUI::onFinish() {
     }
     _previousAnimations.clear();
     _lastButOneAnimations.clear();
+    _waitedParticipants.clear();
 
     if (hasStuntPresentation()) {
         releaseStuntParticipants();
@@ -1022,6 +1038,8 @@ void DialogGUI::onEntryEnded() {
 
 // A chosen reply animates its participants and poses the answering pair,
 // except in an animated cutscene.
+// In an animated cutscene a chosen reply leaves the entry's participants
+// animated and waited for.
 void DialogGUI::onReplyPicked(const Dialog::EntryReply &reply) {
     if (_dialog->isAnimatedCutscene()) {
         return;
@@ -1030,8 +1048,36 @@ void DialogGUI::onReplyPicked(const Dialog::EntryReply &reply) {
     updateParticipantAnimations(reply);
 }
 
+// A reply taken without a choice puts its participants in the first places of
+// the list waited for, as far as the list goes.
+void DialogGUI::onReplyTaken(const Dialog::EntryReply &reply) {
+    const size_t count = std::min(reply.animations.size(), _waitedParticipants.size());
+    for (size_t i = 0; i < count; ++i) {
+        _waitedParticipants[i] = reply.animations[i].participant;
+    }
+}
+
+bool DialogGUI::isDialogAnimationPlaying() const {
+    for (const auto &participant : _waitedParticipants) {
+        auto object = participantObject(participant);
+        int animationId = -1;
+        if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+            animationId = creature->currentAnimationId();
+        } else if (auto placeable = std::dynamic_pointer_cast<Placeable>(object)) {
+            animationId = placeable->currentAnimationId();
+        }
+        if (_services.game.animations.isDialogAnimation(animationId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// With subtitles off, the text shows only when no voice-over speaks the entry
+// alone, and never in an animated cutscene.
 void DialogGUI::setMessage(std::string message) {
-    _controls.LBL_MESSAGE->setTextMessage(message);
+    const bool shown = _game.feedbackOptions().subtitles || (!_dialog->isAnimatedCutscene() && !_currentEntry->voiceOverOnly);
+    _controls.LBL_MESSAGE->setTextMessage(shown ? message : "");
 }
 
 void DialogGUI::setReplyLines(std::vector<std::string> lines) {
@@ -1046,6 +1092,8 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
+    // The first reply is selected as the replies are listed.
+    _controls.LB_REPLIES->setSelectedItemIndex(0);
     // Replies start at the top-left of the centred 4:3 safe area within the
     // bottom band, indented past the scroll-bar column by their authored
     // offset so an overflowing list shows its bar beside the prose, not
@@ -1073,7 +1121,13 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
     _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
 }
 
+std::shared_ptr<ListBox> DialogGUI::replyList() const {
+    return _controls.LB_REPLIES;
+}
+
+// The letterbox is drawn with the conversation, so its fade runs with it.
 void DialogGUI::update(float dt) {
+    advanceEntryFade(dt);
     Conversation::update(dt);
 
     // The dialog camera follows the pair of its shot.

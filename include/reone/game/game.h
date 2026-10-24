@@ -464,6 +464,8 @@ public:
 
     void openMainMenu();
     void openInGame();
+    /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
+    void renderScreenFill(const glm::vec3 &color, float alpha);
 
     bool hasPlayableRuntimeSession() const { return _runtimeSessionPlayable; }
 
@@ -584,7 +586,8 @@ public:
     StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
     /**
      * A status summary was taken down or passed by unseen. TSL then looks for
-     * the story's reaction to the player character's alignment.
+     * the story's reaction to the player character's alignment, and, the first
+     * time the player's own character can level up, runs the level-up dialog.
      */
     void finishStatusSummaryCycle();
 
@@ -626,6 +629,11 @@ public:
 
     resource::CursorType cursorType() const {
         return _pointer->type();
+    }
+
+    /** Where the pointer last moved to, in screen coordinates. */
+    glm::ivec2 pointerPosition() const {
+        return _pointer->position();
     }
 
     bool relativeMouseMode() const;
@@ -1858,17 +1866,11 @@ private:
     bool _showEndGameGui {true};
     uint32_t _lastPartyMemberTempKilled {script::kObjectInvalid};
     /**
-     * How fast the world, its presentation and the fade run during the death
-     * sequence. The first title slows play from full speed to a fifth over
-     * the first four seconds of real time; its time and rate carry over to
-     * later deaths for the program's lifetime. The second title runs at a quarter
-     * while its gameover panel is up.
+     * How fast the world, its presentation and the fade run: a quarter while
+     * the second title's gameover panel is up, else full speed. The first
+     * title's death sequence keeps full speed.
      */
     float _deathTimeScale {1.0f};
-    uint32_t _deathSequenceSample {0};
-    float _deathSequenceSeconds {0.0f};
-    float _deathSlowRate {0.0f};
-    bool _deathSequenceStarting {true};
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
@@ -1945,6 +1947,9 @@ private:
     std::string getTokenValue(const std::string &name, const std::map<int, std::string> &customTokens,
                               std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
                               bool &hidden) const;
+
+    /** TSL: runs the level-up dialog script the first time only. */
+    void runLevelUpDialogOnce();
 
     void advanceWorldTime(double dt);
     void advanceTimeStopClock(double dt);

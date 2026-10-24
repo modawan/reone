@@ -106,7 +106,13 @@ protected:
     virtual void preload(gui::IGUI &gui);
     virtual void onGUILoaded() {}
 
-    void loadBackground(BackgroundType type);
+    /**
+     * Shows the full-screen backdrop of \p type behind the GUI.
+     *
+     * @param computerType for a computer backdrop, the computer type that
+     *        numbers KotOR's backdrop
+     */
+    void loadBackground(BackgroundType type, int computerType = 0);
 
     /** Centers the root panel in its authored canvas and reapplies layout. */
     void centerRootInCanvas(int canvasWidth, int canvasHeight);

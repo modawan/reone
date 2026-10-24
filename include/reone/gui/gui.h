@@ -49,6 +49,40 @@ public:
     virtual void onSelectionChanged(const std::string &control, bool selected) = 0;
 };
 
+/**
+ * The opacity shared by every pulsing border, image and text: it falls from 1
+ * to 0.4 over 0.75 s, rises back over the next 0.75 s, and repeats.
+ */
+class PulsingAlpha {
+public:
+    /** Advances the pulse by dt seconds. */
+    void update(float dt) {
+        _timeLeft -= dt;
+        if (_timeLeft <= 0.0f) {
+            _rising = !_rising;
+            _timeLeft = kHalfPeriod;
+        }
+        const float progress = (kHalfPeriod - _timeLeft) / kHalfPeriod;
+        _value = _rising ? kLow + (1.0f - kLow) * progress : 1.0f - (1.0f - kLow) * progress;
+    }
+
+    /** The opacity now, 0.4 to 1. */
+    float value() const { return _value; }
+
+private:
+    /** Seconds the pulse takes to fall, or to rise. */
+    static constexpr float kHalfPeriod = 0.75f;
+    /** The opacity at the bottom of the pulse. */
+    static constexpr float kLow = 0.4f;
+
+    /** The opacity now. */
+    float _value {1.0f};
+    /** Seconds left before the pulse turns. */
+    float _timeLeft {kHalfPeriod};
+    /** Whether the opacity is rising; it starts falling from 1. */
+    bool _rising {false};
+};
+
 class IGUI {
 public:
     enum class ScalingMode {
@@ -101,6 +135,10 @@ public:
     virtual float borderScale() const = 0;
     virtual float listScale() const = 0;
     virtual bool tintBorderFills() const = 0;
+    /** Whether an image button's text pulses while the button is selected, as a button's does. */
+    virtual bool imageButtonTextPulses() const = 0;
+    /** The opacity pulsing borders and texts are drawn with now. */
+    virtual float pulsingAlpha() const = 0;
 
     /** Whether scene-backed controls may render their 3D content. */
     virtual bool sceneRenderEnabled() const = 0;
@@ -110,6 +148,8 @@ public:
     virtual void setScaling(ScalingMode scaling) = 0;
     virtual void setTextScale(float scale) = 0;
     virtual void setTintBorderFills(bool tint) = 0;
+    /** Sets whether the image buttons loaded afterwards pulse their text while selected. */
+    virtual void setImageButtonTextPulses(bool pulses) = 0;
     virtual void setControlScaling(const std::string &tag, ScalingMode scaling) = 0;
     virtual void setDefaultHilightColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
@@ -130,12 +170,13 @@ public:
         graphics::GraphicsOptions &options,
         scene::ISceneGraphs &sceneGraphs,
         graphics::GraphicsServices &graphicsSvc,
-        resource::ResourceServices &resourceSvc) :
+        resource::ResourceServices &resourceSvc,
+        const PulsingAlpha &pulsingAlpha) :
         _options(options),
         _sceneGraphs(sceneGraphs),
         _graphicsSvc(graphicsSvc),
-        _resourceSvc(resourceSvc) {
-
+        _resourceSvc(resourceSvc),
+        _pulsingAlpha(pulsingAlpha) {
     }
 
     /** Derived from the current resolution, which can change at runtime. */
@@ -197,6 +238,10 @@ public:
         _tintBorderFills = tint;
     }
 
+    void setImageButtonTextPulses(bool pulses) override {
+        _imageButtonTextPulses = pulses;
+    }
+
     float textScale() const override {
         return _textScale.value_or(_options.guiTextScale);
     }
@@ -218,6 +263,14 @@ public:
 
     bool tintBorderFills() const override {
         return _tintBorderFills;
+    }
+
+    bool imageButtonTextPulses() const override {
+        return _imageButtonTextPulses;
+    }
+
+    float pulsingAlpha() const override {
+        return _pulsingAlpha.value();
     }
 
     bool sceneRenderEnabled() const override {
@@ -256,6 +309,7 @@ private:
     ScalingMode _scaling {ScalingMode::Center};
     std::optional<float> _textScale;
     bool _tintBorderFills {false};
+    bool _imageButtonTextPulses {false};
     glm::ivec2 _rootOffset {0};
     glm::ivec2 _controlOffset {0};
     std::shared_ptr<graphics::Texture> _background;
@@ -278,6 +332,7 @@ private:
     scene::ISceneGraphs &_sceneGraphs;
     graphics::GraphicsServices &_graphicsSvc;
     resource::ResourceServices &_resourceSvc;
+    const PulsingAlpha &_pulsingAlpha;
 
     // END Services
 

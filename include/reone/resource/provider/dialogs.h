@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../dialog.h"
 #include "../parser/gff/dlg.h"
 
@@ -27,6 +29,8 @@ namespace resource {
 class Gffs;
 class Gff;
 class Strings;
+class TwoDA;
+class TwoDAs;
 
 class IDialogs {
 public:
@@ -39,9 +43,15 @@ public:
 
 class Dialogs : public IDialogs {
 public:
-    Dialogs(Gffs &gffs, Strings &strings) :
+    /**
+     * @param twoDas the tables TSL's alien speech is looked up in
+     * @param game the title the dialogs are read for
+     */
+    Dialogs(Gffs &gffs, Strings &strings, TwoDAs &twoDas, GameID game) :
         _gffs(gffs),
-        _strings(strings) {
+        _strings(strings),
+        _twoDas(twoDas),
+        _game(game) {
     }
 
     void clear() override {
@@ -58,17 +68,44 @@ public:
     }
 
 private:
+    /** TSL: the tables alien speech is looked up in. */
+    struct AlienSpeechTables {
+        std::shared_ptr<TwoDA> emotions;
+        std::shared_ptr<TwoDA> voices;
+    };
+
+    /** TSL: the tables a node's alien speech is looked up in, and the race of the dialog's owner. */
+    struct AlienSpeech {
+        AlienSpeechTables tables;
+        int ownerRace {0};
+    };
+
     Gffs &_gffs;
     Strings &_strings;
+    TwoDAs &_twoDas;
+    GameID _game;
+    /** TSL: the alien speech tables, read with the first dialog. */
+    std::optional<AlienSpeechTables> _alienSpeechTables;
 
     std::unordered_map<std::string, std::shared_ptr<Dialog>> _objects;
 
     std::shared_ptr<Dialog> doGet(std::string resRef);
 
     std::unique_ptr<Dialog> loadDialog(const generated::DLG &dlg);
+    /** TSL: the alien speech tables, read once. */
+    const AlienSpeechTables &alienSpeechTables();
 
     Dialog::EntryReplyLink getEntryReplyLink(const generated::DLG_EntryReplyList_EntriesRepliesList &dlg) const;
-    Dialog::EntryReply getEntryReply(const generated::DLG_EntryReplyList &dlg) const;
+    /**
+     * @param alienSpeech TSL: where the node's sound is looked up; KotOR
+     *        reads the node's own Sound field instead
+     */
+    Dialog::EntryReply getEntryReply(const generated::DLG_EntryReplyList &dlg, const std::optional<AlienSpeech> &alienSpeech) const;
+    /**
+     * TSL: the alien speech of \p dlg, from the alien voice table's row for
+     * its race and the column its emotion names; empty when there is none.
+     */
+    std::string getAlienSpeech(const generated::DLG_EntryReplyList &dlg, const AlienSpeech &alienSpeech) const;
     Dialog::Stunt getStunt(const generated::DLG_StuntList &dlg) const;
     Dialog::ParticipantAnimation getParticipantAnimation(const generated::DLG_EntryReplyList_AnimList &dlg) const;
 };

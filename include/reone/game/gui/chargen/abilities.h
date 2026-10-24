@@ -158,7 +158,8 @@ private:
 
     int getPointCost(Ability ability) const;
 
-    void onAbilityLabelSelectionChanged(Ability ability, bool selected);
+    /** Pulses the row's name and points while the row is hovered, and describes its ability. */
+    void onAbilityLabelSelectionChanged(Ability ability, gui::Label &label, gui::Button &points, bool selected);
     void onMinusButtonClick(Ability ability);
     void onPlusButtonClick(Ability ability);
 };

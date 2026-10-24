@@ -274,6 +274,7 @@ static void tintHUDMenuButton(const std::shared_ptr<Button> &button, const glm::
 void HUD::preload(IGUI &gui) {
     gui.setResolution(800, 600);
     gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
+    gui.setImageButtonTextPulses(isTSL());
 
     static constexpr const char *kCentredCombatControls[] = {
         "BTN_CLEARALL", "BTN_CLEARONE", "BTN_CLEARONE2",
@@ -472,7 +473,10 @@ void HUD::onGUILoaded() {
             _actionBar.usePartyItemOn(0);
             return;
         }
-        _game.openInGameMenu(InGameMenuTab::Equipment);
+        // The controlled character's portrait opens the character sheet
+        // while a level-up is due, the equipment otherwise.
+        const bool levelUp = _game.party().getLeader()->isLevelUpPending();
+        _game.openInGameMenu(levelUp ? InGameMenuTab::Character : InGameMenuTab::Equipment);
     });
     // Otherwise a member who is down cannot take control.
     auto selectMember = [this](int portrait) {
@@ -563,6 +567,9 @@ void HUD::loadPausePanel() {
     _pauseControls.LBL_PRESS = std::static_pointer_cast<Label>(find("LBL_PRESS"));
     // The prompt's authored text takes custom tokens.
     _pauseControls.LBL_PRESS->setTextMessage(_game.substituteCustomTokens(_pauseControls.LBL_PRESS->text().text));
+    // The reason and the prompt pulse.
+    _pauseControls.LBL_PAUSEREASON->setTextPulsing(true);
+    _pauseControls.LBL_PRESS->setTextPulsing(true);
     // A click anywhere on the indicator resumes play.
     _pauseControls.BTN_UNPAUSE->setOnClick([this]() {
         _game.togglePlayerPause();
@@ -1096,7 +1103,7 @@ void HUD::renderMinimap() {
     std::shared_ptr<Area> area(_game.module()->area());
     // The frame is a control and scales with the layout; the map drawn inside
     // it is not, so it has to be told.
-    _game.map().render(Map::Mode::Minimap, bounds, _gui->scale());
+    _game.map().render(Map::Mode::Minimap, bounds, _gui->scale(), _gui->pulsingAlpha());
 }
 
 // Combat-mode lines
@@ -1215,7 +1222,7 @@ void HUD::refreshActionQueueItems() const {
         }
         Label &label = queueLabels[shown].get();
         label.setBorderFill(icon);
-        label.setBorderFillOpacity(shown == 0 && !current ? kIdleActionQueueOpacity : 1.0f);
+        label.setBorderAlpha(shown == 0 && !current ? kIdleActionQueueOpacity : 1.0f);
         label.setVisible(true);
         ++shown;
     };

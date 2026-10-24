@@ -1331,7 +1331,7 @@ bool Party::setPartyLeader(int npc) {
         // raiseable.
         for (const auto &member : _members) {
             const auto &creature = member.creature;
-            if (!creature || !creature->isPC()) {
+            if (!creature || creature->actsAsPCValue() != 1) {
                 continue;
             }
             if (creature->isTemporarilyDead()) {

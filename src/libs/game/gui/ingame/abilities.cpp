@@ -24,6 +24,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
 #include "reone/gui/control/button.h"
+#include "reone/gui/control/imagebutton.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/resource/di/services.h"
@@ -62,6 +63,8 @@ void AbilitiesMenu::onGUILoaded() {
     _controls.LBL_TOTALVAL->setTextMessage("");
     _controls.LBL_NAME->setTextMessage("");
 
+    // Every row is a skill's icon row.
+    auto &protoItem = static_cast<ImageButton &>(_controls.LB_ABILITY->protoItem());
     _controls.LB_DESC->setProtoMatchContent(true);
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
@@ -76,12 +79,17 @@ void AbilitiesMenu::onGUILoaded() {
         _controls.LBL_NAME->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_ABILITIES);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
-        if (auto protoItem = _controls.LB_ABILITY->protoItemOrNull()) {
-            enableK2ButtonBodyFill(*protoItem);
-            protoItem->setBorderFill("uibit_fill_2wt");
-            protoItem->setHilightFill("uibit_fill_2wt");
-            protoItem->setTintBorderFill(true);
-        }
+        enableK2ButtonBodyFill(protoItem);
+        protoItem.setBorderFill("uibit_fill_2wt");
+        protoItem.setHilightFill("uibit_fill_2wt");
+        protoItem.setTintBorderFill(true);
+    }
+    // The active row's frames pulse; TSL's icon frame is white.
+    protoItem.setHilightPulsing(true, false);
+    if (_game.isTSL()) {
+        protoItem.setIconFrameHilight(glm::vec3 {1.0f}, true);
+    } else {
+        protoItem.setIconFrameHilight(std::nullopt, true);
     }
     _controls.LB_ABILITY->setOnItemClick([this](const std::string &item) {
         auto skill = static_cast<SkillType>(stoi(item));

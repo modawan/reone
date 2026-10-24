@@ -95,11 +95,19 @@ void ImageButton::renderIcon(
     }
 
     if (iconFrame) {
+        auto frameColor = color;
+        auto frameAlpha = 1.0f;
+        if (_selected && _hilight) {
+            frameColor = _iconFrameHilightColor.value_or(color);
+            if (_iconFrameHilightPulsing) {
+                frameAlpha = _gui.pulsingAlpha();
+            }
+        }
         pass.drawImage(
             *iconFrame,
             {offset.x + _extent.left, offset.y + _extent.top},
             {_extent.height, _extent.height},
-            glm::vec4(color, 1.0f));
+            glm::vec4 {frameColor, frameAlpha});
     }
 
     if (iconTexture) {

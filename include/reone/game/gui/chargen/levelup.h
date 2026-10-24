@@ -53,6 +53,12 @@ public:
 
     void setStep(int step);
 
+    /**
+     * Shows the current step as current again, its number and name pulsing,
+     * as when the panel returns from one of the steps' screens.
+     */
+    void refreshStep() { doSetStep(_step); }
+
     /** Whether the coming level offers a choice of feats. */
     bool hasFeatChoices() const;
     /** Whether the coming level offers a choice of powers. */

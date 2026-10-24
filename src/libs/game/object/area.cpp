@@ -1630,7 +1630,7 @@ std::shared_ptr<Creature> Area::findFactionMember(Faction faction, int pc, size_
         return left->factionJoinOrder() < right->factionJoinOrder();
     });
     for (size_t index = from; index < members.size(); ++index) {
-        if (static_cast<int>(members[index]->isPC()) != pc) {
+        if (members[index]->isPCValue() != pc) {
             continue;
         }
         _factionMemberCursors[faction] = index + 1;
@@ -3476,7 +3476,7 @@ bool Area::matchesCriterias(const Creature &creature, const SearchCriteriaList &
             matched = matchesRace(creature, firstValue, value);
             break;
         case CreatureType::PlayerChar:
-            matched = static_cast<int>(creature.isPC()) == value;
+            matched = creature.isPCValue() == value;
             break;
         case CreatureType::Class:
             matched = matchesClass(creature, value);

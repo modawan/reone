@@ -53,6 +53,12 @@ public:
 
     void setStep(int step);
 
+    /**
+     * Shows the current step as current again, its number and name pulsing,
+     * as when the panel returns from one of the steps' screens.
+     */
+    void refreshStep() { doSetStep(_step); }
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_BACK;

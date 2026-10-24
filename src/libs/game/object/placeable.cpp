@@ -767,6 +767,7 @@ bool Placeable::showAnimationLoop(int id) {
     setPlacedAtOrigin(isWorldSpaceCutClip(id));
     _openStateLoop.clear();
     _shownAnimation = id;
+    _dialogOneShot.reset();
     model->playAnimation(clip, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
     return true;
 }
@@ -789,6 +790,15 @@ void Placeable::playDialogAnimation(int id, bool looping) {
     setPlacedAtOrigin(isWorldSpaceCutClip(id));
     model->playAnimation(clip);
     _openStateLoop = getPlaceableClip(_services.game.animations, kDefaultAnimationId);
+    _dialogOneShot = std::make_pair(id, clip);
+}
+
+int Placeable::currentAnimationId() const {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (_dialogOneShot && model && model->activeAnimationName() == _dialogOneShot->second && !model->isAnimationFinished()) {
+        return _dialogOneShot->first;
+    }
+    return _shownAnimation;
 }
 
 void Placeable::showStateAnimation() {

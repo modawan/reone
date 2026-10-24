@@ -82,6 +82,7 @@ void PresentationGUI::preload(IGUI &gui) {
         // values carry the screen palette; drawing the textures white turns
         // title bars and panels into opaque gray rectangles.
         gui.setTintBorderFills(true);
+        gui.setImageButtonTextPulses(true);
     } else {
         gui.setDefaultHilightColor(kGUIColorHilight);
     }
@@ -106,7 +107,7 @@ void PresentationGUI::render() {
     }
 }
 
-void PresentationGUI::loadBackground(BackgroundType type) {
+void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
     std::string resRef;
 
     if (isTSL()) {
@@ -118,8 +119,7 @@ void PresentationGUI::loadBackground(BackgroundType type) {
             // world cannot show through at wider aspect ratios.
             resRef = "blackfill";
             break;
-        case BackgroundType::Computer0:
-        case BackgroundType::Computer1:
+        case BackgroundType::Computer:
             // The terminal bezel is the computer_p panel's own fill; using it
             // as the backdrop too drew a cropped second copy behind the
             // panel. The game's terminal sits on a void fill.
@@ -146,11 +146,8 @@ void PresentationGUI::loadBackground(BackgroundType type) {
         case BackgroundType::Load:
             resRef += "load";
             break;
-        case BackgroundType::Computer0:
-            resRef += "comp0";
-            break;
-        case BackgroundType::Computer1:
-            resRef += "comp1";
+        case BackgroundType::Computer:
+            resRef += "comp" + std::to_string(computerType);
             break;
         default:
             return;
@@ -379,7 +376,8 @@ void PresentationGUI::updateK2FilterButton(const std::shared_ptr<Control> &butto
         return;
     }
 
-    button->setSelected(selected);
+    // The chosen filter is told apart by its text colour alone; it is not
+    // selected, so its text pulses only while hovered, as any button's.
     button->setTextColor(selected ? glm::vec3 {1.0f} : _baseColor);
 }
 

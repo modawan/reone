@@ -51,8 +51,7 @@ enum class BackgroundType {
     None,
     Menu,
     Load,
-    Computer0,
-    Computer1
+    Computer
 };
 
 enum class WeaponType {

@@ -78,6 +78,7 @@
 #include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/guis.h"
 #include "reone/movie/format/bikreader.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -935,6 +936,9 @@ void Game::update(float frameTime) {
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
     updateDeathSequence();
+    // Every GUI's pulse runs through pauses, whatever the screen, and slows
+    // with the world under the sequel's gameover panel.
+    _services.gui.guis.updatePulsingAlpha(frameTime * _deathTimeScale);
     if (_endGamePending) {
         if (_endGameDelay <= 0.0f) {
             if (!_gameOver) {
@@ -2900,11 +2904,6 @@ static constexpr int kHighestHostileReputation = 10;
 static constexpr float kDeathFadeWait = 12.0f;
 static constexpr float kDeathFadeLength = 1.0f;
 static constexpr float kHurriedFadeLength = 0.5f;
-// The first title's slow motion: it reaches kDeathSlowestSpeed after
-// kDeathSlowSeconds of real time, easing logarithmically from full speed.
-static constexpr float kDeathSlowSeconds = 4.0f;
-static constexpr float kDeathSlowestSpeed = 0.2f;
-static constexpr double kDeathSlowSpan = 0.8;
 // The sequel's gameover panel runs the world at a quarter of its speed.
 static constexpr float kDeathPanelTimeScale = 0.25f;
 // The first title's death message.
@@ -3043,7 +3042,6 @@ void Game::setLastPartyMemberTempKilled(const Creature &creature) {
 // holds before fading to black. Only a fallen party in a module's area starts it.
 void Game::runDeathSequence() {
     _gameOver = true;
-    _deathSequenceStarting = true;
     // Every panel closes, a tutorial window about to open included.
     _tutorialPending.reset();
     stopMovement();
@@ -3096,7 +3094,6 @@ void Game::endGame(bool showGui) {
     _endGameDelay = showGui ? (isTSL() ? kEndGameGuiDelayTSL : kEndGameGuiDelayKotOR) : 0.0f;
     if (showGui && !isTSL()) {
         _gameOver = true;
-        _deathSequenceStarting = true;
     }
 }
 
@@ -3115,36 +3112,22 @@ void Game::hurryDeathSequence() {
     _globalFade.request(GlobalFade::Direction::Out, 0.0f, kHurriedFadeLength, glm::vec3 {0.0f});
 }
 
-// The first title slows the world while its game is over, and ends the game
-// once the fade to black has finished or an end was asked for, and the death
-// message of a scripted end has had its time. The sequel's gameover panel
-// slows the world for as long as it is up.
+// The first title ends the game once the fade to black has finished or an end
+// was asked for, and the death message of a scripted end has had its time; its
+// world keeps full speed throughout. The sequel's gameover panel slows the
+// world for as long as it is up.
 void Game::updateDeathSequence() {
     if (isTSL()) {
         _deathTimeScale = _deathDisplay && _deathDisplay->isPresented() ? kDeathPanelTimeScale : 1.0f;
         return;
     }
-    const auto now = static_cast<uint32_t>(_services.system.clock.millis());
-    const uint32_t elapsed = now - _deathSequenceSample;
-    _deathSequenceSample = now;
     if (!_gameOver) {
         return;
     }
-    _deathSequenceSeconds += static_cast<float>(elapsed) / 1000.0f;
-    if (_deathSequenceStarting) {
-        _deathSequenceStarting = false;
-        _deathSlowRate = static_cast<float>(
-            -std::log(static_cast<double>(_deathSequenceSeconds * (1.0f / kDeathSlowSeconds))) / kDeathSlowSpan);
-    }
-    _deathTimeScale = _deathSequenceSeconds > kDeathSlowSeconds
-                          ? kDeathSlowestSpeed
-                          : -std::log(_deathSequenceSeconds * (1.0f / kDeathSlowSeconds)) / _deathSlowRate + kDeathSlowestSpeed;
     if ((_globalFade.fading() && !_endGamePending) || _endGameDelay > 0.0f) {
         return;
     }
-    _deathTimeScale = 1.0f;
     _gameOver = false;
-    _deathSequenceStarting = true;
     _globalFade.stop();
     requestEndGame();
     if (_deathMessage) {
@@ -4435,6 +4418,13 @@ void Game::renderGlobalFade() {
     if (alpha <= 0.0f) {
         return;
     }
+    // Compatibility approximation: color, then blackfill.
+    for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
+        renderScreenFill(color, alpha);
+    }
+}
+
+void Game::renderScreenFill(const glm::vec3 &color, float alpha) {
     auto &graphics = _services.graphics;
     auto &context = graphics.context;
     GlobalUniforms previousGlobals;
@@ -4454,17 +4444,14 @@ void Game::renderGlobalFade() {
                     context.withPolygonMode(PolygonMode::Fill, [&]() {
                         // Inherit the GUI viewport, including window/drawable
                         // scaling. Logical GUI dimensions need not be pixels.
-                        // Compatibility approximation: color, then blackfill.
-                        for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
-                            graphics.uniforms.setLocals([&](auto &locals) {
-                                locals.reset();
-                                locals.model = glm::scale(glm::mat4(1.0f),
-                                                          glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
-                                locals.color = glm::vec4(color, alpha);
-                            });
-                            context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-                            graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
-                        }
+                        graphics.uniforms.setLocals([&](auto &locals) {
+                            locals.reset();
+                            locals.model = glm::scale(glm::mat4(1.0f),
+                                                      glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
+                            locals.color = glm::vec4(color, alpha);
+                        });
+                        context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
+                        graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
                     });
                 });
             });
@@ -8375,11 +8362,17 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     }
     // TSL introduces levelling up the first time the player character can,
     // outside a conversation.
-    if (isTSL() && creature.isPlayerCreated() && !isConversationActive() &&
-        getGlobalNumber(kLevelUpDialogFiredGlobal) == 0) {
-        setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
-        _scriptRunner->run(kLevelUpDialogScript);
+    if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
+        runLevelUpDialogOnce();
     }
+}
+
+void Game::runLevelUpDialogOnce() {
+    if (getGlobalNumber(kLevelUpDialogFiredGlobal) != 0) {
+        return;
+    }
+    setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
+    _scriptRunner->run(kLevelUpDialogScript);
 }
 
 /** The name character generation loads under. */
@@ -8650,8 +8643,13 @@ void Game::submitStatusSummary(
 
 void Game::finishStatusSummaryCycle() {
     static constexpr char kAlignmentMovieScript[] = "k_align_movie";
-    if (isTSL()) {
-        _scriptRunner->run(kAlignmentMovieScript);
+    if (!isTSL()) {
+        return;
+    }
+    _scriptRunner->run(kAlignmentMovieScript);
+    const auto &player = *_party.player();
+    if (player.isPlayerCreated() && player.isLevelUpPending()) {
+        runLevelUpDialogOnce();
     }
 }
 

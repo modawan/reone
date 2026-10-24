@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <map>
 
 #include "reone/audio/source.h"
@@ -32,6 +33,12 @@
 #include "../types.h"
 
 namespace reone {
+
+namespace gui {
+
+class ListBox;
+
+}
 
 namespace game {
 
@@ -116,6 +123,30 @@ protected:
 
     // Complete the active entry's presentation using the same path as expiry.
     void endCurrentEntry();
+    /**
+     * Asks to skip the shown entry, paused or not. The next update that runs
+     * the conversation honours it, if the entry can be skipped then.
+     */
+    void requestSkip();
+    /**
+     * Whether a press asks for a skip: while the entry shows, and while a
+     * reply taken without a choice holds the next entry back.
+     */
+    bool acceptsSkip() const;
+    /** As the replies are listed, selects the row under the pointer, if any. */
+    void selectReplyUnderPointer();
+
+    /**
+     * The conversation's own input: a left button press or Return or keypad
+     * Enter asks to skip the shown entry. With the replies listed, Return or
+     * keypad Enter chooses the selected reply, a number key the reply of its
+     * number, and the up and down arrows move the selection.
+     *
+     * @return whether \p event was used up
+     */
+    bool handleConversationInput(const input::Event &event);
+    /** The list the replies are listed in; none in a presentation without one. */
+    virtual std::shared_ptr<gui::ListBox> replyList() const;
 
     /** One line per reply, in reply order; an empty line stands for a reply that is not listed. */
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
@@ -129,14 +160,46 @@ protected:
     virtual void onEntryEnded();
     /** The player chose \p reply from the listed replies; called before the reply's scripts run. */
     virtual void onReplyPicked(const resource::Dialog::EntryReply &reply);
+    /** A reply was taken without a choice, as the entry ended; called before the reply's scripts run. */
+    virtual void onReplyTaken(const resource::Dialog::EntryReply &reply);
+    /** Whether a participant of the list waited for still shows a dialog animation. */
+    virtual bool isDialogAnimationPlaying() const;
+
+    /**
+     * The dialogue letterbox's fade: a colour over the whole screen, which an
+     * entry sets and the arrival of its replies clears. It runs only while
+     * the letterbox is drawn.
+     */
+    struct EntryFade {
+        glm::vec3 color {0.0f};
+        float alpha {0.0f};
+        float delay {0.0f};
+        float length {0.0f};
+        /** Seconds since the fade was set, counted from a tenth of a second; 0 without a fade. */
+        float clock {0.0f};
+        /** The fade goes from the colour to clear, rather than from clear to the colour. */
+        bool fromColor {false};
+    };
+
+    const EntryFade &entryFade() const { return _entryFade; }
+    /** Runs the letterbox fade on by \p dt seconds, as the letterbox is drawn. */
+    void advanceEntryFade(float dt);
+    /** Clears the letterbox fade. */
+    void resetEntryFade();
 
 private:
     std::shared_ptr<audio::AudioSource> _currentVoice;
     Timer _endEntryTimer;
-    float _entryDuration {0.0f};
+    /** What the current entry, or the reply taken without a choice, waits for past its delay. */
+    int _waitFlags {0};
+    /** The entry that follows a reply taken without a choice, once the reply's delay and waits are over. */
+    std::optional<int> _pendingEntry;
+    /** A skip of the shown entry has been asked for and not yet honoured. */
+    bool _entrySkipped {false};
+    EntryFade _entryFade;
     std::vector<const resource::Dialog::EntryReply *> _replies;
     bool _autoPickFirstReply {false};
-    /** Whether the conversation has shown the entry it ends on. */
+    /** Whether the conversation has listed the replies of the entry it ends on. */
     bool _endReached {false};
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
@@ -144,12 +207,28 @@ private:
     /** The objects this conversation has made its participants. */
     std::vector<RuntimeObjectRef<Object>> _dialogParticipants;
 
+    /**
+     * A walk through a cycle of values, which starts where the dialog's name
+     * puts it and moves by a step in one direction.
+     */
+    struct DrawCycle {
+        static constexpr int kLength = 19;
+        using Values = std::array<int, kLength>;
+
+        int place {0};
+        int step {1};
+        bool forward {false};
+
+        /** Starts the walk where \p seed puts it. */
+        void seed(uint32_t seed);
+        /** The value at the walk's place in \p values; the walk then moves on. */
+        int draw(const Values &values);
+    };
+
     // Camera shots
 
-    /** The place in the cycle of camera angles, and the step and direction it moves by. */
-    int _angleCyclePlace {0};
-    int _angleCycleStep {1};
-    bool _angleCycleForward {false};
+    /** The walk through the cycle of camera angles. */
+    DrawCycle _angleCycle;
     /** No entry, or no list of replies, has been given a camera angle yet. */
     bool _firstEntryShot {true};
     bool _firstReplyShot {true};
@@ -166,12 +245,17 @@ private:
     /** The view is an animated shot, until another shot is taken. */
     bool _animatedView {false};
 
-    /** Starts the cycle of camera angles where the dialog's name puts it. */
+    /** Starts the cycles of camera angles and sound variations where the dialog's name puts them. */
     void seedCameraAngles();
     /** The next angle of the cycle, for an entry or reply without one. */
     int drawCameraAngle();
 
     // END Camera shots
+
+    /** The walk through the cycle of sound variation numbers. */
+    DrawCycle _soundVariationCycle;
+    /** The sounds of the entries by index that took a variation number, once shown. */
+    std::map<int, std::string> _entrySounds;
 
     /** Make \p object a participant of this conversation, unless another conversation still holds it. */
     void attachDialogParticipant(const std::shared_ptr<Object> &object);
@@ -182,15 +266,26 @@ private:
 
     bool isCurrent(uint64_t generation) const;
 
-    void loadConversationBackground();
     void loadCameraModel();
     void loadStartEntry();
-    void loadVoiceOver();
+    /** Plays the current entry's voice: \p sound, or else its voice-over. */
+    void loadVoiceOver(const std::string &sound);
     void scheduleEndOfEntry();
+    /** Holds the next entry back after \p reply, taken without a choice. */
+    void scheduleTakenReply(const resource::Dialog::EntryReply &reply);
+    /** Whether something the current entry or the taken reply waits for still goes on. */
+    bool isWaiting() const;
+    /** Stops the conversation's voice. */
+    void stopVoice();
+    /** Sets the letterbox fade of \p entry, if it has one. */
+    void startEntryFade(const resource::Dialog::EntryReply &entry);
+    /** Whether the letterbox fade is over, or none is set. */
+    bool isEntryFadeDone() const;
+    /** Whether the conversation's animated camera still plays its clip. */
+    bool isCameraAnimationPlaying() const;
     void loadReplies();
 
     bool isSkippableEntry() const;
-    bool isNonPresentationalEntry() const;
     /** Add the shown entry's \p text to the dialogue log under its speaker's name. */
     void logEntryLine(const std::string &text);
 
@@ -227,7 +322,12 @@ private:
     // Event handlers
 
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
-    bool handleKeyUp(const input::KeyEvent &event);
+    /** Return, keypad Enter, the arrows and the number keys, on their press. */
+    bool handleKeyDown(const input::KeyEvent &event);
+    /** Chooses the reply the reply list has selected, if it has one. */
+    void pickSelectedReply();
+    /** Moves the reply list's selection by \p step rows. */
+    void moveReplySelection(int step);
 
     // END Event handlers
 };
