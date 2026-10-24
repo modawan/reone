@@ -86,7 +86,7 @@ static EquipmentOperationOutcome equipFrom(
     // Refusals and replacements are reported to the controlled creature only.
     const bool controlled = game.party().getLeader().get() == &subject;
     // The player character must reach the item's level before anything else.
-    if (subject.isPC() && subject.attributes().getAggregateLevel() < minimumEquipLevel(subject, *item)) {
+    if (subject.isPCValue() == 1 && subject.attributes().getAggregateLevel() < minimumEquipLevel(subject, *item)) {
         if (controlled) {
             game.addFeedbackMessage(*equipmentRefusalFeedback(EquipmentCandidateReason::MinimumLevel));
         }

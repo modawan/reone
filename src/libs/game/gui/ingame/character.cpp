@@ -50,6 +50,9 @@ namespace game {
 // The tutorial window (tutorial.2da row) the AI script panel asks for.
 static constexpr int kScriptSelectTutorial = 10;
 
+/** The experience table's amount for a level no experience reaches. */
+static constexpr uint32_t kUnreachableExperience = 0xFFFFFFFF;
+
 // The Force mastery lines, one per group of Jedi and Sith classes, for Pure
 // Good and for Pure Evil powers.
 static constexpr int kStrRefGuardianPureGood = 114161;
@@ -320,14 +323,15 @@ void CharacterMenu::refreshControls() {
     _controls.LBL_WILL_STAT->setTextMessage(std::to_string(savingThrows.will));
 
     _controls.LBL_EXPERIENCE_STAT->setTextMessage(std::to_string(partyLeader->xp()));
-    // Past the title's level cap the experience the next level needs is
-    // hidden.
+    // The experience table's amount at the leader's level prints signed; it
+    // is hidden when the table holds the unreachable amount there.
     const auto needed = partyLeader->getNeededXP();
     if (needed) {
-        _controls.LBL_NEEDED_XP->setTextMessage(std::to_string(*needed));
+        _controls.LBL_NEEDED_XP->setTextMessage(std::to_string(static_cast<int>(*needed)));
     }
-    _controls.LBL_NEEDED_XP->setVisible(needed.has_value());
-    _controls.LBL_NEXT_LEVEL->setVisible(needed.has_value());
+    const bool neededShown = needed && *needed != kUnreachableExperience;
+    _controls.LBL_NEEDED_XP->setVisible(neededShown);
+    _controls.LBL_NEXT_LEVEL->setVisible(neededShown);
 
     if (_game.isTSL()) {
         refreshForceMastery(*partyLeader);

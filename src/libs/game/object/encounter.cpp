@@ -626,7 +626,7 @@ float Encounter::tallyHostilePoints() const {
             continue;
         }
         int level = creature.attributes().getAggregateLevel();
-        if (!creature.isPC()) {
+        if (!creature.actsAsPC()) {
             level >>= 1;
         }
         points += creaturePoints(static_cast<float>(level));

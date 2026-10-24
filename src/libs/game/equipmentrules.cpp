@@ -334,7 +334,7 @@ bool canUseItem(const Creature &creature, const Item &item, bool menuCheck) {
     if (tsl && (!meetsGenderLimits(creature, item) || !meetsPlayerCharacterLimits(creature, item) ||
                 !meetsAttributeLimits(creature, item) || isExcludedForCreature(creature, item)))
         return false;
-    if (creature.isPC() && creature.attributes().getAggregateLevel() < minimumEquipLevel(creature, item)) {
+    if (creature.isPCValue() == 1 && creature.attributes().getAggregateLevel() < minimumEquipLevel(creature, item)) {
         return false;
     }
     // A weapon may be at most one size larger than its user, unless it may be

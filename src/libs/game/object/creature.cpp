@@ -1191,7 +1191,7 @@ static void applyDeathExperience(
 
     // A player character or party member is worth nothing. Reputation queries
     // from an NPC faction to faction zero use the player row.
-    if (victim.isPC() || game.party().isMember(victim) ||
+    if (victim.actsAsPC() || game.party().isMember(victim) ||
         services.game.reputes.getReputation(Faction::Player, victim.faction()) > 10)
         return;
     // The award is measured against the experience of the creature under the
@@ -1927,7 +1927,7 @@ void Creature::perceiveAfresh() {
     for (const uint32_t id : perceived) {
         forgetPerceived(id);
     }
-    if (!_isPC && isDead()) {
+    if (!actsAsPC() && isDead()) {
         return;
     }
     _game.module()->area()->perceiveNow(_game.getObjectById<Creature>(_id));
@@ -3390,7 +3390,7 @@ int Creature::maxHitPoints() const {
     const auto hasVitalityFeat = [this](FeatType feat) { return hasEffectiveFeat(feat); };
     // The player character's level history holds while no companion is
     // controlled in its place.
-    return _isPC && _game.party().controlledNpc() == -1
+    return _isPC == 1 && _game.party().controlledNpc() == -1
                ? _attributes.getLevelHistoryMaxHitPoints(
                      [this](int level) {
                          // A level without a recorded entry grants no hit die.
@@ -3410,7 +3410,7 @@ void Creature::refreshVitalityConstitution() {
 bool Creature::hitPointsAtDeathThreshold() const {
     // A party member is never dead by its vitality alone; a player character
     // dies at -10, any other creature at 0.
-    return !_game.party().isMember(*this) && currentHitPoints() <= (_isPC ? -10 : 0);
+    return !_game.party().isMember(*this) && currentHitPoints() <= (actsAsPC() ? -10 : 0);
 }
 
 void Creature::updateDeathFromCurrentHitPoints() {
@@ -3956,7 +3956,7 @@ int Creature::getReputationFrom(Faction sourceFaction) const {
 
 void Creature::joinEncounter(const Encounter &encounter) {
     _encounterId = encounter.id();
-    _isPC = false;
+    _actsAsPC = 0;
 }
 
 void Creature::leaveEncounter() {
@@ -4457,7 +4457,7 @@ bool Creature::applyResurrectionEffect(int hpPercent) {
 // The party always runs at the top priority; combat raises the lower
 // priorities to 2, and leaving combat drops 2 to 1.
 void Creature::updateAILevel() {
-    if (_isPC || isPartyMember()) {
+    if (_isPC == 1 || isPartyMember()) {
         _aiLevel = 4;
     } else if (_combatState.active && _aiLevel <= 1) {
         _aiLevel = 2;
@@ -5530,13 +5530,19 @@ bool Creature::isLevelUpPending() const {
     if (isDead() || isTemporarilyDead()) {
         return false;
     }
-    const auto needed = getNeededXP();
-    return needed && static_cast<uint32_t>(_xp) >= *needed;
+    const int level = _attributes.getAggregateLevel();
+    return level < maxCharacterLevel(_game.isTSL()) &&
+           static_cast<uint32_t>(_xp) >= _services.game.combatTables.experienceThreshold(level);
 }
 
+// Only a creature whose IsPC is exactly 1 walks the table; any other keeps
+// its level.
 int Creature::potentialLevel() const {
     const auto &tables = _services.game.combatTables;
-    int level = _attributes.getAggregateLevel();
+    int level = getSpellLevel(false);
+    if (_isPC != 1) {
+        return level;
+    }
     while (level < maxCharacterLevel(_game.isTSL()) &&
            static_cast<uint32_t>(_xp) >= tables.experienceThreshold(level)) {
         ++level;
@@ -5546,7 +5552,7 @@ int Creature::potentialLevel() const {
 
 std::optional<uint32_t> Creature::getNeededXP() const {
     const int level = _attributes.getAggregateLevel();
-    if (level >= maxCharacterLevel(_game.isTSL())) {
+    if (level > maxCharacterLevel(_game.isTSL())) {
         return std::nullopt;
     }
     return _services.game.combatTables.experienceThreshold(level);
@@ -5639,7 +5645,8 @@ void Creature::runConversationScript() {
 }
 
 // An addition that would lower the experience, or pass the most it holds,
-// is refused.
+// is refused. A total held past the most, read from a save, takes no
+// positive addition.
 void Creature::giveXP(int amount) {
     if (amount < 0) {
         return;
@@ -5665,8 +5672,9 @@ void Creature::giveXP(int amount) {
             }
         }
     }
+    behind = std::min(behind, 5);
     const auto kept = static_cast<int>(int64_t {amount} * (5 - behind) / 5);
-    if (kept > kMaxExperience - _xp) {
+    if (kept > 0 && (_xp < 0 || kept > kMaxExperience - _xp)) {
         return;
     }
     setXP(_xp + kept);
@@ -6477,7 +6485,7 @@ void Creature::setOrderedAttackTarget(uint32_t target) {
 void Creature::recordQueuedAttack(Object &target) {
     if (auto *creature = dyn_cast<Creature>(&target)) {
         const auto leader = _game.party().getLeader();
-        if (creature->isPC() || leader.get() == creature) {
+        if (creature->actsAsPCValue() == 1 || leader.get() == creature) {
             creature->_incomingAttacker = SavedObjectReference::fromRuntimeId(id());
             _game.bindSavedObjectReference(creature->_incomingAttacker);
         }
@@ -10319,7 +10327,8 @@ void Creature::deserializeAll(
 
     // IsPC is read before hit points are rebuilt. A player character stays
     // incapacitated and resumable through 0..-9 HP and is dead only at -10 HP.
-    gff.readBool(_isPC, "IsPC");
+    gff.readByte(_isPC, "IsPC");
+    _actsAsPC = _isPC;
     gff.readBool(_playerCreated, "PlayerCreated");
     // Only the value 1 is stealth.
     setStealthMode(gff.getUint("StealthMode", _stealthMode ? 1 : 0) == 1);

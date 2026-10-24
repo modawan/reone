@@ -737,7 +737,7 @@ EffectApplicationResult DisguiseEffect::onApply(Object &object, EffectInstance &
 
 void DisguiseEffect::onRemove(Object &object, const EffectInstance &) {
     auto *creature = dyn_cast<Creature>(&object);
-    if (!creature || (creature->isDead() && !creature->isPC() && object.isDestroyable())) {
+    if (!creature || (creature->isDead() && !creature->actsAsPC() && object.isDestroyable())) {
         return;
     }
     creature->removeDisguiseAppearance();
