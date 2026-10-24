@@ -17,7 +17,18 @@
 
 #include "reone/game/gui/computer.h"
 
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
+#include "reone/game/d20/skills.h"
+#include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/party.h"
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/di/services.h"
+#include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 
 using namespace reone::audio;
 
@@ -29,15 +40,19 @@ namespace reone {
 
 namespace game {
 
-static void setVisible(const std::shared_ptr<Label> &control, bool visible) {
-    if (control) {
-        control->setVisible(visible);
-    }
-}
+static constexpr char kHumResRef[] = "computer_lp_04";
+static constexpr float kHumGain = 30.0f / 127.0f;
+static constexpr char kComputerSpikeTag[] = "k_computer_spike";
+static constexpr char kRepairPartTag[] = "k_repair_part";
+static constexpr float kStaticBandAlpha = 0.4f;
+static constexpr char kComputerTypesResRef[] = "comptypes";
 
 void ComputerGUI::init() {
     Conversation::init();
     _cameraGUI.init();
+    if (!isTSL()) {
+        loadPanelFrames();
+    }
 }
 
 bool ComputerGUI::handle(const input::Event &event) {
@@ -63,29 +78,57 @@ void ComputerGUI::render() {
 }
 
 void ComputerGUI::onStart() {
+    applyPanelFrame();
     _presentation = Presentation::Normal;
+    playHum();
 }
 
 void ComputerGUI::onFinish() {
     _presentation = Presentation::Normal;
+    stopHum();
 }
 
 void ComputerGUI::onLoadEntry() {
     int cameraId = 0;
-    _presentation = getCamera(cameraId) == CameraType::Static ? Presentation::Camera : Presentation::Normal;
+    setPresentation(getCamera(cameraId) == CameraType::Static ? Presentation::Camera : Presentation::Normal);
     if (_presentation == Presentation::Camera) {
         _cameraGUI.clearSelection();
     }
 }
 
 void ComputerGUI::onEntryEnded() {
-    _presentation = Presentation::Normal;
+    setPresentation(Presentation::Normal);
 }
 
 void ComputerGUI::returnFromCamera() {
     if (_presentation == Presentation::Camera) {
         endCurrentEntry();
     }
+}
+
+void ComputerGUI::setPresentation(Presentation presentation) {
+    if (presentation == _presentation) {
+        return;
+    }
+    _presentation = presentation;
+    if (_presentation == Presentation::Camera) {
+        stopHum();
+    } else {
+        playHum();
+    }
+}
+
+void ComputerGUI::playHum() {
+    stopHum();
+    _hum = _services.audio.mixer.play(_humClip, AudioType::Sound, kHumGain, true);
+}
+
+void ComputerGUI::stopHum() {
+    if (!_hum) {
+        return;
+    }
+    _hum->stop();
+    _hum.reset();
 }
 
 void ComputerGUI::preload(IGUI &gui) {
@@ -96,7 +139,9 @@ void ComputerGUI::onGUILoaded() {
     bindControls();
     configureMessage();
     configureReplies();
-    hideStaticBands();
+    configureSkillLabels();
+    configureBands();
+    _humClip = _services.resource.audioClips.get(kHumResRef);
 }
 
 void ComputerGUI::configureMessage() {
@@ -115,16 +160,60 @@ void ComputerGUI::configureReplies() {
     });
 }
 
-void ComputerGUI::hideStaticBands() {
-    if (_game.isTSL()) {
+void ComputerGUI::configureSkillLabels() {
+    const auto &computerUse = *_services.game.skills.get(SkillType::ComputerUse);
+    const auto &repair = *_services.game.skills.get(SkillType::Repair);
+    _controls.LBL_COMP_SKILL->setTextMessage(computerUse.name);
+    _controls.LBL_REP_SKILL->setTextMessage(repair.name);
+    if (isTSL()) {
         return;
     }
+    _controls.LBL_COMP_SKILL_ICON->setBorderFill(computerUse.icon);
+    _controls.LBL_REP_SKILL_ICON->setBorderFill(repair.icon);
+}
 
-    // K1 computer.gui ships static band overlays that duplicate the terminal background.
-    setVisible(_controls.LBL_STATIC1, false);
-    setVisible(_controls.LBL_STATIC2, false);
-    setVisible(_controls.LBL_STATIC3, false);
-    setVisible(_controls.LBL_STATIC4, false);
+void ComputerGUI::configureBands() {
+    if (isTSL()) {
+        return;
+    }
+    for (const auto &band : {_controls.LBL_STATIC1, _controls.LBL_STATIC2, _controls.LBL_STATIC3, _controls.LBL_STATIC4}) {
+        band->setBorderAlpha(kStaticBandAlpha);
+    }
+}
+
+void ComputerGUI::loadPanelFrames() {
+    const auto types = getRequiredTwoDA(_services.resource.twoDas, kComputerTypesResRef);
+    _panelFrames.clear();
+    for (int row = 0; row < types->getRowCount(); ++row) {
+        _panelFrames.push_back(types->getString(row, "computerbackground"));
+    }
+}
+
+void ComputerGUI::applyPanelFrame() {
+    if (isTSL()) {
+        return;
+    }
+    // A computer type without a row in comptypes.2da takes the first row's
+    // frame.
+    const auto type = static_cast<size_t>(_dialog->computerType);
+    _gui->rootControl().setBorderFill(_panelFrames.at(type < _panelFrames.size() ? type : 0));
+}
+
+void ComputerGUI::refreshSkills() {
+    const auto leader = _game.party().getLeader();
+    int spikes = 0;
+    int parts = 0;
+    for (const auto &item : _game.party().sharedInventoryReceiver(leader)->items()) {
+        if (item->tag() == kComputerSpikeTag) {
+            spikes += item->stackSize();
+        } else if (item->tag() == kRepairPartTag) {
+            parts += item->stackSize();
+        }
+    }
+    _controls.LBL_COMP_SKILL_VAL->setTextMessage(std::to_string(leader->getUnopposedSkillRank(SkillType::ComputerUse)));
+    _controls.LBL_REP_SKILL_VAL->setTextMessage(std::to_string(leader->getUnopposedSkillRank(SkillType::Repair)));
+    _controls.LBL_COMP_SPIKES_VAL->setTextMessage(std::to_string(spikes));
+    _controls.LBL_REP_UNITS_VAL->setTextMessage(std::to_string(parts));
 }
 
 void ComputerGUI::setMessage(std::string message) {
@@ -147,6 +236,9 @@ void ComputerGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
+    // The numbers are written once per entry, when its replies are listed,
+    // so they show what the entry's reply conditions leave.
+    refreshSkills();
 }
 
 } // namespace game

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/audio/clip.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
@@ -54,8 +55,20 @@ private:
 
     ComputerCamGUI _cameraGUI;
     Presentation _presentation {Presentation::Normal};
+    /** The terminal hum, looping while the panel is up. */
+    std::shared_ptr<audio::AudioClip> _humClip;
+    /** The playing hum; none while the panel is down or a camera shot shows. */
+    std::shared_ptr<audio::AudioSource> _hum;
+    /** KotOR: the panel frame of each computer type, the rows of comptypes.2da. */
+    std::vector<std::string> _panelFrames;
 
     void returnFromCamera();
+    /** Switches between the panel and a camera shot; the terminal hum plays only with the panel. */
+    void setPresentation(Presentation presentation);
+    /** Starts the terminal hum from its beginning. */
+    void playHum();
+    /** Stops the terminal hum. */
+    void stopHum();
 
     struct Controls {
         std::shared_ptr<gui::Label> LBL_BAR1;
@@ -98,29 +111,42 @@ private:
         _controls.LBL_BAR5 = findControl<gui::Label>("LBL_BAR5");
         _controls.LBL_BAR6 = findControl<gui::Label>("LBL_BAR6");
         _controls.LBL_COMP_SKILL = findControl<gui::Label>("LBL_COMP_SKILL");
-        _controls.LBL_COMP_SKILL_ICON = findControl<gui::Label>("LBL_COMP_SKILL_ICON");
         _controls.LBL_COMP_SKILL_VAL = findControl<gui::Label>("LBL_COMP_SKILL_VAL");
         _controls.LBL_COMP_SPIKES = findControl<gui::Label>("LBL_COMP_SPIKES");
-        _controls.LBL_COMP_SPIKES_ICON = findControl<gui::Label>("LBL_COMP_SPIKES_ICON");
         _controls.LBL_COMP_SPIKES_VAL = findControl<gui::Label>("LBL_COMP_SPIKES_VAL");
-        _controls.LBL_OBSCURE = findControl<gui::Label>("LBL_OBSCURE");
         _controls.LBL_REP_SKILL = findControl<gui::Label>("LBL_REP_SKILL");
-        _controls.LBL_REP_SKILL_ICON = findControl<gui::Label>("LBL_REP_SKILL_ICON");
         _controls.LBL_REP_SKILL_VAL = findControl<gui::Label>("LBL_REP_SKILL_VAL");
         _controls.LBL_REP_UNITS = findControl<gui::Label>("LBL_REP_UNITS");
-        _controls.LBL_REP_UNITS_ICON = findControl<gui::Label>("LBL_REP_UNITS_ICON");
         _controls.LBL_REP_UNITS_VAL = findControl<gui::Label>("LBL_REP_UNITS_VAL");
-        _controls.LBL_STATIC1 = findControl<gui::Label>("LBL_STATIC1");
-        _controls.LBL_STATIC2 = findControl<gui::Label>("LBL_STATIC2");
-        _controls.LBL_STATIC3 = findControl<gui::Label>("LBL_STATIC3");
-        _controls.LBL_STATIC4 = findControl<gui::Label>("LBL_STATIC4");
         _controls.LB_MESSAGE = findControl<gui::ListBox>("LB_MESSAGE");
         _controls.LB_REPLIES = findControl<gui::ListBox>("LB_REPLIES");
+        if (!isTSL()) {
+            // Only the KotOR terminal sets up the skill icons, the obscuring
+            // label and the static bands.
+            _controls.LBL_COMP_SKILL_ICON = findControl<gui::Label>("LBL_COMP_SKILL_ICON");
+            _controls.LBL_COMP_SPIKES_ICON = findControl<gui::Label>("LBL_COMP_SPIKES_ICON");
+            _controls.LBL_OBSCURE = findControl<gui::Label>("LBL_OBSCURE");
+            _controls.LBL_REP_SKILL_ICON = findControl<gui::Label>("LBL_REP_SKILL_ICON");
+            _controls.LBL_REP_UNITS_ICON = findControl<gui::Label>("LBL_REP_UNITS_ICON");
+            _controls.LBL_STATIC1 = findControl<gui::Label>("LBL_STATIC1");
+            _controls.LBL_STATIC2 = findControl<gui::Label>("LBL_STATIC2");
+            _controls.LBL_STATIC3 = findControl<gui::Label>("LBL_STATIC3");
+            _controls.LBL_STATIC4 = findControl<gui::Label>("LBL_STATIC4");
+        }
     }
 
     void configureMessage();
     void configureReplies();
-    void hideStaticBands();
+    /** Names the two skills, and in KotOR shows their icons. */
+    void configureSkillLabels();
+    /** KotOR draws the static bands faintly. */
+    void configureBands();
+    /** KotOR reads the panel frame of each computer type. */
+    void loadPanelFrames();
+    /** KotOR frames the panel by the conversation's computer type. */
+    void applyPanelFrame();
+    /** Writes the leader's Computer Use and Repair totals and the party's spike and repair-part counts. */
+    void refreshSkills();
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;

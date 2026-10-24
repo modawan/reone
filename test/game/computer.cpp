@@ -127,6 +127,13 @@ protected:
                 preload(*camera);
                 return camera;
             }));
+        if (GetParam() == GameID::KotOR) {
+            // The KotOR terminal frames its panel from comptypes.2da.
+            std::shared_ptr<TwoDA> computerTypes(TwoDA::Builder().columns({"label", "computerbackground"}).row({"Standard", "panel01"}).build());
+            ON_CALL(engine.resourceModule().twoDas(), get(std::string("comptypes"))).WillByDefault(Return(computerTypes));
+            panel = std::make_shared<Label>(*normal, svc.scene.graphs, svc.graphics, svc.resource);
+            ON_CALL(*normal, rootControl()).WillByDefault(ReturnRef(*panel));
+        }
         computer = std::make_unique<TestComputer>(*game, svc);
         computer->init();
     }
@@ -145,6 +152,7 @@ protected:
     std::shared_ptr<NiceMock<MockGUI>> normal;
     std::shared_ptr<NiceMock<MockGUI>> camera;
     std::shared_ptr<Label> returnControl;
+    std::shared_ptr<Label> panel;
     std::unique_ptr<TestComputer> computer;
 };
 

@@ -96,6 +96,8 @@ public:
         std::shared_ptr<graphics::Texture> edge;
         std::shared_ptr<graphics::Texture> fill;
         glm::vec3 color {1.0f};
+        /** The opacity every piece of the border is drawn with. */
+        float alpha {1.0f};
         int dimension {0};
         FillTransform fillTransform {FillTransform::None};
     };
@@ -166,6 +168,8 @@ public:
     void setBorderFill(std::shared_ptr<graphics::Texture> texture);
     void setBorderFillTransform(Border::FillTransform transform);
     void setBorderColor(glm::vec3 color);
+    /** Sets the opacity every piece of the border is drawn with. */
+    void setBorderAlpha(float alpha);
     void setBorderColorOverride(glm::vec3 color);
     void setDisabled(bool disabled);
     virtual void setExtent(Extent extent);

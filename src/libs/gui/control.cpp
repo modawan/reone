@@ -288,7 +288,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
                 fillSize,
-                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), _borderFillOpacity),
+                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), _borderFillOpacity * border.alpha),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
         });
@@ -311,7 +311,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x, y},
                 {leftWidth, height},
-                glm::vec4(color, 1.0f),
+                glm::vec4(color, border.alpha),
                 uv);
 
             // Right edge
@@ -323,7 +323,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x + size.x - rightWidth, y},
                 {rightWidth, height},
-                glm::vec4(color, 1.0f),
+                glm::vec4(color, border.alpha),
                 uv);
         }
 
@@ -336,7 +336,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x, y},
                 {width, topHeight},
-                glm::vec4(color, 1.0f));
+                glm::vec4(color, border.alpha));
 
             // Bottom edge
             uv = glm::mat3x4(
@@ -347,7 +347,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x, y + size.y - bottomHeight},
                 {width, bottomHeight},
-                glm::vec4(color, 1.0f),
+                glm::vec4(color, border.alpha),
                 uv);
         }
     }
@@ -361,7 +361,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x, y},
             {leftWidth, topHeight},
-            glm::vec4(color, 1.0f));
+            glm::vec4(color, border.alpha));
 
         // Bottom left corner
         uv = glm::mat3x4(
@@ -372,7 +372,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x, y + size.y - bottomHeight},
             {leftWidth, bottomHeight},
-            glm::vec4(color, 1.0f),
+            glm::vec4(color, border.alpha),
             uv);
 
         // Top right corner
@@ -384,7 +384,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x + size.x - rightWidth, y},
             {rightWidth, topHeight},
-            glm::vec4(color, 1.0f),
+            glm::vec4(color, border.alpha),
             uv);
 
         // Bottom right corner
@@ -396,7 +396,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x + size.x - rightWidth, y + size.y - bottomHeight},
             {rightWidth, bottomHeight},
-            glm::vec4(color, 1.0f),
+            glm::vec4(color, border.alpha),
             uv);
     }
 }
@@ -620,6 +620,10 @@ void Control::setBorderFillTransform(Border::FillTransform transform) {
 
 void Control::setBorderColor(glm::vec3 color) {
     _border->color = std::move(color);
+}
+
+void Control::setBorderAlpha(float alpha) {
+    _border->alpha = alpha;
 }
 
 void Control::setBorderColorOverride(glm::vec3 color) {
