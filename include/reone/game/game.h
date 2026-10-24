@@ -584,7 +584,8 @@ public:
     StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
     /**
      * A status summary was taken down or passed by unseen. TSL then looks for
-     * the story's reaction to the player character's alignment.
+     * the story's reaction to the player character's alignment, and, the first
+     * time the player's own character can level up, runs the level-up dialog.
      */
     void finishStatusSummaryCycle();
 
@@ -1945,6 +1946,9 @@ private:
     std::string getTokenValue(const std::string &name, const std::map<int, std::string> &customTokens,
                               std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
                               bool &hidden) const;
+
+    /** TSL: runs the level-up dialog script the first time only. */
+    void runLevelUpDialogOnce();
 
     void advanceWorldTime(double dt);
     void advanceTimeStopClock(double dt);

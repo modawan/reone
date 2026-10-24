@@ -472,7 +472,10 @@ void HUD::onGUILoaded() {
             _actionBar.usePartyItemOn(0);
             return;
         }
-        _game.openInGameMenu(InGameMenuTab::Equipment);
+        // The controlled character's portrait opens the character sheet
+        // while a level-up is due, the equipment otherwise.
+        const bool levelUp = _game.party().getLeader()->isLevelUpPending();
+        _game.openInGameMenu(levelUp ? InGameMenuTab::Character : InGameMenuTab::Equipment);
     });
     // Otherwise a member who is down cannot take control.
     auto selectMember = [this](int portrait) {

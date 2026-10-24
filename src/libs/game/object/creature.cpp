@@ -5524,39 +5524,48 @@ static int maxCharacterLevel(bool tsl) {
     return tsl ? 50 : 20;
 }
 
-/** The experience threshold of the maximum level, which no experience reaches. */
-static constexpr uint32_t kUnreachableExperience = 0xffffffff;
-
-// The experience a character needs to rise past the level.
-static int levelExperienceThreshold(int level) {
-    return level * (level + 1) * 500;
-}
-
+// The experience table's row is the level; experience and the table's
+// amounts compare unsigned.
 bool Creature::isLevelUpPending() const {
-    return _attributes.getAggregateLevel() < maxCharacterLevel(_game.isTSL()) &&
-           static_cast<int>(_xp) >= getNeededXP() && !isDead() && !isTemporarilyDead();
+    if (isDead() || isTemporarilyDead()) {
+        return false;
+    }
+    const auto needed = getNeededXP();
+    return needed && static_cast<uint32_t>(_xp) >= *needed;
 }
 
 int Creature::potentialLevel() const {
+    const auto &tables = _services.game.combatTables;
     int level = _attributes.getAggregateLevel();
-    while (level < maxCharacterLevel(_game.isTSL()) && static_cast<int>(_xp) >= levelExperienceThreshold(level)) {
+    while (level < maxCharacterLevel(_game.isTSL()) &&
+           static_cast<uint32_t>(_xp) >= tables.experienceThreshold(level)) {
         ++level;
     }
     return level;
 }
 
-int Creature::getNeededXP() const {
-    return levelExperienceThreshold(_attributes.getAggregateLevel());
+std::optional<uint32_t> Creature::getNeededXP() const {
+    const int level = _attributes.getAggregateLevel();
+    if (level >= maxCharacterLevel(_game.isTSL())) {
+        return std::nullopt;
+    }
+    return _services.game.combatTables.experienceThreshold(level);
 }
 
 int Creature::experienceToNextLevel() const {
-    const bool tsl = _game.isTSL();
-    const int level = tsl ? getSpellLevel(false) : potentialLevel();
-    if (level >= maxCharacterLevel(tsl)) {
-        // The threshold of the maximum level is the unreachable amount.
-        return static_cast<int>(kUnreachableExperience - _xp);
+    const auto &tables = _services.game.combatTables;
+    const auto xp = static_cast<uint32_t>(_xp);
+    if (_game.isTSL()) {
+        const int level = std::min(getSpellLevel(false), maxCharacterLevel(true));
+        return static_cast<int>(tables.experienceThreshold(level) - xp);
     }
-    return levelExperienceThreshold(level) - static_cast<int>(_xp);
+    for (int row = 0; row <= maxCharacterLevel(false); ++row) {
+        const uint32_t threshold = tables.experienceThreshold(row);
+        if (xp < threshold) {
+            return static_cast<int>(threshold - xp);
+        }
+    }
+    return static_cast<int>(0u - xp);
 }
 
 void Creature::runSpawnScript() {
@@ -5629,32 +5638,38 @@ void Creature::runConversationScript() {
     _game.scriptRunner().run(_onDialogue, _id);
 }
 
+// An addition that would lower the experience, or pass the most it holds,
+// is refused.
 void Creature::giveXP(int amount) {
-    const auto &classes = _attributes.classLevels();
-    if (classes.size() < 2) {
-        setXP(_xp + amount);
+    if (amount < 0) {
         return;
     }
-    int favored = race().favoredClass;
-    if (favored == kNoFavoredClass) {
-        const auto highest = std::max_element(classes.begin(), classes.end(),
-                                              [](const auto &a, const auto &b) { return a.second < b.second; });
-        favored = static_cast<int>(highest->first->type());
-    }
-    int highestLevel = 0;
-    for (const auto &[clazz, level] : classes) {
-        if (static_cast<int>(clazz->type()) != favored) {
-            highestLevel = std::max(highestLevel, level);
-        }
-    }
+    const auto &classes = _attributes.classLevels();
     int behind = 0;
-    for (const auto &[clazz, level] : classes) {
-        if (static_cast<int>(clazz->type()) != favored && highestLevel - level >= 2) {
-            ++behind;
+    if (classes.size() >= 2) {
+        int favored = race().favoredClass;
+        if (favored == kNoFavoredClass) {
+            const auto highest = std::max_element(classes.begin(), classes.end(),
+                                                  [](const auto &a, const auto &b) { return a.second < b.second; });
+            favored = static_cast<int>(highest->first->type());
+        }
+        int highestLevel = 0;
+        for (const auto &[clazz, level] : classes) {
+            if (static_cast<int>(clazz->type()) != favored) {
+                highestLevel = std::max(highestLevel, level);
+            }
+        }
+        for (const auto &[clazz, level] : classes) {
+            if (static_cast<int>(clazz->type()) != favored && highestLevel - level >= 2) {
+                ++behind;
+            }
         }
     }
-    const int64_t kept = int64_t {static_cast<uint32_t>(amount)} * (5 - behind) / 5;
-    setXP(_xp + static_cast<uint32_t>(kept));
+    const auto kept = static_cast<int>(int64_t {amount} * (5 - behind) / 5);
+    if (kept > kMaxExperience - _xp) {
+        return;
+    }
+    setXP(_xp + kept);
 }
 
 void Creature::setXP(int xp) {
@@ -10423,7 +10438,10 @@ void Creature::deserializeAll(
     if (gff.readInt(aiStyle, "AIState")) {
         _aiStyle = static_cast<NPCAIStyle>(aiStyle);
     }
-    gff.readDword(_xp, "Experience");
+    uint32_t experience {0};
+    if (gff.readDword(experience, "Experience")) {
+        _xp = static_cast<int>(experience);
+    }
     gff.readInt(_joiningXP, "JoiningXP");
 
     gff.readResRef(_onNotice, "ScriptOnNotice");

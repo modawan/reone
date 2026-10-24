@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -330,6 +331,8 @@ class Creature : public Object, public scene::IAnimationEventListener {
 public:
     /** The Fury damage bonus of a creature that is not in a Fury. */
     static constexpr int kNoFuryDamageBonus = -1;
+    /** The most experience a creature holds; an addition past it is refused. */
+    static constexpr int kMaxExperience = std::numeric_limits<int>::max();
 
     // AI state
 
@@ -571,9 +574,10 @@ public:
     /**
      * Adds experience. With two or more classes, every class other than the
      * favoured one that is two or more levels below the highest of those
-     * classes takes a fifth of the amount, rounded down; the amount counts as
-     * unsigned. A race without a favoured class favours the highest-level
-     * class, the earliest on a tie.
+     * classes takes a fifth of the amount, rounded down. A race without a
+     * favoured class favours the highest-level class, the earliest on a tie.
+     * Experience only grows: a negative amount, or one that would take it
+     * past kMaxExperience, changes nothing.
      */
     void giveXP(int amount);
     void setXP(int xp);
@@ -771,21 +775,30 @@ public:
      * nor a party member at zero vitality.
      */
     bool clicksTriggerInReach(const Object &target) const;
-    /** Enough experience for the next level, below the title's maximum, neither dead nor downed. */
+    /**
+     * Enough experience for the next level by the experience table, below the
+     * title's maximum, neither dead nor downed.
+     */
     bool isLevelUpPending() const;
     /** The level-up chime may still sound for the creature: from its creation, and again after each level-up. */
     bool isLevelUpChimeArmed() const { return _levelUpChimeArmed; }
     void setLevelUpChimeArmed(bool armed) { _levelUpChimeArmed = armed; }
-    /** The level the creature's experience reaches, up to the title's maximum. */
+    /** The level the creature's experience reaches by the experience table, up to the title's maximum. */
     int potentialLevel() const;
 
     glm::vec3 getSelectablePosition() const override;
-    int getNeededXP() const;
     /**
-     * The experience the creature lacks for its next level: KotOR counts from
-     * the level its experience reaches, TSL from the levels it has taken,
-     * scaled as an autobalanced creature's. At the title's maximum level, the
-     * unreachable amount less the experience held, which is negative.
+     * The experience the creature's level needs for the next, from the
+     * experience table; none at or past the title's maximum level.
+     */
+    std::optional<uint32_t> getNeededXP() const;
+    /**
+     * The experience the creature lacks for its next level, from the
+     * experience table: KotOR up to the first row its experience falls short
+     * of, counted from the first row; TSL from the levels it has taken,
+     * scaled as an autobalanced creature's, a level past the table reading
+     * the maximum level's row. The difference wraps as 32 bits, so it is
+     * negative when the creature has more, as at the maximum level.
      */
     int experienceToNextLevel() const;
 
@@ -2385,7 +2398,7 @@ private:
     bool _leftEncounter {false};
     uint32_t _orientationLock {script::kObjectInvalid};
     bool _engagedExchange {false};
-    uint32_t _xp {0};
+    int _xp {0};
     bool _levelUpChimeArmed {true};
     int _joiningXP {0};
     CombatForm _currentForm {CombatForm::None};

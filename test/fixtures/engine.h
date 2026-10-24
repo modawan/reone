@@ -98,7 +98,7 @@ public:
         ON_CALL(_resourceModule->twoDas(), get(std::string("racialtypes"))).WillByDefault(testing::Return(racialTypes));
         _gameModule->races().init(_resourceModule->twoDas());
         // The combat tables the game loads at start, with no rows but an
-        // excitement of no duration.
+        // excitement of no duration and KotOR's experience table.
         testing::NiceMock<resource::MockTwoDAs> combatTables;
         ON_CALL(combatTables, get(testing::_)).WillByDefault(testing::Invoke(&TestEngine::defaultCombatTable));
         _gameModule->combatTables().init(combatTables, resource::GameID::KotOR);
@@ -166,10 +166,40 @@ private:
     /** The rows of racialtypes.2da a creature may name. */
     static constexpr int kRacialTypeCount = 9;
 
-    /** A combat table as the game loads it at start: no rows, but an excitement of no duration. */
+    /**
+     * A combat table as the game loads it at start: no rows, but an excitement
+     * of no duration and KotOR's experience table, which also covers the TSL
+     * levels the tests reach.
+     */
     static std::shared_ptr<resource::TwoDA> defaultCombatTable(const std::string &resRef) {
         if (resRef == "excitedduration") {
             return resource::TwoDA::Builder().columns({"duration"}).row({"0"}).row({"0"}).row({"0"}).build();
+        }
+        if (resRef == "exptable") {
+            return resource::TwoDA::Builder()
+                .columns({"level", "xp"})
+                .row({"1", "0"})
+                .row({"2", "1000"})
+                .row({"3", "3000"})
+                .row({"4", "6000"})
+                .row({"5", "10000"})
+                .row({"6", "15000"})
+                .row({"7", "21000"})
+                .row({"8", "28000"})
+                .row({"9", "36000"})
+                .row({"10", "45000"})
+                .row({"11", "55000"})
+                .row({"12", "66000"})
+                .row({"13", "78000"})
+                .row({"14", "91000"})
+                .row({"15", "105000"})
+                .row({"16", "120000"})
+                .row({"17", "136000"})
+                .row({"18", "153000"})
+                .row({"19", "171000"})
+                .row({"20", "190000"})
+                .row({"21", "0xFFFFFFFF"})
+                .build();
         }
         return resource::TwoDA::Builder().build();
     }

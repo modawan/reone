@@ -8375,11 +8375,17 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     }
     // TSL introduces levelling up the first time the player character can,
     // outside a conversation.
-    if (isTSL() && creature.isPlayerCreated() && !isConversationActive() &&
-        getGlobalNumber(kLevelUpDialogFiredGlobal) == 0) {
-        setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
-        _scriptRunner->run(kLevelUpDialogScript);
+    if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
+        runLevelUpDialogOnce();
     }
+}
+
+void Game::runLevelUpDialogOnce() {
+    if (getGlobalNumber(kLevelUpDialogFiredGlobal) != 0) {
+        return;
+    }
+    setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
+    _scriptRunner->run(kLevelUpDialogScript);
 }
 
 /** The name character generation loads under. */
@@ -8650,8 +8656,13 @@ void Game::submitStatusSummary(
 
 void Game::finishStatusSummaryCycle() {
     static constexpr char kAlignmentMovieScript[] = "k_align_movie";
-    if (isTSL()) {
-        _scriptRunner->run(kAlignmentMovieScript);
+    if (!isTSL()) {
+        return;
+    }
+    _scriptRunner->run(kAlignmentMovieScript);
+    const auto &player = *_party.player();
+    if (player.isPlayerCreated() && player.isLevelUpPending()) {
+        runLevelUpDialogOnce();
     }
 }
 

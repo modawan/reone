@@ -320,7 +320,14 @@ void CharacterMenu::refreshControls() {
     _controls.LBL_WILL_STAT->setTextMessage(std::to_string(savingThrows.will));
 
     _controls.LBL_EXPERIENCE_STAT->setTextMessage(std::to_string(partyLeader->xp()));
-    _controls.LBL_NEEDED_XP->setTextMessage(std::to_string(partyLeader->getNeededXP()));
+    // Past the title's level cap the experience the next level needs is
+    // hidden.
+    const auto needed = partyLeader->getNeededXP();
+    if (needed) {
+        _controls.LBL_NEEDED_XP->setTextMessage(std::to_string(*needed));
+    }
+    _controls.LBL_NEEDED_XP->setVisible(needed.has_value());
+    _controls.LBL_NEXT_LEVEL->setVisible(needed.has_value());
 
     if (_game.isTSL()) {
         refreshForceMastery(*partyLeader);
