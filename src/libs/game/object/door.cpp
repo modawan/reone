@@ -720,6 +720,26 @@ void Door::onOpen(uint32_t triggererId) {
          {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)}});
 }
 
+void Door::receiveClick(const std::shared_ptr<Object> &clicker) {
+    _lastEnteredId = clicker ? clicker->id() : kObjectInvalid;
+    if (_linkedToFlags == kLinkedToDoor || _linkedToFlags == kLinkedToWaypoint) {
+        auto creature = dyn_cast<Creature>(clicker);
+        const Party &party = _game.party();
+        if (creature && !_linkedToModule.empty() && party.movesBetweenModules(*creature) && !creature->isDead() &&
+            !(party.isMember(*creature) && creature->currentHitPoints() <= 0)) {
+            _game.scheduleModuleTransition(_linkedToModule, _linkedTo);
+        }
+        return;
+    }
+    if (_onClick.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onClick,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::ClickingObject, Variable::ofObject(_lastEnteredId)}});
+}
+
 void Door::onLocked() {
     if (_onLock.empty()) {
         return;

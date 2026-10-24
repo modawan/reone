@@ -130,6 +130,11 @@ void LevelUpMenu::setStep(int step) {
 
 void LevelUpMenu::doSetStep(int step) {
     _step = step;
+    // Entering the feats step, the first time or again, takes back the
+    // level's granted and chosen feats.
+    if (_step == 2) {
+        _charGen.resetLevelFeats();
+    }
 
     _controls.LBL_1->setDisabled(_step != 0);
     _controls.LBL_2->setDisabled(_step != 1);

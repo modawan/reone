@@ -329,6 +329,11 @@ public:
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
     /**
+     * Whether the object moves the party between modules: only the player
+     * character or the current leader does.
+     */
+    bool movesBetweenModules(const Object &object) const;
+    /**
      * Whether a companion travels with the party as a follower. A follower
      * whose creature was destroyed still does: its place stays, naming
      * nothing. Neither the player character nor a companion standing in for

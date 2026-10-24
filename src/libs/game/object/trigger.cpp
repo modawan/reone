@@ -515,7 +515,10 @@ void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
     if (_onClick.empty()) {
         return;
     }
-    _game.scriptRunner().run(_onClick, _id);
+    _game.scriptRunner().run(
+        _onClick,
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
+         {script::ArgKind::ClickingObject, script::Variable::ofObject(_lastEnteredId)}});
 }
 
 void Trigger::removeTenant(const Object *object) {
@@ -564,12 +567,10 @@ bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activato
     if (!activator) {
         return false;
     }
-    // Only the player character or the current party leader moves the party
-    // between modules; a following companion crossing a transition is ignored.
-    // Taking control of a companion makes it the leader, so it keeps the
-    // ability to transition and stays controlled in the destination.
-    const Party &party = _game.party();
-    return activator == party.actualPlayer() || activator == party.getLeader();
+    // A following companion crossing a transition is ignored. Taking control
+    // of a companion makes it the leader, so it keeps the ability to
+    // transition and stays controlled in the destination.
+    return _game.party().movesBetweenModules(*activator);
 }
 
 bool Trigger::detachLinkedDoorTransition(const Door &door) {

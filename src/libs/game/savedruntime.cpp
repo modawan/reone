@@ -1499,7 +1499,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
             Signal::UserDefined,
             Signal::Entered, Signal::Exited, Signal::ModuleLoaded, Signal::ItemActivated, Signal::ItemAcquired,
             Signal::ItemLost, Signal::EncounterExhausted, Signal::InventoryOpened, Signal::InventoryClosed,
-            Signal::Used, Signal::Locked, Signal::FailToOpen};
+            Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
         const auto *event = std::get_if<SavedScriptEvent>(&payload);
         if (event && delivered.count(static_cast<Signal>(event->type)) != 0) {
             return SavedExecutionSupport::Executable;

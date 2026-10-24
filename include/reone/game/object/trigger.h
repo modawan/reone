@@ -111,9 +111,9 @@ public:
     const std::string &getOnEnter() const { return _onEnter; }
     /**
      * A creature walked up to the trigger it was heading for: it becomes the
-     * entering object, and the click script runs. An area transition with no
-     * click script of its own, or the default one, takes the stock transition
-     * script for good.
+     * entering object, and the click script runs with it as the clicking
+     * object. An area transition with no click script of its own, or the
+     * default one, takes the stock transition script for good.
      */
     void receiveClick(const std::shared_ptr<Object> &clicker);
     const std::string &getOnExit() const { return _onExit; }

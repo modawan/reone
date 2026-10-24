@@ -121,6 +121,13 @@ public:
     void resetCreationFeats();
 
     /**
+     * Returns the level-up character's feats to those it held before the
+     * level-up, taking back the level's granted and chosen feats, as entering
+     * its feats step does.
+     */
+    void resetLevelFeats();
+
+    /**
      * Records that the abilities screen was accepted: from then on, a
      * level-up's attributes panel counts the character's chosen scores rather
      * than its effective ones.

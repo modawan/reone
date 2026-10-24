@@ -120,7 +120,7 @@ enum class SavedSignalEventType : uint16_t {
     InventoryClosed = 23,
     Used = 25,
     Locked = 28,
-    /** A creature walked up to the trigger it was heading for. */
+    /** A creature walked up to the trigger or door it was heading for. */
     Clicked = 30,
     FailToOpen = 34,
     ItemEquipped = 38,

@@ -368,6 +368,11 @@ void CharacterGeneration::openAbilities() {
 }
 
 void CharacterGeneration::openSkills() {
+    // A level-up on its skills screen is at its skills step, so accepting the
+    // skills enters its feats step again.
+    if (_type == Type::LevelUp) {
+        _levelUp->setStep(1);
+    }
     _charGenSkills->reset(_type != Type::LevelUp);
     _controls.MODEL_LBL->setVisible(false);
     changeScreen(CharGenScreen::Skills);
@@ -392,11 +397,16 @@ void CharacterGeneration::openBonusFeats() {
 void CharacterGeneration::openFeatsScreen(bool bonus) {
     std::set<FeatType> originalFeats;
     std::vector<FeatType> grantedFeats;
-    if (bonus) {
+    if (_type == Type::LevelUp) {
         originalFeats = _character.attributes.feats();
-    } else if (_type == Type::LevelUp) {
+        // The game grants none of the level's feats on a bonus-only level; reone grants them as the normal screen does.
+        const auto levelled = levelledAttributes();
+        const auto &[clazz, classLevel] = levelled.classLevels().back();
+        if (!bonus || clazz->getFeatGain(classLevel) == 0) {
+            grantedFeats = addLevelFeats();
+        }
+    } else if (bonus) {
         originalFeats = _character.attributes.feats();
-        grantedFeats = addLevelFeats();
     } else {
         // A new character's feats screen starts from the feats its class
         // grants, taking back any it was given before.
@@ -437,6 +447,18 @@ void CharacterGeneration::openLevelUp() {
 
 void CharacterGeneration::resetCreationFeats() {
     regrantCreationFeats(false);
+}
+
+void CharacterGeneration::resetLevelFeats() {
+    // A level-up only adds feats, so those the leader does not hold are the
+    // level's.
+    const CreatureAttributes &held = _game.party().getLeader()->attributes();
+    auto feats = _character.attributes.featOrder();
+    for (auto feat : feats) {
+        if (!held.hasFeat(feat)) {
+            _character.attributes.removeFeat(feat);
+        }
+    }
 }
 
 std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacter) {

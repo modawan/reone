@@ -1097,8 +1097,14 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         area->receiveEnteredSignal(savedEvent.caller.boundObject(), !event.integers.empty() && event.integers[0] != 0);
     } else if (auto area = dyn_cast<Area>(target); area && type == Signal::Exited) {
         area->receiveExitedSignal(savedEvent.caller.boundObject());
-    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && type == Signal::Clicked) {
-        trigger->receiveClick(subject());
+    } else if (type == Signal::Clicked && (isa<Trigger>(target.get()) || isa<Door>(target.get()))) {
+        // A click reaches triggers and doors only; its first object is the
+        // one who clicked.
+        if (auto trigger = dyn_cast<Trigger>(target)) {
+            trigger->receiveClick(subject());
+        } else {
+            dyn_cast<Door>(target)->receiveClick(subject());
+        }
     } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
         // A conversation event reaches creatures, placeables and doors only;
         // the caller is the one who spoke.

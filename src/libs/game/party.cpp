@@ -1290,6 +1290,10 @@ bool Party::isMember(const Object &object) const {
     return false;
 }
 
+bool Party::movesBetweenModules(const Object &object) const {
+    return &object == actualPlayer().get() || &object == getLeader().get();
+}
+
 bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {
     if (_player.get() == &creature || _actualPlayer.get() == &creature) {
         return true;

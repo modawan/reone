@@ -123,6 +123,14 @@ public:
      * open itself.
      */
     void onFailToOpen(uint32_t openerId, bool quiet);
+    /**
+     * A creature walked up to the door: it becomes the entering object. A door
+     * linked to another module takes the party there when the clicker moves
+     * the party between modules and is neither dead nor a downed member; any
+     * other door runs its click script with the clicker as the clicking
+     * object.
+     */
+    void receiveClick(const std::shared_ptr<Object> &clicker);
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
