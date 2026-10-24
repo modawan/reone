@@ -33,6 +33,7 @@ public:
     MOCK_METHOD(bool, handle, (const input::Event &), (override));
     MOCK_METHOD(void, update, (float), (override));
     MOCK_METHOD(void, render, (), (override));
+    MOCK_METHOD(void, withRenderPass, (const std::function<void(scene::IRenderPass &)> &), (override));
 
     MOCK_METHOD(void, clearSelection, (), (override));
 

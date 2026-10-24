@@ -56,9 +56,21 @@ public:
     }
 
     void setBacking(std::shared_ptr<IEquipmentMenuBacking> backing);
+    /** Called when a slot opens its list of items. */
+    void setOnSlotOpened(std::function<void()> callback) { _onSlotOpened = std::move(callback); }
+    /** Shows a message box, as when a slot will not open. */
+    void setOnMessage(std::function<void(const std::string &)> callback) { _onMessage = std::move(callback); }
     void update();
+    /** Escape closes an open item list; with none open, the party key gives control to the next member standing. */
+    bool handle(const input::Event &event) override;
     void update(float dt) override;
     void openItems();
+    /** The screen opens: the backing chooses whose equipment it shows. */
+    void beginSession();
+    /** The screen closes, leaving any roster browsing. */
+    void endSession();
+    /** Whether the screen pages through the roster rather than the party. */
+    bool browsingRoster() const { return _view.canBrowseCharacters; }
 
 private:
     static constexpr int kNumControlsBar = 5;
@@ -83,7 +95,9 @@ private:
         std::shared_ptr<gui::Button> BTN_PREVNPC;
         std::shared_ptr<gui::Button> BTN_SWAPWEAPONS;
         std::shared_ptr<gui::Label> LBL_ATKL;
+        std::shared_ptr<gui::Label> LBL_ATKL2;
         std::shared_ptr<gui::Label> LBL_ATKR;
+        std::shared_ptr<gui::Label> LBL_ATKR2;
         std::shared_ptr<gui::Label> LBL_ATTACKMOD;
         std::shared_ptr<gui::Label> LBL_ATTACK_INFO;
         std::shared_ptr<gui::Label> LBL_BACK1;
@@ -117,7 +131,9 @@ private:
         std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::Label> LBL_TOHIT;
         std::shared_ptr<gui::Label> LBL_TOHITL;
+        std::shared_ptr<gui::Label> LBL_TOHITL2;
         std::shared_ptr<gui::Label> LBL_TOHITR;
+        std::shared_ptr<gui::Label> LBL_TOHITR2;
         std::shared_ptr<gui::Label> LBL_TXTBAR;
         std::shared_ptr<gui::Label> LBL_VITALITY;
         std::shared_ptr<gui::ListBox> LB_DESC;
@@ -133,6 +149,8 @@ private:
     resource::IStrings &_strings;
     std::shared_ptr<IEquipmentMenuBacking> _backing;
     std::function<void()> _onExit;
+    std::function<void()> _onSlotOpened;
+    std::function<void(const std::string &)> _onMessage;
     EquipmentView _view;
     std::vector<MenuItemView> _listedItems;
     std::optional<uint64_t> _awaitingRevision;
@@ -165,7 +183,9 @@ private:
         _controls.BTN_PREVNPC = findControl<gui::Button>("BTN_PREVNPC");
         _controls.BTN_SWAPWEAPONS = findControl<gui::Button>("BTN_SWAPWEAPONS");
         _controls.LBL_ATKL = findControl<gui::Label>("LBL_ATKL");
+        _controls.LBL_ATKL2 = findControl<gui::Label>("LBL_ATKL2");
         _controls.LBL_ATKR = findControl<gui::Label>("LBL_ATKR");
+        _controls.LBL_ATKR2 = findControl<gui::Label>("LBL_ATKR2");
         _controls.LBL_ATTACKMOD = findControl<gui::Label>("LBL_ATTACKMOD");
         _controls.LBL_ATTACK_INFO = findControl<gui::Label>("LBL_ATTACK_INFO");
         _controls.LBL_BACK1 = findControl<gui::Label>("LBL_BACK1");
@@ -199,7 +219,9 @@ private:
         _controls.LBL_TITLE = findControl<gui::Label>("LBL_TITLE");
         _controls.LBL_TOHIT = findControl<gui::Label>("LBL_TOHIT");
         _controls.LBL_TOHITL = findControl<gui::Label>("LBL_TOHITL");
+        _controls.LBL_TOHITL2 = findControl<gui::Label>("LBL_TOHITL2");
         _controls.LBL_TOHITR = findControl<gui::Label>("LBL_TOHITR");
+        _controls.LBL_TOHITR2 = findControl<gui::Label>("LBL_TOHITR2");
         _controls.LBL_TXTBAR = findControl<gui::Label>("LBL_TXTBAR");
         _controls.LBL_VITALITY = findControl<gui::Label>("LBL_VITALITY");
         _controls.LB_DESC = findControl<gui::ListBox>("LB_DESC");
@@ -216,8 +238,12 @@ private:
     void updatePortraits();
     void activateSlot(Slot slot);
     void selectSlot(Slot slot);
+    /** Give control to the party member at the index, or to the next member standing when negative. */
+    void changeCharacter(int member);
 
     std::shared_ptr<graphics::Texture> getEmptySlotIcon(Slot slot) const;
+    /** The interface string of strRef, its tokens resolved; empty without a backing. */
+    std::string interfaceText(int strRef) const;
 
     void confirmSelectedCandidate();
     void confirmCandidateItem(const std::string &item);

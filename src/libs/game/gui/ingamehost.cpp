@@ -157,6 +157,13 @@ void InGameMenuHost::render() {
     PresentationGUI::render();
 }
 
+void InGameMenuHost::clearSelection() {
+    PresentationGUI::clearSelection();
+    if (auto tabGui = getActiveTabGUI()) {
+        tabGui->clearSelection();
+    }
+}
+
 void InGameMenuHost::changeTab(InGameMenuTab tab) {
     if (tab != InGameMenuTab::None && !available(tab))
         return;

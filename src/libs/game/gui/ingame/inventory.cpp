@@ -37,8 +37,9 @@ namespace reone {
 
 namespace game {
 
-static constexpr char kEquippedItemSuffix[] = " (equipped)";
-static constexpr char kK1InventoryTitlePrefix[] = "Party Inventory - ";
+static constexpr int kStrRefEquipped = 32346;
+static constexpr int kStrRefK1InventoryTitle = 32171;
+static constexpr int kStrRefK1ShowFilter = 42359;
 
 static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
     if (!listBox) {
@@ -72,36 +73,39 @@ static InventoryFilter nextK1Filter(InventoryFilter filter) {
     }
 }
 
-static std::string k1FilterTitle(InventoryFilter filter) {
+// The names of KotOR's inventory filters.
+static constexpr int kStrRefNewItems = 42165;
+static constexpr int kStrRefQuestItems = 41818;
+static constexpr int kStrRefUtilityItems = 41819;
+static constexpr int kStrRefUseableItems = 41820;
+static constexpr int kStrRefEquippableItems = 41821;
+static constexpr int kStrRefAllItems = 41822;
+
+static int k1FilterName(InventoryFilter filter) {
     switch (filter) {
-    case InventoryFilter::Quest:
-        return std::string(kK1InventoryTitlePrefix) + "Quest Items";
-    case InventoryFilter::Equippable:
-        return std::string(kK1InventoryTitlePrefix) + "Equippable";
-    case InventoryFilter::Utility:
-        return std::string(kK1InventoryTitlePrefix) + "Utility Items";
-    case InventoryFilter::Useable:
-        return std::string(kK1InventoryTitlePrefix) + "Useable Items";
     case InventoryFilter::New:
-        return std::string(kK1InventoryTitlePrefix) + "New Items";
+        return kStrRefNewItems;
+    case InventoryFilter::Quest:
+        return kStrRefQuestItems;
+    case InventoryFilter::Equippable:
+        return kStrRefEquippableItems;
+    case InventoryFilter::Utility:
+        return kStrRefUtilityItems;
+    case InventoryFilter::Useable:
+        return kStrRefUseableItems;
     default:
-        return std::string(kK1InventoryTitlePrefix) + "All Items";
+        return kStrRefAllItems;
     }
 }
 
-static std::string k1NextFilterAction(InventoryFilter filter) {
-    switch (nextK1Filter(filter)) {
-    case InventoryFilter::Quest:
-        return "Show Quest Items";
-    case InventoryFilter::Equippable:
-        return "Show Equippable";
-    case InventoryFilter::Utility:
-        return "Show Utility Items";
-    case InventoryFilter::Useable:
-        return "Show Useable Items";
-    default:
-        return "Show All Items";
-    }
+// The title names the shown filter after the inventory's name; the filter
+// button offers the next one.
+static std::string k1FilterTitle(const IInventoryMenuBacking &backing, InventoryFilter filter) {
+    return backing.interfaceText(kStrRefK1InventoryTitle) + " - " + backing.interfaceText(k1FilterName(filter));
+}
+
+static std::string k1NextFilterAction(const IInventoryMenuBacking &backing, InventoryFilter filter) {
+    return backing.interfaceText(kStrRefK1ShowFilter) + " " + backing.interfaceText(k1FilterName(nextK1Filter(filter)));
 }
 
 void InventoryMenu::onGUILoaded() {
@@ -111,8 +115,12 @@ void InventoryMenu::onGUILoaded() {
     if (_controls.LBL_CREDITS_VALUE) {
         _controls.LBL_CREDITS_VALUE->setVisible(false);
     }
+    // The use button activates the selected entry, whatever it looks like.
     if (_controls.BTN_USEITEM) {
-        _controls.BTN_USEITEM->setDisabled(true);
+        _useItemTextColor = _controls.BTN_USEITEM->text().color;
+        _controls.BTN_USEITEM->setOnClick([this]() {
+            activateSelectedItem();
+        });
     }
     if (_controls.BTN_EXIT) {
         _controls.BTN_EXIT->setOnClick([this]() {
@@ -169,6 +177,9 @@ void InventoryMenu::configureItemsListBox() {
     useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &) {
         updateItemDescription();
+    });
+    _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &) {
+        activateSelectedItem();
     });
 
     if (auto protoItem = _controls.LB_ITEMS->protoItemOrNull()) {
@@ -312,11 +323,14 @@ void InventoryMenu::updateFilterControls() {
         return;
     }
 
-    if (_controls.LBL_INV) {
-        _controls.LBL_INV->setTextMessage(k1FilterTitle(_filter));
+    // The labels come from the backing, which a menu may be left without.
+    if (_controls.LBL_INV && _backing) {
+        _controls.LBL_INV->setTextMessage(k1FilterTitle(*_backing, _filter));
     }
     if (_controls.BTN_QUESTITEMS) {
-        _controls.BTN_QUESTITEMS->setTextMessage(k1NextFilterAction(_filter));
+        if (_backing) {
+            _controls.BTN_QUESTITEMS->setTextMessage(k1NextFilterAction(*_backing, _filter));
+        }
         _controls.BTN_QUESTITEMS->setDisabled(false);
     }
 }
@@ -328,7 +342,7 @@ void InventoryMenu::setBacking(std::shared_ptr<IInventoryMenuBacking> backing) {
     if (_gui) { refreshPortraits(); refreshItems(); }
 }
 
-void InventoryMenu::refreshItems() {
+void InventoryMenu::refreshItems(int selectedRow) {
     if (!_controls.LB_ITEMS) return;
     _view = _backing ? _backing->readInventory(_filter) : InventoryView {};
     _controls.LB_ITEMS->clearItems();
@@ -337,16 +351,17 @@ void InventoryMenu::refreshItems() {
     for (const auto &item : _listedItems) {
         ListBox::Item row;
         row.tag = std::to_string(item.handle);
-        row.text = item.name + (item.equipped ? kEquippedItemSuffix : "");
+        row.text = item.name + (item.equipped ? " (" + _backing->interfaceText(kStrRefEquipped) + ")" : "");
         row.iconTexture = item.icon;
         row.iconFrame = itemFrameTexture(item.stackSize);
         if (item.stackSize > 1) row.iconText = std::to_string(item.stackSize);
         _controls.LB_ITEMS->addItem(std::move(row));
     }
     if (!_listedItems.empty()) {
-        _controls.LB_ITEMS->setSelectedItemIndex(0);
+        _controls.LB_ITEMS->setSelectedItemIndex(std::min(selectedRow, static_cast<int>(_listedItems.size()) - 1));
         updateItemDescription();
     }
+    updateUseItemButton();
 }
 
 void InventoryMenu::clearItemDescription() {
@@ -373,6 +388,50 @@ void InventoryMenu::updateItemDescription() {
 
     if (selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size()) && _controls.LB_DESCRIPTION)
         _controls.LB_DESCRIPTION->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
+    updateUseItemButton();
+}
+
+// An entry either uses its item at once, shows why it cannot, or does nothing.
+// A use refreshes the list and keeps the row selected.
+void InventoryMenu::activateSelectedItem() {
+    if (!_controls.LB_ITEMS || !_backing) {
+        return;
+    }
+    const int row = _controls.LB_ITEMS->selectedItemIndex();
+    if (row < 0 || row >= static_cast<int>(_listedItems.size())) {
+        return;
+    }
+    const auto &item = _listedItems[row];
+    switch (item.activation) {
+    case InventoryActivation::Message:
+        if (_onMessage) {
+            _onMessage(item.messageStrRef);
+        }
+        break;
+    case InventoryActivation::Use:
+        if (auto refusal = _backing->useItem(item.handle)) {
+            if (_onMessage) {
+                _onMessage(*refusal);
+            }
+            return;
+        }
+        refreshItems(row);
+        break;
+    default:
+        break;
+    }
+}
+
+// The use button looks available only for an entry that uses its item, and
+// not while the leader's last item use in combat holds the next one back.
+void InventoryMenu::updateUseItemButton() {
+    if (!_controls.BTN_USEITEM) {
+        return;
+    }
+    const bool usable = _selectedItemIdx >= 0 && _selectedItemIdx < static_cast<int>(_listedItems.size()) &&
+                        _listedItems[_selectedItemIdx].activation == InventoryActivation::Use &&
+                        !_view.itemUseCoolingDown;
+    _controls.BTN_USEITEM->setTextColor(usable ? _useItemTextColor : _disabledColor);
 }
 
 } // namespace game

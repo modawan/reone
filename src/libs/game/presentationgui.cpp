@@ -114,7 +114,7 @@ void PresentationGUI::loadBackground(BackgroundType type) {
         case BackgroundType::Menu:
         case BackgroundType::Load:
             // TSL's pause-menu plate is transparent outside its authored
-            // frame. The retail menus put blackfill behind it so the paused
+            // frame. The game's menus put blackfill behind it so the paused
             // world cannot show through at wider aspect ratios.
             resRef = "blackfill";
             break;
@@ -122,7 +122,7 @@ void PresentationGUI::loadBackground(BackgroundType type) {
         case BackgroundType::Computer1:
             // The terminal bezel is the computer_p panel's own fill; using it
             // as the backdrop too drew a cropped second copy behind the
-            // panel. The retail terminal sits on a void fill.
+            // panel. The game's terminal sits on a void fill.
             resRef = "black";
             break;
         default:

@@ -151,12 +151,21 @@ public:
         int slot;
     };
     std::vector<Request> requests;
+    void beginEquipment() override { ++begins; }
+    void endEquipment() override { ++ends; }
+    void nextCharacter() override { ++nextRequests; }
+    void previousCharacter() override { ++previousRequests; }
+    void changeCharacter(int) override {}
+    int begins {0}, ends {0}, nextRequests {0}, previousRequests {0};
     InventoryView readInventory(InventoryFilter) override { return inventory; }
     EquipmentView readEquipment(int) override { return equipment; }
     void equip(uint64_t revision, uint64_t handle, int slot) override {
         requests.push_back({revision, handle, slot});
     }
     std::optional<EquipmentRequestResult> equipmentResult() const override { return result; }
+    void switchWeapons() override { ++switchRequests; }
+    int switchRequests {0};
+    std::string interfaceText(int) const override { return std::string(); }
 };
 
 class SharedPresentation : public Test {

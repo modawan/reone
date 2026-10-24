@@ -87,11 +87,17 @@ protected:
 
     virtual void loadEntry(int index, bool start = false);
 
+    /** The current entry's shot is an animation of the conversation's camera model. */
+    bool isAnimatedCameraShot() const;
+    /** The current entry's shot keeps the previous speaker pair. */
+    bool keepsPreviousSpeakerPair() const;
+
     void pickReply(int index);
 
     // Complete the active entry's presentation using the same path as expiry.
     void endCurrentEntry();
 
+    /** One line per reply, in reply order; an empty line stands for a reply that is not listed. */
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
 
     // How a one-liner presents its entry, alongside setMessage/setReplyLines.
@@ -134,6 +140,8 @@ private:
 
     bool isSkippableEntry() const;
     bool isNonPresentationalEntry() const;
+    /** Add the shown entry's \p text to the dialogue log under its speaker's name. */
+    void logEntryLine(const std::string &text);
 
     void refreshReplies();
 
@@ -160,6 +168,8 @@ private:
     void runScript(const std::string &scriptResRef, const resource::Dialog::EntryReply::ActionParams &params);
     void runScripts(const resource::Dialog::EntryReply &node);
     void applyStatusSummaryEntries(const resource::Dialog::EntryReply &node);
+    /** Set or clear the video effect for the current entry's camera shot. */
+    void applyShotVideoEffect();
 
     virtual void setMessage(std::string message) = 0;
 

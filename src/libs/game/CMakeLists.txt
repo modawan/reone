@@ -64,6 +64,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/wait.h
     ${GAME_INCLUDE_DIR}/animations.h
     ${GAME_INCLUDE_DIR}/animationutil.h
+    ${GAME_INCLUDE_DIR}/areamusicplayer.h
     ${GAME_INCLUDE_DIR}/attack.h
     ${GAME_INCLUDE_DIR}/camerastyle.h
     ${GAME_INCLUDE_DIR}/camerastyles.h
@@ -205,6 +206,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/confirmpopup.h
     ${GAME_INCLUDE_DIR}/gui/container.h
     ${GAME_INCLUDE_DIR}/gui/conversation.h
+    ${GAME_INCLUDE_DIR}/gui/deathdisplay.h
     ${GAME_INCLUDE_DIR}/gui/dialog.h
     ${GAME_INCLUDE_DIR}/gui/galaxymap.h
     ${GAME_INCLUDE_DIR}/gui/generated/areatrans.h
@@ -358,6 +360,7 @@ set(GAME_HEADERS
 
 set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/menupresentation.cpp
+    ${GAME_SOURCE_DIR}/gui/deathdisplay.cpp
     ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/action/attackobject.cpp
     ${GAME_SOURCE_DIR}/action/castspell.cpp
@@ -371,6 +374,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action/usetalent.cpp
     ${GAME_SOURCE_DIR}/animations.cpp
     ${GAME_SOURCE_DIR}/animationutil.cpp
+    ${GAME_SOURCE_DIR}/areamusicplayer.cpp
     ${GAME_SOURCE_DIR}/attack.cpp
     ${GAME_SOURCE_DIR}/camerastyles.cpp
     ${GAME_SOURCE_DIR}/castspell.cpp

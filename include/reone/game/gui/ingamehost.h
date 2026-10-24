@@ -54,6 +54,8 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;
+    /** Leaving the menu also leaves its active tab. */
+    void clearSelection() override;
 
     void registerScreen(InGameMenuTab tab, std::shared_ptr<PresentationGUI> screen);
     void setEnabled(InGameMenuTab tab, bool enabled);

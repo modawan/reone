@@ -1576,8 +1576,10 @@ bool Game::loadPreparedModule(
             }
             render();
 
-            // Menu and minigame music ends when the module loads.
+            // The area's music replaces any menu or minigame music. It starts
+            // on arrival.
             playMusic("");
+            _areaMusic.load(_module->area());
 
             _globalFade.finishLoading(arrival);
             if (!isConversationActive()) {
@@ -1668,6 +1670,7 @@ void Game::retireActiveModuleRuntime() {
 
 void Game::retireActiveAreaRuntime() {
     _services.game.projectiles.retireAreaRuntime();
+    _areaMusic.unload();
     auto module = _module;
     auto area = module ? module->area() : nullptr;
     if (area) {
@@ -1808,9 +1811,13 @@ void Game::resetGame() {
     _endGamePending = false;
     _lastPartyMemberTempKilled = script::kObjectInvalid;
     _deathTimeScale = 1.0f;
-    // The death message is taken down rather than destroyed.
+    // A load started from the death panel's own button comes through here, so
+    // the death GUIs are taken down rather than destroyed.
     if (_deathMessage) {
         _deathMessage->hide();
+    }
+    if (_deathDisplay) {
+        _deathDisplay->dismiss();
     }
     _lastTarget.reset();
     _lastTargetLook = false;
@@ -2654,6 +2661,10 @@ void Game::playMusic(const std::string &resRef) {
         _music.reset();
     }
     _musicResRef = resRef;
+    // Menu and minigame music suspends the area music.
+    if (!resRef.empty()) {
+        _areaMusic.stopSounds();
+    }
 }
 
 void Game::renderScene() {
@@ -2689,6 +2700,8 @@ static constexpr float kHurriedFadeLength = 0.5f;
 static constexpr float kDeathSlowSeconds = 4.0f;
 static constexpr float kDeathSlowestSpeed = 0.2f;
 static constexpr double kDeathSlowSpan = 0.8;
+// The sequel's gameover panel runs the world at a quarter of its speed.
+static constexpr float kDeathPanelTimeScale = 0.25f;
 // The first title's death message.
 static constexpr int kStrRefDeathMessage = 42351;
 
@@ -2830,12 +2843,20 @@ void Game::runDeathSequence() {
     exitFreeLook();
     setRelativeMouseMode(false);
     changeScreen(Screen::Death);
-    if (!_deathMessage) {
-        _deathMessage = std::make_unique<ConfirmPopup>(*this, _services);
-        _deathMessage->init();
+    if (isTSL()) {
+        if (!_deathDisplay) {
+            _deathDisplay = std::make_unique<DeathDisplay>(*this, _services);
+            _deathDisplay->init();
+        }
+        _deathDisplay->present();
+    } else {
+        if (!_deathMessage) {
+            _deathMessage = std::make_unique<ConfirmPopup>(*this, _services);
+            _deathMessage->init();
+        }
+        // Queue end-game so the GUI isn't destroyed in its own callback.
+        _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), nullptr, [this]() { requestEndGame(); });
     }
-    // Queue end-game so the GUI isn't destroyed in its own callback.
-    _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), nullptr, [this]() { requestEndGame(); });
     auto &camera = *_module->area()->getCamera<ThirdPersonCamera>(CameraType::ThirdPerson);
     const auto fallen = getObjectById(_lastPartyMemberTempKilled);
     if (fallen && fallen->type() == ObjectType::Creature) {
@@ -2849,9 +2870,14 @@ void Game::hurryDeathSequence() {
     _globalFade.request(GlobalFade::Direction::Out, 0.0f, kHurriedFadeLength, glm::vec3 {0.0f});
 }
 
-// The world slows while the game is over, and the game ends once the fade to
-// black has finished or an end was asked for.
+// The first title slows the world while its game is over, and ends the game
+// once the fade to black has finished or an end was asked for. The sequel's
+// gameover panel slows the world for as long as it is up.
 void Game::updateDeathSequence() {
+    if (isTSL()) {
+        _deathTimeScale = _deathDisplay && _deathDisplay->isPresented() ? kDeathPanelTimeScale : 1.0f;
+        return;
+    }
     const auto now = static_cast<uint32_t>(_services.system.clock.millis());
     const uint32_t elapsed = now - _deathSequenceSample;
     _deathSequenceSample = now;
@@ -4216,6 +4242,12 @@ void Game::settleFadeArrival() {
         return;
     }
     if (_fadeArrivalModule.lock() == _module && _module) {
+        // The area's music and ambient loop start on arrival, after the enter
+        // script and any movie it plays. Menu or minigame music keeps them
+        // suspended.
+        if (_musicResRef.empty()) {
+            _areaMusic.start();
+        }
         _globalFade.settleArrival(_fadeArrival);
     }
     _fadeArrival.reset();
@@ -4508,6 +4540,7 @@ void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 col
 }
 
 void Game::updateMusic() {
+    _areaMusic.update();
     if (_musicResRef.empty()) {
         return;
     }
@@ -4658,8 +4691,9 @@ bool Game::startVideo(const std::string &name) {
     if (!_movie) {
         return false;
     }
-    // Every sound waits for the movie, including sounds started before it is
-    // first shown.
+    // A movie ends the area's music and ambient loop for good. Every other
+    // sound waits for it, including sounds started before it is first shown.
+    _areaMusic.stopSounds();
     _services.audio.mixer.setSoundsHeldForMovie(true);
     return true;
 }
@@ -8096,6 +8130,9 @@ float Game::baseItemCostMultiplier(int baseItem) const {
 }
 
 void Game::changeScreen(Screen screen) {
+    if (_screen == Screen::InGameMenu && screen != Screen::InGameMenu && _inGame) {
+        _inGame->closeEquipment();
+    }
     auto gui = getScreenGUI();
     if (gui) {
         gui->clearSelection();
@@ -8112,7 +8149,7 @@ void Game::changeScreen(Screen screen) {
 GameGUI *Game::getScreenGUI() const {
     switch (_screen) {
     case Screen::Death:
-        return _deathMessage.get();
+        return isTSL() ? static_cast<GameGUI *>(_deathDisplay.get()) : static_cast<GameGUI *>(_deathMessage.get());
     case Screen::MainMenu:
         return _mainMenu.get();
     case Screen::Loading:

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/options.h"
@@ -74,6 +75,8 @@ public:
     virtual bool handle(const input::Event &event) = 0;
     virtual void update(float dt) = 0;
     virtual void render() = 0;
+    /** Runs \p block in normal blending with the render pass the GUI's controls draw with. */
+    virtual void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) = 0;
 
     virtual void clearSelection() = 0;
 
@@ -150,6 +153,7 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;
+    void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) override;
 
     void clearSelection() override;
 

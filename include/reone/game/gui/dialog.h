@@ -58,11 +58,21 @@ private:
 
     /**
      * A cutscene clip named directly by a DLG animation ordinal, together with
-     * whether the clip loops rather than playing once.
+     * whether the clip loops rather than playing once. An empty name stands
+     * for the participant's pause.
      */
     struct CutAnimation {
         std::string name;
         bool looping {false};
+        /** The clip is authored in world space, and suspends the participant's head look. */
+        bool worldSpace {false};
+    };
+
+    /** A pose named by a dialoganimations.2da row. */
+    struct DialogPose {
+        AnimationType type {AnimationType::Invalid};
+        /** The row is one of the table's dialog animations. */
+        bool dialog {false};
     };
 
     struct Controls {
@@ -82,11 +92,14 @@ private:
     RuntimeObjectRef<Object> _previousPairListener;
     bool _pairStarted {false};
 
+    /** The previous entry's animation per participant, so unchanged ones are left alone. */
+    std::map<std::string, int> _previousAnimations;
+
     /**
-     * Ordinary creatures currently holding an authored cutscene pose. They keep
-     * it until another authored animation replaces it or the dialogue ends.
+     * Ordinary creatures given a cutscene clip. They return to state-driven
+     * animation when the conversation ends.
      */
-    std::vector<RuntimeObjectRef<Creature>> _heldCutParticipants;
+    std::vector<RuntimeObjectRef<Creature>> _cutParticipants;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
@@ -106,8 +119,16 @@ private:
     void updateSpeakerPair(const std::shared_ptr<Object> &speaker);
     /** The object the current entry's listener tag names, if any. */
     std::shared_ptr<Object> resolveEntryListener() const;
+    /** Release the previous pair's looks and turn the speaker and the listener to each other. */
+    void orientSpeakerPair();
+    /** Turn \p turner's head, and its body when needed, toward \p other. */
+    void turnToward(Object &turner, const std::shared_ptr<Object> &other);
     /** Release the pair's looks and forget the pair. */
     void endSpeakerPair();
+    /** The creature a participant tag names: a stunt participant's, or one in the area. */
+    std::shared_ptr<Creature> participantCreature(const std::string &participant) const;
+    /** A creature that is debilitated, dead, or a party member at no vitality plays no dialog animation. */
+    bool canPlayDialogAnimations(const Creature &creature) const;
     void updateParticipantAnimations();
     void applyCutAnimation(const std::string &participant, const CutAnimation &cut);
     void applyDialogAnimation(const std::string &participant, int ordinal);
@@ -119,6 +140,8 @@ private:
     DialogCamera::Variant getRandomCameraVariant() const;
     static std::optional<CutAnimation> decodeCutAnimation(int ordinal);
     AnimationType getDialogAnimationType(int ordinal) const;
+    /** The pose a non-cut ordinal names; an Invalid type for one the table does not name. */
+    DialogPose getDialogPose(int ordinal) const;
     std::shared_ptr<Creature> resolveParticipantCreature(const std::string &participant) const;
     bool hasStuntPresentation() const;
     std::shared_ptr<graphics::Animation> getStuntParticipantAnimation(
@@ -148,8 +171,8 @@ private:
 
     void loadStuntParticipants();
     void releaseStuntParticipants();
-    void holdCutParticipant(const std::shared_ptr<Creature> &creature);
-    void releaseHeldCutParticipants();
+    void addCutParticipant(const std::shared_ptr<Creature> &creature);
+    void releaseCutParticipants();
 
     // END Participants
 };

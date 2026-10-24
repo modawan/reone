@@ -96,7 +96,7 @@ void ComputerGUI::onGUILoaded() {
     bindControls();
     configureMessage();
     configureReplies();
-    hideK1StaticBands();
+    hideStaticBands();
 }
 
 void ComputerGUI::configureMessage() {
@@ -115,12 +115,12 @@ void ComputerGUI::configureReplies() {
     });
 }
 
-void ComputerGUI::hideK1StaticBands() {
+void ComputerGUI::hideStaticBands() {
     if (_game.isTSL()) {
         return;
     }
 
-    // K1 computer.gui ships static band overlays that duplicate the terminal background in reone.
+    // K1 computer.gui ships static band overlays that duplicate the terminal background.
     setVisible(_controls.LBL_STATIC1, false);
     setVisible(_controls.LBL_STATIC2, false);
     setVisible(_controls.LBL_STATIC3, false);
@@ -139,6 +139,9 @@ void ComputerGUI::setReplyLines(std::vector<std::string> lines) {
     _controls.LB_REPLIES->clearItems();
 
     for (size_t i = 0; i < lines.size(); ++i) {
+        if (lines[i].empty()) {
+            continue;
+        }
         ListBox::Item item;
         item.tag = std::to_string(i);
         item.text = lines[i];

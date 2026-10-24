@@ -1,0 +1,376 @@
+/*
+ * Copyright (c) 2020-2023 The reone project contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "reone/game/areamusicplayer.h"
+
+#include <algorithm>
+
+#include <boost/algorithm/string/case_conv.hpp>
+
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
+#include "reone/audio/source.h"
+#include "reone/game/di/services.h"
+#include "reone/game/object/area.h"
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/di/services.h"
+#include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
+#include "reone/system/clock.h"
+#include "reone/system/di/services.h"
+#include "reone/system/randomutil.h"
+
+using namespace reone::audio;
+using namespace reone::resource;
+
+namespace reone {
+
+namespace game {
+
+static constexpr uint32_t kMusicFadeMilliseconds = 800;
+static constexpr uint32_t kBattleHandOffMilliseconds = 10;
+static constexpr uint32_t kBattleRepeatGapMilliseconds = 1000;
+static constexpr uint32_t kMusicRetryMilliseconds = 10000;
+// Setting a track restarts the background music on the next update.
+static constexpr uint32_t kTrackChangeRestartMilliseconds = 1;
+static constexpr uint32_t kAmbientFadeMilliseconds = 6000;
+static constexpr int kAreaWideAmbientPriorityGroup = 4;
+static constexpr int kMaxAmbientVolume = 127;
+
+AreaMusicPlayer::Track AreaMusicPlayer::readTrack(int row) const {
+    auto table = getRequiredTwoDA(_services.resource.twoDas, "ambientmusic");
+    Track track;
+    track.resRef = boost::to_lower_copy(table->getString(row, "resource"));
+    for (size_t i = 0; i < track.stingers.size(); ++i) {
+        track.stingers[i] = boost::to_lower_copy(table->getString(row, "stinger" + std::to_string(i + 1)));
+    }
+    return track;
+}
+
+AreaMusicPlayer::Track AreaMusicPlayer::battleTrack() const {
+    return readTrack(_area->ambientAudio().musicBattle);
+}
+
+std::string AreaMusicPlayer::readAmbientTrack(int row) const {
+    auto table = getRequiredTwoDA(_services.resource.twoDas, "ambientsound");
+    return boost::to_lower_copy(table->getString(row, "resource"));
+}
+
+float AreaMusicPlayer::ambientVolumeScale() const {
+    const int volume = _area->ambientAudio().ambientSoundDayVolume;
+    return std::min(volume, kMaxAmbientVolume) / static_cast<float>(kMaxAmbientVolume);
+}
+
+// The area-wide ambient loop plays at the volume of its priority group.
+float AreaMusicPlayer::ambientGroupGain() const {
+    auto groups = getRequiredTwoDA(_services.resource.twoDas, "prioritygroups");
+    return groups->getInt(kAreaWideAmbientPriorityGroup, "volume") / static_cast<float>(kMaxAmbientVolume);
+}
+
+// A fading track sounds until its fade ends.
+bool AreaMusicPlayer::isMusicPlaying() {
+    if (_fadeEnd) {
+        uint32_t now = _services.system.clock.millis();
+        if (now >= *_fadeEnd) {
+            _music->stop();
+            _fadeEnd.reset();
+        } else {
+            _music->setGainScale(static_cast<float>(*_fadeEnd - now) / kMusicFadeMilliseconds);
+        }
+    }
+    return _music && _music->isPlaying();
+}
+
+// A fading loop sounds until its fade ends.
+bool AreaMusicPlayer::isAmbientPlaying() {
+    if (_ambientFadeEnd) {
+        uint32_t now = _services.system.clock.millis();
+        if (now >= *_ambientFadeEnd) {
+            _ambient->stop();
+            _ambientFadeEnd.reset();
+        } else {
+            _ambient->setGainScale(ambientVolumeScale() * (*_ambientFadeEnd - now) / kAmbientFadeMilliseconds);
+        }
+    }
+    return _ambient && _ambient->isPlaying();
+}
+
+bool AreaMusicPlayer::playTrack(const std::string &resRef) {
+    if (resRef.empty()) {
+        return false;
+    }
+    _music = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music);
+    _fadeEnd.reset();
+    _playingResRef = resRef;
+    return static_cast<bool>(_music);
+}
+
+void AreaMusicPlayer::fadeAndStop() {
+    if (isMusicPlaying() && !_fadeEnd) {
+        _fadeEnd = _services.system.clock.millis() + kMusicFadeMilliseconds;
+    }
+}
+
+void AreaMusicPlayer::playStinger(const Track &track) {
+    if (!_started || track.stingers[0].empty()) {
+        return;
+    }
+    int count = track.stingers[1].empty() ? 1 : (track.stingers[2].empty() ? 2 : 3);
+    const std::string &resRef = track.stingers[randomInt(0, count - 1)];
+    _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music);
+}
+
+void AreaMusicPlayer::load(std::shared_ptr<const Area> area) {
+    _area = std::move(area);
+    const auto &audio = _area->ambientAudio();
+    _musicOn = audio.musicPlaying;
+    _battleOn = audio.battleMusicPlaying;
+    _ambientOn = audio.ambientSoundPlaying;
+    _ambientFailed = false;
+}
+
+void AreaMusicPlayer::start() {
+    _started = true;
+    if (_battleOn) {
+        switchBattleMusic(true, battleTrack());
+    } else {
+        switchMusic(_musicOn);
+    }
+    switchAmbientSound(_ambientOn);
+}
+
+// Music fades out; the ambient loop ends at once. Before arrival there is
+// nothing to stop.
+void AreaMusicPlayer::stopSounds() {
+    if (!_started) {
+        return;
+    }
+    switchMusic(false);
+    _battleOn = false;
+    _countdown = 0;
+    if (_ambient) {
+        _ambient->stop();
+    }
+    _ambientFadeEnd.reset();
+    _ambientOn = false;
+    _ambientFailed = false;
+}
+
+// Nothing is on once the area is left, so nothing restarts until the next one
+// is loaded; a fading track still fades out.
+void AreaMusicPlayer::unload() {
+    stopSounds();
+    _started = false;
+    _musicOn = false;
+    _battleOn = false;
+    _ambientOn = false;
+    _ambientFailed = false;
+    _countdown = 0;
+    _area.reset();
+}
+
+// There is no time of day, so the day track is the background music. Before
+// arrival the request is kept for the start.
+void AreaMusicPlayer::switchMusic(bool play) {
+    if (!_started) {
+        _musicOn = play;
+        return;
+    }
+    if (play) {
+        if (!isMusicPlaying()) {
+            _countdown = 0;
+            if (!playTrack(readTrack(_area->ambientAudio().musicDay).resRef)) {
+                _countdown = kMusicRetryMilliseconds;
+            }
+        }
+        _musicOn = true;
+    } else {
+        // A pending restart survives the fade.
+        fadeAndStop();
+        _musicOn = false;
+    }
+}
+
+// An area without a battle track plays no battle music.
+void AreaMusicPlayer::switchBattleMusic(bool play, const Track &battle) {
+    if (play) {
+        if (battle.resRef.empty()) {
+            return;
+        }
+        _battleOn = true;
+        if (!_started) {
+            return;
+        }
+        if (isMusicPlaying()) {
+            if (_playingResRef == battle.resRef) {
+                return;
+            }
+            // The playing track fades out and battle music follows it.
+            fadeAndStop();
+            _musicOn = false;
+            _countdown = kBattleHandOffMilliseconds;
+        } else {
+            _countdown = playTrack(battle.resRef) ? 0 : kMusicRetryMilliseconds;
+        }
+    } else if (_battleOn) {
+        // Battle music ends on a stinger and background music returns after the delay.
+        fadeAndStop();
+        playStinger(battle);
+        switchMusic(true);
+        _battleOn = false;
+    }
+}
+
+// The area-wide ambient is a non-positional loop at its priority group's
+// volume, scaled by the area volume. A playing loop is left alone; a track
+// that fails to play is not retried until the area asks again. Before arrival
+// the request is kept for the start.
+void AreaMusicPlayer::switchAmbientSound(bool play) {
+    if (!play) {
+        if (isAmbientPlaying() && !_ambientFadeEnd) {
+            _ambientFadeEnd = _services.system.clock.millis() + kAmbientFadeMilliseconds;
+        }
+        _ambientOn = false;
+        _ambientFailed = false;
+        return;
+    }
+    if (!_started) {
+        _ambientOn = true;
+        return;
+    }
+    if (!isAmbientPlaying()) {
+        _ambient = _services.audio.mixer.play(
+            _services.resource.audioClips.get(readAmbientTrack(_area->ambientAudio().ambientSoundDay)),
+            AudioType::Sound, ambientGroupGain(), true);
+        _ambientFadeEnd.reset();
+        _ambientFailed = !_ambient;
+        if (_ambient) {
+            _ambient->setGainScale(ambientVolumeScale());
+        }
+    }
+    _ambientOn = true;
+}
+
+// A track that was playing stops and the background music starts again.
+void AreaMusicPlayer::restartMusic(int previousTrack) {
+    if (isMusicPlaying() && _playingResRef == readTrack(previousTrack).resRef) {
+        switchMusic(false);
+    }
+    switchMusic(true);
+    _countdown = kTrackChangeRestartMilliseconds;
+}
+
+void AreaMusicPlayer::playMusic(const Area &area, bool play) {
+    if (plays(area)) {
+        switchMusic(play);
+    }
+}
+
+void AreaMusicPlayer::playBattleMusic(const Area &area, bool play) {
+    if (plays(area)) {
+        switchBattleMusic(play, battleTrack());
+    }
+}
+
+void AreaMusicPlayer::musicDayTrackChanged(const Area &area, int previousTrack) {
+    if (plays(area)) {
+        restartMusic(previousTrack);
+    }
+}
+
+void AreaMusicPlayer::musicNightTrackChanged(const Area &area, int previousTrack) {
+    if (plays(area)) {
+        restartMusic(previousTrack);
+    }
+}
+
+// Battle music that was playing hands over to the new battle track.
+void AreaMusicPlayer::battleMusicTrackChanged(const Area &area, int previousTrack) {
+    if (!plays(area)) {
+        return;
+    }
+    const auto previous = readTrack(previousTrack);
+    if (!isMusicPlaying() || _playingResRef != previous.resRef) {
+        return;
+    }
+    switchBattleMusic(false, previous);
+    switchBattleMusic(true, battleTrack());
+}
+
+void AreaMusicPlayer::playAmbientSound(const Area &area, bool play) {
+    if (plays(area)) {
+        switchAmbientSound(play);
+    }
+}
+
+// A new track waits for the old one to fade out; update() starts it.
+void AreaMusicPlayer::ambientDayTrackChanged(const Area &area) {
+    if (plays(area)) {
+        switchAmbientSound(false);
+        _ambientOn = true;
+    }
+}
+
+void AreaMusicPlayer::ambientNightTrackChanged(const Area &area) {
+    if (plays(area)) {
+        switchAmbientSound(true);
+    }
+}
+
+void AreaMusicPlayer::ambientDayVolumeChanged(const Area &area) {
+    if (plays(area) && isAmbientPlaying() && !_ambientFadeEnd) {
+        _ambient->setGainScale(ambientVolumeScale());
+    }
+}
+
+// A track that ends is repeated after a gap: one second for battle music,
+// the area's delay for background music. Music is on only while an area is
+// loaded.
+void AreaMusicPlayer::update() {
+    // An ambient loop that is on but has ended, after a fade or a track
+    // change, starts again.
+    if (_started && _ambientOn && !_ambientFailed && !isAmbientPlaying()) {
+        switchAmbientSound(true);
+    }
+    if (isMusicPlaying()) {
+        return;
+    }
+    uint32_t now = _services.system.clock.millis();
+    if (_countdown > 0) {
+        uint32_t elapsed = now - _lastUpdateTime;
+        if (_countdown > elapsed) {
+            _countdown -= elapsed;
+        } else {
+            _countdown = 0;
+            if (_battleOn) {
+                switchBattleMusic(true, battleTrack());
+            } else {
+                switchMusic(true);
+            }
+        }
+    } else if (_musicOn || _battleOn) {
+        // An area without a delay of its own repeats at once.
+        _countdown = _battleOn ? kBattleRepeatGapMilliseconds
+                               : static_cast<uint32_t>(std::max(1, _area->ambientAudio().musicDelay));
+    }
+    _lastUpdateTime = now;
+}
+
+} // namespace game
+
+} // namespace reone

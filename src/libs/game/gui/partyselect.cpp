@@ -45,15 +45,16 @@ namespace reone {
 
 namespace game {
 
+static constexpr int kPartySelectionTutorial = 41;
+
 static constexpr int kMaxFollowerCount = 2;
 
 static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
-// Neither game authors an in-party colour; K1's green is the retail runtime
-// tint. TSL authors white for its buttons' selected state, and the K1 green
-// clashes with its teal-and-sand palette.
+// Neither game specifies an in-party colour in the layout. K1 uses green
+// for an active companion.
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
 static glm::vec3 g_tslColorAdded = {1.0f, 1.0f, 1.0f};
 
@@ -168,6 +169,7 @@ void PartySelection::bindEventHandlers() {
 void PartySelection::prepare(const PartySelectionContext &ctx) {
     _gui->setEventListener(*this);
     bindEventHandlers();
+    _game.requestTutorialWindow(kPartySelectionTutorial);
 
     _context = ctx;
     _availableCount = kMaxFollowerCount;
@@ -183,7 +185,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
 
     Party &party = _game.party();
     for (auto &member : party.members()) {
-        if (member.npc != kNpcPlayer) {
+        if (member.npc != kNpcPlayer && member.creature) {
             addNpc(member.npc);
         }
     }

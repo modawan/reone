@@ -17,18 +17,17 @@
 
 #include "reone/game/gui/hud.h"
 
-#include "reone/audio/mixer.h"
-#include "reone/graphics/context.h"
-#include "reone/graphics/mesh.h"
-#include "reone/graphics/meshregistry.h"
-#include "reone/graphics/shaderregistry.h"
-#include "reone/graphics/uniforms.h"
-#include "reone/gui/control/label.h"
-#include "reone/resource/provider/audioclips.h"
-#include "reone/system/logutil.h"
+#include <algorithm>
+#include <cmath>
+#include <functional>
+#include <optional>
+#include <vector>
 
+#include "reone/audio/mixer.h"
+#include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/usefeat.h"
+#include "reone/game/combat.h"
 #include "reone/game/d20/feat.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/spell.h"
@@ -38,8 +37,22 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
+#include "reone/game/savedruntime.h"
+#include "reone/graphics/context.h"
+#include "reone/graphics/mesh.h"
+#include "reone/graphics/meshregistry.h"
+#include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/uniforms.h"
+#include "reone/gui/control/label.h"
+#include "reone/gui/guis.h"
+#include "reone/resource/exception/notfound.h"
+#include "reone/resource/provider/audioclips.h"
+#include "reone/resource/strings.h"
+#include "reone/system/logutil.h"
+#include "reone/system/smallvector.h"
 
 using namespace reone::audio;
 
@@ -51,12 +64,196 @@ namespace reone {
 
 namespace game {
 
+/**
+ * TSL enlarges parts of its interface by half for each full 1024 pixels of
+ * screen width past 1022.
+ */
+static float interfaceScalar(bool tsl, int screenWidth) {
+    return tsl && screenWidth > 1022 ? 1.0f + ((screenWidth - 1022) / 1024) * 0.5f : 1.0f;
+}
+
+// Effect stacks
+//
+// Each portrait shows one icon for every beneficial effect on its member and
+// one for every harmful effect, stacked over the portrait. The rules below lay
+// the icons out to the pixel as the game does.
+
+/** The leader's portrait stacks at most nine icons of a kind; another member's at most five. */
+static constexpr int kLeaderEffectStackMax = 9;
+static constexpr int kMemberEffectStackMax = 5;
+/** A stack of up to four icons is centred on the portrait's effect icon. */
+static constexpr int kCentredEffectStackMax = 4;
+/** A longer harmful stack starts this far above the bottom of the portrait. */
+static constexpr int kLeaderEffectStackBottomMargin = 16;
+static constexpr int kMemberEffectStackBottomMargin = 8;
+
+/** The distance between the icons of a stack, before scaling. */
+static int effectStackSpacing(int count, bool leader) {
+    if (!leader) {
+        return 5;
+    }
+    switch (count) {
+    case 6:
+        return 8;
+    case 7:
+        return 7;
+    case 8:
+        return 6;
+    case 9:
+        return 5;
+    default:
+        return 10;
+    }
+}
+
+/** In a stack of seven or eight icons, the gaps after the first and the third icon are a pixel narrower. */
+static bool isEffectStackGapNarrowed(int count, int index) {
+    return (count == 7 || count == 8) && (index == 0 || index == 2);
+}
+
+/**
+ * Draw \p label once for each icon of a stack of \p effects, clipped to the
+ * portrait. Beneficial icons are drawn from the top down, harmful ones from the
+ * bottom up.
+ */
+static void renderEffectStack(
+    Label &label,
+    const Control::Extent &portrait,
+    int effects,
+    bool leader,
+    bool beneficial,
+    float scalar,
+    const glm::ivec2 &screenSize,
+    const glm::ivec2 &controlOffset,
+    scene::IRenderPass &pass,
+    graphics::IContext &context) {
+
+    const int count = std::min(effects, leader ? kLeaderEffectStackMax : kMemberEffectStackMax);
+    if (count == 0) {
+        return;
+    }
+    const int spacing = static_cast<int>(effectStackSpacing(count, leader) * scalar);
+    const int direction = beneficial ? 1 : -1;
+    int top;
+    if (count <= kCentredEffectStackMax) {
+        top = label.extent().top - direction * (count - 1) * (spacing / 2);
+    } else if (beneficial) {
+        top = portrait.top + 1;
+    } else {
+        const int bottomMargin = leader ? kLeaderEffectStackBottomMargin : kMemberEffectStackBottomMargin;
+        top = portrait.top + portrait.height - bottomMargin - 1;
+    }
+
+    glm::ivec4 scissorBounds {
+        controlOffset.x + portrait.left,
+        screenSize.y - (controlOffset.y + portrait.top + portrait.height),
+        portrait.width,
+        portrait.height};
+
+    bool wasVisible = label.isVisible();
+    label.setVisible(true);
+    context.withScissorTestNoClear(scissorBounds, [&]() {
+        for (int index = 0; index < count; ++index) {
+            glm::ivec2 offset = controlOffset;
+            offset.y += top - label.extent().top;
+            label.render(screenSize, offset, pass);
+            top += direction * spacing;
+            if (isEffectStackGapNarrowed(count, index)) {
+                top -= direction;
+            }
+        }
+    });
+    label.setVisible(wasVisible);
+}
+
+// END Effect stacks
+
+// Pause indicator
+
+/** Pause indicator text for a pause reason; `press` shows the unpause prompt. */
+struct PauseReasonText {
+    int k1StrRef;
+    int k2StrRef;
+    bool press;
+};
+
+/** The indicator's text for \p reason; the reasons it leaves out show no indicator. */
+static std::optional<PauseReasonText> pauseReasonText(PauseReason reason) {
+    switch (reason) {
+    case PauseReason::Player:
+        return PauseReasonText {1508, 1508, true};
+    case PauseReason::EnemySighted:
+        return PauseReasonText {48212, 48732, false};
+    case PauseReason::EndOfCombatRound:
+        return PauseReasonText {42432, 42432, true};
+    case PauseReason::ActionMenu:
+        return PauseReasonText {42482, 42482, true};
+    case PauseReason::NewTargetSelected:
+        return PauseReasonText {42481, 42481, true};
+    case PauseReason::PartyKilled:
+        return PauseReasonText {42397, 42397, true};
+    case PauseReason::MineSighted:
+        return PauseReasonText {49118, 48735, false};
+    case PauseReason::CombatOrder:
+        return PauseReasonText {48423, 48734, true};
+    default:
+        return std::nullopt;
+    }
+}
+
+/** TSL's unpause prompt under the reason. */
+static constexpr int kK2PausePressStrRef = 136311;
+/** The prompt sits this far below the reason, and the panel ends this far below its last line, before scaling. */
+static constexpr int kPausePromptGap = 2;
+static constexpr int kPausePanelBottomPadding = 5;
+/** The panel's distance below the menu bar and from the right edge of the screen: KotOR's, and TSL's before scaling. */
+static constexpr int kK1PausePanelMargin = 3;
+static constexpr float kK2PausePanelTop = 11.0f;
+static constexpr float kK2PausePanelRight = 6.0f;
+
+// END Pause indicator
+
 static std::string g_attackIcon("i_attack");
+
+/** The action queue's icons for round entries that show no command of their own. */
+static const std::string kEquipIcon {"i_equip"};
+static const std::string kUnequipIcon {"i_unequip"};
+static const std::string kDefensiveStanceIcon {"i_stancedef"};
+static const std::string kSwitchWeaponsIcon {"i_swtchwpn"};
+/** The number of icons in the action queue. */
+static constexpr size_t kActionQueueSize = 4;
+
+/** The queue icon of a pending round entry of \p type whose command shows no icon. */
+static const std::string &scheduledEntryIcon(int type) {
+    switch (type) {
+    case SavedScheduledAction::kEquipType:
+        return kEquipIcon;
+    case SavedScheduledAction::kUnequipType:
+        return kUnequipIcon;
+    case SavedScheduledAction::kCombatStanceType:
+        return kDefensiveStanceIcon;
+    case SavedScheduledAction::kSwitchWeaponsType:
+        return kSwitchWeaponsIcon;
+    default:
+        return g_attackIcon;
+    }
+}
+
+/**
+ * A cast shows its spell's icon. The use of an item shows the item's icon
+ * while the item is still in the game, and nothing once it is gone.
+ */
+static std::shared_ptr<graphics::Texture> castIcon(const Spell &spell, const std::optional<std::shared_ptr<Item>> &item) {
+    if (!item) {
+        return spell.icon;
+    }
+    return *item && (*item)->isRuntimeLive() ? (*item)->icon() : nullptr;
+}
 
 /** Authored-canvas gap between the minimap frame and the TSL bark bubble. */
 static constexpr int kBarkBubbleMapGap = 8;
 
-static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
+static void tintHUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
     if (!button) {
         return;
     }
@@ -115,7 +312,9 @@ void HUD::onGUILoaded() {
         findControl<gui::Label>("LBL_ACTIONDESC"),
         findControl<gui::Label>("LBL_ACTIONDESCBG"));
 
-    for (int i = 0; i < 5; ++i) {
+    // TSL adds a sixth slot, the forms.
+    const int actionSlots = _game.isTSL() ? 6 : 5;
+    for (int i = 0; i < actionSlots; ++i) {
         auto action = findControl<gui::Button>(str(boost::format("BTN_ACTION%d") % i));
         auto icon = findControl<gui::Button>(str(boost::format("LBL_ACTION%d") % i));
         auto up = findControl<gui::Button>(str(boost::format("BTN_ACTIONUP%d") % i));
@@ -123,16 +322,6 @@ void HUD::onGUILoaded() {
 
         if (action && icon && up && down) {
             _actionBar.addSlot(action, icon, up, down);
-        }
-    }
-    if (_game.isTSL()) {
-        if (auto up = findControl<gui::Button>("BTN_ACTIONUP5")) {
-            up->setVisible(false);
-        }
-        if (auto down = findControl<gui::Button>("BTN_ACTIONDOWN5")) {
-            down->setBorderFillTransform(gui::Control::Border::FillTransform::Rotate180);
-            down->setHilightFillTransform(gui::Control::Border::FillTransform::Rotate180);
-            down->setVisible(false);
         }
     }
 
@@ -178,20 +367,22 @@ void HUD::onGUILoaded() {
     _controls.LBL_STEALTHXP->setVisible(false);
     _controls.LBL_ARROW->setVisible(false);
     _controls.BTN_TARGET0->setVisible(false);
-    _controls.TB_PAUSE->setVisible(false);
-    _controls.TB_SOLO->setVisible(false);
-    _controls.TB_STEALTH->setVisible(false);
 
     if (_game.isTSL()) {
-        _controls.BTN_SWAPWEAPONS->setVisible(false);
-        tintK2HUDMenuButton(_controls.BTN_EQU, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_INV, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_CHAR, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_ABI, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_MSG, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_JOU, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_MAP, _baseColor);
-        tintK2HUDMenuButton(_controls.BTN_OPT, _baseColor);
+        // The weapon swap queues through the leader's combat round.
+        _controls.BTN_SWAPWEAPONS->setOnClick([this]() {
+            if (auto leader = _game.party().getLeader()) {
+                leader->requestSwitchWeapons(false);
+            }
+        });
+        tintHUDMenuButton(_controls.BTN_EQU, _baseColor);
+        tintHUDMenuButton(_controls.BTN_INV, _baseColor);
+        tintHUDMenuButton(_controls.BTN_CHAR, _baseColor);
+        tintHUDMenuButton(_controls.BTN_ABI, _baseColor);
+        tintHUDMenuButton(_controls.BTN_MSG, _baseColor);
+        tintHUDMenuButton(_controls.BTN_JOU, _baseColor);
+        tintHUDMenuButton(_controls.BTN_MAP, _baseColor);
+        tintHUDMenuButton(_controls.BTN_OPT, _baseColor);
         // The bar backings are colour masks like the rest of the TSL HUD.
         for (auto &bar : {_controls.PB_VIT1, _controls.PB_VIT2, _controls.PB_VIT3,
                           _controls.PB_FORCE1, _controls.PB_FORCE2, _controls.PB_FORCE3}) {
@@ -231,34 +422,40 @@ void HUD::onGUILoaded() {
     _controls.BTN_OPT->setOnClick([this]() {
         _game.openInGameMenu(InGameMenuTab::Options);
     });
+    // The pause toggle stays as authored; its state follows play every frame.
+    _controls.TB_PAUSE->setOnClick([this]() {
+        _game.pressPauseButton();
+    });
+    _controls.TB_SOLO->setOnClick([this]() {
+        _game.showSoloModeQuery(false);
+    });
+    _controls.TB_STEALTH->setOnClick([this]() {
+        _game.requestStealth();
+    });
+    // Clear All leaves combat mode and clears the leader's actions, which one
+    // that cannot be commanded keeps, its pending round entries and its targets.
+    // The button shows only while the leader is in combat mode.
     _controls.BTN_CLEARALL->setOnClick([this]() {
-        _game.party().getLeader()->clearAllActions();
+        const auto leader = _game.party().getLeader();
+        leader->setClientCombatMode(false);
+        _game.combat().clearAllOrders(*leader);
     });
-    _controls.BTN_CLEARONE->setOnClick([this]() {
-        for (auto &action : _game.party().getLeader()->actions()) {
-            if (action->type() == ActionType::AttackObject) {
-                action->complete();
-                break;
-            }
-        }
-    });
-    _controls.BTN_CLEARONE2->setOnClick([this]() {
-        for (auto &action : _game.party().getLeader()->actions()) {
-            if (action->type() == ActionType::AttackObject) {
-                action->complete();
-                break;
-            }
-        }
-    });
+    // Both clear-one buttons clear one action.
+    _controls.BTN_CLEARONE->setOnClick([this]() { _game.clearOneAction(); });
+    _controls.BTN_CLEARONE2->setOnClick([this]() { _game.clearOneAction(); });
     _controls.BTN_CHAR1->setOnClick([this]() {
         _game.openInGameMenu(InGameMenuTab::Equipment);
     });
-    _controls.BTN_CHAR2->setOnClick([this]() {
-        _game.party().setPartyLeaderByIndex(1);
-    });
-    _controls.BTN_CHAR3->setOnClick([this]() {
-        _game.party().setPartyLeaderByIndex(2);
-    });
+    // A member who is down cannot take control.
+    auto selectMember = [this](int index) {
+        auto member = _game.party().getMember(index);
+        if (!member || member->isDead() || member->isTemporarilyDead()) {
+            return;
+        }
+        _game.party().setPartyLeaderByIndex(index);
+    };
+    _controls.BTN_CHAR2->setOnClick([selectMember]() { selectMember(1); });
+    _controls.BTN_CHAR3->setOnClick([selectMember]() { selectMember(2); });
 
     _select.init();
 
@@ -273,47 +470,235 @@ void HUD::onGUILoaded() {
 
     _statusSummary = std::make_unique<StatusSummary>(_game, _services, _game.statusSummary());
     _statusSummary->init();
+    _statusSummary->setOnStatusFlash([this](StatusSummaryCategory category) { flashStatus(category); });
 
     _areaTransition = std::make_unique<AreaTransition>(_game, _services);
     _areaTransition->init();
+
+    loadPausePanel();
 }
 
-void HUD::activateStatusSummaryIndicator(StatusSummaryCategory category) {
+void HUD::loadPausePanel() {
+    _pauseGUI = _services.gui.guis.get(guiResRef("pause"), [this](IGUI &gui) {
+        GameGUI::preload(gui);
+        gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
+    });
+    if (!_pauseGUI) {
+        throw ResourceNotFoundException("GUI not found: " + guiResRef("pause"));
+    }
+    _pauseGUI->setEventListener(*this);
+    auto find = [this](const std::string &tag) { return _pauseGUI->findControl(tag); };
+    _pauseControls.BTN_UNPAUSE = std::static_pointer_cast<Button>(find("BTN_UNPAUSE"));
+    _pauseControls.LBL_PAUSEREASON = std::static_pointer_cast<Label>(find("LBL_PAUSEREASON"));
+    _pauseControls.LBL_PRESS = std::static_pointer_cast<Label>(find("LBL_PRESS"));
+    // The prompt's authored text takes custom tokens.
+    _pauseControls.LBL_PRESS->setTextMessage(_game.substituteCustomTokens(_pauseControls.LBL_PRESS->text().text));
+    // A click anywhere on the indicator resumes play.
+    _pauseControls.BTN_UNPAUSE->setOnClick([this]() {
+        _game.togglePlayerPause();
+    });
+    _pauseLayoutReason.reset();
+}
+
+bool HUD::isPausePanelShown() const {
+    return _game.isPaused() && pauseReasonText(_game.pauseReason()).has_value();
+}
+
+void HUD::updatePausePanel(float dt) {
+    if (!isPausePanelShown()) {
+        if (_pauseLayoutReason) {
+            _pauseGUI->clearSelection();
+            _pauseLayoutReason.reset();
+        }
+        return;
+    }
+    const PauseReason reason = _game.pauseReason();
+    if (_pauseLayoutReason != reason) {
+        layoutPausePanel(reason);
+    }
+    _pauseGUI->update(dt);
+}
+
+void HUD::layoutPausePanel(PauseReason reason) {
+    _pauseLayoutReason = reason;
+    const auto text = *pauseReasonText(reason);
+    const bool tsl = _game.isTSL();
+    auto &root = _pauseGUI->rootControl();
+    auto &reasonLabel = *_pauseControls.LBL_PAUSEREASON;
+    auto &pressLabel = *_pauseControls.LBL_PRESS;
+    auto &unpause = *_pauseControls.BTN_UNPAUSE;
+
+    const float scale = _pauseGUI->scale();
+    auto scaled = [scale](const Control::Extent &authored) {
+        return Control::Extent {
+            static_cast<int>(std::lround(authored.left * scale)),
+            static_cast<int>(std::lround(authored.top * scale)),
+            static_cast<int>(std::lround(authored.width * scale)),
+            static_cast<int>(std::lround(authored.height * scale))};
+    };
+    auto textHeight = [](const Label &label) {
+        if (!label.text().font) {
+            return 0;
+        }
+        const int lineHeight = std::max(1, static_cast<int>(std::lround(label.text().font->height() * label.scale())));
+        return std::max(1, static_cast<int>(label.textLines().size())) * lineHeight;
+    };
+    for (Control *control : {static_cast<Control *>(&root), static_cast<Control *>(&reasonLabel),
+                             static_cast<Control *>(&pressLabel), static_cast<Control *>(&unpause)}) {
+        control->setPresentationScale(scale);
+    }
+
+    // Panel-relative layout.
+    Control::Extent reasonExtent = scaled(reasonLabel.authoredExtent());
+    reasonLabel.setExtent(reasonExtent);
+    // TSL resolves the reason's tokens a second time.
+    std::string reasonText = _game.getInterfaceText(tsl ? text.k2StrRef : text.k1StrRef);
+    if (tsl) {
+        reasonText = _game.substituteCustomTokens(std::move(reasonText));
+    }
+    reasonLabel.setTextMessage(reasonText);
+    reasonExtent.height = textHeight(reasonLabel);
+    Control::Extent last = reasonExtent;
+    Control::Extent pressExtent = scaled(pressLabel.authoredExtent());
+    pressLabel.setVisible(text.press);
+    if (text.press) {
+        pressLabel.setExtent(pressExtent);
+        if (tsl) {
+            pressLabel.setTextMessage(_game.getInterfaceText(kK2PausePressStrRef));
+        }
+        pressExtent.top = reasonExtent.top + reasonExtent.height + static_cast<int>(std::lround(kPausePromptGap * scale));
+        pressExtent.height = textHeight(pressLabel);
+        last = pressExtent;
+    }
+    Control::Extent panelExtent = scaled(root.authoredExtent());
+    panelExtent.height = last.top + last.height + static_cast<int>(std::lround(kPausePanelBottomPadding * scale));
+    Control::Extent unpauseExtent {reasonExtent.left, reasonExtent.top, reasonExtent.width, panelExtent.height};
+
+    // Top-right, just under the menu bar.
+    const int screenWidth = _game.options().graphics.width;
+    const auto &menuButton = _controls.BTN_EQU->extent();
+    panelExtent.top = menuButton.top + menuButton.height - 1;
+    if (tsl) {
+        const float scalar = interfaceScalar(true, screenWidth);
+        panelExtent.top += static_cast<int>(kK2PausePanelTop * scalar);
+        panelExtent.left = static_cast<int>(static_cast<float>(screenWidth - panelExtent.width) - scalar * kK2PausePanelRight);
+    } else {
+        panelExtent.top += kK1PausePanelMargin;
+        panelExtent.left = screenWidth - panelExtent.width - kK1PausePanelMargin;
+    }
+
+    auto place = [&panelExtent](Control::Extent extent) {
+        extent.left += panelExtent.left;
+        extent.top += panelExtent.top;
+        return extent;
+    };
+    root.setExtent(panelExtent);
+    reasonLabel.setExtent(place(reasonExtent));
+    if (text.press) {
+        pressLabel.setExtent(place(pressExtent));
+    }
+    unpause.setExtent(place(unpauseExtent));
+}
+
+std::optional<std::reference_wrapper<gui::Label>> HUD::statusFlashLabel(StatusSummaryCategory category) const {
+    // A category flashes the indicator the HUD's layout has for it, if any.
+    auto present = [](const std::shared_ptr<gui::Label> &label) -> std::optional<std::reference_wrapper<gui::Label>> {
+        if (!label) {
+            return std::nullopt;
+        }
+        return *label;
+    };
     switch (category) {
     case StatusSummaryCategory::Journal:
-        if (_controls.LBL_JOURNAL) {
-            _journalIndicator.activate();
-            _controls.LBL_JOURNAL->setVisible(true);
-        }
-        break;
+        return present(_controls.LBL_JOURNAL);
+    case StatusSummaryCategory::Credits:
+        return present(_controls.LBL_CASH);
     case StatusSummaryCategory::PlotXP:
-        if (_controls.LBL_PLOTXP) {
-            _plotXPIndicator.activate();
-            _controls.LBL_PLOTXP->setVisible(true);
-        }
-        break;
+        return present(_controls.LBL_PLOTXP);
+    case StatusSummaryCategory::StealthXP:
+        return present(_controls.LBL_STEALTHXP);
+    case StatusSummaryCategory::DarkSideShift:
+        return present(_controls.LBL_DARKSHIFT);
+    case StatusSummaryCategory::LightSideShift:
+        return present(_controls.LBL_LIGHTSHIFT);
+    case StatusSummaryCategory::ItemsReceived:
+        return present(_controls.LBL_ITEMRCVD);
+    case StatusSummaryCategory::ItemsLost:
+        return present(_controls.LBL_ITEMLOST);
     default:
-        break;
+        return std::nullopt;
     }
+}
+
+void HUD::flashStatus(StatusSummaryCategory category) {
+    auto shared = [](StatusSummaryCategory flashed) -> std::optional<StatusSummaryCategory> {
+        switch (flashed) {
+        case StatusSummaryCategory::PlotXP:
+            return StatusSummaryCategory::StealthXP;
+        case StatusSummaryCategory::StealthXP:
+            return StatusSummaryCategory::PlotXP;
+        case StatusSummaryCategory::DarkSideShift:
+            return StatusSummaryCategory::LightSideShift;
+        case StatusSummaryCategory::LightSideShift:
+            return StatusSummaryCategory::DarkSideShift;
+        default:
+            return std::nullopt;
+        }
+    };
+    if (auto other = shared(category)) {
+        _statusFlashes[static_cast<size_t>(*other)].reset();
+        if (auto label = statusFlashLabel(*other)) {
+            label->get().setVisible(false);
+        }
+    }
+    // The net shift and the influence and Force rows have no indicator to flash.
+    auto label = statusFlashLabel(category);
+    if (!label) {
+        return;
+    }
+    _statusFlashes[static_cast<size_t>(category)].activate();
+    label->get().setVisible(true);
 }
 
 void HUD::resetStatusSummaryPresentation() {
-    _journalIndicator.reset();
-    _plotXPIndicator.reset();
-    if (_controls.LBL_JOURNAL) {
-        _controls.LBL_JOURNAL->setVisible(false);
-    }
-    if (_controls.LBL_PLOTXP) {
-        _controls.LBL_PLOTXP->setVisible(false);
+    for (size_t i = 0; i < _statusFlashes.size(); ++i) {
+        _statusFlashes[i].reset();
+        if (auto label = statusFlashLabel(static_cast<StatusSummaryCategory>(i))) {
+            label->get().setVisible(false);
+        }
     }
     if (_statusSummary) {
         _statusSummary->reset();
     }
 }
 
+void HUD::onClick(const std::string &control) {
+    // The pause, solo and stealth toggles click like checkboxes.
+    if (control == "TB_PAUSE" || control == "TB_SOLO" || control == "TB_STEALTH") {
+        auto clip = _services.game.guiSounds.getCheckboxCheck();
+        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        return;
+    }
+    // An action slot sounds its own acceptance or rejection, with no click before it.
+    if (!_actionBar.ownsActionControl(control)) {
+        GameGUI::onClick(control);
+    }
+}
+
 bool HUD::handle(const input::Event &event) {
     if (_statusSummary && _statusSummary->isVisible()) {
         return _statusSummary->handle(event);
+    }
+    // The pause indicator is not modal: it takes only what lands on it. It is
+    // laid out by the first update after play pauses.
+    if (isPausePanelShown() && _pauseLayoutReason) {
+        if (_pauseGUI->handle(event)) {
+            return true;
+        }
+        if (event.type == input::EventType::MouseButtonDown &&
+            _pauseControls.BTN_UNPAUSE->extent().contains(event.button.x, event.button.y)) {
+            return true;
+        }
     }
     if (_select.handle(event)) {
         return true;
@@ -323,6 +708,15 @@ bool HUD::handle(const input::Event &event) {
 
 void HUD::update(float dt) {
     _gui->update(dt);
+    // The toggle shows any pause, not only the player's.
+    _controls.TB_PAUSE->setOn(_game.isPaused());
+    // Solo mode shows with companions; stealth when the leader can use it.
+    _controls.TB_SOLO->setVisible(_game.party().companionCount() > 0);
+    _controls.TB_SOLO->setOn(_game.party().isSoloMode());
+    auto stealthLeader = _game.party().getLeader();
+    _controls.TB_STEALTH->setVisible(stealthLeader && stealthLeader->isStealthCapable());
+    _controls.TB_STEALTH->setOn(stealthLeader && stealthLeader->isStealthed());
+    updatePausePanel(dt);
 
     // Module/script work is updated before the HUD. Snapshotting here gives
     // all status events in that batch one deterministic coalescing boundary,
@@ -330,7 +724,23 @@ void HUD::update(float dt) {
     // A pending level-up chime plays when its batch is presented, or at once
     // when the batch has nothing to show.
     auto &summary = _game.statusSummary();
-    if (_statusSummary && _statusSummary->presentPending()) {
+    if (_statusSummary && !_game.feedbackOptions().statusSummary) {
+        // With the summary option off, the pending rows only flash their
+        // indicators, a pending level-up chime plays, and the batch is
+        // dropped.
+        const auto &pending = summary.pending();
+        for (auto category : pending.activeCategories()) {
+            if (pending.flashes(category, _game.isTSL())) {
+                flashStatus(category);
+            }
+        }
+        if (pending.levelUpSound) {
+            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+        }
+        summary.discardPending();
+    } else if (_statusSummary && _statusSummary->presentPending()) {
+        // The summary takes all input, releases included; steering stops.
+        _game.stopMovement();
         auto clip = _services.resource.audioClips.get("gui_quest");
         _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
         if (summary.displayed()->levelUpSound) {
@@ -391,7 +801,7 @@ void HUD::update(float dt) {
                 ? std::clamp(100 * member->currentHitPoints() / maxHitPoints, 0, 100)
                 : 0);
 
-            int forcePoints = member->forcePoints();
+            int forcePoints = member->maxForcePoints();
             forceBars[i]->setVisible(forcePoints > 0);
             forceBars[i]->setValue(forcePoints > 0
                 ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
@@ -408,7 +818,8 @@ void HUD::update(float dt) {
         }
     }
 
-    if (party.getLeader()->isInCombat()) {
+    // With no one under control there is no combat mode to show.
+    if (auto leader = party.getLeader(); leader && leader->clientCombatMode()) {
         toggleCombat(true);
         refreshActionQueueItems();
     } else {
@@ -416,13 +827,17 @@ void HUD::update(float dt) {
     }
 
     updateCombatMessage(dt);
-    _journalIndicator.update(dt);
-    _plotXPIndicator.update(dt);
-    _controls.LBL_JOURNAL->setVisible(_journalIndicator.visible());
-    _controls.LBL_PLOTXP->setVisible(_plotXPIndicator.visible());
+    for (size_t i = 0; i < _statusFlashes.size(); ++i) {
+        auto label = statusFlashLabel(static_cast<StatusSummaryCategory>(i));
+        if (!label) {
+            continue;
+        }
+        _statusFlashes[i].update(dt);
+        label->get().setVisible(_statusFlashes[i].visible());
+    }
 
-    _select.update();
-    _actionBar.update();
+    _select.update(dt);
+    _actionBar.update(dt);
     updateTransitionPresentation();
     _barkBubble->update(dt);
     if (_statusSummary && _statusSummary->isVisible()) {
@@ -520,7 +935,11 @@ std::optional<TransitionPortal> HUD::currentTransitionCandidate() const {
 
 void HUD::render() {
     _gui->render();
+    if (isPausePanelShown() && _pauseLayoutReason) {
+        _pauseGUI->render();
+    }
 
+    renderEffectStacks();
     renderMinimap();
 
 
@@ -655,46 +1074,119 @@ void HUD::toggleCombat(bool enabled) {
 }
 
 void HUD::refreshActionQueueItems() const {
-    auto &actions = _game.party().getLeader()->actions();
-    std::vector<Label *> queueLabels {
-        _controls.LBL_QUEUE0.get(),
-        _controls.LBL_QUEUE1.get(),
-        _controls.LBL_QUEUE2.get(),
-        _controls.LBL_QUEUE3.get()};
+    const auto leader = _game.party().getLeader();
+    const std::array<std::reference_wrapper<Label>, kActionQueueSize> queueLabels {
+        *_controls.LBL_QUEUE0,
+        *_controls.LBL_QUEUE1,
+        *_controls.LBL_QUEUE2,
+        *_controls.LBL_QUEUE3};
+    size_t shown = 0;
+    auto show = [&](const auto &icon) {
+        queueLabels[shown++].get().setBorderFill(icon);
+    };
 
-    for (int i = 0; i < 4; ++i) {
-        Label &item = *queueLabels[i];
-        if (i < static_cast<int>(actions.size())) {
-            switch (actions[i]->type()) {
-            case ActionType::AttackObject:
-                item.setBorderFill(g_attackIcon);
-                break;
-            case ActionType::UseFeat: {
-                auto featAction = std::static_pointer_cast<UseFeatAction>(actions[i]);
-                std::shared_ptr<Feat> feat(_services.game.feats.get(featAction->feat()));
-                if (feat) {
-                    item.setBorderFill(feat->icon);
-                }
-                break;
+    // The icon an order shows: a power or item use its own, a feat its own.
+    auto commandIcon = [this](Action &action) -> std::optional<std::shared_ptr<graphics::Texture>> {
+        if (auto *cast = dyn_cast<CastSpellAction>(&action)) {
+            return castIcon(*cast->spell(), cast->item());
+        }
+        if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
+            std::shared_ptr<Feat> row(_services.game.feats.get(feat->feat()));
+            return row ? row->icon : nullptr;
+        }
+        return std::nullopt;
+    };
+    // Each queued order takes a slot; the round dispatcher shows each entry
+    // it holds, or else the stance or attack its round serves. Entries still
+    // pending with no dispatcher in the queue follow the orders.
+    SmallVector<Combat::PendingEntry, kActionQueueSize> pending;
+    _game.combat().pendingScheduled(*leader, pending);
+    auto showPending = [&]() {
+        for (const auto &entry : pending) {
+            if (shown == queueLabels.size()) {
+                return;
             }
-            case ActionType::CastSpellAtObject: {
-                auto castSpell = cast<CastSpellAtObjectAction>(actions[i]);
-                if (const auto &spellIcon = castSpell->spell()->icon) {
-                    item.setBorderFill(spellIcon);
-                } else if (auto maybeItem = castSpell->item()) {
-                    item.setBorderFill(maybeItem.value()->icon());
-                } else {
-                    item.setBorderFill("");
-                }
-                break;
+            if (auto icon = entry.command ? commandIcon(entry.command->get().combatAction()) : std::nullopt) {
+                show(*icon);
+            } else {
+                show(scheduledEntryIcon(entry.type));
             }
-            default:
-                break;
+        }
+    };
+    bool dispatcherShown = false;
+    for (const auto &queued : leader->actions()) {
+        if (shown == queueLabels.size()) {
+            break;
+        }
+        if (queued->isCompleted() || queued->isCancelled()) {
+            continue;
+        }
+        Action &displayAction = queued->combatAction();
+        switch (displayAction.type()) {
+        case ActionType::AttackObject:
+            show(g_attackIcon);
+            break;
+        case ActionType::CombatDispatch:
+            dispatcherShown = true;
+            if (pending.empty()) {
+                show(leader->isInTotalDefense() ? kDefensiveStanceIcon : g_attackIcon);
+            } else {
+                showPending();
             }
-        } else {
-            item.setBorderFill("");
+            break;
+        default:
+            if (auto icon = commandIcon(displayAction)) {
+                show(*icon);
+            } else {
+                show(std::string());
+            }
+            break;
         }
     }
+    if (!dispatcherShown) {
+        showPending();
+    }
+    while (shown < queueLabels.size()) {
+        show(std::string());
+    }
+}
+
+void HUD::renderEffectStacks() {
+    Party &party = _game.party();
+    const std::array<Label *, 3> portraits {
+        _controls.LBL_BACK1.get(),
+        _controls.LBL_BACK2.get(),
+        _controls.LBL_BACK3.get()};
+    const std::array<Label *, 3> beneficialIcons {
+        _controls.LBL_CMBTEFCTINC1.get(),
+        _controls.LBL_CMBTEFCTINC2.get(),
+        _controls.LBL_CMBTEFCTINC3.get()};
+    const std::array<Label *, 3> harmfulIcons {
+        _controls.LBL_CMBTEFCTRED1.get(),
+        _controls.LBL_CMBTEFCTRED2.get(),
+        _controls.LBL_CMBTEFCTRED3.get()};
+
+    auto &options = _game.options().graphics;
+    glm::ivec2 screenSize {options.width, options.height};
+    const glm::ivec2 &controlOffset = _gui->controlOffset();
+    const float scalar = interfaceScalar(_game.isTSL(), screenSize.x);
+    auto &context = _services.graphics.context;
+
+    _gui->withRenderPass([&](scene::IRenderPass &pass) {
+        for (int memberIndex = 0; memberIndex < 3; ++memberIndex) {
+            auto member = party.getMember(memberIndex);
+            if (!member) {
+                continue;
+            }
+            const bool leader = memberIndex == 0;
+            const auto &portrait = portraits[memberIndex]->extent();
+            auto counts = member->effectStackCounts();
+            renderEffectStack(*beneficialIcons[memberIndex], portrait, counts.positive, leader, true,
+                              scalar, screenSize, controlOffset, pass, context);
+            renderEffectStack(*harmfulIcons[memberIndex], portrait, counts.negative, leader, false,
+                              scalar, screenSize, controlOffset, pass, context);
+        }
+    });
 }
 
 } // namespace game

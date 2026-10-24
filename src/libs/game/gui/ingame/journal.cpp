@@ -86,6 +86,10 @@ void JournalMenu::refresh() {
         if (name.empty()) {
             name = quest.plotId;
         }
+        // TSL resolves the tokens of quest names and entries as it lists them.
+        if (_game.isTSL()) {
+            name = _game.substituteLogTokens(std::move(name));
+        }
         ListBox::Item item;
         item.tag = quest.plotId;
         item.text = std::move(name);
@@ -98,6 +102,9 @@ void JournalMenu::refreshEntryText(const std::string &plotId) {
 
     Journal &journal = _game.journal();
     std::string text(journal.getEntryText(plotId, journal.getEntryState(plotId)));
+    if (_game.isTSL()) {
+        text = _game.substituteLogTokens(std::move(text));
+    }
     if (!text.empty()) {
         _controls.LBL_ITEM_DESCRIPTION->addTextLinesAsItems(text);
     }

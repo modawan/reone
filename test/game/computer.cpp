@@ -170,6 +170,7 @@ TEST_P(ComputerGUITest, static_entry_renders_only_camera_and_isolates_input) {
 TEST_P(ComputerGUITest, animated_camera_takes_precedence_over_static_id) {
     auto dialog = computerDialog();
     dialog->cameraModel = "camera_model";
+    dialog->entries[0].cameraAnimation = 1200;
     computer->start(dialog, nullptr);
     int id = 0;
     EXPECT_EQ(computer->getCamera(id), CameraType::Animated);

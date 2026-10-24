@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "reone/script/types.h"
+
 #include "actionslot.h"
 
 namespace reone {
@@ -33,7 +35,9 @@ class Texture;
 namespace game {
 
 struct ServicesView;
+class Creature;
 class Game;
+class Item;
 
 class ActionBar {
 public:
@@ -48,7 +52,9 @@ public:
                  std::shared_ptr<gui::Button> up,
                  std::shared_ptr<gui::Button> down);
 
-    void update();
+    void update(float dt);
+    /** \p tag names the action button of one of the bar's slots. */
+    bool ownsActionControl(const std::string &tag) const;
     void render(float layoutScale);
 
 private:
@@ -56,6 +62,8 @@ private:
 
     void handleMouseWheel(ActionSlot &slot, int x, int y);
     void handleMouseButtonDown(ActionSlot &slot);
+    /** Select the entry of \p slot that is the leader's current form, implant mode or behaviour. */
+    void showCurrentSelection(ActionSlot &slot, const Creature &leader) const;
 
 private:
     Game &_game;
@@ -76,6 +84,11 @@ private:
         std::shared_ptr<graphics::Texture> downHilightFill;
     };
     std::vector<Slot> _slots;
+    ActionMenuFeedback _feedback;
+    /** The leader the slots were last filled for. */
+    uint32_t _leaderId {script::kObjectInvalid};
+    /** The items the leader can draw on, gathered anew each frame. */
+    std::vector<std::shared_ptr<Item>> _carried;
 };
 
 } // namespace game

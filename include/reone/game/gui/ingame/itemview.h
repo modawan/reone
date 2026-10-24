@@ -43,6 +43,13 @@ enum class InventoryFilter {
     Misc
 };
 
+/** What activating an inventory entry does. */
+enum class InventoryActivation {
+    None,
+    Use,
+    Message
+};
+
 /** Values copied from the selected backing. Handles have meaning only there. */
 struct MenuItemView {
     uint64_t handle {0};
@@ -52,6 +59,12 @@ struct MenuItemView {
     int stackSize {1};
     bool equipped {false};
     bool valid {true};
+    /** Why the equipment screen will not equip the item, or 0. */
+    int refusalStrRef {0};
+    /** In the inventory: use the item, show messageStrRef, or nothing. */
+    InventoryActivation activation {InventoryActivation::None};
+    /** The message activating the entry shows, when it shows one. */
+    int messageStrRef {0};
 };
 
 struct MenuSubjectView {
@@ -65,18 +78,37 @@ struct MenuSubjectView {
 struct InventoryView {
     MenuSubjectView subject;
     std::vector<MenuItemView> items;
+    /** The leader used an item in combat too recently to use another. */
+    bool itemUseCoolingDown {false};
 };
 
 struct EquipmentView {
     uint64_t revision {0};
     MenuSubjectView subject;
+    /** The shown character is a droid, whose slots have their own names. */
+    bool droid {false};
     bool slotAvailable {false};
+    /** Why the slot cannot be opened, or 0. */
+    int slotRefusalStrRef {0};
+    /** The screen pages through the roster rather than the party. */
+    bool canBrowseCharacters {false};
     std::vector<MenuItemView> items;
     std::unordered_map<int, std::shared_ptr<graphics::Texture>> equipment;
     std::string mainDamage;
     std::string offDamage;
     std::string mainAttack;
     std::string offAttack;
+    /** Item and effect modifiers raise the damage range. */
+    bool mainDamageRaised {false};
+    bool offDamageRaised {false};
+    /** The attack exceeds the base attack bonus. */
+    bool mainAttackRaised {false};
+    bool offAttackRaised {false};
+    /** TSL's other weapon set. */
+    std::string mainDamage2;
+    std::string offDamage2;
+    std::string mainAttack2;
+    std::string offAttack2;
 };
 
 enum class EquipmentRequestOutcome { Applied,
@@ -92,17 +124,41 @@ class IInventoryMenuBacking {
 public:
     virtual ~IInventoryMenuBacking() = default;
     virtual InventoryView readInventory(InventoryFilter filter) = 0;
+    /** The interface string of strRef, its tokens resolved. */
+    virtual std::string interfaceText(int strRef) const = 0;
+    /**
+     * The leader uses a listed item at once. Returns the message shown instead
+     * when the use is refused. A backing without usable items refuses nothing.
+     */
+    virtual std::optional<int> useItem(uint64_t handle) { return std::nullopt; }
 };
 
 class IEquipmentMenuBacking {
 public:
     virtual ~IEquipmentMenuBacking() = default;
+    /** The interface string of strRef, its tokens resolved. */
+    virtual std::string interfaceText(int strRef) const = 0;
+    /** The equipment screen opens: it shows the leader, or in a roster-browsing module the player. */
+    virtual void beginEquipment() = 0;
+    /** The equipment screen closes. */
+    virtual void endEquipment() = 0;
+    /** While browsing the roster, show the next character in it. */
+    virtual void nextCharacter() = 0;
+    /** While browsing the roster, show the previous character in it. */
+    virtual void previousCharacter() = 0;
+    /**
+     * Gives control to the party member at the index, or to the next member
+     * standing when negative.
+     */
+    virtual void changeCharacter(int member) = 0;
     // A negative slot requests the normal overview.
     virtual EquipmentView readEquipment(int slot) = 0;
     // Delivery does not imply completion. Read the correlated result separately.
     // Handle zero explicitly requests clearing the selected slot.
     virtual void equip(uint64_t revision, uint64_t handle, int slot) = 0;
     virtual std::optional<EquipmentRequestResult> equipmentResult() const = 0;
+    /** Swaps the shown character's weapon sets at once. */
+    virtual void switchWeapons() = 0;
 };
 
 } // namespace reone::game

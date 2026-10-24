@@ -34,6 +34,7 @@
 #include "reone/system/logutil.h"
 
 #include "action.h"
+#include "areamusicplayer.h"
 #include "combat.h"
 #include "console.h"
 #include "di/services.h"
@@ -46,6 +47,7 @@
 #include "gui/confirmpopup.h"
 #include "gui/container.h"
 #include "gui/conversation.h"
+#include "gui/deathdisplay.h"
 #include "gui/dialog.h"
 #include "gui/galaxymap.h"
 #include "gui/hud.h"
@@ -231,6 +233,7 @@ public:
         _turret(*this, services),
         _journal(services.resource.gffs, services.resource.strings),
         _floatingText(*this, services),
+        _areaMusic(services),
         _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
         initJournalNotifications();
         // TSL keeps combat lines in a list of their own.
@@ -523,6 +526,7 @@ public:
 
     GlobalFade &globalFade() { return _globalFade; }
     const GlobalFade &globalFade() const { return _globalFade; }
+    AreaMusicPlayer &areaMusic() { return _areaMusic; }
 
     void pauseConversation();
     void resumeConversation();
@@ -1648,15 +1652,17 @@ private:
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
     std::unique_ptr<ConfirmPopup> _deathMessage;
+    std::unique_ptr<DeathDisplay> _deathDisplay;
     TemporaryDeathRecovery _temporaryDeathRecovery;
     bool _gameOver {false};
     bool _endGamePending {false};
     uint32_t _lastPartyMemberTempKilled {script::kObjectInvalid};
     /**
      * How fast the world, its presentation and the fade run during the death
-     * sequence. Play slows from full speed to a fifth over the first four
-     * seconds of real time; its time and rate carry over to later deaths for
-     * the program's lifetime.
+     * sequence. The first title slows play from full speed to a fifth over
+     * the first four seconds of real time; its time and rate carry over to
+     * later deaths for the program's lifetime. The second title runs at a quarter
+     * while its gameover panel is up.
      */
     float _deathTimeScale {1.0f};
     uint32_t _deathSequenceSample {0};
@@ -1713,6 +1719,7 @@ private:
 
     std::string _musicResRef;
     std::shared_ptr<audio::AudioSource> _music;
+    AreaMusicPlayer _areaMusic;
 
     // END Audio
 

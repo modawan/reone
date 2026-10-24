@@ -44,7 +44,7 @@ public:
     void init();
 
     bool handle(const input::Event &event);
-    void update();
+    void update(float dt);
     void render();
 
 private:
@@ -79,6 +79,7 @@ private:
     bool _hilightedHostile {false};
     bool _selectedHostile {false};
     bool _hasActions {false};
+    ActionMenuFeedback _feedback;
 
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);

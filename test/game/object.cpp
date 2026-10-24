@@ -1701,17 +1701,17 @@ TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
         {1000, "cut001", false},
         {1011, "cut012", false},
         {1013, "cut014", false},
-        {1199, "cut200", false},
+        // Bands are 128 wide: an ordinal in a played range that names no clip
+        // decodes with an empty name (the pause).
+        {1199, "", false},
         {1200, "cut001w", false},
         {1201, "cut002w", false},
-        {1399, "cut200w", false},
         {1400, "cut001l", true},
         {1409, "cut010l", true},
         {1412, "cut013l", true},
-        {1599, "cut200l", true},
+        {1599, "", true},
         {1600, "cut001wl", true},
-        {1601, "cut002wl", true},
-        {1799, "cut200wl", true}};
+        {1601, "cut002wl", true}};
 
     for (auto &expected : expectations) {
         auto cut = MixedStuntTestAccess::decodeCut(expected.ordinal);
@@ -1722,7 +1722,7 @@ TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
 
     // Ordinals outside the known cut bands keep their own meaning and must not
     // be reinterpreted as clip names.
-    for (int ordinal : {0, 35, 40, 70, 999, 1800, 2000, 9999, 10000, 10038, 10511}) {
+    for (int ordinal : {0, 35, 40, 70, 999, 1399, 1799, 1800, 2000, 9999, 10000, 10038, 10511}) {
         EXPECT_FALSE(MixedStuntTestAccess::decodeCut(ordinal).has_value()) << "ordinal " << ordinal;
     }
 }
@@ -2087,8 +2087,10 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
 
     EXPECT_CALL(engine.resourceModule().models(), get("owner_stunt"))
         .WillOnce(Return(stuntModel));
+    // Read once for the head-look rule and once to resolve the ordinal.
     EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
-        .WillOnce(Return(makeDialogAnimationsTable()));
+        .Times(2)
+        .WillRepeatedly(Return(makeDialogAnimationsTable()));
 
     auto dialog = std::make_shared<Dialog>();
     dialog->animatedCutscene = false;

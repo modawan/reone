@@ -2602,10 +2602,12 @@ void Area::setUnescapable(bool value) {
     _unescapable = value;
 }
 
-// The area owns its music and ambient sound settings.
+// The area owns its music and ambient sound settings. The player is told of
+// each change and follows it while it plays this area.
 
 void Area::playMusic(bool play) {
     _ambientAudio.musicPlaying = play;
+    _game.areaMusic().playMusic(*this, play);
 }
 
 // Any delay is kept and saved, zero or less included.
@@ -2613,8 +2615,11 @@ void Area::setMusicDelay(int delay) {
     _ambientAudio.musicDelay = delay;
 }
 
+// Setting the day track restarts it even when it is unchanged.
 void Area::setMusicDayTrack(int track) {
+    const int previous = _ambientAudio.musicDay;
     _ambientAudio.musicDay = track;
+    _game.areaMusic().musicDayTrackChanged(*this, previous);
 }
 
 void Area::setMusicNightTrack(int track) {
@@ -2623,6 +2628,7 @@ void Area::setMusicNightTrack(int track) {
         return;
     }
     _ambientAudio.musicNight = track;
+    _game.areaMusic().musicNightTrackChanged(*this, previous);
 }
 
 void Area::playBattleMusic(bool play) {
@@ -2630,6 +2636,7 @@ void Area::playBattleMusic(bool play) {
         return;
     }
     _ambientAudio.battleMusicPlaying = play;
+    _game.areaMusic().playBattleMusic(*this, play);
 }
 
 void Area::setBattleMusicTrack(int track) {
@@ -2638,10 +2645,12 @@ void Area::setBattleMusicTrack(int track) {
         return;
     }
     _ambientAudio.musicBattle = track;
+    _game.areaMusic().battleMusicTrackChanged(*this, previous);
 }
 
 void Area::playAmbientSound(bool play) {
     _ambientAudio.ambientSoundPlaying = play;
+    _game.areaMusic().playAmbientSound(*this, play);
 }
 
 void Area::setAmbientSoundDayTrack(int track) {
@@ -2649,6 +2658,7 @@ void Area::setAmbientSoundDayTrack(int track) {
         return;
     }
     _ambientAudio.ambientSoundDay = track;
+    _game.areaMusic().ambientDayTrackChanged(*this);
 }
 
 void Area::setAmbientSoundNightTrack(int track) {
@@ -2656,6 +2666,7 @@ void Area::setAmbientSoundNightTrack(int track) {
         return;
     }
     _ambientAudio.ambientSoundNight = track;
+    _game.areaMusic().ambientNightTrackChanged(*this);
 }
 
 // Volumes outside 0..100 are ignored.
@@ -2669,6 +2680,7 @@ void Area::setAmbientSoundDayVolume(int volume) {
         return;
     }
     _ambientAudio.ambientSoundDayVolume = volume;
+    _game.areaMusic().ambientDayVolumeChanged(*this);
 }
 
 void Area::setAmbientSoundNightVolume(int volume) {

@@ -46,7 +46,20 @@ public:
 
     void update(float dt) override;
 
-    void playAnimation(int animNumber);
+    /**
+     * Plays the clip a conversation camera ordinal names: once for 1000-1327,
+     * looping for 1400-1727. An ordinal that names no clip leaves the camera
+     * on its current clip.
+     */
+    void playAnimation(int ordinal);
+
+    /**
+     * The camera clip a conversation camera ordinal names, or empty when it
+     * names none. Ordinals 1000-1127, 1200-1327, 1400-1527 and 1600-1727 name
+     * cutNNN, cutNNNw, cutNNNl and cutNNNwl, NNN counting from 001 within the
+     * band, except that the 29th ordinal of every band names clip 039.
+     */
+    static std::string getShotClipName(int ordinal);
 
     bool isAnimationFinished() const;
 

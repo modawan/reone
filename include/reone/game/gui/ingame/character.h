@@ -30,6 +30,7 @@ namespace reone {
 
 namespace game {
 
+class Creature;
 class InGameMenu;
 
 class CharacterMenu : public GameGUI {
@@ -43,7 +44,10 @@ public:
         _resRef = guiResRef("character");
     }
 
+    bool handle(const input::Event &event) override;
     void update(float dt) override;
+    void render() override;
+    void clearSelection() override;
 
     void refreshControls();
 
@@ -131,6 +135,25 @@ private:
         std::shared_ptr<gui::Slider> SLD_ALIGN;
     };
 
+    /**
+     * KotOR's AI script panel, opened over the screen from BTN_SCRIPTS. Its
+     * rows are the aiscripts table, one per AI style the leader may take.
+     */
+    struct ScriptSelectControls {
+        std::shared_ptr<gui::Button> BTN_Accept;
+        std::shared_ptr<gui::Button> BTN_Back;
+        std::shared_ptr<gui::Label> LBL_TITLE;
+        std::shared_ptr<gui::ListBox> LB_DESC;
+        std::shared_ptr<gui::ListBox> LST_AIState;
+    };
+
+    /** A row of the AI script panel: an AI style, its name and its description. */
+    struct ScriptRow {
+        NPCAIStyle style {NPCAIStyle::DefaultAttack};
+        int nameStrRef {-1};
+        int descriptionStrRef {-1};
+    };
+
     Controls _controls;
 
     std::vector<std::shared_ptr<gui::Button>> _lblGood;
@@ -138,7 +161,25 @@ private:
 
     InGameMenu &_inGameMenu;
 
+    std::shared_ptr<gui::IGUI> _scriptSelectGUI;
+    ScriptSelectControls _scriptSelectControls;
+    std::vector<ScriptRow> _scriptRows;
+    /** The creature whose AI style the open panel sets. */
+    uint32_t _scriptSubject {0};
+    bool _scriptSelectOpen {false};
+    /** The row whose description the panel shows, or -1 before any. */
+    int _scriptDescribedRow {-1};
+
     void onGUILoaded() override;
+
+    /** Load the AI script panel, one row per aiscripts row, and wire its buttons. */
+    void loadScriptSelectPanel();
+    /** Open the AI script panel for the leader, its current style marked and focused. */
+    void openScriptSelectPanel();
+    void closeScriptSelectPanel();
+    /** The row's style becomes the panel's creature's AI style, and the panel closes. */
+    void selectScript(int row);
+    void showScriptDescription(int row);
 
     void bindControls() {
         _controls.BTN_3DCHAR = findControl<gui::Button>("BTN_3DCHAR");
@@ -222,6 +263,8 @@ private:
 
     void refreshPortraits();
     void refresh3D();
+    /** Show, in TSL, the line describing the leader's Pure Good or Pure Evil Force mastery. */
+    void refreshForceMastery(const Creature &leader);
 
     std::shared_ptr<scene::ModelSceneNode> getSceneModel(scene::ISceneGraph &sceneGraph) const;
     std::string describeClass(ClassType clazz) const;

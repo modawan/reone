@@ -373,7 +373,8 @@ public:
 
     // Music and ambient sound
     //
-    // The area owns these settings.
+    // The area owns these settings and tells the area music player of each
+    // change; the player follows them while it plays this area.
 
     const AmbientAudio &ambientAudio() const { return _ambientAudio; }
     void playMusic(bool play);
