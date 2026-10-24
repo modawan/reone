@@ -26,6 +26,7 @@
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/placeable.h"
@@ -37,7 +38,10 @@
 #include "reone/resource/provider/lips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/resources.h"
+#include "reone/resource/resref.h"
+#include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
+#include "reone/system/randomutil.h"
 
 using namespace reone::audio;
 
@@ -67,6 +71,10 @@ static constexpr int kSecurityCameraVideoEffect = 0;
 // the first entry and the first list of replies without one.
 static constexpr std::array<int, 19> kCameraAngleCycle {1, 3, 1, 3, 2, 2, 1, 3, 1, 2, 1, 2, 1, 3, 2, 3, 1, 1, 1};
 static constexpr int kFirstShotCameraAngle = 2;
+// The variation numbers the entries whose sound takes one draw in turn, and
+// the highest number a barked one-liner's sound takes at random.
+static constexpr std::array<int, 19> kSoundVariationCycle {1, 1, 2, 3, 1, 2, 1, 2, 2, 3, 3, 3, 1, 3, 2, 1, 3, 2, 2};
+static constexpr int kBarkSoundVariations = 3;
 
 static bool g_allEntriesSkippable = false;
 
@@ -390,6 +398,13 @@ void Conversation::cleanupForModuleTransition() {
     }
 }
 
+// The sound a variation number is added to: the node's sound, or else its
+// voice-over.
+static std::string getVariedSound(const Dialog::EntryReply &node, int variation) {
+    const std::string &sound = node.sound.empty() ? node.voResRef : node.sound;
+    return ResRef(sound + std::to_string(variation)).value();
+}
+
 void Conversation::loadEntry(int index, bool start) {
     auto generation = _generation;
     auto dialog = _dialog; // retain nodes across callbacks, including conditions
@@ -397,6 +412,9 @@ void Conversation::loadEntry(int index, bool start) {
     _currentEntry = &_dialog->getEntry(index);
     // An entry keeps the camera angle it is given while the conversation lasts.
     const int drawnAngle = drawCameraAngle();
+    // Each entry shown draws a sound variation number; only TSL marks a sound
+    // to take one.
+    const int drawnSoundVariation = _soundVariationCycle.draw(kSoundVariationCycle);
     int &angle = _entryCameraAngles.try_emplace(index, _currentEntry->cameraAngle).first->second;
     if (angle == 0) {
         angle = _firstEntryShot ? kFirstShotCameraAngle : drawnAngle;
@@ -440,7 +458,15 @@ void Conversation::loadEntry(int index, bool start) {
         // update timer from ending it again.
         _endReached = true;
         // The bark keeps its voice: the conversation ending does not stop it.
-        loadVoiceOver();
+        // A sound that takes a variation number takes one at random. A line
+        // with neither a sound nor a voice-over plays its talk table sound.
+        std::string barkSound = _currentEntry->soundTakesVariation
+                                    ? getVariedSound(*_currentEntry, randomInt(1, kBarkSoundVariations))
+                                    : _currentEntry->sound;
+        if (barkSound.empty() && _currentEntry->voResRef.empty()) {
+            barkSound = _services.resource.strings.getSound(_currentEntry->textStrRef);
+        }
+        loadVoiceOver(barkSound);
         _currentVoice.reset();
         _game.globalFade().revealDialog(_fadeDialog);
         _entryEnded = true;
@@ -478,7 +504,13 @@ void Conversation::loadEntry(int index, bool start) {
     // journal entry and plot experience follow.
     setMessage(entryText);
     logEntryLine(entryText);
-    loadVoiceOver();
+    // An entry whose sound takes a variation number keeps the number drawn
+    // the first time it shows while the conversation lasts.
+    std::string sound = _currentEntry->sound;
+    if (_currentEntry->soundTakesVariation && !_currentEntry->soundVariationAdded) {
+        sound = _entrySounds.try_emplace(index, getVariedSound(*_currentEntry, drawnSoundVariation)).first->second;
+    }
+    loadVoiceOver(sound);
     scheduleEndOfEntry();
     if (isAnimatedCameraShot()) {
         _animatedView = true;
@@ -511,8 +543,8 @@ void Conversation::loadEntry(int index, bool start) {
 
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
-            if (skip.value() && !_paused) {
-                skipCurrentEntry();
+            if (skip.value()) {
+                requestSkip();
             }
         }
     }
@@ -582,10 +614,10 @@ void Conversation::takeCameraShot(const Dialog::EntryReply &shot, int angle) {
 
 // Each character of the dialog's name weighs itself plus itself times ten to
 // the power of its place, in 32-bit arithmetic; a power beyond 32 bits weighs
-// as the least 32-bit integer. The sum gives the place, step and direction.
+// as the least 32-bit integer. The sum starts the cycles of camera angles and
+// sound variation numbers alike.
 void Conversation::seedCameraAngles() {
     static constexpr double kFirstOutOfRangePower = 2147483648.0;
-    static constexpr uint32_t kStepCount = 5;
     uint32_t seed = 0;
     const std::string &name = _dialog->resRef;
     for (size_t place = 0; place < name.size(); ++place) {
@@ -594,28 +626,40 @@ void Conversation::seedCameraAngles() {
         const int32_t scale = power < kFirstOutOfRangePower ? static_cast<int32_t>(power) : std::numeric_limits<int32_t>::min();
         seed += weight + weight * static_cast<uint32_t>(scale);
     }
-    _angleCyclePlace = static_cast<int>(seed % kCameraAngleCycle.size());
-    _angleCycleStep = static_cast<int>(seed % kStepCount) + 1;
-    _angleCycleForward = (seed & 1) != 0;
+    _angleCycle.seed(seed);
+    _soundVariationCycle.seed(seed);
     _firstEntryShot = true;
     _firstReplyShot = true;
     _entryCameraAngles.clear();
     _replyCameraAngles.clear();
+    _entrySounds.clear();
+}
+
+int Conversation::drawCameraAngle() {
+    return _angleCycle.draw(kCameraAngleCycle);
+}
+
+// The seed gives the place, a step of 1 to 5 and the direction.
+void Conversation::DrawCycle::seed(uint32_t seed) {
+    static constexpr uint32_t kStepCount = 5;
+    place = static_cast<int>(seed % kLength);
+    step = static_cast<int>(seed % kStepCount) + 1;
+    forward = (seed & 1) != 0;
 }
 
 // A step past either end of the cycle stops at the other end.
-int Conversation::drawCameraAngle() {
-    const int last = static_cast<int>(kCameraAngleCycle.size()) - 1;
-    const int angle = kCameraAngleCycle[_angleCyclePlace];
-    int next = _angleCyclePlace + (_angleCycleForward ? _angleCycleStep : -_angleCycleStep);
+int Conversation::DrawCycle::draw(const Values &values) {
+    const int last = kLength - 1;
+    const int value = values[place];
+    int next = place + (forward ? step : -step);
     if (next > last) {
         next = 0;
     }
     if (next < 0) {
         next = last;
     }
-    _angleCyclePlace = next;
-    return angle;
+    place = next;
+    return value;
 }
 
 bool Conversation::isAnimatedCameraShot() const {
@@ -636,18 +680,18 @@ std::optional<std::reference_wrapper<const Dialog::EntryReply>> Conversation::fi
 
 // An entry with a sound stops the voice before it; one without leaves it
 // playing.
-void Conversation::loadVoiceOver() {
+void Conversation::loadVoiceOver(const std::string &sound) {
     _lipAnimation.reset();
-    if (_currentEntry->sound.empty() && _currentEntry->voResRef.empty()) {
+    if (sound.empty() && _currentEntry->voResRef.empty()) {
         return;
     }
     stopVoice();
 
     // Play current voice over either from Sound or from VO_ResRef
     std::string voiceResRef;
-    if (!_currentEntry->sound.empty()) {
-        voiceResRef = _currentEntry->sound;
-        _lipAnimation = _services.resource.lips.get(_currentEntry->sound);
+    if (!sound.empty()) {
+        voiceResRef = sound;
+        _lipAnimation = _services.resource.lips.get(sound);
     }
     if (!_currentEntry->voResRef.empty()) {
         if (voiceResRef.empty()) {
@@ -941,6 +985,7 @@ void Conversation::pickReply(int index) {
     applyStatusSummaryEntries(reply);
     const bool taken = _autoPickFirstReply;
     if (taken) {
+        setMessage(getParsedReplyText(reply, _game));
         startEntryFade(reply);
         onReplyTaken(reply);
         scheduleTakenReply(reply);
@@ -973,31 +1018,139 @@ void Conversation::pickReply(int index) {
 }
 
 bool Conversation::handle(const input::Event &event) {
+    if (handleConversationInput(event)) {
+        return true;
+    }
+    return GameGUI::handle(event);
+}
+
+bool Conversation::handleConversationInput(const input::Event &event) {
     switch (event.type) {
     case input::EventType::MouseButtonDown:
-        if (handleMouseButtonDown(event.button))
-            return true;
-        break;
-    case input::EventType::KeyUp:
-        if (handleKeyUp(event.key))
-            return true;
-        break;
+        return handleMouseButtonDown(event.button);
+    case input::EventType::KeyDown:
+        return handleKeyDown(event.key);
+    default:
+        return false;
+    }
+}
+
+// The press is used up, so that its release cannot choose a reply listed
+// meanwhile.
+bool Conversation::handleMouseButtonDown(const input::MouseButtonEvent &event) {
+    if (event.button == input::MouseButton::Left && acceptsSkip()) {
+        requestSkip();
+        return true;
+    }
+    return false;
+}
+
+// The keys act once per press. A number key chooses the reply of its number,
+// with the click sound, when there is one.
+bool Conversation::handleKeyDown(const input::KeyEvent &event) {
+    if (event.repeat) {
+        return false;
+    }
+    switch (event.code) {
+    case input::KeyCode::Return:
+    case input::KeyCode::KeypadEnter:
+        if (acceptsSkip()) {
+            requestSkip();
+        } else {
+            pickSelectedReply();
+        }
+        return true;
+    case input::KeyCode::Up:
+    case input::KeyCode::Down:
+        if (!_entryEnded) {
+            return false;
+        }
+        moveReplySelection(event.code == input::KeyCode::Down ? 1 : -1);
+        return true;
     default:
         break;
     }
 
-    return GameGUI::handle(event);
+    using IntKeyCode = std::underlying_type_t<input::KeyCode>;
+    const auto code = static_cast<IntKeyCode>(event.code);
+    const auto key1 = static_cast<IntKeyCode>(input::KeyCode::Key1);
+    const auto key9 = static_cast<IntKeyCode>(input::KeyCode::Key9);
+    if (!_entryEnded || code < key1 || code > key9) {
+        return false;
+    }
+    const auto index = static_cast<size_t>(code - key1);
+    if (index < _replies.size()) {
+        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        pickReply(static_cast<int>(index));
+    }
+    return true;
 }
 
-bool Conversation::handleMouseButtonDown(const input::MouseButtonEvent &event) {
-    // Skipping an entry ends its delay and stops its voice.
-    if (event.button == input::MouseButton::Left && !_entryEnded && isSkippableEntry()) {
-        _endEntryTimer.reset(0);
-        _entrySkipped = true;
-        stopVoice();
-        return true;
+std::shared_ptr<ListBox> Conversation::replyList() const {
+    return nullptr;
+}
+
+// The selected row's reply is chosen with the click sound.
+void Conversation::pickSelectedReply() {
+    const auto list = replyList();
+    if (!list || list->selectedItemIndex() == -1) {
+        return;
     }
-    return false;
+    _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+    pickReply(std::stoi(list->getItemAt(list->selectedItemIndex()).tag));
+}
+
+// The selection stops at either end of the list, which scrolls to show it,
+// and the newly selected row sounds. With no row selected, either arrow
+// selects the first row, and only the down arrow sounds.
+void Conversation::moveReplySelection(int step) {
+    const auto list = replyList();
+    if (!list || list->getItemCount() == 0) {
+        return;
+    }
+    const int row = list->selectedItemIndex();
+    int next = 0;
+    bool sounds = step > 0;
+    if (row != -1) {
+        next = row + step;
+        if (next < 0 || next >= list->getItemCount()) {
+            return;
+        }
+        sounds = true;
+    }
+    list->setSelectedItemIndex(next);
+    list->scrollToItem(next);
+    if (sounds) {
+        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
+    }
+}
+
+void Conversation::requestSkip() {
+    if (!acceptsSkip()) {
+        return;
+    }
+    _entrySkipped = true;
+}
+
+// While a reply taken without a choice holds the next entry back, the panel
+// shows the reply's own empty text as its message, as for an entry.
+bool Conversation::acceptsSkip() const {
+    return !_entryEnded || (_autoPickFirstReply && _pendingEntry);
+}
+
+// The row under a resting pointer is selected, with the sound of a newly
+// selected row.
+void Conversation::selectReplyUnderPointer() {
+    const auto list = replyList();
+    if (!list) {
+        return;
+    }
+    const int selected = list->selectedItemIndex();
+    const glm::ivec2 pointer = _game.pointerPosition();
+    _gui->handle(input::Event::newMouseMotion({pointer.x, pointer.y, 0.0f, 0.0f}));
+    if (list->selectedItemIndex() != selected) {
+        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
+    }
 }
 
 // A skip takes effect only in a skippable conversation and, in TSL, on an
@@ -1007,7 +1160,7 @@ bool Conversation::isSkippableEntry() const {
         return true;
     }
     const bool nodeUnskippable = _game.isTSL() && _currentEntry && _currentEntry->nodeUnskippable;
-    return _dialog->isSkippable() && !nodeUnskippable && !_paused;
+    return _dialog->isSkippable() && !nodeUnskippable;
 }
 
 // An entry shown in the conversation goes to the dialog list under its
@@ -1035,6 +1188,7 @@ void Conversation::endCurrentEntry() {
     }
     auto generation = _generation;
     _entryEnded = true;
+    _entrySkipped = false;
     // An entry ends once its time is up.
     _endEntryTimer.reset(0);
 
@@ -1050,6 +1204,7 @@ void Conversation::endCurrentEntry() {
     if (!isCurrent(generation)) {
         return;
     }
+    selectReplyUnderPointer();
 
     if (_autoPickFirstReply) {
         pickReply(0);
@@ -1063,41 +1218,10 @@ void Conversation::endCurrentEntry() {
     }
 }
 
-void Conversation::skipCurrentEntry() {
-    if (!_currentEntry || _entryEnded || _paused || !isSkippableEntry()) {
-        return;
-    }
-    stopVoice();
-    endCurrentEntry();
-}
-
 void Conversation::onEntryEnded() {
 }
 
 void Conversation::onReplyPicked(const Dialog::EntryReply &) {
-}
-
-bool Conversation::handleKeyUp(const input::KeyEvent &event) {
-    if (!_entryEnded || _pendingEntry) {
-        return false;
-    }
-
-    using IntKeyCode = std::underlying_type_t<input::KeyCode>;
-    auto code = static_cast<IntKeyCode>(event.code);
-    auto key1 = static_cast<IntKeyCode>(input::KeyCode::Key1);
-    auto key9 = static_cast<IntKeyCode>(input::KeyCode::Key9);
-
-    if (code < key1 || code > key9) {
-        return false;
-    }
-
-    size_t index = code - key1;
-    if (index < _replies.size()) {
-        pickReply(index);
-    } else {
-        debug("Invalid reply index: " + std::to_string(index), LogChannel::Conversation);
-    }
-    return true;
 }
 
 void Conversation::update(float dt) {
@@ -1108,15 +1232,31 @@ void Conversation::update(float dt) {
     GameGUI::update(dt);
     if (!_entryEnded) {
         _endEntryTimer.update(dt);
-        if (!_paused && _endEntryTimer.elapsed() && (_entrySkipped || !isWaiting())) {
-            endCurrentEntry();
+        // A pause holds the entry, and a skip asked for meanwhile, until the
+        // conversation resumes. A skip stops the voice and ends the entry,
+        // whatever it waits for.
+        if (!_paused) {
+            if (_entrySkipped && isSkippableEntry()) {
+                stopVoice();
+                endCurrentEntry();
+            } else if (_endEntryTimer.elapsed() && !isWaiting()) {
+                endCurrentEntry();
+            }
         }
     } else if (_pendingEntry) {
         _endEntryTimer.update(dt);
-        if (!_paused && _endEntryTimer.elapsed() && !isWaiting()) {
-            const int index = *_pendingEntry;
-            _pendingEntry.reset();
-            loadEntry(index);
+        // A skip ends the hold of a reply taken without a choice in the same
+        // way.
+        if (!_paused) {
+            const bool skipped = _entrySkipped && isSkippableEntry();
+            if (skipped || (_endEntryTimer.elapsed() && !isWaiting())) {
+                if (skipped) {
+                    stopVoice();
+                }
+                const int index = *_pendingEntry;
+                _pendingEntry.reset();
+                loadEntry(index);
+            }
         }
     }
 }

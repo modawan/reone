@@ -210,6 +210,7 @@ private:
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;
+    std::shared_ptr<gui::ListBox> replyList() const override;
 
     void onStart() override;
     void onFinish() override;

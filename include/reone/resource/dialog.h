@@ -72,6 +72,8 @@ struct Dialog {
 
         std::string speaker;
         std::string text;
+        /** The talk table string of the node's text, or -1 for none. */
+        int textStrRef {-1};
         std::string voResRef;
         std::string script;
         std::string script2;
@@ -88,6 +90,21 @@ struct Dialog {
         int waitFlags {0};
         /** The node's sound is a recorded voice, which times the node by the dialog's entry delay. */
         bool soundExists {false};
+        /**
+         * TSL: the node's sound, or else its voice-over, takes a variation
+         * number added to its name, as alien speech does.
+         */
+        bool soundTakesVariation {false};
+        /**
+         * TSL: the node is authored as having its variation number already:
+         * a shown entry adds none, though a barked one-liner still does.
+         */
+        bool soundVariationAdded {false};
+        /**
+         * The node is spoken by its voice-over alone: with subtitles off, the
+         * cinematic panel does not show its text.
+         */
+        bool voiceOverOnly {false};
         /** TSL: the entry cannot be skipped, even in a skippable conversation. */
         bool nodeUnskippable {false};
         /** How the entry fades the screen: 0 not at all; 1 and 4 towards the colour, others away from it. */

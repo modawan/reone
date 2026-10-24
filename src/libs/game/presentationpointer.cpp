@@ -27,6 +27,7 @@ void PresentationPointer::setType(resource::CursorType type) {
 }
 
 void PresentationPointer::setPosition(glm::ivec2 position) {
+    _position = position;
     if (_cursor)
         _cursor->setPosition(position);
 }

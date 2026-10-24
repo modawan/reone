@@ -51,9 +51,11 @@ void ComputerGUI::init() {
     _cameraGUI.init();
 }
 
+// A camera shot takes the conversation's own input, its skip, as the panel
+// does; the camera overlay sees the input first.
 bool ComputerGUI::handle(const input::Event &event) {
     if (_presentation == Presentation::Camera) {
-        return _cameraGUI.handle(event);
+        return _cameraGUI.handle(event) || handleConversationInput(event);
     }
     return Conversation::handle(event);
 }
@@ -94,13 +96,6 @@ void ComputerGUI::onLoadEntry() {
 
 void ComputerGUI::onEntryEnded() {
     setPresentation(Presentation::Normal);
-}
-
-void ComputerGUI::returnFromCamera() {
-    // Returning from a camera shot skips the entry.
-    if (_presentation == Presentation::Camera) {
-        skipCurrentEntry();
-    }
 }
 
 void ComputerGUI::setPresentation(Presentation presentation) {
@@ -149,6 +144,8 @@ void ComputerGUI::configureMessage() {
 
 void ComputerGUI::configureReplies() {
     _controls.LB_REPLIES->setProtoMatchContent(true);
+    // The selected reply stays selected when the pointer moves off it.
+    _controls.LB_REPLIES->setKeepsSelection(true);
     _controls.LB_REPLIES->protoItem().setHilightColor(_hilightColor);
     _controls.LB_REPLIES->protoItem().setTextColor(_baseColor);
     _controls.LB_REPLIES->setOnItemClick([this](auto &item) {
@@ -234,9 +231,15 @@ void ComputerGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
+    // The first reply is selected as the replies are listed.
+    _controls.LB_REPLIES->setSelectedItemIndex(0);
     // The numbers are written when an entry's message is set and again when
     // its replies are listed, as the entry ends.
     refreshSkills();
+}
+
+std::shared_ptr<ListBox> ComputerGUI::replyList() const {
+    return _controls.LB_REPLIES;
 }
 
 } // namespace game

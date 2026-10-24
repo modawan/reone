@@ -204,6 +204,8 @@ void DialogGUI::configureReplies() {
             safeArea.height});
     }
     _controls.LB_REPLIES->setProtoMatchContent(true);
+    // The selected reply stays selected when the pointer moves off it.
+    _controls.LB_REPLIES->setKeepsSelection(true);
     _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
     _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
     _controls.LB_REPLIES->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
@@ -1071,8 +1073,11 @@ bool DialogGUI::isDialogAnimationPlaying() const {
     return false;
 }
 
+// With subtitles off, the text shows only when no voice-over speaks the entry
+// alone, and never in an animated cutscene.
 void DialogGUI::setMessage(std::string message) {
-    _controls.LBL_MESSAGE->setTextMessage(message);
+    const bool shown = _game.feedbackOptions().subtitles || (!_dialog->isAnimatedCutscene() && !_currentEntry->voiceOverOnly);
+    _controls.LBL_MESSAGE->setTextMessage(shown ? message : "");
 }
 
 void DialogGUI::setReplyLines(std::vector<std::string> lines) {
@@ -1087,6 +1092,8 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
+    // The first reply is selected as the replies are listed.
+    _controls.LB_REPLIES->setSelectedItemIndex(0);
     // Replies start at the top-left of the centred 4:3 safe area within the
     // bottom band, indented past the scroll-bar column by their authored
     // offset so an overflowing list shows its bar beside the prose, not
@@ -1112,6 +1119,10 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
     extent.width = safeArea.width - indent;
     extent.top = band.top;
     _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
+}
+
+std::shared_ptr<ListBox> DialogGUI::replyList() const {
+    return _controls.LB_REPLIES;
 }
 
 // The letterbox is drawn with the conversation, so its fade runs with it.

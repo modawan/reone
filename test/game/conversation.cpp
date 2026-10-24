@@ -455,6 +455,7 @@ TEST_F(ConversationTest, unpaused_automatic_skip_retains_immediate_progression) 
     dialog->skippable = true;
 
     _conversation->start(dialog, nullptr);
+    _conversation->update(0.0f);
 
     EXPECT_EQ("second", _conversation->currentText());
     EXPECT_EQ(2, _conversation->entryLoadCount());

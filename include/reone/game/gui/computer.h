@@ -32,7 +32,7 @@ class ComputerGUI : public Conversation {
 public:
     ComputerGUI(Game &game, ServicesView &services) :
         Conversation(game, services),
-        _cameraGUI(game, services, [this]() { returnFromCamera(); }) {
+        _cameraGUI(game, services) {
         _resRef = guiResRef("computer");
     }
 
@@ -64,7 +64,6 @@ private:
     /** KotOR: the computer type the panel was last framed for, which numbers the backdrop. */
     int _computerType {0};
 
-    void returnFromCamera();
     /** Switches between the panel and a camera shot; the terminal hum starts when the panel shows. */
     void setPresentation(Presentation presentation);
     /** Starts the terminal hum from its beginning. */
@@ -150,6 +149,7 @@ private:
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;
+    std::shared_ptr<gui::ListBox> replyList() const override;
 };
 
 } // namespace game

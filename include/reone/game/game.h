@@ -631,6 +631,11 @@ public:
         return _pointer->type();
     }
 
+    /** Where the pointer last moved to, in screen coordinates. */
+    glm::ivec2 pointerPosition() const {
+        return _pointer->position();
+    }
+
     bool relativeMouseMode() const;
 
     // Module loading
