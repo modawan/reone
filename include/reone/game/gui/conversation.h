@@ -116,6 +116,8 @@ protected:
 
     // Complete the active entry's presentation using the same path as expiry.
     void endCurrentEntry();
+    /** Skips the current entry, when it can be skipped: its voice stops and it ends now. */
+    void skipCurrentEntry();
 
     /** One line per reply, in reply order; an empty line stands for a reply that is not listed. */
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
@@ -129,14 +131,46 @@ protected:
     virtual void onEntryEnded();
     /** The player chose \p reply from the listed replies; called before the reply's scripts run. */
     virtual void onReplyPicked(const resource::Dialog::EntryReply &reply);
+    /** A reply was taken without a choice, as the entry ended; called before the reply's scripts run. */
+    virtual void onReplyTaken(const resource::Dialog::EntryReply &reply);
+    /** Whether a participant of the list waited for still shows a dialog animation. */
+    virtual bool isDialogAnimationPlaying() const;
+
+    /**
+     * The dialogue letterbox's fade: a colour over the whole screen, which an
+     * entry sets and the arrival of its replies clears. It runs only while
+     * the letterbox is drawn.
+     */
+    struct EntryFade {
+        glm::vec3 color {0.0f};
+        float alpha {0.0f};
+        float delay {0.0f};
+        float length {0.0f};
+        /** Seconds since the fade was set, counted from a tenth of a second; 0 without a fade. */
+        float clock {0.0f};
+        /** The fade goes from the colour to clear, rather than from clear to the colour. */
+        bool fromColor {false};
+    };
+
+    const EntryFade &entryFade() const { return _entryFade; }
+    /** Runs the letterbox fade on by \p dt seconds, as the letterbox is drawn. */
+    void advanceEntryFade(float dt);
+    /** Clears the letterbox fade. */
+    void resetEntryFade();
 
 private:
     std::shared_ptr<audio::AudioSource> _currentVoice;
     Timer _endEntryTimer;
-    float _entryDuration {0.0f};
+    /** What the current entry, or the reply taken without a choice, waits for past its delay. */
+    int _waitFlags {0};
+    /** The entry that follows a reply taken without a choice, once the reply's delay and waits are over. */
+    std::optional<int> _pendingEntry;
+    /** The current entry was skipped: it ends without waiting. */
+    bool _entrySkipped {false};
+    EntryFade _entryFade;
     std::vector<const resource::Dialog::EntryReply *> _replies;
     bool _autoPickFirstReply {false};
-    /** Whether the conversation has shown the entry it ends on. */
+    /** Whether the conversation has listed the replies of the entry it ends on. */
     bool _endReached {false};
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
@@ -182,15 +216,25 @@ private:
 
     bool isCurrent(uint64_t generation) const;
 
-    void loadConversationBackground();
     void loadCameraModel();
     void loadStartEntry();
     void loadVoiceOver();
     void scheduleEndOfEntry();
+    /** Holds the next entry back after \p reply, taken without a choice. */
+    void scheduleTakenReply(const resource::Dialog::EntryReply &reply);
+    /** Whether something the current entry or the taken reply waits for still goes on. */
+    bool isWaiting() const;
+    /** Stops the conversation's voice. */
+    void stopVoice();
+    /** Sets the letterbox fade of \p entry, if it has one. */
+    void startEntryFade(const resource::Dialog::EntryReply &entry);
+    /** Whether the letterbox fade is over, or none is set. */
+    bool isEntryFadeDone() const;
+    /** Whether the conversation's animated camera still plays its clip. */
+    bool isCameraAnimationPlaying() const;
     void loadReplies();
 
     bool isSkippableEntry() const;
-    bool isNonPresentationalEntry() const;
     /** Add the shown entry's \p text to the dialogue log under its speaker's name. */
     void logEntryLine(const std::string &text);
 

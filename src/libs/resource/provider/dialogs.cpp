@@ -43,6 +43,7 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
     dialog->endScript = dlg.EndConversation;
     dialog->abortScript = dlg.EndConverAbort;
     dialog->animatedCutscene = dlg.AnimatedCut;
+    dialog->entryDelay = dlg.DelayEntry;
     dialog->oldHitCheck = dlg.OldHitCheck != 0;
     dialog->conversationType = static_cast<ConversationType>(dlg.ConversationType);
     dialog->computerType = static_cast<ComputerType>(dlg.ComputerType);
@@ -101,6 +102,15 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.actionParams2.str = dlg.ActionParamStrB;
     entry.delay = dlg.Delay;
     entry.waitFlags = dlg.WaitFlags;
+    entry.soundExists = (dlg.SoundExists & 1) != 0;
+    entry.nodeUnskippable = dlg.NodeUnskippable != 0;
+    // Fade types 1 and 2 cut at once.
+    static constexpr int kFirstCutFade = 1;
+    static constexpr int kLastCutFade = 2;
+    entry.fadeType = dlg.FadeType;
+    entry.fadeColor = dlg.FadeColor;
+    entry.fadeDelay = dlg.FadeDelay;
+    entry.fadeLength = entry.fadeType >= kFirstCutFade && entry.fadeType <= kLastCutFade ? 0.0f : dlg.FadeLength;
     entry.cameraId = dlg.CameraID;
     entry.cameraAngle = dlg.CameraAngle;
     entry.cameraAnimation = dlg.CameraAnimation;

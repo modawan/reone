@@ -464,6 +464,8 @@ public:
 
     void openMainMenu();
     void openInGame();
+    /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
+    void renderScreenFill(const glm::vec3 &color, float alpha);
 
     bool hasPlayableRuntimeSession() const { return _runtimeSessionPlayable; }
 

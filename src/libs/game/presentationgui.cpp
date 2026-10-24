@@ -106,7 +106,7 @@ void PresentationGUI::render() {
     }
 }
 
-void PresentationGUI::loadBackground(BackgroundType type) {
+void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
     std::string resRef;
 
     if (isTSL()) {
@@ -118,8 +118,7 @@ void PresentationGUI::loadBackground(BackgroundType type) {
             // world cannot show through at wider aspect ratios.
             resRef = "blackfill";
             break;
-        case BackgroundType::Computer0:
-        case BackgroundType::Computer1:
+        case BackgroundType::Computer:
             // The terminal bezel is the computer_p panel's own fill; using it
             // as the backdrop too drew a cropped second copy behind the
             // panel. The game's terminal sits on a void fill.
@@ -146,11 +145,8 @@ void PresentationGUI::loadBackground(BackgroundType type) {
         case BackgroundType::Load:
             resRef += "load";
             break;
-        case BackgroundType::Computer0:
-            resRef += "comp0";
-            break;
-        case BackgroundType::Computer1:
-            resRef += "comp1";
+        case BackgroundType::Computer:
+            resRef += "comp" + std::to_string(computerType);
             break;
         default:
             return;

@@ -139,6 +139,7 @@ std::shared_ptr<Dialog> makeDialog(int firstEntryDelay = 1, bool voiced = false)
     firstEntry.replies.push_back(automaticReplyLink);
     if (voiced) {
         firstEntry.sound = "test_voice";
+        firstEntry.soundExists = true;
     }
 
     auto &automaticReply = dialog->replies[0];
@@ -450,8 +451,10 @@ TEST_F(ConversationTest, unpaused_automatic_skip_retains_immediate_progression) 
     autoSkip.enabled = true;
     autoSkip.entries.push(true);
     _conversation->setAutoSkip(&autoSkip);
+    auto dialog = makeDialog();
+    dialog->skippable = true;
 
-    _conversation->start(makeDialog(), nullptr);
+    _conversation->start(dialog, nullptr);
 
     EXPECT_EQ("second", _conversation->currentText());
     EXPECT_EQ(2, _conversation->entryLoadCount());
@@ -492,6 +495,8 @@ TEST_F(ConversationTest, replacing_a_paused_conversation_starts_the_new_session_
 TEST_F(ConversationTest, finishing_a_paused_conversation_does_not_leak_pause_to_the_next_session) {
     startSilent();
     _conversation->update(1.0f);
+    // The second entry's reply is listed when it ends.
+    _conversation->update(100.0f);
     _conversation->pause();
 
     _conversation->pickReplyForTest(0);
@@ -503,7 +508,7 @@ TEST_F(ConversationTest, finishing_a_paused_conversation_does_not_leak_pause_to_
 
     EXPECT_EQ("second", _conversation->currentText());
     EXPECT_EQ(4, _conversation->entryLoadCount());
-    EXPECT_EQ(2, _conversation->entryEndCount());
+    EXPECT_EQ(3, _conversation->entryEndCount());
 }
 
 TEST_F(ConversationTest, finishing_leaves_a_screen_opened_by_a_reply_script_alone) {
@@ -512,6 +517,8 @@ TEST_F(ConversationTest, finishing_leaves_a_screen_opened_by_a_reply_script_alon
     // action -- so finishing must not pull the screen back to the world.
     startSilent();
     _conversation->update(1.0f);
+    // The second entry's reply is listed when it ends.
+    _conversation->update(100.0f);
 
     _conversation->pickReplyForTest(0);
 
@@ -562,7 +569,7 @@ TEST_F(ConversationTest, one_liner_presents_its_entry_and_completes_without_open
     EXPECT_EQ(1, _conversation->barkCount());
     EXPECT_EQ("bark", _conversation->currentText());
     EXPECT_EQ(Game::Screen::None, _game->currentScreen());
-    EXPECT_EQ(1, _conversation->entryLoadCount());
+    EXPECT_EQ(0, _conversation->entryLoadCount());
 }
 
 TEST_F(ConversationTest, completed_one_liner_does_not_run_its_actions_a_second_time) {
@@ -598,7 +605,7 @@ TEST_F(ConversationTest, one_liner_entry_action_starting_a_conversation_keeps_th
     // is live and presented by itself: the old one must not have gone on to
     // reload or otherwise drive it.
     EXPECT_EQ("first", _conversation->currentText());
-    EXPECT_EQ(2, _conversation->entryLoadCount());
+    EXPECT_EQ(1, _conversation->entryLoadCount());
     EXPECT_EQ(1, _conversation->barkCount());
     _conversation->update(1.0f);
     EXPECT_EQ("second", _conversation->currentText());
@@ -676,7 +683,7 @@ TEST_F(ConversationTest, same_resource_entry_replacement_does_not_execute_old_se
         }));
     EXPECT_CALL(_engine.resourceModule().scripts(), get("second_action")).Times(1).WillOnce(Return(nullptr));
     _conversation->start(dialog, nullptr);
-    EXPECT_EQ(1, _conversation->entryLoadCount());
+    EXPECT_EQ(2, _conversation->entryLoadCount());
     EXPECT_TRUE(fade.heldForDialog());
     EXPECT_FLOAT_EQ(1, fade.opacity());
 }
@@ -716,7 +723,9 @@ TEST_F(ConversationTest, reply_condition_replacement_cannot_consume_replacement_
             return nullptr;
         }));
     _conversation->start(dialog, nullptr);
-    EXPECT_EQ(1, _conversation->entryLoadCount());
+    // The reply's condition is tested as the entry ends.
+    _conversation->update(1.0f);
+    EXPECT_EQ(2, _conversation->entryLoadCount());
     EXPECT_TRUE(fade.heldForDialog());
 }
 

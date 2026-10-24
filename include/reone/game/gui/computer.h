@@ -48,22 +48,24 @@ protected:
     void onEntryEnded() override;
 
 private:
+    /** What the conversation shows: nothing yet, the panel, or a camera shot. */
     enum class Presentation {
+        Hidden,
         Normal,
         Camera
     };
 
     ComputerCamGUI _cameraGUI;
-    Presentation _presentation {Presentation::Normal};
+    Presentation _presentation {Presentation::Hidden};
     /** The terminal hum, looping while the panel is up. */
     std::shared_ptr<audio::AudioClip> _humClip;
     /** The playing hum; none while the panel is down or a camera shot shows. */
     std::shared_ptr<audio::AudioSource> _hum;
-    /** KotOR: the panel frame of each computer type, the rows of comptypes.2da. */
-    std::vector<std::string> _panelFrames;
+    /** KotOR: the computer type the panel was last framed for, which numbers the backdrop. */
+    int _computerType {0};
 
     void returnFromCamera();
-    /** Switches between the panel and a camera shot; the terminal hum plays only with the panel. */
+    /** Switches between the panel and a camera shot; the terminal hum starts when the panel shows. */
     void setPresentation(Presentation presentation);
     /** Starts the terminal hum from its beginning. */
     void playHum();
@@ -141,9 +143,7 @@ private:
     void configureSkillLabels();
     /** KotOR draws the static bands faintly. */
     void configureBands();
-    /** KotOR reads the panel frame of each computer type. */
-    void loadPanelFrames();
-    /** KotOR frames the panel by the conversation's computer type. */
+    /** KotOR frames the panel by the conversation's computer type, read from comptypes.2da. */
     void applyPanelFrame();
     /** Writes the leader's Computer Use and Repair totals and the party's spike and repair-part counts. */
     void refreshSkills();

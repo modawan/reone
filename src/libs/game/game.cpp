@@ -4438,6 +4438,13 @@ void Game::renderGlobalFade() {
     if (alpha <= 0.0f) {
         return;
     }
+    // Compatibility approximation: color, then blackfill.
+    for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
+        renderScreenFill(color, alpha);
+    }
+}
+
+void Game::renderScreenFill(const glm::vec3 &color, float alpha) {
     auto &graphics = _services.graphics;
     auto &context = graphics.context;
     GlobalUniforms previousGlobals;
@@ -4457,17 +4464,14 @@ void Game::renderGlobalFade() {
                     context.withPolygonMode(PolygonMode::Fill, [&]() {
                         // Inherit the GUI viewport, including window/drawable
                         // scaling. Logical GUI dimensions need not be pixels.
-                        // Compatibility approximation: color, then blackfill.
-                        for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
-                            graphics.uniforms.setLocals([&](auto &locals) {
-                                locals.reset();
-                                locals.model = glm::scale(glm::mat4(1.0f),
-                                                          glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
-                                locals.color = glm::vec4(color, alpha);
-                            });
-                            context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-                            graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
-                        }
+                        graphics.uniforms.setLocals([&](auto &locals) {
+                            locals.reset();
+                            locals.model = glm::scale(glm::mat4(1.0f),
+                                                      glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
+                            locals.color = glm::vec4(color, alpha);
+                        });
+                        context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
+                        graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
                     });
                 });
             });

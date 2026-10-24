@@ -17,6 +17,7 @@
 
 #include "reone/game/gui/conversation.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -48,7 +49,10 @@ namespace reone {
 
 namespace game {
 
-static constexpr float kDefaultEntryDuration = 3.0f;
+// The time a line takes to speak: a second, and a little more for each
+// character, in whole seconds.
+static constexpr float kSpokenTimeBase = 1.0f;
+static constexpr float kSpokenTimePerCharacter = 0.11f;
 
 // Camera shots: the placed camera and same-pair angles, the animated shot
 // range, and the video effect values a shot can carry besides a row.
@@ -110,12 +114,15 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     auto generation = ++_generation;
     _fadeDialog = std::move(admission);
     if (_dialog) {
+        stopVoice();
+        resetEntryFade();
         onFinish();
         if (!isCurrent(generation)) {
             return;
         }
         releaseDialogParticipants(_owner.resolve());
     }
+    _pendingEntry.reset();
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
@@ -132,7 +139,6 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
         attachDialogParticipant(listener);
     }
 
-    loadConversationBackground();
     loadCameraModel();
     onStart();
     if (isCurrent(generation)) {
@@ -197,23 +203,6 @@ void Conversation::runAreaEndDialogScripts(const Object &dialogOwner) {
     }
     for (const auto &reference : objects) {
         runObjectEndDialogScript(reference.resolve());
-    }
-}
-
-static BackgroundType getBackgroundType(ComputerType compType) {
-    switch (compType) {
-    case ComputerType::Rakatan:
-        return BackgroundType::Computer1;
-    default:
-        return BackgroundType::Computer0;
-    }
-}
-
-void Conversation::loadConversationBackground() {
-    if (_dialog->conversationType == ConversationType::Computer) {
-        loadBackground(getBackgroundType(_dialog->computerType));
-    } else {
-        loadBackground(BackgroundType::None);
     }
 }
 
@@ -336,6 +325,9 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     _game.setDialogUnderWay(false);
     _paused = false;
     _entryEnded = true;
+    _pendingEntry.reset();
+    stopVoice();
+    resetEntryFade();
     onFinish();
     if (_generation != generation) {
         return;
@@ -388,10 +380,9 @@ void Conversation::cleanupForModuleTransition() {
     if (!_dialog) {
         return;
     }
-    if (_currentVoice) {
-        _currentVoice->stop();
-        _currentVoice.reset();
-    }
+    _pendingEntry.reset();
+    stopVoice();
+    resetEntryFade();
     _lipAnimation.reset();
     onFinish();
     if (_generation == generation) {
@@ -431,71 +422,32 @@ void Conversation::loadEntry(int index, bool start) {
         oneLiner = links.empty() || (links.size() == 1ll && _dialog->getReply(links.front().index).entries.empty());
     }
 
-    if (!oneLiner) {
-        applyStatusSummaryEntries(*_currentEntry);
-    }
+    // An entry's replies are listed when it ends.
+    _replies.clear();
+    _autoPickFirstReply = false;
 
     std::string entryText(_game.substituteCustomTokens(_currentEntry->text));
-    setMessage(entryText);
-    if (oneLiner) {
-        _replies.clear();
-        _endReached = true;
-    } else {
-        loadReplies();
-        if (!isCurrent(generation)) {
-            return;
-        }
-    }
-    loadVoiceOver();
-
-    // Entry publication consumes only the current handoff. An entry action
-    // below can immediately replace this automatic reveal with its own fade.
-    _game.globalFade().revealDialog(_fadeDialog);
-
-    // Run entry scripts; a one-liner runs them after its bark. An entry action
-    // can start another conversation, which replaces this one outright.
-    // Holding the dialogue keeps this entry and its replies alive for the
-    // script to act on, and tells us to stop rather than carry on driving the
-    // new session with the old one's state.
-    if (!oneLiner) {
-        runScripts(*_currentEntry);
-        if (!isCurrent(generation)) {
-            return;
-        }
-    }
-
-    if (!oneLiner && isNonPresentationalEntry()) {
-        pickReply(0);
-        return;
-    }
-    if (!oneLiner) {
-        logEntryLine(entryText);
-    }
-
-    scheduleEndOfEntry();
-    if (isAnimatedCameraShot()) {
-        _animatedView = true;
-    } else {
-        takeCameraShot(*_currentEntry, _entryCameraAngle);
-    }
-    onLoadEntry();
-    if (!isCurrent(generation)) {
-        return;
-    }
-
     if (oneLiner) {
         debug("Dialog: finish (one-liner)");
 
-        // A line with text is barked, and the conversation's end script runs
-        // then, with the owner's own end-dialogue script but no other's; a
-        // line without text shows nothing and runs no end script. The
-        // entry's actions follow, then the sole reply's, whether or not its
-        // condition holds, all with the owner as the caller. An action can
-        // start another conversation, which then stands. Ending the entry
-        // first stops the update timer from ending it again.
+        // A one-liner is not shown in the conversation's panel. A line with
+        // text is barked, and the conversation's end script runs then, with
+        // the owner's own end-dialogue script but no other's; a line without
+        // text shows nothing and runs no end script. The entry's actions
+        // follow, then the sole reply's, whether or not its condition holds,
+        // all with the owner as the caller. An action can start another
+        // conversation, which then stands. Ending the entry first stops the
+        // update timer from ending it again.
+        _endReached = true;
+        // The bark keeps its voice: the conversation ending does not stop it.
+        loadVoiceOver();
+        _currentVoice.reset();
+        _game.globalFade().revealDialog(_fadeDialog);
         _entryEnded = true;
         if (!_currentEntry->text.empty()) {
-            setBarkText(std::move(entryText), _entryDuration);
+            // The bark shows for the time its line takes to speak.
+            const float barkDuration = kSpokenTimeBase + kSpokenTimePerCharacter * static_cast<float>(entryText.size());
+            setBarkText(std::move(entryText), barkDuration);
             if (auto owner = _owner.resolve()) {
                 runEndScript(*_dialog, *owner);
                 if (!isCurrent(generation)) {
@@ -521,12 +473,46 @@ void Conversation::loadEntry(int index, bool start) {
         return;
     }
 
+    // The entry is shown before its scripts run: its message, its line in the
+    // dialogue list, its voice, its camera shot and its participants. Its
+    // journal entry and plot experience follow.
+    setMessage(entryText);
+    logEntryLine(entryText);
+    loadVoiceOver();
+    scheduleEndOfEntry();
+    if (isAnimatedCameraShot()) {
+        _animatedView = true;
+    } else {
+        takeCameraShot(*_currentEntry, _entryCameraAngle);
+    }
+    onLoadEntry();
+    if (!isCurrent(generation)) {
+        return;
+    }
     applyShotVideoEffect();
+    resetEntryFade();
+    startEntryFade(*_currentEntry);
+    applyStatusSummaryEntries(*_currentEntry);
+
+    // Entry publication consumes only the current handoff. An entry action
+    // below can immediately replace this automatic reveal with its own fade.
+    _game.globalFade().revealDialog(_fadeDialog);
+
+    // Run entry scripts. An entry action can start another conversation, which
+    // replaces this one outright. Holding the dialogue keeps this entry alive
+    // for the script to act on, and tells us to stop rather than carry on
+    // driving the new session with the old one's state. The replies are
+    // listed when the entry ends, so their conditions see what its scripts
+    // did.
+    runScripts(*_currentEntry);
+    if (!isCurrent(generation)) {
+        return;
+    }
 
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
             if (skip.value() && !_paused) {
-                endCurrentEntry();
+                skipCurrentEntry();
             }
         }
     }
@@ -648,13 +634,14 @@ std::optional<std::reference_wrapper<const Dialog::EntryReply>> Conversation::fi
     return std::cref(*_replies.front());
 }
 
+// An entry with a sound stops the voice before it; one without leaves it
+// playing.
 void Conversation::loadVoiceOver() {
-    // Stop previous voice, if any
-    if (_currentVoice) {
-        _currentVoice->stop();
-        _currentVoice.reset();
-        _lipAnimation.reset();
+    _lipAnimation.reset();
+    if (_currentEntry->sound.empty() && _currentEntry->voResRef.empty()) {
+        return;
     }
+    stopVoice();
 
     // Play current voice over either from Sound or from VO_ResRef
     std::string voiceResRef;
@@ -678,24 +665,163 @@ void Conversation::loadVoiceOver() {
     }
 }
 
-void Conversation::scheduleEndOfEntry() {
-    float duration = kDefaultEntryDuration;
+// The time a node's text takes to speak, in whole seconds; an empty line takes
+// none. TSL measures the text with its tokens resolved and its leading and
+// trailing spaces trimmed.
+static float getSpokenTime(const std::string &text, const Game &game) {
+    std::string spoken(text);
+    if (game.isTSL()) {
+        spoken = game.substituteCustomTokens(spoken);
+        spoken.erase(0, spoken.find_first_not_of(' '));
+        spoken.erase(spoken.find_last_not_of(' ') + 1);
+    }
+    if (spoken.empty()) {
+        return 0.0f;
+    }
+    return std::trunc(kSpokenTimeBase + kSpokenTimePerCharacter * static_cast<float>(spoken.size()));
+}
 
-    if (_cameraModel && (_currentEntry->waitFlags & Dialog::WaitFlags::waitAnimFinish)) {
-        std::string animName(AnimatedCamera::getShotClipName(_currentEntry->cameraAnimation));
-        std::shared_ptr<Animation> animation(_cameraModel->getAnimation(animName));
-        if (animation) {
-            duration = animation->length();
+static bool hasSound(const Dialog::EntryReply &node) {
+    return !node.sound.empty() || !node.voResRef.empty();
+}
+
+// A node with a sound and no delay or wait flags of its own waits for its
+// sound.
+static int getWaitFlags(const Dialog::EntryReply &node) {
+    if (node.delay == -1 && hasSound(node) && node.waitFlags == 0) {
+        return Dialog::WaitFlags::waitSoundFinish;
+    }
+    return node.waitFlags;
+}
+
+// A node's own delay, or, for one with a sound and no delay of its own, the
+// dialog's entry delay.
+static float getAuthoredDelay(const Dialog::EntryReply &node, const Dialog &dialog) {
+    return node.delay != -1 ? static_cast<float>(node.delay) : static_cast<float>(dialog.entryDelay);
+}
+
+// An entry stays for its delay: its own; else, with a sound, the dialog's
+// entry delay when the sound is a recorded voice; else none when it waits for
+// something; else none in an animated cutscene, and otherwise the time its
+// text takes to speak. Past its delay, it stays while what it waits for goes
+// on: its camera animation, its sound and its participants' dialog
+// animations.
+void Conversation::scheduleEndOfEntry() {
+    const Dialog::EntryReply &entry = *_currentEntry;
+    const int waitFlags = getWaitFlags(entry);
+    float duration = 0.0f;
+    if (entry.delay != -1 || (hasSound(entry) && entry.soundExists)) {
+        duration = getAuthoredDelay(entry, *_dialog);
+    } else if (!_dialog->isAnimatedCutscene() && (hasSound(entry) || waitFlags == 0)) {
+        duration = getSpokenTime(entry.text, _game);
+    }
+
+    if (_cameraModel && (waitFlags & Dialog::WaitFlags::waitAnimFinish)) {
+        std::string animName(AnimatedCamera::getShotClipName(entry.cameraAnimation));
+        if (std::shared_ptr<Animation> animation = _cameraModel->getAnimation(animName)) {
+            duration = std::max(duration, animation->length());
         }
-    } else if (_currentEntry->delay != -1) {
-        duration = static_cast<float>(_currentEntry->delay);
-    } else if (_currentVoice) {
-        duration = _currentVoice->duration();
     }
 
     _entryEnded = false;
-    _entryDuration = duration;
+    _entrySkipped = false;
     _endEntryTimer.reset(duration);
+    _waitFlags = waitFlags;
+}
+
+// A reply taken without a choice holds the next entry back: for its delay
+// when it waits for its sound; else not at all when it waits for something
+// else or in an animated cutscene; else for the time its text takes to speak.
+// Past that, the next entry waits for what the reply waits for, except in an
+// animated cutscene.
+void Conversation::scheduleTakenReply(const Dialog::EntryReply &reply) {
+    const int waitFlags = getWaitFlags(reply);
+    float duration = 0.0f;
+    if (waitFlags & Dialog::WaitFlags::waitSoundFinish) {
+        duration = getAuthoredDelay(reply, *_dialog);
+    } else if (!_dialog->isAnimatedCutscene() && (reply.delay != -1 || hasSound(reply) || waitFlags == 0)) {
+        duration = getSpokenTime(reply.text, _game);
+    }
+    _endEntryTimer.reset(duration);
+    _waitFlags = _dialog->isAnimatedCutscene() ? 0 : waitFlags;
+}
+
+bool Conversation::isWaiting() const {
+    if ((_waitFlags & Dialog::WaitFlags::waitSoundFinish) && _currentVoice && _currentVoice->isPlaying()) {
+        return true;
+    }
+    if ((_waitFlags & Dialog::WaitFlags::waitFadeFinish) && !isEntryFadeDone()) {
+        return true;
+    }
+    if ((_waitFlags & Dialog::WaitFlags::waitAnimFinish) && isCameraAnimationPlaying()) {
+        return true;
+    }
+    return (_waitFlags & Dialog::WaitFlags::waitParticipantAnimFinish) && isDialogAnimationPlaying();
+}
+
+// Fade types 1 and 4 go towards the colour; the others come away from it.
+void Conversation::startEntryFade(const Dialog::EntryReply &entry) {
+    static constexpr int kCutToColorFade = 1;
+    static constexpr int kFadeToColor = 4;
+    static constexpr float kFadeClockStart = 0.1f;
+    if (entry.fadeType == 0) {
+        return;
+    }
+    _entryFade.fromColor = entry.fadeType != kCutToColorFade && entry.fadeType != kFadeToColor;
+    _entryFade.color = entry.fadeColor;
+    _entryFade.alpha = _entryFade.fromColor ? 1.0f : 0.0f;
+    _entryFade.delay = entry.fadeDelay;
+    _entryFade.length = entry.fadeLength;
+    _entryFade.clock = kFadeClockStart;
+}
+
+// The clock skips a frame of five seconds or more. Past its delay the fade
+// moves by the share of its length gone by.
+void Conversation::advanceEntryFade(float dt) {
+    static constexpr float kLongestFadeFrame = 5.0f;
+    if (_entryFade.clock <= 0.0f) {
+        return;
+    }
+    if (dt < kLongestFadeFrame) {
+        _entryFade.clock += dt;
+    }
+    if (_entryFade.clock <= _entryFade.delay) {
+        return;
+    }
+    const float progress = (_entryFade.clock - _entryFade.delay) / _entryFade.length;
+    const float alpha = _entryFade.fromColor ? std::max(0.0f, 1.0f - progress) : std::min(1.0f, progress);
+    _entryFade.alpha = std::clamp(alpha, 0.0f, 1.0f);
+}
+
+void Conversation::resetEntryFade() {
+    _entryFade = EntryFade();
+}
+
+bool Conversation::isEntryFadeDone() const {
+    return _entryFade.clock == 0.0f || _entryFade.clock > _entryFade.delay + _entryFade.length;
+}
+
+bool Conversation::isDialogAnimationPlaying() const {
+    return false;
+}
+
+void Conversation::onReplyTaken(const Dialog::EntryReply &) {
+}
+
+// The camera plays a clip only in a conversation with a camera model.
+bool Conversation::isCameraAnimationPlaying() const {
+    if (!_cameraModel) {
+        return false;
+    }
+    auto camera = _game.module()->area()->getCamera<AnimatedCamera>(CameraType::Animated);
+    return !camera->isAnimationFinished();
+}
+
+void Conversation::stopVoice() {
+    if (_currentVoice) {
+        _currentVoice->stop();
+        _currentVoice.reset();
+    }
 }
 
 // A reply as listed and logged: its tokens resolved and, in TSL, its leading
@@ -790,6 +916,10 @@ void Conversation::refreshReplies() {
 }
 
 void Conversation::pickReply(int index) {
+    // Once a reply is taken, the next entry is on its way.
+    if (_pendingEntry) {
+        return;
+    }
     auto generation = _generation;
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
     const Dialog::EntryReply &reply = *_replies[index];
@@ -806,7 +936,15 @@ void Conversation::pickReply(int index) {
         }
     }
 
+    // A reply taken without a choice sets its letterbox fade and its own
+    // delay and waits. A chosen reply keeps the entry's waits.
     applyStatusSummaryEntries(reply);
+    const bool taken = _autoPickFirstReply;
+    if (taken) {
+        startEntryFade(reply);
+        onReplyTaken(reply);
+        scheduleTakenReply(reply);
+    }
 
     // Run reply scripts
     auto dialog = _dialog;
@@ -825,6 +963,10 @@ void Conversation::pickReply(int index) {
     if (entryIdx == -1) {
         debug("Finish (no active entries)", LogChannel::Conversation);
         finish();
+        return;
+    }
+    if (!_endEntryTimer.elapsed() || isWaiting()) {
+        _pendingEntry = entryIdx;
         return;
     }
     loadEntry(entryIdx);
@@ -848,20 +990,32 @@ bool Conversation::handle(const input::Event &event) {
 }
 
 bool Conversation::handleMouseButtonDown(const input::MouseButtonEvent &event) {
+    // Skipping an entry ends its delay and stops its voice.
     if (event.button == input::MouseButton::Left && !_entryEnded && isSkippableEntry()) {
         _endEntryTimer.reset(0);
+        _entrySkipped = true;
+        stopVoice();
         return true;
     }
     return false;
 }
 
+// A skip takes effect only in a skippable conversation and, in TSL, on an
+// entry not marked unskippable.
 bool Conversation::isSkippableEntry() const {
-    return g_allEntriesSkippable || (_dialog->isSkippable() && !_paused);
+    if (g_allEntriesSkippable) {
+        return true;
+    }
+    const bool nodeUnskippable = _game.isTSL() && _currentEntry && _currentEntry->nodeUnskippable;
+    return _dialog->isSkippable() && !nodeUnskippable && !_paused;
 }
 
 // An entry shown in the conversation goes to the dialog list under its
 // speaker's name: the object its speaker tag names, or else the owner.
 void Conversation::logEntryLine(const std::string &text) {
+    if (text.empty()) {
+        return;
+    }
     auto owner = _owner.resolve();
     std::shared_ptr<Object> speaker;
     if (!_currentEntry->speaker.empty() && owner && owner->spatialArea()) {
@@ -875,30 +1029,22 @@ void Conversation::logEntryLine(const std::string &text) {
     }
 }
 
-bool Conversation::isNonPresentationalEntry() const {
-    return _autoPickFirstReply &&
-           _currentEntry->text.empty() &&
-           _currentEntry->sound.empty() &&
-           _currentEntry->voResRef.empty() &&
-           _currentEntry->cameraAnimation == 0 &&
-           _currentEntry->cameraId == 0 &&
-           _currentEntry->cameraAngle == 0 &&
-           _currentEntry->animations.empty() &&
-           _currentEntry->delay == -1;
-}
-
 void Conversation::endCurrentEntry() {
     if (!_currentEntry || _entryEnded || _paused) {
         return;
     }
     auto generation = _generation;
     _entryEnded = true;
+    // An entry ends once its time is up.
+    _endEntryTimer.reset(0);
 
-    // Stop voice over, if any
-    if (_currentVoice) {
-        _currentVoice->stop();
-        _currentVoice.reset();
+    // The entry's replies arrive as it ends: their conditions are tested and
+    // they are listed now, and the letterbox fade clears.
+    loadReplies();
+    if (!isCurrent(generation)) {
+        return;
     }
+    resetEntryFade();
 
     onEntryEnded();
     if (!isCurrent(generation)) {
@@ -917,6 +1063,14 @@ void Conversation::endCurrentEntry() {
     }
 }
 
+void Conversation::skipCurrentEntry() {
+    if (!_currentEntry || _entryEnded || _paused || !isSkippableEntry()) {
+        return;
+    }
+    stopVoice();
+    endCurrentEntry();
+}
+
 void Conversation::onEntryEnded() {
 }
 
@@ -924,7 +1078,7 @@ void Conversation::onReplyPicked(const Dialog::EntryReply &) {
 }
 
 bool Conversation::handleKeyUp(const input::KeyEvent &event) {
-    if (!_entryEnded) {
+    if (!_entryEnded || _pendingEntry) {
         return false;
     }
 
@@ -954,8 +1108,15 @@ void Conversation::update(float dt) {
     GameGUI::update(dt);
     if (!_entryEnded) {
         _endEntryTimer.update(dt);
-        if (!_paused && (_endEntryTimer.elapsed() || (_currentVoice && !_currentVoice->isPlaying()))) {
+        if (!_paused && _endEntryTimer.elapsed() && (_entrySkipped || !isWaiting())) {
             endCurrentEntry();
+        }
+    } else if (_pendingEntry) {
+        _endEntryTimer.update(dt);
+        if (!_paused && _endEntryTimer.elapsed() && !isWaiting()) {
+            const int index = *_pendingEntry;
+            _pendingEntry.reset();
+            loadEntry(index);
         }
     }
 }

@@ -24,7 +24,6 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
-#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
@@ -50,9 +49,6 @@ static constexpr char kComputerTypesResRef[] = "comptypes";
 void ComputerGUI::init() {
     Conversation::init();
     _cameraGUI.init();
-    if (!isTSL()) {
-        loadPanelFrames();
-    }
 }
 
 bool ComputerGUI::handle(const input::Event &event) {
@@ -79,12 +75,12 @@ void ComputerGUI::render() {
 
 void ComputerGUI::onStart() {
     applyPanelFrame();
-    _presentation = Presentation::Normal;
-    playHum();
+    loadBackground(BackgroundType::Computer, _computerType);
+    _presentation = Presentation::Hidden;
 }
 
 void ComputerGUI::onFinish() {
-    _presentation = Presentation::Normal;
+    _presentation = Presentation::Hidden;
     stopHum();
 }
 
@@ -101,8 +97,9 @@ void ComputerGUI::onEntryEnded() {
 }
 
 void ComputerGUI::returnFromCamera() {
+    // Returning from a camera shot skips the entry.
     if (_presentation == Presentation::Camera) {
-        endCurrentEntry();
+        skipCurrentEntry();
     }
 }
 
@@ -113,7 +110,7 @@ void ComputerGUI::setPresentation(Presentation presentation) {
     _presentation = presentation;
     if (_presentation == Presentation::Camera) {
         stopHum();
-    } else {
+    } else if (_presentation == Presentation::Normal) {
         playHum();
     }
 }
@@ -181,22 +178,19 @@ void ComputerGUI::configureBands() {
     }
 }
 
-void ComputerGUI::loadPanelFrames() {
-    const auto types = getRequiredTwoDA(_services.resource.twoDas, kComputerTypesResRef);
-    _panelFrames.clear();
-    for (int row = 0; row < types->getRowCount(); ++row) {
-        _panelFrames.push_back(types->getString(row, "computerbackground"));
-    }
-}
-
 void ComputerGUI::applyPanelFrame() {
     if (isTSL()) {
         return;
     }
-    // A computer type without a row in comptypes.2da takes the first row's
-    // frame.
-    const auto type = static_cast<size_t>(_dialog->computerType);
-    _gui->rootControl().setBorderFill(_panelFrames.at(type < _panelFrames.size() ? type : 0));
+    // Without the table, or with no rows in it, the panel keeps its frame
+    // and its type. A computer type without a row takes the first row.
+    const auto types = _services.resource.twoDas.get(kComputerTypesResRef);
+    if (!types || types->getRowCount() == 0) {
+        return;
+    }
+    const int type = static_cast<int>(_dialog->computerType);
+    _computerType = type < types->getRowCount() ? type : 0;
+    _gui->rootControl().setBorderFill(types->getString(_computerType, "computerbackground"));
 }
 
 void ComputerGUI::refreshSkills() {
@@ -217,11 +211,15 @@ void ComputerGUI::refreshSkills() {
 }
 
 void ComputerGUI::setMessage(std::string message) {
+    refreshSkills();
+
     ListBox::Item item;
     item.text = std::move(message);
 
     _controls.LB_MESSAGE->clearItems();
     _controls.LB_MESSAGE->addItem(std::move(item));
+    // The replies of the entry are listed when it ends.
+    _controls.LB_REPLIES->clearItems();
 }
 
 void ComputerGUI::setReplyLines(std::vector<std::string> lines) {
@@ -236,8 +234,8 @@ void ComputerGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
-    // The numbers are written once per entry, when its replies are listed,
-    // so they show what the entry's reply conditions leave.
+    // The numbers are written when an entry's message is set and again when
+    // its replies are listed, as the entry ends.
     refreshSkills();
 }
 

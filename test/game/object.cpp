@@ -195,7 +195,7 @@ public:
             return false;
         }
         auto cut = DialogGUI::decodeCutAnimation(ordinal);
-        return gui.enterMixedStunt(gui._participantByTag.at(tag), animation, cut && cut->looping);
+        return gui.enterMixedStunt(gui._participantByTag.at(tag), animation, cut && cut->looping, ordinal);
     }
 
     static std::optional<DialogGUI::CutAnimation> decodeCut(int ordinal) {
@@ -1298,18 +1298,19 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
     EXPECT_EQ(leftSaberNode->activeAnimationName(), "powerdown");
 }
 
-TEST(Conversation, should_advance_script_only_auto_routing_entry_without_presenting_it) {
+TEST(Conversation, should_show_script_only_auto_routing_entry_and_advance_at_the_next_update) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     RoutingConversation conversation(game, engine.services());
 
     conversation.start(makeRoutingDialog(), nullptr);
+    conversation.update(0.0f);
 
     ASSERT_EQ(conversation.messages.size(), 2);
     EXPECT_EQ(conversation.messages[0], "");
     EXPECT_EQ(conversation.messages[1], "visible");
-    EXPECT_EQ(conversation.presentedEntryCount, 1);
+    EXPECT_EQ(conversation.presentedEntryCount, 2);
 }
 
 TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_data) {
@@ -7099,7 +7100,11 @@ public:
     }
 
     void update(float dt) override { Conversation::update(dt); }
-    void chooseReply() { pickReply(0); }
+    // The replies are listed when the entry ends.
+    void chooseReply() {
+        endCurrentEntry();
+        pickReply(0);
+    }
     int entries {0};
 
 private:

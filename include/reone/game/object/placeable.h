@@ -94,6 +94,8 @@ public:
      * pose. A world-space cut clip plays with the model at the world origin.
      */
     void playDialogAnimation(int id, bool looping);
+    /** The animation ID the placeable shows: a dialog one-shot while it plays, else its loop's; -1 for none. */
+    int currentAnimationId() const;
     /**
      * The placeable takes animation \p animation as its state. When the model
      * has the state's loop and does not show it already, the swing from the
@@ -340,6 +342,8 @@ private:
     std::string _openStateLoop;
     /** The animation whose loop the model shows; -1 while it shows none of its own. */
     int _shownAnimation {-1};
+    /** The dialog one-shot last played, by ID and clip, until a loop replaces it. */
+    std::optional<std::pair<int, std::string>> _dialogOneShot;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
 
     // Scripts

@@ -69,6 +69,8 @@ std::shared_ptr<Dialog> computerDialog(bool camera = true, bool automatic = fals
     auto dialog = std::make_shared<Dialog>();
     dialog->resRef = "computer_test";
     dialog->conversationType = ConversationType::Computer;
+    // Returning from a camera shot is a skip.
+    dialog->skippable = true;
     dialog->startEntries.push_back({});
     dialog->entries.resize(2);
     dialog->replies.resize(3);
@@ -213,11 +215,12 @@ TEST_P(ComputerGUITest, return_auto_selects_empty_reply_once_without_replaying_s
 TEST_P(ComputerGUITest, return_preserves_entry_and_existing_multiple_replies) {
     auto dialog = computerDialog();
     computer->start(dialog, nullptr);
-    auto replies = computer->replies;
+    // The replies are listed when the entry ends.
+    EXPECT_TRUE(computer->replies.empty());
     EXPECT_TRUE(returnControl->isSelectable());
     returnControl->handleClick(0, 0, 1);
     EXPECT_EQ(computer->entry(), &dialog->entries[0]);
-    EXPECT_EQ(computer->replies, replies);
+    EXPECT_EQ(computer->replies.size(), 2u);
     EXPECT_EQ(computer->replyRefreshes, 1);
     EXPECT_EQ(computer->loads, 1);
     EXPECT_EQ(computer->ends, 1);
