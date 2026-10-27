@@ -5429,6 +5429,18 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
         return it != customTokens.end() ? it->second : kUnrecognizedToken;
     }
 
+    // The tutorial strings name keys by binding ("<ActionLeft>", "<MGActionRight>");
+    // these are this engine's keys: movement on W/A/S/D, and the minigames steer
+    // with A/D.
+    static const std::pair<const char *, const char *> kKeyTokens[] = {
+        {"ActionUp", "W"}, {"ActionDown", "S"}, {"ActionLeft", "A"}, {"ActionRight", "D"},
+        {"MGActionUp", "W"}, {"MGActionDown", "S"}, {"MGActionLeft", "A"}, {"MGActionRight", "D"}};
+    for (const auto &[keyToken, key] : kKeyTokens) {
+        if (name == keyToken) {
+            return key;
+        }
+    }
+
     const auto found = _stringTokens.find(name);
     if (found == _stringTokens.end()) {
         return kUnrecognizedToken;

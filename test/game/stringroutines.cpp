@@ -171,3 +171,10 @@ TEST(FloatToString, is_right_justified_in_its_width_with_its_decimals) {
     EXPECT_EQ("-2.25", fixture.floatToString(-2.25f, 0, 2));
     EXPECT_EQ("12.000000000", fixture.floatToString(12.0f, 99, 99).substr(6)) << "width and decimals are bounded";
 }
+
+TEST(KeyTokens, tutorial_strings_name_keys_by_binding) {
+    StringRoutineFixture fixture(GameID::KotOR);
+
+    EXPECT_EQ("Press A or D to steer", fixture.game.substituteCustomTokens("Press <MGActionLeft> or <MGActionRight> to steer"));
+    EXPECT_EQ("W S", fixture.game.substituteCustomTokens("<ActionUp> <ActionDown>"));
+}
