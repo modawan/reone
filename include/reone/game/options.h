@@ -20,11 +20,24 @@
 #include "reone/audio/options.h"
 #include "reone/system/types.h"
 #include "reone/graphics/options.h"
+#include "reone/input/event.h"
 #include "menupresentation.h"
 
 namespace reone {
 
 namespace game {
+
+struct Keybind {
+    reone::input::KeyCode keyCode;
+};
+struct KeybindOptions {
+    Keybind moveForward {reone::input::KeyCode::W};
+    Keybind moveBackward {reone::input::KeyCode::S};
+    Keybind moveLeft {reone::input::KeyCode::Z};
+    Keybind moveRight {reone::input::KeyCode::C};
+    Keybind flourish {reone::input::KeyCode::X};
+    Keybind walk {reone::input::KeyCode::B};
+};
 
 struct GameOptions {
     std::filesystem::path path;
@@ -36,6 +49,7 @@ struct GameOptions {
     AutoPauseOptions autoPause;
     /** How the mouse turns the camera. */
     MouseOptions mouse;
+    KeybindOptions keybinds;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 };
 

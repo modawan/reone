@@ -116,24 +116,25 @@ bool Player::handle(const input::Event &event) {
 }
 
 bool Player::handleKeyDown(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::W: {
+    auto &keybinds = _module.game().options().game.keybinds;
+
+    if (event.code == keybinds.moveForward.keyCode) {
         _moveForward = true;
         return true;
     }
-    case input::KeyCode::Z: {
+    if (event.code == keybinds.moveLeft.keyCode) {
         _moveLeft = true;
         return true;
     }
-    case input::KeyCode::S: {
+    if (event.code == keybinds.moveBackward.keyCode) {
         _moveBackward = true;
         return true;
     }
-    case input::KeyCode::C: {
+    if (event.code == keybinds.moveRight.keyCode) {
         _moveRight = true;
         return true;
     }
-    case input::KeyCode::X: {
+    if (event.code == keybinds.flourish.keyCode) {
         // The flourish answers the press only; holding the key repeats nothing.
         if (!event.repeat) {
             std::shared_ptr<Creature> partyLeader(_party.getLeader());
@@ -141,40 +142,39 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
         }
         return true;
     }
-    case input::KeyCode::B: {
+    if (event.code == keybinds.walk.keyCode) {
         _walk = true;
         return true;
     }
-    default:
-        return false;
-    }
+
+    return false;
 }
 
 bool Player::handleKeyUp(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::W:
+    auto &keybinds = _module.game().options().game.keybinds;
+
+    if (event.code == keybinds.moveForward.keyCode) {
         _moveForward = false;
         return true;
-
-    case input::KeyCode::Z:
+    }
+    if (event.code == keybinds.moveLeft.keyCode) {
         _moveLeft = false;
         return true;
-
-    case input::KeyCode::S:
+    }
+    if (event.code == keybinds.moveBackward.keyCode) {
         _moveBackward = false;
         return true;
-
-    case input::KeyCode::C:
+    }
+    if (event.code == keybinds.moveRight.keyCode) {
         _moveRight = false;
         return true;
-
-    case input::KeyCode::B:
+    }
+    if (event.code == keybinds.walk.keyCode) {
         _walk = false;
         return true;
-
-    default:
-        return false;
     }
+
+    return false;
 }
 
 bool Player::handleMouseButtonDown(const input::MouseButtonEvent &event) {
