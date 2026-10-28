@@ -67,7 +67,9 @@ bool GiveItemAction::queue(Game &game, Object &giver, std::shared_ptr<Item> item
 // acquires). A party member that receives an item a script gave reports it in
 // the status summary. A placeable that receives one, unless it is destroyed
 // once empty, runs its inventory disturbed script for the stack that holds
-// it, disturbed by the item's holder before the give.
+// it, disturbed by the item's holder before the give. A creature that
+// receives one runs its disturbed script the same way, unless it gave the
+// item itself.
 void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     if (auto *giver = dyn_cast<Creature>(&actor)) {
@@ -120,9 +122,14 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     }
     case ObjectType::Creature: {
         const std::string name = _item->localizedName();
-        deliver(*party.sharedInventoryReceiver(_giveTo));
+        auto delivered = deliver(*party.sharedInventoryReceiver(_giveTo));
         if (_givenByScript && party.isMember(*_giveTo)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsReceived, 0, {name});
+        }
+        if (delivered && disturber != _giveTo->id()) {
+            // A counted item, such as credits, leaves no stack to name.
+            const uint32_t held = delivered.held ? delivered.held->id() : script::kObjectInvalid;
+            static_cast<Creature &>(*_giveTo).runOnDisturbed(disturber, InventoryDisturbType::Added, held);
         }
         break;
     }
@@ -153,21 +160,27 @@ std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record,
 }
 
 // A creature or placeable takes the item. A creature that takes it from a
-// party member reports the item lost in the status summary.
+// party member reports the item lost in the status summary. A creature the
+// item is taken from runs its disturbed script, disturbed by the taker.
 void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
+    const uint32_t itemId = _item->id();
+    bool taken = false;
     switch (actor.type()) {
     case ObjectType::Placeable:
-        transferItemTo(_game, _item, actor);
+        taken = static_cast<bool>(transferItemTo(_game, _item, actor));
         break;
     case ObjectType::Creature:
-        if (transferItemTo(_game, _item, *party.sharedInventoryReceiver(_game.getObjectById(actor.id()))) &&
-            party.isMember(*_takeFrom)) {
+        taken = static_cast<bool>(transferItemTo(_game, _item, *party.sharedInventoryReceiver(_game.getObjectById(actor.id()))));
+        if (taken && party.isMember(*_takeFrom)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsLost);
         }
         break;
     default:
         break;
+    }
+    if (auto *owner = dyn_cast<Creature>(_takeFrom.get()); owner && taken && owner != &actor) {
+        owner->runOnDisturbed(actor.id(), InventoryDisturbType::Removed, itemId);
     }
     complete();
 }
