@@ -39,6 +39,13 @@ struct KeybindOptions {
     Keybind walk {reone::input::KeyCode::B};
     Keybind cameraRotateLeft {reone::input::KeyCode::A};
     Keybind cameraRotateRight {reone::input::KeyCode::D};
+    Keybind cycleTargetLeft {reone::input::KeyCode::Q};
+    Keybind cycleTargetRight {reone::input::KeyCode::E};
+    Keybind toggleStealth {reone::input::KeyCode::G};
+    Keybind clearOneAction {reone::input::KeyCode::Y};
+    Keybind cancelCombat {reone::input::KeyCode::F};
+    Keybind defaultAction {reone::input::KeyCode::R};
+    Keybind pause {reone::input::KeyCode::Space};
 };
 
 struct GameOptions {
