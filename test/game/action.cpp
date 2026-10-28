@@ -36,9 +36,12 @@
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/party.h"
+#include "reone/game/object/item.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/2da.h"
+#include "reone/resource/gff.h"
 #include "reone/resource/types.h"
+#include "reone/scene/collision.h"
 #include "reone/script/executioncontext.h"
 #include "reone/system/randomutil.h"
 
@@ -941,4 +944,96 @@ TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
                       501, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_LT(target->currentHitPoints(), 20);
+}
+
+namespace {
+
+constexpr int kSightTestPistol = 12;
+
+// A base item table whose row kSightTestPistol is a blaster pistol with a
+// reach of 23 m.
+std::shared_ptr<resource::TwoDA> sightTestBaseItems() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
+                     "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
+                     "ammunitiontype", "bodyvar", "rangedweapon"});
+    for (int i = 0; i <= kSightTestPistol; ++i) {
+        if (i == kSightTestPistol) {
+            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", "", "1"});
+        } else {
+            builder.row({"", "", "", "", "", "", "", "", "", "", "", "", ""});
+        }
+    }
+    return std::shared_ptr<resource::TwoDA>(builder.build());
+}
+
+} // namespace
+
+// A party member with a blaster that is not the player character, within
+// reach of its target but without a clear line to it, does something about
+// it. The player character gives such a target up; a companion under the
+// party AI must not turn to it and wait where it stands for good (K1
+// end_m01aa: Trask 20 m from end_reinforce4 behind cover, and the fight
+// never ends).
+TEST(AttackSight, a_ranged_party_member_without_sight_closes_in) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    ON_CALL(engine.resourceModule().twoDas(), get("baseitems")).WillByDefault(Return(sightTestBaseItems()));
+    // Something stands in the line from anywhere short of x = 6.
+    ON_CALL(sceneGraph, testLineOfSight(_, _, _))
+        .WillByDefault(Invoke([](const glm::vec3 &origin, const glm::vec3 &, scene::Collision &collision) {
+            if (origin.x >= 6.0f) {
+                return false;
+            }
+            collision.user = nullptr;
+            collision.intersection = glm::vec3(6.0f, origin.y, origin.z);
+            return true;
+        }));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+
+    auto companion = game.newCreature();
+    area->add(companion);
+    game.party().addMember(kNpcPlayer, companion);
+    game.party().setPlayer(companion);
+    // A companion under the party AI: in the party, without the PC flag.
+    companion->setPC(false);
+    companion->setMaxHitPoints(20);
+    companion->setCurrentHitPoints(20);
+    auto gff = resource::Gff::Builder()
+                   .field(resource::Gff::Field::newCExoString("Tag", "pistol"))
+                   .field(resource::Gff::Field::newInt("BaseItem", kSightTestPistol))
+                   .field(resource::Gff::Field::newWord("StackSize", 1))
+                   .build();
+    auto pistol = game.newItem();
+    pistol->deserialize(*gff, SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(companion->equip(InventorySlots::rightWeapon, pistol));
+
+    auto target = game.newCreature();
+    target->setPosition(glm::vec3(16.0f, 0.0f, 0.0f));
+    area->add(target);
+    target->setFaction(Faction::Hostile1);
+    target->setMaxHitPoints(40);
+    target->setCurrentHitPoints(40);
+    ASSERT_TRUE(companion->isPartyMember());
+    ASSERT_FALSE(companion->isPC());
+
+    auto attack = game.newAction<AttackObjectAction>(target);
+    companion->addAction(attack);
+    // Ten seconds, three combat rounds and more: it must at some point set
+    // out for a clear line, ahead of the attack.
+    constexpr float kTick = 1.0f / 30.0f;
+    bool closesIn = false;
+    for (int tick = 0; tick < 300 && !closesIn; ++tick) {
+        companion->update(kTick);
+        game.combat().update(kTick);
+        const auto &actions = companion->actions();
+        closesIn = actions.size() == 2u && actions.front()->type() == ActionType::MoveToObject &&
+                   actions.back() == attack;
+    }
+    EXPECT_TRUE(closesIn) << "it waits where it stands, " << companion->actions().size() << " action(s) queued";
 }
