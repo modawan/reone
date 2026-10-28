@@ -37,6 +37,8 @@ struct KeybindOptions {
     Keybind moveRight {reone::input::KeyCode::C};
     Keybind flourish {reone::input::KeyCode::X};
     Keybind walk {reone::input::KeyCode::B};
+    Keybind cameraRotateLeft {reone::input::KeyCode::A};
+    Keybind cameraRotateRight {reone::input::KeyCode::D};
 };
 
 struct GameOptions {

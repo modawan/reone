@@ -125,48 +125,46 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
 // The turn keys work whether or not the mouse turns the camera. Either Ctrl
 // key, like the right button, turns the camera with the mouse while held.
 bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::A:
+    auto &keybinds = _game.options().game.keybinds;
+
+    if (event.code == keybinds.cameraRotateLeft.keyCode) {
         if (!event.repeat) {
             _rotateCCW = true;
             _rotateCW = false;
             _rotationSpeed = kMinRotationSpeed;
             return true;
         }
-        break;
-    case input::KeyCode::D:
+    }
+    if (event.code == keybinds.cameraRotateRight.keyCode) {
         if (!event.repeat) {
             _rotateCCW = false;
             _rotateCW = true;
             _rotationSpeed = kMinRotationSpeed;
             return true;
         }
-        break;
-    case input::KeyCode::LeftControl:
-    case input::KeyCode::RightControl:
+    }
+    if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
         _mouseLookHeld = true;
         return true;
-    default:
-        break;
     }
 
     return false;
 }
 
 bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::A:
+    auto &keybinds = _game.options().game.keybinds;
+
+    if (event.code == keybinds.cameraRotateLeft.keyCode) {
         _rotateCCW = false;
         return true;
-    case input::KeyCode::D:
+    }
+    else if (event.code == keybinds.cameraRotateRight.keyCode) {
         _rotateCW = false;
         return true;
-    case input::KeyCode::LeftControl:
-    case input::KeyCode::RightControl:
+    }
+    else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
         _mouseLookHeld = false;
         return true;
-    default:
-        break;
     }
 
     return false;

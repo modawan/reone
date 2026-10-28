@@ -122,19 +122,19 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
         _moveForward = true;
         return true;
     }
-    if (event.code == keybinds.moveLeft.keyCode) {
+    else if (event.code == keybinds.moveLeft.keyCode) {
         _moveLeft = true;
         return true;
     }
-    if (event.code == keybinds.moveBackward.keyCode) {
+    else if (event.code == keybinds.moveBackward.keyCode) {
         _moveBackward = true;
         return true;
     }
-    if (event.code == keybinds.moveRight.keyCode) {
+    else if (event.code == keybinds.moveRight.keyCode) {
         _moveRight = true;
         return true;
     }
-    if (event.code == keybinds.flourish.keyCode) {
+    else if (event.code == keybinds.flourish.keyCode) {
         // The flourish answers the press only; holding the key repeats nothing.
         if (!event.repeat) {
             std::shared_ptr<Creature> partyLeader(_party.getLeader());
