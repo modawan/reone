@@ -595,6 +595,7 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 }
 
 void Game::init() {
+    _options.game.keybinds.at(0) = KeybindOptions::load(_options.game.configurationPath, 0);
     _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
     _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
     _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
@@ -5881,6 +5882,12 @@ void Game::saveDifficultyLevel() const {
 
 void Game::saveMouseOptions() const {
     _options.game.mouse.save(_options.game.configurationPath);
+}
+
+void Game::saveKeybindOptions() const {
+    for (int i = 0; i < _options.game.keybinds.size(); ++i) {
+        _options.game.keybinds[i].save(_options.game.configurationPath, i);
+    }
 }
 
 // Tutorial windows

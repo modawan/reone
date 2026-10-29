@@ -158,6 +158,7 @@ void OptionsMenu::clearSelection() {
     _game.saveFeedbackOptions();
     _game.saveDifficultyLevel();
     _game.saveMouseOptions();
+    _game.saveKeybindOptions();
 }
 
 void OptionsMenu::loadFeedbackPanel() {

@@ -13,6 +13,8 @@
 #include <optional>
 #include <string>
 
+#include "reone/input/event.h"
+
 namespace reone {
 
 namespace game {
@@ -33,6 +35,30 @@ struct MenuPresentation {
     std::string modelResRef(bool tsl) const;
     static MenuPresentation load(const std::filesystem::path &path);
     void save(const std::filesystem::path &path) const;
+};
+
+struct Keybind {
+    input::KeyCode keyCode;
+};
+struct KeybindOptions {
+    Keybind moveForward {reone::input::KeyCode::W};
+    Keybind moveBackward {reone::input::KeyCode::S};
+    Keybind moveLeft {reone::input::KeyCode::Z};
+    Keybind moveRight {reone::input::KeyCode::C};
+    Keybind flourish {reone::input::KeyCode::X};
+    Keybind walk {reone::input::KeyCode::B};
+    Keybind cameraRotateLeft {reone::input::KeyCode::A};
+    Keybind cameraRotateRight {reone::input::KeyCode::D};
+    Keybind cycleTargetLeft {reone::input::KeyCode::Q};
+    Keybind cycleTargetRight {reone::input::KeyCode::E};
+    Keybind toggleStealth {reone::input::KeyCode::G};
+    Keybind clearOneAction {reone::input::KeyCode::Y};
+    Keybind cancelCombat {reone::input::KeyCode::F};
+    Keybind defaultAction {reone::input::KeyCode::R};
+    Keybind pause {reone::input::KeyCode::Space};
+
+    static KeybindOptions load(const std::filesystem::path &path, const int index);
+    void save(const std::filesystem::path &path, const int index) const;
 };
 
 /**

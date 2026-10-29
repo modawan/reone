@@ -759,6 +759,7 @@ public:
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
+    void saveKeybindOptions() const;
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool alternateActionsHeld() const { return _alternateActionsHeld; }
     /**

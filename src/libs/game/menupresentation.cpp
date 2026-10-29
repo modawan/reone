@@ -30,6 +30,7 @@ namespace {
 const std::string kTopLevel;
 const std::string kGameOptionsSection {"Game Options"};
 const std::string kAutoPauseSection {"Autopause Options"};
+const std::string kKeybindsSectionTemplate {"Player%s Keybinds"};
 
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
@@ -66,6 +67,24 @@ const std::array<std::pair<std::string_view, bool AutoPauseOptions::*>, 6> kAuto
     {"Party Killed", &AutoPauseOptions::partyKilled},
     {"Action Menu", &AutoPauseOptions::actionMenu},
     {"New Target Selected", &AutoPauseOptions::newTargetSelected},
+}};
+
+const std::array<std::pair<std::string_view, Keybind KeybindOptions::*>, 15> kKeybindOptionsKeys {{
+    {"moveForward", &KeybindOptions::moveForward},
+    {"moveBackward", &KeybindOptions::moveBackward},
+    {"moveLeft", &KeybindOptions::moveLeft},
+    {"moveRight", &KeybindOptions::moveRight},
+    {"flourish", &KeybindOptions::flourish},
+    {"walk", &KeybindOptions::walk},
+    {"cameraRotateLeft", &KeybindOptions::cameraRotateLeft},
+    {"cameraRotateRight", &KeybindOptions::cameraRotateRight},
+    {"cycleTargetLeft", &KeybindOptions::cycleTargetLeft},
+    {"cycleTargetRight", &KeybindOptions::cycleTargetRight},
+    {"toggleStealth", &KeybindOptions::toggleStealth},
+    {"clearOneAction", &KeybindOptions::clearOneAction},
+    {"cancelCombat", &KeybindOptions::cancelCombat},
+    {"defaultAction", &KeybindOptions::defaultAction},
+    {"pause", &KeybindOptions::pause},
 }};
 
 std::string trim(const std::string &s) {
@@ -105,6 +124,16 @@ public:
         return result;
     }
 
+    bool exists(const std::string& section) const {
+        for (const auto &line : _lines) {
+            if (auto header = sectionHeader(line)) {
+                if (header == section)
+                    return true;
+            }
+        }
+        return false;
+    }
+
     /** The number of a key in a section, as last set there; none when the key is absent or holds no number. */
     std::optional<int> number(const std::string &section, const std::string &key) const {
         std::optional<int> result;
@@ -130,6 +159,19 @@ public:
     std::optional<bool> flag(const std::string &section, const std::string &key) const {
         auto value = number(section, key);
         return value ? std::optional<bool>(*value != 0) : std::nullopt;
+    }
+
+    std::optional<Keybind> keybind(const std::string& section, const std::string& keyPrefix) const {
+        auto value = Keybind();
+        
+        if (exists(section)) {
+            value.keyCode = static_cast<input::KeyCode>(number(section, str(boost::format("%sKeyCode") % keyPrefix)).value_or(0));
+        }
+        else {
+            return std::nullopt;
+        }
+
+        return value;
     }
 
     /**
@@ -264,6 +306,29 @@ void MenuPresentation::save(const std::filesystem::path &path) const {
                                      {kMenuBodyKey, leaderValue(&CreaturePresentation::bodyVariation)},
                                      {kMenuTextureKey, leaderValue(&CreaturePresentation::textureVariation)},
                                  });
+    configuration.write(path);
+}
+
+KeybindOptions KeybindOptions::load(const std::filesystem::path &path, const int index) {
+    const auto configuration = ConfigurationFile::read(path);
+    const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
+    KeybindOptions result;
+    for (const auto &[key, option] : kKeybindOptionsKeys) {
+        auto keybind = configuration.keybind(kKeybindsSection, std::string(key));
+        if (keybind.has_value())
+            result.*option = keybind.value();
+    }
+    return result;
+}
+
+void KeybindOptions::save(const std::filesystem::path &path, const int index) const {
+    auto configuration = ConfigurationFile::read(path);
+    const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
+    std::vector<ConfigurationValue> values;
+    for (const auto &[key, option] : kKeybindOptionsKeys) {
+        values.emplace_back(std::string(key), static_cast<int>((this->*option).keyCode));
+    }
+    configuration.set(kKeybindsSection, values);
     configuration.write(path);
 }
 
