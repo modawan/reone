@@ -39,6 +39,11 @@ struct MenuPresentation {
 
 struct Keybind {
     input::KeyCode keyCode;
+    input::KeyCode keyCodeAlt;
+
+    bool check(input::KeyCode keyCode) {
+        return this->keyCode == keyCode || keyCodeAlt == keyCode;
+    }
 };
 struct KeybindOptions {
     Keybind moveForward {reone::input::KeyCode::W};
@@ -55,7 +60,7 @@ struct KeybindOptions {
     Keybind clearOneAction {reone::input::KeyCode::Y};
     Keybind cancelCombat {reone::input::KeyCode::F};
     Keybind defaultAction {reone::input::KeyCode::R};
-    Keybind pause {reone::input::KeyCode::Space};
+    Keybind pause {reone::input::KeyCode::Space, reone::input::KeyCode::Pause};
 
     static KeybindOptions load(const std::filesystem::path &path, const int index);
     void save(const std::filesystem::path &path, const int index) const;

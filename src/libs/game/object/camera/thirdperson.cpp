@@ -127,7 +127,7 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
 bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
     auto &keybinds = _game.options().game.keybinds.at(0);
 
-    if (event.code == keybinds.cameraRotateLeft.keyCode) {
+    if (keybinds.cameraRotateLeft.check(event.code)) {
         if (!event.repeat) {
             _rotateCCW = true;
             _rotateCW = false;
@@ -135,7 +135,7 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
             return true;
         }
     }
-    if (event.code == keybinds.cameraRotateRight.keyCode) {
+    if (keybinds.cameraRotateRight.check(event.code)) {
         if (!event.repeat) {
             _rotateCCW = false;
             _rotateCW = true;
@@ -154,11 +154,11 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
 bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
     auto &keybinds = _game.options().game.keybinds.at(0);
 
-    if (event.code == keybinds.cameraRotateLeft.keyCode) {
+    if (keybinds.cameraRotateLeft.check(event.code)) {
         _rotateCCW = false;
         return true;
     }
-    else if (event.code == keybinds.cameraRotateRight.keyCode) {
+    else if (keybinds.cameraRotateRight.check(event.code)) {
         _rotateCW = false;
         return true;
     }

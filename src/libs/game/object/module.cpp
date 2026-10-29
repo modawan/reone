@@ -1553,32 +1553,32 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 bool Module::handleKeyDown(const input::KeyEvent &event) {
     auto &keybinds = game().options().game.keybinds.at(0);
 
-    if (event.code == keybinds.pause.keyCode || event.code == input::KeyCode::Pause) {
+    if (keybinds.pause.check(event.code)) {
         // Pause keys do not repeat: holding one toggles once.
         if (!event.repeat) {
             _game.pressPauseKey();
         }
         return true;
     }
-    else if (event.code == keybinds.toggleStealth.keyCode) {
+    else if (keybinds.toggleStealth.check(event.code)) {
         if (!event.repeat) {
             _game.requestStealth();
         }
         return true;
     }
-    else if (event.code == keybinds.clearOneAction.keyCode) {
+    else if (keybinds.clearOneAction.check(event.code)) {
         if (!event.repeat) {
             _game.clearOneAction();
         }
         return true;
     }
-    else if (event.code == keybinds.cancelCombat.keyCode) {
+    else if (keybinds.cancelCombat.check(event.code)) {
         if (!event.repeat) {
             _game.cancelCombat();
         }
         return true;
     }
-    else if (event.code == keybinds.defaultAction.keyCode) {
+    else if (keybinds.defaultAction.check(event.code)) {
         if (event.repeat) {
             return true;
         }
@@ -1587,13 +1587,13 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
         }
         return true;
     }
-    else if (event.code == keybinds.cycleTargetLeft.keyCode || event.code == keybinds.cycleTargetRight.keyCode) {
+    else if (keybinds.cycleTargetLeft.check(event.code) || keybinds.cycleTargetRight.check(event.code)) {
         // Either key ends the choice of a party member to use an item on.
         _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
             return false;
         }
-        _game.selectNearestObject(event.code == keybinds.cycleTargetLeft.keyCode ? 0 : 1);
+        _game.selectNearestObject(keybinds.cycleTargetLeft.check(event.code) ? 0 : 1);
         // In combat mode a new target may pause play, whether or not one was found.
         if (_game.clientCombatMode()) {
             _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
