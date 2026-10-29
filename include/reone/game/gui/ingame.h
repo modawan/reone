@@ -76,6 +76,9 @@ public:
     std::shared_ptr<gui::Button> getBtnChange2();
     std::shared_ptr<gui::Button> getBtnChange3();
 
+    /** The tab the menu shows; None before the menu is initialized. */
+    InGameMenuTab activeTab() const;
+
 private:
     std::unique_ptr<InGameMenuHost> _host;
     /** The equipment screen's session is open. */
@@ -104,6 +107,14 @@ private:
     void loadOptions();
 
 };
+
+/**
+ * The SUBSCREEN_ID_* constant of nwscript.nss for an in-game menu tab:
+ * equipment 1, inventory 2, character 3, abilities 4, map 5, journal 6,
+ * options 7, messages 8. None and the party selection have no sub-screen id
+ * and give SUBSCREEN_ID_NONE (0).
+ */
+int subScreenId(InGameMenuTab tab);
 
 } // namespace game
 

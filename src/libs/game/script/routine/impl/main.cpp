@@ -405,22 +405,25 @@ static Variable GetAreaUnescapable(const std::vector<Variable> &args, const Rout
 
 static Variable GetTimeHour(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetTimeHour");
+    return Variable::ofInt(static_cast<int>(ctx.game.worldTimeHour()));
 }
 
 static Variable GetTimeMinute(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetTimeMinute");
+    // An hour lasts Mod_MinPerHour minutes, so the minute within it runs from
+    // 0 to Mod_MinPerHour - 1.
+    uint32_t millisecondsPerHour = ctx.game.millisecondsPerWorldDay() / 24u;
+    return Variable::ofInt(static_cast<int>((ctx.game.worldTimeOfDay() % millisecondsPerHour) / 60000u));
 }
 
 static Variable GetTimeSecond(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetTimeSecond");
+    return Variable::ofInt(static_cast<int>((ctx.game.worldTimeOfDay() % 60000u) / 1000u));
 }
 
 static Variable GetTimeMillisecond(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetTimeMillisecond");
+    return Variable::ofInt(static_cast<int>(ctx.game.worldTimeOfDay() % 1000u));
 }
 
 static Variable GetArea(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -699,7 +702,7 @@ static Variable GetLastItemEquipped(const std::vector<Variable> &args, const Rou
 
 static Variable GetSubScreenID(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetSubScreenID");
+    return Variable::ofInt(ctx.game.subScreenId());
 }
 
 static Variable CancelCombat(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2687,7 +2690,9 @@ static Variable AdjustReputation(const std::vector<Variable> &args, const Routin
 
 static Variable GetModuleFileName(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetModuleFileName");
+    // The module's resource name, where GetModuleName gives its Mod_Name.
+    auto module = ctx.game.module();
+    return Variable::ofString(module ? module->name() : "");
 }
 
 static Variable GetGoingToBeAttackedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6263,9 +6268,11 @@ static Variable SoundObjectGetPitchVariance(const std::vector<Variable> &args, c
     auto oSound = getObject(args, 0, ctx);
 
     // Transform
+    auto sound = dyn_cast<Sound>(oSound);
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectGetPitchVariance");
+    // An object that is not a sound has no pitch variation.
+    return Variable::ofFloat(sound ? sound->pitchVariation() : 0.0f);
 }
 
 static Variable SoundObjectSetPitchVariance(const std::vector<Variable> &args, const RoutineContext &ctx) {

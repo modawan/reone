@@ -8652,6 +8652,10 @@ int Game::inventoryMenuCharacter() const {
     return _screen == Screen::InGameMenu && _inGame ? _inGame->inventoryCharacter() : -1;
 }
 
+int Game::subScreenId() const {
+    return _screen == Screen::InGameMenu && _inGame ? game::subScreenId(_inGame->activeTab()) : 0;
+}
+
 void Game::finishPostDialogCharacterSwitch() {
     if (_postDialogCharacterSwitch.empty()) {
         return;
