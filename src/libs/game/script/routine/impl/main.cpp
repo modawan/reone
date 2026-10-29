@@ -4210,7 +4210,8 @@ static Variable PlayRumblePattern(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PlayRumblePattern");
+    // There is no rumble device to drive.
+    return Variable::ofInt(0);
 }
 
 static Variable StopRumblePattern(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4220,7 +4221,8 @@ static Variable StopRumblePattern(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("StopRumblePattern");
+    // There is no rumble device, so no pattern is playing.
+    return Variable::ofInt(0);
 }
 
 // An empty text adds no line to the message list.
@@ -6863,7 +6865,8 @@ static Variable GetIsLiveContentAvailable(const std::vector<Variable> &args, con
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetIsLiveContentAvailable");
+    // The PC release has no Live content packages.
+    return Variable::ofInt(0);
 }
 
 static Variable ResetDialogState(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7840,7 +7843,8 @@ static Variable ChangeObjectAppearance(const std::vector<Variable> &args, const 
 
 static Variable GetIsXBox(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetIsXBox");
+    // This engine runs on PCs only.
+    return Variable::ofInt(0);
 }
 
 static Variable PlayOverlayAnimation(const std::vector<Variable> &args, const RoutineContext &ctx) {
