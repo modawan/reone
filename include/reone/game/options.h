@@ -58,7 +58,7 @@ struct GameOptions {
     AutoPauseOptions autoPause;
     /** How the mouse turns the camera. */
     MouseOptions mouse;
-    KeybindOptions keybinds;
+    std::array<KeybindOptions, 1> keybinds;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 };
 
