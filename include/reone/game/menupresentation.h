@@ -46,21 +46,21 @@ struct Keybind {
     }
 };
 struct KeybindOptions {
-    Keybind moveForward {reone::input::KeyCode::W};
-    Keybind moveBackward {reone::input::KeyCode::S};
-    Keybind moveLeft {reone::input::KeyCode::Z};
-    Keybind moveRight {reone::input::KeyCode::C};
-    Keybind flourish {reone::input::KeyCode::X};
-    Keybind walk {reone::input::KeyCode::B};
-    Keybind cameraRotateLeft {reone::input::KeyCode::A};
-    Keybind cameraRotateRight {reone::input::KeyCode::D};
-    Keybind cycleTargetLeft {reone::input::KeyCode::Q};
-    Keybind cycleTargetRight {reone::input::KeyCode::E};
-    Keybind toggleStealth {reone::input::KeyCode::G};
-    Keybind clearOneAction {reone::input::KeyCode::Y};
-    Keybind cancelCombat {reone::input::KeyCode::F};
-    Keybind defaultAction {reone::input::KeyCode::R};
-    Keybind pause {reone::input::KeyCode::Space, reone::input::KeyCode::Pause};
+    Keybind moveForward {input::KeyCode::W};
+    Keybind moveBackward {input::KeyCode::S};
+    Keybind moveLeft {input::KeyCode::Z};
+    Keybind moveRight {input::KeyCode::C};
+    Keybind flourish {input::KeyCode::X};
+    Keybind walk {input::KeyCode::B};
+    Keybind cameraRotateLeft {input::KeyCode::A};
+    Keybind cameraRotateRight {input::KeyCode::D};
+    Keybind cycleTargetLeft {input::KeyCode::Q};
+    Keybind cycleTargetRight {input::KeyCode::E};
+    Keybind toggleStealth {input::KeyCode::G};
+    Keybind clearOneAction {input::KeyCode::Y};
+    Keybind cancelCombat {input::KeyCode::F};
+    Keybind defaultAction {input::KeyCode::R};
+    Keybind pause {input::KeyCode::Space, input::KeyCode::Pause};
 
     static KeybindOptions load(const std::filesystem::path &path, const int index);
     void save(const std::filesystem::path &path, const int index) const;
