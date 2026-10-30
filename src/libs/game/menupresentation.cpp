@@ -167,6 +167,7 @@ public:
         
         if (exists(section)) {
             value.keyCode = static_cast<input::KeyCode>(number(section, str(boost::format("%sKeyCode") % keyPrefix)).value_or(0));
+            value.keyCodeAlt = static_cast<input::KeyCode>(number(section, str(boost::format("%sKeyCodeAlt") % keyPrefix)).value_or(0));
         }
         else {
             return std::nullopt;
@@ -327,7 +328,8 @@ void KeybindOptions::save(const std::filesystem::path &path, const int index) co
     const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
     std::vector<ConfigurationValue> values;
     for (const auto &[key, option] : kKeybindOptionsKeys) {
-        values.emplace_back(std::string(key), static_cast<int>((this->*option).keyCode));
+        values.emplace_back(str(boost::format("%sKeyCode") % key), static_cast<int>((this->*option).keyCode));
+        values.emplace_back(str(boost::format("%sKeyCodeAlt") % key), static_cast<int>((this->*option).keyCodeAlt));
     }
     configuration.set(kKeybindsSection, values);
     configuration.write(path);

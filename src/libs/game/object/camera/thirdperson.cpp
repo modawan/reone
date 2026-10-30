@@ -135,7 +135,7 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
             return true;
         }
     }
-    if (keybinds.cameraRotateRight.check(event.code)) {
+    else if (keybinds.cameraRotateRight.check(event.code)) {
         if (!event.repeat) {
             _rotateCCW = false;
             _rotateCW = true;
@@ -143,7 +143,7 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
             return true;
         }
     }
-    if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
+    else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
         _mouseLookHeld = true;
         return true;
     }

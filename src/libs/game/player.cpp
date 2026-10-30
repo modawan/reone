@@ -153,23 +153,23 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
 bool Player::handleKeyUp(const input::KeyEvent &event) {
     auto &keybinds = _module.game().options().game.keybinds.at(0);
 
-    if (event.code == keybinds.moveForward.keyCode) {
+    if (keybinds.moveForward.check(event.code)) {
         _moveForward = false;
         return true;
     }
-    if (event.code == keybinds.moveLeft.keyCode) {
+    else if (keybinds.moveLeft.check(event.code)) {
         _moveLeft = false;
         return true;
     }
-    if (event.code == keybinds.moveBackward.keyCode) {
+    else if (keybinds.moveBackward.check(event.code)) {
         _moveBackward = false;
         return true;
     }
-    if (event.code == keybinds.moveRight.keyCode) {
+    else if (keybinds.moveRight.check(event.code)) {
         _moveRight = false;
         return true;
     }
-    if (event.code == keybinds.walk.keyCode) {
+    else if (keybinds.walk.check(event.code)) {
         _walk = false;
         return true;
     }
