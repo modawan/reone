@@ -360,7 +360,7 @@ int loadActiveKeybinds(const std::filesystem::path &path, int activeKeybinds) {
 
 void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds) {
     auto configuration = ConfigurationFile::read(path);
-    configuration.set(kGameOptionsSection, {{kGameOptionsSection, activeKeybinds}});
+    configuration.set(kGameOptionsSection, {{kActiveKeybindsKey, activeKeybinds}});
     configuration.write(path);
 }
 
