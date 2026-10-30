@@ -30,7 +30,7 @@ namespace {
 const std::string kTopLevel;
 const std::string kGameOptionsSection {"Game Options"};
 const std::string kAutoPauseSection {"Autopause Options"};
-const std::string kKeybindsSectionTemplate {"Player%s Keybinds"};
+const std::string kKeybindsSectionTemplate {"Keybinds %d"};
 
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
@@ -55,6 +55,7 @@ const std::array<std::pair<std::string_view, bool FeedbackOptions::*>, 9> kFeedb
 // The Game Options keys of the difficulty level, the unlocked planet songs
 // and the mouse options.
 const std::string kDifficultyLevelKey {"Difficulty Level"};
+const std::string kActiveKeybindsKey {"Active Keybinds"};
 const std::string kUnlockedPlanetSongsKey {"UnlockedPlanetSongs"};
 const std::string kMouseLookKey {"Mouse Look"};
 const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
@@ -350,6 +351,16 @@ void FeedbackOptions::save(const std::filesystem::path &path) const {
         values.emplace_back(std::string(key), this->*option ? 1 : 0);
     }
     configuration.set(kGameOptionsSection, values);
+    configuration.write(path);
+}
+
+int loadActiveKeybinds(const std::filesystem::path &path, int activeKeybinds) {
+    return ConfigurationFile::read(path).number(kGameOptionsSection, kActiveKeybindsKey).value_or(activeKeybinds);
+}
+
+void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kGameOptionsSection, activeKeybinds}});
     configuration.write(path);
 }
 

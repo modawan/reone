@@ -125,7 +125,7 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
 // The turn keys work whether or not the mouse turns the camera. Either Ctrl
 // key, like the right button, turns the camera with the mouse while held.
 bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
-    auto &keybinds = _game.options().game.keybinds.at(0);
+    auto &keybinds = _game.options().game.activeKeybinds();
 
     if (keybinds.cameraRotateLeft.check(event.code)) {
         if (!event.repeat) {
@@ -152,7 +152,7 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
 }
 
 bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
-    auto &keybinds = _game.options().game.keybinds.at(0);
+    auto &keybinds = _game.options().game.activeKeybinds();
 
     if (keybinds.cameraRotateLeft.check(event.code)) {
         _rotateCCW = false;

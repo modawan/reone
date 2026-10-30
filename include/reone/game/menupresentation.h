@@ -97,6 +97,9 @@ int loadDifficultyLevel(const std::filesystem::path &path, int level);
 /** Write the difficulty level into the configuration, keeping every other line. */
 void saveDifficultyLevel(const std::filesystem::path &path, int level);
 
+int loadActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
+void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
+
 /** Each bit of the unlocked planet songs opens one group of the main menu's music list; there are eleven. */
 constexpr int kAllPlanetSongs = 0x7ff;
 /** Write the unlocked planet songs into the configuration, keeping every other line. */
