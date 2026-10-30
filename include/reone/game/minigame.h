@@ -106,18 +106,42 @@ struct MinigameSoundSpec {
     std::string engine;
 };
 
-struct MinigamePlayerScriptSpec {
+/**
+ * Script slots of a player or enemy (a "follower"). Each holds a script
+ * resref; empty means the slot is unused. OnAccelerate and OnBrake are the
+ * accelerate and brake (jump) keys of the K2 swoop races.
+ */
+struct MinigameFollowerScriptSpec {
     std::string onCreate;
-    std::string onDeath;
-    std::string onTrackLoop;
-    std::string onDamage;
-    std::string onAccelerate;
-    std::string onHeartbeat;
-    std::string onFire;
     std::string onHitBullet;
     std::string onHitFollower;
+    std::string onAnimEvent;
+    std::string onHeartbeat;
+    std::string onDamage;
+    std::string onDeath;
+    std::string onFire;
     std::string onHitObstacle;
+    std::string onTrackLoop;
+    std::string onAccelerate;
+    std::string onBrake;
+    std::string onHitWorld;
 };
+
+// Script slots of an obstacle: a subset of the follower slots.
+struct MinigameObstacleScriptSpec {
+    std::string onCreate;
+    std::string onHitBullet;
+    std::string onHitFollower;
+    std::string onAnimEvent;
+    std::string onHeartbeat;
+};
+
+/**
+ * Player acceleration in speed units per second, from the authored speed
+ * range and Accel_Secs (the seconds to go from minimum to maximum speed).
+ * Accel_Secs 0 gives the whole range in one second; a negative value gives -1.
+ */
+float minigameAccelerationPerSecond(float minimumSpeed, float maximumSpeed, float accelSecs);
 
 struct MinigamePlayerSpec {
     std::string cameraResRef;
@@ -127,6 +151,11 @@ struct MinigamePlayerSpec {
     float minimumSpeed {0.0f};
     float maximumSpeed {0.0f};
     float accelSecs {0.0f};
+
+    // Derived from the speed range and accelSecs at parse time, see
+    // minigameAccelerationPerSecond.
+    float accelPerSecond {0.0f};
+
     float sphereRadius {0.0f};
     uint32_t hitPoints {0};
     uint32_t maxHitPoints {0};
@@ -135,7 +164,7 @@ struct MinigamePlayerSpec {
     int numLoops {0};
     bool cameraRotate {false};
     MinigameSoundSpec sounds;
-    MinigamePlayerScriptSpec scripts;
+    MinigameFollowerScriptSpec scripts;
 
     // Placement of the player actor relative to its track hook, and of the
     // aim/target point relative to the actor.
@@ -158,14 +187,6 @@ struct MinigamePlayerSpec {
     glm::vec3 tunnelInfinite {0.0f};
 };
 
-struct MinigameEnemyScriptSpec {
-    std::string onCreate;
-    std::string onDeath;
-    std::string onDamage;
-    std::string onHeartbeat;
-    std::string onTrackLoop;
-};
-
 struct MinigameEnemySpec {
     std::string trackResRef;
     std::vector<MinigameModelSpec> models;
@@ -178,7 +199,7 @@ struct MinigameEnemySpec {
     int numLoops {0};
     bool trigger {false};
     MinigameSoundSpec sounds;
-    MinigameEnemyScriptSpec scripts;
+    MinigameFollowerScriptSpec scripts;
 
     // Kept for call sites that only need the creation hook.
     std::string onCreate;
@@ -186,7 +207,7 @@ struct MinigameEnemySpec {
 
 struct MinigameObstacleSpec {
     std::string name;
-    std::string onCreate;
+    MinigameObstacleScriptSpec scripts;
 };
 
 /**
@@ -212,6 +233,7 @@ struct MinigameSpec {
     uint32_t bumpPlane {0};
     uint32_t depthOfField {0};
     bool doBumping {false};
+    std::string music; // resref of the music played during the minigame
     MinigameMouseSpec mouse;
     MinigamePlayerSpec player;
     std::vector<MinigameEnemySpec> enemies;

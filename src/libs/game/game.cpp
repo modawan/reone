@@ -9936,6 +9936,28 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
         return;
     }
     const auto &mg = area->miniGame();
+    auto slot = [](std::string &out, const char *name, const std::string &resRef) {
+        if (!resRef.empty()) {
+            out += str(boost::format(" %s=%s") % name % resRef);
+        }
+    };
+    auto followerScripts = [&slot](const MinigameFollowerScriptSpec &sc) {
+        std::string out;
+        slot(out, "create", sc.onCreate);
+        slot(out, "hitbullet", sc.onHitBullet);
+        slot(out, "hitfollower", sc.onHitFollower);
+        slot(out, "animevent", sc.onAnimEvent);
+        slot(out, "heartbeat", sc.onHeartbeat);
+        slot(out, "damage", sc.onDamage);
+        slot(out, "death", sc.onDeath);
+        slot(out, "fire", sc.onFire);
+        slot(out, "hitobstacle", sc.onHitObstacle);
+        slot(out, "loop", sc.onTrackLoop);
+        slot(out, "accelerate", sc.onAccelerate);
+        slot(out, "brake", sc.onBrake);
+        slot(out, "hitworld", sc.onHitWorld);
+        return out;
+    };
     _console.printLine(str(boost::format("minigame: type=%s camfov=%.1f lataccel=%.3f movePerSec=%.3f inertia=%d bumpPlane=%u doBumping=%d")
                            % minigameTypeName(mg.type)
                            % mg.cameraViewAngle
@@ -9944,14 +9966,16 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
                            % static_cast<int>(mg.useInertia)
                            % mg.bumpPlane
                            % static_cast<int>(mg.doBumping)));
-    _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f hp=%u models=%zu")
+    _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f (%.3f/s) hp=%u models=%zu music=%s")
                            % mg.player.cameraResRef
                            % mg.player.trackResRef
                            % mg.player.minimumSpeed
                            % mg.player.maximumSpeed
                            % mg.player.accelSecs
+                           % mg.player.accelPerSecond
                            % mg.player.hitPoints
-                           % mg.player.models.size()));
+                           % mg.player.models.size()
+                           % mg.music));
     _console.printLine(str(boost::format("  tunnel (deg): X=[%.1f,%.1f] Y=[%.1f,%.1f] Z=[%.1f,%.1f]")
                            % mg.player.tunnelXNeg % mg.player.tunnelXPos
                            % mg.player.tunnelYNeg % mg.player.tunnelYPos
@@ -9965,11 +9989,18 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
     }
     for (size_t i = 0; i < mg.enemies.size(); ++i) {
         const auto &e = mg.enemies[i];
-        _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu")
-                               % i % e.trackResRef % e.hitPoints % e.models.size()));
+        _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu scripts:%s")
+                               % i % e.trackResRef % e.hitPoints % e.models.size() % followerScripts(e.scripts)));
     }
     for (size_t i = 0; i < mg.obstacles.size(); ++i) {
-        _console.printLine(str(boost::format("    obstacle[%zu] name=%s") % i % mg.obstacles[i].name));
+        const auto &o = mg.obstacles[i];
+        std::string scripts;
+        slot(scripts, "create", o.scripts.onCreate);
+        slot(scripts, "hitbullet", o.scripts.onHitBullet);
+        slot(scripts, "hitfollower", o.scripts.onHitFollower);
+        slot(scripts, "animevent", o.scripts.onAnimEvent);
+        slot(scripts, "heartbeat", o.scripts.onHeartbeat);
+        _console.printLine(str(boost::format("    obstacle[%zu] name=%s scripts:%s") % i % o.name % scripts));
     }
     if (auto layout = _services.resource.layouts.get(area->name())) {
         auto placement = layout->findTrackByName(mg.player.trackResRef);
@@ -9990,11 +10021,7 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
         _console.printLine(str(boost::format("  lyt obstacles=%zu (matched %zu of %zu .are obstacles)")
                                % layout->obstacles.size() % obstaclesMatched % mg.obstacles.size()));
     }
-    const auto &sc = mg.player.scripts;
-    if (!sc.onCreate.empty() || !sc.onDeath.empty() || !sc.onTrackLoop.empty()) {
-        _console.printLine(str(boost::format("  scripts: create=%s death=%s loop=%s damage=%s")
-                               % sc.onCreate % sc.onDeath % sc.onTrackLoop % sc.onDamage));
-    }
+    _console.printLine("  player scripts:" + followerScripts(mg.player.scripts));
 }
 
 void Game::consoleStartSwoop(const ConsoleArgs &args) {
