@@ -1551,7 +1551,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 }
 
 bool Module::handleKeyDown(const input::KeyEvent &event) {
-    auto &keybinds = game().options().game.keybinds.at(0);
+    auto &keybinds = _module.game().options().game.activeKeybinds();
 
     if (keybinds.pause.check(event.code)) {
         // Pause keys do not repeat: holding one toggles once.

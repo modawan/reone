@@ -116,7 +116,7 @@ bool Player::handle(const input::Event &event) {
 }
 
 bool Player::handleKeyDown(const input::KeyEvent &event) {
-    auto &keybinds = _module.game().options().game.keybinds.at(0);
+    auto &keybinds = _module.game().options().game.activeKeybinds();
 
     if (keybinds.moveForward.check(event.code)) {
         _moveForward = true;
@@ -151,7 +151,7 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
 }
 
 bool Player::handleKeyUp(const input::KeyEvent &event) {
-    auto &keybinds = _module.game().options().game.keybinds.at(0);
+    auto &keybinds = _module.game().options().game.activeKeybinds();
 
     if (keybinds.moveForward.check(event.code)) {
         _moveForward = false;
