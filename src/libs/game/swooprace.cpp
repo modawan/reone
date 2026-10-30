@@ -70,7 +70,8 @@ void SwoopRace::start(const MinigameSpec &spec,
                       std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeChildNodes,
                       const glm::vec3 &startPosition,
                       float startFacing,
-                      float finishProgress) {
+                      float finishProgress,
+                      std::optional<MinigameTrack> track) {
     _type = spec.type;
     _movePerSec = spec.movementPerSec;
     _lateralAccel = spec.lateralAccel;
@@ -92,6 +93,17 @@ void SwoopRace::start(const MinigameSpec &spec,
     _trackForward = glm::vec3(-glm::sin(_facing), glm::cos(_facing), 0.0f);
     _trackRight = glm::vec3(glm::cos(_facing), glm::sin(_facing), 0.0f);
 
+    // A track whose animation has no length has nothing to follow; the bike
+    // keeps the straight line then.
+    _track.reset();
+    if (track && track->length() > 0.0f) {
+        _track = std::move(track);
+    }
+    _trackTime = 0.0f;
+    _trackLoops = spec.player.numLoops;
+    _trackEnded = false;
+    _trackHook = _track ? _track->hookAt(0.0f) : glm::mat4(1.0f);
+
     _speed = 0.0f;
     _progress = 0.0f;
     _lateralOffset = 0.0f;
@@ -112,6 +124,7 @@ void SwoopRace::stop() {
 
     _active = false;
     _steerDir = 0;
+    _track.reset();
     _camera = nullptr;
     if (_bikeRoot) {
         _bikeRoot->removeAllChildren();
@@ -175,16 +188,49 @@ void SwoopRace::update(float dt) {
         _lateralVel = 0.0f;
     }
 
-    // Advance forward progress down the fixed track frame.
+    // Forward progress is the distance covered; the finish threshold is
+    // measured in it.
     _progress += _speed * dt;
+    advanceTrack(dt);
 
     applyBikeTransform();
     applyChaseCamera();
 }
 
+void SwoopRace::advanceTrack(float dt) {
+    if (!_track || _trackEnded) {
+        return;
+    }
+    float length = _track->length();
+    _trackTime += dt * _speed / kMinigameTrackRateDivisor;
+    while (_trackTime >= length) {
+        if (_trackLoops < 0) {
+            _trackTime -= length;
+        } else if (_trackLoops > 1) {
+            --_trackLoops;
+            _trackTime -= length;
+        } else {
+            _trackTime = length;
+            _trackEnded = true;
+            break;
+        }
+    }
+    _trackHook = _track->hookAt(_trackTime);
+}
+
 glm::vec3 SwoopRace::bikePosition() const {
+    if (_track) {
+        return glm::vec3(_trackHook * glm::vec4(_lateralOffset, 0.0f, 0.0f, 1.0f));
+    }
     glm::vec3 centerline = _trackStart + _trackForward * _progress;
     return centerline + _trackRight * _lateralOffset;
+}
+
+glm::vec3 SwoopRace::bikeForward() const {
+    if (_track) {
+        return glm::normalize(glm::mat3(_trackHook) * glm::vec3(0.0f, 1.0f, 0.0f));
+    }
+    return _trackForward;
 }
 
 void SwoopRace::applyBikeTransform() {
@@ -201,8 +247,14 @@ void SwoopRace::applyBikeTransform() {
     }
 
     glm::mat4 transform(1.0f);
-    transform *= glm::translate(bikePos);
-    transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, 0.0f, _facing)));
+    if (_track) {
+        // The hook carries the down-course orientation.
+        transform = _trackHook;
+        transform *= glm::translate(glm::vec3(_lateralOffset, 0.0f, 0.0f));
+    } else {
+        transform *= glm::translate(bikePos);
+        transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, 0.0f, _facing)));
+    }
     transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, lean, 0.0f)));
 
     _bikeRoot->setLocalTransform(transform);
@@ -216,7 +268,7 @@ void SwoopRace::applyChaseCamera() {
 
     glm::vec3 bikePos = bikePosition();
 
-    glm::vec3 cameraPos = bikePos - _trackForward * kChaseDistance;
+    glm::vec3 cameraPos = bikePos - bikeForward() * kChaseDistance;
     cameraPos.z += kChaseHeight;
 
     glm::vec3 target = bikePos;

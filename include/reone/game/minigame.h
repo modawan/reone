@@ -22,7 +22,15 @@
 #include <string>
 #include <vector>
 
+#include "reone/graphics/keyframetrack.h"
+
 namespace reone {
+
+namespace graphics {
+
+class Model;
+
+}
 
 namespace resource {
 
@@ -228,6 +236,64 @@ struct MinigameSpec {
  * Returns nullopt when the area declares no minigame (Type 0).
  */
 std::optional<MinigameSpec> parseMinigameSpec(const resource::generated::ARE &are);
+
+/**
+ * The path of a minigame track: where the track model's "modelhook" node is
+ * at each time of the model's "track" animation. Actors ride the hook.
+ *
+ * Position keys are offsets from the hook's rest position and orientation
+ * keys replace its rest orientation, as when the animation plays on the
+ * model. Times before the first key give the first key, and times past the
+ * last key give the last key.
+ */
+class MinigameTrack {
+public:
+    MinigameTrack() = default;
+
+    /**
+     * @param base world transform of the hook's parent: the track placement
+     *             times the rest pose of the hook's ancestors
+     * @param restPosition rest position of the hook in its parent
+     * @param restOrientation rest orientation of the hook in its parent
+     * @param positions position keys of the hook in the "track" animation
+     * @param orientations orientation keys of the hook in the "track" animation
+     * @param length length of the "track" animation in seconds
+     */
+    MinigameTrack(glm::mat4 base,
+                  glm::vec3 restPosition,
+                  glm::quat restOrientation,
+                  graphics::KeyframeTrack<glm::vec3> positions,
+                  graphics::KeyframeTrack<glm::quat> orientations,
+                  float length);
+
+    /** World transform of the hook at a time of the track animation. */
+    glm::mat4 hookAt(float time) const;
+
+    float length() const { return _length; }
+
+private:
+    glm::mat4 _base {1.0f};
+    glm::vec3 _restPosition {0.0f};
+    glm::quat _restOrientation {1.0f, 0.0f, 0.0f, 0.0f};
+    graphics::KeyframeTrack<glm::vec3> _positions;
+    graphics::KeyframeTrack<glm::quat> _orientations;
+    float _length {0.0f};
+};
+
+/**
+ * Build the path of the "modelhook" node of a track model placed at
+ * \p placement (the LYT track position). A model without a "track" animation
+ * gives a track of length 0, whose hook stays at its rest pose.
+ *
+ * Returns nullopt when the model has no "modelhook" node.
+ */
+std::optional<MinigameTrack> buildMinigameTrack(const graphics::Model &model, const glm::vec3 &placement);
+
+/**
+ * A minigame track plays at speed / 100: at speed 100 an actor rides the
+ * hook at the rate the animation was authored.
+ */
+constexpr float kMinigameTrackRateDivisor = 100.0f;
 
 } // namespace game
 
