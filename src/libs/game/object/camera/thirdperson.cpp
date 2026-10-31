@@ -137,6 +137,13 @@ bool ThirdPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &e
 }
 
 bool ThirdPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    if (event.axis == input::GamepadAxis::RightX) {
+        _rotateCCW = event.value < -0.1f;
+        _rotateCW = event.value > 0.1f;
+        _rotationSpeed = kMaxRotationSpeed * std::abs(event.value);
+        return true;
+    }
+
     return false;
 }
 

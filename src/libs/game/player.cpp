@@ -121,16 +121,34 @@ bool Player::handle(const input::Event &event) {
     }
 }
 
-bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
-    return false;
-}
-
 bool Player::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    if (event.button == input::GamepadButton::West) {
+        std::shared_ptr<Creature> partyLeader(_party.getLeader());
+        partyLeader->flourishWeapons(true);
+    }
+    
     return false;
 }
 
 bool Player::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
     return false;
+}
+
+bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    bool handled = false;
+
+    if (event.axis == input::GamepadAxis::LeftY) {
+        _moveForward = event.value < -0.2f;
+        _moveBackward = event.value > 0.2f;
+        handled = true;
+    }
+    if (event.axis == input::GamepadAxis::LeftX) {
+        _moveLeft = event.value < -0.2f;
+        _moveRight = event.value > 0.2f;
+        handled = true;
+    }
+
+    return handled;
 }
 
 bool Player::handleKeyDown(const input::KeyEvent &event) {
