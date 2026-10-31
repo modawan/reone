@@ -94,10 +94,13 @@ static void imguiShutdown() {
 }
 
 void Engine::init() {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
-
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "%s", SDL_GetError());
+    }
+    
     if (_options.graphics.headless) {
         _options.graphics.winScale = 100;
         _options.audio.muted = true;
