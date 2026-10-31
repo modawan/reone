@@ -21,6 +21,47 @@ namespace reone {
 
 namespace input {
 
+
+enum class GamepadButton {
+    Invalid = -1,
+    South, 
+    East, 
+    West,  
+    North, 
+    Back,
+    Guide,
+    Start,
+    LeftStick,
+    RightStick,
+    LeftShoulder,
+    RightShoulder,
+    DPadUp,
+    DPadDown,
+    DPadLeft,
+    DPadRight,
+    Misc1,         
+    RightPaddle1,
+    LeftPaddle1,  
+    RightPaddle2,
+    LeftPaddle2,  
+    Touchpad,     
+    Misc2,        
+    Misc3,        
+    Misc4,        
+    Misc5,  
+    Misc6,   
+};
+
+enum class GamepadAxis {
+    Invalid = -1,
+    LeftX,
+    LeftY,
+    RightX,
+    RightY,
+    LeftTrigger,
+    RightTrigger,
+};
+
 enum class KeyCode {
     Unknown = 0,
 
@@ -168,6 +209,36 @@ struct KeyEvent {
     }
 };
 
+struct GamepadButtonEvent {
+    uint32_t which;
+    bool pressed;
+    GamepadButton button;
+
+    GamepadButtonEvent(uint32_t which,
+                       bool pressed,
+                       GamepadButton button) :
+        which(which),
+        pressed(pressed),
+        button(button) {
+    }
+};
+
+struct GamepadAxisMotionEvent {
+    uint32_t which;
+    float value;
+    GamepadAxis axis;
+
+    GamepadAxisMotionEvent(uint32_t which,
+                           int16_t rawValue,
+                           GamepadAxis axis) :
+        which(which),
+        value(rawValue < 0
+                  ? static_cast<float>(rawValue) / 32768.0f
+                  : static_cast<float>(rawValue) / 32767.0f),
+        axis(axis) {
+    }
+};
+
 struct MouseMotionEvent {
     int32_t x;
     int32_t y;
@@ -239,7 +310,10 @@ enum class EventType {
     MouseMotion,
     MouseButtonDown,
     MouseButtonUp,
-    MouseWheel
+    MouseWheel,
+    GamepadButtonDown,
+    GamepadButtonUp,
+    GamepadAxisMotion
 };
 
 struct Event {
@@ -249,10 +323,30 @@ struct Event {
         MouseMotionEvent motion;
         MouseButtonEvent button;
         MouseWheelEvent wheel;
+        GamepadButtonEvent gamepadButton;
+        GamepadAxisMotionEvent gamepadAxisMotion;
     };
 
     Event(EventType type) :
         type(type) {
+    }
+
+    inline static Event newGamepadButtonDown(GamepadButtonEvent gamepadButton) {
+        Event event {EventType::GamepadButtonDown};
+        event.gamepadButton = std::move(gamepadButton);
+        return event;
+    }
+
+    inline static Event newGamepadButtonUp(GamepadButtonEvent gamepadButton) {
+        Event event {EventType::GamepadButtonUp};
+        event.gamepadButton = std::move(gamepadButton);
+        return event;
+    }
+
+    inline static Event newGamepadAxisMotion(GamepadAxisMotionEvent gamepadAxisMotion) {
+        Event event {EventType::GamepadAxisMotion};
+        event.gamepadAxisMotion = std::move(gamepadAxisMotion);
+        return event;
     }
 
     inline static Event newKeyDown(KeyEvent key) {
