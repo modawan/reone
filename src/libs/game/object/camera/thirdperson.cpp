@@ -107,6 +107,12 @@ float ThirdPersonCamera::projectionFovy() const {
 
 bool ThirdPersonCamera::handle(const input::Event &event) {
     switch (event.type) {
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion);
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton);
     case input::EventType::KeyDown:
         return handleKeyDown(event.key);
     case input::EventType::KeyUp:
@@ -120,6 +126,18 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
     default:
         return false;
     }
+}
+
+bool ThirdPersonCamera::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool ThirdPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool ThirdPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
 }
 
 // The turn keys work whether or not the mouse turns the camera. Either Ctrl

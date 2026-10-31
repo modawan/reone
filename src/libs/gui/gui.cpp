@@ -232,6 +232,13 @@ void GUI::setBackground(std::shared_ptr<graphics::Texture> texture) {
 
 bool GUI::handle(const input::Event &event) {
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton);
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion);
+
     case input::EventType::KeyDown:
         return handleKeyDown(event.key.code);
 
@@ -272,6 +279,18 @@ bool GUI::handle(const input::Event &event) {
         break;
     }
 
+    return false;
+}
+
+bool GUI::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
+bool GUI::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool GUI::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
     return false;
 }
 

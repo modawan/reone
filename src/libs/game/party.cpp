@@ -124,10 +124,17 @@ void Party::initializeNewGameState() {
 }
 
 bool Party::handle(const input::Event &event) {
+    if (event.type == input::EventType::GamepadButtonDown) {
+        return handleGamepadButtonDown(event.gamepadButton);
+    }
     if (event.type == input::EventType::KeyDown) {
         return handleKeyDown(event.key);
     }
 
+    return false;
+}
+
+bool Party::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
     return false;
 }
 

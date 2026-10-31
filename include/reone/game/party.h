@@ -700,6 +700,7 @@ private:
 
     // END Follow path
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
     /**
      * The roster slot forgets its creature, when it binds the expected one or
