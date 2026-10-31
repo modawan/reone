@@ -1563,10 +1563,41 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 }
 
 bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
-    return false;
+    if (event.axis == input::GamepadAxis::LeftTrigger || event.axis == input::GamepadAxis::RightTrigger) {
+        _game.cancelPartyItemTarget();
+        if (_game.cameraType() != CameraType::ThirdPerson) {
+            return false;
+        }
+        _game.selectNearestObject(event.axis == input::GamepadAxis::LeftTrigger ? 0 : 1);
+        // In combat mode a new target may pause play, whether or not one was found.
+        if (_game.clientCombatMode()) {
+            _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
+        }
+        return true;
+    }
 }
 
 bool Module::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    if (event.button == input::GamepadButton::LeftShoulder) {
+        _game.pressPauseKey();
+        return true;
+    }
+    //stealth
+    if (event.button == input::GamepadButton::North) {
+        _game.clearOneAction();
+        return true;
+    }
+    if (event.button == input::GamepadButton::East) {
+        _game.cancelCombat();
+        return true;
+    }
+    if (event.button == input::GamepadButton::South) {
+        if (auto selected = _area->selectedObject()) {
+            onObjectClick(selected, false);
+        }
+        return true;
+    }
+    
     return false;
 }
 

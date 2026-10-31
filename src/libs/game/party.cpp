@@ -135,6 +135,16 @@ bool Party::handle(const input::Event &event) {
 }
 
 bool Party::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    if (event.button == input::GamepadButton::RightShoulder) {
+        // The change-character key sounds the accepted cue whether or not
+        // the lead moved.
+        selectNextStandingMember();
+        if (auto clip = _game.services().game.guiSounds.getActionAccepted()) {
+            _game.services().audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+        }
+        return true;
+    }
+
     return false;
 }
 
