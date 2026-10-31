@@ -73,6 +73,10 @@ bool Window::isAssociatedWith(const SDL_Event &event) const {
     }
 
     switch (event.type) {
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+        return true;
     case SDL_EVENT_KEY_DOWN:
         return event.key.windowID == _windowID;
     case SDL_EVENT_KEY_UP:

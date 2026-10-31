@@ -94,7 +94,7 @@ static void imguiShutdown() {
 }
 
 void Engine::init() {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
 
