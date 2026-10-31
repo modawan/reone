@@ -138,13 +138,13 @@ bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event)
     bool handled = false;
 
     if (event.axis == input::GamepadAxis::LeftY) {
-        _moveForward = event.value;
-        _moveBackward = event.value;
+        _moveForward = std::abs(std::min(0.0f, event.value));
+        _moveBackward = std::abs(std::max(0.0f, event.value));
         handled = true;
     }
     if (event.axis == input::GamepadAxis::LeftX) {
-        _moveLeft = event.value;
-        _moveRight = event.value;
+        _moveLeft = std::abs(std::min(0.0f, event.value));
+        _moveRight = std::abs(std::max(0.0f, event.value));
         handled = true;
     }
 
@@ -248,7 +248,7 @@ void Player::update(float dt) {
     float facing = 0.0f;
     bool movement = true;
 
-    if (_moveForward > 0) {
+    /*if (_moveForward > 0) {
         facing = _camera.facing();
     } else if (_moveBackward > 0) {
         facing = _camera.facing() + glm::pi<float>();
@@ -258,11 +258,14 @@ void Player::update(float dt) {
         facing = _camera.facing() - glm::half_pi<float>();
     } else {
         movement = false;
-    }
+    }*/
 
-    if (_moving) {
-
-    }
+    float forward = _moveForward - _moveBackward;
+    float right = _moveLeft - _moveRight;
+    glm::vec2 movementVec(forward, right);
+    facing = movement ? _camera.facing() + std::atan2(right, forward) : _camera.facing();
+    float magnitude = glm::length(movementVec);
+    movement = magnitude > 0.0001f;
 
     if (movement) {
         // Moving by input clears as the player's controls do.
