@@ -138,13 +138,13 @@ bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event)
     bool handled = false;
 
     if (event.axis == input::GamepadAxis::LeftY) {
-        _moveForward = event.value < -0.2f;
-        _moveBackward = event.value > 0.2f;
+        _moveForward = event.value;
+        _moveBackward = event.value;
         handled = true;
     }
     if (event.axis == input::GamepadAxis::LeftX) {
-        _moveLeft = event.value < -0.2f;
-        _moveRight = event.value > 0.2f;
+        _moveLeft = event.value;
+        _moveRight = event.value;
         handled = true;
     }
 
@@ -154,19 +154,19 @@ bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event)
 bool Player::handleKeyDown(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::W: {
-        _moveForward = true;
+        _moveForward = 1.0f;
         return true;
     }
     case input::KeyCode::Z: {
-        _moveLeft = true;
+        _moveLeft = 1.0f;
         return true;
     }
     case input::KeyCode::S: {
-        _moveBackward = true;
+        _moveBackward = 1.0f;
         return true;
     }
     case input::KeyCode::C: {
-        _moveRight = true;
+        _moveRight = 1.0f;
         return true;
     }
     case input::KeyCode::X: {
@@ -189,19 +189,19 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
 bool Player::handleKeyUp(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::W:
-        _moveForward = false;
+        _moveForward = 0;
         return true;
 
     case input::KeyCode::Z:
-        _moveLeft = false;
+        _moveLeft = 0;
         return true;
 
     case input::KeyCode::S:
-        _moveBackward = false;
+        _moveBackward = 0;
         return true;
 
     case input::KeyCode::C:
-        _moveRight = false;
+        _moveRight = 0;
         return true;
 
     case input::KeyCode::B:
@@ -215,7 +215,7 @@ bool Player::handleKeyUp(const input::KeyEvent &event) {
 
 bool Player::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (_camera.isMouseLookMode() && event.button == input::MouseButton::Left) {
-        _moveForward = true;
+        _moveForward = 1;
         _leftPressedInMouseLook = true;
         return true;
     }
@@ -225,7 +225,7 @@ bool Player::handleMouseButtonDown(const input::MouseButtonEvent &event) {
 
 bool Player::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     if (_leftPressedInMouseLook && event.button == input::MouseButton::Left) {
-        _moveForward = false;
+        _moveForward = 0;
         _leftPressedInMouseLook = false;
         return true;
     }
@@ -248,16 +248,20 @@ void Player::update(float dt) {
     float facing = 0.0f;
     bool movement = true;
 
-    if (_moveForward) {
+    if (_moveForward > 0) {
         facing = _camera.facing();
-    } else if (_moveBackward) {
+    } else if (_moveBackward > 0) {
         facing = _camera.facing() + glm::pi<float>();
-    } else if (_moveLeft) {
+    } else if (_moveLeft > 0) {
         facing = _camera.facing() + glm::half_pi<float>();
-    } else if (_moveRight) {
+    } else if (_moveRight > 0) {
         facing = _camera.facing() - glm::half_pi<float>();
     } else {
         movement = false;
+    }
+
+    if (_moving) {
+
     }
 
     if (movement) {
@@ -290,10 +294,10 @@ void Player::update(float dt) {
 
 void Player::stopMovement() {
     _moving = false;
-    _moveForward = false;
-    _moveLeft = false;
-    _moveBackward = false;
-    _moveRight = false;
+    _moveForward = 0;
+    _moveLeft = 0;
+    _moveBackward = 0;
+    _moveRight = 0;
 
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
     if (partyLeader) {
@@ -302,7 +306,7 @@ void Player::stopMovement() {
 }
 
 bool Player::isMovementRequested() const {
-    return _moveForward || _moveLeft || _moveBackward || _moveRight;
+    return _moveForward > 0 || _moveLeft > 0 || _moveBackward > 0 || _moveRight > 0;
 }
 
 } // namespace game
