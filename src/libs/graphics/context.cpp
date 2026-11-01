@@ -191,6 +191,19 @@ void Context::blitFramebuffer(Framebuffer &source,
     default:
         throw std::invalid_argument("filter");
     }
+    // GL only allows GL_NEAREST for depth and stencil: copy colour with the
+    // requested filter and depth/stencil nearest, in two blits when both are asked for.
+    GLenum depthStencil = glMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    if (glFilter == GL_LINEAR && depthStencil != 0) {
+        if ((glMask & GL_COLOR_BUFFER_BIT) != 0) {
+            glBlitFramebuffer(srcRect[0], srcRect[1], srcRect[2], srcRect[3],
+                              dstRect[0], dstRect[1], dstRect[2], dstRect[3],
+                              GL_COLOR_BUFFER_BIT,
+                              GL_LINEAR);
+        }
+        glMask = depthStencil;
+        glFilter = GL_NEAREST;
+    }
     glBlitFramebuffer(srcRect[0], srcRect[1], srcRect[2], srcRect[3],
                       dstRect[0], dstRect[1], dstRect[2], dstRect[3],
                       glMask,
