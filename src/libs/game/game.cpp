@@ -1524,7 +1524,11 @@ void Game::endSourceSession(const std::string &destination) {
                   _pendingTurret.targetModule % destination));
         _pendingTurret = PendingTurretRequest();
     }
-    if (_screen == Screen::Conversation && _conversation) {
+    // The loading screen is already up here (withLoadingScreen changes the
+    // screen first), so a conversation the transition cuts off is found by its
+    // own state too: left running, its participants would keep their
+    // in-conversation flag in the next module.
+    if (_conversation && (_screen == Screen::Conversation || _conversation->isRunning())) {
         _conversation->cleanupForModuleTransition();
     }
 
