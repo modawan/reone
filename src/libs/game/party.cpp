@@ -35,6 +35,7 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
 #include "reone/game/twodautil.h"
 #include "reone/game/types.h"
 #include "reone/resource/2da.h"
@@ -355,6 +356,7 @@ bool Party::addAvailableRosterRecord(
              std::string(e.what()));
         return false;
     }
+    retireStaleRosterBinding(identity, creature.get());
     return setRosterAvailable(identity, true);
 }
 
@@ -388,7 +390,36 @@ bool Party::addAvailableRosterRecord(
         return false;
     }
     _game.destroyRuntimeObjectGraph(creature);
+    retireStaleRosterBinding(identity);
     return setRosterAvailable(identity, true);
+}
+
+void Party::retireStaleRosterBinding(
+    const RosterIdentity &identity,
+    const Creature *keep) {
+    // K1 parks Trask in companion slot 0 on the Endar Spire; Bastila's
+    // AddAvailableNPCByTemplate(0, ...) on Taris replaces the record. The old
+    // runtime binding survived, so party selection spawned Trask again until
+    // a save/load dropped the in-memory bindings.
+    auto stale = rosterCreature(identity);
+    if (!stale || stale.get() == keep || stale == _player || stale == _actualPlayer) {
+        return;
+    }
+    for (const auto &member : _members) {
+        if (member.creature == stale) {
+            return;
+        }
+    }
+    clearRosterCreature(identity, stale.get());
+    bool inArea = false;
+    if (auto module = _game.module(); module && module->area()) {
+        const auto &objects = module->area()->objects();
+        inArea = std::any_of(objects.begin(), objects.end(),
+                             [&stale](const auto &object) { return object == stale; });
+    }
+    if (!inArea && _game.isRuntimeObjectLive(*stale)) {
+        _game.destroyRuntimeObjectGraph(stale);
+    }
 }
 
 std::shared_ptr<Creature> Party::bindPlacedCompanion(int npc, const Area &area) {
