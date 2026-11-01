@@ -106,28 +106,28 @@ void CharGenSkills::onGUILoaded() {
     });
 
     _controls.COMPUTER_USE_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::ComputerUse, selected);
+        onSkillLabelSelectionChanged(SkillType::ComputerUse, *_controls.COMPUTER_USE_LBL, *_controls.COMPUTER_USE_POINTS_BTN, selected);
     });
     _controls.DEMOLITIONS_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::Demolitions, selected);
+        onSkillLabelSelectionChanged(SkillType::Demolitions, *_controls.DEMOLITIONS_LBL, *_controls.DEMOLITIONS_POINTS_BTN, selected);
     });
     _controls.STEALTH_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::Stealth, selected);
+        onSkillLabelSelectionChanged(SkillType::Stealth, *_controls.STEALTH_LBL, *_controls.STEALTH_POINTS_BTN, selected);
     });
     _controls.AWARENESS_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::Awareness, selected);
+        onSkillLabelSelectionChanged(SkillType::Awareness, *_controls.AWARENESS_LBL, *_controls.AWARENESS_POINTS_BTN, selected);
     });
     _controls.PERSUADE_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::Persuade, selected);
+        onSkillLabelSelectionChanged(SkillType::Persuade, *_controls.PERSUADE_LBL, *_controls.PERSUADE_POINTS_BTN, selected);
     });
     _controls.REPAIR_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::Repair, selected);
+        onSkillLabelSelectionChanged(SkillType::Repair, *_controls.REPAIR_LBL, *_controls.REPAIR_POINTS_BTN, selected);
     });
     _controls.SECURITY_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::Security, selected);
+        onSkillLabelSelectionChanged(SkillType::Security, *_controls.SECURITY_LBL, *_controls.SECURITY_POINTS_BTN, selected);
     });
     _controls.TREAT_INJURY_LBL->setOnSelectionChanged([this](bool selected) {
-        onSkillLabelSelectionChanged(SkillType::TreatInjury, selected);
+        onSkillLabelSelectionChanged(SkillType::TreatInjury, *_controls.TREAT_INJURY_LBL, *_controls.TREAT_INJURY_POINTS_BTN, selected);
     });
 
     _controls.COM_MINUS_BTN->setOnClick([this]() {
@@ -274,7 +274,10 @@ void CharGenSkills::onPlusButtonClick(SkillType skill) {
     refreshControls();
 }
 
-void CharGenSkills::onSkillLabelSelectionChanged(SkillType skill, bool selected) {
+void CharGenSkills::onSkillLabelSelectionChanged(SkillType skill, Label &label, Button &points, bool selected) {
+    // The hovered row's name and points pulse.
+    label.setTextPulsing(selected);
+    points.setTextPulsing(selected);
     if (!selected)
         return;
 

@@ -128,6 +128,7 @@ class MockAudioClips : public IAudioClips, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, get, (const std::string &key), (override));
+    MOCK_METHOD(bool, hasMp3, (const std::string &resRef), (override));
 };
 
 class MockCursors : public ICursors, boost::noncopyable {

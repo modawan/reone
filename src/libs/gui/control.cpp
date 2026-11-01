@@ -41,6 +41,12 @@ namespace reone {
 
 namespace gui {
 
+// The flags of a border's or a text's PULSING field: a border's frame pulses
+// on the first and its fill on the second; a text pulses on the first.
+static constexpr int kPulsingFrameFlag = 1;
+static constexpr int kPulsingFillFlag = 2;
+static constexpr int kPulsingTextFlag = 1;
+
 ControlType Control::getType(const resource::generated::GUI_BASECONTROL &gui) {
     return static_cast<ControlType>(gui.CONTROLTYPE);
 }
@@ -70,6 +76,12 @@ void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
     loadExtent(gui.EXTENT);
     loadBorder(gui.BORDER);
     _tintBorderFill = _gui.tintBorderFills();
+    _isProtoItem = protoItem;
+    // A button's text pulses while the button is selected, and so does an
+    // image button's where the GUI says so.
+    _text.hilightPulsing = _type == ControlType::Button ||
+                           _type == ControlType::ToggleButton ||
+                           (_type == ControlType::ImageButton && _gui.imageButtonTextPulses());
 
     if (static_cast<ControlType>(gui.CONTROLTYPE) == ControlType::Panel) {
         _id = -1;
@@ -125,6 +137,8 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
 
     border->dimension = gui.DIMENSION;
     border->color = gui.COLOR;
+    border->pulseFrame = (gui.PULSING & kPulsingFrameFlag) != 0;
+    border->pulseFill = (gui.PULSING & kPulsingFillFlag) != 0;
     return border;
 }
 
@@ -141,6 +155,7 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
 
     _text.color = gui.COLOR;
     _text.align = static_cast<TextAlign>(gui.ALIGNMENT);
+    _text.pulsing = (gui.PULSING & kPulsingTextFlag) != 0;
 
     updateTextLines();
 }
@@ -257,10 +272,13 @@ void Control::renderBorder(const Border &border,
                            const glm::ivec2 &offset,
                            const glm::ivec2 &size,
                            IRenderPass &pass,
-                           BorderRenderPart part) {
+                           BorderRenderPart part,
+                           bool pulsing) {
     _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(ShaderProgramId::mvpTexture));
 
     glm::vec3 color(getBorderColor());
+    const auto frameAlpha = pulsing || border.pulseFrame ? _gui.pulsingAlpha() : border.alpha;
+    const auto fillAlpha = pulsing || border.pulseFill ? _gui.pulsingAlpha() : border.alpha;
     glm::mat4 transform(1.0f);
     glm::mat3x4 uv(1.0f);
     // Controls thinner than two authored slices - the TSL title bars - split
@@ -288,7 +306,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
                 fillSize,
-                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), _borderFillOpacity),
+                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), fillAlpha),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
         });
@@ -311,7 +329,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x, y},
                 {leftWidth, height},
-                glm::vec4(color, 1.0f),
+                glm::vec4(color, frameAlpha),
                 uv);
 
             // Right edge
@@ -323,7 +341,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x + size.x - rightWidth, y},
                 {rightWidth, height},
-                glm::vec4(color, 1.0f),
+                glm::vec4(color, frameAlpha),
                 uv);
         }
 
@@ -336,7 +354,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x, y},
                 {width, topHeight},
-                glm::vec4(color, 1.0f));
+                glm::vec4(color, frameAlpha));
 
             // Bottom edge
             uv = glm::mat3x4(
@@ -347,7 +365,7 @@ void Control::renderBorder(const Border &border,
                 *border.edge,
                 {x, y + size.y - bottomHeight},
                 {width, bottomHeight},
-                glm::vec4(color, 1.0f),
+                glm::vec4(color, frameAlpha),
                 uv);
         }
     }
@@ -361,7 +379,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x, y},
             {leftWidth, topHeight},
-            glm::vec4(color, 1.0f));
+            glm::vec4(color, frameAlpha));
 
         // Bottom left corner
         uv = glm::mat3x4(
@@ -372,7 +390,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x, y + size.y - bottomHeight},
             {leftWidth, bottomHeight},
-            glm::vec4(color, 1.0f),
+            glm::vec4(color, frameAlpha),
             uv);
 
         // Top right corner
@@ -384,7 +402,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x + size.x - rightWidth, y},
             {rightWidth, topHeight},
-            glm::vec4(color, 1.0f),
+            glm::vec4(color, frameAlpha),
             uv);
 
         // Bottom right corner
@@ -396,7 +414,7 @@ void Control::renderBorder(const Border &border,
             *border.corner,
             {x + size.x - rightWidth, y + size.y - bottomHeight},
             {rightWidth, bottomHeight},
-            glm::vec4(color, 1.0f),
+            glm::vec4(color, frameAlpha),
             uv);
     }
 }
@@ -419,7 +437,8 @@ void Control::renderText(const std::vector<std::string> &lines,
 
     glm::vec3 linePosition(0.0f);
     const auto &hilight = shownHilight();
-    glm::vec4 color {(_selected && hilight) ? hilight->color : _text.color, _text.opacity};
+    const bool pulsing = _text.pulsing || (_selected && _text.hilightPulsing);
+    glm::vec4 color {(_selected && hilight) ? hilight->color : _text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
 
     for (auto &line : lines) {
         linePosition.x = static_cast<float>(position.x + offset.x);
@@ -563,6 +582,13 @@ void Control::setSelected(bool setSelected) {
 
     _selected = setSelected;
 
+    // Deselecting a control whose text pulses while selected stops the text's
+    // pulse. A list's prototype is selected and deselected for each row it
+    // draws, so it keeps its text's pulse.
+    if (!setSelected && _text.hilightPulsing && !_isProtoItem) {
+        _text.pulsing = false;
+    }
+
     if (_onSelectedChanged) {
         _onSelectedChanged(setSelected);
     }
@@ -622,6 +648,10 @@ void Control::setBorderColor(glm::vec3 color) {
     _border->color = std::move(color);
 }
 
+void Control::setBorderAlpha(float alpha) {
+    _border->alpha = alpha;
+}
+
 void Control::setBorderColorOverride(glm::vec3 color) {
     _borderColorOverride = std::move(color);
 }
@@ -640,6 +670,14 @@ void Control::setHilightColor(glm::vec3 color) {
         _hilight = std::make_shared<Border>();
     }
     _hilight->color = std::move(color);
+}
+
+void Control::setHilightPulsing(bool frame, bool fill) {
+    if (!_hilight) {
+        return;
+    }
+    _hilight->pulseFrame = frame;
+    _hilight->pulseFill = fill;
 }
 
 void Control::setHilightFill(std::string resRef) {

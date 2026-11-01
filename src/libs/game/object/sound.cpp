@@ -51,6 +51,7 @@ void Sound::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto uts = _services.resource.gffs.get(templateRes, ResType::Uts)) {
             deserializeAll(*uts, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*uts, gff);
         }
     }
     deserializeAll(gff, identityContext);

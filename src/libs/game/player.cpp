@@ -31,10 +31,11 @@ namespace game {
 // A driven step is tried at most this many times.
 static constexpr int kDriveTries = 6;
 // How far a driven leader standing where it does not fit looks for a spot
-// that does: square rings out to about a metre. In KotOR the search goes no
-// further than the spot itself.
+// that does: square rings out to about a metre.
 static constexpr float kDriveNudgeRadius = -1.01f;
-static constexpr float kKotorDriveNudgeRadius = 1.0f;
+// Door and placeable walls count this far below and above the leader,
+// whatever their height.
+static constexpr float kStaticWallReach = 1000.0f;
 
 // The leader is driven along a straight line to a point a step ahead. A
 // companion or puppet in the way is pushed aside first; when someone is still
@@ -43,14 +44,15 @@ static constexpr float kKotorDriveNudgeRadius = 1.0f;
 // to is slid: past a creature, onto the line through where they meet, across
 // the way out from that creature's centre; along a wall, as far along the wall
 // from where the leader stands. The leader steps only to a point it can walk
-// straight to. It stays where it is once six lines have failed, or when two
-// meetings in a row turn it opposite ways across its path, as in a corner.
+// straight to. A step that would bring a door or placeable wall within the
+// leader's personal space is slid round that object, unless the leader stands
+// that close already. It stays where it is once six lines have failed, or when
+// two meetings in a row turn it opposite ways across its path, as in a corner.
 static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> &leader, const glm::vec2 &dir, float step) {
     static constexpr glm::vec3 kUp {0.0f, 0.0f, 1.0f};
     const glm::vec3 start {leader->position()};
     glm::vec3 target {start.x + dir.x * step, start.y + dir.y * step, start.z};
     const glm::vec2 back {-dir};
-    const float nudgeRadius = game.isTSL() ? kDriveNudgeRadius : kKotorDriveNudgeRadius;
     glm::vec2 previousNormal {0.0f};
     for (int attempt = 1;; ++attempt) {
         auto line = area.testDirectLine(*leader, leader->position(), target);
@@ -58,7 +60,7 @@ static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> 
             leader->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), leader->position(), target, dir);
             line = area.testDirectLine(*leader, leader->position(), target);
             if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(leader->position(), *leader)) {
-                if (auto spot = area.computeSafeLocation(leader->position(), nudgeRadius, *leader, true)) {
+                if (auto spot = area.computeSafeLocation(leader->position(), kDriveNudgeRadius, *leader, true)) {
                     leader->setPosition(*spot);
                     area.determineObjectRoom(*leader);
                 }
@@ -66,10 +68,24 @@ static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> 
             }
         }
         if (line.result == Area::DirectLine::Clear) {
-            // TSL looks for the room under the step around height 0, KotOR
-            // around the leader's height.
-            area.stepCreatureTo(leader, glm::vec3(glm::vec2(target), game.isTSL() ? 0.0f : start.z), Area::MoveFacing::Keep);
-            return;
+            const glm::vec3 position {leader->position()};
+            const float minZ = position.z - kStaticWallReach;
+            const float maxZ = position.z + kStaticWallReach;
+            const auto wall = area.findStaticWallNear(target, *leader, minZ, maxZ);
+            if (!wall || area.findStaticWallNear(position, *leader, minZ, maxZ)) {
+                // The room under the step is looked for around height 0.
+                area.stepCreatureTo(leader, glm::vec3(glm::vec2(target), 0.0f), Area::MoveFacing::Keep);
+                return;
+            }
+            // The leader slides across the way out from the object's centre;
+            // heading straight at it, the leader stays where it is.
+            const glm::vec2 away {glm::vec2(position) - glm::vec2(wall->get().position())};
+            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
+            if (glm::length(away) == 0.0f || glm::dot(way, glm::vec2(-away.y, away.x)) == 0.0f) {
+                return;
+            }
+            line.result = Area::DirectLine::Blocked;
+            line.normal = glm::vec3(glm::normalize(away), 0.0f);
         }
         if (attempt == kDriveTries) {
             return;

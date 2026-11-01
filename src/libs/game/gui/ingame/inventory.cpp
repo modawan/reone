@@ -127,9 +127,6 @@ void InventoryMenu::onGUILoaded() {
             if (_onExit) _onExit();
         });
     }
-    if (_controls.BTN_ALL) {
-        _controls.BTN_ALL->setSelected(true);
-    }
 
     configureItemsListBox();
     configureFilterControls();
@@ -152,6 +149,12 @@ void InventoryMenu::onGUILoaded() {
         }
         if (_controls.BTN_CHANGE2) {
             _controls.BTN_CHANGE2->setSelectable(false);
+        }
+        // KotOR's inventory has no party arrows.
+        for (auto &arrow : {_controls.BTN_CHARLEFT, _controls.BTN_CHARRIGHT}) {
+            if (arrow) {
+                arrow->setVisible(false);
+            }
         }
     }
 }

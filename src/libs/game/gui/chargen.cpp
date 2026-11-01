@@ -86,7 +86,9 @@ CharacterGeneration::CharacterGeneration(Game &game, ServicesView &services) :
     GameGUI(game, services) {
     _resRef = guiResRef("maincg");
 
-    _musicResRef = game.isTSL() ? "mus_main" : "mus_theme_rep";
+    // KotOR's character generation plays its own menu music; TSL's plays its
+    // loading screen's music instead, from the loading-screen table.
+    _musicResRef = game.isTSL() ? "" : "mus_theme_rep";
 }
 
 void CharacterGeneration::onGUILoaded() {
@@ -345,11 +347,13 @@ void CharacterGeneration::openSteps() {
 }
 
 void CharacterGeneration::openQuick() {
+    _quick->refreshStep();
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::Quick);
 }
 
 void CharacterGeneration::openCustom() {
+    _custom->refreshStep();
     setAttributesVisible(_custom->step() > 1);
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::Custom);
@@ -441,6 +445,7 @@ void CharacterGeneration::openNameEntry() {
 
 void CharacterGeneration::openLevelUp() {
     _levelUp->reset();
+    _levelUp->refreshStep();
     _controls.MODEL_LBL->setVisible(true);
     changeScreen(CharGenScreen::LevelUp);
 }
@@ -554,7 +559,16 @@ void CharacterGeneration::finish() {
             _game.setGlobalNumber(kPlayerLevelGlobal, player->attributes().getAggregateLevel());
         }
 
+        // Starting the game first fades the menu music out.
+        _game.fadeOutMenuMusic();
+
         std::string moduleName(!_game.isTSL() ? "end_m01aa" : "001ebo");
+        // The new game's loading screen plays the module's music; TSL first
+        // stops character generation's.
+        if (_game.isTSL()) {
+            _game.stopLoadMusic();
+        }
+        _game.setLoadMusicForModule(moduleName);
         _game.loadModule(moduleName);
     }
 }

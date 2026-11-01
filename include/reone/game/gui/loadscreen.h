@@ -43,6 +43,12 @@ public:
      * there is one, else the one the table's default row names.
      */
     void setModuleImage(const std::string &moduleName);
+    /**
+     * The music the loading screen of the module named \p moduleName plays:
+     * the one its row of the loading-screen table names, else its own load_
+     * track when there is one, else the one the table's default row names.
+     */
+    std::string musicResRef(const std::string &moduleName) const;
     void setProgress(int progress);
 
 private:

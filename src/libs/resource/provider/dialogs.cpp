@@ -17,12 +17,25 @@
 
 #include "reone/resource/provider/dialogs.h"
 
+#include "reone/resource/2da.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/gffs.h"
+#include "reone/resource/resref.h"
 #include "reone/resource/strings.h"
 
 namespace reone {
 
 namespace resource {
+
+static constexpr char kEmotionsResRef[] = "emotion";
+static constexpr char kAlienVoicesResRef[] = "alienvo";
+static constexpr char kEmotionLabelColumn[] = "label";
+
+// SoundExists: 1 the node's sound is a recorded voice; 2 (TSL) it takes a
+// variation number; 4 (TSL) the number has been added.
+static constexpr int kSoundIsVoice = 1;
+static constexpr int kSoundTakesVariation = 2;
+static constexpr int kSoundVariationAdded = 4;
 
 std::shared_ptr<Dialog> Dialogs::doGet(std::string resRef) {
     auto dlg = _gffs.get(resRef, ResType::Dlg);
@@ -43,15 +56,20 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
     dialog->endScript = dlg.EndConversation;
     dialog->abortScript = dlg.EndConverAbort;
     dialog->animatedCutscene = dlg.AnimatedCut;
+    dialog->entryDelay = dlg.DelayEntry;
     dialog->oldHitCheck = dlg.OldHitCheck != 0;
     dialog->conversationType = static_cast<ConversationType>(dlg.ConversationType);
     dialog->computerType = static_cast<ComputerType>(dlg.ComputerType);
 
+    std::optional<AlienSpeech> alienSpeech;
+    if (_game == GameID::TSL) {
+        alienSpeech = AlienSpeech {alienSpeechTables(), dlg.AlienRaceOwner};
+    }
     for (auto &entry : dlg.EntryList) {
-        dialog->entries.push_back(getEntryReply(entry));
+        dialog->entries.push_back(getEntryReply(entry, alienSpeech));
     }
     for (auto &reply : dlg.ReplyList) {
-        dialog->replies.push_back(getEntryReply(reply));
+        dialog->replies.push_back(getEntryReply(reply, alienSpeech));
     }
     for (auto &entry : dlg.StartingList) {
         dialog->startEntries.push_back(getEntryReplyLink(entry));
@@ -61,6 +79,14 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
     }
 
     return dialog;
+}
+
+// A table the game data lacks finds nothing.
+const Dialogs::AlienSpeechTables &Dialogs::alienSpeechTables() {
+    if (!_alienSpeechTables) {
+        _alienSpeechTables = AlienSpeechTables {_twoDas.get(kEmotionsResRef), _twoDas.get(kAlienVoicesResRef)};
+    }
+    return *_alienSpeechTables;
 }
 
 Dialog::EntryReplyLink Dialogs::getEntryReplyLink(const resource::generated::DLG_EntryReplyList_EntriesRepliesList &dlg) const {
@@ -80,16 +106,16 @@ Dialog::EntryReplyLink Dialogs::getEntryReplyLink(const resource::generated::DLG
     return link;
 }
 
-Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryReplyList &dlg) const {
+Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryReplyList &dlg, const std::optional<AlienSpeech> &alienSpeech) const {
     int strRef = dlg.Text.first;
 
     Dialog::EntryReply entry;
     entry.speaker = dlg.Speaker;
     entry.text = strRef == -1 ? "" : _strings.getText(strRef);
+    entry.textStrRef = strRef;
     entry.voResRef = dlg.VO_ResRef;
     entry.script = dlg.Script;
     entry.script2 = dlg.Script2;
-    entry.sound = dlg.Sound;
     entry.listener = dlg.Listener;
     entry.quest = dlg.Quest;
     entry.questEntry = dlg.QuestEntry;
@@ -101,6 +127,34 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.actionParams2.str = dlg.ActionParamStrB;
     entry.delay = dlg.Delay;
     entry.waitFlags = dlg.WaitFlags;
+    // KotOR plays the node's Sound field. TSL reads no Sound field: a node's
+    // sound is its alien speech, which is a recorded voice and takes a
+    // variation number. Without a sound, the voice-over plays; with neither,
+    // the node has no recorded voice.
+    int soundExists = dlg.SoundExists;
+    if (alienSpeech) {
+        entry.sound = getAlienSpeech(dlg, *alienSpeech);
+        if (!entry.sound.empty()) {
+            soundExists |= kSoundIsVoice | kSoundTakesVariation;
+        }
+    } else {
+        entry.sound = dlg.Sound;
+    }
+    if (entry.sound.empty() && entry.voResRef.empty()) {
+        soundExists = 0;
+    }
+    entry.soundExists = (soundExists & kSoundIsVoice) != 0;
+    entry.soundTakesVariation = alienSpeech && (soundExists & kSoundTakesVariation) != 0;
+    entry.soundVariationAdded = alienSpeech && (soundExists & kSoundVariationAdded) != 0;
+    entry.voiceOverOnly = (soundExists & kSoundIsVoice) != 0 && (soundExists & kSoundTakesVariation) == 0 && entry.sound.empty();
+    entry.nodeUnskippable = dlg.NodeUnskippable != 0;
+    // Fade types 1 and 2 cut at once.
+    static constexpr int kFirstCutFade = 1;
+    static constexpr int kLastCutFade = 2;
+    entry.fadeType = dlg.FadeType;
+    entry.fadeColor = dlg.FadeColor;
+    entry.fadeDelay = dlg.FadeDelay;
+    entry.fadeLength = entry.fadeType >= kFirstCutFade && entry.fadeType <= kLastCutFade ? 0.0f : dlg.FadeLength;
     entry.cameraId = dlg.CameraID;
     entry.cameraAngle = dlg.CameraAngle;
     entry.cameraAnimation = dlg.CameraAnimation;
@@ -123,6 +177,25 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     }
 
     return entry;
+}
+
+// The race is the node's own; a node with no speaker, which the owner speaks,
+// otherwise takes the owner's. A race of 0 or less has no alien speech, and
+// neither has an emotion or race the tables lack or leave blank.
+std::string Dialogs::getAlienSpeech(const resource::generated::DLG_EntryReplyList &dlg, const AlienSpeech &alienSpeech) const {
+    int race = dlg.AlienRaceNode;
+    if (race <= 0 && dlg.Speaker.empty()) {
+        race = alienSpeech.ownerRace;
+    }
+    const AlienSpeechTables &tables = alienSpeech.tables;
+    if (race <= 0 || !tables.emotions || !tables.voices) {
+        return "";
+    }
+    const std::string emotion = tables.emotions->getString(dlg.Emotion, kEmotionLabelColumn);
+    if (emotion.empty()) {
+        return "";
+    }
+    return ResRef(tables.voices->getString(race, emotion)).value();
 }
 
 Dialog::Stunt Dialogs::getStunt(const resource::generated::DLG_StuntList &dlg) const {

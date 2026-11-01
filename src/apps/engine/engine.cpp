@@ -427,6 +427,13 @@ void Engine::processEvents(bool &quit) {
             imguiHandle(sdlEvent);
             continue;
         }
+        // While the window is out of focus the world waits. None of that time
+        // is charged to it: the frame clock and the world clock start again
+        // from the moment the window is back.
+        if (sdlEvent.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+            _ticks = _services->system.clock.micros();
+            _game->holdWorldClock();
+        }
         if (_window->handle(sdlEvent)) {
             if (_window->isCloseRequested()) {
                 quit = true;

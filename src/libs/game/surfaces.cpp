@@ -47,11 +47,10 @@ void Surfaces::init() {
 }
 
 bool Surfaces::isWalkable(int index) const {
-    // A surface the table has no row for has a blank walk cell.
-    if (index < 0 || index >= static_cast<int>(_surfaces.size())) {
-        return false;
-    }
-    return _surfaces[index].walk != 0;
+    // A material counts modulo the materials a walkmesh can name; a surface
+    // the table has no row for has a blank walk cell.
+    const uint32_t row = static_cast<uint32_t>(index) % graphics::Walkmesh::kSurfaceMaterialCount;
+    return row < _surfaces.size() && _surfaces[row].walk != 0;
 }
 
 const Surface &Surfaces::getSurface(int index) const {

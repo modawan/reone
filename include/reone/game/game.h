@@ -259,6 +259,11 @@ public:
      * that one is due.
      */
     bool consumeTimingDiscontinuity();
+    /**
+     * The world waits while the window is out of focus: none of that time
+     * passes in it, and its clock takes up again from the next update.
+     */
+    void holdWorldClock() { _worldClockSample.reset(); }
 
     /**
      * Play a movie, ending any module transition movies.
@@ -464,6 +469,8 @@ public:
 
     void openMainMenu();
     void openInGame();
+    /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
+    void renderScreenFill(const glm::vec3 &color, float alpha);
 
     bool hasPlayableRuntimeSession() const { return _runtimeSessionPlayable; }
 
@@ -554,6 +561,20 @@ public:
     // END KotOR I Pazaak lifecycle
 
     void startCharacterGeneration();
+
+    /**
+     * Sets the music the next loading screens play to the one the
+     * loading-screen table gives the module named \p moduleName.
+     */
+    void setLoadMusicForModule(const std::string &moduleName);
+    /** Stops the loading-screen music; the track stays set for the next loading screen. */
+    void stopLoadMusic();
+    /**
+     * Fades the menu music out for a fixed wait and then stops it, holding
+     * everything else meanwhile, as starting a new game or loading a save
+     * from the main menu does.
+     */
+    void fadeOutMenuMusic();
     void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                      GlobalFade::DialogTicket admission = {},
                      const std::shared_ptr<Object> &listener = nullptr);
@@ -584,7 +605,8 @@ public:
     StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
     /**
      * A status summary was taken down or passed by unseen. TSL then looks for
-     * the story's reaction to the player character's alignment.
+     * the story's reaction to the player character's alignment, and, the first
+     * time the player's own character can level up, runs the level-up dialog.
      */
     void finishStatusSummaryCycle();
 
@@ -607,6 +629,11 @@ public:
         return _screen == Screen::Conversation;
     }
 
+    /** A conversation owns the screen, and its dialog is an animated cutscene. */
+    bool isAnimatedCutsceneShowing() const {
+        return isConversationActive() && _conversation && _conversation->isAnimatedCutscene();
+    }
+
     /** The object is the running dialogue's current speaker or listener. */
     bool isConversationSpeakerOrListener(const Object &object) const {
         return isConversationActive() && _conversation == _dialog.get() && _dialog->isSpeakerOrListener(object);
@@ -626,6 +653,11 @@ public:
 
     resource::CursorType cursorType() const {
         return _pointer->type();
+    }
+
+    /** Where the pointer last moved to, in screen coordinates. */
+    glm::ivec2 pointerPosition() const {
+        return _pointer->position();
     }
 
     bool relativeMouseMode() const;
@@ -671,6 +703,8 @@ public:
             std::string startWaypoint;
             uint32_t pauseDay {0};
             uint32_t pauseTime {0};
+            /** The loading-screen music the save asks for. */
+            std::string loadMusic;
         };
 
         std::unique_ptr<resource::SaveSessionState> session;
@@ -1858,17 +1892,11 @@ private:
     bool _showEndGameGui {true};
     uint32_t _lastPartyMemberTempKilled {script::kObjectInvalid};
     /**
-     * How fast the world, its presentation and the fade run during the death
-     * sequence. The first title slows play from full speed to a fifth over
-     * the first four seconds of real time; its time and rate carry over to
-     * later deaths for the program's lifetime. The second title runs at a quarter
-     * while its gameover panel is up.
+     * How fast the world, its presentation and the fade run: a quarter while
+     * the second title's gameover panel is up, else full speed. The first
+     * title's death sequence keeps full speed.
      */
     float _deathTimeScale {1.0f};
-    uint32_t _deathSequenceSample {0};
-    float _deathSequenceSeconds {0.0f};
-    float _deathSlowRate {0.0f};
-    bool _deathSequenceStarting {true};
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
@@ -1920,6 +1948,16 @@ private:
     std::string _musicResRef;
     std::shared_ptr<audio::AudioSource> _music;
     AreaMusicPlayer _areaMusic;
+    /**
+     * The music loading screens play. It is set by a new game, a save load
+     * and the module picker, and kept from one load, and one session, to the
+     * next.
+     */
+    std::string _loadMusicResRef;
+    /** The loading-screen music that is playing, or paused under a movie. */
+    std::shared_ptr<audio::AudioSource> _loadMusic;
+    /** The coming module load follows transition movies, and plays no loading-screen music. */
+    bool _loadComesWithMovies {false};
 
     // END Audio
 
@@ -1945,6 +1983,9 @@ private:
     std::string getTokenValue(const std::string &name, const std::map<int, std::string> &customTokens,
                               std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
                               bool &hidden) const;
+
+    /** TSL: runs the level-up dialog script the first time only. */
+    void runLevelUpDialogOnce();
 
     void advanceWorldTime(double dt);
     void advanceTimeStopClock(double dt);
@@ -2044,6 +2085,10 @@ private:
     bool loadParty();
     void loadNextModule();
     void playMusic(const std::string &resRef);
+    /** Starts, or resumes, the loading-screen music, as a loading screen does when it is shown. */
+    void startLoadMusic();
+    /** Hands the playing loading-screen music over to the background music when it asks for the same track. */
+    std::shared_ptr<audio::AudioSource> takeLoadMusic(const std::string &resRef);
     void toggleInGameCameraType();
     void enterFreeLook();
     void exitFreeLook();

@@ -51,6 +51,7 @@ void Encounter::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto ute = _services.resource.gffs.get(templateRes, ResType::Ute)) {
             deserializeAll(*ute, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*ute, gff);
         }
     }
     deserializeAll(gff, identityContext);
@@ -626,7 +627,7 @@ float Encounter::tallyHostilePoints() const {
             continue;
         }
         int level = creature.attributes().getAggregateLevel();
-        if (!creature.isPC()) {
+        if (!creature.actsAsPC()) {
             level >>= 1;
         }
         points += creaturePoints(static_cast<float>(level));

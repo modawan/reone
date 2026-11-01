@@ -24,7 +24,10 @@ namespace reone {
 
 namespace script {
 
+struct ExecutionContext;
+
 class IRoutines;
+class ScriptProgram;
 
 }
 
@@ -67,6 +70,17 @@ public:
 private:
     script::IRoutines &_routines;
     resource::IScripts &_scripts;
+
+    /** The instruction count of the outermost run, shared by the runs it starts. */
+    std::shared_ptr<int> _instructionsRun;
+    /** How many runs are under way, one inside another. */
+    int _runDepth {0};
+
+    /**
+     * Runs a program. A run started while another is under way shares its
+     * instruction count; an outermost run starts a new one.
+     */
+    int runProgram(std::shared_ptr<script::ScriptProgram> program, std::unique_ptr<script::ExecutionContext> ctx);
 };
 
 } // namespace game

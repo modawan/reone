@@ -51,12 +51,14 @@ public:
 
     /**
      * @param scale the factor the owning GUI draws its layout at.
+     * @param pulsingAlpha the owning GUI's pulsing alpha, which the party
+     *                     leader's arrow is drawn at on the map screen.
      *
      * The map and its markers are drawn into a control's rect but not by the
      * control, so nothing else carries the layout scale to them: the frame
      * shrank with the GUI while the map inside it stayed unscaled.
      */
-    void render(Mode mode, const glm::vec4 &bounds, float scale);
+    void render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha);
 
     bool isLoaded() const { return static_cast<bool>(_areaTexture); }
 
@@ -83,7 +85,7 @@ private:
     void loadTextures(const std::string &area);
 
     void renderArea(Mode mode, const glm::vec4 &bounds, float scale);
-    void renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale);
+    void renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha);
     void renderNotes(Mode mode, const glm::vec4 &bounds, float scale);
 
     glm::vec2 getMapPosition(const glm::vec2 &world) const;

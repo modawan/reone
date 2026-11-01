@@ -123,8 +123,9 @@ public:
                     TestGraphicsModule &graphics, TestResourceModule &resources) :
         options(options), scene(scene), graphics(graphics), resources(resources) {}
     void clear() override { screens.clear(); }
+    void updatePulsingAlpha(float) override {}
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
-        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services());
+        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), pulsingAlpha);
         gui->name = name;
         if (preload)
             preload(*gui);
@@ -134,6 +135,7 @@ public:
         screens[name] = gui;
         return gui;
     }
+    PulsingAlpha pulsingAlpha;
     std::unordered_map<std::string, std::shared_ptr<RecordingGUI>> screens;
 
 private:

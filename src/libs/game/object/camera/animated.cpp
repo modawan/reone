@@ -17,6 +17,8 @@
 
 #include "reone/game/object/camera/animated.h"
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "reone/game/di/services.h"
 #include "reone/graphics/types.h"
 #include "reone/scene/di/services.h"
@@ -85,22 +87,24 @@ std::string AnimatedCamera::getShotClipName(int ordinal) {
 }
 
 void AnimatedCamera::playAnimation(int ordinal) {
-    if (!_model) {
-        return;
-    }
-    auto name = getShotClipName(ordinal);
-    if (name.empty()) {
+    _requestedClip = getShotClipName(ordinal);
+    if (!_model || _requestedClip.empty()) {
         return;
     }
     AnimationProperties properties;
     if (ordinal >= kFirstLoopingCameraOrdinal && ordinal <= kLastLoopingCameraOrdinal) {
         properties.flags |= AnimationFlags::loop;
     }
-    _model->playAnimation(name, nullptr, std::move(properties));
+    _model->playAnimation(_requestedClip, nullptr, std::move(properties));
 }
 
-bool AnimatedCamera::isAnimationFinished() const {
-    return _model ? _model->isAnimationFinished() : false;
+// Only the clip the last request named counts: a clip the model lacks leaves
+// the earlier one running, and that one is not waited for.
+bool AnimatedCamera::isRequestedClipPlaying() const {
+    if (!_model || _requestedClip.empty() || _model->isAnimationFinished()) {
+        return false;
+    }
+    return boost::iequals(_model->activeAnimationName(), _requestedClip);
 }
 
 void AnimatedCamera::setModel(std::shared_ptr<Model> model) {

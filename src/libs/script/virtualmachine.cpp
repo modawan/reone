@@ -31,6 +31,9 @@ namespace reone {
 namespace script {
 
 static constexpr int kStartInstructionOffset = 13;
+// A run stops before its next instruction once it has run this many,
+// counting those of the runs it started.
+static constexpr int kMaxInstructionsPerRun = 131071;
 static constexpr float kFloatTolerance = 1e-5;
 
 VirtualMachine::VirtualMachine(std::shared_ptr<ScriptProgram> program, std::unique_ptr<ExecutionContext> context) :
@@ -225,7 +228,15 @@ int VirtualMachine::run() {
         debug(ss.str());
     }
 
+    if (!_context->instructionsRun) {
+        _context->instructionsRun = std::make_shared<int>(0);
+    }
     while (insOff < _program->length()) {
+        if (++*_context->instructionsRun > kMaxInstructionsPerRun) {
+            error(str(boost::format("Script '%s' stopped at %04x: too many instructions") % _program->name() % insOff),
+                  LogChannel::Script);
+            return -1;
+        }
         const Instruction &ins = _program->getInstruction(insOff);
         auto handler = _handlers.find(ins.type);
 

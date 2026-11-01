@@ -34,6 +34,12 @@ struct ExecutionContext {
 
     std::vector<Argument> args;
 
+    /**
+     * The instructions run so far by this run and by the runs it started,
+     * which share the count; a run given none counts its own.
+     */
+    std::shared_ptr<int> instructionsRun;
+
     /// Find an argument variable or return nullptr.
     ///
     /// Arguments are specific to a script run. For example, LastOpenedBy

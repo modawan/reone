@@ -1156,7 +1156,7 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     if (_game.isTSL()) {
         put(record, Gff::Field::newInt("BonusForcePoints", creature._bonusForcePoints));
     }
-    put(record, Gff::Field::newDword("Experience", creature._xp));
+    put(record, Gff::Field::newDword("Experience", static_cast<uint32_t>(creature._xp)));
     put(record, Gff::Field::newInt("JoiningXP", creature._joiningXP));
     put(record, Gff::Field::newByte("GoodEvil", creature._goodEvil));
     // A field label holds sixteen characters, so the base alignment's is cut short.

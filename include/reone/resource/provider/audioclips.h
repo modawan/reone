@@ -39,6 +39,9 @@ public:
     virtual void clear() = 0;
 
     virtual std::shared_ptr<audio::AudioClip> get(const std::string &key) = 0;
+
+    /** Whether an MP3 named \p resRef is there, streamed or not; nothing is decoded. */
+    virtual bool hasMp3(const std::string &resRef) = 0;
 };
 
 /**
@@ -59,6 +62,10 @@ public:
 
     void clear() override {
         _objects.clear();
+    }
+
+    bool hasMp3(const std::string &resRef) override {
+        return findClipData(resRef, ResType::Mp3).has_value();
     }
 
     std::shared_ptr<audio::AudioClip> get(const std::string &key) override {

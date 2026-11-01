@@ -119,6 +119,7 @@ enum class KeyCode {
     Delete = '\x7F',
     End = 77 | (1 << 30),
     PageDown = 78 | (1 << 30),
+    KeypadEnter = 88 | (1 << 30),
     Right = 79 | (1 << 30),
     Left = 80 | (1 << 30),
     Down = 81 | (1 << 30),

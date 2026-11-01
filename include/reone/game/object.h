@@ -368,6 +368,15 @@ public:
      */
     void setPlacedAtOrigin(bool placed);
 
+    /**
+     * Whether the object takes no other animation: while an animated
+     * cutscene is showing, an object playing an animation authored in world
+     * space keeps it until the conversation's animation list releases it.
+     */
+    bool holdsCutsceneAnimation() const;
+    /** The conversation's animation list releases the object's world-space animation. */
+    void releaseCutsceneAnimation() { _playingCutsceneAnimation = false; }
+
     // END Stunt mode
 
     // Hit Points
@@ -531,6 +540,12 @@ public:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         SaveRecordOrigin origin = {});
+    /**
+     * Keep the record an object placed from a blueprint was made from: the
+     * blueprint's fields, with those the placement gives in their place. A
+     * save writes the object over it.
+     */
+    void captureAuthoredRecord(const resource::Gff &blueprint, const resource::Gff &placement);
     const std::optional<SaveRecordProvenance> &saveRecordProvenance() const {
         return _saveRecordProvenance;
     }
@@ -730,6 +745,8 @@ protected:
     bool _stunt {false};
     /** Stunt mode was entered for a world-space animation and ends with it. */
     bool _placedAtOrigin {false};
+    /** The object last took an animation authored in world space, and no animation list has released it. */
+    bool _playingCutsceneAnimation {false};
     std::string _activeAnimName;
     std::string _feedbackText;
     float _feedbackTextRemaining {0.0f};

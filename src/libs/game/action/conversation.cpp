@@ -184,6 +184,11 @@ void StartConversationAction::admit() {
 }
 
 bool StartConversationAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    // A request that has started its conversation is done: clearing it, as a
+    // script of the opening entry may, leaves the conversation running.
+    if (isCompleted()) {
+        return true;
+    }
     // A dropped or failed request ends the conversation being under way.
     _game.setDialogUnderWay(false);
     _game.globalFade().finishDialog(_fadeDialog);
@@ -317,11 +322,14 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         return;
     }
 
+    // The request is done before its conversation starts, and the
+    // conversation owns the admission from then on: the opening entry's
+    // scripts run inside the start, and may clear this request.
     const auto listener = dialogOwner == actorPtr ? _objectToConverse : actorPtr;
-    _game.startDialog(dialogOwner, _dialogResRef.empty() ? dialogOwner->conversation() : _dialogResRef,
-                      _fadeDialog, listener);
-    _fadeDialog.reset(); // successful startup is now owned by Conversation
+    auto admission = std::move(_fadeDialog);
     complete();
+    _game.startDialog(dialogOwner, _dialogResRef.empty() ? dialogOwner->conversation() : _dialogResRef,
+                      std::move(admission), listener);
 }
 
 // A conversation names its dialog by a resource name of at most sixteen

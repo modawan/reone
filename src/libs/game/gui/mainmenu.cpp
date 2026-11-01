@@ -266,7 +266,9 @@ void MainMenu::loadModuleNames() {
     }
 }
 
+// Picking a module sets its loading-screen music.
 void MainMenu::onModuleSelected(const std::string &name) {
+    _game.setLoadMusicForModule(name);
     _game.loadModule(name);
 }
 

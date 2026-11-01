@@ -104,6 +104,14 @@ static constexpr float kSharedObstacleThickness2 = 0.16f;
 static constexpr int kSoundDetourPenalty = 2;
 static constexpr int kSoundWallPenaltyPerMetre = 5;
 static constexpr float kLineOfSightHeight = 1.7f;        // TODO: make it appearance-based
+// Every surface material, for lines that any face stops.
+static const std::set<uint32_t> kEverySurface = [] {
+    std::set<uint32_t> materials;
+    for (uint32_t material = 0; material < Walkmesh::kSurfaceMaterialCount; ++material) {
+        materials.insert(material);
+    }
+    return materials;
+}();
 
 static constexpr float kMaxCollisionDistance = 8.0f;
 static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxCollisionDistance;
@@ -1630,7 +1638,7 @@ std::shared_ptr<Creature> Area::findFactionMember(Faction faction, int pc, size_
         return left->factionJoinOrder() < right->factionJoinOrder();
     });
     for (size_t index = from; index < members.size(); ++index) {
-        if (static_cast<int>(members[index]->isPC()) != pc) {
+        if (members[index]->isPCValue() != pc) {
             continue;
         }
         _factionMemberCursors[faction] = index + 1;
@@ -2712,6 +2720,10 @@ bool Area::stepCreatureTo(const std::shared_ptr<Creature> &creature, const glm::
         return false;
     }
     const auto face = sceneGraph.findRoomFace(*walkmesh, point, scene::RoomFaceProbe::Locating);
+    // A creature never steps onto ground it cannot walk on.
+    if (!_services.game.surfaces.isWalkable(face ? static_cast<int>(face->material) : 0)) {
+        return false;
+    }
 
     const glm::vec3 origin {creature->position()};
     const glm::vec3 dest {point.x, point.y, face ? face->height : kNoRoomFaceHeight};
@@ -2768,6 +2780,10 @@ bool Area::findCreatureCollision(
     return found;
 }
 
+// The line of sight runs between the two at eye height. The walls and floors
+// of every room stop it, whatever their material, and so does every closed
+// door but the one looked at, however far away. Open doors, placeables and
+// creatures do not.
 bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
     if (!object.visible()) {
         return false;
@@ -2777,18 +2793,31 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
         return false;
     }
 
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-
     glm::vec3 origin(subject.position());
     origin.z += kLineOfSightHeight;
 
     glm::vec3 dest(object.position());
     dest.z += kLineOfSightHeight;
 
-    Collision collision;
-    if (sceneGraph.testLineOfSight(origin, dest, collision)) {
-        return collision.user == &object ||
-               subject.getSquareDistanceTo(object) < glm::distance2(origin, collision.intersection);
+    const float length = glm::distance(origin, dest);
+    const glm::vec3 dir {(dest - origin) / length};
+
+    for (const auto &room : _rooms) {
+        const auto &walkmesh = room.second->walkmesh();
+        if (walkmesh && !walkmesh->walkmesh().raycast(kEverySurface, origin, dir, length, /*ignoreBackface=*/false).fail) {
+            return false;
+        }
+    }
+    for (const auto &candidate : _objectsByType.at(ObjectType::Door)) {
+        const auto &walkmesh = static_cast<const Door &>(*candidate).walkmeshClosed();
+        if (candidate.get() == &object || !walkmesh || !walkmesh->isEnabled()) {
+            continue;
+        }
+        const glm::vec3 originLocal {walkmesh->absoluteTransformInverse() * glm::vec4(origin, 1.0f)};
+        const glm::vec3 dirLocal {walkmesh->absoluteTransformInverse() * glm::vec4(dir, 0.0f)};
+        if (!walkmesh->walkmesh().raycast(kEverySurface, originLocal, dirLocal, length, /*ignoreBackface=*/false).fail) {
+            return false;
+        }
     }
 
     return true;
@@ -2903,18 +2932,17 @@ void Area::updateRoomVisibility() {
         }
     }
     _cullingRooms = _visibilityGraph && _shownRoom;
-    // A listed room wholly out of view is not shown, unless it has background
-    // geometry.
+    // In TSL a listed room must be in view or have background geometry.
     const Camera *camera = _game.getActiveCamera();
-    auto inView = [camera](const Room &room) {
-        return room.hasBackgroundGeometry() || !camera || camera->cameraSceneNode()->camera()->isInFrustum(room.box());
+    auto shownWhenListed = [this, camera](const Room &room) {
+        return !_game.isTSL() || room.hasBackgroundGeometry() || !camera || camera->cameraSceneNode()->camera()->isInFrustum(room.box());
     };
     for (auto &room : _rooms) {
         bool visible = !_cullingRooms || room.second.get() == _shownRoom;
         if (!visible) {
             auto seen = _visibility.equal_range(_shownRoom->name());
             visible = std::any_of(seen.first, seen.second, [&room](const auto &pair) { return pair.second == room.first; }) &&
-                      inView(*room.second);
+                      shownWhenListed(*room.second);
         }
         room.second->setVisible(visible);
     }
@@ -3476,7 +3504,7 @@ bool Area::matchesCriterias(const Creature &creature, const SearchCriteriaList &
             matched = matchesRace(creature, firstValue, value);
             break;
         case CreatureType::PlayerChar:
-            matched = static_cast<int>(creature.isPC()) == value;
+            matched = creature.isPCValue() == value;
             break;
         case CreatureType::Class:
             matched = matchesClass(creature, value);

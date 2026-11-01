@@ -100,7 +100,6 @@ public:
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     bool handleClick(int x, int y, int clicks = 1) override;
-    void update(float dt) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
     void setSelected(bool selected) override;
 
@@ -134,7 +133,6 @@ private:
     CellStyle _cellStyle;
     int _rowOffset {0};
     int _focusedItemIndex {-1};
-    float _focusedBorderPulsePhase {0.0f};
 
     // Event listeners
 
@@ -162,7 +160,6 @@ private:
     glm::vec3 getItemBorderColor(const Item &item, bool focused) const;
     glm::vec4 getItemIconColor(const Item &item) const;
     std::optional<glm::vec3> getFocusedBorderColor(const Item &item, bool focused) const;
-    float getFocusedBorderPulseFactor() const;
     void renderLink(
         const Link &link,
         const glm::ivec2 &offset,

@@ -35,6 +35,8 @@ public:
     void setType(resource::CursorType type);
     resource::CursorType type() const { return _type; }
     void setPosition(glm::ivec2 position);
+    /** Where the pointer last moved to, in screen coordinates. */
+    glm::ivec2 position() const { return _position; }
     void setPressed(bool pressed);
     void render(const graphics::GraphicsOptions &options, bool relativeMouseMode);
 
@@ -42,6 +44,7 @@ private:
     resource::ICursors &_cursors;
     resource::CursorType _type {resource::CursorType::None};
     std::shared_ptr<graphics::Cursor> _cursor;
+    glm::ivec2 _position {0};
 };
 
 /** Existing cursor decision for an already selected object; performs no picking. */

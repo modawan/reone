@@ -44,13 +44,12 @@ public:
     void setValue(int value);
 
 private:
-    struct Progress {
-        std::shared_ptr<graphics::Texture> fill;
-        /** Multiplies the fill. TSL authors greyscale bars and colours them here. */
-        glm::vec3 color {1.0f};
-    };
-
-    Progress _progress;
+    /**
+     * The bar drawn over the border up to the value. Its colour multiplies the
+     * fill: TSL authors greyscale bars and colours them here. Its fill pulses
+     * as authored.
+     */
+    std::shared_ptr<Border> _progress;
     int _value {0};
     bool _startFromLeft {true};
 };

@@ -619,8 +619,8 @@ static Ability getPropertyAbility(uint16_t subtype) {
 static std::string g_talkDummyNode("talkdummy");
 
 static const std::string g_headHookNode("headhook");
-// The talking head plays as a looping layer over the body's pose, on the head too.
-static constexpr int kHeadTalkFlags = AnimationFlags::loop | AnimationFlags::layer | AnimationFlags::propagate;
+// The talking head plays once as a layer over the body's pose, on the head too.
+static constexpr int kHeadTalkFlags = AnimationFlags::layer | AnimationFlags::propagate;
 static const std::string g_maskHookNode("gogglehook");
 static const std::string g_rightHandNode("rhand");
 static const std::string g_leftHandNode("lhand");
@@ -1191,7 +1191,7 @@ static void applyDeathExperience(
 
     // A player character or party member is worth nothing. Reputation queries
     // from an NPC faction to faction zero use the player row.
-    if (victim.isPC() || game.party().isMember(victim) ||
+    if (victim.actsAsPC() || game.party().isMember(victim) ||
         services.game.reputes.getReputation(Faction::Player, victim.faction()) > 10)
         return;
     // The award is measured against the experience of the creature under the
@@ -1927,7 +1927,7 @@ void Creature::perceiveAfresh() {
     for (const uint32_t id : perceived) {
         forgetPerceived(id);
     }
-    if (!_isPC && isDead()) {
+    if (!actsAsPC() && isDead()) {
         return;
     }
     _game.module()->area()->perceiveNow(_game.getObjectById<Creature>(_id));
@@ -2947,6 +2947,10 @@ static std::optional<std::reference_wrapper<const StatePose>> findStatePose(int 
 }
 
 void Creature::updateModelAnimation() {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (!model) {
         return;
@@ -3079,10 +3083,6 @@ void Creature::updateModelAnimation() {
         properties.speed = movementClipSpeed;
         model->playAnimation(*anim, nullptr, properties);
     }
-    // A talking head stays on top of the new pose, and comes back on a new model.
-    if (_talking) {
-        model->playAnimation(getHeadTalkAnimation(), _lipAnimation, AnimationProperties::fromFlags(kHeadTalkFlags));
-    }
     if (newLoop) {
         presentEquippedItems(anim->name());
     }
@@ -3155,6 +3155,10 @@ void Creature::animateFireAndForget(float dt) {
 // A layer plays at its natural speed over the loop, so its time only paces
 // the queue. A swing starting carries its attack to its hit.
 void Creature::playTopFireForgetAnimation() {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     static constexpr int kMinFireForgetMilliseconds = 50;
     const FireForgetEntry entry = std::move(_fireForgetQueue.front());
     _fireForgetQueue.pop_front();
@@ -3191,6 +3195,10 @@ void Creature::playTopFireForgetAnimation() {
 // it ran; a loop still running under a layer carries on. A pose chosen
 // meanwhile goes through the pose path.
 void Creature::returnToStoredLoop() {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     // Returning to the loop shows again the items a one-shot put away.
     presentEquippedItems(_storedLoop ? _storedLoop->clip : getActiveAnimationName());
     if (_animDirty) {
@@ -3312,6 +3320,10 @@ void Creature::setAnimationSource(AnimationSource source) {
 // A creature still loading has no model yet; it shows nothing, so it queues nothing.
 void Creature::addFireForgetAnimation(const std::string &clip, int lengthMilliseconds, float rate, bool layered,
                                       AnimationSource source, std::optional<SwingAttack> attack) {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     if (!_sceneNode) {
         return;
     }
@@ -3338,6 +3350,10 @@ bool Creature::addFireForgetAnimation(const std::string &clip, bool layered, Ani
 }
 
 void Creature::abortFireForgetAnimation(bool clearLayers) {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (clearLayers && model) {
         model->removeLayers();
@@ -3390,7 +3406,7 @@ int Creature::maxHitPoints() const {
     const auto hasVitalityFeat = [this](FeatType feat) { return hasEffectiveFeat(feat); };
     // The player character's level history holds while no companion is
     // controlled in its place.
-    return _isPC && _game.party().controlledNpc() == -1
+    return _isPC == 1 && _game.party().controlledNpc() == -1
                ? _attributes.getLevelHistoryMaxHitPoints(
                      [this](int level) {
                          // A level without a recorded entry grants no hit die.
@@ -3410,7 +3426,7 @@ void Creature::refreshVitalityConstitution() {
 bool Creature::hitPointsAtDeathThreshold() const {
     // A party member is never dead by its vitality alone; a player character
     // dies at -10, any other creature at 0.
-    return !_game.party().isMember(*this) && currentHitPoints() <= (_isPC ? -10 : 0);
+    return !_game.party().isMember(*this) && currentHitPoints() <= (actsAsPC() ? -10 : 0);
 }
 
 void Creature::updateDeathFromCurrentHitPoints() {
@@ -3956,7 +3972,7 @@ int Creature::getReputationFrom(Faction sourceFaction) const {
 
 void Creature::joinEncounter(const Encounter &encounter) {
     _encounterId = encounter.id();
-    _isPC = false;
+    _actsAsPC = 0;
 }
 
 void Creature::leaveEncounter() {
@@ -4457,7 +4473,7 @@ bool Creature::applyResurrectionEffect(int hpPercent) {
 // The party always runs at the top priority; combat raises the lower
 // priorities to 2, and leaving combat drops 2 to 1.
 void Creature::updateAILevel() {
-    if (_isPC || isPartyMember()) {
+    if (_isPC == 1 || isPartyMember()) {
         _aiLevel = 4;
     } else if (_combatState.active && _aiLevel <= 1) {
         _aiLevel = 2;
@@ -4570,6 +4586,10 @@ void Creature::playAnimation(AnimationType type, AnimationProperties properties,
 }
 
 void Creature::playAnimation(const std::string &name, AnimationProperties properties, AnimationSource source) {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     bool fireForget = !(properties.flags & AnimationFlags::loop);
     // A clip the model lacks shows nothing and leaves the current one running.
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
@@ -4610,6 +4630,10 @@ bool Creature::doPlayAnimation(bool fireForget, const std::function<void()> &cal
 }
 
 bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties) {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return false;
+    }
     bool fireForget = !(properties.flags & AnimationFlags::loop);
 
     return doPlayAnimation(fireForget, [&]() {
@@ -4630,6 +4654,10 @@ bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationPr
 // once; when it ends the creature returns to the pause.
 bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties,
                                      AnimationSource source) {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return false;
+    }
     const bool fireForget = !(properties.flags & AnimationFlags::loop);
     if (fireForget) {
         showDialogPause();
@@ -4671,6 +4699,10 @@ void Creature::playOverlayAnimation(AnimationType type) {
 }
 
 void Creature::playOverlayAnimation(const std::string &clip) {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (!model) {
         return;
@@ -4857,6 +4889,10 @@ bool Creature::isPlayingOneShotAnimation() const {
 }
 
 void Creature::resumeStateDrivenAnimation() {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     _oneShot.reset();
     _animFireForget = false;
     _animDirty = true;
@@ -4939,6 +4975,10 @@ void Creature::releaseCastAnimation() {
 // Hands with no flinch row take the pose again each time, unless it still
 // shows. The flinch replaces what the creature was last given.
 void Creature::playDamageFlinch() {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     const std::string name = getDamageFlinchAnimation();
     if (name.empty()) {
         if (!showsDamageFlinchPose()) {
@@ -4960,6 +5000,10 @@ void Creature::playDamageFlinch() {
 // The time left of a cut queued one-shot stays too, without counting down, and
 // a new loop then waits for the pose to be ended otherwise.
 void Creature::holdDamageFlinchPose() {
+    // A world-space animation of an animated cutscene holds the creature.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     static const std::string kPoseClip("pause1");
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (!model || !model->model().getAnimation(kPoseClip)) {
@@ -5524,39 +5568,54 @@ static int maxCharacterLevel(bool tsl) {
     return tsl ? 50 : 20;
 }
 
-/** The experience threshold of the maximum level, which no experience reaches. */
-static constexpr uint32_t kUnreachableExperience = 0xffffffff;
-
-// The experience a character needs to rise past the level.
-static int levelExperienceThreshold(int level) {
-    return level * (level + 1) * 500;
-}
-
+// The experience table's row is the level; experience and the table's
+// amounts compare unsigned.
 bool Creature::isLevelUpPending() const {
-    return _attributes.getAggregateLevel() < maxCharacterLevel(_game.isTSL()) &&
-           static_cast<int>(_xp) >= getNeededXP() && !isDead() && !isTemporarilyDead();
+    if (isDead() || isTemporarilyDead()) {
+        return false;
+    }
+    const int level = _attributes.getAggregateLevel();
+    return level < maxCharacterLevel(_game.isTSL()) &&
+           static_cast<uint32_t>(_xp) >= _services.game.combatTables.experienceThreshold(level);
 }
 
+// Only a creature whose IsPC is exactly 1 walks the table; any other keeps
+// its level.
 int Creature::potentialLevel() const {
-    int level = _attributes.getAggregateLevel();
-    while (level < maxCharacterLevel(_game.isTSL()) && static_cast<int>(_xp) >= levelExperienceThreshold(level)) {
+    const auto &tables = _services.game.combatTables;
+    int level = getSpellLevel(false);
+    if (_isPC != 1) {
+        return level;
+    }
+    while (level < maxCharacterLevel(_game.isTSL()) &&
+           static_cast<uint32_t>(_xp) >= tables.experienceThreshold(level)) {
         ++level;
     }
     return level;
 }
 
-int Creature::getNeededXP() const {
-    return levelExperienceThreshold(_attributes.getAggregateLevel());
+std::optional<uint32_t> Creature::getNeededXP() const {
+    const int level = _attributes.getAggregateLevel();
+    if (level > maxCharacterLevel(_game.isTSL())) {
+        return std::nullopt;
+    }
+    return _services.game.combatTables.experienceThreshold(level);
 }
 
 int Creature::experienceToNextLevel() const {
-    const bool tsl = _game.isTSL();
-    const int level = tsl ? getSpellLevel(false) : potentialLevel();
-    if (level >= maxCharacterLevel(tsl)) {
-        // The threshold of the maximum level is the unreachable amount.
-        return static_cast<int>(kUnreachableExperience - _xp);
+    const auto &tables = _services.game.combatTables;
+    const auto xp = static_cast<uint32_t>(_xp);
+    if (_game.isTSL()) {
+        const int level = std::min(getSpellLevel(false), maxCharacterLevel(true));
+        return static_cast<int>(tables.experienceThreshold(level) - xp);
     }
-    return levelExperienceThreshold(level) - static_cast<int>(_xp);
+    for (int row = 0; row <= maxCharacterLevel(false); ++row) {
+        const uint32_t threshold = tables.experienceThreshold(row);
+        if (xp < threshold) {
+            return static_cast<int>(threshold - xp);
+        }
+    }
+    return static_cast<int>(0u - xp);
 }
 
 void Creature::runSpawnScript() {
@@ -5629,32 +5688,40 @@ void Creature::runConversationScript() {
     _game.scriptRunner().run(_onDialogue, _id);
 }
 
+// An addition that would lower the experience, or pass the most it holds,
+// is refused. A total held past the most, read from a save, takes no
+// positive addition.
 void Creature::giveXP(int amount) {
-    const auto &classes = _attributes.classLevels();
-    if (classes.size() < 2) {
-        setXP(_xp + amount);
+    if (amount < 0) {
         return;
     }
-    int favored = race().favoredClass;
-    if (favored == kNoFavoredClass) {
-        const auto highest = std::max_element(classes.begin(), classes.end(),
-                                              [](const auto &a, const auto &b) { return a.second < b.second; });
-        favored = static_cast<int>(highest->first->type());
-    }
-    int highestLevel = 0;
-    for (const auto &[clazz, level] : classes) {
-        if (static_cast<int>(clazz->type()) != favored) {
-            highestLevel = std::max(highestLevel, level);
-        }
-    }
+    const auto &classes = _attributes.classLevels();
     int behind = 0;
-    for (const auto &[clazz, level] : classes) {
-        if (static_cast<int>(clazz->type()) != favored && highestLevel - level >= 2) {
-            ++behind;
+    if (classes.size() >= 2) {
+        int favored = race().favoredClass;
+        if (favored == kNoFavoredClass) {
+            const auto highest = std::max_element(classes.begin(), classes.end(),
+                                                  [](const auto &a, const auto &b) { return a.second < b.second; });
+            favored = static_cast<int>(highest->first->type());
+        }
+        int highestLevel = 0;
+        for (const auto &[clazz, level] : classes) {
+            if (static_cast<int>(clazz->type()) != favored) {
+                highestLevel = std::max(highestLevel, level);
+            }
+        }
+        for (const auto &[clazz, level] : classes) {
+            if (static_cast<int>(clazz->type()) != favored && highestLevel - level >= 2) {
+                ++behind;
+            }
         }
     }
-    const int64_t kept = int64_t {static_cast<uint32_t>(amount)} * (5 - behind) / 5;
-    setXP(_xp + static_cast<uint32_t>(kept));
+    behind = std::min(behind, 5);
+    const auto kept = static_cast<int>(int64_t {amount} * (5 - behind) / 5);
+    if (kept > 0 && (_xp < 0 || kept > kMaxExperience - _xp)) {
+        return;
+    }
+    setXP(_xp + kept);
 }
 
 void Creature::setXP(int xp) {
@@ -5749,8 +5816,8 @@ bool Creature::hasAssassinateWeaponPresentation() const {
            weaponClass <= static_cast<int>(CreatureWieldType::BlasterRifle);
 }
 
-// The head talks as a layer over whatever the body shows, lip-synced to the
-// line when it has one. A new line starts the talk over.
+// The head talks the line's lip sync once, as a layer over whatever the body
+// shows; a line without lip sync moves no lips. A new line starts over.
 void Creature::startTalking(const std::shared_ptr<LipAnimation> &animation) {
     if (_talking && _lipAnimation == animation) {
         return;
@@ -5758,7 +5825,8 @@ void Creature::startTalking(const std::shared_ptr<LipAnimation> &animation) {
     removeHeadTalk(false);
     _lipAnimation = animation;
     _talking = true;
-    if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (model && _lipAnimation) {
         model->playAnimation(getHeadTalkAnimation(), _lipAnimation, AnimationProperties::fromFlags(kHeadTalkFlags));
     }
 }
@@ -6462,7 +6530,7 @@ void Creature::setOrderedAttackTarget(uint32_t target) {
 void Creature::recordQueuedAttack(Object &target) {
     if (auto *creature = dyn_cast<Creature>(&target)) {
         const auto leader = _game.party().getLeader();
-        if (creature->isPC() || leader.get() == creature) {
+        if (creature->actsAsPCValue() == 1 || leader.get() == creature) {
             creature->_incomingAttacker = SavedObjectReference::fromRuntimeId(id());
             _game.bindSavedObjectReference(creature->_incomingAttacker);
         }
@@ -10304,7 +10372,8 @@ void Creature::deserializeAll(
 
     // IsPC is read before hit points are rebuilt. A player character stays
     // incapacitated and resumable through 0..-9 HP and is dead only at -10 HP.
-    gff.readBool(_isPC, "IsPC");
+    gff.readByte(_isPC, "IsPC");
+    _actsAsPC = _isPC;
     gff.readBool(_playerCreated, "PlayerCreated");
     // Only the value 1 is stealth.
     setStealthMode(gff.getUint("StealthMode", _stealthMode ? 1 : 0) == 1);
@@ -10423,7 +10492,10 @@ void Creature::deserializeAll(
     if (gff.readInt(aiStyle, "AIState")) {
         _aiStyle = static_cast<NPCAIStyle>(aiStyle);
     }
-    gff.readDword(_xp, "Experience");
+    uint32_t experience {0};
+    if (gff.readDword(experience, "Experience")) {
+        _xp = static_cast<int>(experience);
+    }
     gff.readInt(_joiningXP, "JoiningXP");
 
     gff.readResRef(_onNotice, "ScriptOnNotice");

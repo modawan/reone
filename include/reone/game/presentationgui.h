@@ -106,7 +106,13 @@ protected:
     virtual void preload(gui::IGUI &gui);
     virtual void onGUILoaded() {}
 
-    void loadBackground(BackgroundType type);
+    /**
+     * Shows the full-screen backdrop of \p type behind the GUI.
+     *
+     * @param computerType for a computer backdrop, the computer type that
+     *        numbers KotOR's backdrop
+     */
+    void loadBackground(BackgroundType type, int computerType = 0);
 
     /** Centers the root panel in its authored canvas and reapplies layout. */
     void centerRootInCanvas(int canvasWidth, int canvasHeight);
@@ -134,6 +140,11 @@ protected:
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
     void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);
     void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);
+    /**
+     * Turns KotOR's right party arrow to point right: the layouts give both
+     * arrows beside the party portraits the left-pointing art.
+     */
+    void turnK1PartyArrowRight();
 
     virtual void configureControls() {}
     void onClick(const std::string &control) override;

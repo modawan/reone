@@ -61,13 +61,16 @@ public:
      */
     static std::string getShotClipName(int ordinal);
 
-    bool isAnimationFinished() const;
+    /** Whether the clip the last request named is playing; a request whose clip is missing plays nothing. */
+    bool isRequestedClipPlaying() const;
 
     void setModel(std::shared_ptr<graphics::Model> model);
     void setFieldOfView(float fovy);
 
 private:
     std::shared_ptr<scene::ModelSceneNode> _model;
+    /** The clip the last request named; empty when it named none. */
+    std::string _requestedClip;
     float _fovy {kDefaultAnimCamFOV};
 
     float projectionFovy() const override;

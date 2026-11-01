@@ -35,9 +35,9 @@ namespace game {
 
 static constexpr int kStrRefNone = 363;
 static constexpr int kStrRefEquipped = 32346;
-// The Equip button's label over an open slot and over the overview.
-static constexpr int kStrRefEquipButton = 1581;
-static constexpr int kStrRefOverviewButton = 1582;
+// The back button's labels: Cancel over an open slot's items, Close over the overview.
+static constexpr int kStrRefCancelButton = 1581;
+static constexpr int kStrRefCloseButton = 1582;
 // KotOR titles an open slot's item list.
 static constexpr int kStrRefK1SelectTitle = 38154;
 static constexpr char kNoneItemTag[] = "[none]";
@@ -120,6 +120,7 @@ void Equipment::onGUILoaded() {
         _btnInv[slotName.first] = findControl<Button>("BTN_INV_" + slotName.second);
     }
 
+    turnK1PartyArrowRight();
     // The portraits beside the shown character give control to those members.
     if (_controls.BTN_CHANGE1) {
         _controls.BTN_CHANGE1->setOnClick([this]() { changeCharacter(1); });
@@ -166,12 +167,9 @@ void Equipment::onGUILoaded() {
             _backing->switchWeapons();
             update();
         });
+    // The equip button is shown only over an open slot's items.
     _controls.BTN_EQUIP->setOnClick([this]() {
-        if (_selectedSlot == Slot::None) {
-            if (_onExit) _onExit();
-        } else {
-            confirmSelectedCandidate();
-        }
+        confirmSelectedCandidate();
     });
     _controls.BTN_BACK->setOnClick([this]() {
         if (_selectedSlot == Slot::None) {
@@ -438,7 +436,10 @@ void Equipment::selectSlot(Slot slot) {
 
     _controls.LB_DESC->setVisible(!noneSelected);
     _controls.LBL_SLOTNAME->setVisible(noneSelected);
-    _controls.BTN_EQUIP->setTextMessage(interfaceText(noneSelected ? kStrRefOverviewButton : kStrRefEquipButton));
+    // Over the overview the back button closes the screen and is its only
+    // button; over a slot's items it goes back, beside the equip button.
+    _controls.BTN_BACK->setTextMessage(interfaceText(noneSelected ? kStrRefCloseButton : kStrRefCancelButton));
+    _controls.BTN_EQUIP->setVisible(!noneSelected);
     if (!isTSL() && !noneSelected) {
         _controls.LBL_SELECTTITLE->setTextMessage(interfaceText(kStrRefK1SelectTitle));
     }

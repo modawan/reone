@@ -40,7 +40,7 @@ int ScriptRunner::run(const std::string &resRef, const std::vector<Argument> &ar
     ctx->routines = &_routines;
     ctx->args = args;
 
-    return VirtualMachine(program, std::move(ctx)).run();
+    return runProgram(program, std::move(ctx));
 }
 
 int ScriptRunner::run(const std::string &resRef, uint32_t callerId) {
@@ -67,7 +67,18 @@ int ScriptRunner::run(
     ctx->routines = &_routines;
     ctx->args = args;
     ctx->savedState = std::make_shared<ExecutionState>(*continuation._state);
-    return VirtualMachine(continuation._state->program, std::move(ctx)).run();
+    return runProgram(continuation._state->program, std::move(ctx));
+}
+
+int ScriptRunner::runProgram(std::shared_ptr<ScriptProgram> program, std::unique_ptr<ExecutionContext> ctx) {
+    if (_runDepth == 0) {
+        _instructionsRun = std::make_shared<int>(0);
+    }
+    ctx->instructionsRun = _instructionsRun;
+    ++_runDepth;
+    const int result = VirtualMachine(std::move(program), std::move(ctx)).run();
+    --_runDepth;
+    return result;
 }
 
 int ScriptRunner::run(

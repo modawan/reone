@@ -414,8 +414,9 @@ public:
      * ISceneGraph::findRoomWalkmesh), or, while a conversation under way uses
      * a camera of its own, under that camera; where none is found the last
      * one stays, the first room of the layout at first. That room and those
-     * its visibility lists are shown, and an object is drawn when it is in a
-     * shown room (see isModelInShownRoom). Without the area's visibility, or
+     * its visibility lists are shown (in TSL only those in view or with
+     * background geometry), and an object is drawn when it is in a shown room
+     * (see isModelInShownRoom). Without the area's visibility, or
      * before any room, everything is drawn.
      */
     void updateRoomVisibility();

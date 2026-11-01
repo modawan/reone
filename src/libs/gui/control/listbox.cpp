@@ -116,7 +116,10 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
 
 bool ListBox::handleMouseMotion(int x, int y) {
     if (_itemsInteractive && _selectionMode == SelectionMode::OnHover) {
-        _selectedItemIndex = getItemIndex(y);
+        const int index = getItemIndex(y);
+        if (index != -1 || !_keepsSelection) {
+            _selectedItemIndex = index;
+        }
     }
     return false;
 }
@@ -356,7 +359,7 @@ void ListBox::insetScrollBar(Control &scrollBar,
 
 void ListBox::setSelected(bool selected) {
     Control::setSelected(selected);
-    if (!selected && _selectionMode == SelectionMode::OnHover) {
+    if (!selected && _selectionMode == SelectionMode::OnHover && !_keepsSelection) {
         _selectedItemIndex = -1;
     }
 }
@@ -521,6 +524,17 @@ void ListBox::setRenderItemIconsForButtonProto(bool render) {
 void ListBox::setItemOffset(int offset) {
     if (_items.size()) {
         _itemOffset = std::min(offset, static_cast<int>(_items.size() - 1));
+    }
+}
+
+void ListBox::scrollToItem(int index) {
+    if (index < _itemOffset) {
+        _itemOffset = index;
+    }
+    updateItemSlots();
+    while (index >= _itemOffset + _slotCount && _itemOffset < index) {
+        ++_itemOffset;
+        updateItemSlots();
     }
 }
 

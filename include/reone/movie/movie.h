@@ -68,7 +68,8 @@ public:
     void update(float dt) override;
     void render() override;
 
-    void finish() override { _finished = true; }
+    /** Ends the movie at once, its sound with its picture. */
+    void finish() override;
 
     bool isFinished() const override { return _finished; }
 
