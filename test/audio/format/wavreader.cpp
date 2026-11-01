@@ -119,6 +119,47 @@ TEST(WavReader, should_load_obfuscated_wav) {
     }
 }
 
+TEST(WavReader, should_read_ima_step_index_as_one_byte) {
+    // given
+    auto wavBytes = StringBuilder()
+                        // Header
+                        .append("RIFF")                // signature
+                        .append("\x00\x00\x00\x00", 4) // chunk size
+                        .append("WAVE")                // format
+                        // Fmt Chunk
+                        .append("fmt ")                // chunk id
+                        .append("\x10\x00\x00\x00", 4) // chunk size
+                        .append("\x11\x00", 2)         // audio format
+                        .append("\x01\x00", 2)         // number of channels
+                        .append("\x22\x56\x00\x00", 4) // sample rate
+                        .append("\x00\x00\x00\x00", 4) // byte rate
+                        .append("\x08\x00", 2)         // block align
+                        .append("\x04\x00", 2)         // bits per sample
+                        // Data Chunk
+                        .append("data")                // chunk id
+                        .append("\x08\x00\x00\x00", 4) // chunk size
+                        // IMA Blocks: step index 3, then a nonzero reserved byte
+                        .append("\x00\x00\x03\xff\x12\x34\x56\x78", 8)
+                        .string();
+    auto wav = MemoryInputStream(wavBytes);
+    auto mp3ReaderFactory = MockMp3ReaderFactory();
+    auto reader = WavReader(wav, mp3ReaderFactory);
+
+    // when
+    reader.load();
+
+    // then the reserved byte is ignored: the same samples as a zero byte gives
+    auto stream = reader.stream();
+    EXPECT_TRUE(static_cast<bool>(stream));
+    auto &frame = stream->getFrame(0);
+    EXPECT_EQ(18ll, frame.samples.size());
+    auto samples = reinterpret_cast<const int16_t *>(frame.samples.data());
+    const int16_t expected[] {0, 6, 9, 18, 26, 40, 62, 60, 98};
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_EQ(expected[i], samples[i]) << "sample " << i;
+    }
+}
+
 TEST(WavReader, should_load_obfuscated_mp3) {
     // given
     auto wavBytes = StringBuilder()

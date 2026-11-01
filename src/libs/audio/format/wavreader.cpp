@@ -154,7 +154,8 @@ void WavReader::loadIMAADPCM(uint32_t chunkSize) {
         if (off % _blockAlign == 0) {
             for (int i = 0; i < _channelCount; ++i) {
                 _ima[i].lastSample = *reinterpret_cast<int16_t *>(&chunk[off + 0]);
-                _ima[i].stepIndex = std::min(std::max<int>(*reinterpret_cast<int16_t *>(&chunk[off + 2]), 0), 88);
+                // The step index is one byte; the byte after it is reserved.
+                _ima[i].stepIndex = std::min<int>(static_cast<uint8_t>(chunk[off + 2]), 88);
                 off += 4;
             }
             // The block header's predictor is the block's first sample; the
