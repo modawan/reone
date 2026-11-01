@@ -160,6 +160,7 @@ static Variable FloatToString(const std::vector<Variable> &args, const RoutineCo
     // Execute
     char text[64];
     std::snprintf(text, sizeof(text), "%#*.*f", width, decimals, std::isfinite(fFloat) ? fFloat : 0.0f);
+    text[sizeof(text) - 1] = '\0';
     return Variable::ofString(text);
 }
 
