@@ -59,6 +59,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
+    ${TESTS_SOURCE_DIR}/game/itempossession.cpp
     ${TESTS_SOURCE_DIR}/game/equipmentoperation.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp
     ${TESTS_SOURCE_DIR}/game/entrylifecycle.cpp
