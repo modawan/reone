@@ -72,6 +72,7 @@ public:
     void clearSelection();
 
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
+    bool handleKeyDown(input::KeyCode key) override;
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     bool handleClick(int x, int y, int clicks = 1) override;
@@ -113,6 +114,7 @@ public:
      * is above the visible rows, or down until it is the last visible row.
      */
     void scrollToItem(int index);
+    void scrollToSelectedItem();
 
     /**
      * Draws underneath the list's own frame and rows. Lets a GUI repaint

@@ -114,6 +114,32 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
     _leftScrollBar = controlStruct.LEFTSCROLLBAR != 0;
 }
 
+bool ListBox::handleKeyDown(input::KeyCode key) {
+    if (!_itemsInteractive)
+        return false;
+    if (_selectionMode == SelectionMode::OnHover)
+        return false;
+
+    if (key == input::KeyCode::Up) {
+        _selectedItemIndex = (_selectedItemIndex == 0) ? (getItemCount() - 1) : (_selectedItemIndex - 1);
+        _onItemClick(_items[_selectedItemIndex].tag);
+        scrollToSelectedItem();
+        return true;
+    }
+    if (key == input::KeyCode::Down) {
+        _selectedItemIndex = (_selectedItemIndex == getItemCount() - 1) ? 0 : (_selectedItemIndex + 1);
+        _onItemClick(_items[_selectedItemIndex].tag);
+        scrollToSelectedItem();
+        return true;
+    }
+    if (key == input::KeyCode::Return) {
+        _onItemDoubleClick(_items[_selectedItemIndex].tag);
+        return true;
+    }
+    
+    return false;
+}
+
 bool ListBox::handleMouseMotion(int x, int y) {
     if (_itemsInteractive && _selectionMode == SelectionMode::OnHover) {
         const int index = getItemIndex(y);
@@ -561,6 +587,10 @@ void ListBox::scrollToBottom() {
 
     _itemOffset = static_cast<int>(offset);
     updateItemSlots();
+}
+
+void ListBox::scrollToSelectedItem() {
+    scrollToItem(_selectedItemIndex);
 }
 
 void ListBox::updateItemsLayout() {

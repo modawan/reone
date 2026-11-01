@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/input/event.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
 
@@ -237,6 +238,8 @@ public:
 
     // User input
 
+    virtual bool handleKeyDown(const input::KeyCode key);
+    virtual bool handleKeyUp(const input::KeyCode key);
     virtual bool handleMouseMotion(int x, int y);
     virtual bool handleMouseWheel(int x, int y);
     virtual bool handleClick(int x, int y, int clicks = 1);
