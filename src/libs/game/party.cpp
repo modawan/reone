@@ -135,7 +135,9 @@ bool Party::handle(const input::Event &event) {
 }
 
 bool Party::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
-    if (event.button == input::GamepadButton::RightShoulder) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.changeCharacter.check(event.button)) {
         // The change-character key sounds the accepted cue whether or not
         // the lead moved.
         selectNextStandingMember();
@@ -152,8 +154,9 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;
 
-    switch (event.code) {
-    case input::KeyCode::Tab:
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.changeCharacter.check(event.code)) {
         // The change-character key sounds the accepted cue whether or not
         // the lead moved.
         selectNextStandingMember();

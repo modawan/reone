@@ -1563,6 +1563,8 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 }
 
 bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    auto &keybinds = game().options().game.activeKeybinds();
+
     if (event.axis == input::GamepadAxis::LeftTrigger || event.axis == input::GamepadAxis::RightTrigger) {
         _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
@@ -1578,20 +1580,25 @@ bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event)
 }
 
 bool Module::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
-    if (event.button == input::GamepadButton::LeftShoulder) {
+    auto &keybinds = game().options().game.activeKeybinds();
+
+    if (keybinds.pause.check(event.button)) {
         _game.pressPauseKey();
         return true;
     }
-    //stealth
-    if (event.button == input::GamepadButton::North) {
+    if (keybinds.toggleStealth.check(event.button)) {
+        _game.requestStealth();
+        return true;
+    }
+    if (keybinds.clearOneAction.check(event.button)) {
         _game.clearOneAction();
         return true;
     }
-    if (event.button == input::GamepadButton::East) {
+    if (keybinds.cancelCombat.check(event.button)) {
         _game.cancelCombat();
         return true;
     }
-    if (event.button == input::GamepadButton::South) {
+    if (keybinds.defaultAction.check(event.button)) {
         if (auto selected = _area->selectedObject()) {
             onObjectClick(selected, false);
         }

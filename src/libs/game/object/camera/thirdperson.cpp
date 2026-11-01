@@ -129,15 +129,45 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
 }
 
 bool ThirdPersonCamera::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.cameraRotateLeft.check(event.button)) {
+        _rotateCCW = true;
+        _rotateCW = false;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+    if (keybinds.cameraRotateRight.check(event.button)) {
+        _rotateCCW = false;
+        _rotateCW = true;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+
     return false;
 }
 
 bool ThirdPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.cameraRotateLeft.check(event.button)) {
+        _rotateCCW = false;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+    if (keybinds.cameraRotateRight.check(event.button)) {
+        _rotateCW = false;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+
     return false;
 }
 
 bool ThirdPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
-    if (event.axis == input::GamepadAxis::RightX) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.cameraRotateLeft.check(event.axis) || keybinds.cameraRotateRight.check(event.axis)) {
         _rotateCCW = event.value < -0.1f;
         _rotateCW = event.value > 0.1f;
         _rotationSpeed = kMaxRotationSpeed * std::abs(event.value);

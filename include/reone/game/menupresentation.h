@@ -40,27 +40,36 @@ struct MenuPresentation {
 struct Keybind {
     input::KeyCode keyCode;
     input::KeyCode keyCodeAlt;
+    input::GamepadButton gamepadButton;
+    input::GamepadAxis gamepadAxis;
 
     bool check(input::KeyCode keyCode) {
         return this->keyCode == keyCode || keyCodeAlt == keyCode;
     }
+    bool check(input::GamepadButton button) {
+        return gamepadButton == button;
+    }
+    bool check(input::GamepadAxis axis) {
+        return gamepadAxis == axis;
+    }
 };
 struct KeybindOptions {
-    Keybind moveForward {input::KeyCode::W};
-    Keybind moveBackward {input::KeyCode::S};
-    Keybind moveLeft {input::KeyCode::Z};
-    Keybind moveRight {input::KeyCode::C};
-    Keybind flourish {input::KeyCode::X};
-    Keybind walk {input::KeyCode::B};
-    Keybind cameraRotateLeft {input::KeyCode::A};
-    Keybind cameraRotateRight {input::KeyCode::D};
-    Keybind cycleTargetLeft {input::KeyCode::Q};
-    Keybind cycleTargetRight {input::KeyCode::E};
-    Keybind toggleStealth {input::KeyCode::G};
-    Keybind clearOneAction {input::KeyCode::Y};
-    Keybind cancelCombat {input::KeyCode::F};
-    Keybind defaultAction {input::KeyCode::R};
-    Keybind pause {input::KeyCode::Space, input::KeyCode::Pause};
+    Keybind moveForward             {input::KeyCode::W,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftY};
+    Keybind moveBackward            {input::KeyCode::S,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftY};
+    Keybind moveLeft                {input::KeyCode::Z,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftX};
+    Keybind moveRight               {input::KeyCode::C,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftX};
+    Keybind flourish                {input::KeyCode::X,     input::KeyCode::Unknown, input::GamepadButton::North,   input::GamepadAxis::Invalid};
+    Keybind walk                    {input::KeyCode::B,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind cameraRotateLeft        {input::KeyCode::A,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightX};
+    Keybind cameraRotateRight       {input::KeyCode::D,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightX};
+    Keybind cycleTargetLeft         {input::KeyCode::Q,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftTrigger};
+    Keybind cycleTargetRight        {input::KeyCode::E,     input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightTrigger};
+    Keybind toggleStealth           {input::KeyCode::G,     input::KeyCode::Unknown, input::GamepadButton::Back,    input::GamepadAxis::Invalid};
+    Keybind clearOneAction          {input::KeyCode::Y,     input::KeyCode::Unknown, input::GamepadButton::North,   input::GamepadAxis::Invalid};
+    Keybind cancelCombat            {input::KeyCode::F,     input::KeyCode::Unknown, input::GamepadButton::East,    input::GamepadAxis::Invalid};
+    Keybind defaultAction           {input::KeyCode::R,     input::KeyCode::Unknown, input::GamepadButton::South,   input::GamepadAxis::Invalid};
+    Keybind pause                   {input::KeyCode::Space, input::KeyCode::Pause,   input::GamepadButton::LeftShoulder, input::GamepadAxis::Invalid};
+    Keybind changeCharacter         {input::KeyCode::Tab,   input::KeyCode::Pause,   input::GamepadButton::RightShoulder, input::GamepadAxis::Invalid};
 
     static KeybindOptions load(const std::filesystem::path &path, const int index);
     void save(const std::filesystem::path &path, const int index) const;

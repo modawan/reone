@@ -122,32 +122,77 @@ bool Player::handle(const input::Event &event) {
 }
 
 bool Player::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
-    if (event.button == input::GamepadButton::West) {
+    auto &keybinds = _module.game().options().game.activeKeybinds();
+
+    if (keybinds.changeCharacter.check(event.button)) {
         std::shared_ptr<Creature> partyLeader(_party.getLeader());
         partyLeader->flourishWeapons(true);
+    }
+    if (keybinds.moveForward.check(event.button)) {
+        _moveForward = 1.0f;
+        return true;
+    }
+    if (keybinds.moveBackward.check(event.button)) {
+        _moveBackward = 1.0f;
+        return true;
+    }
+    if (keybinds.moveLeft.check(event.button)) {
+        _moveLeft = 1.0f;
+        return true;
+    }
+    if (keybinds.moveRight.check(event.button)) {
+        _moveRight = 1.0f;
+        return true;
+    }
+    if (keybinds.walk.check(event.button)) {
+        _walk = true;
+        return true;
     }
     
     return false;
 }
 
 bool Player::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _module.game().options().game.activeKeybinds();
+
+    if (keybinds.moveForward.check(event.button)) {
+        _moveForward = 0.0f;
+        return true;
+    }
+    if (keybinds.moveBackward.check(event.button)) {
+        _moveBackward = 0.0f;
+        return true;
+    }
+    if (keybinds.moveLeft.check(event.button)) {
+        _moveLeft = 0.0f;
+        return true;
+    }
+    if (keybinds.moveRight.check(event.button)) {
+        _moveRight = 0.0f;
+        return true;
+    }
+    if (keybinds.walk.check(event.button)) {
+        _walk = false;
+        return true;
+    }
+
     return false;
 }
 
 bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    auto &keybinds = _module.game().options().game.activeKeybinds();
     bool handled = false;
 
-    if (event.axis == input::GamepadAxis::LeftY) {
+    if (keybinds.moveForward.check(event.axis) || keybinds.moveBackward.check(event.axis)) {
         _moveForward = std::abs(std::min(0.0f, event.value));
         _moveBackward = std::abs(std::max(0.0f, event.value));
         handled = true;
     }
-    if (event.axis == input::GamepadAxis::LeftX) {
+    if (keybinds.moveLeft.check(event.axis) || keybinds.moveRight.check(event.axis)) {
         _moveLeft = std::abs(std::min(0.0f, event.value));
         _moveRight = std::abs(std::max(0.0f, event.value));
         handled = true;
     }
-
     return handled;
 }
 
@@ -265,7 +310,7 @@ void Player::update(float dt) {
     glm::vec2 movementVec(forward, right);
     facing = movement ? _camera.facing() + std::atan2(right, forward) : _camera.facing();
     float magnitude = glm::length(movementVec);
-    movement = magnitude > 0.0001f;
+    movement = magnitude > 0.2f;
 
     if (movement) {
         // Moving by input clears as the player's controls do.
