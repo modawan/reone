@@ -121,15 +121,11 @@ bool ListBox::handleKeyDown(input::KeyCode key) {
         return false;
 
     if (key == input::KeyCode::Up) {
-        _selectedItemIndex = (_selectedItemIndex == 0) ? (getItemCount() - 1) : (_selectedItemIndex - 1);
-        _onItemClick(_items[_selectedItemIndex].tag);
-        scrollToSelectedItem();
+        selectPreviousItem();
         return true;
     }
     if (key == input::KeyCode::Down) {
-        _selectedItemIndex = (_selectedItemIndex == getItemCount() - 1) ? 0 : (_selectedItemIndex + 1);
-        _onItemClick(_items[_selectedItemIndex].tag);
-        scrollToSelectedItem();
+        selectNextItem();
         return true;
     }
     if (key == input::KeyCode::Return) {
@@ -551,6 +547,24 @@ void ListBox::setItemOffset(int offset) {
     if (_items.size()) {
         _itemOffset = std::min(offset, static_cast<int>(_items.size() - 1));
     }
+}
+
+void ListBox::selectNextItem() {
+    if (_items.empty()) 
+        return;
+
+    _selectedItemIndex = (_selectedItemIndex == getItemCount() - 1) ? 0 : (_selectedItemIndex + 1);
+    _onItemClick(_items[_selectedItemIndex].tag);
+    scrollToSelectedItem();
+}
+
+void ListBox::selectPreviousItem() {
+    if (_items.empty()) 
+        return;
+
+    _selectedItemIndex = (_selectedItemIndex == 0) ? (getItemCount() - 1) : (_selectedItemIndex - 1);
+    _onItemClick(_items[_selectedItemIndex].tag);
+    scrollToSelectedItem();
 }
 
 void ListBox::scrollToItem(int index) {

@@ -164,6 +164,8 @@ public:
     const Item &getItemAt(int index) const;
     int getItemOffset() const { return _itemOffset; }
     void setItemOffset(int offset);
+    void selectNextItem();
+    void selectPreviousItem();
 
     Control &protoItem() const { return *_protoItem; }
     Control *protoItemOrNull() const { return _protoItem.get(); }
