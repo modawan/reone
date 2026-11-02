@@ -9271,6 +9271,13 @@ Creature::Avoidance Creature::plotPathAroundCreature(const std::shared_ptr<Creat
         for (auto &point : way.points) {
             point.z = groundAt(glm::vec2(point));
         }
+        // A way over ground the pathfinder does not walk is blocked: walked,
+        // it would leave the walker where no path can be planned from.
+        for (const auto &point : way.points) {
+            if (!walkmeshElevationAt(pf.uni, glm::vec2(point), point.z)) {
+                return way;
+            }
+        }
         for (size_t i = 1; i < way.points.size(); ++i) {
             const auto test = area.testDirectLine(*this, way.points[i - 1], way.points[i], targetCreature);
             if (test.result == Area::DirectLine::Clear) {
