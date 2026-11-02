@@ -75,11 +75,37 @@ static float interfaceScalar(bool tsl, int screenWidth) {
     return tsl && screenWidth > 1022 ? 1.0f + ((screenWidth - 1022) / 1024) * 0.5f : 1.0f;
 }
 
+/**
+ * The state a party portrait shows, in order of precedence: fallen, able to
+ * level up, held helpless. A fallen member shows no mark; a pending level-up
+ * shows ahead of being held helpless.
+ */
+enum class PortraitState {
+    Normal,
+    Down,
+    LevelUp,
+    Debilitated
+};
+
+static PortraitState portraitState(const Creature &member) {
+    if (member.isDead() || member.isTemporarilyDead()) {
+        return PortraitState::Down;
+    }
+    if (member.isLevelUpPending()) {
+        return PortraitState::LevelUp;
+    }
+    if (member.isDebilitated()) {
+        return PortraitState::Debilitated;
+    }
+    return PortraitState::Normal;
+}
+
 // Effect stacks
 //
 // Each portrait shows one icon for every beneficial effect on its member and
-// one for every harmful effect, stacked over the portrait. The rules below lay
-// the icons out to the pixel as the game does.
+// one for every harmful effect, stacked over the portrait. A member who is
+// fallen, able to level up or held helpless shows no stacks. The rules below
+// lay the icons out to the pixel as the game does.
 
 /** The leader's portrait stacks at most nine icons of a kind; another member's at most five. */
 static constexpr int kLeaderEffectStackMax = 9;
@@ -902,11 +928,9 @@ void HUD::update(float dt) {
             LBL_CHAR.setVisible(true);
             LBL_CHAR.setBorderFill(member->portrait());
             LBL_BACK.setVisible(true);
-            // A fallen member shows no mark; otherwise a pending level-up
-            // shows ahead of being held helpless.
-            const bool down = member->isDead() || member->isTemporarilyDead();
-            const bool levelUp = !down && member->isLevelUpPending();
-            const bool debilitated = !down && !levelUp && member->isDebilitated();
+            const PortraitState state = portraitState(*member);
+            const bool levelUp = state == PortraitState::LevelUp;
+            const bool debilitated = state == PortraitState::Debilitated;
             // A member standing able to level up raises the level-up chime
             // once, until it levels up again.
             if (levelUp && member->isLevelUpChimeArmed()) {
@@ -1080,7 +1104,7 @@ void HUD::render() {
     if (_areaTransition && _areaTransition->isVisible()) {
         _areaTransition->render();
     }
-    _select.render();
+    _select.render(_actionBar.isLeaderDown());
     _actionBar.render(_gui->scale());
     _game.floatingText().render();
 }
@@ -1211,10 +1235,12 @@ void HUD::refreshActionQueueItems() const {
         *_controls.LBL_QUEUE1,
         *_controls.LBL_QUEUE2,
         *_controls.LBL_QUEUE3};
-    // The leader's round action under way, if any.
+    // The entry the leader's dispatcher last handed on, if any, and whether
+    // the leader's round action is under way.
     const auto current = _game.combat().currentRoundAction(*leader);
+    const bool running = _game.combat().isRoundActionUnderWay(*leader);
     // An icon takes the next slot and no icon takes none. The first slot is
-    // dimmed while nothing is under way.
+    // dimmed while no round action is under way.
     size_t shown = 0;
     auto show = [&](const std::shared_ptr<graphics::Texture> &icon) {
         if (!icon || shown == queueLabels.size()) {
@@ -1222,7 +1248,7 @@ void HUD::refreshActionQueueItems() const {
         }
         Label &label = queueLabels[shown].get();
         label.setBorderFill(icon);
-        label.setBorderAlpha(shown == 0 && !current ? kIdleActionQueueOpacity : 1.0f);
+        label.setBorderAlpha(shown == 0 && !running ? kIdleActionQueueOpacity : 1.0f);
         label.setVisible(true);
         ++shown;
     };
@@ -1282,7 +1308,7 @@ void HUD::refreshActionQueueItems() const {
         const SavedActionType type = node->type();
         const bool dispatcher = type == SavedActionType::CombatDispatch;
         const bool cast = type == SavedActionType::CastSpell || type == SavedActionType::ItemCastSpell;
-        if (((dispatcher && current) || cast || type == SavedActionType::AttackObject) && !currentShown) {
+        if (((dispatcher && running && current) || cast || type == SavedActionType::AttackObject) && !currentShown) {
             currentShown = true;
             if (cast) {
                 show(commandIcon(node->action->combatAction()));
@@ -1339,6 +1365,9 @@ void HUD::renderEffectStacks() {
                 continue;
             }
             auto member = party.getMember(*memberIndex);
+            if (portraitState(*member) != PortraitState::Normal) {
+                continue;
+            }
             const bool leader = *memberIndex == 0;
             const auto &portrait = portraits[portraitIndex]->extent();
             auto counts = member->effectStackCounts();

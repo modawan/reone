@@ -79,6 +79,30 @@ struct ActionSlot {
     size_t indexSelected {0};
 };
 
+/**
+ * What tells a menu entry from another: its kind and its power, item, feat,
+ * skill, form, implant mode or behaviour.
+ */
+struct EntryIdentity {
+    ActionType type {ActionType::Invalid};
+    FeatType feat {FeatType::Invalid};
+    SkillType skill {SkillType::Invalid};
+    int subSkill {0};
+    std::optional<SpellType> spell;
+    /** The id of the entry's item. */
+    std::optional<uint32_t> item;
+    bool form {false};
+    std::optional<int> implantMode;
+    std::optional<NPCAIStyle> behavior;
+
+    explicit EntryIdentity(const ContextAction &entry);
+
+    bool operator==(const EntryIdentity &other) const;
+};
+
+/** The two entries are the same power, item, feat, skill, form, implant mode or behaviour. */
+bool isSameEntry(const ContextAction &left, const ContextAction &right);
+
 /** Draw the icon of \p action, dimmed unless \p enabled. */
 void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, bool enabled, ServicesView &services);
 

@@ -1428,7 +1428,9 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     switch (object->type()) {
     case ObjectType::Creature: {
         auto creature = std::static_pointer_cast<Creature>(object);
-        if (isHostileToPartyLeader(*creature)) {
+        // While the dead-target hold runs, every creature is offered the
+        // hostile entries.
+        if (isHostileToPartyLeader(*creature) || _game.isDeadTargetHoldRunning()) {
             // In a restricted area neither the attack nor the combat feats are
             // offered.
             const bool restricted = _area->playerRestrictMode();

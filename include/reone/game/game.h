@@ -266,6 +266,12 @@ public:
     void holdWorldClock() { _worldClockSample.reset(); }
 
     /**
+     * @return where the system cursor is to be moved, in screen coordinates,
+     * once; empty while it stays where it is
+     */
+    std::optional<glm::ivec2> consumePointerWarp();
+
+    /**
      * Play a movie, ending any module transition movies.
      *
      * @param streamingMusic whether area music set to play through movies
@@ -456,6 +462,12 @@ public:
     /** Write the autopause options to the configuration. */
     void saveAutoPauseOptions() const;
     bool clientCombatMode() const { return _clientCombatMode; }
+    /**
+     * @return whether the dead-target hold runs: in combat mode, for a moment
+     * after the leader's target goes down, every creature is offered as
+     * hostile
+     */
+    bool isDeadTargetHoldRunning() const { return _deadTargetHold > 0.0f; }
     /** Combat mode follows the leader's, in the area it stands in. */
     void syncClientCombatMode();
     /**
@@ -1216,6 +1228,8 @@ public:
     LastSaveLaunch launchMostRecentSave();
     /** Whether a panel holds the input instead of the world: a popup in play, or an exclusive screen. */
     bool hasModalPanel() const;
+    /** The mouse turns the third-person camera in play, with no popup taking the input. */
+    bool isMouseLooking() const;
     /** End the game on the next frame, returning to the main menu. */
     void requestEndGame() {
         _endGamePending = true;
@@ -1781,6 +1795,10 @@ private:
     std::set<std::string> _saveNames;
     bool _quitRequested {false};
     bool _relativeMouseMode {false};
+    /** Where the pointer stood when the mouse began turning the camera; set while it turns. */
+    std::optional<glm::ivec2> _mouseLookPointer;
+    /** Where the system cursor is to be moved, until the driver takes it. */
+    std::optional<glm::ivec2> _pointerWarp;
     bool _showImGui {false};
 
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
@@ -2166,6 +2184,12 @@ private:
     bool isNearestObjectSeen(NearestObject &entry, const Creature &leader, const Area &area);
     bool isDownForSelection(const Creature &creature) const;
     void updateCamera(float dt);
+    /**
+     * When the mouse begins turning the camera, remember where the pointer
+     * stands; when it stops, put the pointer and the system cursor back there
+     * and move the mouse there once.
+     */
+    void updateMouseLookPointer();
     void updateSceneGraph(float dt);
     void updateImGui(float dt);
 
