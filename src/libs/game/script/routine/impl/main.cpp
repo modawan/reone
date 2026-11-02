@@ -528,6 +528,16 @@ static Variable GetItemPossessedBy(const std::vector<Variable> &args, const Rout
             }
         }
     }
+    if (!item) {
+        // A party member's non-equipped items live in the shared party
+        // inventory, so a member holding nothing of its own still reaches what
+        // the party carries. A non-party object receives itself here and keeps
+        // looking no further than its own inventory.
+        auto shared = ctx.game.party().sharedInventoryReceiver(oObject);
+        if (shared && shared != oObject) {
+            item = shared->getItemByTag(itemTag);
+        }
+    }
 
     return Variable::ofObject(getObjectIdOrInvalid(item));
 }
