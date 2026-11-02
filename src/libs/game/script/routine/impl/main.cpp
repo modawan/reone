@@ -1834,10 +1834,8 @@ static Variable touchAttack(const std::vector<Variable> &args, const RoutineCont
     auto *attacker = dyn_cast<Creature>(caller.get());
     auto *defender = dyn_cast<Creature>(target.get());
     if (attacker && !defender) {
+        // No roll is made, so the line shows 0 for both the roll and the bonus.
         result = target->type() == ObjectType::Door || target->type() == ObjectType::Placeable ? 1 : 0;
-        // The line reports the result as the bonus and 9 as the roll.
-        attackBonus = result;
-        roll = 9;
     } else if (attacker) {
         attackBonus = attacker->getTouchAttackBonus(ranged);
         const auto weapon = attacker->getEquippedItem(InventorySlots::rightWeapon);
@@ -2067,6 +2065,9 @@ static void addForceResistedFeedback(const Object &caster, const Creature &targe
     }
 }
 
+// The power the "immune to" line names.
+static constexpr auto kSpellImmunityLinePower = static_cast<SpellType>(0);
+
 static Variable ResistForce(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto sourceObject = getObjectOrNull(args, 0, ctx);
     auto targetObject = getObjectOrNull(args, 1, ctx);
@@ -2085,12 +2086,13 @@ static Variable ResistForce(const std::vector<Variable> &args, const RoutineCont
         return Variable::ofInt(0);
     }
     // Spell immunity is selected by spell ID without source or versus
-    // qualification, and is reported with the spell's name.
+    // qualification. Whichever power was resisted, the line names the power
+    // of the table's first row.
     for (const EffectInstance &effect : target->effects()) {
         if (effect.type() == EffectType::SpellImmunity &&
             (effect.integerParameter(0) == static_cast<int>(SpellType::All) ||
              effect.integerParameter(0) == spellId)) {
-            addSpellImmunityFeedback(ctx.game, *target, *sourceObject, spell->name);
+            addSpellImmunityFeedback(ctx.game, *target, *sourceObject, ctx.services.game.spells.get(kSpellImmunityLinePower)->name);
             return Variable::ofInt(2);
         }
     }

@@ -910,7 +910,8 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
         return EffectApplicationResult::Applied;
     }
     if (auto *creature = dyn_cast<Creature>(&object)) {
-        return creature->applyDeathEffect(instance.boundCreator(), instance.integerParameter(2) != 0, instance)
+        return creature->applyDeathEffect(instance.boundCreator(), instance.integerParameter(0) != 0,
+                                          instance.integerParameter(2) != 0, instance)
                    ? EffectApplicationResult::Applied
                    : EffectApplicationResult::Rejected;
     }

@@ -1224,17 +1224,14 @@ std::shared_ptr<Combat::ScheduledEntry> Combat::makeAttackEntry(const std::share
     if (!target) {
         return nullptr;
     }
-    // An ordinary attack needs a living target, and a closed door.
+    // An ordinary attack needs a living target and a closed door; TSL also
+    // refuses a door or container at no hit points.
     if (!cutscene) {
-        if (auto door = dyn_cast<Door>(target.get())) {
-            if (door->isOpen() || door->currentHitPoints() <= 0) {
-                return nullptr;
-            }
-        } else if (isa<Placeable>(target.get())) {
-            if (target->currentHitPoints() <= 0) {
-                return nullptr;
-            }
-        } else if (target->isDead()) {
+        const auto door = dyn_cast<Door>(target.get());
+        if (target->isDead() || (door && door->isOpen())) {
+            return nullptr;
+        }
+        if (_game.isTSL() && (door || isa<Placeable>(target.get())) && target->currentHitPoints() <= 0) {
             return nullptr;
         }
     }

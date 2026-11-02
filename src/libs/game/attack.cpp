@@ -372,9 +372,8 @@ static void computeWeaponDamage(
         weapon, result == AttackResultType::CriticalHit);
     amount += massiveCriticalDamage;
 
-    breakdown.strengthModifier = weapon->isRanged()
-                                     ? 0
-                                     : multiplier * physicalBonus.strengthModifier;
+    breakdown.strengthModifier =
+        multiplier * physicalBonus.damageAbilityModifier;
     breakdown.weaponSpecialization =
         multiplier * physicalBonus.weaponSpecialization;
     breakdown.combatFeatDamage = multiplier * physicalBonus.combatFeatDamage;
@@ -415,9 +414,18 @@ static void computeWeaponDamage(
           LogChannel::Combat);
 }
 
+/**
+ * Whether \p attacker is a party member striking during a conversation. Such
+ * a hit deals no damage, applies no item on-hit property, shows no hit visual
+ * and makes no call-out.
+ */
+static bool isPartyHitInConversation(const Creature &attacker) {
+    return attacker.game().isConversationActive() && attacker.isPartyMember();
+}
+
 static void computeUnarmedDamage(
     const Creature &attacker, const Object &target, PhysicalAttackKind kind, std::optional<AttackBonus> handType,
-    AttackResultType result, bool criticalConfirmed, int criticalMultiplier,
+    int damageFlags, const std::shared_ptr<Item> &unarmedGloves, AttackResultType result, bool criticalConfirmed, int criticalMultiplier,
     int damageBonus, int sneakDice, DamagePacket &damage, DamageBreakdown &breakdown) {
 
     int multiplier = result == AttackResultType::CriticalHit
@@ -425,7 +433,8 @@ static void computeUnarmedDamage(
                          : 1;
     PhysicalDamageBonus physicalBonus = attacker.getPhysicalDamageBonus(
         nullptr,
-        false);
+        false,
+        unarmedGloves);
     // The unarmed feat dice belong to unarmed attacks only, not to an empty
     // left creature slot.
     if (kind != PhysicalAttackKind::Unarmed && kind != PhysicalAttackKind::ExtraUnarmed) {
@@ -455,7 +464,7 @@ static void computeUnarmedDamage(
     amount += massiveCriticalDamage;
 
     breakdown.strengthModifier =
-        multiplier * physicalBonus.strengthModifier;
+        multiplier * physicalBonus.damageAbilityModifier;
     breakdown.weaponSpecialization =
         multiplier * physicalBonus.weaponSpecialization;
     breakdown.combatFeatDamage = multiplier * physicalBonus.combatFeatDamage;
@@ -468,11 +477,12 @@ static void computeUnarmedDamage(
                                        ? criticalMultiplier
                                        : 0;
 
+    const DamageType type = getPrimaryDamageType(damageFlags);
     if (baseDamage > 0) {
-        breakdown.addRawDamage(baseDamage, DamageType::Bludgeoning);
+        breakdown.addRawDamage(baseDamage, type);
     }
-    damage.addPhysicalBase(amount, DamageType::Bludgeoning);
-    damage.setDamageFlags(static_cast<int>(DamageType::Bludgeoning));
+    damage.addPhysicalBase(amount, type);
+    damage.setDamageFlags(damageFlags);
     damage.setBaseDamageAmounts(breakdown.rawDamageSlots);
     const auto targetCreature = Creature::asCreature(target);
     attacker.addPhysicalDamageModifiers(
@@ -1179,6 +1189,10 @@ bool AttackBuffer::addPhysicalAttack(
     const auto handWeapon = creatureWeapon ? std::shared_ptr<Item>() : weapon;
     const auto gloves = handWeapon ? std::shared_ptr<Item>() : attacker.getEquippedItem(InventorySlots::hands);
     const auto criticalWeapon = handWeapon ? handWeapon : gloves;
+    // An unarmed attack takes its Weapon Focus and Specialization from the gloves.
+    const auto unarmedGloves = kind == PhysicalAttackKind::Unarmed || kind == PhysicalAttackKind::ExtraUnarmed
+                                   ? gloves
+                                   : std::shared_ptr<Item>();
     // With only the right or bite creature slot filled, no item attacks.
     const auto attackItem = kind == PhysicalAttackKind::None ? std::shared_ptr<Item>() : weapon ? weapon
                                                                                                 : gloves;
@@ -1186,7 +1200,7 @@ bool AttackBuffer::addPhysicalAttack(
     const auto handType = kind == PhysicalAttackKind::ExtraMainHand  ? std::optional<AttackBonus>(AttackBonus::ExtraOnhand)
                           : kind == PhysicalAttackKind::ExtraUnarmed ? std::optional<AttackBonus>(AttackBonus::ExtraUnarmed)
                                                                      : std::nullopt;
-    AttackBonusBreakdown bonus = attacker.getAttackBonusBreakdown(targetCreature, weapon, offHand, handType);
+    AttackBonusBreakdown bonus = attacker.getAttackBonusBreakdown(targetCreature, weapon, offHand, handType, unarmedGloves);
     attacker.addPartyLeadershipTerms(bonus, targetCreature);
     // The feat's attack bonus, which the attacking item's Rapid Shot and
     // Sniper Shot properties change.
@@ -1196,7 +1210,8 @@ bool AttackBuffer::addPhysicalAttack(
                                                       criticalWeapon && criticalWeapon->sniperBonus());
     const int attackRollBonus = bonus.total();
     const int threat = getCriticalThreat(criticalWeapon, getSpecialAttackThreatBonus(feat, criticalWeapon));
-    const int damageFlags = weapon ? weapon->damageFlags() : static_cast<int>(DamageType::Bludgeoning);
+    // An unarmed hit is of the gloves' damage type; with no item, bludgeoning.
+    const int damageFlags = attackItem ? attackItem->damageFlags() : static_cast<int>(DamageType::Bludgeoning);
     const auto forcedResult = _cutscene
                                   ? std::optional<AttackResultType>(static_cast<AttackResultType>(_cutscene->result))
                                   : std::nullopt;
@@ -1276,14 +1291,13 @@ bool AttackBuffer::addPhysicalAttack(
         // The forced damage is dealt as it is, in the attacking item's damage
         // slot, by a hit (and by a returned bolt).
         if (isAttackSuccessful(attack.result) || (ranged && attack.result == AttackResultType::Deflected)) {
-            setCutsceneDamage(attack.damage, _cutscene->damage,
-                              attackItem ? attackItem->damageFlags() : static_cast<int>(DamageType::Bludgeoning));
+            setCutsceneDamage(attack.damage, _cutscene->damage, damageFlags);
             if (attack.result != AttackResultType::Deflected) {
                 attack.damage.resolveUnmitigated();
             }
         }
     } else if ((isAttackSuccessful(attack.result) || attack.result == AttackResultType::Deflected) &&
-               !(attacker.game().isConversationActive() && attacker.isPartyMember())) {
+               !isPartyHitInConversation(attacker)) {
         const int sneakDice = recordSneakAttack(attack) ? attacker.sneakAttackDice() : 0;
         if (weapon) {
             // A critical multiplies the hand-specific damage dice by the
@@ -1296,7 +1310,7 @@ bool AttackBuffer::addPhysicalAttack(
                                 resolution.criticalConfirmed, attack.criticalThreat.multiplier, handDiceMultiplier,
                                 damageBonus, sneakDice, attack.damage, attack.damageBreakdown);
         } else {
-            computeUnarmedDamage(attacker, target, kind, handType, attack.result, resolution.criticalConfirmed,
+            computeUnarmedDamage(attacker, target, kind, handType, damageFlags, unarmedGloves, attack.result, resolution.criticalConfirmed,
                                  attack.criticalThreat.multiplier, damageBonus, sneakDice, attack.damage, attack.damageBreakdown);
         }
     }
@@ -1312,7 +1326,7 @@ bool AttackBuffer::addPhysicalAttack(
     // A confirmed critical hit makes the attacker call out. A cutscene hit, a
     // hit on a plot target and a party member's hit during a conversation do not.
     if (!_cutscene && attack.result == AttackResultType::CriticalHit && !target.plotFlag() &&
-        !(attacker.game().isConversationActive() && attacker.isPartyMember()) && attacker.isHeardByLeader())
+        !isPartyHitInConversation(attacker) && attacker.isHeardByLeader())
         attacker.playSound(resource::SoundSetEntry::CriticalHit);
     // A ranged hit that deals no damage tells the attacker, once a round, that
     // its weapon cannot hurt the target.
@@ -1681,9 +1695,7 @@ void AttackBuffer::resolveItemOnHitProperties(
     }
     attack.onHitResolved = true;
     const auto sourceItem = attack.sourceItem.resolve();
-    if (!sourceItem ||
-        !producesItemOnHitEffects(attack.result) ||
-        target.plotFlag()) {
+    if (!sourceItem || !producesItemOnHitEffects(attack.result)) {
         return;
     }
 
@@ -1790,12 +1802,15 @@ bool AttackBuffer::resolveDamage(
     Attack &attack) {
 
     const auto generation = _signalGeneration;
-    // A cutscene attack's damage carries no item on-hit properties.
+    // A cutscene hit, a hit on a plot target and a party member's hit during
+    // a conversation apply no item on-hit property and show no hit or
+    // deflection visual.
+    const bool takesEffect = !_cutscene && !target.plotFlag() && !isPartyHitInConversation(attacker);
     if (attack.result == AttackResultType::Deflected) {
         // A returned shot does not consume the defender's finite pools. Its
         // item on-hit properties still resolve against the defender.
         attack.effectsAfterOnHit = attack.targetEffects.size();
-        if (!_cutscene) {
+        if (takesEffect) {
             resolveItemOnHitProperties(attacker, target, attack);
             appendHitVisuals(attacker, attack);
         }
@@ -1815,7 +1830,7 @@ bool AttackBuffer::resolveDamage(
     // Item on-hit effects take effect before the hit visuals and the death
     // that follow them.
     attack.effectsAfterOnHit = attack.targetEffects.size();
-    if (!_cutscene) {
+    if (takesEffect) {
         resolveItemOnHitProperties(attacker, target, attack);
         appendHitVisuals(attacker, attack);
     }
@@ -2559,7 +2574,6 @@ static constexpr int kStrRefImprovedToughnessDamage = 42433;
 static constexpr int kStrRefWookieeEnduranceDamage = 42434;
 static constexpr int kStrRefDeflectionBreakdown = 42417;
 static constexpr int kStrRefDeflectionBaseAttackBonus = 42419;
-static constexpr int kStrRefDeflectionDexterity = 42420;
 static constexpr int kStrRefDeflectionEffects = 42620;
 static constexpr int kStrRefDualStrikeBonus = 48201;
 static constexpr int kStrRefPcCharismaBonus = 126694;
@@ -2673,14 +2687,17 @@ static std::string getDamageBreakdown(
             kStrRefWeaponSpecializationDamage,
             values.weaponSpecialization);
     }
-    if (values.otherSpecialBonus > 0) {
+    const int otherDamageBonus = values.otherSpecialBonus + values.combatFeatDamage +
+                                 values.preciseShotDamage + values.formDamage +
+                                 values.unarmedFeatDamage209 + values.unarmedFeatDamage212;
+    if (otherDamageBonus > 0) {
         appendDamageModifier(
             game,
             services,
             breakdown,
             " + ",
             kStrRefOtherDamageBonus,
-            values.otherSpecialBonus);
+            otherDamageBonus);
     }
     if (values.sneakAttack > 0) {
         appendDamageModifier(
@@ -3161,7 +3178,6 @@ void AttackBuffer::addDeflectionFeedback(
         appendNamedPart(spellName(static_cast<SpellType>(record.form)), record.formBonus);
     }
     appendPart(kStrRefDeflectionBaseAttackBonus, record.baseAttackBonus);
-    appendPart(kStrRefDeflectionDexterity, getUnsignedDeflectionNumber(record.dexterity));
     appendPart(kStrRefDeflectionEffects, effects);
 
     addCombatFeedbackLine(game, MessageLog::Style::Normal,

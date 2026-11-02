@@ -1024,7 +1024,7 @@ static MergedDamageModifiers mergeDamageModifiers(
     const std::vector<DamageModifierEntry> &entries,
     const std::function<bool(const DamageModifierEntry &)> &counts) {
 
-    const size_t slots = tsl ? 108 : 36;
+    const int slots = getEffectSourceCapacity(tsl);
     const auto &tables = services.game.combatTables;
     MergedDamageModifiers result;
     int rank = 0;
@@ -1057,7 +1057,7 @@ static MergedDamageModifiers mergeDamageModifiers(
                     continue;
                 }
             }
-            if (list.size() < slots) {
+            if (static_cast<int>(list.size()) < slots) {
                 list.push_back(entry);
             }
         }
@@ -1161,9 +1161,7 @@ static std::vector<DamageModifierEntry> collectDamageModifiers(
         if (!item || !equippedItemPropertiesAreActive(slot)) {
             continue;
         }
-        // An unarmed attack types the gloves' modifiers as bludgeoning.
-        const int itemFlags = slot == InventorySlots::hands ? static_cast<int>(DamageType::Bludgeoning) : item->damageFlags();
-        appendItemDamageModifiers(creature.services(), *item, itemFlags, target,
+        appendItemDamageModifiers(creature.services(), *item, item->damageFlags(), target,
                                   itemDamageAppliesToHand(slot, *item, attackHand),
                                   isHandSpecificAttackModifierSlot(slot), entries);
     }
@@ -3952,7 +3950,9 @@ void Creature::applyHitPointDamage(
         return;
     }
 
-    (void)applyDeathEffect(damager, false);
+    // A creature's kill is spectacular unless its current attack is ranged.
+    const auto killer = asCreature(damager);
+    (void)applyDeathEffect(damager, killer && !killer->get().isCurrentAttackRanged(), false);
 }
 
 int Creature::getReputationToward(const Creature &target) const {
@@ -4265,7 +4265,7 @@ void Creature::onDestroyabilityChanged() {
         _game.postObjectDestruction(*this, 3.0f);
 }
 
-bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
+bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spectacular,
                                 bool noFadeAway, std::optional<std::reference_wrapper<const EffectInstance>> operation) {
     if (_dead || _immortal || plotFlag()) {
         return false;
@@ -4379,7 +4379,7 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
     // its visual.
     if (partyDeath) {
         _game.queueScriptEvent(*_game.module(), *this, Event(kPlayerDeathEvent));
-    } else if (operation && operation->get().integerParameter(0) != 0 && (_destroyable || !_game.isTSL())) {
+    } else if (spectacular && (_destroyable || !_game.isTSL())) {
         applyEffect(_game.newEffect<VisualEffect>(kSpectacularDeathVisual, false, _services), DurationType::Instant);
         // A spectacular death leaves the creature's encounter at once.
         if (isEncounterCreature()) {
@@ -6511,6 +6511,12 @@ AttackResultType Creature::currentCombatAttackResult() const {
     return action ? action->combatAction().currentCombatAttackResult() : AttackResultType::Invalid;
 }
 
+bool Creature::isCurrentAttackRanged() const {
+    const auto action = _currentCombatAction.lock();
+    const auto attacks = action ? action->combatAction().combatAttacks() : std::nullopt;
+    return attacks && attacks->get().recordRanged();
+}
+
 void Creature::beginCombatAttack(Object &targetObject, FeatType feat) {
     _roundActionKind = kAttackRoundAction;
     interruptActivities();
@@ -7547,7 +7553,8 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
     std::optional<std::reference_wrapper<const Creature>> target,
     const std::shared_ptr<Item> &weapon,
     bool offHand,
-    std::optional<AttackBonus> handType) const {
+    std::optional<AttackBonus> handType,
+    const std::shared_ptr<Item> &unarmedGloves) const {
 
     AttackBonusBreakdown result;
 
@@ -7582,7 +7589,8 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
                                                                                            : AttackBonus::Unarmed;
     int modifierBonus = 0;
     int modifierPenalty = 0;
-    EffectModifierReducer miscModifierReducer;
+    EffectSourceSlots miscIncreases {getEffectSourceCapacity(_game.isTSL())};
+    EffectSourceSlots miscDecreases {getEffectSourceCapacity(_game.isTSL())};
 
     for (const auto &applied : effects()) {
         if (!applied.hasLiveRuntimeSource()) {
@@ -7599,10 +7607,7 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
             if (bonus > 0 &&
                 attackModifierApplies(modifierType, attackType)) {
                 if (modifierType == AttackBonus::Misc) {
-                    miscModifierReducer.addIncrease(
-                        getEffectSourceKey(applied),
-                        static_cast<int>(AttackBonus::Misc),
-                        bonus);
+                    miscIncreases.add(getEffectSpellKey(applied), bonus);
                 } else {
                     modifierBonus += bonus;
                 }
@@ -7614,10 +7619,7 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
             if (penalty > 0 &&
                 attackModifierApplies(modifierType, attackType)) {
                 if (modifierType == AttackBonus::Misc) {
-                    miscModifierReducer.addDecrease(
-                        getEffectSourceKey(applied),
-                        static_cast<int>(AttackBonus::Misc),
-                        penalty);
+                    miscDecreases.add(getEffectSpellKey(applied), penalty);
                 } else {
                     modifierPenalty += penalty;
                 }
@@ -7634,8 +7636,6 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
             continue;
         }
 
-        int itemBonus = 0;
-        int itemPenalty = 0;
         for (const auto &property : item->properties()) {
             if (!item->isPropertyActive(property)) {
                 continue;
@@ -7689,25 +7689,24 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
             if (isHandSpecificAttackModifierSlot(slot)) {
                 addAttackModifier(modifier, modifierBonus, modifierPenalty);
             } else if (modifier > 0) {
-                itemBonus = std::max(itemBonus, modifier);
+                // Each property counts as a source of its own.
+                miscIncreases.add({}, modifier);
             } else {
-                itemPenalty = std::max(itemPenalty, -modifier);
+                miscDecreases.add({}, -modifier);
             }
         }
-        EffectSourceKey source {EffectSourceKind::Item, item->runtimeIncarnation()};
-        miscModifierReducer.addIncrease(source, static_cast<int>(AttackBonus::Misc), itemBonus);
-        miscModifierReducer.addDecrease(source, static_cast<int>(AttackBonus::Misc), itemPenalty);
     }
 
     int attackEffectCap = getAttackEffectModifierCap(_game.isTSL());
-    modifierBonus += miscModifierReducer.totalIncrease(attackEffectCap);
-    modifierPenalty += miscModifierReducer.totalDecrease(attackEffectCap);
+    modifierBonus += miscIncreases.total();
+    modifierPenalty += miscDecreases.total();
     result.effectBonus = std::min(modifierBonus, attackEffectCap) -
                          std::min(modifierPenalty, attackEffectCap);
 
-    if (weapon &&
-        weapon->weaponFocusFeat() != FeatType::Invalid &&
-        hasEffectiveFeat(weapon->weaponFocusFeat())) {
+    const auto &focusItem = weapon ? weapon : unarmedGloves;
+    if (focusItem &&
+        focusItem->weaponFocusFeat() != FeatType::Invalid &&
+        hasEffectiveFeat(focusItem->weaponFocusFeat())) {
         result.weaponFocusBonus = 1;
     }
 
@@ -7766,9 +7765,13 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
             result.meleeOnRangedBonus);
     }
 
-    const auto twoWeapon = getTwoWeaponAttackPenalty(weapon, offHand);
-    result.smallOffhandBonus = twoWeapon.smallOffhandBonus;
-    result.dualWieldPenalty = -twoWeapon.penalty - result.smallOffhandBonus;
+    // Only an on-hand or off-hand attack takes the two-weapon terms; an extra
+    // attack takes none.
+    if (attackType == AttackBonus::Onhand || attackType == AttackBonus::Offhand) {
+        const auto twoWeapon = getTwoWeaponAttackPenalty(weapon, offHand);
+        result.smallOffhandBonus = twoWeapon.smallOffhandBonus;
+        result.dualWieldPenalty = -twoWeapon.penalty - result.smallOffhandBonus;
+    }
 
     if (!offHand) {
         result.duelingBonus = getDuelingBonus();
@@ -7928,7 +7931,6 @@ AttackResultType Creature::resolveRangedDefense(const Creature &shooter, int dam
         }
     }
     record.baseAttackBonus = getAttackBonusBreakdown(std::nullopt, weapon, false).baseAttackBonus;
-    record.dexterity = getEffectiveAbilityModifier(Ability::Dexterity);
     record.effects = 0;
     for (const auto &effect : effects()) {
         // The deflection amount is the effect's second integer. KotOR adds a
@@ -7939,7 +7941,7 @@ AttackResultType Creature::resolveRangedDefense(const Creature &shooter, int dam
             record.effects += _game.isTSL() ? -effect.integerParameter(1) : effect.integerParameter(1);
         }
     }
-    const int total = record.roll + bonuses + record.baseAttackBonus + record.dexterity + record.effects;
+    const int total = record.roll + bonuses + record.baseAttackBonus + record.effects;
     record.total = total;
     record.attackTotal = attackTotal;
     if (total < attackTotal) {
@@ -8068,14 +8070,15 @@ void Creature::updateArmorClassEffectCursor() {
     _armorClassCursor.update(effects().size(), [&](size_t i) { return effects()[i].serializedType; });
 }
 
-int Creature::defenseDexterityModifier() const {
+int Creature::getDexterityModifier(bool armorLimited) const {
     int dexterityModifier = getEffectiveAbilityModifier(Ability::Dexterity);
-    auto armor = getEquippedItem(InventorySlots::body);
+    auto armor = armorLimited ? getEquippedItem(InventorySlots::body) : nullptr;
     int armorMaxDexterityBonus = armor
                                      ? getEffectiveArmorMaxDexterityBonus(_game.isTSL(), armor->maxDexterityBonus(),
                                                                           armor->maxDexterityBonusAdjustment())
                                      : -1;
-    // Only armour drawn as the body model with an armour class limits Dexterity.
+    // A debilitated creature loses a Dexterity bonus, but not a penalty. Only
+    // armour drawn as the body model with an armour class limits Dexterity.
     if (isDebilitated(true)) {
         dexterityModifier = std::min(dexterityModifier, 0);
     } else if (armor && armor->bodyArmorClass() > 0 && armorMaxDexterityBonus >= 0) {
@@ -8087,7 +8090,7 @@ int Creature::defenseDexterityModifier() const {
 }
 
 DefenseBreakdown Creature::getDefenseBreakdown(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags, bool touch) const {
-    int dexterityModifier = defenseDexterityModifier();
+    int dexterityModifier = getDexterityModifier(true);
     auto armor = getEquippedItem(InventorySlots::body);
     int armorDefense = armor ? armor->baseDefense() : 0;
 
@@ -8202,7 +8205,8 @@ int Creature::getSavingThrowEffectBonus(
     const int save = static_cast<int>(savingThrow);
 
     const auto versusCreature = versus ? asCreature(versus->get()) : std::nullopt;
-    EffectModifierReducer modifierReducer;
+    EffectSourceSlots increases {getEffectSourceCapacity(_game.isTSL())};
+    EffectSourceSlots decreases {getEffectSourceCapacity(_game.isTSL())};
     for (const EffectInstance &applied : effects()) {
         if (!applied.hasLiveRuntimeSource() || !applied.appliesVersus(versusCreature)) {
             continue;
@@ -8217,10 +8221,13 @@ int Creature::getSavingThrowEffectBonus(
         }
         auto source = getEffectSourceKey(applied);
         int value = applied.integerParameter(0);
+        if (value <= 0) {
+            continue;
+        }
         if (applied.type() == EffectType::SavingThrowIncrease) {
-            modifierReducer.addIncrease(source, 0, value);
+            increases.add(source, value);
         } else {
-            modifierReducer.addDecrease(source, 0, value);
+            decreases.add(source, value);
         }
     }
 
@@ -8252,20 +8259,22 @@ int Creature::getSavingThrowEffectBonus(
                 propertyType == ItemProperty::ImprovedSavingThrowSpecific) {
                 const int value = costCell(_services.game.combatTables.costTableAt(kImprovedSavingThrowCostTable),
                                            property.costValue, CostColumn::Value, 0);
-                modifierReducer.addIncrease(source, 0, value);
+                if (value > 0) {
+                    increases.add(source, value);
+                }
             } else {
                 // The cost table holds the decrease as a negative value.
                 const int value = getCostTableValue(_services, kDecreaseCostTable, property.costValue, CostColumn::Value, 0);
-                modifierReducer.addDecrease(source, 0, -value);
+                if (value < 0) {
+                    decreases.add(source, -value);
+                }
             }
         }
     }
 
     const int survival = getSurvivalSavingThrowBonus(
         _game.isTSL(), hasEffectiveFeat(FeatType::Survival), currentHitPoints(), maxHitPoints());
-    const int cap = _game.isTSL() ? 60 : 20;
-    return getSavingThrowEffectTotal(_game.isTSL(),
-                                     modifierReducer.totalIncrease(cap), modifierReducer.totalDecrease(cap), survival);
+    return getSavingThrowEffectTotal(_game.isTSL(), increases.total(), decreases.total(), survival);
 }
 
 int Creature::getSavingThrowBase(SavingThrow savingThrow) const {
@@ -8279,7 +8288,7 @@ int Creature::getSavingThrowBase(SavingThrow savingThrow) const {
         baseBonus = _fortBonus;
         break;
     case kReflexSavingThrow:
-        abilityModifier = getEffectiveAbilityModifier(Ability::Dexterity);
+        abilityModifier = getDexterityModifier(false);
         baseBonus = _refBonus;
         break;
     case kWillSavingThrow:
@@ -8359,7 +8368,8 @@ SavingThrowResult Creature::getSavingThrowResult(
 
 PhysicalDamageBonus Creature::getPhysicalDamageBonus(
     const std::shared_ptr<Item> &weapon,
-    bool offHand) const {
+    bool offHand,
+    const std::shared_ptr<Item> &unarmedGloves) const {
 
     int strengthModifier = getEffectiveAbilityModifier(Ability::Strength);
     int abilityModifier = strengthModifier;
@@ -8388,13 +8398,14 @@ PhysicalDamageBonus Creature::getPhysicalDamageBonus(
     }
 
     int specialization = 0;
-    if (weapon &&
-        weapon->weaponSpecializationFeat() != FeatType::Invalid &&
-        hasEffectiveFeat(weapon->weaponSpecializationFeat())) {
+    const auto &specializationItem = weapon ? weapon : unarmedGloves;
+    if (specializationItem &&
+        specializationItem->weaponSpecializationFeat() != FeatType::Invalid &&
+        hasEffectiveFeat(specializationItem->weaponSpecializationFeat())) {
         specialization = 2;
     }
 
-    PhysicalDamageBonus result {abilityModifier, strengthModifier, specialization};
+    PhysicalDamageBonus result {abilityModifier, specialization};
     if (_game.isTSL() && _furyDamageBonus > 0) {
         result.furyDamage = _furyDamageBonus;
     }
@@ -8446,11 +8457,16 @@ int Creature::getMassiveCriticalDamage(
         return 0;
     }
 
-    // KotOR takes the first Massive Criticals property; TSL adds them all.
+    // KotOR counts one Massive Criticals property; TSL counts them all once
+    // one is in force.
+    const bool tsl = _game.isTSL();
+    if (tsl && !sourceItem->hasActiveProperty(ItemProperty::MassiveCriticals)) {
+        return 0;
+    }
     int damage = 0;
     for (const auto &property : sourceItem->properties()) {
-        if (!sourceItem->isPropertyActive(property) ||
-            property.type() != ItemProperty::MassiveCriticals) {
+        if (property.type() != ItemProperty::MassiveCriticals ||
+            (!tsl && !sourceItem->isPropertyActive(property))) {
             continue;
         }
 
@@ -8459,14 +8475,14 @@ int Creature::getMassiveCriticalDamage(
         const auto cost = _services.game.combatTables.damageCost(property.costValue);
         const int numDice = cost.numDice;
         DamageModifier modifier {property.costValue, numDice, 0, property.costValue,
-                                 weapon ? getPrimaryDamageType(sourceItem->damageFlags()) : DamageType::Bludgeoning};
+                                 getPrimaryDamageType(sourceItem->damageFlags())};
         modifier.usesDice = numDice != 0;
         if (modifier.usesDice) {
             modifier.flat = 0;
             modifier.die = cost.die;
         }
         damage += rollDamageModifier(modifier, 1);
-        if (!_game.isTSL()) {
+        if (!tsl) {
             break;
         }
     }
@@ -11688,7 +11704,7 @@ void Creature::removeTemporaryHitPoints(int amount) {
     // The creature bleeds as the loss kills it.
     if (wasAlive && currentHitPoints() <= 0 && !_immortal) {
         applyBloodVisual(*this);
-        (void)applyDeathEffect(nullptr, false);
+        (void)applyDeathEffect(nullptr, false, false);
     }
 }
 

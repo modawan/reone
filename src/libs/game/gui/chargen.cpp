@@ -306,7 +306,7 @@ void CharacterGeneration::startLevelUp() {
     // While the character is debilitated, the armour's limit is not counted.
     _levelUpBase.reflexDexterityLimit = partyLeader->isDebilitated(true)
                                             ? 0
-                                            : partyLeader->defenseDexterityModifier() - _levelUpBase.dexterityModifier;
+                                            : partyLeader->getDexterityModifier(true) - _levelUpBase.dexterityModifier;
     _levelUpBase.abilitiesAccepted = false;
     setCharacter(std::move(character));
 

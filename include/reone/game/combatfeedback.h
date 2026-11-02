@@ -341,14 +341,14 @@ void addLinkImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator,
                              ImmunityType immunity);
 
 /**
- * The spell-immunity line (1458): the target and the name of the spell it is
- * immune to, told to the target and to the caster, whichever is the
- * controlled creature. A creature that is both is told twice.
+ * The spell-immunity line (1458): the target and a power's name, told to the
+ * target and to the caster, whichever is the controlled creature. A creature
+ * that is both is told twice.
  *
  * @param game the game
  * @param target the immune creature
  * @param caster the object that cast the spell
- * @param spellName the spell's name
+ * @param spellName the name of the power the line names
  */
 void addSpellImmunityFeedback(Game &game, const Creature &target, const Object &caster,
                               const std::string &spellName);

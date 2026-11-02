@@ -913,8 +913,10 @@ public:
     /**
      * Kills the creature; false when it cannot die. \p operation is the death effect that
      * kills it, if any.
+     *
+     * @param spectacular the death shows the overkill visual and leaves its encounter at once
      */
-    bool applyDeathEffect(const std::shared_ptr<Object> &damager, bool noFadeAway,
+    bool applyDeathEffect(const std::shared_ptr<Object> &damager, bool spectacular, bool noFadeAway,
                           std::optional<std::reference_wrapper<const EffectInstance>> operation = std::nullopt);
     /**
      * Raises the creature with \p hpPercent of its vitality in TSL; false when it cannot be
@@ -1815,12 +1817,15 @@ public:
      *
      * @param handType the kind of attack whose hand-specific modifiers count;
      *        by default that of an attack with \p weapon in the given hand
+     * @param unarmedGloves the gloves an unarmed attack is made with, whose
+     *        base item names the Weapon Focus feat when \p weapon is empty
      */
     AttackBonusBreakdown getAttackBonusBreakdown(
         std::optional<std::reference_wrapper<const Creature>> target,
         const std::shared_ptr<Item> &weapon,
         bool offHand,
-        std::optional<AttackBonus> handType = std::nullopt) const;
+        std::optional<AttackBonus> handType = std::nullopt,
+        const std::shared_ptr<Item> &unarmedGloves = nullptr) const;
     int getAttackBonus(bool offHand = false) const;
     /** The touch-attack bonus: none when the right hand holds the other kind of weapon. */
     int getTouchAttackBonus(bool ranged) const;
@@ -1858,10 +1863,10 @@ public:
      */
     DefenseBreakdown getDefenseBreakdown(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags, bool touch = false) const;
     /**
-     * The Dexterity modifier the defense counts: the effective modifier,
-     * limited by worn body armour, and at most 0 while debilitated.
+     * The effective Dexterity modifier, at most 0 while debilitated and
+     * otherwise limited by worn body armour when \p armorLimited.
      */
-    int defenseDexterityModifier() const;
+    int getDexterityModifier(bool armorLimited) const;
     int getDefense(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags) const;
     int getDefense() const;
     /** Ordinary ranged defense consumes the same permission as active saber throws. */
@@ -1896,9 +1901,16 @@ public:
     SavingThrowResult getSavingThrowResult(
         int total, int difficultyClass, SavingThrowType type,
         std::optional<std::reference_wrapper<const Object>> versus = std::nullopt) const;
+    /**
+     * The physical damage bonus of a hit with \p weapon.
+     *
+     * @param unarmedGloves the gloves an unarmed attack is made with, whose
+     *        base item names the Weapon Specialization feat when \p weapon is empty
+     */
     PhysicalDamageBonus getPhysicalDamageBonus(
         const std::shared_ptr<Item> &weapon,
-        bool offHand) const;
+        bool offHand,
+        const std::shared_ptr<Item> &unarmedGloves = nullptr) const;
     /** The factor TSL's autobalance applies to the creature's physical damage, 1 without it. */
     int getPhysicalDamageAutoBalanceFactor() const;
     /**
@@ -1993,6 +2005,8 @@ public:
     int currentCombatAttackType() const;
     /** The result of the round's current attack. */
     AttackResultType currentCombatAttackResult() const;
+    /** The record of the creature's combat round is a ranged attack. */
+    bool isCurrentAttackRanged() const;
     void finishCombatRound();
     /**
      * Leaves combat: actions, round and targets end; \p runEndRound tells whether the

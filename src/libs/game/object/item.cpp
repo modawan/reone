@@ -221,6 +221,9 @@ void Item::deserializeBase(const resource::Gff &gff) {
     _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
     _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
     _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
+    if (_damageFlags == 0) {
+        _damageFlags = static_cast<int>(_game.isTSL() ? DamageType::Bludgeoning : DamageType::Universal);
+    }
     _weaponMaterialType = baseItems->getInt(_baseItem, "weaponmattype", 0);
     _armorType = boost::to_lower_copy(baseItems->getString(_baseItem, "armortype"));
     _dieToRoll = baseItems->getInt(_baseItem, "dietoroll", 0);

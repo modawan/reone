@@ -396,8 +396,8 @@ struct DefenseBreakdown {
 /**
  * The parts of the last deflection roll made against the round's shots, as
  * the combat log reports them. A roll writes its d20, totals, base attack
- * bonus, Dexterity and effects; each feat, power or form part only when it
- * applies, so a part from an earlier roll of the round stays.
+ * bonus and effects; each feat, power or form part only when it applies, so
+ * a part from an earlier roll of the round stays.
  */
 struct DeflectionBreakdown {
     int roll {0};
@@ -406,7 +406,6 @@ struct DeflectionBreakdown {
     /** The deflection roll's total. */
     int total {0};
     int baseAttackBonus {0};
-    int dexterity {0};
     int effects {0};
     /** The defender's Jedi Defense feat, and the bonus it gives. */
     FeatType jediDefenseFeat {FeatType::Invalid};
@@ -426,7 +425,6 @@ struct DeflectionBreakdown {
 /** The bonuses a physical attack adds to its damage. */
 struct PhysicalDamageBonus {
     int damageAbilityModifier {0};
-    int strengthModifier {0};
     int weaponSpecialization {0};
     int combatFeatDamage {0};
     int preciseShotDamage {0};
@@ -625,6 +623,9 @@ public:
         }
         return _recordRoll + _recordModifier;
     }
+
+    /** The round's record is a ranged attack. */
+    bool recordRanged() const { return _roundFields && _roundFields->ranged; }
 
     /** The record's weapon attack type: 1 for the right hand, 2 for the left. */
     int recordWeaponAttackType() const { return _roundFields ? _roundFields->weaponAttackType : 0; }

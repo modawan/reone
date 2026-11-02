@@ -212,12 +212,8 @@ public:
     int weaponMaterialType() const { return _weaponMaterialType; }
     /** The base item's armour sound material, lower case. */
     const std::string &armorType() const { return _armorType; }
-    int damageFlags() const {
-        // A zero or missing base-item damage flag selects bludgeoning.
-        return _damageFlags != 0
-                   ? _damageFlags
-                   : static_cast<int>(DamageType::Bludgeoning);
-    }
+    /** The base item's damage flags: without any, Universal in KotOR and Bludgeoning in TSL. */
+    int damageFlags() const { return _damageFlags; }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
     int numDice() const { return _numDice; }
