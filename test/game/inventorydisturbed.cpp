@@ -30,6 +30,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/script/program.h"
 
@@ -182,4 +183,47 @@ TEST(InventoryDisturbed, take_item_runs_the_creature_taken_froms_disturbed_scrip
     EXPECT_EQ(1, owner->getLocalNumber(kLocalDisturber));
     EXPECT_EQ(1, owner->getLocalNumber(kLocalItem));
     EXPECT_EQ(static_cast<int>(InventoryDisturbType::Removed), owner->getLocalNumber(kLocalType));
+}
+
+// An item taken into a stack it merges with is gone: the creature it was taken
+// from is disturbed for the taker's stack that holds it.
+TEST(InventoryDisturbed, take_item_merged_into_a_stack_names_the_stack_as_removed) {
+    DisturbedFixture fixture;
+    auto owner = fixture.addCreature();
+    auto taker = fixture.addCreature();
+    auto item = fixture.addItemTo(*owner);
+    auto stack = fixture.addItemTo(*taker);
+    owner->setOnDisturbed("disturbed_merge");
+    fixture.probe("disturbed_merge", taker->id(), stack->id());
+
+    auto action = fixture.game.newAction<TakeItemAction>(item, owner);
+    action->execute(action, *taker, 0.0f);
+
+    ASSERT_EQ(nullptr, fixture.game.getObjectById(item->id()));
+    ASSERT_EQ(2, stack->stackSize());
+    EXPECT_EQ(1, probeRuns()["disturbed_merge"]);
+    EXPECT_EQ(1, owner->getLocalNumber(kLocalItem));
+    EXPECT_EQ(static_cast<int>(InventoryDisturbType::Removed), owner->getLocalNumber(kLocalType));
+}
+
+// Party members share the party inventory: an item given from it to one of
+// them stays where it was, and disturbs no one.
+TEST(InventoryDisturbed, a_give_within_the_party_inventory_is_not_a_disturbance) {
+    DisturbedFixture fixture;
+    auto player = fixture.addCreature();
+    auto companion = fixture.addCreature();
+    auto &party = fixture.game.party();
+    party.addMember(kNpcPlayer, player);
+    party.setPlayer(player);
+    party.addAvailableMember(0, companion);
+    party.addMember(0, companion);
+    auto item = fixture.addItemTo(*player);
+    companion->setOnDisturbed("disturbed_party");
+    fixture.count("disturbed_party");
+
+    auto action = fixture.game.newAction<GiveItemAction>(item, companion, GiveItemAction::kWholeStack, false);
+    action->execute(action, *fixture.game.newPlaceable(), 0.0f);
+
+    ASSERT_EQ(player->id(), item->owner());
+    EXPECT_EQ(0, probeRuns()["disturbed_party"]);
 }

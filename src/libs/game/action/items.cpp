@@ -69,7 +69,8 @@ bool GiveItemAction::queue(Game &game, Object &giver, std::shared_ptr<Item> item
 // once empty, runs its inventory disturbed script for the stack that holds
 // it, disturbed by the item's holder before the give. A creature that
 // receives one runs its disturbed script the same way, unless it gave the
-// item itself.
+// item itself or its inventory held the item already, as party members
+// sharing the party inventory do.
 void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     if (auto *giver = dyn_cast<Creature>(&actor)) {
@@ -122,11 +123,13 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     }
     case ObjectType::Creature: {
         const std::string name = _item->localizedName();
-        auto delivered = deliver(*party.sharedInventoryReceiver(_giveTo));
+        auto receiver = party.sharedInventoryReceiver(_giveTo);
+        const bool alreadyHeld = _item->owner() == receiver->id() && !_item->isEquipped();
+        auto delivered = deliver(*receiver);
         if (_givenByScript && party.isMember(*_giveTo)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsReceived, 0, {name});
         }
-        if (delivered && disturber != _giveTo->id()) {
+        if (delivered && !alreadyHeld && disturber != _giveTo->id()) {
             // A counted item, such as credits, leaves no stack to name.
             const uint32_t held = delivered.held ? delivered.held->id() : script::kObjectInvalid;
             static_cast<Creature &>(*_giveTo).runOnDisturbed(disturber, InventoryDisturbType::Added, held);
@@ -161,17 +164,18 @@ std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record,
 
 // A creature or placeable takes the item. A creature that takes it from a
 // party member reports the item lost in the status summary. A creature the
-// item is taken from runs its disturbed script, disturbed by the taker.
+// item is taken from runs its disturbed script, disturbed by the taker, for
+// the taker's stack that holds the item, as an item merged into a stack is
+// gone.
 void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
-    const uint32_t itemId = _item->id();
-    bool taken = false;
+    ItemTransfer taken;
     switch (actor.type()) {
     case ObjectType::Placeable:
-        taken = static_cast<bool>(transferItemTo(_game, _item, actor));
+        taken = transferItemTo(_game, _item, actor);
         break;
     case ObjectType::Creature:
-        taken = static_cast<bool>(transferItemTo(_game, _item, *party.sharedInventoryReceiver(_game.getObjectById(actor.id()))));
+        taken = transferItemTo(_game, _item, *party.sharedInventoryReceiver(_game.getObjectById(actor.id())));
         if (taken && party.isMember(*_takeFrom)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsLost);
         }
@@ -180,7 +184,9 @@ void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         break;
     }
     if (auto *owner = dyn_cast<Creature>(_takeFrom.get()); owner && taken && owner != &actor) {
-        owner->runOnDisturbed(actor.id(), InventoryDisturbType::Removed, itemId);
+        // A counted item, such as credits, leaves no stack to name.
+        const uint32_t held = taken.held ? taken.held->id() : script::kObjectInvalid;
+        owner->runOnDisturbed(actor.id(), InventoryDisturbType::Removed, held);
     }
     complete();
 }
