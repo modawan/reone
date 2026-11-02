@@ -182,6 +182,13 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     }
     bool reached = creatureActor->navigateTo(dest, _run, closeTo, dt, pathTarget);
     if (!reached) {
+        // No path reaches the object (a locked room, off the walkmesh): give
+        // up, as a walk to a point does, rather than planning again every
+        // frame and holding the creature's queue for good. A forced move
+        // ends on its own deadline.
+        if (!_force && creatureActor->navigationFailed()) {
+            complete();
+        }
         return;
     }
     if (_checkRange && _moveTo) {

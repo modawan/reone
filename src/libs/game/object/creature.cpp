@@ -9165,7 +9165,10 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
     _avoidance.bumps = 0;
     _path = createPath(pf, position(), dest);
     if (!_path) {
-        _navigationFailed = true;
+        // No path is found either when none reaches the destination or when
+        // every path slot is taken. Only the first is a failure: the second
+        // plans again next frame.
+        _navigationFailed = !pathExists(pf, position(), dest);
         return false;
     }
     if (straight) {
