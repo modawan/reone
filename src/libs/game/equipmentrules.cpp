@@ -25,6 +25,7 @@
 
 #include "reone/game/combattables.h"
 #include "reone/game/d20/class.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/d20/spell.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
@@ -371,13 +372,16 @@ bool isLeaderUsableItem(const Creature &leader, const Item &item, int flags) {
     Game &game = leader.game();
     const bool tsl = game.isTSL();
     const bool mineKit = (flags & LeaderUsableFlags::mines) && item.itemType() == Item::kTrapKitItemType;
-    // A mine kit asks for a usable trap and the Demolitions skill.
+    // A mine kit asks for a usable trap and a leader who can use the
+    // Demolitions skill.
     auto trapUsable = [&]() {
         const auto trap = firstActiveProperty(item, ItemProperty::Trap);
         if (!trap) {
             return canUseItem(leader, item, true);
         }
-        return trap->get().usable && leader.attributes().hasSkill(SkillType::Demolitions) && canUseItem(leader, item, true);
+        return trap->get().usable &&
+               canUseSkill(leader.services().game.skills, SkillType::Demolitions, leader.attributes(), tsl) &&
+               canUseItem(leader, item, true);
     };
     const auto castSpell = firstActiveProperty(item, ItemProperty::ActivateItem);
     if (item.plotFlag()) {

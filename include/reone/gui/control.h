@@ -99,6 +99,8 @@ public:
         /** The opacity every piece of the border is drawn with. */
         float alpha {1.0f};
         int dimension {0};
+        /** How far the inner area sits inside the frame, as authored. */
+        int innerOffset {0};
         FillTransform fillTransform {FillTransform::None};
         /** While set, the corners and edges are drawn at the GUI's pulsing alpha instead of alpha. */
         bool pulseFrame {false};

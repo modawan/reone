@@ -474,13 +474,14 @@ public:
         // weapon, and stays blank without either. The attack is that of the
         // equipped hand for the shown weapon's kind. A value counts as raised
         // when the item and effect modifiers lift a damage bound, or when the
-        // attack exceeds the base attack bonus.
+        // attack exceeds the base attack bonus. A hand whose damage
+        // minimum is 0 shows no damage.
         auto describeHand = [&subject](const std::shared_ptr<Item> &weapon, bool offHand, std::string &damage, bool &damageRaised,
                                        std::string &attack, bool &attackRaised) {
             int minimum, maximum, baseMinimum, baseMaximum;
             subject->getDamageRange(weapon, offHand, true, minimum, maximum);
             subject->getDamageRange(weapon, offHand, false, baseMinimum, baseMaximum);
-            damage = str(boost::format("%d-%d") % minimum % maximum);
+            damage = minimum != 0 ? str(boost::format("%d-%d") % minimum % maximum) : "";
             damageRaised = minimum > baseMinimum || maximum > baseMaximum;
             const auto breakdown = subject->getHandAttackBonusBreakdown(
                 weapon && weapon->isRanged(), offHand,

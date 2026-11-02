@@ -488,35 +488,11 @@ bool Feats::meetsRequirements(const Feat &feat, const FeatChoice &choice) const 
     if (!meetsPrerequisites(feat, attributes, choice.effectFeats, choice.chosen)) {
         return false;
     }
-    return !feat.requiredSkill || canUseSkill(*feat.requiredSkill, attributes, choice.tsl);
+    return !feat.requiredSkill || canUseSkill(_skills, *feat.requiredSkill, attributes, choice.tsl);
 }
 
 bool Feats::hasPrerequisites(FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen) const {
     return meetsPrerequisites(*_feats.at(type), attributes, effectFeats, chosen);
-}
-
-bool Feats::canUseSkill(SkillType skill, const CreatureAttributes &attributes, bool tsl) const {
-    // A skill past the skills table cannot be used.
-    std::shared_ptr<Skill> rules(_skills.get(skill));
-    if (!rules) {
-        return false;
-    }
-    // In TSL, the camouflage powers and the personal cloaking shield let a
-    // character use Stealth.
-    if (tsl && skill == SkillType::Stealth &&
-        (attributes.hasSpell(SpellType::ForceCamouflage) ||
-         attributes.hasSpell(SpellType::ImprovedForceCamouflage) ||
-         attributes.hasSpell(SpellType::MasterForceCamouflage) ||
-         attributes.hasFeat(FeatType::PersonalCloakingShield))) {
-        return true;
-    }
-    if (rules->untrained) {
-        const auto &classLevels = attributes.classLevels();
-        return std::any_of(classLevels.begin(), classLevels.end(), [&rules](const auto &classLevel) {
-            return rules->allClassesCanUse || classLevel.first->hasSkills();
-        });
-    }
-    return attributes.getSkillRank(skill) > 0;
 }
 
 std::vector<FeatDisplayEntry> Feats::getLevelUpDisplayEntries(const CreatureAttributes &attributes, const CreatureClass &clazz) const {

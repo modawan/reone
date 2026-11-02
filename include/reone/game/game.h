@@ -1624,6 +1624,8 @@ private:
     bool _playerInputBlocked {false};
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool _alternateActionsHeld {false};
+    /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
+    std::array<bool, 2> _menusTakeAlternateActions {};
     /** The world time a click was last shut off at, and for how long. */
     uint32_t _noClickDay {0};
     uint32_t _noClickTime {0};

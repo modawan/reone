@@ -23,6 +23,7 @@
 #include <iterator>
 
 #include "reone/game/animations.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/heal.h"
 #include "reone/game/effect/visual.h"
@@ -122,9 +123,9 @@ static bool isTrapKit(const Item &item) {
     return property && property->get().type() == ItemProperty::Trap;
 }
 
-static bool canUseDemolitions(const Creature &creature) {
-    // Demolitions cannot be used untrained.
-    return creature.attributes().hasSkill(SkillType::Demolitions);
+// Demolitions is used as the skills table allows.
+static bool canUseDemolitions(const Creature &creature, bool tsl) {
+    return canUseSkill(creature.services().game.skills, SkillType::Demolitions, creature.attributes(), tsl);
 }
 
 // Mines set by the actor, or by a party member or PC while the actor is one, are its own.
@@ -185,7 +186,7 @@ uint32_t UseSkillAction::serializedActionId() const {
 void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
     auto area = _game.module()->area();
     const bool setMine = setsMine();
-    if ((!setMine && !_target) || !canUseDemolitions(actor)) {
+    if ((!setMine && !_target) || !canUseDemolitions(actor, _game.isTSL())) {
         complete();
         return;
     }
