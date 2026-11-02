@@ -3036,6 +3036,11 @@ void Creature::updateModelAnimation() {
                                       : (AnimationFlags::loopBlend | AnimationFlags::propagate);
         auto properties = AnimationProperties::fromFlags(animFlags);
         properties.speed = movementClipSpeed;
+        // A new pose starts as far through as the one it replaces was.
+        const auto base = model->baseAnimationChannel();
+        if (base && base->get().anim != anim.get() && base->get().anim->length() > 0.0f) {
+            properties.startTime = base->get().time / base->get().anim->length() * anim->length();
+        }
         model->playAnimation(*anim, nullptr, properties);
     }
     if (newLoop) {

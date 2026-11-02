@@ -49,16 +49,9 @@ namespace reone {
 
 namespace scene {
 
-static constexpr float kTransitionLength = 0.25f;
-
 // The length of a channel: that of its lip animation, if any.
 static float channelLength(const ModelSceneNode::AnimationChannel &channel) {
     return channel.lipAnim ? channel.lipAnim->length() : channel.anim->length();
-}
-
-// How long a channel has played, whichever way it runs.
-static float playedTime(const ModelSceneNode::AnimationChannel &channel) {
-    return channel.properties.speed < 0.0f ? channelLength(channel) - channel.time : channel.time;
 }
 
 void ModelSceneNode::init() {
@@ -369,21 +362,18 @@ void ModelSceneNode::playBase(Animation &anim, std::shared_ptr<LipAnimation> lip
         break;
 
     case AnimationBlendMode::Blend: {
-        // In Blend mode, if there is an animation on top, initiate
-        // transition between old and new animations
+        // The new animation plays from its start time and blends in over its
+        // transition time from the last pose of the one it replaces.
         bool transition = false;
         if (!_animChannels.empty()) {
             _animChannels[0].freeze = true;
             _animChannels[0].transition = false;
             transition = true;
         }
-        // Add animation on top
         _animChannels.push_front(AnimationChannel(anim, lipAnim, properties));
         if (transition) {
-            AnimationChannel &channel = _animChannels[0];
-            channel.transition = true;
-            float start = glm::max(0.0f, channel.anim->transitionTime() - kTransitionLength);
-            channel.time = channel.properties.speed < 0.0f ? channelLength(channel) - start : start;
+            _animChannels[0].transition = true;
+            _animChannels[0].weight = 0.0f;
         }
         while (_animChannels.size() > 2ll) {
             _animChannels.pop_back();
@@ -641,9 +631,11 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     float oldTime = channel.time;
     channel.time = glm::clamp(channel.time + channel.properties.speed * dt, 0.0f, length);
 
-    // Clear transition flag if past transition time
-    if (channel.transition && playedTime(channel) >= channel.anim->transitionTime()) {
-        channel.transition = false;
+    // A channel blending in reaches full weight over its transition time.
+    if (channel.transition) {
+        float transitionTime = channel.anim->transitionTime();
+        channel.weight = transitionTime > 0.0f ? glm::min(1.0f, channel.weight + dt / transitionTime) : 1.0f;
+        channel.transition = channel.weight < 1.0f;
     }
 
     // Signal events between previous and current time
@@ -657,10 +649,8 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
 
     // Compute animation states only when this model is not culled
     if (!_culled) {
-        float transitionTime = backwards ? length - channel.anim->transitionTime() : channel.anim->transitionTime();
-        float time = channel.transition ? transitionTime : channel.time;
         channel.stateByNodeNumber.clear();
-        computeAnimationStates(channel, time, *_model->rootNode());
+        computeAnimationStates(channel, channel.time, *_model->rootNode());
     }
 
     bool lastFrame = channel.time == (backwards ? 0.0f : length);
@@ -826,9 +816,8 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
                     state2 = state2Iter->second;
                 }
                 if (state1.flags & AnimationStateFlags::transform && state2.flags & AnimationStateFlags::transform) {
-                    float factor = glm::min(1.0f, playedTime(channel1) / channel1.anim->transitionTime());
                     combined.flags |= AnimationStateFlags::transform;
-                    combined.transform = blendTransforms(state2.transform, state1.transform, factor);
+                    combined.transform = blendTransforms(state2.transform, state1.transform, channel1.weight);
                 } else if (state1.flags & AnimationStateFlags::transform) {
                     combined.flags |= AnimationStateFlags::transform;
                     combined.transform = state1.transform;

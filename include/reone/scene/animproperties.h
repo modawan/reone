@@ -26,6 +26,7 @@ struct AnimationProperties {
     float speed {1.0f};
     float scale {0.0f};     /**< 0.0 to use the model scale */
     float duration {-1.0f}; /**< -1.0 is infinity */
+    float startTime {0.0f}; /**< where a new channel starts; one already playing goes on from where it is */
 
     bool operator==(const AnimationProperties &other) const {
         return flags == other.flags &&
