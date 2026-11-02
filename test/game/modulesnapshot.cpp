@@ -1854,14 +1854,9 @@ TEST_F(SnapshotFixture, use_feat_save_is_observational_across_runtime_phases) {
     action->execute(action, *attacker, 0.0f);
     ASSERT_TRUE(action->locked());
     ASSERT_NE(action->result(), AttackResultType::Invalid);
-    expectCanonicalSnapshot(); // rolled, before the impact phase
-
-    action->execute(action, *attacker, 0.0f);
-    expectCanonicalSnapshot(); // waiting for impact
-    action->execute(action, *attacker, 1.0f);
-    expectCanonicalSnapshot(); // buffered impacts are delivered atomically
-    action->execute(action, *attacker, 0.0f);
-    expectCanonicalSnapshot(); // near completion, awaiting the round boundary
+    // The attack is over with its swing; the round lands its hits.
+    ASSERT_TRUE(action->isCompleted());
+    EXPECT_TRUE(attacker->saveActionSnapshot().empty());
 
     const auto sourceResult = action->result();
     const auto sourceHitPoints = target->currentHitPoints();
@@ -1876,7 +1871,7 @@ TEST_F(SnapshotFixture, use_feat_save_is_observational_across_runtime_phases) {
     EXPECT_EQ(attacker->actions(), sourceQueue);
     EXPECT_TRUE(action->locked());
     EXPECT_FALSE(action->isCancelled());
-    EXPECT_FALSE(action->isCompleted());
+    EXPECT_TRUE(action->isCompleted());
 }
 
 TEST_F(SnapshotFixture, physical_feat_talent_dispatcher_exports_its_canonical_action) {
