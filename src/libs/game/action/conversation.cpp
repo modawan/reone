@@ -491,8 +491,7 @@ std::shared_ptr<Action> SpeakStringByStrRefAction::restore(const SavedActionReco
 }
 
 void BarkStringAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
-
+    _game.bark(actor, _strRef);
     complete();
 }
 

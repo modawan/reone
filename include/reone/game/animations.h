@@ -36,16 +36,16 @@ class TwoDA;
 
 namespace game {
 
-/** A dialoganimations.2da row: the pose's name and whether it is a dialog animation. */
+/** A dialoganimations.2da row: how its pose plays in a conversation. */
 struct DialogAnimation {
-    /** The lower-case name of the pose. */
-    std::string name;
     /** Whether the row is a looping or fire-and-forget dialog animation. */
     bool dialog {false};
     /** The pose loops. */
     bool looping {false};
     /** The pose plays once; a row may both loop and play once. */
     bool fireForget {false};
+    /** A dialog pose that loops ends a one-shot still playing before it starts. */
+    bool overlay {false};
     /** How far a face shot of a speaker in this pose pulls back, in metres. */
     float pullBack {0.0f};
 };

@@ -604,6 +604,12 @@ public:
      * without one it moves no lips. A new line starts the talk over.
      */
     void startTalking(const std::shared_ptr<graphics::LipAnimation> &animation);
+    /**
+     * The head speaks a line once, lip-synced to \p animation, over whatever
+     * pose the body shows, and stops when the line ends. It takes the head
+     * over from a line the creature was talking, which does not come back.
+     */
+    void talkOnce(const std::shared_ptr<graphics::LipAnimation> &animation);
     /** The talking head blends out. */
     void stopTalking();
 
@@ -1272,13 +1278,11 @@ public:
      */
     void playFireForgetAnimation(const std::string &clip, AnimationSource source, float speed = 1.0f);
     /**
-     * A dialog animation by its type's clip: a loop plays at once; a one-shot
-     * makes the pause the loop first and is queued.
+     * A dialog animation by its clip: a loop plays at once; a one-shot makes
+     * the pause the loop first and is queued.
      *
      * @param looping the clip loops rather than playing once
      */
-    void playDialogAnimation(AnimationType type, bool looping, AnimationSource source);
-    /** A dialog animation by its clip, as playDialogAnimation(AnimationType, bool, AnimationSource) plays it. */
     void playDialogAnimation(const std::string &clip, bool looping, AnimationSource source);
     /** A weapon newly in hand is drawn; while play is paused the draw waits. */
     void playWeaponDraw();
