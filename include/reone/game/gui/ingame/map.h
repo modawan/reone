@@ -41,6 +41,7 @@ public:
     }
 
     void render() override;
+    bool handle(const input::Event &event) override;
 
     void refreshControls();
 
@@ -99,6 +100,12 @@ private:
         _controls.LBL_TITLE = findControl<gui::Label>("LBL_TITLE");
     }
 
+    /** The rect the map control gives the map, in screen coordinates. */
+    glm::vec4 mapBounds() const;
+
+    /** Selects the next note the map shows, \p step notes along. */
+    void selectAdjacentNote(int step);
+    void selectNote(const std::shared_ptr<Waypoint> &waypoint);
     void refreshSelectedNote();
 };
 

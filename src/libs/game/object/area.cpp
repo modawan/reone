@@ -272,9 +272,10 @@ void Area::load(
 }
 
 void Area::activate() {
-    // Map is presentation state owned by Game, while loaded areas are cached.
-    // Restore this area's map whenever a cached module becomes active again.
-    _game.map().load(_name, _map);
+    // The map screen draws whichever area is active, while loaded areas are
+    // cached. Point it back at this area whenever a cached module becomes
+    // active again; the exploration it shows stays with the area.
+    _game.map().load(_name);
     applySceneProperties();
 
     for (auto &pair : _rooms) {
@@ -341,8 +342,24 @@ void Area::loadScripts(const resource::generated::ARE &are) {
 }
 
 void Area::loadMap(const resource::generated::ARE &are) {
-    _map = are.Map;
-    _game.map().load(_name, _map);
+    _mapState.load(_game.gameId(), are.Map);
+    _game.map().load(_name);
+}
+
+void Area::updateMapData() {
+    if (!_mapState.isLoaded()) {
+        return;
+    }
+    // The whole party reveals the map it walks through, not just its leader.
+    auto &party = _game.party();
+    for (int index = 0; index < party.getSize(); ++index) {
+        auto member = party.getMember(index);
+        if (!member) {
+            continue;
+        }
+        _mapState.setExplored(
+            glm::vec2(member->position()), AreaMapState::kPartyRevealRadius);
+    }
 }
 
 void Area::setPlayerRestrictMode(int value) {
@@ -474,6 +491,8 @@ void Area::loadGIT(
     const SerializedIdentityContext &identityContext) {
     _game.reserveSavedObjectIds(gff, identityContext, SerializedGraphRoot::AreaGit);
     loadProperties(gff);
+    // The area file sized the exploration grid; put back what was explored.
+    _mapState.loadFromGit(gff);
     loadCreatures(gff, identityContext);
     loadDoors(gff, identityContext);
     loadPlaceables(gff, identityContext);
@@ -2688,6 +2707,7 @@ void Area::update(float dt) {
     doDestroyObjects();
     updateReleasedPresentation(dt);
     updateObjectSelection();
+    updateMapData();
 
     if (_game.isPaused()) {
         return;

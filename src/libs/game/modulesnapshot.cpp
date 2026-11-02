@@ -1815,6 +1815,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     put(*properties, Gff::Field::newDword("SunFogColor", area._sunFogColor));
     put(*result, Gff::Field::newStruct("AreaProperties", std::move(properties)));
 
+    // An area carrying a map records what the party has explored of it.
+    if (auto areaMap = area._mapState.writeToGit()) {
+        put(*result, Gff::Field::newStruct("AreaMap", std::move(areaMap)));
+    }
+
     std::map<std::string, std::vector<std::shared_ptr<Gff>>> lists {
         {"Creature List", {}}, {"Door List", {}}, {"Placeable List", {}}, {"TriggerList", {}}, {"Encounter List", {}}, {"StoreList", {}}, {"WaypointList", {}}, {"SoundList", {}}, {"List", {}}, {"AreaEffectList", {}}};
     lists["CameraList"] = {};

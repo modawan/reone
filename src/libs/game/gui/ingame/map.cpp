@@ -58,16 +58,10 @@ void MapMenu::onGUILoaded() {
         _game.openInGame();
     });
     _controls.BTN_UP->setOnClick([this]() {
-        if (--_selectedNoteIdx == -1) {
-            _selectedNoteIdx = static_cast<int>(_notes.size() - 1);
-        }
-        refreshSelectedNote();
+        selectAdjacentNote(-1);
     });
     _controls.BTN_DOWN->setOnClick([this]() {
-        if (++_selectedNoteIdx == static_cast<int>(_notes.size())) {
-            _selectedNoteIdx = 0;
-        }
-        refreshSelectedNote();
+        selectAdjacentNote(1);
     });
 
     if (_game.isTSL()) {
@@ -113,18 +107,41 @@ void MapMenu::offerReturn() {
     });
 }
 
-void MapMenu::render() {
-    GameGUI::render();
-
+glm::vec4 MapMenu::mapBounds() const {
     const Control::Extent &extent = _controls.LBL_Map->extent();
 
-    glm::vec4 bounds(
+    return glm::vec4(
         _gui->controlOffset().x + extent.left,
         _gui->controlOffset().y + extent.top,
         extent.width,
         extent.height);
+}
 
-    _game.map().render(Map::Mode::Default, bounds, _gui->scale(), _gui->pulsingAlpha());
+void MapMenu::render() {
+    GameGUI::render();
+
+    _game.map().render(
+        Map::Mode::Default, mapBounds(), _gui->scale(), _gui->pulsingAlpha());
+}
+
+bool MapMenu::handle(const input::Event &event) {
+    // A map note answers a click on the marker the map drew for it. The
+    // markers are drawn into the map control rather than being controls of
+    // their own, so the menu tests them against the same rects it drew.
+    if (event.type == input::EventType::MouseButtonUp &&
+        event.button.button == input::MouseButton::Left) {
+        for (const auto &marker :
+             _game.map().noteMarkers(mapBounds(), _gui->scale())) {
+            if (event.button.x >= marker.bounds[0] &&
+                event.button.x <= marker.bounds[0] + marker.bounds[2] &&
+                event.button.y >= marker.bounds[1] &&
+                event.button.y <= marker.bounds[1] + marker.bounds[3]) {
+                selectNote(marker.waypoint);
+                return true;
+            }
+        }
+    }
+    return GameGUI::handle(event);
 }
 
 void MapMenu::refreshControls() {
@@ -138,11 +155,43 @@ void MapMenu::refreshControls() {
         }
     }
 
+    // The map opens on the first note it can show, which is the first one
+    // standing somewhere the party has been.
     _selectedNoteIdx = 0;
+    for (size_t index = 0; index < _notes.size(); ++index) {
+        if (_game.map().isNoteVisible(*_notes[index])) {
+            _selectedNoteIdx = static_cast<int>(index);
+            break;
+        }
+    }
     refreshSelectedNote();
     if (!_game.isTSL()) {
         refreshTravel();
     }
+}
+
+void MapMenu::selectAdjacentNote(int step) {
+    if (_notes.empty()) {
+        return;
+    }
+    // Stepping passes over the notes the map does not show.
+    const int count = static_cast<int>(_notes.size());
+    for (int taken = 0; taken < count; ++taken) {
+        _selectedNoteIdx = (_selectedNoteIdx + step + count) % count;
+        if (_game.map().isNoteVisible(*_notes[_selectedNoteIdx])) {
+            break;
+        }
+    }
+    refreshSelectedNote();
+}
+
+void MapMenu::selectNote(const std::shared_ptr<Waypoint> &waypoint) {
+    auto note = std::find(_notes.begin(), _notes.end(), waypoint);
+    if (note == _notes.end()) {
+        return;
+    }
+    _selectedNoteIdx = static_cast<int>(note - _notes.begin());
+    refreshSelectedNote();
 }
 
 void MapMenu::refreshTravel() {
@@ -204,7 +253,7 @@ int MapMenu::travelRefusal() const {
 void MapMenu::refreshSelectedNote() {
     std::shared_ptr<Waypoint> note;
 
-    if (!_notes.empty()) {
+    if (!_notes.empty() && _game.map().isNoteVisible(*_notes[_selectedNoteIdx])) {
         note = _notes[_selectedNoteIdx];
 
         std::string text(_services.resource.strings.getText(kStrRefMapNote));
@@ -212,6 +261,8 @@ void MapMenu::refreshSelectedNote() {
         text += note->mapNote();
 
         _controls.LBL_MapNote->setTextMessage(text);
+    } else {
+        _controls.LBL_MapNote->setTextMessage("");
     }
 
     _game.map().setSelectedNote(note);

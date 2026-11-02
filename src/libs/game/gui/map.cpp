@@ -17,6 +17,7 @@
 
 #include "reone/game/gui/map.h"
 
+#include "reone/game/areamapstate.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/graphics/context.h"
@@ -24,9 +25,7 @@
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/uniforms.h"
-#include "reone/resource/gff.h"
 #include "reone/resource/provider/textures.h"
-#include "reone/system/logutil.h"
 
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -36,11 +35,18 @@ namespace reone {
 namespace game {
 
 static constexpr int kArrowSize = 32;
-static constexpr int kMapNoteSize = 16;
-static constexpr float kSelectedMapNoteScale = 1.5f;
-static constexpr float kKotorMapWidth = 440.0f;
-static constexpr float kTSLMapWidth = 512.0f;
-static constexpr float kMapHeight = 256.0f;
+static constexpr int kCompanionSize = 16;
+static constexpr int kMapNoteSize = 14;
+static constexpr int kSelectedMapNoteSize = 20;
+
+/**
+ * The fog blot is drawn several cells wide so that neighbouring blots overlap
+ * into continuous cover rather than a grid of dots.
+ */
+static constexpr float kFogBlotCells = 4.0f;
+
+/** The orange the map marks a companion in. */
+static const glm::vec3 kCompanionColor {1.0f, 0.5f, 0.0f};
 
 Map::Map(Game &game, ServicesView &services) :
     _game(game),
@@ -52,22 +58,13 @@ Map::Map(Game &game, ServicesView &services) :
     }
 }
 
-void Map::load(const std::string &area, const resource::generated::ARE_Map &map) {
-    loadProperties(map);
+void Map::load(const std::string &area) {
     loadTextures(area);
 }
 
 void Map::retireRuntimeSession() {
     _areaTexture.reset();
     _selectedNote.reset();
-}
-
-void Map::loadProperties(const resource::generated::ARE_Map &map) {
-    _northAxis = map.NorthAxis;
-    _worldPoint1 = glm::vec2(map.WorldPt1X, map.WorldPt1Y);
-    _worldPoint2 = glm::vec2(map.WorldPt2X, map.WorldPt2Y);
-    _mapPoint1 = glm::vec2(map.MapPt1X, map.MapPt1Y);
-    _mapPoint2 = glm::vec2(map.MapPt2X, map.MapPt2Y);
 }
 
 void Map::loadTextures(const std::string &area) {
@@ -80,198 +77,262 @@ void Map::loadTextures(const std::string &area) {
     if (!_noteTexture) {
         _noteTexture = _services.resource.textures.get("whitetarget", TextureUsage::GUI);
     }
+    if (!_companionTexture) {
+        _companionTexture = _services.resource.textures.get("lbl_mapcircle", TextureUsage::GUI);
+    }
+    if (!_fogTexture) {
+        _fogTexture = _services.resource.textures.get("blackdot", TextureUsage::GUI);
+    }
+}
+
+const AreaMapState *Map::mapState() const {
+    auto module = _game.module();
+    if (!module) {
+        return nullptr;
+    }
+    auto area = module->area();
+    if (!area) {
+        return nullptr;
+    }
+    const AreaMapState &state = area->mapState();
+    return state.isLoaded() ? &state : nullptr;
 }
 
 void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
-    if (!_areaTexture) {
+    if (!_areaTexture || !mapState()) {
         return;
     }
-    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &mode, &bounds, scale, pulsingAlpha]() {
-        renderArea(mode, bounds, scale);
-        renderNotes(mode, bounds, scale);
-        renderPartyLeader(mode, bounds, scale, pulsingAlpha);
+    const glm::vec4 rect(mapRect(mode, bounds, scale));
+    _services.graphics.context.withBlendMode(BlendMode::Normal, [&]() {
+        renderScissored(bounds, [&]() {
+            renderArea(rect);
+            renderFog(bounds, rect);
+            renderNotes(mode, rect, scale);
+            renderParty(mode, rect, scale, pulsingAlpha);
+        });
     });
 }
 
-void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
-    if (mode == Mode::Minimap) {
-        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-        if (!partyLeader) {
-            return;
-        }
-        _services.graphics.context.bindTexture(*_areaTexture);
-
-        glm::vec2 worldPos(partyLeader->position());
-        glm::vec2 mapPos(getMapPosition(worldPos));
-
-        // Drawn at the layout's scale, not the texture's own size: the
-        // minimap frame is a control and shrinks with the GUI, so an unscaled
-        // map inside it is the wrong zoom and slides under its own scissor.
-        // The offsets that centre the party leader are in the same pixel space
-        // and take the same factor.
-        const float mapWidth = _areaTexture->width() * scale;
-        const float mapHeight = _areaTexture->height() * scale;
-
-        glm::vec3 topLeft(0.0f);
-        float logicalMapWidth = _game.isTSL() ? kTSLMapWidth : kKotorMapWidth;
-        topLeft.x = bounds[0] + 0.5f * bounds[2] - mapPos.x * logicalMapWidth * scale;
-        topLeft.y = bounds[1] + 0.5f * bounds[3] - mapPos.y * mapHeight;
-
-        glm::mat4 transform(1.0f);
-        transform = glm::translate(transform, topLeft);
-        transform = glm::scale(transform, glm::vec3(mapWidth, mapHeight, 1.0f));
-
-        _services.graphics.uniforms.setLocals([transform](auto &locals) {
-            locals.reset();
-            locals.model = std::move(transform);
-        });
-        _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
-
-        int height = _game.options().graphics.height;
-        glm::ivec4 scissorBounds(bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
-        _services.graphics.context.withScissorTest(scissorBounds, [&]() {
-            _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
-        });
-
-    } else {
-        _services.graphics.context.bindTexture(*_areaTexture);
-
-        glm::mat4 transform(1.0f);
-        transform = glm::translate(transform, glm::vec3(bounds[0], bounds[1], 0.0f));
-        transform = glm::scale(transform, glm::vec3(bounds[2], bounds[3], 1.0f));
-
-        _services.graphics.uniforms.setLocals([transform](auto &locals) {
-            locals.reset();
-            locals.model = std::move(transform);
-        });
-        _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
-        _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
-    }
+void Map::renderScissored(const glm::vec4 &bounds, const std::function<void()> &block) {
+    const int height = _game.options().graphics.height;
+    const glm::ivec4 scissorBounds(
+        bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
+    _services.graphics.context.withScissorTest(scissorBounds, block);
 }
 
-void Map::renderNotes(Mode mode, const glm::vec4 &bounds, float scale) {
-    if (mode != Mode::Default) {
+glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
+    if (mode == Mode::Default) {
+        // The map screen stretches the area image over its map control.
+        return bounds;
+    }
+    // The minimap shows the image at the layout's scale and keeps the party
+    // leader under the centre of its frame.
+    const float width = _areaTexture->width() * scale;
+    const float height = _areaTexture->height() * scale;
+
+    glm::vec2 mapPos(0.0f);
+    auto state = mapState();
+    auto leader = _game.party().getLeader();
+    if (state && leader) {
+        if (auto position = state->toMapPosition(glm::vec2(leader->position()))) {
+            mapPos = *position;
+        }
+    }
+    return glm::vec4(
+        bounds[0] + 0.5f * bounds[2] - mapPos.x * width,
+        bounds[1] + 0.5f * bounds[3] - mapPos.y * height,
+        width,
+        height);
+}
+
+void Map::renderArea(const glm::vec4 &rect) {
+    _services.graphics.context.bindTexture(*_areaTexture);
+
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(transform, glm::vec3(rect[0], rect[1], 0.0f));
+    transform = glm::scale(transform, glm::vec3(rect[2], rect[3], 1.0f));
+
+    _services.graphics.uniforms.setLocals([transform](auto &locals) {
+        locals.reset();
+        locals.model = std::move(transform);
+    });
+    _services.graphics.context.useProgram(
+        _services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+}
+
+void Map::renderFog(const glm::vec4 &bounds, const glm::vec4 &rect) {
+    auto state = mapState();
+    if (!state) {
         return;
     }
-    _services.graphics.context.bindTexture(*_noteTexture);
+    const float cellWidth = rect[2] / state->gridWidth();
+    const float cellHeight = rect[3] / state->gridHeight();
+    const float blotWidth = cellWidth * kFogBlotCells;
+    const float blotHeight = cellHeight * kFogBlotCells;
 
-    for (auto &object : _game.module()->area()->getObjectsByType(ObjectType::Waypoint)) {
+    for (int gridY = 0; gridY <= state->gridHeight(); ++gridY) {
+        for (int gridX = 0; gridX <= state->gridWidth(); ++gridX) {
+            if (state->isCellExplored(gridX, gridY)) {
+                continue;
+            }
+            const float centerX = rect[0] + gridX * cellWidth;
+            const float centerY = rect[1] + gridY * cellHeight;
+            if (centerX + 0.5f * blotWidth < bounds[0] ||
+                centerX - 0.5f * blotWidth > bounds[0] + bounds[2] ||
+                centerY + 0.5f * blotHeight < bounds[1] ||
+                centerY - 0.5f * blotHeight > bounds[1] + bounds[3]) {
+                continue;
+            }
+            renderMarker(
+                glm::vec4(
+                    centerX - 0.5f * blotWidth,
+                    centerY - 0.5f * blotHeight,
+                    blotWidth,
+                    blotHeight),
+                *_fogTexture,
+                glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        }
+    }
+}
+
+bool Map::isNoteVisible(const Waypoint &waypoint) const {
+    if (!waypoint.isMapNoteEnabled() || waypoint.mapNote().empty()) {
+        return false;
+    }
+    auto state = mapState();
+    return state && state->isExplored(glm::vec2(waypoint.position()));
+}
+
+std::vector<Map::NoteMarker> Map::noteMarkers(const glm::vec4 &bounds, float scale) const {
+    std::vector<NoteMarker> result;
+    auto state = mapState();
+    auto module = _game.module();
+    if (!state || !module || !module->area()) {
+        return result;
+    }
+    for (auto &object : module->area()->getObjectsByType(ObjectType::Waypoint)) {
         auto waypoint = std::static_pointer_cast<Waypoint>(object);
-        if (!waypoint->isMapNoteEnabled() || waypoint->mapNote().empty())
+        if (!isNoteVisible(*waypoint)) {
             continue;
-
-        glm::vec2 mapPos(getMapPosition(waypoint->position()));
-        normalizeMapPosition(mapPos);
-
-        glm::vec2 notePos;
-        notePos.x = bounds[0] + mapPos.x * bounds[2];
-        notePos.y = bounds[1] + mapPos.y * bounds[3];
-
-        bool selected = waypoint == _selectedNote;
-        float noteSize = (selected ? kSelectedMapNoteScale : 1.0f) * kMapNoteSize * scale;
-
-        glm::mat4 transform(1.0f);
-        transform = glm::translate(transform, glm::vec3(notePos.x - 0.5f * noteSize, notePos.y - 0.5f * noteSize, 0.0f));
-        transform = glm::scale(transform, glm::vec3(noteSize, noteSize, 1.0f));
-
-        auto guiColorHilight = _game.isTSL() ? kTSLGUIColorHilight : kGUIColorHilight;
-        auto guiColorBase = _game.isTSL() ? kTSLGUIColorBase : kGUIColorBase;
-
-        _services.graphics.uniforms.setLocals([&](auto &locals) {
-            locals.reset();
-            locals.model = std::move(transform);
-            locals.color = glm::vec4(selected ? guiColorHilight : guiColorBase, 1.0f);
-        });
-        _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
-        _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+        }
+        auto mapPos = state->toMapPosition(glm::vec2(waypoint->position()));
+        if (!mapPos) {
+            continue;
+        }
+        const float size =
+            (waypoint == _selectedNote ? kSelectedMapNoteSize : kMapNoteSize) * scale;
+        const float centerX = bounds[0] + mapPos->x * bounds[2];
+        const float centerY = bounds[1] + mapPos->y * bounds[3];
+        result.push_back(
+            NoteMarker {
+                waypoint,
+                glm::vec4(
+                    centerX - 0.5f * size,
+                    centerY - 0.5f * size,
+                    size,
+                    size)});
     }
-}
-
-void Map::normalizeMapPosition(glm::vec2 &mapPos) const {
-    mapPos.x *= (_game.isTSL() ? kTSLMapWidth : kKotorMapWidth) /
-                static_cast<float>(_areaTexture->width());
-    mapPos.y *= kMapHeight / static_cast<float>(_areaTexture->height());
-}
-
-glm::vec2 Map::getMapPosition(const glm::vec2 &world) const {
-    float scaleX, scaleY;
-    glm::vec2 result(0.0f);
-
-    switch (_northAxis) {
-    case 0:
-    case 1:
-        scaleX = (_mapPoint1.x - _mapPoint2.x) / (_worldPoint1.x - _worldPoint2.x);
-        scaleY = (_mapPoint1.y - _mapPoint2.y) / (_worldPoint1.y - _worldPoint2.y);
-        result.x = (world.x - _worldPoint1.x) * scaleX + _mapPoint1.x;
-        result.y = (world.y - _worldPoint1.y) * scaleY + _mapPoint1.y;
-        break;
-    case 2:
-    case 3:
-        scaleX = (_mapPoint1.y - _mapPoint2.y) / (_worldPoint1.x - _worldPoint2.x);
-        scaleY = (_mapPoint1.x - _mapPoint2.x) / (_worldPoint1.y - _worldPoint2.y);
-        result.x = (world.y - _worldPoint1.y) * scaleY + _mapPoint1.x;
-        result.y = (world.x - _worldPoint1.x) * scaleX + _mapPoint1.y;
-        break;
-    default:
-        warn("Map: invalid north axis: " + std::to_string(_northAxis));
-        break;
-    }
-
     return result;
 }
 
-void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
-    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    if (!partyLeader) {
+void Map::renderNotes(Mode mode, const glm::vec4 &rect, float scale) {
+    if (mode != Mode::Default) {
         return;
     }
-    _services.graphics.context.bindTexture(*_arrowTexture);
+    const glm::vec3 selectedColor(_game.isTSL() ? kTSLGUIColorHilight : kGUIColorHilight);
+    const glm::vec3 color(_game.isTSL() ? kTSLGUIColorBase : kGUIColorBase);
 
-    glm::vec3 arrowPos(0.0f);
+    for (const auto &marker : noteMarkers(rect, scale)) {
+        const bool selected = marker.waypoint == _selectedNote;
+        renderMarker(
+            marker.bounds,
+            *_noteTexture,
+            glm::vec4(selected ? selectedColor : color, 1.0f));
+    }
+}
 
-    if (mode == Mode::Default) {
-        glm::vec2 worldPos(partyLeader->position());
-        glm::vec2 mapPos(getMapPosition(worldPos));
-        normalizeMapPosition(mapPos);
+void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsingAlpha) {
+    auto state = mapState();
+    if (!state) {
+        return;
+    }
+    auto &party = _game.party();
 
-        arrowPos.x = bounds[0] + mapPos.x * bounds[2];
-        arrowPos.y = bounds[1] + mapPos.y * bounds[3];
-
-    } else {
-        arrowPos.x = bounds[0] + 0.5f * bounds[2];
-        arrowPos.y = bounds[1] + 0.5f * bounds[3];
+    // Companions are marked where they stand; the leader carries the arrow.
+    for (int index = 1; index < party.getSize(); ++index) {
+        auto member = party.getMember(index);
+        if (!member) {
+            continue;
+        }
+        auto mapPos = state->toMapPosition(glm::vec2(member->position()));
+        if (!mapPos) {
+            continue;
+        }
+        const float size = kCompanionSize * scale;
+        renderMarker(
+            glm::vec4(
+                rect[0] + mapPos->x * rect[2] - 0.5f * size,
+                rect[1] + mapPos->y * rect[3] - 0.5f * size,
+                size,
+                size),
+            *_companionTexture,
+            glm::vec4(kCompanionColor, 1.0f));
     }
 
-    float facing;
-    switch (_northAxis) {
-    case 0:
-        facing = -partyLeader->getFacing();
-        break;
-    case 1:
-        facing = glm::pi<float>() - partyLeader->getFacing();
-        break;
-    case 2:
-        facing = glm::three_over_two_pi<float>() - partyLeader->getFacing();
-        break;
-    default:
-        facing = glm::half_pi<float>() - partyLeader->getFacing();
-        break;
+    auto leader = party.getLeader();
+    if (!leader) {
+        return;
     }
+    auto mapPos = state->toMapPosition(glm::vec2(leader->position()));
+    if (!mapPos) {
+        return;
+    }
+    const float size = kArrowSize * scale;
+    const glm::vec3 arrowPos(
+        rect[0] + mapPos->x * rect[2],
+        rect[1] + mapPos->y * rect[3],
+        0.0f);
+
+    // The map's angles run counter-clockwise, the GUI's clockwise.
+    const float facing = -state->toMapFacing(leader->getFacing());
+
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, arrowPos);
     transform = glm::rotate(transform, facing, glm::vec3(0.0f, 0.0f, 1.0f));
-    const float arrowSize = kArrowSize * scale;
-    transform = glm::translate(transform, glm::vec3(-0.5f * arrowSize, -0.5f * arrowSize, 0.0f));
-    transform = glm::scale(transform, glm::vec3(arrowSize, arrowSize, 1.0f));
+    transform = glm::translate(transform, glm::vec3(-0.5f * size, -0.5f * size, 0.0f));
+    transform = glm::scale(transform, glm::vec3(size, size, 1.0f));
 
     // On the map screen the arrow pulses; on the minimap it is steady.
     const float alpha = mode == Mode::Default ? pulsingAlpha : 1.0f;
-    _services.graphics.uniforms.setLocals([this, transform, alpha](auto &locals) {
+
+    _services.graphics.context.bindTexture(*_arrowTexture);
+    _services.graphics.uniforms.setLocals([transform, alpha](auto &locals) {
         locals.reset();
         locals.model = std::move(transform);
         locals.color.a = alpha;
     });
-    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
+    _services.graphics.context.useProgram(
+        _services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
+    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+}
+
+void Map::renderMarker(
+    const glm::vec4 &rect,
+    graphics::Texture &texture,
+    const glm::vec4 &color) {
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(transform, glm::vec3(rect[0], rect[1], 0.0f));
+    transform = glm::scale(transform, glm::vec3(rect[2], rect[3], 1.0f));
+
+    _services.graphics.context.bindTexture(texture);
+    _services.graphics.uniforms.setLocals([transform, color](auto &locals) {
+        locals.reset();
+        locals.model = std::move(transform);
+        locals.color = color;
+    });
+    _services.graphics.context.useProgram(
+        _services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
