@@ -165,9 +165,6 @@ public:
  */
 bool hasStateSpecificImmunity(const Creature &target, CreatureState state, std::optional<std::reference_wrapper<const Creature>> creator);
 
-/** Whether \p target is immune to \p state, specifically or through mind immunity. */
-bool hasStateImmunity(const Creature &target, CreatureState state, std::optional<std::reference_wrapper<const Creature>> creator);
-
 /** Whether \p target is immune to being slowed. */
 bool hasSlowImmunity(const Creature &target, std::optional<std::reference_wrapper<const Creature>> creator);
 

@@ -567,6 +567,10 @@ TEST(CombatDifficulty, loads_retail_damage_multipliers_once) {
         .row({"13", "Default", ""});
     auto table = std::shared_ptr<TwoDA>(builder.build());
     EXPECT_CALL(twoDas, get("difficultyopt")).WillOnce(Return(table));
+    TwoDA::Builder settingsBuilder;
+    settingsBuilder.columns({"name", "normal"}).row({"MinHP1", ""});
+    auto settings = std::shared_ptr<TwoDA>(settingsBuilder.build());
+    EXPECT_CALL(twoDas, get("diffsettings")).WillOnce(Return(settings));
 
     DifficultyOptions options(twoDas);
     options.init();

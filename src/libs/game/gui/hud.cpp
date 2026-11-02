@@ -1265,10 +1265,10 @@ void HUD::refreshActionQueueItems() const {
 
     // Only attacks, casts, item uses and the round dispatcher show. The first
     // attack, cast or item use, or the dispatcher while a round action is
-    // under way, shows the action under way: an attack as that action, a cast
+    // under way, shows the entry last handed on: an attack as that entry, a cast
     // or item use as itself. Without one an attack shows nothing. The
     // dispatcher then shows each entry still pending, or with none pending
-    // and nothing shown yet, the stance or attack its round serves.
+    // and nothing shown yet, the attack its round serves.
     SmallVector<Combat::PendingEntry, kActionQueueSize> pending;
     _game.combat().pendingScheduled(*leader, pending);
     bool currentShown = false;
@@ -1295,7 +1295,7 @@ void HUD::refreshActionQueueItems() const {
         }
         if (pending.empty()) {
             if (!currentShown) {
-                show(namedIcon(leader->isInTotalDefense() ? kDefensiveStanceIcon : g_attackIcon));
+                show(namedIcon(g_attackIcon));
             }
             continue;
         }

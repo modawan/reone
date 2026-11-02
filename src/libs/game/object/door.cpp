@@ -865,6 +865,7 @@ void Door::updateTransform() {
 
 void Door::applyDamageEffect(
     int amount,
+    int,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction>) {
     if (amount == 0) {

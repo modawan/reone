@@ -247,6 +247,7 @@ public:
 
     void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
 

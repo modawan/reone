@@ -385,7 +385,6 @@ struct DefenseBreakdown {
     int natural {0};
     int dodgeAndDeflection {0};
     int feat {0};
-    int stance {0};
     int form {0};
     int debilitationPenalty {0};
 };

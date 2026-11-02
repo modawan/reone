@@ -2065,6 +2065,7 @@ std::shared_ptr<Effect> Object::getNextEffect() {
 
 void Object::applyDamageEffect(
     int amount,
+    int,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction>) {
 

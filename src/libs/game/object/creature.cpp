@@ -53,6 +53,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/abilitydecrease.h"
 #include "reone/game/effect/abilityincrease.h"
 #include "reone/game/effect/acdecrease.h"
@@ -493,7 +494,6 @@ static constexpr int kWillSavingThrow = 3;
 static constexpr int kAttackRoundAction = 1;
 static constexpr int kCastRoundAction = 9;
 static constexpr int kItemCastRoundAction = 10;
-static constexpr int kTotalDefenseRoundAction = 13;
 // A Force push carries a creature at 25 metres a second; a leap covers its
 // ground distance in 0.33 seconds, however far it goes.
 static constexpr float kForcePushSpeed = 25.0f;
@@ -556,23 +556,11 @@ static int getHighestOwnedFeatRank(
     return 0;
 }
 
-static int getHighestTotalDefenseClassLevel(
-    const CreatureAttributes &attributes) {
-
-    return std::max({
-        attributes.getClassLevel(ClassType::Scoundrel),
-        attributes.getClassLevel(ClassType::JediSentinel),
-        attributes.getClassLevel(ClassType::JediWatchman),
-        attributes.getClassLevel(ClassType::SithAssassin),
-    });
-}
-
 // Stealth
 static constexpr FeatType kStealthFeat = FeatType::PersonalCloakingShield;
 
 static constexpr int kStealthInCombatStrRef = 1452;
 static constexpr int kSkillUnusableStrRef = 1435;
-static constexpr int kStealthFieldVisual = 8002;
 static constexpr int kCloakRemovalVisual = 8001;
 static constexpr char kStealthCue[] = "sdr_invisible";
 
@@ -1304,14 +1292,12 @@ void Creature::retireAreaRuntime(
     setCombatState(false);
     // What the creature's record does not keep starts over, as it does for a
     // creature built from its record: the excitement, the item-use timer, the
-    // stance and its Total Defense start, the kind of the round's last
-    // action, the end-of-round decision timer, the orientation lock, the spot
-    // it could not see its attack target from, the last projectile time and
-    // the fractions of regeneration.
+    // stance, the kind of the round's last action, the end-of-round decision
+    // timer, the orientation lock, the spot it could not see its attack target
+    // from, the last projectile time and the fractions of regeneration.
     _excitedMilliseconds = 0;
     _itemUseCooldown = 0.0f;
     _combatStance = CombatStance::None;
-    clearTotalDefenseStart();
     _roundActionKind = 0;
     _combatState.decisionScriptTime = 3.0f;
     _orientationLock = script::kObjectInvalid;
@@ -2057,41 +2043,13 @@ void Creature::cancelAllCombatModes() {
     }
 }
 
-bool Creature::isInTotalDefense() const {
-    return _combatStance == CombatStance::TotalDefense || _roundActionKind == kTotalDefenseRoundAction;
-}
-
-bool Creature::addStanceActions(CombatStance stance, const std::shared_ptr<Object> &target,
-                                bool clearActions, bool toFront, bool fromRound) {
+bool Creature::addStanceActions(CombatStance stance) {
     if (!isCommandable()) {
         return false;
     }
     if (stance == CombatStance::Meditative) {
-        addAction(_game.newAction<CombatStanceAction>(CombatStance::Meditative));
-        return true;
+        addAction(_game.newAction<CombatStanceAction>());
     }
-    if (stance != CombatStance::TotalDefense) {
-        return true;
-    }
-    if (fromRound) {
-        if (clearActions) {
-            clearAllActions(true);
-        }
-        auto action = _game.newAction<CombatStanceAction>(CombatStance::TotalDefense, target);
-        if (toFront) {
-            addActionOnTop(std::move(action));
-        } else {
-            addAction(std::move(action));
-        }
-        broadcastCombatState(_id);
-        return true;
-    }
-    // Outside combat the stance request replaces the controlled creature's
-    // queue before the round entry and its dispatcher are installed.
-    if (!isInCombat()) {
-        _game.combat().clearControlledActions(*this);
-    }
-    _game.combat().scheduleStance(*this, target);
     return true;
 }
 
@@ -3893,11 +3851,12 @@ void Creature::damage(
         setLastDamager(damager);
         setLastDamageAmounts(amounts);
     }
-    applyHitPointDamage(amount, damager);
+    applyHitPointDamage(amount, amount, damager);
 }
 
 void Creature::applyHitPointDamage(
     int amount,
+    int dealt,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction> reaction) {
     if (_dead) {
@@ -3923,20 +3882,28 @@ void Creature::applyHitPointDamage(
         }
         _currentHitPoints = 0; // special case for Death effect
     } else {
-        const int totalBefore = currentHitPoints();
-        const int allowedDamage = isMinOneHP()
-                                      ? std::min(amount, std::max(0, totalBefore - 1))
-                                      : amount;
-        const int remainingDamage = consumeTemporaryHitPoints(allowedDamage);
+        const int hitPointDamage = consumeTemporaryHitPoints(amount);
         if (_dead) {
             return;
         }
-        _currentHitPoints -= remainingDamage;
-        const int adjustedAmount = allowedDamage;
-        if (amount > 0) {
-            _game.floatingText().addDamage(
-                *this, amount, adjustedAmount, damagerId);
+        // The difficulty settings may set a floor of 1 hit point under the
+        // player character; what the floor holds back is not shown as damage
+        // taken.
+        int hitPoints = _currentHitPoints - hitPointDamage;
+        if (difficultyKeepsAtOneHitPoint()) {
+            hitPoints = std::max(hitPoints, std::min(1, _currentHitPoints));
         }
+        const int remainingDamage = _currentHitPoints - hitPoints;
+        _currentHitPoints = hitPoints;
+        // A min-1-HP creature stops at 1 hit point once temporary hit points
+        // have taken their share; the damage shown is not reduced for it.
+        if (isMinOneHP()) {
+            _currentHitPoints = std::max(_currentHitPoints, 1);
+        }
+        // The controlled creature is shown the damage it dealt, before the
+        // difficulty weighs it. The player is shown the damage that got past
+        // temporary hit points, 0 when they took all of it.
+        _game.floatingText().addDamage(*this, dealt, remainingDamage, damagerId);
     }
 
     // The reaction comes after the vitality change and before the damaged script.
@@ -6610,9 +6577,8 @@ void Creature::setClientCombatMode(bool active) {
 void Creature::removeCombatInvisibilityEffects() {
     std::vector<EffectId> packages;
     for (const auto &effect : effects()) {
-        if ((effect.type() == EffectType::Invisibility &&
-             effect.integerParameter(0) == static_cast<int>(InvisibilityType::Normal)) ||
-            effect.type() == EffectType::Sanctuary) {
+        if (effect.type() == EffectType::Invisibility &&
+            effect.integerParameter(0) == static_cast<int>(InvisibilityType::Normal)) {
             if (std::find(packages.begin(), packages.end(), effect.id) == packages.end()) {
                 packages.push_back(effect.id);
             }
@@ -8198,13 +8164,9 @@ DefenseBreakdown Creature::getDefenseBreakdown(std::optional<std::reference_wrap
     breakdown.natural = ac.natural;
     breakdown.dodgeAndDeflection = ac.shield + ac.dodgeAndDeflection;
     breakdown.feat = getDuelingBonus();
-    // Total Defense, the lightsaber form and Battle Precognition answer an
-    // attacker; the general Defense has none of them.
+    // The lightsaber form and Battle Precognition answer an attacker; the
+    // general Defense has neither.
     if (attacker) {
-        breakdown.stance = getTotalDefenseBonus(
-            _game.isTSL(),
-            isInTotalDefense(),
-            getHighestTotalDefenseClassLevel(_attributes));
         const bool attackerIsCombatTarget =
             _combatState.attemptedAttackTarget.resolve().get() == &attacker->get() ||
             _combatState.attackTarget.resolve().get() == &attacker->get();
@@ -8226,7 +8188,7 @@ DefenseBreakdown Creature::getDefenseBreakdown(std::optional<std::reference_wrap
     breakdown.debilitationPenalty = isDebilitated(true) ? -4 : 0;
     breakdown.total = 10 + breakdown.armor + breakdown.dexterity +
                       breakdown.classDefense + breakdown.natural + breakdown.dodgeAndDeflection +
-                      breakdown.feat + breakdown.stance + breakdown.form + breakdown.debilitationPenalty;
+                      breakdown.feat + breakdown.form + breakdown.debilitationPenalty;
     return breakdown;
 }
 
@@ -11076,6 +11038,7 @@ bool Creature::isPartyMember() const {
 
 void Creature::applyDamageEffect(
     int amount,
+    int dealt,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction> reaction) {
 
@@ -11084,6 +11047,10 @@ void Creature::applyDamageEffect(
     }
 
     if (amount == 0) {
+        // Damage the difficulty weighs down to nothing still shows its number.
+        if (dealt > 0) {
+            _game.floatingText().addDamage(*this, dealt, 0, damager ? damager->id() : script::kObjectInvalid);
+        }
         if (reaction) {
             _game.combat().reactToDamage(*this, damager, *reaction);
         }
@@ -11091,7 +11058,7 @@ void Creature::applyDamageEffect(
         return;
     }
 
-    applyHitPointDamage(amount, damager, reaction);
+    applyHitPointDamage(amount, dealt, damager, reaction);
 }
 
 int Creature::selectMeleeAttackVariant(bool cinematic) {
@@ -11729,6 +11696,10 @@ void Creature::addTemporaryHitPoints(int amount, bool restoring) {
     if (!restoring || !_temporaryHitPointsRestored) {
         _temporaryHitPoints += amount;
     }
+}
+
+bool Creature::difficultyKeepsAtOneHitPoint() const {
+    return isPCValue() == 1 && _services.game.difficultyOptions.keepsPlayerCharacterAtOneHitPoint();
 }
 
 int Creature::consumeTemporaryHitPoints(int amount) {

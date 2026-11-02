@@ -215,7 +215,6 @@ enum class EffectType {
     ElementalShield = 60,
     NegativeLevel = 61,
     Disguise = 62,
-    Sanctuary = 63,
     TrueSeeing = 64,
     SeeInvisible = 65,
     TimeStop = 66,
@@ -890,7 +889,6 @@ constexpr bool isSaberForm(CombatForm form) {
 /** A stance a creature holds instead of attacking. */
 enum class CombatStance {
     None = -1,
-    TotalDefense = 0,
     Meditative = 1
 };
 

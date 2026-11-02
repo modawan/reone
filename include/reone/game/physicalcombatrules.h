@@ -503,18 +503,6 @@ constexpr int getEffectiveArmorMaxDexterityBonus(
     return baseMaximum + itemAdjustment;
 }
 
-/** The TSL Total Defense bonus: 6 with a qualifying class above level 3, else 4. */
-constexpr int getTotalDefenseBonus(
-    bool tsl,
-    bool totalDefense,
-    int highestQualifyingClassLevel) {
-
-    if (!tsl || !totalDefense) {
-        return 0;
-    }
-    return highestQualifyingClassLevel > 3 ? 6 : 4;
-}
-
 /** The TSL attack bonus of the lightsaber form of a lightsaber in the right hand. */
 constexpr int getLightsaberFormAttackBonus(
     bool tsl,

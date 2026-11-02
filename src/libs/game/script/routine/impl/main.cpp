@@ -7393,17 +7393,6 @@ static Variable IsMeditating(const std::vector<Variable> &args, const RoutineCon
         creature && creature->combatStance() == CombatStance::Meditative));
 }
 
-static Variable IsInTotalDefense(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oCreature = getObject(args, 0, ctx);
-
-    // Transform
-    auto creature = dyn_cast<Creature>(oCreature);
-
-    // Execute
-    return Variable::ofInt(static_cast<int>(creature && creature->isInTotalDefense()));
-}
-
 static Variable SetHealTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oidHealer = getObjectOrNull(args, 0, ctx);
@@ -9199,7 +9188,6 @@ void Routines::registerMainTslRoutines() {
     insert(808, "YavinHackDoorClose", R_VOID, {R_OBJECT}, &YavinHackDoorClose);
     insert(810, "IsStealthed", R_INT, {R_OBJECT}, &IsStealthed);
     insert(811, "IsMeditating", R_INT, {R_OBJECT}, &IsMeditating);
-    insert(812, "IsInTotalDefense", R_INT, {R_OBJECT}, &IsInTotalDefense);
     insert(813, "SetHealTarget", R_VOID, {R_OBJECT, R_OBJECT}, &SetHealTarget);
     insert(814, "GetHealTarget", R_OBJECT, {R_OBJECT}, &GetHealTarget);
     insert(815, "GetRandomDestination", R_VECTOR, {R_OBJECT, R_INT}, &GetRandomDestination);

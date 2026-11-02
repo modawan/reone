@@ -129,9 +129,13 @@ public:
     virtual void damage(
         int amount,
         const std::shared_ptr<Object> &damager);
-    /** \p reaction is set for damage other than a weapon hit. */
+    /**
+     * \p dealt is the damage before the difficulty weighs it, \p amount
+     * after. \p reaction is set for damage other than a weapon hit.
+     */
     virtual void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction);
 

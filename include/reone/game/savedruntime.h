@@ -274,6 +274,10 @@ enum class SavedActionType : uint32_t {
     SurrenderToEnemies = 65,
     /** TSL: a lightsaber burnt through a locked door. */
     DoorSaber = 67,
+    /**
+     * Total Defense: a saved command of this type is kept in the queue and
+     * saved again unchanged; it is not carried out.
+     */
     TotalDefense = 68,
     Meditate = 69,
     FollowOwner = 70,

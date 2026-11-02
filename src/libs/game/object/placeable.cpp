@@ -434,6 +434,7 @@ void Placeable::updateTransform() {
 
 void Placeable::applyDamageEffect(
     int amount,
+    int,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction>) {
     if (amount == 0) {

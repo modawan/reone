@@ -45,6 +45,9 @@ class Models;
 
 namespace game {
 
+/** The visual effect of the stealth field. */
+constexpr int kStealthFieldVisual = 8002;
+
 /**
  * The beam model a visual program draws: programs 608-621 in KotOR and
  * 608-623 in TSL each draw one beam.

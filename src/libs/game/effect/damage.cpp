@@ -780,7 +780,7 @@ EffectApplicationResult DamageEffect::onApply(Object &object, EffectInstance &in
         addDamageFeedback(object.game(), creator, object, application->effectAmounts);
     }
     if (object.isRuntimeLive()) {
-        object.applyDamageEffect(amount, creator, reaction);
+        object.applyDamageEffect(amount, application->amount, creator, reaction);
     }
     return EffectApplicationResult::Applied;
 }

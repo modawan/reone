@@ -1062,8 +1062,6 @@ SavedScheduledAction SavedScheduledAction::fromGff(
     // A combat stance entry's attack count names the stance.
     if (auto saved = gff.findStruct("Command")) {
         record.command = SavedActionRecord::fromGff(*saved, ids);
-    } else if (record.type == kCombatStanceType && record.numAttacks == static_cast<int32_t>(CombatStance::TotalDefense)) {
-        record.command = command(SavedActionType::TotalDefense, {{static_cast<uint32_t>(Type::Object), record.target}});
     } else if (record.type == kCombatStanceType && record.numAttacks == static_cast<int32_t>(CombatStance::Meditative)) {
         record.command = command(SavedActionType::Meditate, {});
     } else if (record.type == kSwitchWeaponsType) {
@@ -1304,7 +1302,6 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::CombatDispatch, &hasParameters<Type::Integer>, &CombatDispatchAction::restore},
     {SavedActionType::SurrenderToEnemies, &hasParameters<>, &SurrenderToEnemiesAction::restore},
     {SavedActionType::DoorSaber, &hasParameters<Type::Object>, &DoorSaberAction::restore},
-    {SavedActionType::TotalDefense, &hasParameters<Type::Object>, &CombatStanceAction::restore},
     {SavedActionType::Meditate, &hasParameters<>, &CombatStanceAction::restore},
     {SavedActionType::FollowOwner, &hasParameters<Type::Float>, &FollowOwnerAction::restore},
     {SavedActionType::SwitchWeapons, &hasParameters<>, &SwitchWeaponsAction::restore},

@@ -54,8 +54,9 @@ static constexpr int kDefaultOnHitDifficultyClass = 20;
 // The baseitems.2da model type of an item drawn as its wearer's body model.
 static constexpr int kBodyModelType = 1;
 
-// The length of a combat round.
-static constexpr float kRoundSeconds = 6.0f;
+// The seconds an On Hit state lasts per iprp_onhitdur round: KotOR, then TSL.
+static constexpr float kOnHitStateSecondsPerRoundK1 = 6.0f;
+static constexpr float kOnHitStateSecondsPerRoundTSL = 3.0f;
 
 // The iprp_onhit parameter table that gives a chance and duration.
 static constexpr int kOnHitDurationParameterTable = 1;
@@ -834,7 +835,7 @@ std::vector<ItemOnHitProperty> Item::itemOnHitProperties() const {
             selection.rounds = duration.rounds;
         }
         value.chance = selection.chance;
-        value.duration = selection.rounds * kRoundSeconds;
+        value.duration = selection.rounds * (_game.isTSL() ? kOnHitStateSecondsPerRoundTSL : kOnHitStateSecondsPerRoundK1);
 
         value.difficultyClass = tables.costTable(kOnHitDifficultyClassTable)
                                     .row(property.costValue)

@@ -113,6 +113,10 @@ public:
         return static_cast<int>(_options.size());
     }
 
+    bool keepsPlayerCharacterAtOneHitPoint() const override {
+        return false;
+    }
+
 private:
     std::vector<DifficultyOption> _options {
         {-1, "Easy", 0.5f},

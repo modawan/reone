@@ -1487,7 +1487,7 @@ void AttackBuffer::saveContinuation(SavedPhysicalAction &saved, const Game &game
     saved.histories.clear();
     for (const auto &a : _attacks) {
         std::vector<std::shared_ptr<G>> values, slots;
-        const int fields[] = {static_cast<int>(a.source), static_cast<int>(a.ranged), static_cast<int>(a.result), static_cast<int>(a.roll), static_cast<int>(a.naturalTwenty), static_cast<int>(a.naturalOne), static_cast<int>(a.coupDeGrace), static_cast<int>(a.criticalThreat.threshold), static_cast<int>(a.criticalThreat.threatened), static_cast<int>(a.criticalThreat.confirmationRoll), static_cast<int>(a.criticalThreat.confirmationBonus), static_cast<int>(a.criticalThreat.confirmed), static_cast<int>(a.criticalThreat.multiplier), static_cast<int>(a.impactTimeMilliseconds), static_cast<int>(a.signaled), static_cast<int>(a.onHitResolved), static_cast<int>(a.attackBonusBreakdown.baseAttackBonus), static_cast<int>(a.attackBonusBreakdown.strengthModifier), static_cast<int>(a.attackBonusBreakdown.dexterityModifier), static_cast<int>(a.attackBonusBreakdown.dualWieldPenalty), static_cast<int>(a.attackBonusBreakdown.smallOffhandBonus), static_cast<int>(a.attackBonusBreakdown.featBonus), static_cast<int>(a.attackBonusBreakdown.duelingFeat), static_cast<int>(a.attackBonusBreakdown.duelingBonus), static_cast<int>(a.attackBonusBreakdown.closeProximityRangedBonus), static_cast<int>(a.attackBonusBreakdown.meleeOnRangedBonus), static_cast<int>(a.attackBonusBreakdown.weaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.targetingBonus), static_cast<int>(a.attackBonusBreakdown.superiorWeaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.formBonus), static_cast<int>(a.attackBonusBreakdown.dualStrikeBonus), static_cast<int>(a.attackBonusBreakdown.effectBonus), static_cast<int>(a.defenseBreakdown.total), static_cast<int>(a.defenseBreakdown.armor), static_cast<int>(a.defenseBreakdown.dexterity), static_cast<int>(a.defenseBreakdown.classDefense), static_cast<int>(a.defenseBreakdown.natural), static_cast<int>(a.defenseBreakdown.dodgeAndDeflection), static_cast<int>(a.defenseBreakdown.feat), static_cast<int>(a.defenseBreakdown.stance), static_cast<int>(a.defenseBreakdown.form), static_cast<int>(a.defenseBreakdown.debilitationPenalty), static_cast<int>(a.damageBreakdown.strengthModifier), static_cast<int>(a.damageBreakdown.otherSpecialBonus), static_cast<int>(a.damageBreakdown.sneakAttack), static_cast<int>(a.damageBreakdown.weaponSpecialization), static_cast<int>(a.damageBreakdown.combatFeatDamage), static_cast<int>(a.damageBreakdown.preciseShotDamage), static_cast<int>(a.damageBreakdown.formDamage), static_cast<int>(a.damageBreakdown.unarmedFeatDamage209), static_cast<int>(a.damageBreakdown.unarmedFeatDamage212), static_cast<int>(a.damageBreakdown.criticalMultiplier), static_cast<int>(a.attackBonusBreakdown.inspireFollowersBonus), static_cast<int>(a.attackBonusBreakdown.leaderCharismaBonus), static_cast<int>(a.attackBonusBreakdown.crushOppositionPenalty), a.effectsAfterOnHit == std::numeric_limits<size_t>::max() ? -1 : static_cast<int>(a.effectsAfterOnHit), static_cast<int>(a.reportsEffectOutcome), a.effectCode, a.saveRecord.saveType, a.saveRecord.saveRoll, a.saveRecord.modifierTotal, a.saveRecord.baseSave, a.saveRecord.finalTotal, a.saveRecord.difficultyClass, a.saveRecord.outcome};
+        const int fields[] = {static_cast<int>(a.source), static_cast<int>(a.ranged), static_cast<int>(a.result), static_cast<int>(a.roll), static_cast<int>(a.naturalTwenty), static_cast<int>(a.naturalOne), static_cast<int>(a.coupDeGrace), static_cast<int>(a.criticalThreat.threshold), static_cast<int>(a.criticalThreat.threatened), static_cast<int>(a.criticalThreat.confirmationRoll), static_cast<int>(a.criticalThreat.confirmationBonus), static_cast<int>(a.criticalThreat.confirmed), static_cast<int>(a.criticalThreat.multiplier), static_cast<int>(a.impactTimeMilliseconds), static_cast<int>(a.signaled), static_cast<int>(a.onHitResolved), static_cast<int>(a.attackBonusBreakdown.baseAttackBonus), static_cast<int>(a.attackBonusBreakdown.strengthModifier), static_cast<int>(a.attackBonusBreakdown.dexterityModifier), static_cast<int>(a.attackBonusBreakdown.dualWieldPenalty), static_cast<int>(a.attackBonusBreakdown.smallOffhandBonus), static_cast<int>(a.attackBonusBreakdown.featBonus), static_cast<int>(a.attackBonusBreakdown.duelingFeat), static_cast<int>(a.attackBonusBreakdown.duelingBonus), static_cast<int>(a.attackBonusBreakdown.closeProximityRangedBonus), static_cast<int>(a.attackBonusBreakdown.meleeOnRangedBonus), static_cast<int>(a.attackBonusBreakdown.weaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.targetingBonus), static_cast<int>(a.attackBonusBreakdown.superiorWeaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.formBonus), static_cast<int>(a.attackBonusBreakdown.dualStrikeBonus), static_cast<int>(a.attackBonusBreakdown.effectBonus), static_cast<int>(a.defenseBreakdown.total), static_cast<int>(a.defenseBreakdown.armor), static_cast<int>(a.defenseBreakdown.dexterity), static_cast<int>(a.defenseBreakdown.classDefense), static_cast<int>(a.defenseBreakdown.natural), static_cast<int>(a.defenseBreakdown.dodgeAndDeflection), static_cast<int>(a.defenseBreakdown.feat), static_cast<int>(a.defenseBreakdown.form), static_cast<int>(a.defenseBreakdown.debilitationPenalty), static_cast<int>(a.damageBreakdown.strengthModifier), static_cast<int>(a.damageBreakdown.otherSpecialBonus), static_cast<int>(a.damageBreakdown.sneakAttack), static_cast<int>(a.damageBreakdown.weaponSpecialization), static_cast<int>(a.damageBreakdown.combatFeatDamage), static_cast<int>(a.damageBreakdown.preciseShotDamage), static_cast<int>(a.damageBreakdown.formDamage), static_cast<int>(a.damageBreakdown.unarmedFeatDamage209), static_cast<int>(a.damageBreakdown.unarmedFeatDamage212), static_cast<int>(a.damageBreakdown.criticalMultiplier), static_cast<int>(a.attackBonusBreakdown.inspireFollowersBonus), static_cast<int>(a.attackBonusBreakdown.leaderCharismaBonus), static_cast<int>(a.attackBonusBreakdown.crushOppositionPenalty), a.effectsAfterOnHit == std::numeric_limits<size_t>::max() ? -1 : static_cast<int>(a.effectsAfterOnHit), static_cast<int>(a.reportsEffectOutcome), a.effectCode, a.saveRecord.saveType, a.saveRecord.saveRoll, a.saveRecord.modifierTotal, a.saveRecord.baseSave, a.saveRecord.finalTotal, a.saveRecord.difficultyClass, a.saveRecord.outcome};
         for (int value : fields) {
             values.push_back(G::Builder().type(0).field(F::newInt("Value", value)).build());
         }
@@ -1602,33 +1602,32 @@ void AttackBuffer::restoreContinuation(const SavedPhysicalAction &saved) {
         a.defenseBreakdown.natural = static_cast<decltype(a.defenseBreakdown.natural)>(value(36));
         a.defenseBreakdown.dodgeAndDeflection = static_cast<decltype(a.defenseBreakdown.dodgeAndDeflection)>(value(37));
         a.defenseBreakdown.feat = static_cast<decltype(a.defenseBreakdown.feat)>(value(38));
-        a.defenseBreakdown.stance = static_cast<decltype(a.defenseBreakdown.stance)>(value(39));
-        a.defenseBreakdown.form = static_cast<decltype(a.defenseBreakdown.form)>(value(40));
-        a.defenseBreakdown.debilitationPenalty = static_cast<decltype(a.defenseBreakdown.debilitationPenalty)>(value(41));
-        a.damageBreakdown.strengthModifier = static_cast<decltype(a.damageBreakdown.strengthModifier)>(value(42));
-        a.damageBreakdown.otherSpecialBonus = static_cast<decltype(a.damageBreakdown.otherSpecialBonus)>(value(43));
-        a.damageBreakdown.sneakAttack = static_cast<decltype(a.damageBreakdown.sneakAttack)>(value(44));
-        a.damageBreakdown.weaponSpecialization = static_cast<decltype(a.damageBreakdown.weaponSpecialization)>(value(45));
-        a.damageBreakdown.combatFeatDamage = static_cast<decltype(a.damageBreakdown.combatFeatDamage)>(value(46));
-        a.damageBreakdown.preciseShotDamage = static_cast<decltype(a.damageBreakdown.preciseShotDamage)>(value(47));
-        a.damageBreakdown.formDamage = static_cast<decltype(a.damageBreakdown.formDamage)>(value(48));
-        a.damageBreakdown.unarmedFeatDamage209 = static_cast<decltype(a.damageBreakdown.unarmedFeatDamage209)>(value(49));
-        a.damageBreakdown.unarmedFeatDamage212 = static_cast<decltype(a.damageBreakdown.unarmedFeatDamage212)>(value(50));
-        a.damageBreakdown.criticalMultiplier = static_cast<decltype(a.damageBreakdown.criticalMultiplier)>(value(51));
-        a.attackBonusBreakdown.inspireFollowersBonus = value(52);
-        a.attackBonusBreakdown.leaderCharismaBonus = value(53);
-        a.attackBonusBreakdown.crushOppositionPenalty = value(54);
-        a.effectsAfterOnHit = value(55) < 0 ? std::numeric_limits<size_t>::max()
-                                            : static_cast<size_t>(value(55));
-        a.reportsEffectOutcome = value(56) != 0;
-        a.effectCode = value(57);
-        a.saveRecord.saveType = value(58);
-        a.saveRecord.saveRoll = value(59);
-        a.saveRecord.modifierTotal = value(60);
-        a.saveRecord.baseSave = value(61);
-        a.saveRecord.finalTotal = value(62);
-        a.saveRecord.difficultyClass = value(63);
-        a.saveRecord.outcome = value(64);
+        a.defenseBreakdown.form = static_cast<decltype(a.defenseBreakdown.form)>(value(39));
+        a.defenseBreakdown.debilitationPenalty = static_cast<decltype(a.defenseBreakdown.debilitationPenalty)>(value(40));
+        a.damageBreakdown.strengthModifier = static_cast<decltype(a.damageBreakdown.strengthModifier)>(value(41));
+        a.damageBreakdown.otherSpecialBonus = static_cast<decltype(a.damageBreakdown.otherSpecialBonus)>(value(42));
+        a.damageBreakdown.sneakAttack = static_cast<decltype(a.damageBreakdown.sneakAttack)>(value(43));
+        a.damageBreakdown.weaponSpecialization = static_cast<decltype(a.damageBreakdown.weaponSpecialization)>(value(44));
+        a.damageBreakdown.combatFeatDamage = static_cast<decltype(a.damageBreakdown.combatFeatDamage)>(value(45));
+        a.damageBreakdown.preciseShotDamage = static_cast<decltype(a.damageBreakdown.preciseShotDamage)>(value(46));
+        a.damageBreakdown.formDamage = static_cast<decltype(a.damageBreakdown.formDamage)>(value(47));
+        a.damageBreakdown.unarmedFeatDamage209 = static_cast<decltype(a.damageBreakdown.unarmedFeatDamage209)>(value(48));
+        a.damageBreakdown.unarmedFeatDamage212 = static_cast<decltype(a.damageBreakdown.unarmedFeatDamage212)>(value(49));
+        a.damageBreakdown.criticalMultiplier = static_cast<decltype(a.damageBreakdown.criticalMultiplier)>(value(50));
+        a.attackBonusBreakdown.inspireFollowersBonus = value(51);
+        a.attackBonusBreakdown.leaderCharismaBonus = value(52);
+        a.attackBonusBreakdown.crushOppositionPenalty = value(53);
+        a.effectsAfterOnHit = value(54) < 0 ? std::numeric_limits<size_t>::max()
+                                            : static_cast<size_t>(value(54));
+        a.reportsEffectOutcome = value(55) != 0;
+        a.effectCode = value(56);
+        a.saveRecord.saveType = value(57);
+        a.saveRecord.saveRoll = value(58);
+        a.saveRecord.modifierTotal = value(59);
+        a.saveRecord.baseSave = value(60);
+        a.saveRecord.finalTotal = value(61);
+        a.saveRecord.difficultyClass = value(62);
+        a.saveRecord.outcome = value(63);
         const auto &slots = g->getList("DamageSlots");
         for (size_t n = 0; n < std::min(slots.size(), a.damageBreakdown.rawDamageSlots.size()); ++n) {
             a.damageBreakdown.rawDamageSlots[n] = slots[n]->getInt("Value");
@@ -2820,13 +2819,13 @@ static std::string getDefenseFeedback(
         defenseBreakdown,
         kStrRefDefenseNatural,
         defenseValues.natural);
-    // The effects line also carries Total Defense and the lightsaber form.
+    // The effects line also carries the lightsaber form.
     appendDefenseComponent(
         game,
         services,
         defenseBreakdown,
         kStrRefDefenseEffects,
-        defenseValues.dodgeAndDeflection + defenseValues.stance + defenseValues.form);
+        defenseValues.dodgeAndDeflection + defenseValues.form);
     appendDefenseComponent(
         game,
         services,

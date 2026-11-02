@@ -206,7 +206,6 @@ struct SavedEffectTypes {
     static constexpr uint16_t forcePush = 60;
     static constexpr uint16_t damageShield = 61;
     static constexpr uint16_t disguise = 62;
-    static constexpr uint16_t sanctuary = 63;
     static constexpr uint16_t timeStop = 64;
     static constexpr uint16_t spellLevelAbsorption = 65;
     static constexpr uint16_t icon = 67;

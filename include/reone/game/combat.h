@@ -57,40 +57,21 @@ private:
 };
 
 /**
- * Stance command. Total Defense holds its target and completes 1.5 seconds
- * after it last started the creature's round; Meditative holds until another
- * command is queued behind it.
+ * The Meditative stance command, which holds until another command is queued
+ * behind it.
  */
 class CombatStanceAction : public Action {
 public:
-    CombatStanceAction(Game &game, ServicesView &services,
-                       CombatStance stance, std::shared_ptr<Object> target = nullptr) :
-        Action(game, services, ActionType::CombatStance),
-        _stance(stance), _target(std::move(target)) {
-        if (_target) {
-            requireRuntimeObject(_target);
-        }
+    CombatStanceAction(Game &game, ServicesView &services) :
+        Action(game, services, ActionType::CombatStance) {
     }
     static bool classof(Action *action) { return action->type() == ActionType::CombatStance; }
-    uint32_t serializedActionId() const override {
-        return static_cast<uint32_t>(_stance == CombatStance::TotalDefense ? SavedActionType::TotalDefense
-                                                                           : SavedActionType::Meditate);
-    }
+    uint32_t serializedActionId() const override { return static_cast<uint32_t>(SavedActionType::Meditate); }
     void execute(std::shared_ptr<Action>, Object &, float) override;
     bool cancel(std::shared_ptr<Action>, Object &) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
-    /** A saved TotalDefense or Meditate command; none once the Total Defense target is gone. */
+    /** A saved Meditate command. */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
-
-    CombatStance stance() const { return _stance; }
-    const std::shared_ptr<Object> &target() const { return _target; }
-
-private:
-    CombatStance _stance;
-    std::shared_ptr<Object> _target;
-
-    void executeTotalDefense(Creature &actor);
-    void executeMeditative(Creature &actor);
 };
 
 /**
@@ -265,7 +246,7 @@ public:
         _scheduled.clear();
         _equipmentTime.clear();
         _ownerPauses.clear();
-        _settleRequests.clear();
+        _handedOn.clear();
         _nextRoundId = 1;
     }
 
@@ -291,7 +272,8 @@ public:
      * An instant cast starts its caster's round afresh, as no master,
      * whatever round the caster was in. Aimed at a creature, door or container it makes an
      * unengaged Power Attack, which needs no approach, takes no action of the
-     * round, rolls at once, before the cast goes on, and ends with its pause.
+     * round, rolls at once, before the cast goes on, and is over with its
+     * swing.
      */
     void beginInstantCast(const std::shared_ptr<Action> &action, Creature &caster, const std::shared_ptr<Object> &target);
     /**
@@ -402,8 +384,6 @@ public:
      * when the command goes to the queue as usual.
      */
     bool scheduleEquipment(Object &actor, const OrdinaryActionQueue::Node &node);
-    /** Schedule a Total Defense stance on \p target on the creature's round. */
-    bool scheduleStance(Creature &actor, const std::shared_ptr<Object> &target);
     /** Schedule a weapon swap on the creature's round, behind the commands already queued. */
     bool scheduleSwitchWeapons(Creature &actor);
     /**
@@ -465,14 +445,18 @@ public:
     /** Fills \p entries with the creature's round entries not yet taken up, in order. */
     void pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &entries) const;
     /**
-     * The creature's round action under way: the scheduled entry holding its
-     * round for its pause, or else the command its running round carries
-     * out, of the kind of round entry it stands for: a cast, an item use, a
-     * feat attack, Total Defense or an attack. None while nothing is under
-     * way, and none for a round with no command of its own: a duel partner's
-     * side, or a round restored from a save.
+     * The round entry the creature's dispatcher last handed on, with its
+     * command: an attack, a feat attack, an equip or unequip, a pause, a
+     * stance or a weapon swap. It is kept until the dispatcher next runs
+     * while nothing holds the creature's round. A cast, an item use and a
+     * cutscene move are let go as they are handed on, and a save keeps none.
      */
     std::optional<PendingEntry> currentRoundAction(const Creature &actor) const;
+    /**
+     * The creature's dispatcher runs: unless the creature's round is held, it
+     * lets go of the entry it last handed on.
+     */
+    void releaseHandedOn(const Creature &actor);
     /** Installs the round dispatcher: in front of the queue, or behind it when toFront is false. */
     void ensureDispatcher(Creature &actor, bool toFront = true);
     /** Hands the creature's pending equipment entries on to its queue. */
@@ -528,9 +512,14 @@ private:
         /** The entry left the schedule: handed on to its creature's queue, or used up. */
         Left,
         /** The entry holds its creature for its pause before it leaves. */
-        Paused,
-        /** The entry waits at the head until its creature may act. */
-        Waiting
+        Paused
+    };
+
+    /** The round entry a creature's dispatcher handed on: its kind and its command. */
+    struct HandedOn {
+        RuntimeObjectRef<Creature> actor;
+        int type {0};
+        std::shared_ptr<Action> command;
     };
 
     /** A scheduled round entry, with the command it runs once taken up. */
@@ -576,7 +565,8 @@ private:
     /** The seconds each creature's scheduled entries took this frame. */
     std::map<uint32_t, float> _equipmentTime;
     std::map<uint32_t, OwnerPause> _ownerPauses;
-    std::vector<std::weak_ptr<Action>> _settleRequests;
+    /** The entry each creature's dispatcher last handed on, until it lets go of it. */
+    std::map<uint32_t, HandedOn> _handedOn;
 
     /** The rounds a frame walks, kept from frame to frame. */
     std::vector<std::shared_ptr<CombatRound>> _roundsBuffer;
@@ -622,6 +612,14 @@ private:
     /** The attack entry of a physical attack on \p target, or nothing when the target cannot be attacked. */
     std::shared_ptr<ScheduledEntry> makeAttackEntry(const std::shared_ptr<Object> &target, FeatType feat,
                                                     const std::optional<CutsceneAttack> &cutscene) const;
+    /** The dispatcher has handed \p entry on to \p actor, and keeps it until it lets go of it. */
+    void handOn(Creature &actor, const ScheduledEntry &entry);
+    /**
+     * The creature's round is held: by a pause on a round it owns, by the
+     * hold it has while owning none, or by the pause of a scheduled entry
+     * under way.
+     */
+    bool isRoundPaused(const Creature &actor) const;
     /** A running entry of the creature other than \p self passes \p test. */
     bool anyOtherRunningEntry(const Creature &actor, std::optional<std::reference_wrapper<const Action>> self,
                               const std::function<bool(const CombatRound::RoundAction &)> &test) const;
@@ -705,7 +703,7 @@ private:
      * cleared.
      */
     void continueOwner(const CombatRound::RoundAction &entry, bool cutsceneRound, bool ranOut);
-    /** Schedules the leader's next attack on \p target as an entry on its round. */
+    /** Schedules the leader's next attack on \p target as an entry on its round, for its dispatcher to hand on. */
     void scheduleContinuation(Creature &actor, const std::shared_ptr<Object> &target);
 
     /** The saved clock of \p entry, \p round's side of its creature. */

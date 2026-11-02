@@ -57,9 +57,7 @@ static constexpr int kHighestHostileReputation = 10;
 static constexpr int kLowestFriendReputation = 90;
 
 // The animations and times round entries start with.
-static constexpr int kStanceEntryAnimation = 10001;
 static constexpr int kCastEntryAnimation = 10017;
-static constexpr int kStanceEntryMilliseconds = 3000;
 static constexpr int kCastEntryMilliseconds = 500;
 static constexpr int kSwitchWeaponsEntryMilliseconds = 1000;
 // Taking up equipment rescales a round to leave this much of it.
@@ -137,9 +135,6 @@ static std::shared_ptr<Object> getTarget(Action &queued, const Object &actor) {
     }
     if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
         return feat->target();
-    }
-    if (auto *stance = dyn_cast<CombatStanceAction>(&action)) {
-        return stance->stance() == CombatStance::TotalDefense ? stance->target() : nullptr;
     }
 
     return nullptr;
@@ -313,7 +308,7 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     const bool physical = isa<AttackObjectAction>(&command) ||
                           (feat && isPhysicalAttackFeat(feat->feat()));
     auto activateCombat = [&]() {
-        if (!physical && !isa<CombatStanceAction>(&command) && isHostileAction(command)) {
+        if (!physical && isHostileAction(command)) {
             attacker->setCombatState(true);
         }
     };
@@ -402,6 +397,9 @@ void CombatDispatchAction::execute(std::shared_ptr<Action>, Object &actor, float
         return;
     }
     auto *creature = dyn_cast<Creature>(&actor);
+    if (creature) {
+        _game.combat().releaseHandedOn(*creature);
+    }
     if (!_game.combat().hasScheduled(actor) && !(creature && _game.combat().ownsDetachedRound(*creature))) {
         complete();
     }
@@ -425,8 +423,6 @@ std::shared_ptr<Action> CombatDispatchAction::restore(const SavedActionRecord &r
     return game.newAction<CombatDispatchAction>(record.integerParameter(0));
 }
 
-static constexpr uint32_t kTotalDefenseMilliseconds = 1500;
-
 // A party member at zero vitality cannot hold a stance; others only need to live.
 static bool canHoldStance(Game &game, const Creature &actor) {
     if (actor.isDead()) {
@@ -435,81 +431,27 @@ static bool canHoldStance(Game &game, const Creature &actor) {
     return !game.party().isMember(actor) || actor.currentHitPoints() > 0;
 }
 
-void CombatStanceAction::execute(std::shared_ptr<Action> self, Object &actor, float) {
+void CombatStanceAction::execute(std::shared_ptr<Action>, Object &actor, float) {
     auto *creature = dyn_cast<Creature>(&actor);
-    if (creature && _stance == CombatStance::TotalDefense) {
-        _game.party().setCombatMessage(*creature, _game.party().idleCombatMessage());
-    }
     if (!creature || !canHoldStance(_game, *creature)) {
-        if (creature && _stance == CombatStance::TotalDefense) {
-            creature->cancelAllCombatModes();
-        }
         complete();
         return;
     }
-    if (_stance == CombatStance::TotalDefense) {
-        // Holding the stance counts as a combat decision for the end-of-round script.
-        creature->refreshCombatDecisionTimer();
-        if (!_game.holdsWorld() && !_game.combat().isActionPaused(*this) && !_game.combat().isOwnerPaused(*creature)) {
-            // The stance begins while the creature has no Total Defense start.
-            if (!creature->hasTotalDefenseStart()) {
-                creature->setAttemptedAttackTarget(_target ? _target->id() : script::kObjectInvalid);
-                if (_target) {
-                    creature->setDesiredFacingToward(_target->position());
-                    creature->setOrientationLock(_target->id());
-                }
-                creature->interruptActivities();
-            }
-            creature->setCombatStance(CombatStance::TotalDefense);
-            // Starting the creature's round marks the start; a round already
-            // running leaves it as it is.
-            if (!_game.combat().ownsRound(*creature)) {
-                creature->markTotalDefenseStart(_game.worldTimeDay(), _game.worldTimeOfDay());
-            }
-            _game.combat().addAction(self, actor);
-            executeTotalDefense(*creature);
-        }
-        return;
-    }
-    executeMeditative(*creature);
-}
-
-// Total Defense completes once the time of day part of the world time since
-// its start reaches 1.5 s, checked only while its round is not paused. With no
-// start marked, the whole time of day counts.
-void CombatStanceAction::executeTotalDefense(Creature &actor) {
-    uint32_t days = 0;
-    uint32_t elapsed = 0;
-    _game.subtractWorldTimes(_game.worldTimeDay(), _game.worldTimeOfDay(),
-                             actor.totalDefenseDay(), actor.totalDefenseTime(), days, elapsed);
-    if (elapsed < kTotalDefenseMilliseconds) {
-        return;
-    }
-    actor.clearTotalDefenseStart();
-    actor.setCombatStance(CombatStance::None);
-    complete();
-}
-
-void CombatStanceAction::executeMeditative(Creature &actor) {
-    if (actor.combatStance() != CombatStance::Meditative) {
-        actor.setCombatStance(CombatStance::Meditative);
+    if (creature->combatStance() != CombatStance::Meditative) {
+        creature->setCombatStance(CombatStance::Meditative);
         return;
     }
     // The stance lasts until another command waits behind it.
-    if (actor.actions().nodes.size() >= 2) {
-        actor.setCombatStance(CombatStance::None);
+    if (creature->actions().nodes.size() >= 2) {
+        creature->setCombatStance(CombatStance::None);
         complete();
     }
 }
 
 bool CombatStanceAction::cancel(std::shared_ptr<Action>, Object &actor) {
-    // Clearing a stance command always drops the stance; Total Defense also
-    // hands on the round's pending equipment.
+    // Clearing a stance command always drops the stance.
     if (auto *creature = dyn_cast<Creature>(&actor)) {
         creature->setCombatStance(CombatStance::None);
-        if (_stance == CombatStance::TotalDefense) {
-            _game.combat().transferEquipment(*creature);
-        }
     }
     return true;
 }
@@ -517,23 +459,12 @@ bool CombatStanceAction::cancel(std::shared_ptr<Action>, Object &actor) {
 std::optional<SavedActionRecord> CombatStanceAction::saveFacingState() const {
     SavedActionRecord result;
     result.actionId = serializedActionId();
-    if (_stance == CombatStance::TotalDefense)
-        result.parameters.push_back({kSavedObjectParameter, SavedObjectReference::fromRuntimeId(
-                                                                _target ? _target->id() : kSavedRuntimeInvalidObjectId)});
-    result.declaredParameterCount = static_cast<uint16_t>(result.parameters.size());
+    result.declaredParameterCount = 0;
     return result;
 }
 
-std::shared_ptr<Action> CombatStanceAction::restore(const SavedActionRecord &record, Game &game) {
-    if (record.type() == SavedActionType::Meditate) {
-        return game.newAction<CombatStanceAction>(CombatStance::Meditative);
-    }
-    const auto &reference = record.objectParameter(0);
-    auto target = reference.boundObject();
-    if (!reference.isInvalid() && !target) {
-        return nullptr;
-    }
-    return game.newAction<CombatStanceAction>(CombatStance::TotalDefense, std::move(target));
+std::shared_ptr<Action> CombatStanceAction::restore(const SavedActionRecord &, Game &game) {
+    return game.newAction<CombatStanceAction>();
 }
 
 bool Combat::ownsRound(const Creature &actor) const {
@@ -587,44 +518,44 @@ void Combat::pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &e
 }
 
 std::optional<Combat::PendingEntry> Combat::currentRoundAction(const Creature &actor) const {
-    auto found = _scheduled.find(actor.id());
-    if (found != _scheduled.end() && found->second->actor.resolve().get() == &actor && !found->second->actions.empty()) {
-        const auto &head = found->second->actions.front();
-        if (head->saved.applied) {
-            PendingEntry current;
-            current.type = head->saved.type;
-            if (head->node && head->node->action) {
-                current.command = *head->node->action;
-            }
-            return current;
-        }
+    const auto found = _handedOn.find(actor.id());
+    if (found == _handedOn.end() || found->second.actor.resolve().get() != &actor) {
+        return std::nullopt;
     }
-    for (const auto &round : _rounds) {
-        for (const auto &entry : round->actions) {
-            if (!entry.running() || entry.attacker.resolve().get() != &actor) {
-                continue;
-            }
-            // A round with no command of its own, a duel partner's side or a
-            // round restored from a save, carries out nothing handed on.
-            Action &command = entry.action->combatAction();
-            if (isa<WaitAction>(&command)) {
-                continue;
-            }
-            PendingEntry current;
-            current.command = command;
-            if (auto *cast = dyn_cast<CastSpellAction>(&command)) {
-                current.type = cast->item() ? SavedScheduledAction::kItemCastSpellType : SavedScheduledAction::kCastSpellType;
-            } else if (isa<UseFeatAction>(&command)) {
-                current.type = SavedScheduledAction::kFeatAttackType;
-            } else if (isa<CombatStanceAction>(&command)) {
-                current.type = SavedScheduledAction::kCombatStanceType;
-            } else {
-                current.type = SavedScheduledAction::kAttackType;
-            }
-            return current;
-        }
+    PendingEntry current;
+    current.type = found->second.type;
+    if (found->second.command) {
+        current.command = *found->second.command;
     }
-    return std::nullopt;
+    return current;
+}
+
+void Combat::handOn(Creature &actor, const ScheduledEntry &entry) {
+    auto &handedOn = _handedOn[actor.id()];
+    handedOn.actor = _game.getObjectById<Creature>(actor.id());
+    handedOn.type = entry.saved.type;
+    handedOn.command = entry.node ? entry.node->action : nullptr;
+}
+
+bool Combat::isRoundPaused(const Creature &actor) const {
+    if (isOwnerPaused(actor)) {
+        return true;
+    }
+    const auto found = _scheduled.find(actor.id());
+    if (found != _scheduled.end() && found->second->actor.resolve().get() == &actor && !found->second->actions.empty() &&
+        found->second->actions.front()->saved.applied)
+        return true;
+    return std::any_of(_rounds.begin(), _rounds.end(), [&actor](const auto &round) {
+        return std::any_of(round->actions.begin(), round->actions.end(), [&actor](const auto &entry) {
+            return entry.running() && entry.attacker.resolve().get() == &actor && entry.paused();
+        });
+    });
+}
+
+void Combat::releaseHandedOn(const Creature &actor) {
+    if (!isRoundPaused(actor)) {
+        _handedOn.erase(actor.id());
+    }
 }
 
 void Combat::ensureDispatcher(Creature &actor, bool toFront) {
@@ -841,7 +772,7 @@ static bool scheduledCommandMatches(const SavedScheduledAction &saved) {
     case SavedScheduledAction::kMoveType:
         return type == SavedActionType::MoveToPoint || type == SavedActionType::MoveToObject;
     case SavedScheduledAction::kCombatStanceType:
-        return type == SavedActionType::TotalDefense || type == SavedActionType::Meditate;
+        return type == SavedActionType::Meditate;
     case SavedScheduledAction::kSwitchWeaponsType:
         return type == SavedActionType::SwitchWeapons;
     default:
@@ -1038,21 +969,6 @@ bool Combat::addScheduled(Creature &actor, std::shared_ptr<ScheduledEntry> entry
     }
     owner->actions.push_back(std::move(entry));
     return true;
-}
-
-bool Combat::scheduleStance(Creature &actor, const std::shared_ptr<Object> &target) {
-    auto entry = std::make_shared<ScheduledEntry>();
-    entry->saved.type = SavedScheduledAction::kCombatStanceType;
-    entry->saved.animation = kStanceEntryAnimation;
-    entry->saved.animationTime = kStanceEntryMilliseconds;
-    entry->saved.numAttacks = static_cast<int32_t>(CombatStance::TotalDefense);
-    entry->saved.target = SavedObjectReference::fromRuntimeId(target ? target->id() : kSavedRuntimeInvalidObjectId);
-    SavedActionRecord command;
-    command.actionId = static_cast<uint32_t>(SavedActionType::TotalDefense);
-    command.parameters.push_back({kSavedObjectParameter, entry->saved.target});
-    command.declaredParameterCount = 1;
-    entry->saved.command = std::move(command);
-    return appendScheduled(actor, std::move(entry), true);
 }
 
 bool Combat::scheduleSwitchWeapons(Creature &actor) {
@@ -1357,9 +1273,9 @@ bool Combat::entryKeepsStealth(const ScheduledEntry &entry) const {
 
 void Combat::dispatchScheduled(Creature &actor, const ScheduledEntry &entry) {
     actor.setRoundActionKind(entry.saved.type);
+    handOn(actor, entry);
     if (entry.saved.type == SavedScheduledAction::kCombatStanceType) {
-        actor.addStanceActions(static_cast<CombatStance>(entry.saved.numAttacks),
-                               entry.saved.target.boundObject(), false, true, true);
+        actor.addStanceActions(static_cast<CombatStance>(entry.saved.numAttacks));
     } else if (entry.saved.type == SavedScheduledAction::kSwitchWeaponsType) {
         actor.addSwitchWeaponsAction(true);
     }
@@ -1605,6 +1521,7 @@ void Combat::beginEquipmentPause(Creature &actor, ScheduledEntry &entry) {
     entry.saved.applied = true;
     entry.saved.remainingPause = std::max(0, entry.saved.animationTime) / 1000.0f;
     actor.setRoundActionKind(entry.saved.type);
+    handOn(actor, entry);
     actor.setStealthMode(false);
     actor.setMovementType(Creature::MovementType::None);
 }
@@ -1614,12 +1531,16 @@ Combat::EntryTake Combat::useUpEntry(Creature &actor, ScheduledOwner &owner, Sch
     // holds its round for the entry's pause, but nothing is equipped or taken
     // off. Any other entry still becomes the round's action and takes its
     // creature out of stealth as a carried-out one would; it is dropped, and
-    // the dispatcher goes behind the queued commands.
+    // the dispatcher goes behind the queued commands. A cast or item use is
+    // let go as it is handed on; any other entry is kept as handed on.
     if (entry.saved.isEquipment()) {
         beginEquipmentPause(actor, entry);
         return EntryTake::Paused;
     }
     actor.setRoundActionKind(entry.saved.type);
+    if (!isCastEntry(entry.saved)) {
+        handOn(actor, entry);
+    }
     if (!entryKeepsStealth(entry)) {
         actor.setStealthMode(false);
     }
@@ -1634,12 +1555,14 @@ Combat::EntryTake Combat::takeEntry(Creature &actor, ScheduledOwner &owner, cons
         saved.applied = true;
         saved.remainingPause = std::max(0, saved.animationTime) / 1000.0f;
         actor.setRoundActionKind(SavedScheduledAction::kPauseType);
+        handOn(actor, *entry);
         actor.setStealthMode(false);
         return EntryTake::Paused;
     }
     if (saved.type == SavedScheduledAction::kMoveType) {
-        // A cutscene move is taken whether or not its object is still there.
-        // One restored without its point moves nowhere.
+        // A cutscene move is taken whether or not its object is still there,
+        // and let go as it is handed on. One restored without its point moves
+        // nowhere.
         owner.actions.pop_front();
         actor.setRoundActionKind(SavedScheduledAction::kMoveType);
         actor.setStealthMode(false);
@@ -1698,6 +1621,7 @@ Combat::EntryTake Combat::takeAttack(Creature &actor, ScheduledOwner &owner, con
         return useUpEntry(actor, owner, *entry);
     }
     actor.setRoundActionKind(saved.type);
+    handOn(actor, *entry);
     actor.setStealthMode(false);
     // Taking an attack entry queues its attack as the attack command does.
     if (target) {
@@ -1715,6 +1639,7 @@ Combat::EntryTake Combat::takeCast(Creature &actor, ScheduledOwner &owner, const
     if (commandLost(saved, entry->referencesBound, entry->node)) {
         return useUpEntry(actor, owner, *entry);
     }
+    // A cast or item use is let go as it is handed on.
     actor.setRoundActionKind(saved.type);
     if (!entryKeepsStealth(*entry)) {
         actor.setStealthMode(false);
@@ -2210,10 +2135,9 @@ void Combat::updateEntry(CombatRound &round, size_t index, float dt) {
     // come due as its round's pause runs: by the swing's length less the
     // pause left. A pause another creature's swing has lengthened beyond the
     // swing's leaves them all due, one an update, and the rest land as it
-    // runs out. Whoever's round
-    // pause runs out comes back to its pose, after any round end the leftover
-    // time brings: the creature, and the partners of the pairs it masters,
-    // whose pauses end with its own.
+    // runs out. Whoever's round pause runs out comes back to its pose, after
+    // any round end the leftover time brings: the creature, and the partners
+    // of the pairs it masters, whose pauses end with its own.
     std::vector<std::pair<std::shared_ptr<Creature>, bool>> posing;
     bool pauseEnded = false;
     if (entry.pauseRemaining > 0.0f) {
@@ -2383,6 +2307,9 @@ bool Combat::engagePhysicalTarget(const Creature &attacker, Object &target, int 
             side.state = CombatRound::Running;
             round->duel = true;
             partner->setRoundTarget(master);
+            // The new side ends any pause the partner held while owning no
+            // round; the master's hold below is its only one.
+            _ownerPauses.erase(partner->id());
         }
     }
     if (shared) {
@@ -2692,7 +2619,9 @@ void Combat::finishEntry(CombatRound &round, size_t index) {
 }
 
 // The leader's next attack is an entry on its round, as the player's orders
-// are, but nothing is cleared for it. Taking it on the target the player
+// are, but nothing is cleared for it and no dispatcher is queued for it: it
+// waits for the dispatcher already queued, and after a clear that took the
+// dispatcher, for the next one queued. Taking it on the target the player
 // ordered forgets that order.
 void Combat::scheduleContinuation(Creature &actor, const std::shared_ptr<Object> &target) {
     auto action = addRoundAttack(actor, target);
@@ -2752,18 +2681,15 @@ void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneR
         kept.reset();
     }
     // Round commands still waiting keep the round from staying on its target:
-    // the round's pending entries, and the casts, attacks and stances that wait
-    // in the queue without one.
+    // the round's pending entries, and the casts and attacks that wait in the
+    // queue without one.
     bool pending = hasScheduled(*actor);
     for (const auto &node : actor->actions().nodes) {
         if (!node->action || node->action == entry.action || node->action->isCompleted() || node->action->isCancelled()) {
             continue;
         }
         Action &queued = node->action->combatAction();
-        const auto *stance = dyn_cast<CombatStanceAction>(&queued);
-        if (isa<AttackObjectAction>(&queued) || isa<UseFeatAction>(&queued) ||
-            (stance && stance->stance() == CombatStance::TotalDefense) ||
-            isa<CastSpellAction>(&queued))
+        if (isa<AttackObjectAction>(&queued) || isa<UseFeatAction>(&queued) || isa<CastSpellAction>(&queued))
             pending = true;
     }
     // A target that died hands the round on to a new one in any case.
@@ -2810,14 +2736,7 @@ void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneR
     } else if (!stays) {
         return;
     }
-    // The next round's entry waits behind whatever is already queued.
-    ensureDispatcher(*actor, false);
-    // After a Total Defense round the stance is taken again.
-    if (actor->roundActionKind() == SavedScheduledAction::kCombatStanceType) {
-        scheduleStance(*actor, target);
-    } else {
-        scheduleContinuation(*actor, target);
-    }
+    scheduleContinuation(*actor, target);
 }
 
 } // namespace game

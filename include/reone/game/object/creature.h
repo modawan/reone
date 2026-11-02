@@ -574,6 +574,7 @@ public:
      */
     void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
 
@@ -1038,21 +1039,6 @@ public:
     CombatForm currentForm() const { return _currentForm; }
     CombatStance combatStance() const { return _combatStance; }
     void setCombatStance(CombatStance stance);
-    /** Whether the creature is in the Total Defense stance or its round takes it. */
-    bool isInTotalDefense() const;
-    /**
-     * The calendar day and time at which Total Defense last started the
-     * creature's round, 0/0 when unset. Set, it also marks the stance as
-     * already begun. It is not saved.
-     */
-    bool hasTotalDefenseStart() const { return _totalDefenseDay != 0 || _totalDefenseTime != 0; }
-    void markTotalDefenseStart(uint32_t day, uint32_t time) {
-        _totalDefenseDay = day;
-        _totalDefenseTime = time;
-    }
-    void clearTotalDefenseStart() { markTotalDefenseStart(0, 0); }
-    uint32_t totalDefenseDay() const { return _totalDefenseDay; }
-    uint32_t totalDefenseTime() const { return _totalDefenseTime; }
     /**
      * Releases the orientation lock, returns to the ready pose and strips
      * special attacks from the round.
@@ -1068,8 +1054,7 @@ public:
     bool roundMaster() const { return _combatState.roundMaster; }
     void setRoundMaster(bool master) { _combatState.roundMaster = master; }
     /** Queues the actions of \p stance; false for a creature that takes no command. */
-    bool addStanceActions(CombatStance stance, const std::shared_ptr<Object> &target,
-                          bool clearActions, bool toFront, bool fromRound);
+    bool addStanceActions(CombatStance stance);
     /**
      * Queues a weapon swap, after the round's work unless \p immediate; false for a creature
      * that takes no command.
@@ -1673,7 +1658,7 @@ public:
     void setClientCombatMode(bool active);
     /** Draws the creature, and its faction within sight, into combat with \p opponent. */
     void broadcastCombatState(uint32_t opponent);
-    /** Ends the ordinary invisibility and sanctuary effects an attack breaks. */
+    /** Ends the ordinary invisibility effects an attack breaks. */
     void removeCombatInvisibilityEffects();
     /**
      * In TSL ends the mind trick and droid scramble states, walking the
@@ -2617,8 +2602,6 @@ private:
     AttackerList _attackerList;
     AttackHistory _receivedAttack;
     CombatStance _combatStance {CombatStance::None};
-    uint32_t _totalDefenseDay {0};
-    uint32_t _totalDefenseTime {0};
     /** The kind of the round action most recently dispatched. */
     int _roundActionKind {0};
     bool _stealthMode {false};
@@ -3109,8 +3092,18 @@ private:
      */
     bool hitPointsAtDeathThreshold() const;
     void restoreSerializedVitality();
-    void applyHitPointDamage(int amount, const std::shared_ptr<Object> &damager,
+    /**
+     * Takes \p amount from the creature's vitality. Its dealer, when it is
+     * the controlled creature, is shown \p dealt, the damage before the
+     * difficulty weighs it.
+     */
+    void applyHitPointDamage(int amount, int dealt, const std::shared_ptr<Object> &damager,
                              std::optional<DamageReaction> reaction = std::nullopt);
+    /**
+     * Whether the difficulty settings keep this creature at 1 hit point: they
+     * may for a player character whose record's IsPC is 1.
+     */
+    bool difficultyKeepsAtOneHitPoint() const;
     int consumeTemporaryHitPoints(int amount);
     void updateDeathFromCurrentHitPoints();
     // END Blueprint

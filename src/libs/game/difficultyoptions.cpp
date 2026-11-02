@@ -60,6 +60,12 @@ void DifficultyOptions::init() {
     }
 
     _options = std::move(options);
+
+    // diffsettings.2da names an option on each row and gives its value at
+    // each difficulty level in a column of its own.
+    auto settings = getRequiredTwoDA(_twoDas, "diffsettings");
+    const int minimumOneHitPoint = settings->indexByCellValue("name", "MinHP1");
+    _keepsPlayerCharacterAtOneHitPoint = settings->getInt(minimumOneHitPoint, "normal", 0) == 1;
 }
 
 const DifficultyOption &DifficultyOptions::get(int difficulty) const {
