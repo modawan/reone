@@ -341,7 +341,6 @@ private:
     RuntimeObjectRef<Door> _linkedDoor;
 
     void runDamagedScript();
-    void runDeathScript();
     /** Count down to a set mine's blast at the lock and to the door swinging open after it. */
     void updateMineBlast(float dt);
 

@@ -832,12 +832,13 @@ void ModuleSnapshotBuilder::writeCombatRound(
     auto scheduled = _game.combat().saveScheduled(object);
     const auto creature = Creature::asCreature(object);
     const bool weaponIneffectiveReported = creature && creature->get().weaponIneffectiveReported();
+    const bool roundMaster = creature && creature->get().roundMaster();
     // The hold an engagement put on a creature owning no round is its round's pause.
     const auto hold = _game.combat().savedOwnerHold(object);
     const float scheduledTime = _game.combat().scheduledTime(object);
     // The creature's rounds that no queued command carries are kept here.
     auto rounds = _game.combat().saveRounds(object);
-    if (scheduled.empty() && !weaponIneffectiveReported && !hold && scheduledTime == 0.0f && rounds.empty()) {
+    if (scheduled.empty() && !weaponIneffectiveReported && !roundMaster && !hold && scheduledTime == 0.0f && rounds.empty()) {
         removeSaveField(record, "CombatRoundData");
         return;
     }
@@ -851,14 +852,16 @@ void ModuleSnapshotBuilder::writeCombatRound(
         entries.push_back(std::move(entry));
     }
     const auto holder = hold ? hold->pausedBy : nullptr;
-    auto round = Gff::Builder().type(kCombatRoundStructType).field(Gff::Field::newInt("Timer", static_cast<int>(scheduledTime * 1000.0f))).field(Gff::Field::newList("SchedActionList", std::move(entries))).build();
+    auto round = Gff::Builder().type(kCombatRoundStructType).field(Gff::Field::newInt("Timer", static_cast<int>(std::lround(scheduledTime * 1000.0f)))).field(Gff::Field::newList("SchedActionList", std::move(entries))).build();
     if (creature) {
         put(*round, Gff::Field::newByte("WeaponSucks", weaponIneffectiveReported ? 1 : 0));
+        put(*round, Gff::Field::newInt("Master", roundMaster ? 1 : 0));
     }
     put(*round, Gff::Field::newByte("RoundPaused", hold ? 1 : 0));
     put(*round, Gff::Field::newDword("RoundPausedBy",
                                      holder && ids.contains(*holder) ? ids.objectId(*holder) : kSavedRuntimeInvalidObjectId));
     put(*round, Gff::Field::newInt("PauseTimer", hold ? static_cast<int>(std::lround(hold->remaining * 1000.0f)) : 0));
+    put(*round, Gff::Field::newByte("InfinitePause", hold && hold->openEnded ? 1 : 0));
     std::vector<std::shared_ptr<Gff>> roundEntries;
     for (auto &saved : rounds) {
         saved.clock.pauseOwner.id = serializedReferenceId(saved.clock.pauseOwner, ids);
@@ -866,6 +869,10 @@ void ModuleSnapshotBuilder::writeCombatRound(
         saved.clock.engaged.id = serializedReferenceId(saved.clock.engaged, ids);
         auto entry = saved.clock.toGff();
         put(*entry, Gff::Field::newByte("SpellCastRound", saved.spellRound ? 1 : 0));
+        if (saved.command) {
+            normalizeActionReferences(*saved.command, ids);
+            put(*entry, Gff::Field::newStruct("Command", actionToGff(*saved.command, &_game)));
+        }
         roundEntries.push_back(std::move(entry));
     }
     put(*round, Gff::Field::newList("RoundList", std::move(roundEntries)));

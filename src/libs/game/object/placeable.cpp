@@ -246,6 +246,11 @@ void Placeable::damage(
         return;
     }
 
+    // Breaking it ends whatever the attacking creature had queued.
+    if (auto *attacker = damager ? dyn_cast<Creature>(damager.get()) : nullptr) {
+        attacker->clearAllActions(true);
+    }
+
     if (!_hasInventory) {
         // Non-container lethal damage uses the Death effect's signal and
         // delayed destruction. Do not also invoke its death script here.

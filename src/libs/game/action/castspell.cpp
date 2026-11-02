@@ -219,8 +219,8 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             _presenter.restore(*creature, *_spell, _schedule);
         }
     }
-    // A cast that can no longer be cleared runs on through the states that
-    // stop actions. A cast fails once its target creature is lost, and a power
+    // A cast fails, as every action does, once its caster is dead or down;
+    // it also fails once its target creature is lost, and a power
     // once its caster's equipment no longer allows it; an item use that has
     // not started tests its target only once its user has walked up and
     // turned to it. A failed item use leaves its user posed. A released use
@@ -230,8 +230,7 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
     const bool testsTarget = !_item || _started;
     if (actor.isDead() ||
         (!playsOn && (!runtimeDependenciesLive() || (testsTarget && _target && spellTargetLost(actor, *_target)))) ||
-        (creature && (((!_started || isClearable()) && !creature->canCastSpells()) ||
-                      (!_item && !equipmentAllowsSpell(*creature, *_spell))))) {
+        (creature && !_item && !equipmentAllowsSpell(*creature, *_spell))) {
         finish(actor);
         if (_item) {
             presentFailedItemUse(_game, actor);

@@ -1015,19 +1015,27 @@ void Game::update(float frameTime) {
     syncClientCombatMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
-        // Each member's client combat mode follows its own targets. Leaving it
-        // lets the next enemy sighting count at once.
+        // Each member's client combat mode follows its own targets. A door or
+        // placeable stored by a member in combat mode also counts for the
+        // members after it in this pass. Leaving the mode lets the next enemy
+        // sighting count at once.
+        std::shared_ptr<Object> carried;
         for (int i = 0; i < _party.getSize(); ++i) {
             auto member = _party.getMember(i);
             if (!member) {
                 continue;
             }
-            const auto stored = _party.members()[i].lastTarget.resolve();
-            std::optional<std::reference_wrapper<const Object>> storedTarget;
-            if (stored) {
-                storedTarget = *stored;
+            const Creature *storedCreature = nullptr;
+            if (member->clientCombatMode()) {
+                if (auto stored = _party.members()[i].lastTarget.resolve()) {
+                    if (auto creature = Creature::asCreature(stored)) {
+                        storedCreature = &creature->get();
+                    } else {
+                        carried = std::move(stored);
+                    }
+                }
             }
-            if (member->updateClientCombatMode(storedTarget, i == 0 && _deadTargetHold > 0.0f)) {
+            if (member->updateClientCombatMode(storedCreature, carried.get(), i == 0 && _deadTargetHold > 0.0f)) {
                 _enemySightingHold = -1.0f;
             }
         }

@@ -2229,10 +2229,11 @@ static Variable GetMatchedSubstringsCount(const std::vector<Variable> &args, con
 }
 
 // A faction query weighs every creature of the member's faction, the member
-// among them, and keeps the first that beats the best so far: higher or lower
-// than it, starting from initial. With bMustBeVisible, a creature counts only
-// while the line from its position to the member's is clear. Damage queries
-// pass over the dead and downed party members.
+// among them, in the order they joined it, and keeps the first that beats the
+// best so far: higher or lower than it, starting from initial. With
+// bMustBeVisible, a creature counts only while the line from its position to
+// the member's is clear. Damage queries pass over the dead and downed party
+// members.
 //
 // A search for the lowest score starts from kFactionScoreCeiling, so a member
 // scoring that or more is never chosen.
@@ -2251,11 +2252,7 @@ static Variable selectFactionMember(const std::vector<Variable> &args, const Rou
     const Faction faction = factionMember->faction();
     std::shared_ptr<Creature> selected;
     int best = initial;
-    for (const auto &object : area->getObjectsByType(ObjectType::Creature)) {
-        auto member = std::static_pointer_cast<Creature>(object);
-        if (member->faction() != faction) {
-            continue;
-        }
+    for (const auto &member : area->getFactionMembers(faction)) {
         if (livingOnly && (member->isDead() || member->isTemporarilyDead())) {
             continue;
         }
@@ -2305,20 +2302,6 @@ static std::shared_ptr<Creature> getResidentCreature(const std::vector<Variable>
     return creature;
 }
 
-// The creatures of a creature's faction in the current area, the creature among
-// them.
-static std::vector<std::shared_ptr<Creature>> getFactionMembers(const Creature &creature, const RoutineContext &ctx) {
-    std::vector<std::shared_ptr<Creature>> members;
-    const Faction faction = creature.faction();
-    for (const auto &object : ctx.game.module()->area()->getObjectsByType(ObjectType::Creature)) {
-        auto member = std::static_pointer_cast<Creature>(object);
-        if (member->faction() == faction) {
-            members.push_back(std::move(member));
-        }
-    }
-    return members;
-}
-
 // A faction holds no gold of its own.
 static Variable GetFactionGold(const std::vector<Variable> &args, const RoutineContext &ctx) {
     return Variable::ofInt(getResidentCreature(args, 0, ctx) ? 0 : -1);
@@ -2334,7 +2317,7 @@ static Variable GetFactionAverageReputation(const std::vector<Variable> &args, c
     }
     auto targetObject = getObjectOrNull(args, 1, ctx);
     auto target = targetObject ? dyn_cast<Creature>(targetObject) : nullptr;
-    const auto members = getFactionMembers(*source, ctx);
+    const auto members = ctx.game.module()->area()->getFactionMembers(source->faction());
     int total = 0;
     if (target) {
         for (const auto &member : members) {
@@ -2353,7 +2336,7 @@ static Variable GetFactionAverageGoodEvilAlignment(const std::vector<Variable> &
     if (!creature) {
         return Variable::ofInt(-1);
     }
-    const auto members = getFactionMembers(*creature, ctx);
+    const auto members = ctx.game.module()->area()->getFactionMembers(creature->faction());
     int total = 0;
     for (const auto &member : members) {
         total += static_cast<int>(member->alignment());
@@ -2385,7 +2368,7 @@ static Variable GetFactionAverageLevel(const std::vector<Variable> &args, const 
     if (!creature) {
         return Variable::ofInt(-1);
     }
-    const auto members = getFactionMembers(*creature, ctx);
+    const auto members = ctx.game.module()->area()->getFactionMembers(creature->faction());
     int total = 0;
     for (const auto &member : members) {
         total += member->getSpellLevel(false);
@@ -2399,7 +2382,7 @@ static Variable GetFactionAverageXP(const std::vector<Variable> &args, const Rou
     if (!creature) {
         return Variable::ofInt(-1);
     }
-    const auto members = getFactionMembers(*creature, ctx);
+    const auto members = ctx.game.module()->area()->getFactionMembers(creature->faction());
     int total = 0;
     for (const auto &member : members) {
         total += member->xp();
@@ -2416,7 +2399,7 @@ static Variable GetFactionMostFrequentClass(const std::vector<Variable> &args, c
         return Variable::ofInt(-1);
     }
     int result = 0;
-    for (const auto &member : getFactionMembers(*creature, ctx)) {
+    for (const auto &member : ctx.game.module()->area()->getFactionMembers(creature->faction())) {
         const auto &attributes = member->attributes();
         if (!attributes.classLevels().empty()) {
             result = static_cast<int>(attributes.getEffectiveClass());
@@ -5860,8 +5843,8 @@ static Variable GetModuleName(const std::vector<Variable> &args, const RoutineCo
 }
 
 // The leader of an NPC faction is its member of the highest challenge rating
-// above zero, the first of equals; the player faction is led by the player
-// character.
+// above zero, the earliest to join of equals; the player faction is led by the
+// player character.
 static Variable GetFactionLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto memberOfFaction = getCreatureOrNull(args, 0, ctx);
     if (!memberOfFaction) {
@@ -5875,11 +5858,7 @@ static Variable GetFactionLeader(const std::vector<Variable> &args, const Routin
     const bool npcFaction = faction != Faction::Player;
     std::shared_ptr<Creature> leader;
     float bestRating = 0.0f;
-    for (const auto &object : ctx.game.module()->area()->getObjectsByType(ObjectType::Creature)) {
-        auto member = std::static_pointer_cast<Creature>(object);
-        if (member->faction() != faction) {
-            continue;
-        }
+    for (const auto &member : ctx.game.module()->area()->getFactionMembers(faction)) {
         if (!npcFaction) {
             if (member->actsAsPC()) {
                 return Variable::ofObject(member->id());

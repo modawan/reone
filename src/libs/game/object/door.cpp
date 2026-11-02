@@ -366,7 +366,10 @@ void Door::damage(
         open();
     }
     onOpen(damagerId);
-    runDeathScript();
+    // Breaking it ends whatever the attacking creature had queued.
+    if (auto *attacker = damager ? dyn_cast<Creature>(damager.get()) : nullptr) {
+        attacker->clearAllActions(true);
+    }
 }
 
 void Door::open(std::optional<std::reference_wrapper<const Object>> opener) {
@@ -789,17 +792,6 @@ void Door::runDamagedScript() {
     }
     _game.scriptRunner().run(
         _onDamaged,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::LastAttacker, Variable::ofObject(getLastDamager())},
-         {script::ArgKind::LastDamager, Variable::ofObject(getLastDamager())}});
-}
-
-void Door::runDeathScript() {
-    if (_onDeath.empty()) {
-        return;
-    }
-    _game.scriptRunner().run(
-        _onDeath,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
          {script::ArgKind::LastAttacker, Variable::ofObject(getLastDamager())},
          {script::ArgKind::LastDamager, Variable::ofObject(getLastDamager())}});

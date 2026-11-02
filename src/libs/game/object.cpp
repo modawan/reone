@@ -461,6 +461,9 @@ void Object::deserializeRuntimeState(
             SavedCreatureRound saved;
             saved.clock = SavedRoundClock::fromGff(*entry, identityContext);
             saved.spellRound = entry->getUint("SpellCastRound") != 0;
+            if (const auto command = entry->findStruct("Command")) {
+                saved.command = SavedActionRecord::fromGff(*command, identityContext);
+            }
             _savedRounds.push_back(std::move(saved));
         }
         if (round->getUint("RoundPaused") != 0 && round->getInt("PauseTimer") > 0) {
@@ -471,6 +474,7 @@ void Object::deserializeRuntimeState(
     }
     if (auto *creature = dyn_cast<Creature>(this)) {
         creature->setWeaponIneffectiveReported(round && round->getUint("WeaponSucks") != 0);
+        creature->setRoundMaster(round && round->getInt("Master") != 0);
     }
     _savedRuntimePublished = false;
     if (_savedRuntimeParsed) {
@@ -568,6 +572,9 @@ void Object::bindSavedRuntimeState() {
         _game.bindSavedObjectReference(saved.clock.pauseOwner);
         _game.bindSavedObjectReference(saved.clock.master);
         _game.bindSavedObjectReference(saved.clock.engaged);
+        if (saved.command) {
+            saved.command->bindObjectReferences(_game);
+        }
     }
 }
 
@@ -1251,10 +1258,7 @@ void Object::executeActions(float dt) {
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
         return;
     }
-    // An action that cannot be cleared is refused only to a party member at
-    // zero vitality.
-    const bool refused = creature && (action->isClearable() || creature->isTemporarilyDead()) &&
-                         !creature->permitsAction(*action);
+    const bool refused = creature && !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
     // ends the creature's combat modes.
     Action &command = action->combatAction();
@@ -1278,8 +1282,6 @@ void Object::executeActions(float dt) {
         throw;
     }
     _executingActionNode.reset();
-    // A round an attack asked to settle ends now, before events are delivered.
-    _game.combat().settleRequested();
 }
 
 bool Object::hasUserActionsPending(const Action *excluded) const {

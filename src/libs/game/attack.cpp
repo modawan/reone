@@ -1657,27 +1657,13 @@ void AttackBuffer::restoreContinuation(const SavedPhysicalAction &saved) {
 void AttackSchedule::saveContinuation(resource::Gff &g) const {
     using F = resource::Gff::Field;
     g.fields().push_back(F::newInt("Phase", _state));
-    g.fields().push_back(F::newFloat("Time", _time));
     g.fields().push_back(F::newByte("Melee", _melee));
     g.fields().push_back(F::newByte("Ranged", _ranged));
-    g.fields().push_back(F::newInt("MeleeElapsed", _elapsedMilliseconds));
-    g.fields().push_back(F::newInt("MeleeEnd", _completionMilliseconds));
-    g.fields().push_back(F::newFloat("MeleeRemainder", _elapsedRemainderMilliseconds));
 }
 void AttackSchedule::restoreContinuation(const resource::Gff &g) {
     _state = static_cast<State>(g.getInt("Phase"));
-    _time = g.getFloat("Time");
     _melee = g.getBool("Melee");
     _ranged = g.getBool("Ranged");
-    _elapsedMilliseconds = g.getInt("MeleeElapsed");
-    _completionMilliseconds = g.getInt("MeleeEnd");
-    _elapsedRemainderMilliseconds = g.getFloat("MeleeRemainder");
-    // Entry states have already executed before the snapshot was taken.
-    if (_state == Attack) {
-        _state = WaitDamage;
-    } else if (_state == Damage) {
-        _state = clocked() && _elapsedMilliseconds < _completionMilliseconds ? WaitDamage : WaitFinish;
-    }
 }
 
 static bool producesItemOnHitEffects(AttackResultType result) {
@@ -1967,7 +1953,8 @@ void AttackBuffer::resolve(Creature &attacker, Object &target) {
 }
 
 std::optional<AttackReaction> AttackBuffer::resolveReaction(const Creature &target, bool engaged, bool targetEngaged,
-                                                            bool targetHasRoom, bool forced) {
+                                                            bool targetHasRoom, bool forced, bool &committed) {
+    committed = false;
     const bool ranged = _roundFields && _roundFields->ranged;
     if (!ranged && _attacks.empty()) {
         return std::nullopt;
@@ -1975,7 +1962,6 @@ std::optional<AttackReaction> AttackBuffer::resolveReaction(const Creature &targ
     const bool anyHit = std::any_of(_attacks.begin(), _attacks.end(),
                                     [](const Attack &attack) { return attack.rolledHitLike; });
     const auto result = recordResult();
-    bool committed = false;
     const auto reaction = resolveAttackReaction(target, ranged, result, anyHit, engaged,
                                                 targetEngaged, targetHasRoom, forced, committed);
     const int length = committed ? kPhysicalAttackPauseMilliseconds : 0;
@@ -2369,27 +2355,26 @@ void AttackBuffer::signalDischarge(
 }
 
 size_t AttackBuffer::signalReadyRanged(
-    int elapsedMilliseconds,
+    uint32_t run,
+    bool flush,
     Game &game,
     ServicesView &services,
     Creature &attacker,
     Object &target) {
 
-    // One discharge per update while the attack pause runs; the pause end
-    // releases the rest.
-    const bool pauseEnded = elapsedMilliseconds >= kPhysicalAttackPauseMilliseconds;
+    // One discharge an update once due; the pause's end releases the rest.
     const auto generation = _signalGeneration;
     size_t signaled = 0;
     while (generation == _signalGeneration && hasPendingDischarges()) {
         const Discharge discharge = _discharges[_nextDischarge];
-        if (!pauseEnded && discharge.timeMilliseconds >= elapsedMilliseconds) {
+        if (!flush && static_cast<uint32_t>(discharge.timeMilliseconds) >= run) {
             break;
         }
         // Consume the discharge before releasing it, which may cancel the round.
         ++_nextDischarge;
         ++signaled;
         signalDischarge(discharge, game, services, attacker, target);
-        if (!pauseEnded) {
+        if (!flush) {
             break;
         }
     }
@@ -2423,7 +2408,8 @@ void AttackBuffer::prepareMeleeSequence(
 }
 
 size_t AttackBuffer::signalReadyMelee(
-    int elapsedMilliseconds,
+    uint32_t run,
+    bool flush,
     Game &game,
     ServicesView &services,
     Creature &attacker,
@@ -2431,10 +2417,9 @@ size_t AttackBuffer::signalReadyMelee(
 
     assert(_meleeSequencePrepared &&
            "melee attack sequence is not prepared");
-    // Hits are released in attack order, one per update while the attack
-    // pause runs, each once its impact time has passed; the pause end
-    // releases the rest.
-    const bool pauseEnded = elapsedMilliseconds >= kPhysicalAttackPauseMilliseconds;
+    // Hits are released in attack order, one hit an update once due: once
+    // the swing has run past its impact time. The pause's end releases the
+    // rest.
     const auto generation = _signalGeneration;
     size_t signaled = 0;
     for (size_t index = 0; index < _attacks.size(); ++index) {
@@ -2445,7 +2430,7 @@ size_t AttackBuffer::signalReadyMelee(
         if (attack.signaled) {
             continue;
         }
-        if (!pauseEnded && attack.impactTimeMilliseconds >= elapsedMilliseconds) {
+        if (!flush && static_cast<uint32_t>(attack.impactTimeMilliseconds) >= run) {
             break;
         }
         // Consume the pending hit before releasing it, which may cancel the
@@ -2454,7 +2439,7 @@ size_t AttackBuffer::signalReadyMelee(
         ++signaled;
         signalAttack(attack, game, services, attacker, target);
         // The release may have retired the round; touch nothing of it.
-        if (!pauseEnded) {
+        if (!flush) {
             break;
         }
     }
@@ -3219,84 +3204,25 @@ AttackResultType AttackBuffer::result() const {
     return sortedByScore[bestIndex];
 }
 
-AttackSchedule::State AttackSchedule::update(
-    const CombatRound &round, Action &action, float dt) {
-
-    if (round.suspends(action)) {
-        return _state;
+AttackSchedule::State AttackSchedule::update(const CombatRound &round, Action &action) {
+    if (_state == AttackSchedule::WaitAttack && round.canExecute(action)) {
+        _state = AttackSchedule::Attack;
     }
-    dt = round.actionDelta(action, dt);
-    _time += dt;
-    if (clocked() && _state != AttackSchedule::WaitAttack) {
-        float elapsedMilliseconds =
-            dt * 1000.0f + _elapsedRemainderMilliseconds;
-        int wholeMilliseconds = static_cast<int>(elapsedMilliseconds);
-        _elapsedRemainderMilliseconds =
-            elapsedMilliseconds - wholeMilliseconds;
-        _elapsedMilliseconds += wholeMilliseconds;
-    }
-
-    switch (_state) {
-    case AttackSchedule::WaitAttack: {
-        if (round.canExecute(action)) {
-            _state = AttackSchedule::Attack;
-        }
-        break;
-    }
-    case AttackSchedule::Attack: {
-        if (clocked() &&
-            _elapsedMilliseconds >= _completionMilliseconds) {
-            _state = AttackSchedule::Damage;
-        } else {
-            _state = AttackSchedule::WaitDamage;
-        }
-        break;
-    }
-    case AttackSchedule::WaitDamage: {
-        if ((clocked() &&
-             _elapsedMilliseconds >= _completionMilliseconds) ||
-            (!clocked() && _time >= kAttackDamageDelay)) {
-            _state = AttackSchedule::Damage;
-        }
-        break;
-    }
-    case AttackSchedule::Damage: {
-        _state = AttackSchedule::WaitFinish;
-        break;
-    }
-    case AttackSchedule::WaitFinish: {
-        if (round.hasEnded(action)) {
-            _state = AttackSchedule::Finish;
-        }
-        break;
-    }
-    case AttackSchedule::Finish: {
-        break;
-    }
-    }
-
     return _state;
 }
 
-void AttackSchedule::startClock(int completionMilliseconds) {
+void AttackSchedule::startMelee() {
     assert(_state == AttackSchedule::Attack &&
            "physical attack schedule has not started");
-
-    _elapsedMilliseconds = 0;
-    _completionMilliseconds = completionMilliseconds;
-    _elapsedRemainderMilliseconds = 0.0f;
-}
-
-void AttackSchedule::startMelee() {
-    // Hits are released on the attack pause clock; its end releases the rest.
+    // Hits are released as the round's pause runs; its end releases the rest.
     _melee = true;
-    startClock(kPhysicalAttackPauseMilliseconds);
 }
 
 void AttackSchedule::startRanged() {
-    // Discharges are released on the attack pause clock.
+    assert(_state == AttackSchedule::Attack &&
+           "physical attack schedule has not started");
+    // Discharges are released as the round's pause runs.
     _ranged = true;
-    startClock(kPhysicalAttackPauseMilliseconds);
 }
 
 static bool isChoreographedExchange(const Creature &attacker, const Creature &target);
@@ -3695,13 +3621,36 @@ static int meleeAttackRow(const Creature &attacker, const Object &target, bool e
     }
 }
 
+void releasePhysicalHits(AttackSchedule &schedule, AttackBuffer &attacks, Game &game, ServicesView &services,
+                         Creature &attacker, const std::shared_ptr<Object> &target, int pauseLeftMilliseconds, bool flush) {
+    if (!schedule.releasing()) {
+        return;
+    }
+    if (flush) {
+        schedule.finishRelease();
+    }
+    if (!target) {
+        return;
+    }
+    // A hit comes due by the swing's length less the pause left. A pause
+    // lengthened beyond the swing's leaves every hit due.
+    const auto run = static_cast<uint32_t>(kPhysicalAttackPauseMilliseconds - pauseLeftMilliseconds);
+    if (schedule.isMelee()) {
+        attacks.signalReadyMelee(run, flush, game, services, attacker, *target);
+    } else {
+        attacks.signalReadyRanged(run, flush, game, services, attacker, *target);
+    }
+}
+
 std::optional<PhysicalAttackSwing> beginPhysicalAttack(
     Creature &attacker, Object &target,
     const IAnimations &animations, AttackBuffer &attacks, FeatType feat, bool engages, bool swings) {
 
-    // The exchange is engaged, and its partner held, before the round is rolled.
-    const bool engaged = engages && attacker.game().combat().engagePhysicalTarget(
-                                        attacker, target, kPhysicalAttackPauseMilliseconds);
+    // The exchange is engaged, and its partner held, before the round is
+    // rolled; then the swing holds its own creature's round for its pause.
+    auto &combat = attacker.game().combat();
+    const bool engaged = engages && combat.engagePhysicalTarget(attacker, target, kPhysicalAttackPauseMilliseconds);
+    combat.pauseForSwing(attacker, kPhysicalAttackPauseMilliseconds);
     PhysicalAttackSwing swing;
     swing.engaged = engaged;
     // An attack taken up without a swing rolls nothing.
@@ -3711,6 +3660,9 @@ std::optional<PhysicalAttackSwing> beginPhysicalAttack(
     if (!attacks.addPhysicalAttacks(attacker, target, feat)) {
         return std::nullopt;
     }
+    // A swing that rolls its attacks shortens its own creature's round by its
+    // length; an attack taken up without a swing does not.
+    combat.shortenRounds(attacker, kPhysicalAttackPauseMilliseconds);
     // A ranged main-hand weapon makes the swing ranged, whatever the off hand holds.
     const auto main = attacker.getEquippedItem(InventorySlots::rightWeapon);
     swing.ranged = main && main->isRanged();
@@ -4021,12 +3973,18 @@ void presentPhysicalAttack(
     auto *targetCreature = dyn_cast<Creature>(&target);
     auto &combat = attacker.game().combat();
     // A partner engaged by this attack takes part in an engaged exchange.
-    // Only a creature reacts.
+    // Only a creature reacts. A reaction that takes the target's time
+    // shortens the target's round by the swing's length.
+    bool committed = false;
     const auto reaction = targetCreature
                               ? attacks.resolveReaction(*targetCreature, swing.engaged,
                                                         swing.engaged || combat.isEngaged(*targetCreature),
-                                                        combat.hasReactionRoom(*targetCreature, attacker), attacks.cutscene().has_value())
+                                                        combat.hasReactionRoom(*targetCreature, attacker), attacks.cutscene().has_value(),
+                                                        committed)
                               : std::nullopt;
+    if (committed) {
+        combat.shortenRounds(*targetCreature, kPhysicalAttackPauseMilliseconds);
+    }
     if (swing.animations.empty()) {
         return;
     }

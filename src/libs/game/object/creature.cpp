@@ -4274,12 +4274,13 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
         return false;
     }
     setOrientationLock(script::kObjectInvalid, true);
-    clearAllActions(true);
-    // Death ends a running round without its end-of-round script.
-    if (_game.combat().ownsRound(*this)) {
-        _game.combat().endRound(*this, 0);
+    // The actions, and with them the round's attacks, go before the immunity
+    // test, and only for a creature that can be commanded; the round itself
+    // only ends once the creature is known to die, so an immune one keeps it.
+    if (isCommandable()) {
+        clearAllActions(true);
+        _game.combat().cancelActions(*this);
     }
-    _game.combat().cancelActions(*this);
     _game.setLastPartyMemberTempKilled(*this);
     if (operation && shouldCheckDeathImmunity(operation->get().spellId, operation->get().category())) {
         auto creator = operation->get().boundCreator();
@@ -4307,7 +4308,13 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
     if (!partyDeath) {
         setFaction(Faction::Neutral);
     }
-    finishCombatRound();
+    // Death ends a running round without its end-of-round script; without
+    // one, the creature's round is only finished.
+    if (_game.combat().ownsRound(*this)) {
+        _game.combat().endRound(*this, 0);
+    } else {
+        finishCombatRound();
+    }
     _combatState.active = false;
     _combatState.activationType = CombatActivation::None;
     setClientCombatMode(false);
@@ -4547,6 +4554,7 @@ void Creature::clearAllActions(bool force, bool evenUncommandable) {
         return;
     }
     Object::clearAllActions(force, true);
+    _game.combat().discardSwingHits(*this);
     setMovementType(MovementType::None);
     _useApproach.reset();
     _attemptedMovementTarget.reset();
@@ -5771,7 +5779,9 @@ void Creature::runAttackedScript(uint32_t attackerId) {
 
 void Creature::runDamagedScript() {
     // HP has already changed, but the death lifecycle may not have run yet.
-    if (_onDamaged.empty() || currentHitPoints() <= 0 ||
+    // A creature acting as the player character runs no damaged script, even
+    // while a companion is controlled in its place.
+    if (_onDamaged.empty() || actsAsPC() || currentHitPoints() <= 0 ||
         _game.party().getLeader().get() == this) {
         return;
     }
@@ -6532,6 +6542,28 @@ void Creature::setOrderedAttackTarget(uint32_t target) {
     _combatState.orderedAttackTarget = _game.getObjectById(target);
 }
 
+void Creature::forgetFallenCombatTargets() {
+    // A target that is gone or dead is forgotten: a dead creature, or a door or
+    // container that is not plot at no hit points.
+    const auto fallen = [](const std::shared_ptr<Object> &object) {
+        return !object || object->isDead();
+    };
+    if (fallen(_combatState.attackTarget.resolve())) {
+        _combatState.attackTarget.reset();
+    }
+    if (fallen(_combatState.attemptedAttackTarget.resolve())) {
+        _combatState.attemptedAttackTarget.reset();
+    }
+    auto &spellContext = spellScriptContext();
+    if (fallen(spellContext.activeTarget())) {
+        spellContext.clearActiveTarget();
+    }
+    if (fallen(_combatState.attemptedSpellTarget.resolve())) {
+        _combatState.attemptedSpellTarget.reset();
+    }
+    releaseRoundAttackers();
+}
+
 void Creature::recordQueuedAttack(Object &target) {
     if (auto *creature = dyn_cast<Creature>(&target)) {
         const auto leader = _game.party().getLeader();
@@ -6674,7 +6706,7 @@ void Creature::broadcastCombatState(uint32_t opponentId) {
         if (!member->isRuntimeLive() || member.get() == this || member->faction() != faction()) {
             continue;
         }
-        const float range = isPartyMember() ? 30.0f : member->perception().sightRange;
+        const float range = isPartyMember() ? 30.0f : member->spotRange();
         if (!alwaysInRange && getSquareDistanceTo(*member) > range * range) {
             continue;
         }
@@ -6776,7 +6808,7 @@ void Creature::receiveSpellCastAt(uint32_t casterId, int spell, int harmful) {
     setExcitedState(1);
 }
 
-bool Creature::updateClientCombatMode(std::optional<std::reference_wrapper<const Object>> storedTarget, bool holdDeadTarget) {
+bool Creature::updateClientCombatMode(const Creature *storedCreature, const Object *carriedObject, bool holdDeadTarget) {
     if (!isPartyMember()) {
         return false;
     }
@@ -6797,17 +6829,16 @@ bool Creature::updateClientCombatMode(std::optional<std::reference_wrapper<const
     if (holdDeadTarget) {
         return false;
     }
-    if (storedTarget) {
-        // A hostile stored target keeps the mode even once it is dead, as does
-        // a locked door or placeable.
-        const auto &target = storedTarget->get();
-        if (auto creature = asCreature(target); creature && isHostile(creature->get())) {
+    // A hostile stored creature keeps the mode even once it is dead, as does a
+    // locked door or placeable carried to this member.
+    if (storedCreature && isHostile(*storedCreature)) {
+        return false;
+    }
+    if (carriedObject) {
+        if (auto *door = dyn_cast<Door>(carriedObject); door && door->isLocked()) {
             return false;
         }
-        if (auto *door = dyn_cast<Door>(&target); door && door->isLocked()) {
-            return false;
-        }
-        if (auto *placeable = dyn_cast<Placeable>(&target); placeable && placeable->isLocked()) {
+        if (auto *placeable = dyn_cast<Placeable>(carriedObject); placeable && placeable->isLocked()) {
             return false;
         }
     }
@@ -6887,11 +6918,19 @@ void Creature::refreshBodyFuel() {
 }
 
 void Creature::finishCombatRound() {
+    releaseRoundAttackers();
+    recordCombatRound();
+}
+
+void Creature::releaseRoundAttackers() {
     const auto incoming = _incomingAttacker.boundObject();
     if (!incoming || incoming->isDead()) {
         _incomingAttacker = SavedObjectReference {};
     }
     _attackerList.clear();
+}
+
+void Creature::recordCombatRound() {
     if (auto target = _combatState.attackTarget.resolve()) {
         _lastHostileTarget = target;
     } else {

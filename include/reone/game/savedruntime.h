@@ -506,12 +506,6 @@ struct SavedRoundClock {
     std::shared_ptr<resource::Gff> toGff() const;
 };
 
-/** A creature's round that no queued command carries: its clock and whether it is a spell round. */
-struct SavedCreatureRound {
-    SavedRoundClock clock;
-    bool spellRound {false};
-};
-
 /** What a projectile shows: a spell's projectile, a thrown lightsaber's route, or a ranged attack's bolt. */
 enum class ProjectileKind {
     Spell = 0,
@@ -667,6 +661,16 @@ struct SavedActionRecord {
     const std::string &stringParameter(size_t index) const { return std::get<std::string>(parameters[index].payload); }
 
     SavedActionType type() const { return static_cast<SavedActionType>(actionId); }
+};
+
+/**
+ * A creature's round that no queued command carries: its clock, whether it is
+ * a spell round, and the swung attack whose hits have not all landed.
+ */
+struct SavedCreatureRound {
+    SavedRoundClock clock;
+    bool spellRound {false};
+    std::optional<SavedActionRecord> command;
 };
 
 /**

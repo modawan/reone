@@ -628,6 +628,8 @@ public:
      */
     std::shared_ptr<Creature> getFirstFactionMember(Faction faction, int pc);
     std::shared_ptr<Creature> getNextFactionMember(Faction faction, int pc);
+    /** The faction's creatures in the order they joined it. */
+    std::vector<std::shared_ptr<Creature>> getFactionMembers(Faction faction);
 
     // END Objects
 

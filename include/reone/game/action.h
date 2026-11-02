@@ -82,6 +82,12 @@ public:
     /** The attack records of this action's round, when it runs one. */
     virtual std::optional<std::reference_wrapper<AttackBuffer>> combatAttacks() { return std::nullopt; }
     /**
+     * The hits of the action's swing not yet out land as they come due with
+     * \p pauseLeftMilliseconds of its round's pause left, and, with \p flush,
+     * all of them as the pause ends.
+     */
+    virtual void releaseSwingHits(Creature &attacker, int pauseLeftMilliseconds, bool flush) {}
+    /**
      * The command this action carries out. A wrapper keeps its queue
      * identity while it exposes the command it runs.
      */

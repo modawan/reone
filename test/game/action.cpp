@@ -872,15 +872,15 @@ TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
 
     // The released hit's damage is an event of the module, due at once.
     EXPECT_EQ(0u, attacks.signalReadyMelee(
-        499, game, engine.services(), *attacker, *target));
+                      499, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_EQ(20, target->currentHitPoints());
     EXPECT_EQ(0u, attacks.signalReadyMelee(
-                      500, game, engine.services(), *attacker, *target));
+                      500, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_EQ(20, target->currentHitPoints());
     EXPECT_EQ(1u, attacks.signalReadyMelee(
-                      501, game, engine.services(), *attacker, *target));
+                      501, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_LT(target->currentHitPoints(), 20);
 }

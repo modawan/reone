@@ -468,6 +468,12 @@ public:
          * cannot hurt its target. It is saved with the round.
          */
         bool weaponIneffectiveReported {false};
+        /**
+         * The creature's round was last started as the master of an engaged
+         * exchange. Its round's end leaves this as it is, and it is saved
+         * with the round.
+         */
+        bool roundMaster {false};
         Timer expiryTimer;
         float decisionScriptTime {3.0f};
     };
@@ -764,7 +770,6 @@ public:
     void setRunLimited(bool limited) { _runLimited = limited; }
     MovementType movementType() const { return _movementType; }
 
-    bool canCastSpells() const { return canExecuteActions(); }
     bool canMove() const { return canExecuteActions() && (_effectAIStateMask & kAIStateMove) != 0; }
     bool canAttack() const {
         constexpr int kAttackBits = kAIStateAttack | kAIStateAct;
@@ -1059,6 +1064,9 @@ public:
     /** Whether the current round has told this creature that its ranged weapon is ineffective. */
     bool weaponIneffectiveReported() const { return _combatState.weaponIneffectiveReported; }
     void setWeaponIneffectiveReported(bool reported) { _combatState.weaponIneffectiveReported = reported; }
+    /** Whether the creature's round was last started as the master of an engaged exchange. */
+    bool roundMaster() const { return _combatState.roundMaster; }
+    void setRoundMaster(bool master) { _combatState.roundMaster = master; }
     /** Queues the actions of \p stance; false for a creature that takes no command. */
     bool addStanceActions(CombatStance stance, const std::shared_ptr<Object> &target,
                           bool clearActions, bool toFront, bool fromRound);
@@ -2018,7 +2026,13 @@ public:
     AttackResultType currentCombatAttackResult() const;
     /** The record of the creature's combat round is a ranged attack. */
     bool isCurrentAttackRanged() const;
+    /** Ends the round's bookkeeping at once: releases its attackers, then records it. */
     void finishCombatRound();
+    /**
+     * Records the round as the last one: its attack target as the last hostile
+     * target, its action, feat and power.
+     */
+    void recordCombatRound();
     /**
      * Leaves combat: actions, round and targets end; \p runEndRound tells whether the
      * end-of-round script runs.
@@ -2056,12 +2070,21 @@ public:
     void recordAttackWeapon(int weaponAttackType);
     /**
      * A party member enters client combat mode from its own live attempted
-     * target and leaves it once nothing keeps it there. The stored target is
-     * the member's party-slot target; the leader also holds while a dead target
-     * is held. Returns true when the member left combat mode.
+     * target and leaves it once nothing keeps it there. \p storedCreature is
+     * the creature stored as this member's last target, \p carriedObject the
+     * object other than a creature last stored by this or an earlier member
+     * in combat mode; the leader also holds while a dead target is held.
+     * Returns true when the member left combat mode.
      */
-    bool updateClientCombatMode(std::optional<std::reference_wrapper<const Object>> storedTarget, bool holdDeadTarget);
+    bool updateClientCombatMode(const Creature *storedCreature, const Object *carriedObject, bool holdDeadTarget);
     void clearCurrentAttackTarget() { _combatState.attackTarget.reset(); }
+    /**
+     * At a round's end the creature forgets its attack and spell targets,
+     * current or attempted, that are gone or are dead creatures, so that a
+     * creature that died in the round is not recorded as its last hostile
+     * target; it lets go of its attackers too.
+     */
+    void forgetFallenCombatTargets();
     /**
      * An attacker that cannot see its target remembers where it stood. True
      * when it had already failed to see from this very spot.
@@ -2782,6 +2805,8 @@ private:
     void updateDisguise();
     void updateEquipmentPresentation();
     void updateCombat(float dt);
+    /** Forgets an incoming attacker that is gone or dead, and the round's attackers. */
+    void releaseRoundAttackers();
     void updateLightsaberSoundPositions();
 
     void runDeathScript();

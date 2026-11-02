@@ -1626,7 +1626,7 @@ std::shared_ptr<Creature> Area::getNextFactionMember(Faction faction, int pc) {
     return findFactionMember(faction, pc, cursor != _factionMemberCursors.end() ? cursor->second : 0);
 }
 
-std::shared_ptr<Creature> Area::findFactionMember(Faction faction, int pc, size_t from) {
+std::vector<std::shared_ptr<Creature>> Area::getFactionMembers(Faction faction) {
     std::vector<std::shared_ptr<Creature>> members;
     for (const auto &object : getObjectsByType(ObjectType::Creature)) {
         auto creature = std::static_pointer_cast<Creature>(object);
@@ -1637,6 +1637,11 @@ std::shared_ptr<Creature> Area::findFactionMember(Faction faction, int pc, size_
     std::stable_sort(members.begin(), members.end(), [](const auto &left, const auto &right) {
         return left->factionJoinOrder() < right->factionJoinOrder();
     });
+    return members;
+}
+
+std::shared_ptr<Creature> Area::findFactionMember(Faction faction, int pc, size_t from) {
+    const auto members = getFactionMembers(faction);
     for (size_t index = from; index < members.size(); ++index) {
         if (members[index]->isPCValue() != pc) {
             continue;

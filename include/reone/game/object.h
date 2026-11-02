@@ -799,7 +799,11 @@ protected:
     std::vector<SavedScheduledAction> _savedScheduledActions;
     std::vector<bool> _savedScheduledReferencesBound;
     float _savedScheduledTime {0.0f};
-    /** The round hold of a creature owning no round, in seconds, and who holds it. */
+    /**
+     * The round hold of a creature owning no round, in seconds, and who holds
+     * it. A hold comes back from a save with an end of its own: the seconds
+     * it had left.
+     */
     float _savedOwnerHold {0.0f};
     SavedObjectReference _savedOwnerHoldBy;
     /** The creature's saved rounds that no queued command carries. */

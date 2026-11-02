@@ -926,9 +926,6 @@ bool admitSpellCast(const Object &actor, const Spell &spell, bool freeCast, bool
     if (!creature) {
         return isa<Placeable>(&actor) || reject("unsupported caster");
     }
-    if (!creature->canCastSpells()) {
-        return reject("caster cannot act");
-    }
     if (!itemCast && !equipmentAllowsSpell(*creature, spell)) {
         return reject("equipment disallows power");
     }
