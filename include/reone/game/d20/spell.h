@@ -66,6 +66,12 @@ struct Spell {
 
     SpellType type;
     std::string name;
+    /**
+     * The line that announces the power's use in place of "<caster> uses
+     * <power>.", naming the caster alone; none when spells.2da AltMessage is
+     * blank or 0.
+     */
+    std::optional<int> altMessage;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
     uint32_t pips {1};
@@ -145,6 +151,35 @@ struct Spell {
         return maybeRequirement != classLevelRequirements.end()
                    ? std::optional<int>(maybeRequirement->second)
                    : std::nullopt;
+    }
+
+    /**
+     * The power's level for a caster of \p clazz: the level a Jedi or Sith
+     * class's column lists, 255 when that column is blank and for the other
+     * player classes, and the innate level for droid, minion and any other
+     * classes.
+     */
+    int getLevelForClass(ClassType clazz) const {
+        switch (clazz) {
+        case ClassType::Soldier:
+        case ClassType::Scout:
+        case ClassType::Scoundrel:
+        case ClassType::TechSpecialist:
+        case ClassType::BountyHunter:
+            return kBlankInnateLevel;
+        case ClassType::JediGuardian:
+        case ClassType::JediConsular:
+        case ClassType::JediSentinel:
+        case ClassType::JediWeaponMaster:
+        case ClassType::JediMaster:
+        case ClassType::JediWatchman:
+        case ClassType::SithMarauder:
+        case ClassType::SithLord:
+        case ClassType::SithAssassin:
+            return getClassLevelRequirement(clazz).value_or(kBlankInnateLevel);
+        default:
+            return innateLevel;
+        }
     }
 };
 

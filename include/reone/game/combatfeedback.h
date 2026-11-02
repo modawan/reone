@@ -40,9 +40,11 @@ namespace game {
 
 class Game;
 class Creature;
+class Item;
 class Object;
 struct ServicesView;
 struct SavingThrowBreakdown;
+struct Spell;
 enum class CreatureState : int;
 
 /**
@@ -352,6 +354,21 @@ void addLinkImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator,
  */
 void addSpellImmunityFeedback(Game &game, const Creature &target, const Object &caster,
                               const std::string &spellName);
+
+/**
+ * Announces in the combat log, highlighted, a creature's use of a power or
+ * an item, when the controlled creature is within 30 metres of it:
+ * "<caster> uses <power>.", naming the item when one is used, or the power's
+ * own line naming the caster. When the use charges Force points, the line
+ * goes on with the points spent, the power's base cost and the difference
+ * between them; in TSL, when it charges vitality, with the vitality spent.
+ *
+ * @param game the game
+ * @param caster the creature that used the power
+ * @param spell the power used
+ * @param item the item used, if any
+ */
+void addPowerUseFeedback(Game &game, const Creature &caster, const Spell &spell, const std::shared_ptr<Item> &item);
 
 /**
  * The hit-point healing line, told to the target and to a different creator,

@@ -23,7 +23,6 @@
 #include <cmath>
 
 #include "reone/game/action/attackobject.h"
-#include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
@@ -162,23 +161,27 @@ static std::shared_ptr<Object> getTarget(Action &queued, const Object &actor) {
     return nullptr;
 }
 
+// Starting a round on an attack records its target as the attempted attack
+// target. A cast's attempted spell target is set as it is queued and handed on.
 static void recordCombatAction(
     Object &actor,
     const std::shared_ptr<Object> &target,
     Action &action) {
 
-    const auto *spell = dyn_cast<CastSpellAction>(&action.combatAction());
-    if (!target || (!isHostileAction(action.combatAction()) && !(spell && spell->spell()->hostile))) {
+    if (!target || isa<CastSpellAction>(&action.combatAction()) || !isHostileAction(action.combatAction())) {
         return;
     }
 
     if (auto *creature = dyn_cast<Creature>(&actor)) {
-        if (spell) {
-            creature->setAttemptedSpellTarget(target->id());
-        } else {
-            creature->setAttemptedAttackTarget(target->id());
-        }
+        creature->setAttemptedAttackTarget(target->id());
     }
+}
+
+// A cast or item use, whatever its spell, is attempted on its target object,
+// or, at a location, on its caster's area.
+static void recordAttemptedSpellTarget(Game &game, Creature &caster, const CastSpellAction &cast) {
+    const auto &target = cast.target();
+    caster.setAttemptedSpellTarget(target ? target->id() : game.module()->area()->id());
 }
 
 // An instant cast, or the attack an instant cast makes.
@@ -1180,6 +1183,11 @@ void Combat::scheduleCast(Creature &actor, const std::shared_ptr<Action> &cast) 
     entry->node = std::make_shared<ActionQueueNode>();
     entry->node->action = cast;
     entry->node->actionId = static_cast<uint32_t>(commandType);
+    // A creature attempting no spell attempts the queued one's target object,
+    // whether or not the entry finds room.
+    if (target && !actor.attemptedSpellTarget()) {
+        actor.setAttemptedSpellTarget(target->id());
+    }
     auto owner = scheduledOwner(actor);
     // A round holds at most four pending entries; later requests are dropped.
     if (owner->actions.size() < kScheduledCapacity) {
@@ -1387,8 +1395,8 @@ void Combat::removeAllScheduled(Creature &actor) {
     }
 }
 
-// An item use is handed on unless it is aimed at a creature that has died or,
-// in the party, is down.
+// An item use is handed on unless it is aimed at a creature that has died. A
+// party member who is down is still walked up to; the use fails there.
 // A hostile item spell takes its user out of stealth. An item spell the
 // hostile menu does not list, aimed at another object, is used at the use's
 // location instead; in TSL only a hostile spell, and never a grenade's or a
@@ -1396,8 +1404,7 @@ void Combat::removeAllScheduled(Creature &actor) {
 bool Combat::dispatchItemUse(Creature &actor, ScheduledEntry &entry) {
     const auto &use = static_cast<const CastSpellAction &>(*entry.node->action);
     const auto &target = use.target();
-    if (const auto creature = Creature::asCreature(target);
-        creature && creature->get().isRuntimeLive() && (creature->get().isDead() || creature->get().isTemporarilyDead()))
+    if (const auto creature = Creature::asCreature(target); creature && creature->get().isRuntimeLive() && creature->get().isDead())
         return false;
     const auto &item = use.item();
     const auto &property = use.itemProperty();
@@ -1716,7 +1723,8 @@ Combat::EntryTake Combat::takeCast(Creature &actor, ScheduledOwner &owner, const
     }
     // A cast handed on starts without spell targets. One whose target or item
     // is gone, taken by a creature that cannot be commanded, or aimed at a
-    // creature its caster does not perceive, is used up without casting.
+    // creature its caster does not perceive, is used up without casting and
+    // leaves none; any other is the caster's attempted spell.
     actor.setAttemptedSpellTarget(script::kObjectInvalid);
     actor.spellScriptContext().clearActiveTarget();
     auto action = entry->node->action;
@@ -1724,10 +1732,7 @@ Combat::EntryTake Combat::takeCast(Creature &actor, ScheduledOwner &owner, const
         refusesUnperceivedTarget(actor, static_cast<const CastSpellAction &>(*action))) {
         return useUpEntry(actor, owner, *entry);
     }
-    // An item use taken up checks its line to its object.
-    if (saved.type == SavedScheduledAction::kItemCastSpellType) {
-        static_cast<CastSpellAction &>(*action).requireUseLineCheck();
-    }
+    recordAttemptedSpellTarget(_game, actor, static_cast<const CastSpellAction &>(*action));
     owner.actions.pop_front();
     action->setScheduledCommand(true);
     actor.requeueActionNode(entry->node);
@@ -2567,9 +2572,6 @@ void Combat::restoreRound(const std::shared_ptr<Action> &action,
         actor->setCombatState(true);
     }
     restoreEntry(action, actor, getTarget(*action, *actor), saved, true, false);
-    if (auto *cast = dyn_cast<CastSpellAction>(&action->combatAction()); cast && cast->target() && cast->spell()->hostile) {
-        actor->setAttemptedSpellTarget(cast->target()->id());
-    }
 }
 
 void Combat::restoreRound(const std::shared_ptr<Creature> &actor, const SavedCreatureRound &saved) {
@@ -2670,19 +2672,20 @@ void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneR
     }
     auto roundCreature = std::dynamic_pointer_cast<Creature>(roundTarget);
     const bool died = roundCreature && isUnavailableAttackTarget(*roundCreature);
-    // A spell round cast at a location keeps that place, where the next round
-    // finds nothing to attack: the creature does nothing and keeps its modes.
-    if (cast && spellRound && !cast->item() && isa<CastSpellAtLocationAction>(cast) && !died) {
-        return;
-    }
-    // A spell round is kept on its spell's target, the caster included; an item
-    // use leaves nothing to keep once it has ended. A spell round whose command
-    // is not kept is on the creature's attempted spell target. The round's end
-    // forgets a target that is down, and an opened door or container.
+    // A spell round goes on with its creature's attempted spell target, as the
+    // round's end has left it: the cast's target, the caster included; nothing
+    // once the cast was cleared or an item use has finished.
     std::shared_ptr<Object> kept = roundTarget;
     if (spellRound) {
-        kept = cast ? (!cast->item() ? cast->target() : nullptr) : actor->attemptedSpellTarget();
+        kept = actor->attemptedSpellTarget();
     }
+    // A spell round on a place finds nothing to attack in the next round: the
+    // creature does nothing and keeps its modes.
+    if (spellRound && kept && kept->type() == ObjectType::Area && !died) {
+        return;
+    }
+    // A creature that is down is not kept, nor, after a round that is not a
+    // spell round, an opened door or container.
     if (const auto creature = std::dynamic_pointer_cast<Creature>(kept); creature && isUnavailableAttackTarget(*creature)) {
         kept.reset();
     } else if (const auto door = std::dynamic_pointer_cast<Door>(kept); door && !spellRound && door->state() != DoorState::Closed) {

@@ -765,6 +765,10 @@ EffectApplicationResult DamageEffect::onApply(Object &object, EffectInstance &in
     if (amount > 0 && creature) {
         creature->removeMindTrickEffects();
     }
+    // The damage counts before difficulty, lethal or not.
+    if (application->amount > 0 && creature) {
+        creature->disturbCast(application->amount);
+    }
     // The damage line goes to the party unless the hit that caused it has
     // already told it. A door or container always tells the effect's own
     // amounts.

@@ -90,8 +90,9 @@ public:
     /** Removes every projectile, as the area they fly in goes. */
     virtual void retireAreaRuntime() = 0;
     /**
-     * Shows a spell's projectile at its caster while the cast is conjured,
-     * aimed at \p target, or at \p position when there is none.
+     * Readies a spell's projectile at its caster while the cast is conjured,
+     * aimed at \p target, or at \p position when there is none; it shows from
+     * its release.
      *
      * @return the presentation's ID, for releaseSpell and cancelSpell; 0 when
      *         the spell has no projectile

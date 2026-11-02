@@ -25,6 +25,7 @@
 #include <glm/geometric.hpp>
 
 #include "reone/audio/mixer.h"
+#include "reone/game/combatfeedback.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/spell.h"
 #include "reone/game/d20/spells.h"
@@ -112,6 +113,11 @@ SpellType itemSpellForActor(const Object &actor, SpellType propertySpell) {
         }
     }
     return propertySpell;
+}
+
+bool isHandThrownGrenadeSpell(SpellType spell) {
+    // Every spell a wrist launcher fires follows the grenade spells.
+    return static_cast<int>(spell) < kWristLauncherSpells.front().second;
 }
 
 void publishItemCastLevel(Creature &caster) {
@@ -865,15 +871,12 @@ static constexpr double kUntimedFlightMilliseconds = 4294967296.0;
 
 uint32_t spellProjectileTimeMilliseconds(
     const Spell &spell, const glm::vec3 &origin, const glm::vec3 &destination,
-    ProjectilePathType overridePath, bool tsl) {
+    ProjectilePathType overridePath) {
     if (!spell.projectile) {
         return 0;
     }
     const float distance = glm::distance(origin, destination);
-    // KotOR takes the logarithm in single precision; TSL takes it in double
-    // precision and rounds it to single.
-    const float logarithm = tsl ? static_cast<float>(std::log(static_cast<double>(distance)))
-                                : std::log(distance);
+    const float logarithm = static_cast<float>(std::log(static_cast<double>(distance)));
     float speed = logarithm * 3.0f + 2.0f;
     const auto path = effectiveProjectilePath(spell, overridePath);
     if (path == ProjectilePathType::HighBallistic) {
@@ -1057,8 +1060,10 @@ void useItemAtOnce(Game &game, Creature &user, const std::shared_ptr<Item> &item
         user.setSpellCastContext(context);
         queueSpellImpact(game, *spell, user, game.getObjectById(user.id()), glm::vec3(0.0f),
                          context, item, user.lastSpellProjectileMilliseconds());
-        // The impact goes out with the same release presentation as a cast.
+        // The impact goes out with the same release presentation and
+        // announcement as a cast.
         presentSpellRelease(user, *spell);
+        addPowerUseFeedback(game, user, *spell, item);
     }
     if (item->consumeSpellUse(index)) {
         game.postObjectDestruction(*item, 0.0f);

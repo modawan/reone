@@ -6262,10 +6262,8 @@ void Game::sendMenuCast(Creature &caster, const std::shared_ptr<Spell> &spell, c
     if (!caster.isInCombat()) {
         caster.clearOrdersUnlessBusy();
     }
-    // The player's cast at an object checks its line to the object.
     auto action = newAction<CastSpellAtObjectAction>(spell, target, std::nullopt);
     action->setUserAction(true);
-    action->requireUseLineCheck();
     _combat.scheduleCast(caster, action);
     breakForfeitCondition(caster, Party::kForfeitNoForcePowers);
 }
@@ -9809,7 +9807,9 @@ void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
     }
 
     auto action = newAction<CastSpellAtObjectAction>(
-        spell, std::move(target), std::move(item), cheat);
+        spell, target, std::move(item), cheat);
+    // The command carries where its target stands now.
+    action->setCommandLocation(target->position());
 
     _combat.scheduleCast(*leader, action);
 }

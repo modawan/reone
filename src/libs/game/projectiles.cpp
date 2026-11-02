@@ -389,7 +389,9 @@ void Projectiles::attachPresentation(ActiveProjectile &active, Game &game, Servi
     auto &state = active.saved;
     auto caster = state.caster.boundObject();
     auto body = caster ? std::dynamic_pointer_cast<scene::ModelSceneNode>(caster->sceneNode()) : nullptr;
-    if ((state.kind == ProjectileKind::LightsaberRoute && !state.released) || active.model || !body || state.model.empty()) {
+    // A spell's projectile shows from its release.
+    if (((state.kind == ProjectileKind::LightsaberRoute || state.kind == ProjectileKind::Spell) && !state.released) ||
+        active.model || !body || state.model.empty()) {
         return;
     }
     auto resource = services.resource.models.get(state.model);
@@ -670,6 +672,7 @@ void Projectiles::releaseSpell(uint64_t id, float duration, Game &game, Services
             break;
         }
         }
+        attachPresentation(*active, game, services, false);
         startLeg(*active, game, services);
         return;
     }

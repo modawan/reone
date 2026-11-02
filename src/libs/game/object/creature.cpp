@@ -2140,16 +2140,15 @@ bool Creature::requestSwitchWeapons(bool immediate) {
     return addSwitchWeaponsAction(immediate);
 }
 
-void Creature::beginSpellActivity(int spellId, bool itemCast, bool hostile, bool interrupts) {
+void Creature::beginSpellActivity(int spellId, bool itemCast) {
     _roundActionKind = itemCast ? kItemCastRoundAction : kCastRoundAction;
     // A cast round, a power or an item, is a spell-cast round.
     _combatState.attackAction = ActionType::CastSpell;
     // The round remembers its power; an item use counts as power 0.
     _combatState.roundSpell = itemCast ? 0 : spellId;
-    // A fake cast takes the round but interrupts nothing.
-    if (!interrupts) {
-        return;
-    }
+}
+
+void Creature::interruptForSpell(int spellId, bool itemCast, bool hostile) {
     if (itemCast) {
         // Only a hostile item spell gives the user away.
         if (hostile) {
@@ -6612,6 +6611,30 @@ void Creature::removeMindTrickEffects() {
         }
         const EffectId id = effect.id;
         removeEffectsById(id);
+    }
+}
+
+void Creature::disturbCast(int damage) {
+    const auto current = getCurrentAction();
+    const auto *cast = current ? dyn_cast<CastSpellAction>(&current->combatAction()) : nullptr;
+    if (!cast || !cast->breaksConcentration(*this, damage)) {
+        return;
+    }
+    debug(str(boost::format("Concentration lost: actor=%u spell=%d") % id() % static_cast<int>(cast->spell()->type)), LogChannel::Combat);
+    // The cast ends where it stands, unless it can no longer be cleared, and
+    // leaves the queue as a finished action does.
+    if (current->isClearable()) {
+        current->cancel(current, *this);
+        current->markCancelled();
+        releaseOrientationLock();
+    }
+    playDamageFlinch();
+    // A special ability of no explicit level is used up; a power costs its
+    // Force points.
+    if (spellCastContext().castingClass == kSpellLikeAbilityClass) {
+        consumeSpellLikeAbility(cast->spell()->type, kUnspecifiedCasterLevel);
+    } else {
+        paySpellForcePointCost(*cast->spell());
     }
 }
 
@@ -11610,18 +11633,22 @@ int Creature::forceBodyLevel() const {
     return -1;
 }
 
+ForcePointCharge Creature::spellForcePointCharge(const Spell &spell) const {
+    return forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel());
+}
+
 bool Creature::canPaySpellForcePointCost(const Spell &spell) const {
-    return canPayForcePointCharge(forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()),
+    return canPayForcePointCharge(spellForcePointCharge(spell),
                                   _currentForce + _temporaryForcePoints, _currentHitPoints + _temporaryHitPoints);
 }
 
 int Creature::recordedSpellForcePointCost(const Spell &spell) const {
-    return forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()).spentForce;
+    return spellForcePointCharge(spell).spentForce;
 }
 
 void Creature::paySpellForcePointCost(const Spell &spell) {
     ForcePointPools pools {_currentForce, _temporaryForcePoints, _currentHitPoints, _temporaryHitPoints};
-    payForcePointCharge(pools, forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()));
+    payForcePointCharge(pools, spellForcePointCharge(spell));
     const int spentTemporaryHitPoints = _temporaryHitPoints - pools.temporaryHitPoints;
     _currentForce = pools.force;
     _temporaryForcePoints = pools.temporaryForce;
@@ -12467,7 +12494,7 @@ std::shared_ptr<Talent> Creature::selectTalent(int category, int crMax, int incl
             } else if (!categoryMatches(category, static_cast<int>(spell->category))) {
                 continue;
             }
-            pool.add({TalentType::Spell, id, kUnselectedCastingClass, source.item->id(), static_cast<int>(source.property)},
+            pool.add({TalentType::Spell, id, kUnselectedCastingClass, source.item->id(), static_cast<int>(source.item->usePropertyPlace(source.property))},
                      spell->maxCR, ranked);
         }
         return pool.choose(_game);

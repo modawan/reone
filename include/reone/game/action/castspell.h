@@ -61,8 +61,11 @@ public:
     bool tookRoundAction() const override { return _dispatched && !_fake && !_instantSpell; }
     bool joinsRunningRound() const override { return !_instantSpell; }
 
-    /** Removes the unreleased projectile shown while conjuring. */
-    void dropPresentation();
+    /**
+     * The cast leaves its caster's queue unfinished: the unreleased projectile
+     * shown while conjuring goes, and its caster may move again.
+     */
+    void drop(Object &caster);
     /** Takes up the progress of a cast loaded from a save. */
     void restoreCastState(const SavedCastAction &state);
     /**
@@ -81,20 +84,20 @@ public:
      */
     void setSkipsApproach(bool skips) { _skipsApproach = skips; }
     /**
-     * Has the cast check its line to its object before it starts, wherever
-     * its caster stands. The check is kept while the cast waits in a queue,
-     * and through a save.
-     */
-    void requireUseLineCheck() { _checksUseLine = true; }
-    /**
      * Starts an item use over from its saved command. It keeps the projectile
-     * it was holding only to let go of it when it starts again, and a pending
-     * check of its line to its target.
+     * it was holding only to let go of it when it starts again.
      */
     void restartItemUse(const SavedCastAction &state);
 
     /** The cast has reached its end and no longer occupies its creature. */
     bool castEnded() const { return !_schedule.awaitingRelease(); }
+    /** The cast, not an item use, has started and is still in its conjure. */
+    bool conjuring() const { return !_item && _started && _schedule.conjuring(); }
+    /**
+     * Whether \p damage that \p caster takes breaks its concentration on a
+     * KotOR cast still in its conjure.
+     */
+    bool breaksConcentration(const Creature &caster, int damage) const;
     bool instantSpell() const { return _instantSpell; }
     /** The cast shows itself and has no impact. */
     bool fake() const { return _fake; }
@@ -181,6 +184,8 @@ protected:
 
 private:
     void finish(Object &caster, bool keepCastHold = false);
+    /** Lifts the hold the cast put on its caster's movement, if it put one. */
+    void releaseMovementRestriction(Object &caster);
     bool itemAvailable() const;
     bool commit(Object &actor);
     bool continuePaidCast(Creature &caster, const Action &queued);
@@ -189,7 +194,16 @@ private:
     /** Stops depending on the item, whose retirement must not end the use. */
     void releaseItemDependency();
 
-    /** Where the caster goes, turns and sends its projectile. */
+    /**
+     * The cast is a TSL grenade thrown by hand: its projectile flies to, and
+     * its impact lands at, the location its command carries, with no target
+     * object.
+     */
+    bool thrownAtPoint() const;
+    /** Begins the cast's projectile, aimed as thrownAtPoint says. */
+    uint64_t beginProjectile(Object &actor);
+
+    /** Where the caster goes and turns, and sends a projectile not thrown at a point. */
     glm::vec3 aimPosition() const;
     /** The target object, for the range and the presentation. */
     std::optional<std::reference_wrapper<const Object>> targetObject() const;

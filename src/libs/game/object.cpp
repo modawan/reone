@@ -1015,11 +1015,12 @@ void Object::discardHostileActionGroups() {
 void Object::discardGroupNode(const OrdinaryActionQueue::Node &node) {
     if (node->action) {
         node->action->markCancelled();
-        // Nothing else of the cast is undone; only its conjuring projectile,
-        // which belongs to the action, goes with it.
+        // Nothing else of the cast is undone; only its conjuring projectile and
+        // its hold on its caster's movement, which belong to the action, go
+        // with it.
         auto &command = node->action->combatAction();
         if (auto *cast = dyn_cast<CastSpellAction>(&command)) {
-            cast->dropPresentation();
+            cast->drop(*this);
         }
     }
     auto &queue = _actions.nodes;
@@ -1238,6 +1239,7 @@ void Object::executeActions(float dt) {
         _spellScriptContext.clearActiveTarget();
         if (auto *creature = dyn_cast<Creature>(this)) {
             creature->setAttemptedAttackTarget(script::kObjectInvalid);
+            creature->setAttemptedSpellTarget(script::kObjectInvalid);
             creature->resetAttemptedMovementTarget();
             creature->resetBlockingCreature();
         }

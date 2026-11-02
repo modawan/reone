@@ -55,8 +55,11 @@ void UseTalentOnObjectAction::dispatchToAction(Object &actor) {
             if (!source) {
                 return;
             }
+            property = source->usePropertyAt(static_cast<size_t>(_chosenTalent->itemPropertyIndex()));
+            if (!property) {
+                return;
+            }
             item = std::move(source);
-            property = static_cast<size_t>(_chosenTalent->itemPropertyIndex());
             if (_chosenTalent->casterLevel() != kUnspecifiedCasterLevel) {
                 casterLevel = _chosenTalent->casterLevel();
             }
@@ -145,7 +148,9 @@ void UseTalentAtLocationAction::dispatchToAction(Object &actor) {
     std::optional<int> itemLevel;
     if (_chosenTalent->item() != script::kObjectInvalid && _chosenTalent->itemPropertyIndex() != -1) {
         item = _game.getObjectById<Item>(_chosenTalent->item());
-        property = static_cast<size_t>(_chosenTalent->itemPropertyIndex());
+        if (*item) {
+            property = (*item)->usePropertyAt(static_cast<size_t>(_chosenTalent->itemPropertyIndex()));
+        }
         if (_chosenTalent->casterLevel() != kUnspecifiedCasterLevel) {
             itemLevel = _chosenTalent->casterLevel();
         }
@@ -157,7 +162,7 @@ void UseTalentAtLocationAction::dispatchToAction(Object &actor) {
         // Both explicit and discovered item routes clear the existing commands
         // before UseItem. A normal class/SLA cast does not take this branch.
         actor.clearAllActions(true);
-        if (!*item || *property >= (*item)->properties().size()) {
+        if (!*item || !property) {
             return;
         }
     }

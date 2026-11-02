@@ -705,6 +705,11 @@ public:
      */
     void paySpellForcePointCost(const Spell &spell);
     /**
+     * What a cast of \p spell charges the creature now: its adjusted cost,
+     * shared with vitality under Force Body.
+     */
+    ForcePointCharge spellForcePointCharge(const Spell &spell) const;
+    /**
      * The Force points a cast of \p spell is recorded as costing: its
      * adjusted cost, or under Force Body the share of it paid in vitality.
      */
@@ -1151,11 +1156,10 @@ public:
     void interruptActivities(bool keepStealth = false);
     /** A creature that paused its conversation keeps its place in it until it resumes. */
     void setConversationPaused(bool paused) { _conversationPaused = paused; }
-    /**
-     * A cast or item use takes the round; unless \p interrupts is false it breaks off stealth
-     * and conversation as its kind does.
-     */
-    void beginSpellActivity(int spellId, bool itemCast, bool hostile, bool interrupts = true);
+    /** A cast or item use takes the round. */
+    void beginSpellActivity(int spellId, bool itemCast);
+    /** A cast or item use breaks off stealth and conversation as its kind does. */
+    void interruptForSpell(int spellId, bool itemCast, bool hostile);
     /**
      * In TSL a creature under a mind trick shakes it off on noticing a hostile creature close
      * by.
@@ -1669,6 +1673,13 @@ public:
      * freed is passed over.
      */
     void removeMindTrickEffects();
+    /**
+     * Damage taken while conjuring a power may break the creature's
+     * concentration (see CastSpellAction::breaksConcentration): the cast is
+     * lost, the creature flinches, and the power's Force points are spent all
+     * the same.
+     */
+    void disturbCast(int damage);
     uint32_t lastWeaponUsed() const { return _lastWeaponUsed; }
 
     bool isInCombat() const { return _combatState.active; }

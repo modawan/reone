@@ -995,7 +995,7 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
     // path, to where the impact lands.
     if (overrideLevel && isa<Creature>(caster.get()))
         caster->setLastSpellProjectileMilliseconds(spellProjectileTimeMilliseconds(
-            spell, caster->position(), position, ProjectilePathType::Default, _game.isTSL()));
+            spell, caster->position(), position, ProjectilePathType::Default));
     runSpellImpact(_game, spell, *caster, spellTarget,
                    std::make_shared<Location>(position, targetFacing), context, item, overrideLevel);
 }
