@@ -134,7 +134,7 @@ public:
     MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
     MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {

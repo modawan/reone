@@ -26,6 +26,7 @@
 #include "reone/gui/control/iconchain.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/resource/provider/textures.h"
+#include "reone/resource/strings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,6 +38,10 @@ using namespace reone::resource;
 namespace reone {
 
 namespace game {
+
+// The message for accepting while powers can still be chosen.
+static constexpr int kK1PowersLeftStrRef = 48210;
+static constexpr int kTSLPowersLeftStrRef = 125861;
 
 static IconChain::State getPowerIconState(SpellAvailability availability) {
     switch (availability) {
@@ -135,12 +140,7 @@ void CharGenPowers::onGUILoaded() {
     _controls.RECOMMENDED_BTN->setDisabled(true);
     _controls.RECOMMENDED_BTN->setVisible(false);
     _controls.ACCEPT_BTN->setOnClick([this]() {
-        if (_selectedPowers.size() != static_cast<size_t>(_powerGain)) {
-            return;
-        }
-        updateCharacter();
-        _charGen.goToNextStep();
-        _charGen.openSteps();
+        accept();
     });
     _controls.BACK_BTN->setOnClick([this]() {
         _charGen.openSteps();
@@ -179,7 +179,22 @@ void CharGenPowers::refreshControls() {
 void CharGenPowers::refreshSelectionControls() {
     int remaining = _powerGain - static_cast<int>(_selectedPowers.size());
     _controls.REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(remaining));
-    _controls.ACCEPT_BTN->setDisabled(remaining != 0);
+}
+
+// Accepting is refused with a message only while powers remain to be chosen
+// and one can still be chosen; otherwise the chosen powers are learned.
+void CharGenPowers::accept() {
+    const bool powersLeft = _selectedPowers.size() < static_cast<size_t>(_powerGain);
+    const bool choosable = std::any_of(_displayEntries.begin(), _displayEntries.end(), [](const SpellDisplayEntry &entry) {
+        return entry.selectable;
+    });
+    if (powersLeft && choosable) {
+        _game.showMessagePopup(_services.resource.strings.getText(_game.isTSL() ? kTSLPowersLeftStrRef : kK1PowersLeftStrRef));
+        return;
+    }
+    updateCharacter();
+    _charGen.goToNextStep();
+    _charGen.openSteps();
 }
 
 void CharGenPowers::refreshIconChain() {
