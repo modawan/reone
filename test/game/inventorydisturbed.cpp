@@ -227,3 +227,23 @@ TEST(InventoryDisturbed, a_give_within_the_party_inventory_is_not_a_disturbance)
     ASSERT_EQ(player->id(), item->owner());
     EXPECT_EQ(0, probeRuns()["disturbed_party"]);
 }
+
+TEST(InventoryDisturbed, a_take_within_the_party_inventory_is_not_a_disturbance) {
+    DisturbedFixture fixture;
+    auto player = fixture.addCreature();
+    auto companion = fixture.addCreature();
+    auto &party = fixture.game.party();
+    party.addMember(kNpcPlayer, player);
+    party.setPlayer(player);
+    party.addAvailableMember(0, companion);
+    party.addMember(0, companion);
+    auto item = fixture.addItemTo(*player);
+    companion->setOnDisturbed("disturbed_party_take");
+    fixture.count("disturbed_party_take");
+
+    auto action = fixture.game.newAction<TakeItemAction>(item, companion);
+    action->execute(action, *player, 0.0f);
+
+    ASSERT_EQ(player->id(), item->owner());
+    EXPECT_EQ(0, probeRuns()["disturbed_party_take"]);
+}

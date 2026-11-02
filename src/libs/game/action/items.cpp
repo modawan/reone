@@ -166,24 +166,29 @@ std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record,
 // party member reports the item lost in the status summary. A creature the
 // item is taken from runs its disturbed script, disturbed by the taker, for
 // the taker's stack that holds the item, as an item merged into a stack is
-// gone.
+// gone. A take between creatures sharing the party inventory moves nothing
+// and is neither.
 void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     ItemTransfer taken;
+    bool alreadyHeld = false;
     switch (actor.type()) {
     case ObjectType::Placeable:
         taken = transferItemTo(_game, _item, actor);
         break;
-    case ObjectType::Creature:
-        taken = transferItemTo(_game, _item, *party.sharedInventoryReceiver(_game.getObjectById(actor.id())));
-        if (taken && party.isMember(*_takeFrom)) {
+    case ObjectType::Creature: {
+        auto receiver = party.sharedInventoryReceiver(_game.getObjectById(actor.id()));
+        alreadyHeld = _item->owner() == receiver->id() && !_item->isEquipped();
+        taken = transferItemTo(_game, _item, *receiver);
+        if (taken && !alreadyHeld && party.isMember(*_takeFrom)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsLost);
         }
         break;
+    }
     default:
         break;
     }
-    if (auto *owner = dyn_cast<Creature>(_takeFrom.get()); owner && taken && owner != &actor) {
+    if (auto *owner = dyn_cast<Creature>(_takeFrom.get()); owner && taken && !alreadyHeld && owner != &actor) {
         // A counted item, such as credits, leaves no stack to name.
         const uint32_t held = taken.held ? taken.held->id() : script::kObjectInvalid;
         owner->runOnDisturbed(actor.id(), InventoryDisturbType::Removed, held);
