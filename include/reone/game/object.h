@@ -868,6 +868,12 @@ protected:
      */
     int chooseActionGroup(const Action &action, std::optional<int> group);
     /**
+     * Any action queued takes a queued random walk off the queue, with the
+     * moves and pauses the walk queued in its group. \p incoming is the action
+     * being queued.
+     */
+    void removeRandomWalks(const Action &incoming);
+    /**
      * Cancels and removes queued actions, and drops the kept saved actions;
      * see clearAllActions for \p force and \p keepUnclearable.
      */
