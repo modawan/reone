@@ -101,11 +101,12 @@ private:
      */
     glm::vec4 mapRect(Mode mode, const glm::vec4 &bounds, float scale) const;
 
-    /** Draws \p texture over \p rect, tinted \p color. */
+    /** Draws \p texture over \p rect, tinted \p color, through \p program. */
     void renderMarker(
         const glm::vec4 &rect,
         graphics::Texture &texture,
-        const glm::vec4 &color);
+        const glm::vec4 &color,
+        const char *program);
 
     void renderScissored(const glm::vec4 &bounds, const std::function<void()> &block);
 };

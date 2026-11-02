@@ -184,6 +184,10 @@ void Map::renderFog(const glm::vec4 &bounds, const glm::vec4 &rect) {
                 centerY - 0.5f * blotHeight > bounds[1] + bounds[3]) {
                 continue;
             }
+            // The blot carries its own colour: a dark centre crossed by the
+            // grid lines that neighbouring blots join up into a lattice. It
+            // is drawn untinted, and through the plain textured program, so
+            // that its soft edge survives being magnified to cell size.
             renderMarker(
                 glm::vec4(
                     centerX - 0.5f * blotWidth,
@@ -191,7 +195,8 @@ void Map::renderFog(const glm::vec4 &bounds, const glm::vec4 &rect) {
                     blotWidth,
                     blotHeight),
                 *_fogTexture,
-                glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+                glm::vec4(1.0f),
+                ShaderProgramId::mvpTexture);
         }
     }
 }
@@ -248,7 +253,8 @@ void Map::renderNotes(Mode mode, const glm::vec4 &rect, float scale) {
         renderMarker(
             marker.bounds,
             *_noteTexture,
-            glm::vec4(selected ? selectedColor : color, 1.0f));
+            glm::vec4(selected ? selectedColor : color, 1.0f),
+            ShaderProgramId::mvpIcon);
     }
 }
 
@@ -277,7 +283,8 @@ void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsi
                 size,
                 size),
             *_companionTexture,
-            glm::vec4(kCompanionColor, 1.0f));
+            glm::vec4(kCompanionColor, 1.0f),
+            ShaderProgramId::mvpIcon);
     }
 
     auto leader = party.getLeader();
@@ -320,7 +327,8 @@ void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsi
 void Map::renderMarker(
     const glm::vec4 &rect,
     graphics::Texture &texture,
-    const glm::vec4 &color) {
+    const glm::vec4 &color,
+    const char *program) {
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, glm::vec3(rect[0], rect[1], 0.0f));
     transform = glm::scale(transform, glm::vec3(rect[2], rect[3], 1.0f));
@@ -332,7 +340,7 @@ void Map::renderMarker(
         locals.color = color;
     });
     _services.graphics.context.useProgram(
-        _services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
+        _services.graphics.shaderRegistry.get(program));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
