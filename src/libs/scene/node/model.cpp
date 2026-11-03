@@ -815,9 +815,12 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
                 if (state2Iter != channel2.stateByNodeNumber.end()) {
                     state2 = state2Iter->second;
                 }
+                // A channel blending in pulls each node it animates from where
+                // the node is toward its own pose by its weight, so the node
+                // closes most of the way well before the weight is full.
                 if (state1.flags & AnimationStateFlags::transform && state2.flags & AnimationStateFlags::transform) {
                     combined.flags |= AnimationStateFlags::transform;
-                    combined.transform = blendTransforms(state2.transform, state1.transform, channel1.weight);
+                    combined.transform = blendTransforms(sceneNode->localTransform(), state1.transform, channel1.weight);
                 } else if (state1.flags & AnimationStateFlags::transform) {
                     combined.flags |= AnimationStateFlags::transform;
                     combined.transform = state1.transform;
