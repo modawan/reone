@@ -379,7 +379,8 @@ void Engine::processScriptedCommands(bool &quit) {
         _scriptedCommands.pop_front();
         _console->execute(command);
 
-        if (_scriptQuitRequested) {
+        // A scripted click can quit the game, as a real one can.
+        if (_scriptQuitRequested || _game->isQuitRequested()) {
             quit = true;
             return;
         }

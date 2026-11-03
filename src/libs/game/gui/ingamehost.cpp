@@ -138,6 +138,16 @@ bool InGameMenuHost::handle(const input::Event &event) {
     return false;
 }
 
+std::optional<glm::ivec2> InGameMenuHost::clickPoint(const std::string &tag) const {
+    // The active tab takes input first, as in handle().
+    if (auto tabGui = getActiveTabGUI()) {
+        if (auto point = tabGui->clickPoint(tag)) {
+            return point;
+        }
+    }
+    return PresentationGUI::clickPoint(tag);
+}
+
 void InGameMenuHost::update(float dt) {
     PresentationGUI::update(dt);
 

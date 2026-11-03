@@ -427,6 +427,25 @@ std::shared_ptr<Control> GUI::findControl(const std::string &tag) const {
     return nullptr;
 }
 
+std::optional<glm::ivec2> GUI::clickPoint(const std::string &tag) const {
+    auto control = findControl(tag);
+    if (!control) {
+        return std::nullopt;
+    }
+    // The hit test subtracts the render offset from the screen position;
+    // add it back.
+    glm::ivec2 center;
+    control->extent().getCenter(center.x, center.y);
+    center += renderOffset(*control);
+    // A click goes to whatever selectable control the pointer selects
+    // there, as in updateSelection; it has to be this one.
+    auto hit = findControlAt(center.x, center.y, [](const auto &c) { return c.isSelectable(); });
+    if (!hit || &hit->get() != control.get()) {
+        return std::nullopt;
+    }
+    return center;
+}
+
 std::unique_ptr<Control> GUI::newControl(
     ControlType type,
     std::string tag) {

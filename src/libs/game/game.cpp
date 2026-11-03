@@ -82,6 +82,7 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
 #include "reone/gui/guis.h"
+#include "reone/input/keyname.h"
 #include "reone/movie/format/bikreader.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -776,6 +777,8 @@ void Game::initConsole() {
     registerConsoleCommand("openmenu", "open the main menu or an in-game menu tab", &Game::consoleOpenMenu);
     registerConsoleCommand("openchargen", "open a character-generation screen", &Game::consoleOpenCharacterGeneration);
     registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
+    registerConsoleCommand("click", "click a control of the current screen by tag, as the mouse would", &Game::consoleClick);
+    registerConsoleCommand("key", "press and release a key: a character or a name such as escape, return, space, up, f1", &Game::consoleKey);
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
@@ -1274,6 +1277,12 @@ void Game::render() {
 bool Game::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;
+
+    // Escape skips a movie, as a left click does.
+    if (_movie && event.code == input::KeyCode::Escape) {
+        _movie->finish();
+        return true;
+    }
 
     if (_screen == Screen::InGame && handleFreeLookKey(event)) {
         return true;
@@ -9570,6 +9579,49 @@ void Game::consoleShowBark(const ConsoleArgs &args) {
 void Game::consoleSkipMovie(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
     _movie.reset();
+}
+
+void Game::consoleClick(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "control_tag");
+    std::string tag(args[1].value());
+    // Whatever takes a real click before the screen's GUI would take this
+    // one; say so rather than report a click that went elsewhere.
+    if (_movie) {
+        throw std::runtime_error("click: a movie is playing; a click would skip it");
+    }
+    if (_credits) {
+        throw std::runtime_error("click: the credits take the input");
+    }
+    if (_confirmPopup && _confirmPopup->isVisible()) {
+        throw std::runtime_error("click: a confirmation popup takes the input");
+    }
+    if (_playerInputBlocked) {
+        throw std::runtime_error("click: player input is blocked");
+    }
+    auto gui = getScreenGUI();
+    if (!gui) {
+        throw std::runtime_error("click: the current screen has no GUI");
+    }
+    auto at = gui->clickPoint(tag);
+    if (!at) {
+        throw std::runtime_error("click: no clickable control tagged " + tag + " on the current screen");
+    }
+    // A real click, not a call to the handler: the pointer moves there and
+    // the press and release go through the same input path as the mouse's.
+    handle(input::Event::newMouseMotion({at->x, at->y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at->x, at->y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at->x, at->y}));
+    info(str(boost::format("click %s at %d,%d") % tag % at->x % at->y));
+}
+
+void Game::consoleKey(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "key_name");
+    auto code = input::keyCodeFromName(args[1].value());
+    if (!code) {
+        throw std::runtime_error("key: unknown key " + std::string(args[1].value()));
+    }
+    handle(input::Event::newKeyDown({true, *code, 0, false}));
+    handle(input::Event::newKeyUp({false, *code, 0, false}));
 }
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {

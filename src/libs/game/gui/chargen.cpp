@@ -181,6 +181,14 @@ bool CharacterGeneration::handle(const input::Event &event) {
     return _gui->handle(event);
 }
 
+std::optional<glm::ivec2> CharacterGeneration::clickPoint(const std::string &tag) const {
+    // The panel in front takes input first, as in handle().
+    if (auto point = getSubGUI()->clickPoint(tag)) {
+        return point;
+    }
+    return PresentationGUI::clickPoint(tag);
+}
+
 GameGUI *CharacterGeneration::getSubGUI() const {
     switch (_screen) {
     case CharGenScreen::ClassSelection:
