@@ -12499,8 +12499,10 @@ bool Creature::canLearnPower(SpellType power, ClassType owner) const {
 }
 
 const Object &Creature::itemRepositoryOwner(bool useParty) const {
+    // The party's items are held by the player character, whoever is
+    // controlled.
     if ((isPartyMember() && useParty) || _game.inventoryMenuCharacter() != -1) {
-        return *_game.party().player();
+        return *_game.party().actualPlayer();
     }
     return *this;
 }

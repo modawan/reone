@@ -546,27 +546,16 @@ static Variable GetItemPossessedBy(const std::vector<Variable> &args, const Rout
     // Transform
     auto itemTag = boost::to_lower_copy(sItemTag);
 
-    // Execute: a creature's carried items, the party's for a party member,
-    // then what it wears; a placeable's only when it has an inventory; the
-    // items inside an item. Any other object possesses nothing.
-    std::shared_ptr<Item> item;
-    if (auto creature = dyn_cast<Creature>(oObject)) {
-        item = ctx.game.getObjectById(creature->itemRepositoryOwner().id())->getItemByTag(itemTag);
-        if (!item) {
+    // Execute: the object's own items, then a creature's first worn match,
+    // then, for a party member, the party's items, which the player character
+    // holds.
+    auto item = oObject->getItemByTag(itemTag);
+    if (!item) {
+        if (auto creature = dyn_cast<Creature>(oObject)) {
             item = creature->getEquippedItemByTag(itemTag);
         }
-    } else if (auto placeable = dyn_cast<Placeable>(oObject)) {
-        if (placeable->hasInventory()) {
-            item = placeable->getItemByTag(itemTag);
-        }
-    } else if (isa<Item>(oObject)) {
-        item = oObject->getItemByTag(itemTag);
     }
     if (!item) {
-        // A party member's non-equipped items live in the shared party
-        // inventory, so a member holding nothing of its own still reaches what
-        // the party carries. A non-party object receives itself here and keeps
-        // looking no further than its own inventory.
         auto shared = ctx.game.party().sharedInventoryReceiver(oObject);
         if (shared && shared != oObject) {
             item = shared->getItemByTag(itemTag);

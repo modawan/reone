@@ -5760,7 +5760,9 @@ bool Game::isMouseLooking() const {
     if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson || hasModalPanel()) {
         return false;
     }
-    return getActiveCamera()->isMouseLookMode();
+    // Without a module there is no world camera to turn.
+    const auto *camera = getActiveCamera();
+    return camera && camera->isMouseLookMode();
 }
 
 void Game::updateMouseLookPointer() {

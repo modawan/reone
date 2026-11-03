@@ -855,12 +855,8 @@ bool walkerStep(Area &area, Creature &creature, const glm::vec3 &dest, float dt 
     return creature.navigateTo(dest, false, 0.1f, dt);
 }
 
-std::shared_ptr<Gff> makeTransitionTriggerGff(
-    std::string linkedToModule,
-    std::string linkedTo,
-    std::string onEnter = "",
-    std::optional<std::string> transitionDestin = std::nullopt) {
-
+// A trigger's two-metre square outline about its position.
+std::vector<std::shared_ptr<Gff>> makeSquareTriggerGeometry() {
     std::vector<std::shared_ptr<Gff>> geometry;
     for (const auto &point : std::vector<glm::vec2> {
              {-1.0f, -1.0f},
@@ -874,13 +870,21 @@ std::shared_ptr<Gff> makeTransitionTriggerGff(
                 .field(Gff::Field::newFloat("PointZ", 0.0f))
                 .build());
     }
+    return geometry;
+}
+
+std::shared_ptr<Gff> makeTransitionTriggerGff(
+    std::string linkedToModule,
+    std::string linkedTo,
+    std::string onEnter = "",
+    std::optional<std::string> transitionDestin = std::nullopt) {
 
     Gff::Builder builder;
     builder.field(Gff::Field::newInt("Type", 1))
         .field(Gff::Field::newByte("LinkedToFlags", 2))
         .field(Gff::Field::newResRef("LinkedToModule", std::move(linkedToModule)))
         .field(Gff::Field::newCExoString("LinkedTo", std::move(linkedTo)))
-        .field(Gff::Field::newList("Geometry", std::move(geometry)));
+        .field(Gff::Field::newList("Geometry", makeSquareTriggerGeometry()));
     if (!onEnter.empty()) {
         builder.field(Gff::Field::newResRef("ScriptOnEnter", std::move(onEnter)));
     }
@@ -888,6 +892,15 @@ std::shared_ptr<Gff> makeTransitionTriggerGff(
         builder.field(Gff::Field::newCExoLocString("TransitionDestin", -1, std::move(*transitionDestin)));
     }
     return builder.build();
+}
+
+// A generic trigger, which runs its enter script; an area transition does not.
+std::shared_ptr<Gff> makeEnterTriggerGff(std::string onEnter) {
+    return Gff::Builder()
+        .field(Gff::Field::newInt("Type", 0))
+        .field(Gff::Field::newList("Geometry", makeSquareTriggerGeometry()))
+        .field(Gff::Field::newResRef("ScriptOnEnter", std::move(onEnter)))
+        .build();
 }
 
 std::shared_ptr<script::ScriptProgram> makeStartNewModuleScript(
@@ -3057,6 +3070,8 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
     auto trigger = game.newTrigger();
     trigger->deserialize(*gff, SerializedIdentityContext::templateResource());
     auto area = game.newArea();
+    // Setting off a transition halts the player, so the module has one.
+    area->initCameras(glm::vec3(0.0f), 0.0f);
     // The subject here is the trigger's own enter/exit/re-enter lifecycle, so
     // the mover is the party leader, who may activate a module transition.
     auto leader = makeMovingCreature(game, engine);
@@ -3067,6 +3082,7 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
     area->add(trigger);
     area->add(leader);
     TestGameModule::setActiveModuleArea(game, area);
+    TestGameModule::loadModulePlayer(*game.module());
 
     ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.25f));
     EXPECT_TRUE(trigger->isTenant(leader));
@@ -6825,7 +6841,7 @@ TEST(GlobalFadeArrival, first_occupancy_admits_dialogue_before_default_reveal) {
     auto &game = fixture.game;
     game.initLocalServices();
     auto trigger = game.newTrigger();
-    trigger->deserialize(*makeTransitionTriggerGff("", "", "fade_occupancy"), SerializedIdentityContext::templateResource());
+    trigger->deserialize(*makeEnterTriggerGff("fade_occupancy"), SerializedIdentityContext::templateResource());
     game.module()->area()->add(trigger);
     auto action = game.newAction<StartConversationAction>(nullptr, "missing");
     EXPECT_CALL(fixture.engine.resourceModule().scripts(), get("fade_occupancy"))
@@ -6854,7 +6870,7 @@ TEST(GlobalFadeArrival, replacement_during_occupancy_cannot_settle_the_new_modul
     auto &game = fixture.game;
     game.initLocalServices();
     auto trigger = game.newTrigger();
-    trigger->deserialize(*makeTransitionTriggerGff("", "", "fade_replace"), SerializedIdentityContext::templateResource());
+    trigger->deserialize(*makeEnterTriggerGff("fade_replace"), SerializedIdentityContext::templateResource());
     game.module()->area()->add(trigger);
     EXPECT_CALL(fixture.engine.resourceModule().scripts(), get("fade_replace"))
         .WillOnce(Invoke([&](const std::string &) {
