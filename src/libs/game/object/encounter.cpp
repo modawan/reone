@@ -267,8 +267,7 @@ void Encounter::updateOccupancy(const std::shared_ptr<Creature> &creature, bool 
     const bool known = _occupants.count(creature->id()) != 0;
     if (inside == known) {
         if (announce && from && crosses(*from, creature->position())) {
-            _game.queueScriptEvent(*this, *creature, Event(inside ? kExitedEvent : kEnteredEvent, {}, {}, {}, {creature}));
-            _game.queueScriptEvent(*this, *creature, Event(inside ? kEnteredEvent : kExitedEvent, {}, {}, {}, {creature}));
+            _game.queuePassage(*this, creature, inside);
         }
         return;
     }

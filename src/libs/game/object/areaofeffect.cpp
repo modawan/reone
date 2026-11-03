@@ -287,8 +287,7 @@ void AreaOfEffect::updateOccupancy(const std::shared_ptr<Creature> &creature, bo
         // A step that passes through the edge signals both, in the order it
         // crossed.
         if (announce && from && crosses(*from, creature->position())) {
-            _game.queueScriptEvent(*this, *creature, Event(inside ? kExitedEvent : kEnteredEvent, {}, {}, {}, {creature}));
-            _game.queueScriptEvent(*this, *creature, Event(inside ? kEnteredEvent : kExitedEvent, {}, {}, {}, {creature}));
+            _game.queuePassage(*this, creature, inside);
         }
         return;
     }

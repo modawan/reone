@@ -50,6 +50,11 @@ namespace game {
 /** The script a new leader runs when the lead changes hands. */
 static constexpr char kLeaderChangedScript[] = "k_hen_leadchng";
 
+/** The script a traveller runs when the party is not ready to travel. */
+static constexpr char kTravelRefusedScript[] = "k_trg_transfail";
+/** KotOR: how far a member may stand from the leader for the party to travel, squared. */
+static constexpr float kTravelGatherRange2 = 30.0f * 30.0f;
+
 static constexpr int kPlayerPerceptionRangeRow = 12;
 static constexpr int kPartyPerceptionRangeRow = 11;
 
@@ -1323,6 +1328,40 @@ bool Party::isMember(const Object &object) const {
 
 bool Party::movesBetweenModules(const Object &object) const {
     return &object == actualPlayer().get() || &object == getLeader().get();
+}
+
+// Member slots with no creature are skipped.
+bool Party::isReadyToTravel() const {
+    if (_game.isTSL()) {
+        if (!_player || _player->currentHitPoints() < 1) {
+            return false;
+        }
+        return std::none_of(_members.begin(), _members.end(), [](const Member &member) {
+            return member.creature && member.creature->currentHitPoints() < 1;
+        });
+    }
+    auto leader = getLeader();
+    if (!leader) {
+        return false;
+    }
+    return std::none_of(_members.begin(), _members.end(), [&leader](const Member &member) {
+        return member.creature && leader->getSquareDistanceTo(*member.creature) > kTravelGatherRange2;
+    });
+}
+
+bool Party::isInCombat() const {
+    return std::any_of(_members.begin(), _members.end(), [](const Member &member) {
+        return member.creature && member.creature->isInCombat() &&
+               member.creature->combatActivationType() == CombatActivation::Direct;
+    });
+}
+
+bool Party::admitTraveller(const Object &traveller) {
+    if (isReadyToTravel()) {
+        return true;
+    }
+    _game.scriptRunner().run(kTravelRefusedScript, traveller.id());
+    return false;
 }
 
 bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {

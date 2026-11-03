@@ -289,7 +289,8 @@ public:
     bool isFreeLook() const { return _freeLook; }
     /**
      * While blocked, the player's presses, pointer motion and wheel are
-     * ignored; releases still arrive, so nothing stays held.
+     * ignored, except by a movie playing; releases still arrive, so nothing
+     * stays held.
      */
     void setPlayerInputBlocked(bool blocked) { _playerInputBlocked = blocked; }
     /** Stops the leader's steering and the camera's turning and mouse-look. */
@@ -1141,8 +1142,22 @@ public:
     uint64_t worldTimeMilliseconds() const { return _worldTimeMilliseconds; }
     /** Apply an effect to the target through the module's event queue, after the delay. */
     void queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds = 0);
-    /** SignalEvent: the event runs on the target through the module's event queue. */
-    void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event);
+    /** SignalEvent: the event runs on the target through the module's event queue, after the delay. */
+    void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event,
+                          uint32_t delayMilliseconds = 0);
+    /**
+     * A click on \p target by \p clicker, sent by \p sender through the
+     * module's event queue after the delay; a transition's click carries its
+     * number.
+     */
+    void queueClick(const Object &target, const Object &sender, const Object &clicker,
+                    std::optional<int> transition = std::nullopt, uint32_t delayMilliseconds = 0);
+    /**
+     * \p creature passing through \p subArea in one step, signalled to it
+     * through the module's event queue in the order it crossed: it leaves and
+     * enters again when it ends \p inside, and enters and leaves otherwise.
+     */
+    void queuePassage(Object &subArea, const std::shared_ptr<Creature> &creature, bool inside);
     /** Remove an effect from the target through the module's event queue. */
     void queueEffectRemoval(Object &target, EffectId id);
     /** World time after a script delay, or none when the delay is dropped. */
@@ -2022,6 +2037,8 @@ private:
     void runLevelUpDialogOnce();
 
     void advanceWorldTime(double dt);
+    /** Sets \p event due at the world time \p milliseconds, as a day and a time of day. */
+    void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
     void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
     std::shared_ptr<const resource::SaveWorkingState>

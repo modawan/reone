@@ -47,6 +47,14 @@ constexpr glm::vec3 kTSLGUIColorBase = glm::vec3(0.192157f, 0.768627f, 0.647059f
 constexpr glm::vec3 kTSLGUIColorHilight = glm::vec3(0.768627f, 0.768627f, 0.686275f);
 constexpr glm::vec3 kTSLGUIColorDisabled = glm::vec3(0.513725f, 0.513725f, 0.415686f);
 
+// The colours of a control that leads to travel or a party change: KotOR's
+// while it is open and while it is refused, and TSL's refused text.
+constexpr glm::vec3 kTravelOpenTextColor {0.0f, 0.66f, 0.98f};
+constexpr glm::vec3 kTravelOpenBorderColor {1.0f, 1.0f, 1.0f};
+constexpr glm::vec3 kTravelRefusedTextColor {0.0f, 0.33f, 0.49f};
+constexpr glm::vec3 kTravelRefusedBorderColor {0.35f, 0.35f, 0.35f};
+constexpr glm::vec3 kTSLTravelRefusedTextColor {0.4f, 0.4f, 0.3f};
+
 enum class BackgroundType {
     None,
     Menu,
@@ -1522,6 +1530,8 @@ struct PartySelectionContext {
     std::string exitScript;
     int forceNpc1 {-1};
     int forceNpc2 {-2};
+    /** A script opened the selection: TSL then lets the party change whatever its state. */
+    bool openedByScript {false};
 };
 
 /**

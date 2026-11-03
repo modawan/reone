@@ -51,6 +51,9 @@ static constexpr int kMaxFollowerCount = 2;
 
 static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
+static constexpr int kStrRefCannotChangeHere = 108426;
+static constexpr int kStrRefCannotChangeInCombat = 126692;
+static constexpr int kStrRefCannotChangeWhileUnconscious = 126693;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 // Neither game specifies an in-party colour in the layout. K1 uses green
@@ -308,7 +311,29 @@ int PartySelection::npcCount() const {
     return _game.isTSL() ? kTSLNpcCount : kKotorNpcCount;
 }
 
+std::optional<int> PartySelection::partyLockStrRef() const {
+    if (!_game.isTSL() || _context.openedByScript) {
+        return std::nullopt;
+    }
+    const Party &party = _game.party();
+    auto player = party.player();
+    if (_game.module()->area()->isUnescapable() || (player && !player->isPlayerCreated())) {
+        return kStrRefCannotChangeHere;
+    }
+    if (!party.isReadyToTravel()) {
+        return kStrRefCannotChangeWhileUnconscious;
+    }
+    if (party.isInCombat()) {
+        return kStrRefCannotChangeInCombat;
+    }
+    return std::nullopt;
+}
+
 void PartySelection::onAcceptButtonClick() {
+    if (auto lockStrRef = partyLockStrRef()) {
+        _game.showMessagePopup(_services.resource.strings.getText(*lockStrRef));
+        return;
+    }
     if (_selectedNpc == -1)
         return;
 

@@ -342,6 +342,54 @@ void Area::setPlayerRestrictMode(bool value) {
     _playerRestrictMode = value;
 }
 
+void Area::setTransitionPending(bool pending, int id) {
+    _transitionPending = pending;
+    _transitionPendingCurrentId = static_cast<uint8_t>(id);
+    if (pending) {
+        _game.stopMovement();
+    }
+    _game.setPlayerInputBlocked(pending);
+}
+
+// A transition waits this long for its second signal, while the screen fades
+// out over this many seconds.
+static constexpr uint32_t kTransitionDelayMilliseconds = 500;
+static constexpr float kTransitionFadeLength = 0.5f;
+
+void Area::passTransition(const std::shared_ptr<Object> &traveller, std::optional<int> transition,
+                          const std::string &module, const std::string &waypoint,
+                          const std::function<void(const Creature &traveller, int transition, uint32_t delayMilliseconds)> &sendAgain) {
+    auto creature = traveller ? dyn_cast<Creature>(traveller) : nullptr;
+    if (!creature || _game.isDialogUnderWay()) {
+        setTransitionPending(false, 0);
+        return;
+    }
+    if (module.empty()) {
+        return;
+    }
+    if (_transitionPending) {
+        if (transition != transitionPendingId()) {
+            return;
+        }
+        if (creature->isDead() || creature->isTemporarilyDead()) {
+            _game.globalFade().stop();
+        } else {
+            _game.scheduleModuleTransition(module, waypoint);
+        }
+        setTransitionPending(false, 0);
+        return;
+    }
+    Party &party = _game.party();
+    if (!party.movesBetweenModules(*creature) || !party.admitTraveller(*creature)) {
+        return;
+    }
+    const int id = nextTransitionPendingId();
+    sendAgain(*creature, id, kTransitionDelayMilliseconds);
+    _game.globalFade().request(GlobalFade::Direction::Out, 0.0f, kTransitionFadeLength);
+    setTransitionPending(true, id);
+    _game.setPaused(false);
+}
+
 void Area::loadHearing(const resource::generated::ARE &are) {
     _interior = (are.Flags & kInteriorAreaFlag) != 0;
     _underground = (are.Flags & kUndergroundAreaFlag) != 0;
@@ -943,31 +991,6 @@ void Area::add(const std::shared_ptr<Object> &object) {
         determineObjectRoom(*object);
         attachObjectToSceneGraph(object);
         updateBreathVisual(_game, object);
-
-        if (auto door = dyn_cast<Door>(object)) {
-            if ((door->linkedToFlags() == 1 || door->linkedToFlags() == 2) &&
-                !door->linkedToModule().empty() &&
-                !door->linkedTo().empty() &&
-                !door->linkedTransitionGeometry().empty()) {
-                std::vector<std::shared_ptr<Object>> noObsolete;
-                std::shared_ptr<Trigger> trigger;
-                _game.replaceRuntimeObjectGraph(
-                    noObsolete,
-                    [&]() {
-                        trigger = _game.newTrigger(_sceneName);
-                        trigger->configureLinkedDoorTransition(door);
-                    },
-                    []() noexcept {});
-                try {
-                    add(trigger);
-                } catch (...) {
-                    if (trigger->isRuntimeLive()) {
-                        _game.destroyRuntimeObjectGraph(trigger);
-                    }
-                    throw;
-                }
-            }
-        }
     } catch (...) {
         auto owned = std::find_if(
             _objects.begin(), _objects.end(),
@@ -1251,6 +1274,9 @@ void Area::detachObjectRuntime(const std::shared_ptr<Object> &object) {
     for (auto &areaEffectObject : _objectsByType[ObjectType::AreaOfEffect]) {
         static_cast<AreaOfEffect &>(*areaEffectObject).forgetOccupant(object->id());
     }
+    for (auto &doorObject : _objectsByType[ObjectType::Door]) {
+        static_cast<Door &>(*doorObject).forgetOutlineOccupant(object->id());
+    }
     _persistentQueryIndex.erase(object->id());
 
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
@@ -1365,19 +1391,6 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     auto object = _game.getObjectById(objectId);
     if (!object) {
         return;
-    }
-
-    if (auto door = dyn_cast<Door>(object)) {
-        std::vector<uint32_t> linkedTriggerIds;
-        for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
-            auto trigger = std::static_pointer_cast<Trigger>(triggerObject);
-            if (trigger->detachLinkedDoorTransition(*door)) {
-                linkedTriggerIds.push_back(trigger->id());
-            }
-        }
-        for (auto triggerId : linkedTriggerIds) {
-            doDestroyObject(triggerId);
-        }
     }
 
     // A destroyed encounter creature no longer counts against its wave.
@@ -2056,6 +2069,9 @@ void Area::updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, boo
     for (const auto &object : _objectsByType[ObjectType::AreaOfEffect]) {
         static_cast<AreaOfEffect &>(*object).updateOccupancy(creature, announce, from);
     }
+    for (const auto &object : _objectsByType[ObjectType::Door]) {
+        static_cast<Door &>(*object).updateOutlineOccupancy(*creature, announce);
+    }
 }
 
 void Area::jumpCarriedAreaEffects(const Creature &carrier) {
@@ -2428,8 +2444,8 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
         leader->setFacing(facing);
     }
     loadPartyMember(leader, 0, preserveSavedPlacement);
-    // The player arrives in the encounter areas and areas of effect it stands
-    // in; a restored game records them without signalling.
+    // The player arrives in the encounter areas, areas of effect and door
+    // outlines it stands in; a restored game records them without signalling.
     updateSubAreaOccupancy(leader, !preserveSavedPlacement);
     // Entering the area starts the trail over at the leader.
     party.resetFollowPath(*this, leader->position(), leader->getFacing(), false);
@@ -3008,7 +3024,7 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
         trigger.addTenant(triggerrer);
         trigger.markDebugEntered();
         if (transition) {
-            _game.scheduleModuleTransition(trigger.linkedToModule(), trigger.linkedTo());
+            trigger.receiveEntered(triggerrer);
         }
         return true;
     };
@@ -3018,10 +3034,6 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
     const size_t count = triggers.size();
     for (size_t i = 0; i < count; ++i) {
         auto trigger = std::static_pointer_cast<Trigger>(triggers[i]);
-        if (!trigger->isActive()) {
-            trigger->removeTenant(triggerrer.get());
-            continue;
-        }
         const bool inside = trigger->isIn(triggerrer->position());
         trigger->markDebugTested(inside);
         const bool tenant = trigger->isTenant(triggerrer);
@@ -3327,10 +3339,7 @@ std::optional<std::reference_wrapper<const Object>> Area::findNearestObject(cons
             return;
         }
         const Object &object = *_objectsByX[index];
-        // A linked door's transition trigger stands in for the door and is
-        // never a result.
-        const auto *trigger = dyn_cast<Trigger>(&object);
-        if ((trigger && trigger->isLinkedDoorTransition()) || !matches(object)) {
+        if (!matches(object)) {
             return;
         }
         candidates.emplace_back(object, object.getSquareDistanceTo(origin));
@@ -4039,27 +4048,36 @@ std::optional<std::reference_wrapper<Object>> Area::getObjectAt(int x, int y) co
 
 std::vector<TransitionPortal> Area::transitionPresentationPortals() const {
     std::vector<TransitionPortal> portals;
-    auto maybeTriggers = _objectsByType.find(ObjectType::Trigger);
-    if (maybeTriggers == _objectsByType.end()) {
-        return portals;
-    }
-    for (auto &object : maybeTriggers->second) {
-        auto trigger = std::static_pointer_cast<Trigger>(object);
-        if (trigger->linkedToModule().empty() || !trigger->isActive()) {
-            continue;
-        }
-        const auto &geometry = trigger->geometry();
-        if (geometry.size() < 3) {
-            continue;
+    auto addPortal = [&portals](const Object &object, const std::string &destination, const std::vector<glm::vec3> &outline) {
+        if (outline.size() < 3) {
+            return;
         }
         TransitionPortal portal;
-        portal.objectId = trigger->id();
-        portal.destination = trigger->transitionDestin();
-        portal.points.reserve(geometry.size());
-        for (const auto &vertex : geometry) {
-            portal.points.push_back(glm::vec3(trigger->transform() * glm::vec4(vertex, 1.0f)));
+        portal.objectId = object.id();
+        portal.destination = destination;
+        portal.points.reserve(outline.size());
+        for (const auto &vertex : outline) {
+            portal.points.push_back(glm::vec3(object.transform() * glm::vec4(vertex, 1.0f)));
         }
         portals.push_back(std::move(portal));
+    };
+    // A transition trigger, and a linked door leading to another module while
+    // it is open, by its outline.
+    if (auto triggers = _objectsByType.find(ObjectType::Trigger); triggers != _objectsByType.end()) {
+        for (auto &object : triggers->second) {
+            const auto &trigger = static_cast<const Trigger &>(*object);
+            if (!trigger.linkedToModule().empty()) {
+                addPortal(trigger, trigger.transitionDestin(), trigger.geometry());
+            }
+        }
+    }
+    if (auto doors = _objectsByType.find(ObjectType::Door); doors != _objectsByType.end()) {
+        for (auto &object : doors->second) {
+            const auto &door = static_cast<const Door &>(*object);
+            if (door.isLinked() && !door.linkedToModule().empty() && door.isOpen()) {
+                addPortal(door, door.transitionDestin(), door.outline());
+            }
+        }
     }
     return portals;
 }

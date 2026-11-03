@@ -6470,6 +6470,7 @@ static Variable ShowPartySelectionGUI(const std::vector<Variable> &args, const R
     partyCtx.exitScript = exitScript;
     partyCtx.forceNpc1 = nForceNPC1;
     partyCtx.forceNpc2 = nForceNPC2;
+    partyCtx.openedByScript = true;
     ctx.game.openPartySelection(partyCtx);
     return Variable::ofNull();
 }

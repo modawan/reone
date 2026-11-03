@@ -334,6 +334,21 @@ public:
      */
     bool movesBetweenModules(const Object &object) const;
     /**
+     * Whether the party may travel between areas and, in TSL, change its
+     * members: in KotOR while it keeps together, in TSL while nobody in it
+     * is down.
+     */
+    bool isReadyToTravel() const;
+    /** Whether a member of the party takes part in combat directly. */
+    bool isInCombat() const;
+    /**
+     * Let a traveller set off while the party is ready to travel; otherwise
+     * the transition-refused script runs on the traveller.
+     *
+     * @return whether the traveller may set off
+     */
+    bool admitTraveller(const Object &traveller);
+    /**
      * Whether a companion travels with the party as a follower. A follower
      * whose creature was destroyed still does: its place stays, naming
      * nothing. Neither the player character nor a companion standing in for

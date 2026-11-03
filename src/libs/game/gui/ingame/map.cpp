@@ -19,6 +19,7 @@
 
 #include "reone/game/game.h"
 #include "reone/game/object/waypoint.h"
+#include "reone/game/party.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/resource/strings.h"
@@ -34,6 +35,7 @@ namespace reone {
 namespace game {
 
 static constexpr int kStrRefMapNote = 349;
+static constexpr int kStrRefRejoinPartyFirst = 38452;
 
 void MapMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -70,6 +72,11 @@ void MapMenu::onGUILoaded() {
         _controls.BTN_PRTYSLCT->setTextAlignment(Control::TextAlign::CenterCenter);
         _controls.BTN_RETURN->setTextAlignment(Control::TextAlign::CenterCenter);
         _controls.BTN_PRTYSLCT->setOnClick([this]() {
+            // The party selection opens only while travel is open.
+            if (!_game.party().isReadyToTravel()) {
+                _game.showMessagePopup(_services.resource.strings.getText(kStrRefRejoinPartyFirst));
+                return;
+            }
             _game.openPartySelection(PartySelectionContext());
         });
     }
@@ -102,6 +109,15 @@ void MapMenu::refreshControls() {
 
     _selectedNoteIdx = 0;
     refreshSelectedNote();
+    if (!_game.isTSL()) {
+        refreshTravel();
+    }
+}
+
+void MapMenu::refreshTravel() {
+    const bool open = _game.party().isReadyToTravel();
+    _controls.BTN_PRTYSLCT->setTextColor(open ? kTravelOpenTextColor : kTravelRefusedTextColor);
+    _controls.BTN_PRTYSLCT->setBorderColor(open ? kTravelOpenBorderColor : kTravelRefusedBorderColor);
 }
 
 void MapMenu::refreshSelectedNote() {

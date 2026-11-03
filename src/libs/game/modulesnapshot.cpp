@@ -1808,13 +1808,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
             lists["Placeable List"].push_back(writePlaceable(*static_cast<Placeable *>(object.get()), ids));
             break;
         case ObjectType::Trigger:
-            // Linked-door thresholds are runtime collision helpers derived
-            // from the durable door linkage. Persisting them as authored GIT
-            // triggers reconstructs stale ordinary triggers on the next load.
-            if (!static_cast<Trigger *>(object.get())->isLinkedDoorTransition()) {
-                lists["TriggerList"].push_back(
-                    writeTrigger(*static_cast<Trigger *>(object.get()), ids));
-            }
+            lists["TriggerList"].push_back(
+                writeTrigger(*static_cast<Trigger *>(object.get()), ids));
             break;
         case ObjectType::Encounter:
             lists["Encounter List"].push_back(

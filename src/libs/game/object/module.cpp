@@ -459,6 +459,10 @@ void Module::getEntryPoint(const std::string &waypoint, glm::vec3 &position, flo
 }
 
 bool Module::handle(const input::Event &event) {
+    // The player's controls are held while the area's transition is pending.
+    if (_area->transitionPending()) {
+        return false;
+    }
     if (_player && _player->handle(event))
         return true;
     if (_area->handle(event))
@@ -622,7 +626,9 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
             return;
         }
         door->setLastEnteredId(partyLeader->id());
-        _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
+        if (_game.party().admitTraveller(*partyLeader)) {
+            _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
+        }
         return;
     }
     if (!door->isOpen()) {
@@ -1134,12 +1140,17 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         area->receiveExitedSignal(savedEvent.caller.boundObject());
     } else if (type == Signal::Clicked && (isa<Trigger>(target.get()) || isa<Door>(target.get()))) {
         // A click reaches triggers and doors only; its first object is the
-        // one who clicked.
+        // one who clicked, and its first integer, on a door, the number of the
+        // transition it carries.
         if (auto trigger = dyn_cast<Trigger>(target)) {
             trigger->receiveClick(subject());
         } else {
-            dyn_cast<Door>(target)->receiveClick(subject());
+            dyn_cast<Door>(target)->receiveClick(subject(), event.integers.empty() ? std::nullopt : std::optional<int>(event.integers[0]));
         }
+    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && type == Signal::Entered) {
+        // A trigger hears its own entry again; its second integer is the
+        // number of the transition it carries.
+        trigger->receiveEntered(subject(), event.integers[1]);
     } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
         // A conversation event reaches creatures, placeables and doors only;
         // the caller is the one who spoke.

@@ -1034,7 +1034,7 @@ void HUD::showTransitionCapturePresentation(const std::string &destination) {
         throw std::runtime_error("Area-transition GUI is unavailable");
     }
     _captureTransitionPresentation = true;
-    _areaTransition->show(destination);
+    _areaTransition->show(destination, _game.party().isReadyToTravel());
 }
 
 void HUD::clearCapturePresentation() {
@@ -1058,7 +1058,7 @@ void HUD::updateTransitionPresentation() {
     }
     auto candidate = currentTransitionCandidate();
     if (candidate) {
-        _areaTransition->show(candidate->destination);
+        _areaTransition->show(candidate->destination, _game.party().isReadyToTravel());
     } else {
         _areaTransition->hide();
     }

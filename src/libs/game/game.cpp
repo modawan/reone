@@ -870,7 +870,9 @@ bool Game::handle(const input::Event &event) {
         (!menuHoldsInput || _menusTakeAlternateActions[event.key.code == input::KeyCode::LeftShift ? 0 : 1])) {
         _alternateActionsHeld = event.type == input::EventType::KeyDown;
     }
-    if (_playerInputBlocked && event.type != input::EventType::KeyUp &&
+    // While the player's input is held only releases pass, except to a movie,
+    // which takes the input while it plays.
+    if (_playerInputBlocked && !_movie && event.type != input::EventType::KeyUp &&
         event.type != input::EventType::MouseButtonUp) {
         return true;
     }
@@ -4246,10 +4248,10 @@ void Game::updateTimeStop() {
     }
 }
 
-void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event) {
+void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event,
+                            uint32_t delayMilliseconds) {
     SavedEventRecord queued;
-    queued.day = worldTimeDay();
-    queued.time = worldTimeOfDay();
+    setEventDue(queued, worldTimeMilliseconds() + delayMilliseconds);
     queued.object = SavedObjectReference::fromRuntimeId(target.id());
     // An absent object is carried as no reference, so it never holds the event back.
     auto reference = [](uint32_t id) {
@@ -4269,11 +4271,33 @@ void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper
     _module->enqueueSaveEvent(std::move(queued));
 }
 
+void Game::queueClick(const Object &target, const Object &sender, const Object &clicker, std::optional<int> transition,
+                      uint32_t delayMilliseconds) {
+    static constexpr int kClickedEvent = static_cast<int>(SavedSignalEventType::Clicked);
+    std::vector<int32_t> integers;
+    if (transition) {
+        integers.push_back(*transition);
+    }
+    queueScriptEvent(*getObjectById(target.id()), sender,
+                     Event(kClickedEvent, std::move(integers), {}, {}, {getObjectById(clicker.id())}), delayMilliseconds);
+}
+
+void Game::queuePassage(Object &subArea, const std::shared_ptr<Creature> &creature, bool inside) {
+    static constexpr int kEnteredEvent = static_cast<int>(SavedSignalEventType::Entered);
+    static constexpr int kExitedEvent = static_cast<int>(SavedSignalEventType::Exited);
+    for (int number : {inside ? kExitedEvent : kEnteredEvent, inside ? kEnteredEvent : kExitedEvent}) {
+        queueScriptEvent(subArea, *creature, Event(number, {}, {}, {}, {creature}));
+    }
+}
+
+void Game::setEventDue(SavedEventRecord &event, uint64_t milliseconds) const {
+    event.day = static_cast<uint32_t>(milliseconds / millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(milliseconds % millisecondsPerWorldDay());
+}
+
 void Game::queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds) {
     SavedEventRecord event;
-    const uint64_t when = worldTimeMilliseconds() + delayMilliseconds;
-    event.day = static_cast<uint32_t>(when / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % millisecondsPerWorldDay());
+    setEventDue(event, worldTimeMilliseconds() + delayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::ApplyEffect);
     event.payload = std::move(effect);
@@ -4300,8 +4324,7 @@ void Game::postDelayedCommand(Object &owner, std::optional<std::reference_wrappe
         return;
     }
     SavedEventRecord event;
-    event.day = static_cast<uint32_t>(*when / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
+    setEventDue(event, *when);
     event.object = SavedObjectReference::fromRuntimeId(owner.id());
     if (caller) {
         event.caller = SavedObjectReference::fromRuntimeId(caller->get().id());

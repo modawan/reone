@@ -216,10 +216,10 @@ void Door::loadAppearance() {
     _soundArmorType = boost::to_lower_copy(
         getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds")->getString(soundType, "armortype"));
 
-    _linkedTransitionGeometry.clear();
+    _outline.clear();
     auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
     if (walkmeshClosed) {
-        loadLinkedTransitionGeometry(*walkmeshClosed);
+        loadOutline(*walkmeshClosed);
     }
 
     auto model = _services.resource.models.get(modelName);
@@ -307,7 +307,7 @@ void Door::applyRestingPose() {
     }
 }
 
-void Door::loadLinkedTransitionGeometry(const Walkmesh &walkmesh) {
+void Door::loadOutline(const Walkmesh &walkmesh) {
     AABB bounds;
     for (const auto &face : walkmesh.faces) {
         for (const auto &vertex : face.indices) {
@@ -319,11 +319,44 @@ void Door::loadLinkedTransitionGeometry(const Walkmesh &walkmesh) {
     }
 
     float z = bounds.min().z;
-    _linkedTransitionGeometry = {
+    _outline = {
         glm::vec3(bounds.min().x, bounds.min().y, z),
         glm::vec3(bounds.min().x, bounds.max().y, z),
         glm::vec3(bounds.max().x, bounds.max().y, z),
         glm::vec3(bounds.max().x, bounds.min().y, z)};
+}
+
+bool Door::isInOutline(const glm::vec3 &point) const {
+    if (_outline.empty()) {
+        return false;
+    }
+    const glm::vec3 local {glm::inverse(transform()) * glm::vec4(point, 1.0f)};
+    const glm::vec3 &low = _outline[0];
+    const glm::vec3 &high = _outline[2];
+    return local.x >= low.x && local.x <= high.x && local.y >= low.y && local.y <= high.y;
+}
+
+// Whether the door is open makes no difference. A creature outside the party
+// is counted in the outline and clicks nothing.
+void Door::updateOutlineOccupancy(const Creature &creature, bool announce) {
+    if (!isInOutline(creature.position())) {
+        _outlineOccupants.erase(creature.id());
+        return;
+    }
+    if (_outlineOccupants.count(creature.id()) != 0) {
+        return;
+    }
+    if (announce) {
+        Party &party = _game.party();
+        const bool leads = party.getLeader().get() == &creature;
+        if (party.isMember(creature) && !leads) {
+            return;
+        }
+        if (leads) {
+            _game.queueClick(*this, creature, creature);
+        }
+    }
+    _outlineOccupants.insert(creature.id());
 }
 
 bool Door::isSelectable() const {
@@ -398,6 +431,10 @@ void Door::onClosed(uint32_t closerId) {
         _onClosed,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
          {script::ArgKind::LastClosedBy, Variable::ofObject(closerId)}});
+}
+
+bool Door::isLinked() const {
+    return _linkedToFlags == kLinkedToDoor || _linkedToFlags == kLinkedToWaypoint;
 }
 
 std::shared_ptr<Door> Door::linkedDoor() {
@@ -727,15 +764,15 @@ void Door::onOpen(uint32_t triggererId) {
          {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)}});
 }
 
-void Door::receiveClick(const std::shared_ptr<Object> &clicker) {
+void Door::receiveClick(const std::shared_ptr<Object> &clicker, std::optional<int> transition) {
     _lastEnteredId = clicker ? clicker->id() : kObjectInvalid;
     if (_linkedToFlags == kLinkedToDoor || _linkedToFlags == kLinkedToWaypoint) {
-        auto creature = dyn_cast<Creature>(clicker);
-        const Party &party = _game.party();
-        if (creature && !_linkedToModule.empty() && party.movesBetweenModules(*creature) && !creature->isDead() &&
-            !(party.isMember(*creature) && creature->currentHitPoints() <= 0)) {
-            _game.scheduleModuleTransition(_linkedToModule, _linkedTo);
-        }
+        // A click on a linked door passes the party through it; the door
+        // hears the click again with the transition's number.
+        _game.module()->area()->passTransition(clicker, transition, _linkedToModule, _linkedTo,
+                                               [this](const Creature &traveller, int id, uint32_t delay) {
+                                                   _game.queueClick(*this, *this, traveller, id, delay);
+                                               });
         return;
     }
     if (_onClick.empty()) {

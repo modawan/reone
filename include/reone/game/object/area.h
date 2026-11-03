@@ -337,9 +337,12 @@ public:
     void budgeCreatures(const glm::vec3 &center, const graphics::AABB &bounds,
                         std::optional<std::reference_wrapper<const Door>> shutDoor = std::nullopt);
     /**
-     * Note a creature's new position in every encounter and area of effect,
-     * signalling entries and exits when announce is set. A step from \p from
-     * that passes through one signals an entry and an exit there.
+     * Note a creature's new position in every encounter, area of effect and
+     * door outline, signalling entries and exits when announce is set: the
+     * leader's entry into a door's outline clicks the door. A step from
+     * \p from that passes through an encounter or area of effect signals an
+     * entry and an exit there; a door outline counts only where the step
+     * ends.
      */
     void updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce = true,
                                 std::optional<glm::vec3> from = std::nullopt);
@@ -548,6 +551,37 @@ public:
 
     const CameraStyle &camStyleDefault() const { return _camStyleDefault; }
     bool transitionPending() const { return _transitionPending; }
+    /** The number the pending transition's click carries. */
+    int transitionPendingId() const { return _transitionPendingCurrentId; }
+    /**
+     * Sets the area's transition pending under \p id, or clears it. Setting it
+     * lets go of the movement keys held and blocks the player's input;
+     * clearing it gives the input back, as does the end of a load. A game
+     * restored with the transition pending does not block the input.
+     */
+    void setTransitionPending(bool pending, int id);
+    /**
+     * A transition to \p module, at \p waypoint, that \p traveller sets off
+     * through a linked door or an area transition, or that a pending one's
+     * number \p transition brings back to it. With no conversation under way,
+     * the player character or the leader sets it off while the party is ready
+     * to travel: \p sendAgain has the door or trigger signal itself again
+     * after a delay with a new number, over which the screen fades out while
+     * play goes on, the player's input is held and the pause lifted; on that
+     * signal the party travels, unless the traveller has died or gone down,
+     * which stops the fade. No creature, or a conversation under way, calls a
+     * pending transition off.
+     */
+    void passTransition(const std::shared_ptr<Object> &traveller, std::optional<int> transition,
+                        const std::string &module, const std::string &waypoint,
+                        const std::function<void(const Creature &traveller, int transition, uint32_t delayMilliseconds)> &sendAgain);
+    /** The next transition's number: one more than the last, wrapping round and never 0. */
+    int nextTransitionPendingId() {
+        if (++_transitionPendingNextId == 0) {
+            ++_transitionPendingNextId;
+        }
+        return _transitionPendingNextId;
+    }
     bool playerRestrictMode() const { return _playerRestrictMode; }
     /** Turning restrict mode on ends the party's stealth. */
     void setPlayerRestrictMode(bool value);

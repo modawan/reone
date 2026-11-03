@@ -73,7 +73,6 @@ public:
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
-    void configureLinkedDoorTransition(const std::shared_ptr<Door> &door);
 
     void update(float dt) override;
     void resolveSavedReferences(
@@ -102,12 +101,9 @@ public:
      */
     bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
-    bool isActive() const;
-    bool isLinkedDoorTransition() const { return _linkedDoorTransition; }
     /** Whether the trigger's type makes it an area transition. */
     bool isAreaTransition() const { return _triggerType == kAreaTransitionType; }
     bool acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const;
-    bool detachLinkedDoorTransition(const Door &door);
 
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
     DebugState debugState() const;
@@ -124,6 +120,12 @@ public:
      * default one, takes the stock transition script for good.
      */
     void receiveClick(const std::shared_ptr<Object> &clicker);
+    /**
+     * A creature entering an area transition, or the transition's own entry
+     * signalled again with its number \p transition: it becomes the entering
+     * object, and the party passes as Area::passTransition() says.
+     */
+    void receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition = std::nullopt);
     const std::string &getOnExit() const { return _onExit; }
     /** The object that last came into the trigger, kept until the next one does. */
     uint32_t lastEnteredId() const { return _lastEnteredId; }

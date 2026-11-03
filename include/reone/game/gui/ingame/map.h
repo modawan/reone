@@ -69,6 +69,9 @@ private:
 
     void onGUILoaded() override;
 
+    /** KotOR: the party-selection button shows whether travel is open. */
+    void refreshTravel();
+
     void bindControls() {
         _controls.BTN_DOWN = findControl<gui::Button>("BTN_DOWN");
         _controls.BTN_EXIT = findControl<gui::Button>("BTN_EXIT");

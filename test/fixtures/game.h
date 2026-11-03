@@ -388,7 +388,6 @@ public:
     static void setSnapshotDoorState(Door &door, DoorState state);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
-    static void markSnapshotLinkedDoorHelper(Trigger &trigger);
     static void configureSnapshotCamera(
         StaticCamera &camera, int cameraId, glm::vec3 position,
         glm::quat orientation, float pitch, float height,

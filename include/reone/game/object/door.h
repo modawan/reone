@@ -20,6 +20,7 @@
 #include <array>
 #include <functional>
 #include <optional>
+#include <set>
 
 #include "reone/resource/format/gffreader.h"
 #include "reone/scene/node/walkmesh.h"
@@ -124,13 +125,13 @@ public:
      */
     void onFailToOpen(uint32_t openerId, bool quiet);
     /**
-     * A creature walked up to the door: it becomes the entering object. A door
-     * linked to another module takes the party there when the clicker moves
-     * the party between modules and is neither dead nor a downed member; any
-     * other door runs its click script with the clicker as the clicking
-     * object.
+     * The door is clicked: the clicker becomes the entering object. A door
+     * linked to another module passes the party as Area::passTransition()
+     * says, hearing the click again with the transition's number
+     * (\p transition). Any other door runs its click script with the clicker
+     * as the clicking object.
      */
-    void receiveClick(const std::shared_ptr<Object> &clicker);
+    void receiveClick(const std::shared_ptr<Object> &clicker, std::optional<int> transition = std::nullopt);
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
@@ -188,9 +189,23 @@ public:
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
     uint8_t linkedToFlags() const { return _linkedToFlags; }
+    /** The door leads to another door or to a waypoint. */
+    bool isLinked() const;
     const std::string &transitionDestin() const { return _transitionDestin.str(); }
     const resource::LocString &transitionDestination() const { return _transitionDestin; }
-    const std::vector<glm::vec3> &linkedTransitionGeometry() const { return _linkedTransitionGeometry; }
+    /** The bounds of the door's closed walkmesh across the ground, as four points in its own frame; none without one. */
+    const std::vector<glm::vec3> &outline() const { return _outline; }
+    /** Whether \p point stands within the door's outline, the bounds of its closed walkmesh, across the ground. */
+    bool isInOutline(const glm::vec3 &point) const;
+    /**
+     * Notes whether \p creature stands within the door's outline. When
+     * \p announce is set, the leader stepping into it clicks the door and
+     * another party member is not counted in it until it leads; otherwise
+     * the creature is only counted.
+     */
+    void updateOutlineOccupancy(const Creature &creature, bool announce);
+    /** Forget a creature leaving the world, clicking nothing. */
+    void forgetOutlineOccupant(uint32_t objectId) { _outlineOccupants.erase(objectId); }
 
     /** The door takes its destroyed pose. */
     void enterDestroyedState();
@@ -314,7 +329,9 @@ private:
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen1;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen2;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshClosed;
-    std::vector<glm::vec3> _linkedTransitionGeometry;
+    std::vector<glm::vec3> _outline;
+    /** The creatures counted as standing within the outline. */
+    std::set<uint32_t> _outlineOccupants;
 
     // END Walkmeshes
 
@@ -386,7 +403,7 @@ private:
     static DoorState transitionTarget(DoorTransition transition);
     /** The two use points of a resting state in the world; none for a destroyed door. */
     std::optional<std::array<glm::vec3, 2>> actionPoints(DoorState state) const;
-    void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);
+    void loadOutline(const graphics::Walkmesh &walkmesh);
     void updateTransform() override;
 };
 

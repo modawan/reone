@@ -2224,10 +2224,10 @@ TEST(TransitionPresentationLifecycle, should_hide_empty_destination_before_gui_c
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     AreaTransition transition(game, engine.services());
 
-    EXPECT_NO_THROW(transition.show("Destination Area"));
+    EXPECT_NO_THROW(transition.show("Destination Area", true));
     ASSERT_TRUE(transition.isVisible());
 
-    EXPECT_NO_THROW(transition.show(""));
+    EXPECT_NO_THROW(transition.show("", true));
     EXPECT_FALSE(transition.isVisible());
 }
 
@@ -2776,7 +2776,7 @@ TEST(TransitionPresentationPortals, should_ignore_non_transitions_and_expose_emp
     EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
 }
 
-TEST(LinkedDoorTransition, should_derive_threshold_from_closed_dwk_and_follow_door_state) {
+TEST(LinkedDoorTransition, should_derive_outline_from_closed_dwk) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -2792,203 +2792,19 @@ TEST(LinkedDoorTransition, should_derive_threshold_from_closed_dwk_and_follow_do
 
     area->add(door);
 
-    auto &triggers = area->getObjectsByType(ObjectType::Trigger);
-    ASSERT_EQ(triggers.size(), 1);
-    auto trigger = std::static_pointer_cast<Trigger>(triggers.front());
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Trigger).empty());
     EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-    EXPECT_TRUE(trigger->isLinkedDoorTransition());
-    ASSERT_TRUE(trigger->sceneNode());
-    EXPECT_EQ(trigger->sceneNode()->type(), scene::SceneNodeType::Trigger);
-    EXPECT_FALSE(trigger->isActive());
     EXPECT_TRUE(door->isSelectable());
-    EXPECT_EQ(trigger->linkedToModule(), "destination_module");
-    EXPECT_EQ(trigger->linkedTo(), "destination_waypoint");
-    EXPECT_EQ(trigger->linkedToFlags(), 1);
-    EXPECT_EQ(trigger->transitionDestin(), "Destination Area");
-    ASSERT_EQ(trigger->geometry().size(), 4);
-    EXPECT_EQ(trigger->geometry()[0], glm::vec3(-2.0f, -0.5f, 0.0f));
-    EXPECT_EQ(trigger->geometry()[2], glm::vec3(2.0f, 0.5f, 0.0f));
+    ASSERT_EQ(door->outline().size(), 4);
+    EXPECT_EQ(door->outline()[0], glm::vec3(-2.0f, -0.5f, 0.0f));
+    EXPECT_EQ(door->outline()[2], glm::vec3(2.0f, 0.5f, 0.0f));
+    EXPECT_TRUE(door->isInOutline(door->position()));
 
     door->open();
 
-    EXPECT_TRUE(trigger->isActive());
     EXPECT_FALSE(door->isSelectable());
-    EXPECT_TRUE(trigger->isIn(door->position()));
+    EXPECT_TRUE(door->isInOutline(door->position()));
     EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-
-    door->close();
-
-    EXPECT_FALSE(trigger->isActive());
-
-    door->open();
-
-    EXPECT_TRUE(trigger->isActive());
-    EXPECT_FALSE(door->isSelectable());
-}
-
-TEST(LinkedDoorTransition, should_destroy_generated_threshold_with_its_source_door) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    // The tables are read at start-up; the others are missing.
-    EXPECT_CALL(engine.resourceModule().twoDas(),
-                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
-                          "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
-                          "xptable", "npc", "appearancesndset", "weaponsounds", "placeableobjsnds",
-                          "bodybag", "traps", "fractionalcr", "regeneration", "racialtypes", "ranges",
-                          "effecticon", "itemvalue", "videoeffects", "stringtokens", "tutorial", "feedbacktext",
-                          "aiscripts", "dialoganimations", "animations", "encdifficulty")))
-        .Times(AnyNumber());
-    // Triggers load their trap data where present; the leader regenerates.
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
-        .Times(AnyNumber())
-        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("regeneration"))
-        .Times(AnyNumber())
-        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
-                                                                    .columns({"label", "healthregen", "forceregen"})
-                                                                    .row({"InCombat", "0.0", "0.0"})
-                                                                    .row({"OutOfCombat", "0.0", "1.0"})
-                                                                    .build())));
-    engine.initCombatTables();
-    auto area = game.newArea();
-    auto door = makeTransitionDoor(game, engine);
-    auto leader = makeMovingCreature(game, engine);
-    leader->setPosition(glm::vec3(0.0f, -1.0f, 0.0f));
-    game.party().addMember(kNpcPlayer, leader);
-    game.party().setPlayer(leader);
-
-    auto authored = game.newTrigger();
-    authored->deserialize(
-        *Gff::Builder().build(),
-        SerializedIdentityContext::templateResource());
-    area->add(authored);
-    area->add(door);
-    area->add(leader);
-
-    auto &triggers = area->getObjectsByType(ObjectType::Trigger);
-    ASSERT_EQ(triggers.size(), 2);
-    auto generated = std::static_pointer_cast<Trigger>(triggers.back());
-    auto generatedSceneNode = std::static_pointer_cast<scene::TriggerSceneNode>(generated->sceneNode());
-    ASSERT_TRUE(generatedSceneNode);
-    door->open();
-    generated->addTenant(leader);
-    ASSERT_TRUE(generated->isActive());
-    ASSERT_TRUE(generated->isTenant(leader));
-
-    auto &sceneGraph = testSceneGraph(engine);
-    EXPECT_CALL(sceneGraph, removeRoot(A<scene::TriggerSceneNode &>()))
-        .WillOnce(Invoke([expected = generatedSceneNode.get()](scene::TriggerSceneNode &node) {
-            EXPECT_EQ(&node, expected);
-        }));
-
-    area->destroyObject(*door);
-    area->update(0.0f);
-
-    ASSERT_EQ(triggers.size(), 1);
-    EXPECT_EQ(triggers.front(), authored);
-    EXPECT_FALSE(generated->isActive());
-    EXPECT_FALSE(generated->isTenant(leader));
-    EXPECT_TRUE(generated->linkedToModule().empty());
-    EXPECT_TRUE(generated->linkedTo().empty());
-
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 0.75f));
-    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-}
-
-TEST(LinkedDoorTransition, should_rearm_after_party_unload_and_exit_reentry) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto area = game.newArea();
-    auto door = makeTransitionDoor(game, engine);
-    auto leader = makeMovingCreature(game, engine);
-    leader->setPosition(glm::vec3(0.0f, -1.0f, 0.0f));
-    game.party().addMember(kNpcPlayer, leader);
-    game.party().setPlayer(leader);
-    area->add(door);
-    area->add(leader);
-    auto trigger = std::static_pointer_cast<Trigger>(area->getObjectsByType(ObjectType::Trigger).front());
-
-    door->open();
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 0.75f));
-
-    EXPECT_TRUE(trigger->isTenant(leader));
-    EXPECT_EQ(trigger->linkedToModule(), "destination_module");
-    EXPECT_EQ(trigger->linkedTo(), "destination_waypoint");
-    EXPECT_EQ(
-        scheduledTransition(engine, game),
-        std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
-
-    // Remaining inside uses the existing tenant latch and does not generate a
-    // second enter event while the first transition is pending.
-    game.scheduleModuleTransition("sentinel_module", "sentinel_waypoint");
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(1.0f, 0.0f), false, 0.1f));
-    EXPECT_TRUE(trigger->isTenant(leader));
-    EXPECT_EQ(
-        scheduledTransition(engine, game),
-        std::make_pair(std::string("sentinel_module"), std::string("sentinel_waypoint")));
-
-    // Module transitions cache Area/Trigger instances. Party unload removes
-    // the old tenant, and loading the party again models revisiting the module.
-    area->retirePartyAreaRuntime();
-    EXPECT_FALSE(trigger->isTenant(leader));
-    area->loadParty(glm::vec3(0.0f, -1.0f, 0.0f), 0.0f);
-    game.scheduleModuleTransition("", "");
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 0.75f));
-    EXPECT_TRUE(trigger->isTenant(leader));
-    EXPECT_EQ(
-        scheduledTransition(engine, game),
-        std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
-
-    game.scheduleModuleTransition("", "");
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.0f));
-    trigger->update(0.0f);
-    EXPECT_FALSE(trigger->isTenant(leader));
-    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, -1.0f), false, 0.75f));
-    EXPECT_TRUE(trigger->isTenant(leader));
-    EXPECT_EQ(
-        scheduledTransition(engine, game),
-        std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
-}
-
-TEST(LinkedDoorTransition, should_reject_npcs_and_companions) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto area = game.newArea();
-    auto door = makeTransitionDoor(game, engine);
-    auto leader = makeMovingCreature(game, engine);
-    auto companion = makeMovingCreature(game, engine);
-    auto npc = makeMovingCreature(game, engine);
-    leader->setPosition(glm::vec3(0.5f, -1.0f, 0.0f));
-    companion->setPosition(glm::vec3(-0.9f, -1.0f, 0.0f));
-    npc->setPosition(glm::vec3(1.9f, -1.0f, 0.0f));
-    game.party().addMember(kNpcPlayer, leader);
-    game.party().setPlayer(leader);
-    game.party().addAvailableMember(0, companion);
-    game.party().addMember(0, companion);
-    area->add(door);
-    area->add(leader);
-    area->add(companion);
-    area->add(npc);
-    auto trigger = std::static_pointer_cast<Trigger>(area->getObjectsByType(ObjectType::Trigger).front());
-    door->open();
-
-    ASSERT_TRUE(area->moveCreature(companion, glm::vec2(0.0f, 1.0f), false, 0.75f));
-    EXPECT_FALSE(trigger->isTenant(companion));
-    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-
-    ASSERT_TRUE(area->moveCreature(npc, glm::vec2(0.0f, 1.0f), false, 0.75f));
-    EXPECT_FALSE(trigger->isTenant(npc));
-    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 0.75f));
-    EXPECT_TRUE(trigger->isTenant(leader));
-    EXPECT_EQ(
-        scheduledTransition(engine, game),
-        std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
 }
 
 // Only the player or controlled party leader can activate a LinkedToModule
@@ -3012,6 +2828,7 @@ struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
             SerializedIdentityContext::templateResource());
         trigger->setPosition(glm::vec3(0.0f, 0.0f, 0.0f));
         area->add(trigger);
+        TestGameModule::setActiveModuleArea(game, area);
     }
 
     /** A creature standing just short of the trigger's southern edge. */
@@ -3025,18 +2842,6 @@ struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
     /** Walk north, crossing into the trigger polygon. */
     bool stepIn(const std::shared_ptr<Creature> &creature) {
         return area->moveCreature(creature, glm::vec2(0.0f, 1.0f), false, 0.75f);
-    }
-
-    std::pair<std::string, std::string> scheduled() const {
-        return scheduledTransition(engine, game);
-    }
-
-    static std::pair<std::string, std::string> none() {
-        return {std::string(), std::string()};
-    }
-
-    static std::pair<std::string, std::string> hawk() {
-        return {std::string("ebo_m12aa"), std::string("k_ebn_ramp_entrance")};
     }
 
     TestEngine &engine {testEngine()};
@@ -3054,7 +2859,7 @@ TEST_P(ModuleTransitionActivatorFixture, player_character_may_transition) {
 
     ASSERT_TRUE(stepIn(player));
 
-    EXPECT_EQ(scheduled(), hawk());
+    EXPECT_TRUE(area->transitionPending());
 }
 
 // Controlling a companion makes it the leader. It must keep the ability to
@@ -3072,7 +2877,7 @@ TEST_P(ModuleTransitionActivatorFixture, controlled_companion_may_transition) {
     ASSERT_EQ(game.party().getLeader(), companion);
     ASSERT_TRUE(stepIn(companion));
 
-    EXPECT_EQ(scheduled(), hawk());
+    EXPECT_TRUE(area->transitionPending());
 }
 
 // The canonical PC keeps its own right to transition even while a companion
@@ -3090,7 +2895,7 @@ TEST_P(ModuleTransitionActivatorFixture, player_character_may_transition_while_a
     ASSERT_NE(game.party().getLeader(), player);
     ASSERT_TRUE(stepIn(player));
 
-    EXPECT_EQ(scheduled(), hawk());
+    EXPECT_TRUE(area->transitionPending());
 }
 
 TEST_P(ModuleTransitionActivatorFixture, following_companion_may_not_transition) {
@@ -3106,7 +2911,7 @@ TEST_P(ModuleTransitionActivatorFixture, following_companion_may_not_transition)
 
     ASSERT_TRUE(stepIn(follower));
 
-    EXPECT_EQ(scheduled(), none())
+    EXPECT_FALSE(area->transitionPending())
         << "a following companion must not move the whole party between modules";
 }
 
@@ -3121,7 +2926,7 @@ TEST_P(ModuleTransitionActivatorFixture, non_party_creature_may_not_transition) 
 
     ASSERT_TRUE(stepIn(ambient));
 
-    EXPECT_EQ(scheduled(), none());
+    EXPECT_FALSE(area->transitionPending());
 }
 
 // The reproduction shape: arriving on Dantooine, a follower crosses the
@@ -3140,13 +2945,13 @@ TEST_P(ModuleTransitionActivatorFixture, follower_does_not_bounce_the_party_back
     game.party().addMember(0, follower);
 
     ASSERT_TRUE(stepIn(follower));
-    EXPECT_EQ(scheduled(), none());
+    EXPECT_FALSE(area->transitionPending());
 
     // Deliberately walking the player in later still works normally: the
     // restriction is on who may activate, not on the trigger itself.
     player->setPosition(glm::vec3(-0.5f, -1.5f, 0.0f));
     ASSERT_TRUE(stepIn(player));
-    EXPECT_EQ(scheduled(), hawk());
+    EXPECT_TRUE(area->transitionPending());
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -3156,29 +2961,6 @@ INSTANTIATE_TEST_SUITE_P(
     [](const ::testing::TestParamInfo<GameID> &info) {
         return info.param == GameID::TSL ? "TSL" : "KotOR";
     });
-
-TEST(LinkedDoorTransition, should_support_authored_cross_module_flag_values) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto area = game.newArea();
-    auto flag1Door = makeTransitionDoor(game, engine, 1, "flag1_module", "flag1_waypoint");
-    auto flag2Door = makeTransitionDoor(game, engine, 2, "flag2_module", "flag2_waypoint");
-
-    area->add(flag1Door);
-    area->add(flag2Door);
-
-    auto &triggers = area->getObjectsByType(ObjectType::Trigger);
-    ASSERT_EQ(triggers.size(), 2);
-    auto flag1Trigger = std::static_pointer_cast<Trigger>(triggers[0]);
-    auto flag2Trigger = std::static_pointer_cast<Trigger>(triggers[1]);
-    EXPECT_EQ(flag1Trigger->linkedToFlags(), 1);
-    EXPECT_EQ(flag1Trigger->linkedToModule(), "flag1_module");
-    EXPECT_EQ(flag1Trigger->linkedTo(), "flag1_waypoint");
-    EXPECT_EQ(flag2Trigger->linkedToFlags(), 2);
-    EXPECT_EQ(flag2Trigger->linkedToModule(), "flag2_module");
-    EXPECT_EQ(flag2Trigger->linkedTo(), "flag2_waypoint");
-}
 
 TEST(TransitionEntryResolution, matches_odyssey_entry_tags_case_insensitively) {
     TestEngine &engine = testEngine();
@@ -3282,11 +3064,12 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
     game.party().setActualPlayer(leader);
     area->add(trigger);
     area->add(leader);
+    TestGameModule::setActiveModuleArea(game, area);
 
-    EXPECT_FALSE(trigger->isLinkedDoorTransition());
-    EXPECT_TRUE(trigger->isActive());
     ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.25f));
     EXPECT_TRUE(trigger->isTenant(leader));
+    TestGameModule::advanceWorldTime(game, 0.5f);
+    game.module()->dispatchDueSavedEvents();
     EXPECT_EQ(
         scheduledTransition(engine, game),
         std::make_pair(std::string("authored_module"), std::string("authored_waypoint")));
@@ -3297,48 +3080,6 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
 
     ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, -1.0f), false, 0.5f));
     EXPECT_TRUE(trigger->isTenant(leader));
-}
-
-TEST(LinkedDoorTransition, should_allow_normal_close_action_and_reactivate_when_reopened) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto area = game.newArea();
-    auto linkedDoor = makeTransitionDoor(game, engine);
-    auto leader = makeMovingCreature(game, engine);
-    leader->setPosition(glm::vec3(0.0f, -1.0f, 0.0f));
-    game.party().addMember(kNpcPlayer, leader);
-    game.party().setPlayer(leader);
-    area->add(linkedDoor);
-    area->add(leader);
-    auto trigger = std::static_pointer_cast<Trigger>(area->getObjectsByType(ObjectType::Trigger).front());
-    linkedDoor->open();
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 0.75f));
-    ASSERT_TRUE(trigger->isTenant(leader));
-    game.scheduleModuleTransition("", "");
-    auto linkedClose = game.newAction<CloseDoorAction>(linkedDoor);
-
-    linkedClose->execute(linkedClose, *linkedDoor, 0.0f);
-    trigger->update(0.0f);
-
-    EXPECT_TRUE(linkedClose->isCompleted());
-    EXPECT_FALSE(linkedDoor->isOpen());
-    EXPECT_FALSE(trigger->isActive());
-    EXPECT_FALSE(trigger->isTenant(leader));
-
-    linkedDoor->open();
-
-    EXPECT_TRUE(linkedDoor->isOpen());
-    EXPECT_TRUE(trigger->isActive());
-    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.0f));
-    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
-    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, -1.0f), false, 0.75f));
-    EXPECT_TRUE(trigger->isTenant(leader));
-    EXPECT_EQ(
-        scheduledTransition(engine, game),
-        std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
 }
 
 namespace {

@@ -43,14 +43,32 @@ void AreaTransition::preload(IGUI &gui) {
 
 void AreaTransition::onGUILoaded() {
     bindControls();
+    // The banner's colour tints its images as well as their frames. A dimmed
+    // banner draws both in the refused colour.
+    _controls.LBL_TEXTBG->setTintBorderFill(true);
+    _controls.LBL_ICON->setTintBorderFill(true);
+    _controls.LBL_TEXTBG->setBorderColorOverride(kTravelRefusedBorderColor);
+    _controls.LBL_ICON->setBorderColorOverride(kTravelRefusedBorderColor);
+    if (_game.isTSL()) {
+        _travelRefusedTextColor = kTSLTravelRefusedTextColor;
+    } else {
+        // KotOR's open banner is white with blue text.
+        _controls.LBL_TEXTBG->setBorderColor(kTravelOpenBorderColor);
+        _controls.LBL_ICON->setBorderColor(kTravelOpenBorderColor);
+        _controls.LBL_DESCRIPTION->setTextColor(kTravelOpenTextColor);
+        _travelRefusedTextColor = kTravelRefusedTextColor;
+    }
+    _travelOpenTextColor = _controls.LBL_DESCRIPTION->text().color;
+    _travelOpen = true;
     hide();
 }
 
-void AreaTransition::show(const std::string &destination) {
+void AreaTransition::show(const std::string &destination, bool travelOpen) {
     if (destination.empty()) {
         hide();
         return;
     }
+    setTravelOpen(travelOpen);
     std::string displayName(transitionDestinationDisplayName(destination));
     if (_visible && displayName == _destination) {
         return;
@@ -82,6 +100,22 @@ void AreaTransition::hide() {
         _controls.LBL_ICON->setVisible(false);
     }
     _visible = false;
+}
+
+void AreaTransition::setTravelOpen(bool open) {
+    if (open == _travelOpen) {
+        return;
+    }
+    _travelOpen = open;
+    if (_controls.LBL_DESCRIPTION) {
+        _controls.LBL_DESCRIPTION->setTextColor(open ? _travelOpenTextColor : _travelRefusedTextColor);
+    }
+    if (_controls.LBL_TEXTBG) {
+        _controls.LBL_TEXTBG->setUseBorderColorOverride(!open);
+    }
+    if (_controls.LBL_ICON) {
+        _controls.LBL_ICON->setUseBorderColorOverride(!open);
+    }
 }
 
 } // namespace game
