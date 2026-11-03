@@ -203,8 +203,8 @@ TEST(AssignCommand, should_keep_the_order_of_commands_assigned_in_sequence) {
     // in is readable off the queue. The walk goes second: a command queued
     // behind a walk takes the walk off the queue.
     assignCommand(routines, subject->id(), newCommandCallingWithFloat(routines, "ActionWait", 0.5f));
-    game.module()->dispatchDueSavedEvents();
     assignCommand(routines, subject->id(), newCommandCalling(routines, "ActionRandomWalk"));
+    game.module()->dispatchDueSavedEvents();
 
     // then
     // Events due at the same time run in the order they were posted, which

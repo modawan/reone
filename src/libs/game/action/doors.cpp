@@ -258,7 +258,6 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         }
         auto &creature = static_cast<Creature &>(actor);
         if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false, false)) {
-        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false)) {
             if (creature.navigationFailed()) {
                 // No path reaches the door: give up.
                 complete();
@@ -314,7 +313,6 @@ void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
 
     bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false, false);
-    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false);
     if (!reached && creatureActor->navigationFailed()) {
         // No path reaches the door: give up.
         complete();
