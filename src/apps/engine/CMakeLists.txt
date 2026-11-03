@@ -49,3 +49,4 @@ target_precompile_headers(engine PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 target_link_libraries(engine PRIVATE game ${Boost_PROGRAM_OPTIONS_LIBRARY} imgui)
 
 list(APPEND InstallTargets engine)
+set(InstallTargets ${InstallTargets} PARENT_SCOPE)

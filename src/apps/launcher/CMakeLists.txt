@@ -35,3 +35,4 @@ target_precompile_headers(launcher PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 target_link_libraries(launcher PRIVATE system ${wxWidgets_LIBRARIES} ${Boost_PROGRAM_OPTIONS_LIBRARY})
 
 list(APPEND InstallTargets launcher)
+set(InstallTargets ${InstallTargets} PARENT_SCOPE)
