@@ -8795,6 +8795,26 @@ void Game::setBarkBubbleText(std::string text, float duration) {
     _hud->barkBubble().setBarkText(text, duration);
 }
 
+void Game::bark(Object &speaker, int strRef) {
+    const std::string text = getInterfaceText(strRef);
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    playBarkSound(speaker, _services.resource.strings.getSound(strRef));
+}
+
+void Game::playBarkSound(Object &speaker, const std::string &sound) {
+    if (_barkVoice) {
+        _barkVoice->stop();
+    }
+    auto clip = _services.resource.audioClips.get(sound);
+    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, 1.0f, false, speaker.position())
+                      : nullptr;
+    if (auto *creature = dyn_cast<Creature>(&speaker)) {
+        if (auto lip = _services.resource.lips.get(sound)) {
+            creature->talkOnce(lip);
+        }
+    }
+}
+
 void Game::addFeedbackMessage(int strRef, const std::map<int, std::string> &tokens) {
     auto text = getFeedbackText(strRef, tokens);
     // An empty line is not written.

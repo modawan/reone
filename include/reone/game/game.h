@@ -605,6 +605,17 @@ public:
     void stopConversationParticipation(const Object &object);
 
     void setBarkBubbleText(std::string text, float durartion);
+    /**
+     * \p speaker barks the talk-table line \p strRef: the bark bubble shows
+     * its text for the time it takes to speak, and its sound plays as a bark.
+     */
+    void bark(Object &speaker, int strRef);
+    /**
+     * Plays \p sound, a barked line's sound, from where \p speaker stands,
+     * cutting off the bark sound before it. A creature's head speaks the line
+     * once when the sound has lip data.
+     */
+    void playBarkSound(Object &speaker, const std::string &sound);
     /** Show a combat-mode line for the controlled character. */
     void presentCombatMessage(int strref);
     /** End the choice of a party member to use an item on, if the main interface is making one. */
@@ -1978,6 +1989,8 @@ private:
     std::shared_ptr<audio::AudioSource> _loadMusic;
     /** The coming module load follows transition movies, and plays no loading-screen music. */
     bool _loadComesWithMovies {false};
+    /** The sound of the last line barked, while it plays; every bark plays here. */
+    std::shared_ptr<audio::AudioSource> _barkVoice;
 
     // END Audio
 

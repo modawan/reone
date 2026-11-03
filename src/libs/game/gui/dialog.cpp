@@ -17,6 +17,7 @@
 
 #include "reone/game/gui/dialog.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "reone/audio/mixer.h"
@@ -51,6 +52,9 @@ namespace game {
 static const char kControlTagTopFrame[] = "TOP";
 static const char kControlTagBottomFrame[] = "BOTTOM";
 static const char kObjectTagOwner[] = "owner";
+// The participants that name the party's second and third members.
+static const char kParticipantFirstCompanion[] = "npc1";
+static const char kParticipantSecondCompanion[] = "npc2";
 /** How far a participant of a conversation looks at the other of its pair. */
 static constexpr float kDialogLookDistance = 10.0f;
 /** A participant turning its body brings the other a degree inside its head arc. */
@@ -83,43 +87,10 @@ static constexpr int kBandDivisor = 6;
 // pause.
 static constexpr int kFirstLoopingCutOrdinal = 1400;
 
-/** The clip a cut ordinal plays on a creature: the clip it names, else the creature's pause. */
-static std::string getCutClipName(const std::string &name, const Object &creature) {
-    return name.empty() ? creature.getAnimationName(AnimationType::LoopingPause) : name;
+/** The clip a cut ordinal plays on a creature: the clip it names, else the clip of the creature's pause row. */
+static std::string getCutClipName(const std::string &name, const Creature &creature) {
+    return name.empty() ? creature.getScriptAnimation(kPauseAnimationId).clip : name;
 }
-
-static const std::unordered_map<std::string, AnimationType> g_animTypeByName {
-    {"dead", AnimationType::LoopingDead},
-    {"taunt", AnimationType::FireForgetTaunt},
-    {"greeting", AnimationType::FireForgetGreeting},
-    {"listen", AnimationType::LoopingListen},
-    {"worship", AnimationType::LoopingWorship},
-    {"salute", AnimationType::FireForgetSalute},
-    {"bow", AnimationType::FireForgetBow},
-    {"talk_normal", AnimationType::LoopingTalkNormal},
-    {"talk_pleading", AnimationType::LoopingTalkPleading},
-    {"talk_forceful", AnimationType::LoopingTalkForceful},
-    {"talk_laughing", AnimationType::LoopingTalkLaughing},
-    {"talk_sad", AnimationType::LoopingTalkSad},
-    {"victory", AnimationType::FireForgetVictory1},
-    {"scratch_head", AnimationType::FireForgetPauseScratchHead},
-    {"drunk", AnimationType::LoopingPauseDrunk},
-    {"inject", AnimationType::FireForgetInject},
-    {"flirt", AnimationType::LoopingFlirt},
-    {"use_computer_lp", AnimationType::LoopingUseComputer},
-    {"horror", AnimationType::LoopingHorror},
-    {"use_computer", AnimationType::FireForgetUseComputer},
-    {"persuade", AnimationType::FireForgetPersuade},
-    {"activate", AnimationType::FireForgetActivate},
-    {"sleep", AnimationType::LoopingSleep},
-    {"prone", AnimationType::LoopingProne},
-    {"ready", AnimationType::LoopingReady},
-    {"pause", AnimationType::LoopingPause},
-    {"choked", AnimationType::LoopingChoke},
-    {"talk_injured", AnimationType::LoopingTalkInjured},
-    {"listen_injured", AnimationType::LoopingListenInjured},
-    {"kneel_talk_angry", AnimationType::LoopingKneelTalkAngry},
-    {"kneel_talk_sad", AnimationType::LoopingKneelTalkSad}};
 
 void DialogGUI::preload(IGUI &gui) {
     GameGUI::preload(gui);
@@ -273,16 +244,6 @@ bool DialogGUI::hasStuntPresentation() const {
     return _dialog->isAnimatedCutscene() || !_dialog->stunts.empty();
 }
 
-std::shared_ptr<Object> DialogGUI::resolveParticipantObject(const std::string &participant) const {
-    if (participant == kObjectTagOwner) {
-        return owner();
-    }
-    if (boost::iequals(participant, kObjectTagPlayer)) {
-        return _game.party().player();
-    }
-    return _game.module()->area()->getObjectByTag(participant);
-}
-
 std::shared_ptr<Creature> DialogGUI::resolveParticipantCreature(const std::string &participant) const {
     return std::dynamic_pointer_cast<Creature>(resolveParticipantObject(participant));
 }
@@ -387,15 +348,7 @@ void DialogGUI::leaveMixedStunt(Participant &participant) {
 }
 
 void DialogGUI::loadCurrentSpeaker() {
-    std::shared_ptr<Area> area(_game.module()->area());
-    std::shared_ptr<Object> speaker;
-
-    if (!_currentEntry->speaker.empty()) {
-        speaker = area->getObjectByTag(_currentEntry->speaker);
-    }
-    if (!speaker) {
-        speaker = owner();
-    }
+    std::shared_ptr<Object> speaker = currentEntrySpeaker();
 
     // Make previous speaker stop talking, if any
     auto previousSpeaker = _currentSpeaker.resolve();
@@ -414,19 +367,13 @@ void DialogGUI::loadCurrentSpeaker() {
     }
 }
 
-// The entry's listener: none, the owner, the player, or an object by tag.
+// The entry's listener: none, or the participant its tag names.
 std::shared_ptr<Object> DialogGUI::resolveEntryListener() const {
     const std::string &listener = _currentEntry->listener;
     if (listener.empty()) {
         return nullptr;
     }
-    if (boost::iequals(listener, kObjectTagOwner)) {
-        return owner();
-    }
-    if (boost::iequals(listener, kObjectTagPlayer)) {
-        return _game.party().player();
-    }
-    return _game.module()->area()->getObjectByTag(boost::to_lower_copy(listener));
+    return resolveParticipantObject(listener);
 }
 
 // The first entry's listener defaults to whoever started the conversation, or
@@ -514,8 +461,9 @@ void DialogGUI::turnToward(Object &turner, const std::shared_ptr<Object> &other)
 }
 
 // While the replies are listed the one who answers is the speaker and the
-// entry's speaker the listener; nothing is posed until a reply is chosen. A
-// sole reply taken when the entry ends changes nothing.
+// entry's speaker the listener; nothing is posed until a reply is chosen. The
+// first reply's shot takes the camera and sets the video effect. A sole reply
+// taken when the entry ends changes nothing.
 void DialogGUI::passTurnToReplySpeaker() {
     _previousPairListener = _pairListener;
     _pairListener = _pairSpeaker;
@@ -525,6 +473,7 @@ void DialogGUI::passTurnToReplySpeaker() {
         orientSpeakerPair(first->get());
         takeCameraShot(first->get(), firstReplyCameraAngle());
         frameShot(first->get(), firstReplyCameraAngle());
+        applyCinematicShotVideoEffect(first->get());
     }
 }
 
@@ -594,11 +543,13 @@ void DialogGUI::frameShot(const Dialog::EntryReply &shot, int angle) {
         return;
     }
     if (angle == kPlacedAngle) {
-        // In place of a placed camera the area lacks, the dialog camera looks
-        // straight down from the world origin.
+        // A placed camera shows the shot at its own field of view. In place
+        // of a placed camera the area lacks, the dialog camera looks straight
+        // down from the world origin.
         area->setStaticCamera(shot.cameraId);
-        const Camera *placed = area->getCamera(CameraType::Static);
+        Camera *placed = area->getCamera(CameraType::Static);
         if (placed && placed->cameraId() == shot.cameraId) {
+            placed->setViewAngle(placed->fieldOfView());
             camera->takePlacedShot(placed->position());
         } else {
             showShotOnDialogCamera();
@@ -904,9 +855,10 @@ bool DialogGUI::applyCutAnimation(const std::string &participant, const CutAnima
     return true;
 }
 
-// A dialoganimations.2da ordinal plays the pose its row names; a lower one
-// plays its animations.2da row. Either loops or plays once as its row says; a
-// row that does both loops and then plays once over the loop.
+// A dialoganimations.2da ordinal plays the clip its ID names for the
+// creature, as a script animation of that ID would; a lower one plays its
+// animations.2da row. Either loops or plays once as its row says; a row that
+// does both loops and then plays once over the loop.
 void DialogGUI::applyDialogAnimation(const std::string &participant, int ordinal) {
     auto creature = resolveParticipantCreature(participant);
     if (!creature) {
@@ -929,15 +881,17 @@ void DialogGUI::applyDialogAnimation(const std::string &participant, int ordinal
     if (!row) {
         return;
     }
-    const AnimationType type = getDialogAnimationType(row->get());
-    if (type == AnimationType::Invalid) {
-        return;
-    }
+    const std::string clip = creature->getScriptAnimation(ordinal).clip;
     if (row->get().looping) {
-        creature->playDialogAnimation(type, true, source);
+        // An overlay dialog pose ends the one-shot the creature is playing,
+        // unless it shows its pause.
+        if (row->get().overlay && row->get().dialog && creature->currentAnimationId() != kPauseAnimationId) {
+            creature->abortFireForgetAnimation();
+        }
+        creature->playDialogAnimation(clip, true, source);
     }
     if (row->get().fireForget) {
-        creature->playDialogAnimation(type, false, source);
+        creature->playDialogAnimation(clip, false, source);
     }
 }
 
@@ -951,24 +905,6 @@ std::optional<DialogGUI::CutAnimation> DialogGUI::decodeCutAnimation(int ordinal
     cut.looping = ordinal >= kFirstLoopingCutOrdinal;
     cut.worldSpace = isWorldSpaceCutClip(ordinal);
     return cut;
-}
-
-AnimationType DialogGUI::getDialogAnimationType(int ordinal) const {
-    if (ordinal < kDialogAnimationBase) {
-        return AnimationType::Invalid;
-    }
-    const int index = ordinal - kDialogAnimationBase;
-    const auto row = _services.game.animations.findDialogAnimation(index);
-    if (!row) {
-        warn("Dialog: animation index out of bounds: " + std::to_string(index));
-        return AnimationType::Invalid;
-    }
-    return getDialogAnimationType(row->get());
-}
-
-AnimationType DialogGUI::getDialogAnimationType(const DialogAnimation &row) {
-    auto maybeAnimType = g_animTypeByName.find(row.name);
-    return maybeAnimType != g_animTypeByName.end() ? maybeAnimType->second : AnimationType::Invalid;
 }
 
 void DialogGUI::repositionMessage() {
@@ -1042,6 +978,13 @@ void DialogGUI::onEntryEnded() {
         passTurnToReplySpeaker();
     }
     repositionMessage();
+}
+
+// A reply waits while a participant its animation list names is missing.
+bool DialogGUI::canPickReply(const Dialog::EntryReply &reply) const {
+    return std::all_of(reply.animations.begin(), reply.animations.end(), [this](const auto &anim) {
+        return static_cast<bool>(participantObject(anim.participant));
+    });
 }
 
 // A chosen reply animates its participants and poses the answering pair,

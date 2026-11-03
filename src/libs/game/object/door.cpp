@@ -600,6 +600,9 @@ void Door::updateStateAnimation() {
         return;
     }
     _stateOneShot.clear();
+    // The finished clip no longer counts as the door's last animation: the
+    // loop it returns to does.
+    _lastAnimation = shownLoopAnimation();
     if (_stateLoop.empty()) {
         applyRestingPose();
         return;

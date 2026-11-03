@@ -4721,10 +4721,6 @@ void Creature::playFireForgetAnimation(const std::string &clip, AnimationSource 
 
 // A dialog loop plays at once. A dialog one-shot makes the pause the loop
 // first, then waits in the fire-and-forget queue.
-void Creature::playDialogAnimation(AnimationType type, bool looping, AnimationSource source) {
-    playDialogAnimation(getAnimationName(type), looping, source);
-}
-
 void Creature::playDialogAnimation(const std::string &clip, bool looping, AnimationSource source) {
     if (clip.empty()) {
         return;
@@ -5810,6 +5806,14 @@ void Creature::startTalking(const std::shared_ptr<LipAnimation> &animation) {
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (model && _lipAnimation) {
         model->playAnimation(getHeadTalkAnimation(), _lipAnimation, AnimationProperties::fromFlags(kHeadTalkFlags));
+    }
+}
+
+void Creature::talkOnce(const std::shared_ptr<LipAnimation> &animation) {
+    _lipAnimation.reset();
+    _talking = false;
+    if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
+        model->playAnimation(getHeadTalkAnimation(), animation, AnimationProperties::fromFlags(kHeadTalkFlags));
     }
 }
 

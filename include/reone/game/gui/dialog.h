@@ -193,15 +193,6 @@ private:
     void leaveMixedStunt(Participant &participant);
 
     static std::optional<CutAnimation> decodeCutAnimation(int ordinal);
-    /**
-     * The pose a dialoganimations.2da ordinal names; Invalid for a lower
-     * ordinal and for one the table does not name.
-     */
-    AnimationType getDialogAnimationType(int ordinal) const;
-    /** The pose a dialoganimations.2da row names; Invalid for a name no pose has. */
-    static AnimationType getDialogAnimationType(const DialogAnimation &row);
-    /** The object a participant tag names in the area: the owner, the player, or one by tag. */
-    std::shared_ptr<Object> resolveParticipantObject(const std::string &participant) const;
     std::shared_ptr<Creature> resolveParticipantCreature(const std::string &participant) const;
     bool hasStuntPresentation() const;
     std::shared_ptr<graphics::Animation> getStuntParticipantAnimation(
@@ -216,6 +207,8 @@ private:
     void onFinish() override;
     void onLoadEntry() override;
     void onEntryEnded() override;
+    /** A reply can be chosen only while every participant of its animation list exists. */
+    bool canPickReply(const resource::Dialog::EntryReply &reply) const override;
     void onReplyPicked(const resource::Dialog::EntryReply &reply) override;
     void onReplyTaken(const resource::Dialog::EntryReply &reply) override;
     /** A creature named by the last list of animations still shows a dialog animation. */

@@ -539,9 +539,7 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
         ctx.game.combat().clearAllOrders(*leader);
         leader->clearAllActions(true);
     }
-    // TSL refuses while a conversation runs or while nobody in the party
-    // stands: an empty first place counts as standing, an empty later one
-    // as down.
+    // TSL refuses while nobody in the party stands.
     if (ctx.game.isTSL()) {
         bool partyDown = true;
         for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
@@ -551,9 +549,14 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
                 break;
             }
         }
-        if (partyDown || ctx.game.isConversationActive()) {
+        if (partyDown) {
             return Variable::ofNull();
         }
+    }
+    // No conversation is asked for while one is under way, the walk to the
+    // one talked to included.
+    if (ctx.game.isDialogUnderWay()) {
+        return Variable::ofNull();
     }
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
@@ -572,10 +575,10 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
             member->applyEffect(std::move(revive), DurationType::Instant);
         }
     }
-    // The conversation is under way from now on. Unless told not to, the
-    // caller drops what it was doing first.
+    // The conversation is under way from now on. In TSL, unless told not to,
+    // the caller drops what it was doing first.
     ctx.game.setDialogUnderWay(true);
-    if (!dontClearAllActions) {
+    if (ctx.game.isTSL() && !dontClearAllActions) {
         caller->clearAllActions(true);
     }
     auto action = ctx.game.newAction<StartConversationAction>(
@@ -1032,9 +1035,14 @@ static Variable ActionBarkString(const std::vector<Variable> &args, const Routin
 
     // Transform
 
-    // Execute
+    // Execute: only a creature barks, and nobody does while a conversation is
+    // under way.
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!caller || ctx.game.isDialogUnderWay()) {
+        return Variable::ofNull();
+    }
     auto action = ctx.game.newAction<BarkStringAction>(strRef);
-    getCaller(ctx)->addAction(std::move(action));
+    caller->addAction(std::move(action));
     return Variable::ofNull();
 }
 

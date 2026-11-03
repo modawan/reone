@@ -88,8 +88,22 @@ public:
     /** The conversation's dialog is an animated cutscene. */
     bool isAnimatedCutscene() const { return _dialog && _dialog->isAnimatedCutscene(); }
 
+    /**
+     * The time a line of \p text takes to speak, in seconds: a second, and a
+     * little more for each character.
+     */
+    static float spokenLineSeconds(const std::string &text);
+
 protected:
     std::shared_ptr<Object> owner() const { return _owner.resolve(); }
+    /**
+     * The object a participant tag names: the owner, the player, the party's
+     * second or third member, or the object with the tag nearest the owner,
+     * the owner itself first, dead or alive. Tags match whatever their case.
+     */
+    std::shared_ptr<Object> resolveParticipantObject(const std::string &participant) const;
+    /** The current entry's speaker: the participant its speaker tag names, or else the owner. */
+    std::shared_ptr<Object> currentEntrySpeaker() const;
     std::shared_ptr<resource::Dialog> _dialog;
     RuntimeObjectRef<Object> _owner;
     /** The object that started the conversation with the owner. */
@@ -119,6 +133,8 @@ protected:
     void showShotOnDialogCamera() { _shotCamera = CameraType::Dialog; }
     /** The camera shot of \p shot, an entry or a reply, keeps the previous speaker pair. */
     static bool keepsPreviousSpeakerPair(const resource::Dialog::EntryReply &shot);
+    /** Set or clear the video effect for the cinematic camera shot of \p shot, an entry or a reply. */
+    void applyCinematicShotVideoEffect(const resource::Dialog::EntryReply &shot);
 
     /** The current entry's sole reply is taken when the entry ends, rather than its replies listed. */
     bool autoPicksFirstReply() const { return _autoPickFirstReply; }
@@ -164,6 +180,8 @@ protected:
     virtual void onFinish();
     virtual void onLoadEntry();
     virtual void onEntryEnded();
+    /** Whether \p reply, chosen or taken without a choice, can be taken now. */
+    virtual bool canPickReply(const resource::Dialog::EntryReply &reply) const;
     /** The player chose \p reply from the listed replies; called before the reply's scripts run. */
     virtual void onReplyPicked(const resource::Dialog::EntryReply &reply);
     /** A reply was taken without a choice, as the entry ended; called before the reply's scripts run. */
@@ -200,6 +218,8 @@ private:
     int _waitFlags {0};
     /** The entry that follows a reply taken without a choice, once the reply's delay and waits are over. */
     std::optional<int> _pendingEntry;
+    /** The reply chosen, or taken without a choice, that waits until it can be taken. */
+    std::optional<int> _pendingReply;
     /** A skip of the shown entry has been asked for and not yet honoured. */
     bool _entrySkipped {false};
     EntryFade _entryFade;
