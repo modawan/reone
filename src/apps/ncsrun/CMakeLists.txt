@@ -25,3 +25,6 @@ set_target_properties(ncsrun PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_
 target_precompile_headers(ncsrun PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 target_link_libraries(ncsrun PRIVATE script system ${Boost_PROGRAM_OPTIONS_LIBRARY})
 
+list(APPEND InstallTargets ncsrun)
+set(InstallTargets ${InstallTargets} PARENT_SCOPE)
+
