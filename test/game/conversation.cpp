@@ -69,6 +69,10 @@ public:
         pickReply(index);
     }
 
+    void showShotOnPlacedCameraForTest(int cameraId) {
+        showShotOnPlacedCamera(cameraId);
+    }
+
     void setGUIForTest(std::shared_ptr<gui::IGUI> gui) {
         _gui = std::move(gui);
     }
@@ -258,6 +262,52 @@ TEST_F(ConversationTest, animated_dialogue_keeps_its_own_gui) {
     EXPECT_EQ(_conversation->getCamera(cameraId), CameraType::Animated);
     EXPECT_CALL(*gui, render()).Times(1);
     _conversation->render();
+}
+
+// SetDialogPlaceableCamera's cut has to change the view itself: the game
+// restores the area's static camera from the conversation's view every
+// frame, so a cut that only moved the area's static camera lasted a frame.
+TEST_F(ConversationTest, a_cut_to_a_placed_camera_replaces_a_dialog_camera_shot) {
+    auto dialog = makeDialog();
+    dialog->entries[0].cameraAngle = 0;
+    _conversation->setGUIForTest(std::make_shared<NiceMock<gui::MockGUI>>());
+    _conversation->start(dialog, nullptr);
+    int cameraId = 0;
+    ASSERT_EQ(_conversation->getCamera(cameraId), CameraType::Dialog);
+
+    _conversation->showShotOnPlacedCameraForTest(19);
+
+    EXPECT_EQ(_conversation->getCamera(cameraId), CameraType::Static);
+    EXPECT_EQ(cameraId, 19);
+}
+
+TEST_F(ConversationTest, a_cut_to_a_placed_camera_replaces_another_placed_camera) {
+    auto dialog = makeDialog();
+    dialog->entries[0].cameraId = 26;
+    dialog->entries[0].cameraAngle = 6;
+    _conversation->setGUIForTest(std::make_shared<NiceMock<gui::MockGUI>>());
+    _conversation->start(dialog, nullptr);
+
+    _conversation->showShotOnPlacedCameraForTest(19);
+
+    int cameraId = 0;
+    EXPECT_EQ(_conversation->getCamera(cameraId), CameraType::Static);
+    EXPECT_EQ(cameraId, 19);
+}
+
+TEST_F(ConversationTest, a_cut_to_a_placed_camera_ends_an_animated_shot) {
+    auto dialog = makeDialog();
+    dialog->cameraModel = "camera_model";
+    dialog->entries[0].cameraAnimation = 1200;
+    _conversation->setGUIForTest(std::make_shared<NiceMock<gui::MockGUI>>());
+    _conversation->start(dialog, nullptr);
+    int cameraId = 0;
+    ASSERT_EQ(_conversation->getCamera(cameraId), CameraType::Animated);
+
+    _conversation->showShotOnPlacedCameraForTest(19);
+
+    EXPECT_EQ(_conversation->getCamera(cameraId), CameraType::Static);
+    EXPECT_EQ(cameraId, 19);
 }
 
 TEST_F(ConversationTest, game_pause_is_harmless_without_a_conversation) {

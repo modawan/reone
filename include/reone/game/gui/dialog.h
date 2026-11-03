@@ -51,7 +51,12 @@ public:
     /** The object is the current entry's speaker or listener. */
     bool isSpeakerOrListener(const Object &object) const;
 
+    /** Cuts the dialog camera to the area's placed camera \p cameraId now. */
+    void cutToPlaceableCamera(int cameraId);
+
 private:
+    void takePlacedCameraShot(int cameraId);
+
     struct Participant {
         std::shared_ptr<graphics::Model> model;
         RuntimeObjectRef<Creature> creature;

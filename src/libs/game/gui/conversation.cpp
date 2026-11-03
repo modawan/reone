@@ -219,6 +219,10 @@ void Conversation::loadCameraModel() {
     _cameraModel = modelResRef.empty() ? nullptr : _services.resource.models.get(modelResRef);
 }
 
+float Conversation::spokenTime(const std::string &text) {
+    return kSpokenTimeBase + kSpokenTimePerCharacter * static_cast<float>(text.size());
+}
+
 void Conversation::setBarkText(std::string text, float duration) {
     _game.setBarkBubbleText(std::move(text), duration);
 }
@@ -475,7 +479,7 @@ void Conversation::loadEntry(int index, bool start) {
         _entryEnded = true;
         if (!_currentEntry->text.empty()) {
             // The bark shows for the time its line takes to speak.
-            const float barkDuration = kSpokenTimeBase + kSpokenTimePerCharacter * static_cast<float>(entryText.size());
+            const float barkDuration = spokenTime(entryText);
             setBarkText(std::move(entryText), barkDuration);
             if (auto owner = _owner.resolve()) {
                 runEndScript(*_dialog, *owner);
@@ -605,8 +609,7 @@ void Conversation::takeCameraShot(const Dialog::EntryReply &shot, int angle) {
         _shotCamera = CameraType::Dialog;
     }
     if (angle == kPlacedCameraAngle) {
-        _shotCamera = CameraType::Static;
-        _shotCameraId = shot.cameraId;
+        showShotOnPlacedCamera(shot.cameraId);
         return;
     }
     if (angle == kSamePairCameraAngle && _dialog->conversationType != ConversationType::Computer) {

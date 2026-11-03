@@ -50,6 +50,9 @@ public:
         GameGUI(game, services) {
     }
 
+    /** Seconds a line of \p text takes to speak, and so to show as a bark. */
+    static float spokenTime(const std::string &text);
+
     bool handle(const input::Event &event) override;
     void update(float dt) override;
 
@@ -117,6 +120,15 @@ protected:
     void takeCameraShot(const resource::Dialog::EntryReply &shot, int angle);
     /** The dialog camera shows the shot, as for a placed camera the area lacks. */
     void showShotOnDialogCamera() { _shotCamera = CameraType::Dialog; }
+    /**
+     * The view becomes placed camera \p cameraId, as for a shot on angle 6,
+     * and an animated shot showing ends.
+     */
+    void showShotOnPlacedCamera(int cameraId) {
+        _animatedView = false;
+        _shotCamera = CameraType::Static;
+        _shotCameraId = cameraId;
+    }
     /** The camera shot of \p shot, an entry or a reply, keeps the previous speaker pair. */
     static bool keepsPreviousSpeakerPair(const resource::Dialog::EntryReply &shot);
 

@@ -8728,6 +8728,10 @@ GameGUI *Game::getScreenGUI() const {
 }
 
 void Game::setBarkBubbleText(std::string text, float duration) {
+    // Before the HUD exists there is nowhere to show a bark.
+    if (!_hud) {
+        return;
+    }
     _hud->barkBubble().setBarkText(text, duration);
 }
 

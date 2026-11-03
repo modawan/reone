@@ -578,6 +578,34 @@ void DialogGUI::updateCamera() {
     camera->playAnimation(_currentEntry->cameraAnimation);
 }
 
+// In place of a placed camera the area lacks, the dialog camera looks straight
+// down from the world origin.
+void DialogGUI::takePlacedCameraShot(int cameraId) {
+    auto area = _game.module()->area();
+    auto camera = area->getCamera<DialogCamera>(CameraType::Dialog);
+    area->setStaticCamera(cameraId);
+    const Camera *placed = area->getCamera(CameraType::Static);
+    if (placed && placed->cameraId() == cameraId) {
+        camera->takePlacedShot(placed->position());
+    } else {
+        showShotOnDialogCamera();
+        camera->takePlacedShot(glm::vec3(0.0f));
+    }
+}
+
+// SetDialogPlaceableCamera cuts at once to the placed camera, as an entry on
+// angle 6 does: the view becomes that camera, until the next shot frames as
+// its own angle says. It ends an animated shot showing.
+void DialogGUI::cutToPlaceableCamera(int cameraId) {
+    showShotOnPlacedCamera(cameraId);
+    auto camera = _game.module()->area()->getCamera<DialogCamera>(CameraType::Dialog);
+    if (_dialogCameraStale) {
+        camera->startConversation(_dialog->oldHitCheck);
+        _dialogCameraStale = false;
+    }
+    takePlacedCameraShot(cameraId);
+}
+
 // The dialog camera starts afresh at the conversation's first shot and after
 // each animated shot. Angle 5 keeps the view as it is, and a placed camera
 // (angle 6) shows itself; any other angle frames the speaker pair.
@@ -594,16 +622,7 @@ void DialogGUI::frameShot(const Dialog::EntryReply &shot, int angle) {
         return;
     }
     if (angle == kPlacedAngle) {
-        // In place of a placed camera the area lacks, the dialog camera looks
-        // straight down from the world origin.
-        area->setStaticCamera(shot.cameraId);
-        const Camera *placed = area->getCamera(CameraType::Static);
-        if (placed && placed->cameraId() == shot.cameraId) {
-            camera->takePlacedShot(placed->position());
-        } else {
-            showShotOnDialogCamera();
-            camera->takePlacedShot(glm::vec3(0.0f));
-        }
+        takePlacedCameraShot(shot.cameraId);
         return;
     }
     float pullBack = 0.0f;

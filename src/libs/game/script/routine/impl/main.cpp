@@ -38,6 +38,7 @@
 #include "reone/game/event.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/conversation.h"
 #include "reone/game/menupresentation.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
@@ -4956,14 +4957,15 @@ static Variable SetPlotFlag(const std::vector<Variable> &args, const RoutineCont
     return Variable::ofNull();
 }
 
+// Cuts at once to a placed camera during dialog; outside dialog it does
+// nothing, as the routine works only there.
 static Variable SetDialogPlaceableCamera(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nCameraId = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetDialogPlaceableCamera");
+    ctx.game.cutDialogToPlaceableCamera(nCameraId);
+    return Variable::ofNull();
 }
 
 static Variable GetSoloMode(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6142,17 +6144,20 @@ static Variable AddJournalWorldEntryStrref(const std::vector<Variable> &args, co
     throw RoutineNotImplementedException("AddJournalWorldEntryStrref");
 }
 
+// The creature barks the talk table line; OBJECT_INVALID makes a general bark.
+// Both show in the HUD's bark bubble for the time the line takes to speak, as
+// a conversation's bark does. A line with no text shows nothing.
 static Variable BarkString(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    getObjectOrNull(args, 0, ctx);
     auto strRef = getInt(args, 1);
-    auto nBarkX = getIntOrElse(args, 2, -1);
-    auto nBarkY = getIntOrElse(args, 3, -1);
-
-    // Transform
 
     // Execute
-    throw RoutineNotImplementedException("BarkString");
+    auto text = ctx.services.resource.strings.getText(strRef);
+    if (!text.empty()) {
+        ctx.game.setBarkBubbleText(text, Conversation::spokenTime(text));
+    }
+    return Variable::ofNull();
 }
 
 static Variable DeleteJournalWorldAllEntries(const std::vector<Variable> &args, const RoutineContext &ctx) {

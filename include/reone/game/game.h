@@ -639,6 +639,19 @@ public:
         return isConversationActive() && _conversation == _dialog.get() && _dialog->isSpeakerOrListener(object);
     }
 
+    /**
+     * Cuts the running dialogue's camera to placed camera \p cameraId. Only a
+     * dialogue has one: outside one, and in a computer conversation, nothing
+     * happens and this returns false.
+     */
+    bool cutDialogToPlaceableCamera(int cameraId) {
+        if (!isConversationActive() || _conversation != _dialog.get() || !_module || !_module->area()) {
+            return false;
+        }
+        _dialog->cutToPlaceableCamera(cameraId);
+        return true;
+    }
+
     std::shared_ptr<movie::IMovie> movie() const {
         return _movie;
     }
