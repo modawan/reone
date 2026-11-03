@@ -4020,10 +4020,11 @@ TEST(ScriptedPlotXP, give_plot_xp_resolves_label_case_insensitively_and_awards_p
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    // Game::init reads npc.2da's experience shares; these tests skip it.
-    game.party().init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
         .WillOnce(Return(makePlotTable()));
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
+    game.journal().init();
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
@@ -4069,6 +4070,7 @@ TEST(ScriptedPlotXP, missing_plot_and_zero_percentage_do_not_notify) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
         .WillOnce(Return(makePlotTable()));
+    game.journal().init();
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
@@ -4088,11 +4090,11 @@ TEST(ScriptedPlotXP, journal_dialogue_and_explicit_contributions_accumulate_in_o
     EXPECT_CALL(engine.resourceModule().gffs(), get("global", ResType::Jrl))
         .WillOnce(Return(makeJournalWithPlotXP()));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
-        .Times(3)
-        .WillRepeatedly(Return(makePlotTable()));
+        .WillOnce(Return(makePlotTable()));
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     // Game::init reads npc.2da's experience shares; these tests skip it.
     game.party().init();
+    game.journal().init();
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
@@ -4127,6 +4129,7 @@ TEST(ScriptedPlotXP, rejected_duplicate_journal_entry_does_not_award_again) {
     EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
         .WillOnce(Return(makePlotTable()));
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    game.journal().init();
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);

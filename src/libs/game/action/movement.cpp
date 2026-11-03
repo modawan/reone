@@ -53,6 +53,12 @@ static constexpr float kJumpSearchRadius = 20.0f;
 // A forced move that runs out of time puts the mover down on its destination
 // only when that spot itself is safe.
 static constexpr float kForcedPointJumpRadius = 1.0f;
+// A range check in front of an action aimed at a point counts the walker as
+// in range up to this much beyond its range.
+static constexpr float kRangeCheckSlack = 0.01f;
+// A range check's eighth parameter, which it may leave out: its walk may end
+// in a clear line.
+static constexpr size_t kRangeCheckClearLineParameter = 7;
 
 // Facing along a direction; a direction too short to have one faces along +x.
 static float facingAlong(const glm::vec3 &direction) {
@@ -88,7 +94,7 @@ static void jumpToObject(Creature &jumper, Object &target, bool clearLine, Game 
 MoveToObjectAction::MoveToObjectAction(
     Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
     bool run, float range, bool force, float timeout, bool pointPath, std::optional<float> checkRange,
-    bool closeToUseRange) :
+    std::optional<ApproachFlags> approachFlags) :
     Action(game, services, ActionType::MoveToObject),
     _moveTo(std::move(moveTo)),
     _run(run),
@@ -97,7 +103,7 @@ MoveToObjectAction::MoveToObjectAction(
     _pointPath(pointPath),
     _timeout(timeout),
     _checkRange(checkRange),
-    _closeToUseRange(closeToUseRange) {
+    _approachFlags(approachFlags) {
     requireRuntimeObject(_moveTo);
     if (_moveTo) {
         _forcedState.destination = _moveTo->position();
@@ -106,7 +112,7 @@ MoveToObjectAction::MoveToObjectAction(
 
 MoveToObjectAction::MoveToObjectAction(
     Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
-    bool run, float range, float timeout, ForcedState forcedState, bool force) :
+    bool run, float range, float timeout, ForcedState forcedState, bool force, SavedMoveCommand::Carried carried) :
     Action(game, services, ActionType::MoveToObject),
     _moveTo(std::move(moveTo)),
     _run(run),
@@ -114,7 +120,8 @@ MoveToObjectAction::MoveToObjectAction(
     _force(force),
     _pointPath(true),
     _timeout(timeout),
-    _forcedState(std::move(forcedState)) {
+    _forcedState(std::move(forcedState)),
+    _carried(carried) {
     requireRuntimeObject(_moveTo);
 }
 
@@ -256,16 +263,26 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
         return result;
     }
 
+    return savedCommand(*_moveTo, _run, _range, _checkRange.value_or(_range), _approachFlags);
+}
+
+SavedActionRecord MoveToObjectAction::savedCommand(
+    const Object &target,
+    bool run,
+    float range,
+    float checkRange,
+    const std::optional<ApproachFlags> &approachFlags) {
+
     auto result = SavedActionRecord::command(SavedActionType::MoveToObject, {
-                                                                                {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_moveTo->id())},
-                                                                                {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
-                                                                                {kSavedFloatParameter, _range},
-                                                                                {kSavedFloatParameter, _checkRange.value_or(_range)},
+                                                                                {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(target.id())},
+                                                                                {kSavedIntegerParameter, int32_t {run ? 1 : 0}},
+                                                                                {kSavedFloatParameter, range},
+                                                                                {kSavedFloatParameter, checkRange},
                                                                                 {kSavedIntegerParameter, kMoveToObjectFlags},
                                                                             });
-    if (_approachFlags) {
-        result.parameters.push_back({kSavedIntegerParameter, int32_t {_approachFlags->objectsInLine}});
-        result.parameters.push_back({kSavedIntegerParameter, int32_t {_approachFlags->clearLineWalk}});
+    if (approachFlags) {
+        result.parameters.push_back({kSavedIntegerParameter, int32_t {approachFlags->objectsInLine}});
+        result.parameters.push_back({kSavedIntegerParameter, int32_t {approachFlags->clearLineWalk}});
         result.declaredParameterCount = static_cast<uint16_t>(result.parameters.size());
     }
     return result;
@@ -283,11 +300,11 @@ std::shared_ptr<Action> MoveToObjectAction::restore(const SavedActionRecord &rec
         moveFlags != kMoveToObjectFlags) {
         return nullptr;
     }
-    auto action = game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, true);
+    std::optional<ApproachFlags> approachFlags;
     if (record.parameters.size() > kMoveToObjectParameterCount) {
-        action->_approachFlags = ApproachFlags {record.integerParameter(5), record.integerParameter(6)};
+        approachFlags = ApproachFlags {record.integerParameter(5), record.integerParameter(6)};
     }
-    return action;
+    return game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, approachFlags);
 }
 
 // A move order lets go of the orientation lock and ends a push or leap
@@ -310,6 +327,16 @@ void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, 
         return;
     }
     glm::vec3 destination {_destination->position()};
+
+    // A range check is made once, as the walk sets out.
+    if (_checksRange) {
+        _checksRange = false;
+        const float reach = _closeRange + kRangeCheckSlack;
+        if (creatureActor->getSquareDistanceTo(glm::vec2(destination)) <= reach * reach) {
+            complete();
+            return;
+        }
+    }
 
     if (_force && !_forcedState.active) {
         _forcedState.active = true;
@@ -352,13 +379,31 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
         return std::nullopt;
     }
 
+    // A move not yet begun is in the current area.
+    const auto area = SavedObjectReference::fromRuntimeId(
+        _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
+    if (_checksRange) {
+        const glm::vec3 &point = _destination->position();
+        return SavedActionRecord::command(SavedActionType::PointRangeCheck, {
+                                                                                {kSavedFloatParameter, point.x},
+                                                                                {kSavedFloatParameter, point.y},
+                                                                                {kSavedFloatParameter, point.z},
+                                                                                {kSavedObjectParameter, area},
+                                                                                {kSavedObjectParameter, SavedObjectReference()},
+                                                                                {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                                {kSavedFloatParameter, _closeRange},
+                                                                                {kSavedIntegerParameter, int32_t {_carried.clearLine ? 1 : 0}},
+                                                                            });
+    }
+
     SavedMoveCommand command;
     command.destination = _destination->position();
-    // A move not yet begun is in the current area.
-    command.area = SavedObjectReference::fromRuntimeId(
-        _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
+    command.area = area;
+    command.target = SavedObjectReference::fromRuntimeId(_offsetFromId);
+    command.offset = _offset;
     command.run = _run;
     command.straight = _straight;
+    command.carried = _carried;
     command.range = _closeRange;
     command.forcedPending = _force && !_forcedState.active;
     command.timeout = command.forcedPending ? _timeout : 0.0f;
@@ -380,25 +425,50 @@ std::shared_ptr<Action> MoveToLocationAction::restore(const SavedActionRecord &r
     const uint64_t expiryMilliseconds = restoredExpiry(*command, game.millisecondsPerWorldDay());
     const bool forced = command->forcedPending || command->forcedActive;
     const float timeout = command->forcedPending ? command->timeout : 0.0f;
-    if (command->target.isInvalid()) {
+    auto target = command->target.boundObject();
+    if (!command->target.isInvalid() && !target) {
+        return nullptr;
+    }
+    // A walk to a point reckoned from an object walks to the point itself.
+    if (!target || command->offset != glm::vec2(0.0f)) {
         ForcedState state;
         state.areaId = command->area.id;
         state.active = command->forcedActive;
         state.expiryMilliseconds = expiryMilliseconds;
         auto location = std::make_shared<Location>(command->destination, 0.0f);
-        return game.newAction<MoveToLocationAction>(std::move(location), command->run, forced, timeout, state,
-                                                    command->range, command->straight);
-    }
-    auto target = command->target.boundObject();
-    if (!target) {
-        return nullptr;
+        auto result = game.newAction<MoveToLocationAction>(std::move(location), command->run, forced, timeout, state,
+                                                           command->range, command->straight);
+        result->_carried = command->carried;
+        if (target) {
+            result->_offsetFromId = target->id();
+            result->_offset = command->offset;
+        }
+        return result;
     }
     MoveToObjectAction::ForcedState state;
     state.destination = command->destination;
     state.areaId = command->area.id;
     state.active = command->forcedActive;
     state.expiryMilliseconds = expiryMilliseconds;
-    return game.newAction<MoveToObjectAction>(std::move(target), command->run, command->range, timeout, state, forced);
+    return game.newAction<MoveToObjectAction>(std::move(target), command->run, command->range, timeout, state, forced,
+                                              command->carried);
+}
+
+std::shared_ptr<Action> MoveToLocationAction::restoreRangeCheck(const SavedActionRecord &record, Game &game) {
+    const glm::vec3 point {record.floatParameter(0), record.floatParameter(1), record.floatParameter(2)};
+    const float range = record.floatParameter(6);
+    if (!std::dynamic_pointer_cast<Area>(record.objectParameter(3).boundObject()) ||
+        !record.objectParameter(4).isInvalid() ||
+        !std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z) ||
+        !std::isfinite(range) || range < 0.0f) {
+        return nullptr;
+    }
+    auto result = game.newAction<MoveToLocationAction>(std::make_shared<Location>(point, 0.0f),
+                                                       record.integerParameter(5) != 0, false, -1.0f, range);
+    result->_checksRange = true;
+    result->_carried.clearLine = record.parameters.size() > kRangeCheckClearLineParameter &&
+                                 record.integerParameter(kRangeCheckClearLineParameter) != 0;
+    return result;
 }
 
 void MoveToPointAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -716,15 +786,20 @@ void ChangeFacingAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
 // A turn is kept as the object faced, or as the point faced.
 std::optional<SavedActionRecord> ChangeFacingAction::saveFacingState() const {
-    if (_target) {
-        return SavedActionRecord::command(SavedActionType::FaceObject, {
-                                                                           {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_target->id())},
-                                                                       });
-    }
+    return _target ? savedCommand(*_target) : savedCommand(_point);
+}
+
+SavedActionRecord ChangeFacingAction::savedCommand(const Object &target) {
+    return SavedActionRecord::command(SavedActionType::FaceObject, {
+                                                                       {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(target.id())},
+                                                                   });
+}
+
+SavedActionRecord ChangeFacingAction::savedCommand(const glm::vec3 &point) {
     return SavedActionRecord::command(SavedActionType::FacePoint, {
-                                                                      {kSavedFloatParameter, _point.x},
-                                                                      {kSavedFloatParameter, _point.y},
-                                                                      {kSavedFloatParameter, _point.z},
+                                                                      {kSavedFloatParameter, point.x},
+                                                                      {kSavedFloatParameter, point.y},
+                                                                      {kSavedFloatParameter, point.z},
                                                                   });
 }
 

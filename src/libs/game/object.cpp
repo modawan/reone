@@ -735,6 +735,10 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             continue;
         }
         if (auto saved = saveAction(*action, index)) {
+            for (auto &command : action->rangeCheckCommands(*this)) {
+                command.groupActionId = node->groupId;
+                result.push_back(std::move(command));
+            }
             saved->groupActionId = node->groupId;
             saved->round = _game.combat().saveRound(*action);
             saved->scheduled = action->isScheduledCommand();

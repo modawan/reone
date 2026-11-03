@@ -136,16 +136,21 @@ std::vector<resource::Gff::Field> unknownFieldsOf(const resource::Gff &gff, cons
 }
 
 // The MoveToPoint command's flags: the walk runs, it is forced to its end once
-// its time limit has passed, and it keeps to the straight line to its point.
-// A walk to an object may also be headed for the object's use point already,
-// and may end once the object is within its range in a clear line.
+// its time limit has passed, it keeps to the straight line to its point, and
+// it may end once within its range in a clear line. A walk to an object may
+// also be headed for the object's use point already. The walk keeps the
+// remaining flags, and its use-point flag, without acting on them.
 constexpr int32_t kRunMoveFlag = 1;
 constexpr int32_t kTimedMoveFlag = 4;
 constexpr int32_t kStraightMoveFlag = 8;
 constexpr int32_t kUsePointMoveFlag = 512;
 constexpr int32_t kClearLineMoveFlag = 1024;
-constexpr int32_t kObjectWalkMoveFlags = kUsePointMoveFlag | kClearLineMoveFlag;
-constexpr int32_t kKnownMoveFlags = kRunMoveFlag | kTimedMoveFlag | kStraightMoveFlag | kObjectWalkMoveFlags;
+// The remaining flags: one on its own and two small fields.
+constexpr int32_t kKeptMoveFlag = 2;
+constexpr int32_t kKeptMoveFieldA = 0x70;
+constexpr int32_t kKeptMoveFieldB = 0x180;
+constexpr int32_t kCarriedMoveFlags = kKeptMoveFlag | kKeptMoveFieldA | kKeptMoveFieldB | kUsePointMoveFlag;
+constexpr int32_t kKnownMoveFlags = kRunMoveFlag | kTimedMoveFlag | kStraightMoveFlag | kClearLineMoveFlag | kCarriedMoveFlags;
 constexpr size_t kMoveCommandParameterCount = 13;
 
 SavedLocationValue savedLocationFromGff(const resource::Gff &gff) {
@@ -851,8 +856,10 @@ std::optional<SavedMoveCommand> SavedMoveCommand::fromAction(const SavedActionRe
     const int32_t flags = record.integerParameter(5);
     result.run = (flags & kRunMoveFlag) != 0;
     result.straight = (flags & kStraightMoveFlag) != 0;
+    result.carried.clearLine = (flags & kClearLineMoveFlag) != 0;
+    result.carried.flags = flags & kCarriedMoveFlags;
     result.range = record.floatParameter(6);
-    const int32_t subtype = record.integerParameter(7);
+    result.carried.orderTag = record.integerParameter(7);
     result.timeout = record.floatParameter(8);
     result.offset = glm::vec2(record.floatParameter(9), record.floatParameter(10));
     const int32_t day = record.integerParameter(11);
@@ -870,11 +877,11 @@ std::optional<SavedMoveCommand> SavedMoveCommand::fromAction(const SavedActionRe
         std::isfinite(result.destination.z) && std::isfinite(result.range) &&
         result.range >= 0.0f && std::isfinite(result.timeout) &&
         std::isfinite(result.offset.x) && std::isfinite(result.offset.y) &&
-        result.offset == glm::vec2(0.0f) && subtype == 0 && (flags & ~kKnownMoveFlags) == 0 &&
+        (flags & ~kKnownMoveFlags) == 0 &&
         // Only a walk to a point keeps to the straight line, and only a walk
-        // to an object heads for its use point or its clear line.
+        // to an object heads for its use point.
         (!result.straight || result.target.isInvalid()) &&
-        ((flags & kObjectWalkMoveFlags) == 0 || !result.target.isInvalid()) &&
+        ((flags & kUsePointMoveFlag) == 0 || !result.target.isInvalid()) &&
         !result.area.isInvalid() &&
         (ordinary || result.forcedPending || result.forcedActive);
     if (!valid) {
@@ -890,10 +897,10 @@ void SavedMoveCommand::toAction(SavedActionRecord &record) const {
     const auto integer = [](int32_t value) { return SavedActionParameter {kSavedIntegerParameter, value}; };
     const auto object = [](const SavedObjectReference &value) { return SavedActionParameter {kSavedObjectParameter, value}; };
     const int32_t flags = (run ? kRunMoveFlag : 0) | (forcedPending ? kTimedMoveFlag : 0) |
-                          (straight ? kStraightMoveFlag : 0);
+                          (straight ? kStraightMoveFlag : 0) | (carried.clearLine ? kClearLineMoveFlag : 0) |
+                          carried.flags;
     record.actionId = static_cast<uint32_t>(SavedActionType::MoveToPoint);
     record.declaredParameterCount = kMoveCommandParameterCount;
-    // The subtype is zero.
     record.parameters = {
         real(destination.x),
         real(destination.y),
@@ -902,7 +909,7 @@ void SavedMoveCommand::toAction(SavedActionRecord &record) const {
         object(target),
         integer(flags),
         real(range),
-        integer(0),
+        integer(carried.orderTag),
         real(timeout),
         real(offset.x),
         real(offset.y),
@@ -1215,6 +1222,16 @@ bool isMoveToObjectCommand(const SavedActionRecord &record) {
                                      Type::Integer});
 }
 
+// The range check in front of an action aimed at a point keeps the point, its
+// area, an object, the run flag and the range, and may keep whether its walk
+// may end in a clear line.
+bool isPointRangeCheckCommand(const SavedActionRecord &record) {
+    return record.hasParameterTypes({Type::Float, Type::Float, Type::Float, Type::Object, Type::Object, Type::Integer,
+                                     Type::Float}) ||
+           record.hasParameterTypes({Type::Float, Type::Float, Type::Float, Type::Object, Type::Object, Type::Integer,
+                                     Type::Float, Type::Integer});
+}
+
 // A wait keeps its seconds first.
 bool isWaitCommand(const SavedActionRecord &record) {
     return !record.parameters.empty() && std::holds_alternative<float>(record.parameters.front().payload);
@@ -1244,6 +1261,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::MoveToPoint, &isMoveCommand, &MoveToLocationAction::restore},
     {SavedActionType::MoveAwayFromObject, &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Integer>,
      &MoveAwayFromObject::restore},
+    {SavedActionType::CheckAfterJump, &hasParameters<>, &WaitAction::restoreAfterJump},
     {SavedActionType::JumpToLocation,
      &hasParameters<Type::Float, Type::Float, Type::Float, Type::Object, Type::Integer, Type::Float, Type::Float, Type::Float>,
      &JumpToLocationAction::restore},
@@ -1258,6 +1276,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::SpeakString, &hasParameters<Type::String, Type::Integer>, &SpeakStringAction::restore},
     {SavedActionType::CastSpell, &isSpellCommand, &CastSpellAction::restore},
     {SavedActionType::MoveToObject, &isMoveToObjectCommand, &MoveToObjectAction::restore},
+    {SavedActionType::PointRangeCheck, &isPointRangeCheckCommand, &MoveToLocationAction::restoreRangeCheck},
     {SavedActionType::FaceObject, &hasParameters<Type::Object>, &ChangeFacingAction::restore},
     {SavedActionType::OpenDoor, &hasParameters<Type::Object, Type::Integer>, &OpenDoorAction::restore},
     {SavedActionType::CloseDoor, &hasParameters<Type::Object, Type::Integer>, &CloseDoorAction::restore},
@@ -1300,6 +1319,9 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::FollowLeader, &hasParameters<>, &FollowLeaderAction::restore},
     {SavedActionType::BarkString, &hasParameters<Type::Integer>, &BarkStringAction::restore},
     {SavedActionType::CombatDispatch, &hasParameters<Type::Integer>, &CombatDispatchAction::restore},
+    {SavedActionType::CheckFollowRange,
+     &hasParameters<Type::Float, Type::Float, Type::Float, Type::Object, Type::Object, Type::Integer, Type::Float>,
+     &WaitAction::restoreFollowRangeCheck},
     {SavedActionType::SurrenderToEnemies, &hasParameters<>, &SurrenderToEnemiesAction::restore},
     {SavedActionType::DoorSaber, &hasParameters<Type::Object>, &DoorSaberAction::restore},
     {SavedActionType::Meditate, &hasParameters<>, &CombatStanceAction::restore},
@@ -1514,6 +1536,15 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
     if (eventId == static_cast<uint32_t>(SavedEventType::FeedbackMessage) &&
         std::holds_alternative<CombatFeedbackMessage>(payload))
         return SavedExecutionSupport::Executable;
+    // These kinds run whatever data they carry: an animation event without
+    // data shows nothing, and a creature stays in its area for a removal
+    // without data.
+    if (eventId == static_cast<uint32_t>(SavedEventType::RemoveFromArea) ||
+        eventId == static_cast<uint32_t>(SavedEventType::CloseObject) ||
+        eventId == static_cast<uint32_t>(SavedEventType::PlayAnimation) ||
+        eventId == static_cast<uint32_t>(SavedEventType::DecrementStackSize) ||
+        eventId == static_cast<uint32_t>(SavedEventType::AcquireItem))
+        return SavedExecutionSupport::Executable;
     if (eventId == static_cast<uint32_t>(SavedEventType::ForcedAction)) {
         return SavedExecutionSupport::Discarded;
     }
@@ -1530,9 +1561,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
 }
 
 bool SavedEventRecord::shouldRestore() const {
-    return eventId > 0 &&
-           eventId <= static_cast<uint32_t>(SavedEventType::ControllerRumble) &&
-           eventId != static_cast<uint32_t>(SavedEventType::ForcedAction);
+    return executionSupport() != SavedExecutionSupport::Discarded;
 }
 
 bool SavedEventRecord::bindObjectReferences(const Game &game) {

@@ -36,6 +36,12 @@ namespace game {
  * dialogue first shows its plain pause.
  */
 void requestScriptAnimation(Game &game, Object &caller, int constant, float speed, float seconds, bool replaceActions);
+/**
+ * Shows animation ID \p animation on \p object at once: a creature plays it
+ * at its own speed, and a placeable or door takes it as its state. Any other
+ * object shows nothing.
+ */
+void showAnimation(Object &object, int animation);
 
 class PlayAnimationAction : public Action {
 public:

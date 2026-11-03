@@ -222,6 +222,8 @@ private:
 enum class SavedActionType : uint32_t {
     MoveToPoint = 1,
     MoveAwayFromObject = 3,
+    /** The check that follows a jump: the jumper holds a moment before its next action. */
+    CheckAfterJump = 4,
     JumpToLocation = 5,
     PlayAnimation = 6,
     PickUpItem = 7,
@@ -234,6 +236,11 @@ enum class SavedActionType : uint32_t {
     CastSpell = 15,
     /** A move to an object that ends once it is within range. */
     MoveToObject = 17,
+    /**
+     * The range check in front of an action aimed at a point: it ends at once
+     * when the walker is within range of the point, and otherwise walks there.
+     */
+    PointRangeCheck = 18,
     /** A turn to face an object. */
     FaceObject = 19,
     OpenDoor = 20,
@@ -273,6 +280,8 @@ enum class SavedActionType : uint32_t {
     BarkString = 62,
     /** The command that dispatches its creature's combat round. */
     CombatDispatch = 63,
+    /** A follower's check, after a walk to keep up, that it is near the point it was headed for. */
+    CheckFollowRange = 64,
     SurrenderToEnemies = 65,
     /** TSL: a lightsaber burnt through a locked door. */
     DoorSaber = 67,
@@ -415,13 +424,30 @@ struct SavedItemUseCommand {
  * walk goes and how near it ends, and the time limit of a forced walk.
  */
 struct SavedMoveCommand {
+    /**
+     * What a walk keeps of its command without acting on it, so that it saves
+     * the same command again.
+     */
+    struct Carried {
+        /** The walk may end once within its range in a clear line, which every walk does already. */
+        bool clearLine {false};
+        /** Flags with no bearing on the walk. */
+        int32_t flags {0};
+        /** The tag of the order that set the walk going. */
+        int32_t orderTag {0};
+    };
+
     glm::vec3 destination {0.0f};
     SavedObjectReference area;
-    /** The object walked to; invalid for a walk to a point. */
+    /**
+     * The object walked to; invalid for a walk to a point. With an offset,
+     * the object the point was reckoned from.
+     */
     SavedObjectReference target;
     bool run {false};
     /** A walk to a point keeps to the straight line to it. */
     bool straight {false};
+    Carried carried;
     /** How near the point or the object the walk ends. */
     float range {0.0f};
     /** A forced walk not yet begun: it is forced to its end once timeout seconds have passed. */
@@ -431,7 +457,7 @@ struct SavedMoveCommand {
     bool forcedActive {false};
     uint32_t expiryDay {0};
     uint32_t expiryTime {0};
-    /** Where a walk to an object ends, from the object. */
+    /** Where the point lies from the object it was reckoned from. */
     glm::vec2 offset {0.0f};
 
     /** Reads the walk from a command, or none when its parameters do not describe one. */
@@ -830,6 +856,10 @@ struct SavedEventRecord {
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
     SavedExecutionSupport executionSupport() const;
+    /**
+     * Whether a loaded event is kept: every event but a discarded one, its
+     * kind known or not.
+     */
     bool shouldRestore() const;
     bool bindObjectReferences(const Game &game);
 };

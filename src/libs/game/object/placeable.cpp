@@ -699,7 +699,7 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
         return;
     }
     _usable = false;
-    _game.postObjectDestruction(*this, *this, 0.0f, false);
+    _game.postObjectDestruction(*this, _id, 0.0f, false);
 }
 
 // The clip an animation ID shows on a placeable: the one its row names, else

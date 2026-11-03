@@ -342,7 +342,7 @@ void AreaOfEffect::receiveExitedSignal(const std::shared_ptr<Object> &exiting) {
 }
 
 void AreaOfEffect::destroy() {
-    _game.postObjectDestruction(*this, std::nullopt, 0.0f, true);
+    _game.postObjectDestruction(*this, script::kObjectInvalid, 0.0f, true);
 }
 
 EffectApplicationResult AreaOfEffectEffect::onApply(Object &object, EffectInstance &instance) {
@@ -365,7 +365,7 @@ EffectApplicationResult AreaOfEffectEffect::onApply(Object &object, EffectInstan
 void AreaOfEffectEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (isa<Creature>(&object)) {
         if (auto areaOfEffect = instance.boundObjectParameter(0)) {
-            object.game().postObjectDestruction(*areaOfEffect, std::nullopt, 0.0f, true);
+            object.game().postObjectDestruction(*areaOfEffect, script::kObjectInvalid, 0.0f, true);
         }
     }
 }

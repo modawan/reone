@@ -54,6 +54,14 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /**
+     * The range check of a cast or item use at an object whose caster has
+     * yet to stand within its range of the object, in a clear line: a
+     * MoveToObject command run to the spell's range and checked against it,
+     * behind the walk to the object at that range while the caster is still
+     * walking up to it.
+     */
+    std::vector<SavedActionRecord> rangeCheckCommands(const Object &actor) const override;
     /** An instant cast starts an ordinary round, which runs its end-of-round script. */
     bool suppressesEndRoundScript() const override { return _fake && !_instantSpell; }
     bool holdsCombatRound() const override { return _schedule.holdsRound() && !isCompleted() && !isCancelled(); }
@@ -150,6 +158,8 @@ protected:
     bool _ownsSpellTarget {false};
     /** The cast passed its admission when it was first dispatched. */
     bool _admitted {false};
+    /** The caster was out of range when the cast was dispatched. */
+    bool _dispatchedOutOfRange {false};
     /** The caster was out of range when the cast was dispatched and is walking up to it. */
     bool _approaching {false};
     /** The cast waits for its caster to stand in use range of its object, with a clear line to it. */
@@ -209,6 +219,17 @@ private:
     std::optional<std::reference_wrapper<const Object>> targetObject() const;
     /** What the cast's caster has as its spell target: the target object, or its area. */
     std::shared_ptr<Object> activeSpellTarget(const Object &actor) const;
+    /**
+     * A creature's cast at an object has yet to stand within its range of
+     * the object, in a clear line, and a save records that check in front of
+     * it: it is approaching the object or still checking its line to it. An
+     * item use and a cast a round queued to the front record it whatever the
+     * range; any other cast only when its caster was out of range as it was
+     * dispatched.
+     */
+    bool savesRangeCheck() const;
+    /** A cast, not an item use, queued behind the actions before it rather than to the front by a round. */
+    bool queuedBehind() const;
 };
 
 } // namespace game

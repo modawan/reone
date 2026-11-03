@@ -4220,7 +4220,7 @@ void Creature::removeEffectsOnDeath() {
 void Creature::onDestroyabilityChanged() {
     if (_destroyable && _dead && !_game.party().isMember(*this) &&
         _game.party().actualPlayer().get() != this)
-        _game.postObjectDestruction(*this, 3.0f);
+        _game.postObjectDestruction(*this, getLastKiller(), 3.0f);
 }
 
 bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spectacular,
@@ -4354,7 +4354,7 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
     // Destroyability is tested when the destruction is delivered. A death
     // leaves a destruction an earlier death queued pending.
     if (!partyDeath && !noFadeAway) {
-        _game.postObjectDestruction(*this, _destroyObjectDelay);
+        _game.postObjectDestruction(*this, damager ? damager->id() : script::kObjectInvalid, _destroyObjectDelay);
     }
     return true;
 }
@@ -10494,17 +10494,10 @@ void Creature::deserializeAll(
     loadAppearanceMoveRate(*getRequiredTwoDA(_services.resource.twoDas, "appearance"));
     setMovementRate(_walkRate);
     gff.readBool(_listening, "Listening");
+    // A saved pattern that does not parse is set as any other: it matches
+    // nothing, and a new entry is saved again with the empty pattern.
     for (const auto &expression : gff.getList("ExpressionList")) {
-        const auto pattern = expression->getString("ExpressionString");
-        const int32_t number = expression->getInt("ExpressionId");
-        setListenPattern(pattern, number);
-        // A saved pattern that does not parse here matches nothing, and is
-        // saved again as it was loaded.
-        auto entry = std::find_if(_listenExpressions.begin(), _listenExpressions.end(),
-                                  [number](const ListenExpression &value) { return value.number == number; });
-        if (entry != _listenExpressions.end() && !entry->parsed) {
-            entry->pattern = pattern;
-        }
+        setListenPattern(expression->getString("ExpressionString"), expression->getInt("ExpressionId"));
     }
 
     gff.readByte(_naturalAC, "NaturalAC");

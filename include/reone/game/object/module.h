@@ -181,7 +181,7 @@ public:
         SavedEventRecord event, std::shared_ptr<Action> command = nullptr,
         bool keepsCallerFade = false);
     size_t enqueueBoundSaveEvent(
-        SavedEventRecord event, bool targetBound,
+        SavedEventRecord event,
         std::shared_ptr<Action> command = nullptr,
         bool keepsCallerFade = false);
     bool cancelSaveEvent(size_t index);
@@ -215,12 +215,11 @@ private:
     bool _isSaveGame {false};
     std::vector<std::shared_ptr<Creature>> _limboCreatures;
     struct PendingSavedEvent {
-        SavedEventRecord record;
         /**
          * Delivery looks up only the target. References in the caller or the
          * payload that do not resolve are delivered as invalid objects.
          */
-        bool targetBound {false};
+        SavedEventRecord record;
         std::optional<uint64_t> publishedDueMilliseconds;
         std::shared_ptr<Action> command;
         /**
@@ -280,9 +279,10 @@ private:
     void loadPlayer();
     void loadLimboCreatures(const resource::Gff &ifo);
     /**
-     * Schedules a pending event for delivery. An event that cannot be
-     * delivered, a timed event whose script situation cannot be resumed
-     * among them, stays pending without being scheduled, to be saved again.
+     * Schedules a pending event for its due time. Every pending event is
+     * scheduled: one whose kind is unknown or cannot run, a timed event whose
+     * script situation cannot be resumed, and one whose target is gone are
+     * consumed when they fall due without running.
      */
     void publishSavedEvent(size_t index);
     void deliverSavedEvent(PublishedSavedEvent &event);
@@ -302,6 +302,10 @@ private:
     void deliverDestruction(const std::shared_ptr<Object> &target, bool keepsCallerFade);
     void deliverBodyBag(const SavedBodyBag &spawn, Area &area);
     void deliverAppliedEffect(const EffectInstance &effect, Object &target);
+    /** Takes a creature or placeable out of its area, into no area. */
+    void deliverRemovalFromArea(const SavedEventRecord &event, const std::shared_ptr<Object> &target);
+    /** Shows the animation the event names on its creature, door or placeable. */
+    void deliverAnimation(const SavedEventRecord &event, Object &target);
     /**
      * Makes the body bag a dead creature or a destroyed placeable leaves and
      * queues its appearance. Returns the bag, or the invalid object when none

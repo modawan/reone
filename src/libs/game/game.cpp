@@ -714,6 +714,7 @@ void Game::initTables() {
         });
     }
     _party.init();
+    _journal.init();
 }
 
 std::optional<int> Game::feedbackTextStrRef(int row) const {
@@ -4276,8 +4277,8 @@ void Game::queueEffectApplication(Object &target, EffectInstance effect, uint32_
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::ApplyEffect);
     event.payload = std::move(effect);
-    const bool bound = bindSavedObjectReference(event.object);
-    _module->enqueueBoundSaveEvent(std::move(event), bound);
+    bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event));
 }
 
 std::optional<uint64_t> Game::delayedWorldTime(float seconds) const {
@@ -4448,7 +4449,7 @@ void Game::disableScriptVideoEffect() {
     disableVideoEffect();
 }
 
-void Game::postObjectDestruction(Object &target, std::optional<std::reference_wrapper<const Object>> caller, float seconds, bool keepsCallerFade) {
+void Game::postObjectDestruction(Object &target, uint32_t callerId, float seconds, bool keepsCallerFade) {
     const auto when = delayedWorldTime(seconds);
     if (!when) {
         return;
@@ -4458,24 +4459,8 @@ void Game::postObjectDestruction(Object &target, std::optional<std::reference_wr
     event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
     event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
-    if (caller) {
-        event.caller = SavedObjectReference::fromRuntimeId(caller->get().id());
-    }
+    event.caller = SavedObjectReference::fromRuntimeId(callerId);
     _module->enqueueSaveEvent(std::move(event), nullptr, keepsCallerFade);
-}
-
-void Game::postObjectDestruction(Object &target, float delay) {
-    const auto time = delayedWorldTime(delay);
-    if (!time) {
-        return;
-    }
-    SavedEventRecord event;
-    event.day = static_cast<uint32_t>(*time / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(*time % millisecondsPerWorldDay());
-    event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
-    event.object = SavedObjectReference::fromRuntimeId(target.id());
-    const bool bound = bindSavedObjectReference(event.object);
-    _module->enqueueBoundSaveEvent(std::move(event), bound);
 }
 
 void Game::queueEffectRemoval(Object &target, EffectId id) {
@@ -4488,8 +4473,8 @@ void Game::queueEffectRemoval(Object &target, EffectId id) {
     value.id = id;
     value.creatorId = kSavedEffectInvalidObjectId;
     event.payload = std::move(value);
-    const bool bound = bindSavedObjectReference(event.object);
-    _module->enqueueBoundSaveEvent(std::move(event), bound);
+    bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event));
 }
 
 std::optional<float> Game::remainingEffectDuration(const EffectInstance &effect) const {
@@ -8860,32 +8845,11 @@ void Game::finishStatusSummaryCycle() {
     }
 }
 
-int Game::getPlotXP(const std::string &plotName) {
-    std::shared_ptr<TwoDA> plotTable(_services.resource.twoDas.get("plot"));
-    if (!plotTable) {
-        return 0;
-    }
-    for (int row = 0; row < plotTable->getRowCount(); ++row) {
-        if (boost::iequals(plotTable->getString(row, "label"), plotName)) {
-            return plotTable->getInt(row, "xp");
-        }
-    }
-    return 0;
-}
-
-int Game::getPlotXPByIndex(int plotIndex) {
-    std::shared_ptr<TwoDA> plotTable(_services.resource.twoDas.get("plot"));
-    if (!plotTable || plotIndex < 0 || plotIndex >= plotTable->getRowCount()) {
-        return 0;
-    }
-    return plotTable->getInt(plotIndex, "xp");
-}
-
 void Game::awardPlotXP(const std::string &plotName, int percentage) {
     if (plotName.empty() || percentage == 0) {
         return;
     }
-    int baseXP = getPlotXP(plotName);
+    int baseXP = _journal.plotXP(plotName);
     if (baseXP == 0) {
         return;
     }
@@ -8897,7 +8861,7 @@ void Game::awardPlotXPByIndex(int plotIndex, float fraction) {
     if (plotIndex < 0 || fraction == 0.0f) {
         return;
     }
-    int baseXP = getPlotXPByIndex(plotIndex);
+    int baseXP = _journal.plotXP(plotIndex);
     if (baseXP == 0) {
         return;
     }

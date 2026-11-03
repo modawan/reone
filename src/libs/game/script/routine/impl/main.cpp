@@ -3017,7 +3017,7 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
     }
     const Variable *callerArg = ctx.execution.findArg(ArgKind::Caller);
     auto caller = callerArg ? ctx.game.getObjectById(callerArg->objectId) : nullptr;
-    ctx.game.postObjectDestruction(*oDestroy, getOptionalObject(caller), fDelay, nHideFeedback == 0);
+    ctx.game.postObjectDestruction(*oDestroy, caller ? caller->id() : kObjectInvalid, fDelay, nHideFeedback == 0);
     return Variable::ofNull();
 }
 
@@ -4304,7 +4304,7 @@ static Variable GetJournalQuestExperience(const std::vector<Variable> &args, con
     auto szPlotID = getString(args, 0);
 
     // Execute
-    return Variable::ofInt(ctx.game.getPlotXP(szPlotID));
+    return Variable::ofInt(ctx.game.journal().plotXP(szPlotID));
 }
 
 static Variable JumpToObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5779,7 +5779,7 @@ static Variable SetTrapDisabled(const std::vector<Variable> &args, const Routine
     // done; a mine's trigger goes a moment later.
     if (auto trigger = std::dynamic_pointer_cast<Trigger>(oTrap); trigger && trigger->isTrap()) {
         ctx.game.queueScriptEvent(*trigger, caller, disarmed);
-        ctx.game.postObjectDestruction(*trigger, kDisarmedMineDestroyDelay);
+        ctx.game.postObjectDestruction(*trigger, kObjectInvalid, kDisarmedMineDestroyDelay);
     } else if (auto door = std::dynamic_pointer_cast<Door>(oTrap); door && door->isTrapped()) {
         ctx.game.queueScriptEvent(*door, caller, disarmed);
     } else if (auto placeable = std::dynamic_pointer_cast<Placeable>(oTrap); placeable && placeable->isTrapped()) {

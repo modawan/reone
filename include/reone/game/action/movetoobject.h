@@ -50,17 +50,27 @@ public:
     struct ApproachFlags {
         int objectsInLine {0};
         int clearLineWalk {0};
+
+        /** An attack's check: only a ranged attacker's walk may end in a clear line. */
+        static ApproachFlags forAttack(bool ranged) { return {0, ranged ? 1 : 0}; }
+        /**
+         * A cast's or an item use's check: its walk may end in a clear line,
+         * and the check of a cast queued behind the actions before it also
+         * tests the objects in the line.
+         */
+        static ApproachFlags forCast(bool queuedBehind) { return {queuedBehind ? 1 : 0, 1}; }
     };
 
     /**
      * A move to within range of an object: a door or placeable is walked to
      * at the mover's use point for it, which the move takes when it starts
-     * and takes anew at most once, should the point or the use range change;
-     * when \p closeToUseRange is set it is closed on to the use range so
-     * taken rather than to \p range. With a check range the move ends only
+     * and takes anew at most once, should the point or the use range change,
+     * and closed on to \p range. With a check range the move ends only
      * once the object is within the mover's use range for it, lengthened to
      * the check range, and otherwise sets out afresh; a move to an object in
-     * no area that is not a creature then ends as it is.
+     * no area that is not a creature then ends as it is. A move given
+     * \p approachFlags is the range check in front of an attack, a cast or
+     * an item use.
      */
     MoveToObjectAction(Game &game,
                        ServicesView &services,
@@ -71,7 +81,7 @@ public:
                        float timeout = -1.0f,
                        bool pointPath = false,
                        std::optional<float> checkRange = std::nullopt,
-                       bool closeToUseRange = false);
+                       std::optional<ApproachFlags> approachFlags = std::nullopt);
 
     MoveToObjectAction(Game &game,
                        ServicesView &services,
@@ -80,7 +90,8 @@ public:
                        float range,
                        float timeout,
                        ForcedState forcedState,
-                       bool force = true);
+                       bool force = true,
+                       SavedMoveCommand::Carried carried = {});
 
     static bool classof(Action *from) {
         return from->type() == ActionType::MoveToObject;
@@ -96,6 +107,17 @@ public:
      * its run flag, ranges or move flags are not ones a command carries.
      */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
+    /**
+     * The saved MoveToObject command for a move to \p target within
+     * \p range, checked against \p checkRange, and with \p approachFlags
+     * when it is the range check in front of an attack, a cast or an item use.
+     */
+    static SavedActionRecord savedCommand(
+        const Object &target,
+        bool run,
+        float range,
+        float checkRange,
+        const std::optional<ApproachFlags> &approachFlags);
 
     bool isRun() const { return _run; }
     const std::shared_ptr<Object> &target() const { return _moveTo; }
@@ -120,6 +142,8 @@ private:
     std::optional<Creature::UseApproach> _approach;
     /** The flags of a range check in front of an attack, a cast or an item use. */
     std::optional<ApproachFlags> _approachFlags;
+    /** What a walk along a point path keeps of the command it was restored from. */
+    SavedMoveCommand::Carried _carried;
 
     /** The distance the mover closes to: the use range taken, when it closes on it, else the move's range. */
     float closingRange() const;

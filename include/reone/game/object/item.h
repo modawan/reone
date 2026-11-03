@@ -238,6 +238,8 @@ public:
     /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
     int cost(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
+    /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
+    int storePanelSort() const { return _storePanelSort; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
@@ -425,6 +427,7 @@ private:
 
     std::optional<SpellType> _activateSpell;
     int _itemType {0};
+    int _storePanelSort {0};
     int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
     std::shared_ptr<audio::AudioSource> _audioSource;

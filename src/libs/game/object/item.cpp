@@ -216,6 +216,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
 
     auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
     _itemType = baseItems->getInt(_baseItem, "itemtype", 0);
+    _storePanelSort = baseItems->getInt(_baseItem, "storepanelsort", 0);
     _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
     _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
     _bodyModel = baseItems->getInt(_baseItem, "modeltype", 0) == kBodyModelType;
@@ -400,6 +401,7 @@ void Item::clone(const Item &from) {
 
     _activateSpell = from._activateSpell;
     _itemType = from._itemType;
+    _storePanelSort = from._storePanelSort;
     _disguiseAppearance = from._disguiseAppearance;
     _properties = from._properties;
 

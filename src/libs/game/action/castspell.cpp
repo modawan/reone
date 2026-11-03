@@ -22,6 +22,8 @@
 
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
+#include "reone/game/action/changefacing.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/combat.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/class.h"
@@ -271,7 +273,8 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             return;
         }
         _admitted = true;
-        _approaching = !_skipsApproach && !withinSpellRange(actor, *_spell, aimPosition(), targetObject());
+        _dispatchedOutOfRange = !_skipsApproach && !withinSpellRange(actor, *_spell, aimPosition(), targetObject());
+        _approaching = _dispatchedOutOfRange;
         // A cast at an object that does not skip its approach checks its line
         // to the object before it starts, wherever its caster stands and
         // whoever ordered it.
@@ -547,7 +550,7 @@ void CastSpellAction::release(Object &actor) {
             // The event owns the released impact; retiring its item must not
             // retract that event. The use itself ends once the item is gone.
             releaseItemDependency();
-            _game.postObjectDestruction(*item, 0.0f);
+            _game.postObjectDestruction(*item, actor.id(), 0.0f);
         }
     }
 }
@@ -700,9 +703,12 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     state.cheat = _cheat;
     state.hasSelection = _selection.has_value();
     state.admitted = _admitted;
-    state.approaching = _approaching;
+    // A range check saved in front of the cast leaves the cast saved as
+    // having passed it.
+    const bool rangeCheckSaved = savesRangeCheck();
+    state.approaching = _approaching && !rangeCheckSaved;
     state.skipsApproach = _skipsApproach;
-    state.checksUseLine = _checksUseLine;
+    state.checksUseLine = _checksUseLine && !rangeCheckSaved;
     state.started = _started;
     state.commitAttempted = _commitAttempted;
     state.committed = _committed;
@@ -711,6 +717,46 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     state.itemCasterLevel = _itemCasterLevel;
     record.cast = std::move(state);
     return record;
+}
+
+// The walk runs to the object's position, ending at the spell's range in a
+// clear line; the range check runs to the spell's range and is checked
+// against it, and its walk may end in a clear line. A turn toward the
+// object, or the location, follows them, and stands alone in front of a cast
+// not yet dispatched.
+std::vector<SavedActionRecord> CastSpellAction::rangeCheckCommands(const Object &actor) const {
+    std::vector<SavedActionRecord> result;
+    if (_placeableCaster || _started) {
+        return result;
+    }
+    if (savesRangeCheck()) {
+        const float range = spellRange(actor, *_spell, targetObject());
+        if (_approaching) {
+            SavedMoveCommand walk;
+            walk.destination = aimPosition();
+            walk.area = SavedObjectReference::fromRuntimeId(actor.spatialArea()->get().id());
+            walk.target = SavedObjectReference::fromRuntimeId(_target->id());
+            walk.run = true;
+            walk.carried.clearLine = true;
+            walk.range = range;
+            walk.toAction(result.emplace_back());
+        }
+        result.push_back(MoveToObjectAction::savedCommand(*_target, /*run=*/true, range, range,
+                                                          MoveToObjectAction::ApproachFlags::forCast(queuedBehind())));
+    } else if (_admitted) {
+        return result;
+    }
+    result.push_back(_target ? ChangeFacingAction::savedCommand(*_target) : ChangeFacingAction::savedCommand(aimPosition()));
+    return result;
+}
+
+bool CastSpellAction::savesRangeCheck() const {
+    return _target && !_placeableCaster && !_skipsApproach && !_started && (_approaching || _checksUseLine) &&
+           (!queuedBehind() || _dispatchedOutOfRange);
+}
+
+bool CastSpellAction::queuedBehind() const {
+    return !_item && !isScheduledCommand();
 }
 
 void CastSpellAction::restartItemUse(const SavedCastAction &state) {

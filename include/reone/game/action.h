@@ -159,6 +159,18 @@ public:
     virtual std::optional<SavedActionRecord> saveFacingState() const {
         return _savedAction;
     }
+    /**
+     * The commands a save of \p actor's queue records in front of the action,
+     * in its group, while the actor has yet to pass its range check: the walk
+     * up to its object while the actor is under way, then the check; the
+     * action's own saved command then no longer carries them. A cast or item
+     * use not yet begun also records the turn toward its object or location
+     * last, alone when it has no check to record. None for an action that
+     * keeps no such commands of its own.
+     */
+    virtual std::vector<SavedActionRecord> rangeCheckCommands(const Object &actor) const {
+        return {};
+    }
 
     /**
      * True while every non-owning gameplay object used by this action still

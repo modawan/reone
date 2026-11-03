@@ -31,6 +31,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
+#include "reone/game/action/playanimation.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/attack.h"
 #include "reone/game/castspell.h"
@@ -38,9 +39,11 @@
 #include "reone/game/combattables.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
+#include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
@@ -725,21 +728,14 @@ void Module::deserializeSavedEventQueue(
     _pendingSavedEvents.clear();
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
-    // Every event but a discarded one is kept. One that cannot be delivered
-    // stays pending, is never published, and is saved again as it was loaded.
+    // Every event but a discarded one is kept, its kind known or not. It waits
+    // for its due time and is saved again as it was loaded while it waits.
     for (auto &event : queue.events) {
         const auto index = _nextSavedEventIndex++;
         if (event.shouldRestore()) {
-            _pendingSavedEvents.emplace(index, PendingSavedEvent {std::move(event), false});
+            _pendingSavedEvents.emplace(index, PendingSavedEvent {std::move(event)});
         }
     }
-}
-
-// Binds every reference of a queued event. Only the target decides whether
-// the event can be delivered; nothing else is looked up.
-static bool bindForDelivery(SavedEventRecord &event, const Game &game) {
-    event.bindObjectReferences(game);
-    return event.object.isInvalid() || event.object.boundObject() != nullptr;
 }
 
 std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
@@ -772,15 +768,15 @@ std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
 
 size_t Module::enqueueSaveEvent(SavedEventRecord event, std::shared_ptr<Action> command, bool keepsCallerFade) {
     // Bind before snapshot/publication, while this registry owns the domain.
-    const bool targetBound = bindForDelivery(event, _game);
-    return enqueueBoundSaveEvent(std::move(event), targetBound, std::move(command), keepsCallerFade);
+    event.bindObjectReferences(_game);
+    return enqueueBoundSaveEvent(std::move(event), std::move(command), keepsCallerFade);
 }
 
 size_t Module::enqueueBoundSaveEvent(
-    SavedEventRecord event, bool targetBound, std::shared_ptr<Action> command, bool keepsCallerFade) {
+    SavedEventRecord event, std::shared_ptr<Action> command, bool keepsCallerFade) {
     // The caller has bound the target already.
     const auto index = _nextSavedEventIndex++;
-    PendingSavedEvent pending {std::move(event), targetBound};
+    PendingSavedEvent pending {std::move(event)};
     pending.command = std::move(command);
     pending.keepsCallerFade = keepsCallerFade;
     _pendingSavedEvents.emplace(index, std::move(pending));
@@ -804,8 +800,7 @@ bool Module::cancelSaveEvent(size_t index) {
 
 void Module::bindSavedEventQueue() {
     for (auto &[index, pending] : _pendingSavedEvents) {
-        pending.targetBound = !pending.record.shouldRestore() ||
-                              bindForDelivery(pending.record, _game);
+        pending.record.bindObjectReferences(_game);
     }
 }
 
@@ -831,31 +826,22 @@ void Module::publishSavedEventQueue() {
 void Module::publishSavedEvent(size_t index) {
     auto &pending = _pendingSavedEvents.find(index)->second;
     const auto &savedEvent = pending.record;
-    if (!savedEvent.shouldRestore() || !pending.targetBound) {
-        return;
-    }
-    if (!pending.command && savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
-        return;
-    }
     PublishedSavedEvent event;
     event.savedIndex = index;
     event.dueMilliseconds = static_cast<uint64_t>(savedEvent.day) * _game.millisecondsPerWorldDay() + savedEvent.time;
     event.command = pending.command;
     event.keepsCallerFade = pending.keepsCallerFade;
-    if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
-        auto situation = std::get_if<SerializedScriptSituation>(&savedEvent.payload);
-        if (!situation) {
-            return;
-        }
+    const auto *situation = std::get_if<SerializedScriptSituation>(&savedEvent.payload);
+    if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed) && situation) {
         SavedScriptSituationImporter importer(_game, _services.resource.scripts);
         auto imported = importer.import(*situation);
-        // A situation that cannot be resumed leaves its event pending and
-        // unpublished, to be saved again as it was loaded.
-        if (!imported) {
-            warn("Module: keeping a timed event that cannot be resumed: " + imported.message);
-            return;
+        // A situation that cannot be resumed waits like any other event, is
+        // saved again as it was loaded, and runs nothing when it falls due.
+        if (imported) {
+            event.continuation = std::move(imported.continuation);
+        } else {
+            warn("Module: a timed event cannot be resumed: " + imported.message);
         }
-        event.continuation = std::move(imported.continuation);
     }
     const SavedEventDeadline deadline {event.dueMilliseconds, index};
     _publishedSavedEvents.emplace(deadline, std::move(event));
@@ -884,6 +870,8 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     auto node = _pendingSavedEvents.extract(published.savedIndex);
     const auto savedEvent = std::move(node.mapped().record);
     node = {};
+    // An event whose target is gone, and one that cannot run, is consumed
+    // when it falls due all the same.
     auto target = savedEvent.object.boundObject();
     if (!target) {
         return;
@@ -892,6 +880,9 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     // takes any event.
     if (auto creature = dyn_cast<Creature>(target)) {
         creature->runSpawnScript();
+    }
+    if (!published.command && savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
+        return;
     }
 
     switch (static_cast<SavedEventType>(savedEvent.eventId)) {
@@ -922,6 +913,38 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     }
     case SavedEventType::SpawnBodyBag:
         deliverBodyBag(std::get<SavedBodyBag>(savedEvent.payload), cast<Area>(*target));
+        break;
+    case SavedEventType::RemoveFromArea:
+        deliverRemovalFromArea(savedEvent, target);
+        break;
+    case SavedEventType::CloseObject:
+        // A door swings shut, with the door linked to it, and runs its closed
+        // script with the caller as the last to close it.
+        if (auto door = dyn_cast<Door>(target)) {
+            door->close();
+            const auto closer = savedEvent.caller.boundObject();
+            door->onClosed(closer ? closer->id() : script::kObjectInvalid);
+        }
+        break;
+    case SavedEventType::PlayAnimation:
+        deliverAnimation(savedEvent, *target);
+        break;
+    case SavedEventType::DecrementStackSize:
+        // An item's stack loses one; the last one goes with the item.
+        if (auto item = dyn_cast<Item>(target)) {
+            if (item->stackSize() > 1) {
+                item->setStackSize(item->stackSize() - 1);
+            } else {
+                deliverDestruction(item, false);
+            }
+        }
+        break;
+    case SavedEventType::AcquireItem:
+        // A placeable takes the caller, an item, into its inventory.
+        if (auto item = std::dynamic_pointer_cast<Item>(savedEvent.caller.boundObject());
+            item && isa<Placeable>(target)) {
+            transferItemTo(_game, item, *target);
+        }
         break;
     case SavedEventType::Timed:
         // The situation runs as the target whatever its state:
@@ -1243,6 +1266,44 @@ void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keep
         }
     }
     _area->destroyObject(*target);
+}
+
+// A creature or placeable leaves its area and stays in the game, in no area,
+// at the origin. A creature leaves only for a nonzero value, and the areas of
+// effect it carries leave with it.
+void Module::deliverRemovalFromArea(const SavedEventRecord &savedEvent, const std::shared_ptr<Object> &target) {
+    std::vector<std::shared_ptr<Object>> leaving;
+    if (isa<Creature>(target)) {
+        const auto *value = std::get_if<SavedBytePayload>(&savedEvent.payload);
+        if (!value || value->value == 0) {
+            return;
+        }
+        for (const auto &object : _area->getObjectsByType(ObjectType::AreaOfEffect)) {
+            if (static_cast<const AreaOfEffect &>(*object).carrier() == target) {
+                leaving.push_back(object);
+            }
+        }
+    } else if (!isa<Placeable>(target)) {
+        return;
+    }
+    leaving.push_back(target);
+    for (const auto &object : leaving) {
+        _area->releaseObject(object);
+        object->setPosition(glm::vec3(0.0f));
+    }
+}
+
+// The animation shows on a creature, door or placeable that is not dead; a
+// party member down at no vitality shows none, nor does animation 0.
+void Module::deliverAnimation(const SavedEventRecord &savedEvent, Object &target) {
+    const auto *animation = std::get_if<SavedIntPayload>(&savedEvent.payload);
+    if (!animation || animation->value == 0 || target.isDead()) {
+        return;
+    }
+    if (const auto *creature = dyn_cast<Creature>(&target); creature && creature->isTemporarilyDead()) {
+        return;
+    }
+    showAnimation(target, animation->value);
 }
 
 // The bag appears where its source stood. A corpse bag takes over its

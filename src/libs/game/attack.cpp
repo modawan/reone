@@ -3381,13 +3381,15 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
         attacker.setDesiredFacingToward(targetPosition);
         return AttackApproachStep::Approaching;
     }
-    // The attacker first moves, in the attack's action group and by the usual
-    // range and pathfinding rules, until the target is within its use range
-    // for it lengthened to its reach, in a clear line.
+    // The attacker first runs the attack's range check, queued in front of
+    // the attack in its action group: it moves by the usual range and
+    // pathfinding rules until the target is within its use range for it
+    // lengthened to its reach, in a clear line. Its flags note whether the
+    // attacker holds a ranged weapon.
     if (auto targetObject = game.getObjectById(target.id())) {
         auto move = game.newAction<MoveToObjectAction>(
-            std::move(targetObject), true, closeTo, false, -1.0f,
-            !ranged, maxRange);
+            std::move(targetObject), /*run=*/true, closeTo, /*force=*/false, /*timeout=*/-1.0f, /*pointPath=*/false,
+            /*checkRange=*/maxRange, MoveToObjectAction::ApproachFlags::forAttack(ranged));
         attacker.addActionBefore(parent, std::move(move));
     }
     return AttackApproachStep::Approaching;

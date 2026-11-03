@@ -234,7 +234,7 @@ public:
         _combat(*this, services),
         _swoopRace(*this),
         _turret(*this, services),
-        _journal(services.resource.gffs, services.resource.strings),
+        _journal(services.resource.gffs, services.resource.strings, services.resource.twoDas),
         _floatingText(*this, services),
         _areaMusic(services),
         _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
@@ -632,8 +632,6 @@ public:
      * time the player's own character can level up, runs the level-up dialog.
      */
     void finishStatusSummaryCycle();
-
-    int getPlotXP(const std::string &plotName);
 
     /** Award the whole-number percentage used by the GivePlotXP script routine. */
     void awardPlotXP(const std::string &plotName, int percentage);
@@ -1147,11 +1145,6 @@ public:
     void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event);
     /** Remove an effect from the target through the module's event queue. */
     void queueEffectRemoval(Object &target, EffectId id);
-    /**
-     * Destroy the target after the delay. A destruction already pending for
-     * it stays pending; whichever falls due first destroys it.
-     */
-    void postObjectDestruction(Object &target, float delay);
     /** World time after a script delay, or none when the delay is dropped. */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
     /**
@@ -1193,8 +1186,13 @@ public:
     bool isVideoEffectHeldByScript() const { return _scriptVideoEffectHeld; }
     /** A swoop race or turret session is running. */
     bool isMiniGameActive() const;
-    /** DestroyObject: a destroy event for target after the delay. */
-    void postObjectDestruction(Object &target, std::optional<std::reference_wrapper<const Object>> caller, float seconds, bool keepsCallerFade);
+    /**
+     * Destroy the target after the delay, through a destroy event whose
+     * caller is \p callerId, kept whether or not that object still exists. A
+     * destruction already pending for the target stays pending; whichever
+     * falls due first destroys it.
+     */
+    void postObjectDestruction(Object &target, uint32_t callerId, float seconds, bool keepsCallerFade = false);
     /**
      * Every frame: the party falls when every member is down, and downed
      * members recover once no hostile has seen a member for a while.
@@ -2269,7 +2267,6 @@ private:
     void initTables();
     /** Builds the input events and their default keys, and reads the key names. */
     void initInputEvents();
-    int getPlotXPByIndex(int plotIndex);
 
     using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);
     void registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler);

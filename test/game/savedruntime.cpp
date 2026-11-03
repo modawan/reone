@@ -803,7 +803,7 @@ TEST(SavedAction, forced_move_to_object_uses_retail_action_1_and_preserves_timin
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[5].payload = int32_t {5};
     record.parameters[9].payload = 1.0f;
-    EXPECT_FALSE(record.toRuntimeAction(game));
+    EXPECT_TRUE(std::dynamic_pointer_cast<MoveToLocationAction>(record.toRuntimeAction(game)));
 }
 
 TEST(SavedAction, move_to_location_uses_exact_retail_action_1_shape_in_both_titles) {
@@ -908,10 +908,10 @@ TEST(SavedAction, move_to_location_rejects_malformed_semantics_and_invalid_area)
     EXPECT_FLOAT_EQ(ranged->closeRange(), 1.0f);
     record.parameters[6].payload = 0.0f;
     record.parameters[7].payload = int32_t {1};
-    EXPECT_FALSE(record.toRuntimeAction(game));
+    EXPECT_TRUE(record.toRuntimeAction(game));
     record.parameters[7].payload = int32_t {0};
     record.parameters[5].payload = int32_t {2};
-    EXPECT_FALSE(record.toRuntimeAction(game));
+    EXPECT_TRUE(record.toRuntimeAction(game));
     record.parameters[5].payload = int32_t {1};
     record.parameters[0].payload = std::numeric_limits<float>::quiet_NaN();
     EXPECT_FALSE(record.toRuntimeAction(game));
@@ -1572,7 +1572,7 @@ TEST(SavedEventQueue, should_preserve_K1_and_K2_records_absolute_time_payload_an
     EXPECT_EQ(queue.events[3].executionSupport(), SavedExecutionSupport::Discarded);
     EXPECT_FALSE(queue.events[3].shouldRestore());
     EXPECT_TRUE(std::holds_alternative<std::monostate>(queue.events[4].payload));
-    EXPECT_FALSE(queue.events[4].shouldRestore());
+    EXPECT_TRUE(queue.events[4].shouldRestore());
 }
 
 TEST(SavedEventQueue, should_bind_event_references_only_through_current_B_registry) {

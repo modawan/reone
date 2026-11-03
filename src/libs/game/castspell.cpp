@@ -1063,7 +1063,7 @@ void useItemAtOnce(Game &game, Creature &user, const std::shared_ptr<Item> &item
         addPowerUseFeedback(game, user, *spell, item);
     }
     if (item->consumeSpellUse(index)) {
-        game.postObjectDestruction(*item, 0.0f);
+        game.postObjectDestruction(*item, user.id(), 0.0f);
     }
     if (user.isInCombat()) {
         user.startItemUseCooldown();
@@ -1131,7 +1131,7 @@ bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
         return false;
     }
     debug(str(boost::format("Spell queued: actor=%u spell=%d delay=%u script=%s") % caster.id() % context.spellId % delayMilliseconds % spell.impactScript), LogChannel::Combat);
-    module->enqueueBoundSaveEvent(std::move(event), true);
+    module->enqueueBoundSaveEvent(std::move(event));
     return true;
 }
 
