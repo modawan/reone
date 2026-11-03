@@ -25,3 +25,6 @@ set_target_properties(gff2json PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINAR
 target_precompile_headers(gff2json PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 target_link_libraries(gff2json PRIVATE resource system json ${Boost_PROGRAM_OPTIONS_LIBRARY})
 
+list(APPEND InstallTargets gff2json)
+set(InstallTargets ${InstallTargets} PARENT_SCOPE)
+
