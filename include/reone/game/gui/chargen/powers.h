@@ -102,6 +102,7 @@ private:
     void loadDisplayEntries();
     void refreshControls();
     void refreshSelectionControls();
+    void accept();
     void refreshIconChain();
     void refreshIconChainSelection();
     void refreshIconChainLinks(const std::map<SpellType, glm::ivec2> &positions);
