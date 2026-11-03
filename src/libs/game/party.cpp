@@ -1381,11 +1381,10 @@ bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {
 }
 
 std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const {
-    auto inventoryOwner = actualPlayer();
-    // A party member's non-equipped items belong to the shared party inventory
-    // (the actual player creature). Non-party receivers keep their own inventory.
-    if (receiver && inventoryOwner && isMember(*receiver)) {
-        return inventoryOwner;
+    // A creature that draws on the party's items receives into them.
+    const auto creature = Creature::asCreature(receiver);
+    if (creature && &creature->get().itemRepositoryOwner() != &creature->get()) {
+        return actualPlayer();
     }
     return receiver;
 }

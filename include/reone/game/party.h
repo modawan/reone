@@ -601,13 +601,12 @@ public:
 
     // Inventory
     //
-    // KOTOR keeps a single shared party inventory, modelled here as the player
-    // creature's item list. Non-equipped items acquired by any party member
-    // belong to that shared inventory.
+    // The party's carried items are held by the player character's creature
+    // (actualPlayer).
 
-    // Returns the object that should receive a newly acquired, non-equipped
-    // item: the player creature when the intended receiver is a party member,
-    // otherwise the receiver unchanged (so non-party inventories stay separate).
+    // The object that receives an item given to \p receiver: the party's items
+    // when the receiver is a creature that draws on them
+    // (Creature::itemRepositoryOwner), otherwise the receiver itself.
     std::shared_ptr<Object> sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const;
 
     // END Inventory
