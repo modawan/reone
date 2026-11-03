@@ -647,6 +647,13 @@ public:
     // END Listening
 
 protected:
+    /**
+     * Gives a door or placeable its hardness: a resistance to every kind of
+     * damage by that much, unseen by scripts and not saved, as each load
+     * gives it again.
+     */
+    void applyHardness(int hardness);
+
     friend class Game;
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;

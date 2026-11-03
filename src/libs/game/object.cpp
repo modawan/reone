@@ -28,6 +28,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/damage.h"
+#include "reone/game/effect/damageresistance.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -1625,6 +1626,21 @@ bool Object::applyEffect(const std::shared_ptr<Effect> &effect,
     }
     _linkAwaitingLastingEffect = false;
     return applied;
+}
+
+void Object::applyHardness(int hardness) {
+    if (hardness == 0) {
+        return;
+    }
+    auto effect = _game.newEffect<DamageResistanceEffect>(static_cast<DamageType>(kAllDamageTypeFlags), hardness, 0);
+    EffectInstance instance = effect->saveFacingInstance();
+    instance.effect = std::move(effect);
+    instance.exposed = 0;
+    instance.setDuration(DurationType::Permanent, 0.0f);
+    // It is given as the object loads, before the object is live.
+    instance.id = _game.allocateEffectId();
+    instance.materialize();
+    admitEffect(std::move(instance));
 }
 
 bool Object::applyEffect(EffectInstance effect) {

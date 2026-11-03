@@ -78,6 +78,7 @@ void Door::deserialize(
         }
     }
     deserializeAll(gff, identityContext);
+    applyHardness(_hardness);
     loadAppearance();
     applyRestingState();
     updateTransform();

@@ -95,6 +95,7 @@ void Placeable::deserialize(
         }
     }
     deserializeAll(gff, identityContext);
+    applyHardness(_hardness);
     loadAppearance();
     if (_animation == kDeadAnimationId) {
         enterDestroyedState();
@@ -556,6 +557,7 @@ void Placeable::loadBodyBag(int appearance) {
     _portrait = kBodyBagPortrait;
     _description = LocString(kBodyBagDescriptionStrRef, "", strings);
     _animation = kDefaultAnimationId;
+    applyHardness(_hardness);
     loadAppearance();
 }
 
