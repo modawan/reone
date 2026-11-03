@@ -1821,17 +1821,17 @@ bool Area::hasDoorWallAlong(const glm::vec3 &from, const glm::vec3 &to, const Cr
     return false;
 }
 
-std::optional<std::reference_wrapper<const Object>> Area::findStaticWallNear(
-    const glm::vec3 &point, const Creature &creature, float minZ, float maxZ) const {
+std::optional<std::reference_wrapper<const Object>> Area::findStaticWallAlong(
+    const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const {
     const auto blocking = blockingSurfaces(_services.game.surfaces);
     const float radius = creature.personalSpace();
     for (const auto &object : _objectsByType.at(ObjectType::Door)) {
-        if (hasDoorWallWithin(static_cast<const Door &>(*object), blocking, point, point, radius, minZ, maxZ)) {
+        if (hasDoorWallWithin(static_cast<const Door &>(*object), blocking, from, to, radius, minZ, maxZ)) {
             return std::cref(*object);
         }
     }
     for (const auto &object : _objectsByType.at(ObjectType::Placeable)) {
-        if (hasBlockingFaceWithin(static_cast<const Placeable &>(*object).walkmesh(), blocking, point, point, radius, minZ, maxZ)) {
+        if (hasBlockingFaceWithin(static_cast<const Placeable &>(*object).walkmesh(), blocking, from, to, radius, minZ, maxZ)) {
             return std::cref(*object);
         }
     }
@@ -2165,7 +2165,7 @@ Area::DirectLineTest Area::testDirectLine(
         const glm::vec3 entry {from + line * roomStart(exit)};
         const float minZ = std::min(entry.z, reach.z) - kExitWallReach;
         const float maxZ = std::max(entry.z, reach.z) + kExitWallReach;
-        if (auto object = findStaticWallNear(reach, mover, minZ, maxZ)) {
+        if (auto object = findStaticWallAlong(reach, reach, mover, minZ, maxZ)) {
             if (creatureInEarlierRoom(exit)) {
                 return test;
             }
@@ -2775,7 +2775,8 @@ bool Area::findCreatureCollision(
     return found;
 }
 
-// The line of sight runs between the two at eye height. The walls and floors
+// The line of sight runs from the subject's eye to the height the object is
+// looked at. The walls and floors
 // of every room stop it, whatever their material, and so does every closed
 // door but the one looked at, however far away. Open doors, placeables and
 // creatures do not.
@@ -2786,10 +2787,10 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
     }
 
     glm::vec3 origin(subject.position());
-    origin.z += kLineOfSightHeight;
+    origin.z += Object::kEyeHeight;
 
     glm::vec3 dest(object.position());
-    dest.z += kLineOfSightHeight;
+    dest.z += object.canSeeHeight();
 
     const float length = glm::distance(origin, dest);
     const glm::vec3 dir {(dest - origin) / length};
@@ -3545,7 +3546,8 @@ void Area::updatePerception(float dt) {
 
 // Each creature perceives on its own schedule. A creature outside the party
 // checks the party every update; the controlled creature looks around every
-// 0.2 s and everyone else every 4 s. A creature's first update does both.
+// 0.2 s and everyone else every 4 s. A creature's first update does both,
+// unless the creature waits a full interval for its first look around.
 //
 // No script runs during a pass, as notices wait for its end, and creatures are
 // destroyed only between updates, so the creature list holds still.
@@ -3570,7 +3572,7 @@ void Area::updatePerceptionPasses(float dt, bool all) {
         const bool started = observer->perceptionStarted();
         observer->setPerceptionPassTime(observer->perceptionPassTime() + dt);
         const float interval = controlled ? kLeaderPerceptionPass : kPerceptionPass;
-        bool fullPass = all || !started || observer->perceptionPassTime() >= interval;
+        bool fullPass = all || (!started && !observer->firstLookWaits()) || observer->perceptionPassTime() >= interval;
         // A priority-0 creature waits out its throttle before a timed pass.
         if (fullPass && started && !all && observer->throttlesPerceptionPass()) {
             fullPass = false;
@@ -3610,19 +3612,12 @@ void Area::updatePerceptionPass(const std::shared_ptr<Creature> &observer, bool 
         return;
     }
 
-    // Those already perceived, then any others in range. Outside the party,
-    // party members are left to the party check.
-    // Those already perceived are taken by descending ID.
-    const auto &perception = observer->perception();
+    // Those already perceived, the most recently perceived first, then any
+    // others in range, in X order. Outside the party, party members are left
+    // to the party check.
+    const auto &order = observer->perception().order;
     std::vector<uint32_t> known = std::move(_perceivedIds);
-    known.clear();
-    for (const auto *entries : {&perception.seen, &perception.heard, &perception.invisible}) {
-        for (const auto &entry : *entries) {
-            known.push_back(entry.first);
-        }
-    }
-    std::sort(known.begin(), known.end(), std::greater<uint32_t>());
-    known.erase(std::unique(known.begin(), known.end()), known.end());
+    known.assign(order.rbegin(), order.rend());
     for (uint32_t id : known) {
         auto target = _game.getObjectById<Creature>(id);
         if (!target || !target->isRuntimeLive()) {
@@ -3635,19 +3630,19 @@ void Area::updatePerceptionPass(const std::shared_ptr<Creature> &observer, bool 
         updatePerceptionPair(observer, target);
     }
     _perceivedIds = std::move(known);
-    const ObjectList &candidates = getObjectsByType(ObjectType::Creature);
-    for (size_t i = 0; i < candidates.size(); ++i) {
-        auto target = std::static_pointer_cast<Creature>(candidates[i]);
-        if (target == observer || observer->perception().has(target->id())) {
-            continue;
+    const float x = observer->position().x;
+    forEachObjectInXRange(x - range, x + range, [&](const Object &object) {
+        if (object.type() != ObjectType::Creature || &object == observer.get() || observer->perception().has(object.id())) {
+            return;
         }
+        auto target = _game.getObjectById<Creature>(object.id());
         if (!inParty && party.isMember(*target)) {
-            continue;
+            return;
         }
         if (inRange(*target)) {
             updatePerceptionPair(observer, target);
         }
-    }
+    });
 }
 
 // The notices wait for the next perception update.
@@ -3839,7 +3834,7 @@ void Area::updatePerceptionPair(
         if (controlled) {
             sight = true;
         } else {
-            const glm::vec3 lift {0.0f, 0.0f, kPerceptionEyeHeight};
+            const glm::vec3 lift {0.0f, 0.0f, Object::kEyeHeight};
             const glm::vec3 eye {observer->position() + lift};
             const glm::vec3 targetEye {target->position() + lift};
             const float range = std::max(observer->spotRange(), observer->listenRange());
@@ -3883,6 +3878,11 @@ void Area::updatePerceptionPair(
             }
             if (wasSeen && invisible) {
                 seen = false;
+                lost = true;
+            }
+            // A silenced creature is heard no longer.
+            if (wasHeard && target->isSilenced()) {
+                heard = false;
                 lost = true;
             }
             if (invisible && (wasSeen || wasHeard)) {

@@ -189,7 +189,7 @@ float SceneGraph::forceSightPulse() const {
 void SceneGraph::cullRoots() {
     const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        if (!root->isEnabled() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
+        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
             root->setCulled(true);
             continue;
         }
@@ -825,6 +825,8 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
     float maxDistance = glm::length(originToDest);
     float minDistance = std::numeric_limits<float>::max();
 
+    // Every room and every object walkmesh is tested, however far the line
+    // runs from its ends.
     for (auto &root : _walkmeshRoots) {
         if (!root->isEnabled()) {
             continue;
@@ -832,16 +834,9 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         glm::vec3 originLocal;
         glm::vec3 dirLocal;
         if (root->walkmesh().isAreaWalkmesh()) {
-            if (!root->walkmesh().contains(origin) &&
-                !root->walkmesh().contains(dest)) {
-                continue;
-            }
             originLocal = origin;
             dirLocal = dir;
         } else {
-            if (root->getSquareDistanceTo(origin) > kMaxCollisionDistanceLineOfSight2) {
-                continue;
-            }
             originLocal = root->absoluteTransformInverse() * glm::vec4 {origin, 1.0f};
             dirLocal = root->absoluteTransformInverse() * glm::vec4 {dir, 0.0f};
         }

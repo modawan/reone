@@ -1590,6 +1590,13 @@ static constexpr float kResetPlacementRadius = 5.0f;
 
 static const glm::vec3 kFirstFollowerFormation {1.5f, -0.7f, 0.0f};
 static const glm::vec3 kSecondFollowerFormation {-1.5f, 0.8f, 0.0f};
+// The spacing of the formation, by which an ordered follow sends a member
+// further back than its formation offset.
+static constexpr float kFormationSpacing = 1.5f;
+// The follow anchor stands half this spacing behind the leader.
+static constexpr float kFollowAnchorSpacing = 1.0f;
+// The follow anchor moves only to a point at least this far away (squared metres).
+static constexpr float kFollowAnchorMove2 = 100.0f;
 
 static glm::vec3 forwardOf(float facing) {
     return glm::angleAxis(facing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(0.0f, 1.0f, 0.0f);
@@ -1701,7 +1708,34 @@ void Party::resetFollowPath(Area &area, const glm::vec3 &position, float facing,
     }
 }
 
+void Party::updateFollowAnchor() {
+    const auto leader = getLeader();
+    if (!leader) {
+        return;
+    }
+    const glm::vec3 point {leader->position() - 0.5f * kFollowAnchorSpacing * forwardOf(leader->getFacing())};
+    const glm::vec3 offset {point - _followAnchor};
+    if (glm::dot(offset, offset) >= kFollowAnchorMove2) {
+        _followAnchor = point;
+        _followAnchorFacing = leader->getFacing();
+    }
+}
+
+std::optional<glm::vec2> Party::forceFollowOffset(const Creature &member) const {
+    for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
+        if (getMember(slot).get() == &member) {
+            return glm::vec2(_followSlots[slot].formationOffset) + glm::vec2(0.0f, -kFormationSpacing);
+        }
+    }
+    return std::nullopt;
+}
+
+glm::vec3 Party::followAnchorPoint(const glm::vec2 &offset) const {
+    return _followAnchor + glm::angleAxis(_followAnchorFacing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(offset, 0.0f);
+}
+
 void Party::updateFollowPath() {
+    updateFollowAnchor();
     // Nobody follows while no one leads.
     if (!getLeader()) {
         return;

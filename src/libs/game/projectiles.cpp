@@ -389,9 +389,11 @@ void Projectiles::attachPresentation(ActiveProjectile &active, Game &game, Servi
     auto &state = active.saved;
     auto caster = state.caster.boundObject();
     auto body = caster ? std::dynamic_pointer_cast<scene::ModelSceneNode>(caster->sceneNode()) : nullptr;
-    // A spell's projectile shows from its release.
+    // A spell's projectile shows from its release. A thrown lightsaber is not
+    // shown while its thrower is not perceived.
     if (((state.kind == ProjectileKind::LightsaberRoute || state.kind == ProjectileKind::Spell) && !state.released) ||
-        active.model || !body || state.model.empty()) {
+        active.model || !body ||
+        (state.kind == ProjectileKind::LightsaberRoute && !caster->isPresent()) || state.model.empty()) {
         return;
     }
     auto resource = services.resource.models.get(state.model);
@@ -751,6 +753,10 @@ void Projectiles::launchSafeProjectile(Creature &source, Object &target, const I
     if (!ammunition || !ammunition->model) {
         return;
     }
+    // A bolt from a creature the player does not perceive is neither shown nor heard.
+    if (!source.isPresent()) {
+        return;
+    }
     auto p = std::make_shared<ActiveProjectile>();
     auto &s = p->saved;
     s.id = _nextPresentationId++;
@@ -836,6 +842,13 @@ static void presentBoltSpark(Area &area, const SavedProjectile &projectile) {
                          projectile.orientation * glm::vec3(0.0f, 1.0f, 0.0f), hit ? "impact" : "impact_bolt");
 }
 
+// A projectile shows between its legs, as one carrying on from a restore,
+// unless it is a thrown lightsaber, whose model is made only as one of its
+// legs sets out.
+static bool showsBetweenLegs(const SavedProjectile &projectile) {
+    return projectile.kind != ProjectileKind::LightsaberRoute;
+}
+
 // Legs not yet set out still leave on time; only the saber flying now goes.
 void Projectiles::dropThrownLightsaber(const Creature &caster) {
     _active.erase(std::remove_if(_active.begin(), _active.end(), [&](const auto &active) {
@@ -864,7 +877,9 @@ void Projectiles::update(float dt, Game &game, ServicesView &services) {
                 startLeg(active, game, services);
             }
         }
-        attachPresentation(active, game, services, true);
+        if (showsBetweenLegs(s)) {
+            attachPresentation(active, game, services, true);
+        }
         if (!s.released) {
             if (s.kind == ProjectileKind::Spell) {
                 s.position = spellSourcePosition(s.caster, s.sourceHook, s.position);

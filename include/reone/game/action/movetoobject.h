@@ -44,17 +44,18 @@ public:
     /**
      * The flags a range check in front of an attack, a cast or an item use
      * carries: its use-range test also tests the objects in the line, and a
-     * walk it starts may end once the object is in range in a clear line.
-     * They do not change the move.
+     * walk it starts ends once the object is in range in a clear line
+     * (clearLineWalk). Any walk of such a check ends once the mover is
+     * within its use range of the object.
      */
     struct ApproachFlags {
         int objectsInLine {0};
         int clearLineWalk {0};
 
-        /** An attack's check: only a ranged attacker's walk may end in a clear line. */
+        /** An attack's check: only a ranged attacker's walk ends in a clear line. */
         static ApproachFlags forAttack(bool ranged) { return {0, ranged ? 1 : 0}; }
         /**
-         * A cast's or an item use's check: its walk may end in a clear line,
+         * A cast's or an item use's check: its walk ends in a clear line,
          * and the check of a cast queued behind the actions before it also
          * tests the objects in the line.
          */
@@ -81,7 +82,8 @@ public:
                        float timeout = -1.0f,
                        bool pointPath = false,
                        std::optional<float> checkRange = std::nullopt,
-                       std::optional<ApproachFlags> approachFlags = std::nullopt);
+                       std::optional<ApproachFlags> approachFlags = std::nullopt,
+                       std::optional<float> pathOffset = std::nullopt);
 
     MoveToObjectAction(Game &game,
                        ServicesView &services,
@@ -142,6 +144,12 @@ private:
     std::optional<Creature::UseApproach> _approach;
     /** The flags of a range check in front of an attack, a cast or an item use. */
     std::optional<ApproachFlags> _approachFlags;
+    /**
+     * The desired offset of an attack's walk toward a creature, by which its
+     * goal stop measures the creature's use range. Not saved: a restored walk
+     * has none until the attack runs again.
+     */
+    std::optional<float> _pathOffset;
     /** What a walk along a point path keeps of the command it was restored from. */
     SavedMoveCommand::Carried _carried;
 

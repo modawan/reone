@@ -1315,7 +1315,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::Heal, &hasParameters<Type::Object, Type::Object, Type::Integer, Type::Integer>,
      &UseSkillAction::restore},
     {SavedActionType::FollowCheck, &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Float>,
-     &FollowAction::restore},
+     &FollowCheckAction::restore},
     {SavedActionType::FollowLeader, &hasParameters<>, &FollowLeaderAction::restore},
     {SavedActionType::BarkString, &hasParameters<Type::Integer>, &BarkStringAction::restore},
     {SavedActionType::CombatDispatch, &hasParameters<Type::Integer>, &CombatDispatchAction::restore},

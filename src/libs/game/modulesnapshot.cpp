@@ -1351,20 +1351,12 @@ void ModuleSnapshotBuilder::writeCreaturePerception(
             perception->getUint("ObjectId", kSavedRuntimeInvalidObjectId),
             perception->deepCopy());
     }
-    std::set<uint32_t> perceived;
-    for (const auto &[id, reference] : creature._perception.seen) {
-        if (reference.resolve()) perceived.insert(id);
-    }
-    for (const auto &[id, reference] : creature._perception.heard) {
-        if (reference.resolve()) perceived.insert(id);
-    }
-    for (const auto &[id, reference] : creature._perception.invisible) {
-        if (reference.resolve()) {
-            perceived.insert(id);
-        }
-    }
+    // The list keeps the order the creatures were first perceived in.
     std::vector<std::shared_ptr<Gff>> perceptions;
-    for (uint32_t id : perceived) {
+    for (uint32_t id : creature._perception.order) {
+        if (!creature._perception.has(id)) {
+            continue;
+        }
         auto objectIt = _game._objectById.find(id);
         if (objectIt == _game._objectById.end() ||
             !ids.contains(*objectIt->second)) continue;

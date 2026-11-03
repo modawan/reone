@@ -257,7 +257,7 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
             return;
         }
         auto &creature = static_cast<Creature &>(actor);
-        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false)) {
+        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false, false)) {
             _waitAfterApproach = _door->isPreciseUse() && _door->isLocked();
             return;
         }
@@ -307,7 +307,7 @@ std::shared_ptr<Action> OpenDoorAction::restore(const SavedActionRecord &record,
 void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
 
-    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false);
+    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false, false);
     if (reached) {
         _door->close();
         _door->onClosed(actor.id());

@@ -150,13 +150,6 @@ Raycast Walkmesh::raycastFace(
     return result;
 }
 
-bool Walkmesh::contains(const glm::vec2 &point) const {
-    if (!_rootAabb) {
-        return false;
-    }
-    return _rootAabb->value.contains(point);
-}
-
 // Horizontal distance from a point to a segment; a segment of no length is
 // its end point.
 static float distanceToSegment2D(const glm::vec2 &point, const glm::vec2 &a, const glm::vec2 &b) {

@@ -71,9 +71,8 @@ static constexpr float kPowerAttackKnockdownDuration = 0.1f;
 // Standard physical attack actions request a 1500-ms pause.
 static constexpr int kPhysicalAttackPauseMilliseconds = 1500;
 // A Force jump needs the target ten metres away or more, and the attacker's
-// eye line to it clear from a metre and a half above each of them.
+// eye line to it clear from the eye height above each of them.
 static constexpr float kForceJumpMinimumDistance2 = 100.0f;
-static constexpr float kAttackEyeHeight = 1.5f;
 static constexpr float kAttackEyeOffset = 0.01f;
 static constexpr int kNoAttackSightStrRef = 1516;
 // Reach is measured with a tenth of a metre to spare in TSL.
@@ -1381,7 +1380,7 @@ static glm::vec3 projectileMissLocation(const Object &shooter, const Object &tar
     const float falloff = glm::dot(offset, offset) * 1.5f / 100.0f;
     const float wobble = static_cast<float>(randomInt(0, 999)) / 1000.0f * falloff * 0.75f;
     aim.z += 1.5f - falloff / 1.5f + wobble;
-    const glm::vec3 origin = shooter.position() + glm::vec3(0.0f, 0.0f, 1.5f);
+    const glm::vec3 origin = shooter.position() + glm::vec3(0.0f, 0.0f, Object::kEyeHeight);
     const glm::vec3 toAim = aim - origin;
     const float aimLength = glm::length(toAim);
     const glm::vec3 end = origin + (aimLength > 0.0f ? toAim / aimLength : glm::vec3(0.0f)) * 1000.0f;
@@ -3244,8 +3243,8 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     const glm::vec3 &targetPosition = target.position();
     const glm::vec3 targetPoint = usedObject ? attacker.useRange(target).point : targetPosition;
 
-    const glm::vec3 eye {attacker.position() + glm::vec3(0.0f, 0.0f, kAttackEyeHeight + kAttackEyeOffset)};
-    const glm::vec3 targetEye {targetPoint + glm::vec3(0.0f, 0.0f, kAttackEyeHeight - kAttackEyeOffset)};
+    const glm::vec3 eye {attacker.position() + glm::vec3(0.0f, 0.0f, Object::kEyeHeight + kAttackEyeOffset)};
+    const glm::vec3 targetEye {targetPoint + glm::vec3(0.0f, 0.0f, Object::kEyeHeight - kAttackEyeOffset)};
     // A ranged attacker sees through a see-through door.
     const auto rightHand = attacker.getEquippedItem(InventorySlots::rightWeapon);
     const bool sight = area.isEyeLineClear(eye, targetEye, attacker, target, rightHand && rightHand->isRanged());
@@ -3363,21 +3362,33 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
         attacker.navigateTo(standOff, doorStandOff && standOffDistance2 > kDoorStandOffRunDistance2, 0.0f, dt);
         return AttackApproachStep::Approaching;
     }
+    // The walk of the attack's range check heads for the target with an
+    // offset. In KotOR such a walk to a creature ends within the desired
+    // distance of it and three tenths of a metre more; a door's use range is
+    // the desired distance beyond the attacker's personal space.
+    std::optional<float> pathOffset;
+    if (targetCreature) {
+        pathOffset = desired - targetCreature->creaturePersonalSpace();
+    } else if (door) {
+        pathOffset = attacker.desiredAttackRange(target);
+    }
     // A ranged attacker closes to its reach, a melee one to the desired
-    // distance; one already that near turns toward the target and waits for
-    // sight where it stands. A door
+    // distance; one already that near with a clear line turns toward the
+    // target. With the line blocked it walks on, closing in all the way, but
+    // the walk ends within its use range of the target whatever the line, and
+    // the attacker then stands there while the line stays blocked. A door
     // or placeable is closed on to the attacker's use range for it at its use
-    // point, which for a door, the target of the attacker's own path, is the
-    // desired distance and the attacker's personal space.
+    // point. A walk to a door ends within three times the attacker's personal
+    // space of its use point.
     auto weapon = attacker.getEquippedItem(InventorySlots::rightWeapon);
     const bool ranged = weapon && weapon->isRanged();
     float closeTo = ranged ? maxRange : desired;
     if (door) {
-        closeTo = attacker.desiredAttackRange(target) + attacker.personalSpace();
+        closeTo = attacker.useRange(target, false, pathOffset).range;
     } else if (usedObject) {
         closeTo = attacker.useRange(target).range;
     }
-    if (distance2 <= closeTo * closeTo) {
+    if (sight && distance2 <= closeTo * closeTo) {
         attacker.setDesiredFacingToward(targetPosition);
         return AttackApproachStep::Approaching;
     }
@@ -3389,7 +3400,7 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     if (auto targetObject = game.getObjectById(target.id())) {
         auto move = game.newAction<MoveToObjectAction>(
             std::move(targetObject), /*run=*/true, closeTo, /*force=*/false, /*timeout=*/-1.0f, /*pointPath=*/false,
-            /*checkRange=*/maxRange, MoveToObjectAction::ApproachFlags::forAttack(ranged));
+            /*checkRange=*/maxRange, MoveToObjectAction::ApproachFlags::forAttack(ranged), pathOffset);
         attacker.addActionBefore(parent, std::move(move));
     }
     return AttackApproachStep::Approaching;

@@ -431,10 +431,12 @@ static constexpr float kObjectUseSpacing = 0.75f;
 static constexpr float kPreciseUseRange = 0.1f;
 static constexpr float kDoorSaberUseRange = 1.0f;
 static constexpr float kCorpseUseSpacing = 5.0f;
-// A use range is met a tenth of a metre beyond it, along a line this far
-// above the ground.
+// A use range is met a tenth of a metre beyond it, along a line at eye height.
 static constexpr float kUseRangeAllowance = 0.1f;
-static constexpr float kUseLineHeight = 1.5f;
+// A walk that ends in a clear line also needs no wall of a door or placeable
+// within the walker's personal space of that line, this far either side of
+// the walker's eye height.
+static constexpr float kClearLineWallBand = 0.01f;
 // The height above the ground at which a walk tests its line to where it goes.
 static constexpr float kGroundLineHeight = 0.1f;
 // A walk to a use point keeps its point while the current one lies within a
@@ -1973,8 +1975,11 @@ bool Creature::permitsAction(const Action &action) const {
     }
     switch (command.type()) {
     case ActionType::MoveToObject:
-        return canMove() || clicksTriggerInReach(*static_cast<const MoveToObjectAction &>(command).target());
-    case ActionType::MoveToPoint:
+        return canMove() || isWalkGoalInReach(*static_cast<const MoveToObjectAction &>(command).target());
+    case ActionType::MoveToPoint: {
+        const auto &goal = static_cast<const MoveToPointAction &>(command).goal();
+        return canMove() || (goal && isWalkGoalInReach(*goal));
+    }
     case ActionType::MoveToLocation:
     case ActionType::MoveAwayFromObject:
     case ActionType::MoveAwayFromLocation:
@@ -1996,6 +2001,15 @@ bool Creature::permitsAction(const Action &action) const {
 bool Creature::clicksTriggerInReach(const Object &target) const {
     const auto *trigger = dyn_cast<Trigger>(&target);
     return trigger && !trigger->isTrap() && !isDead() && !isTemporarilyDead() && isInUseRange(*trigger, 0.0f);
+}
+
+bool Creature::isLinkedDoorInReach(const Object &goal, std::optional<float> pathOffset) const {
+    const auto *door = dyn_cast<const Door>(&goal);
+    return door && door->isLinked() && isInUseRange(*door, 0.0f, pathOffset);
+}
+
+bool Creature::isWalkGoalInReach(const Object &goal) const {
+    return clicksTriggerInReach(goal) || isLinkedDoorInReach(goal);
 }
 
 bool Creature::isSelectable() const {
@@ -4517,7 +4531,7 @@ void Creature::clearAllActions(bool force, bool evenUncommandable) {
     Object::clearAllActions(force, true);
     _game.combat().discardSwingHits(*this);
     setMovementType(MovementType::None);
-    _useApproach.reset();
+    _useWalk.reset();
     _attemptedMovementTarget.reset();
     resetBlockingCreature();
     // Clearing the actions also ends a push or leap carrying the creature.
@@ -4533,7 +4547,7 @@ void Creature::clearOrdersUnlessBusy() {
 void Creature::teardownActions() {
     Object::teardownActions();
     setMovementType(MovementType::None);
-    _useApproach.reset();
+    _useWalk.reset();
 }
 
 void Creature::playAnimation(AnimationType type, AnimationProperties properties) {
@@ -5621,7 +5635,8 @@ void Creature::runSpawnScript() {
     // The heartbeat follows at once, whatever the throttle, and its interval
     // starts over. Outside TSL only a party member or an encounter's creature
     // gets it; any other creature counts as spawned straight after its
-    // creation script, so its first due heartbeat only starts the interval.
+    // creation script, so its first due heartbeat only starts the interval
+    // and its first look around waits a full interval.
     if (_game.isTSL() || isPartyMember() || isEncounterCreature()) {
         _heartbeatThrottle = 0;
         runHeartbeat();
@@ -5629,10 +5644,14 @@ void Creature::runSpawnScript() {
         _stateSupportTimer.reset(_heartbeatInterval / 1000.0f);
     } else {
         startUnstampedHeartbeat();
+        _firstLookWaits = true;
     }
 }
 
 void Creature::runBlockedScript(uint32_t blockingDoorId) {
+    if (_game.party().getLeader().get() == this) {
+        return;
+    }
     // The creature keeps the door until its next blocked event; every run
     // asking for it, this one's continuations included, sees the latest.
     _lastBlockingDoorId = blockingDoorId;
@@ -5709,7 +5728,8 @@ void Creature::setXP(int xp) {
 }
 
 void Creature::playSound(SoundSetEntry entry, bool positional) {
-    if (!_soundSet) {
+    // A creature the player does not perceive is not heard.
+    if (!_soundSet || !isPresent()) {
         return;
     }
     auto maybeSound = _soundSet->find(entry);
@@ -5733,6 +5753,27 @@ void Creature::playSound(SoundSetEntry entry, bool positional) {
         1.0f,
         false,
         std::move(position));
+}
+
+void Creature::setPresent(bool present) {
+    if (present == isPresent()) {
+        return;
+    }
+    Object::setPresent(present);
+    if (!present) {
+        stopVoiceAndFootsteps();
+    }
+}
+
+void Creature::stopVoiceAndFootsteps() {
+    if (_audioSourceVoice) {
+        _audioSourceVoice->stop();
+    }
+    if (_audioSourceFootstep) {
+        _audioSourceFootstep->stop();
+    }
+    _audioSourceVoice.reset();
+    _audioSourceFootstep.reset();
 }
 
 void Creature::runAttackedScript(uint32_t attackerId) {
@@ -5851,6 +5892,7 @@ void Creature::setObjectSeen(const std::shared_ptr<Object> &object, bool seen) {
     } else {
         _perception.seen.erase(object->id());
     }
+    _perception.reorder(object->id());
 }
 
 void Creature::setObjectHeard(const std::shared_ptr<Object> &object, bool heard) {
@@ -5859,6 +5901,7 @@ void Creature::setObjectHeard(const std::shared_ptr<Object> &object, bool heard)
     } else {
         _perception.heard.erase(object->id());
     }
+    _perception.reorder(object->id());
 }
 
 void Creature::setObjectInvisible(const std::shared_ptr<Object> &object, bool invisible) {
@@ -5867,12 +5910,14 @@ void Creature::setObjectInvisible(const std::shared_ptr<Object> &object, bool in
     } else {
         _perception.invisible.erase(object->id());
     }
+    _perception.reorder(object->id());
 }
 
 void Creature::forgetPerceived(uint32_t id) {
     _perception.seen.erase(id);
     _perception.heard.erase(id);
     _perception.invisible.erase(id);
+    _perception.reorder(id);
 }
 
 // Each change is its own notice: the perceived creature and exactly one kind
@@ -6072,8 +6117,12 @@ bool Creature::detectsBySight(const Creature &target, bool invisible) const {
 // its stealth and move-silently roll, with the area, occlusion, running,
 // combat, stillness, distance and size terms.
 bool Creature::detectsBySound(const Creature &target, bool invisible) const {
+    // A silenced creature makes no sound.
+    if (target.isSilenced()) {
+        return false;
+    }
     auto area = _game.module()->area();
-    const glm::vec3 lift {0.0f, 0.0f, 1.5f};
+    const glm::vec3 lift {0.0f, 0.0f, Object::kEyeHeight};
     const glm::vec3 eye {_position + lift};
     const glm::vec3 targetEye {target._position + lift};
     const glm::vec3 offset {targetEye - eye};
@@ -6200,6 +6249,7 @@ void Creature::takePerception(Creature &other) {
     _perception.seen = std::move(other._perception.seen);
     _perception.heard = std::move(other._perception.heard);
     _perception.invisible = std::move(other._perception.invisible);
+    _perception.order = std::move(other._perception.order);
     other._perception.clear();
     forgetPerceived(_id);
     if (auto previous = _game.getObjectById(other.id())) {
@@ -9010,8 +9060,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
                           std::optional<std::reference_wrapper<const Object>> pathTarget,
                           bool straight) {
     _navigationFailed = false;
-    const bool clicksTrigger = pathTarget && clicksTriggerInReach(pathTarget->get());
-    if (isMovementRestricted() && !clicksTrigger) {
+    if (isMovementRestricted()) {
         setMovementType(MovementType::None);
         return false;
     }
@@ -9038,18 +9087,6 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
     }
     if (_walksOntoPoint) {
         distance = 0.0f;
-    }
-
-    // A walk heading for a trigger that is not a mine ends once the walker is
-    // within use range of it, as it sets out or on the way, and the trigger
-    // hears that as a click.
-    if (clicksTrigger) {
-        setMovementType(MovementType::None);
-        clearPath();
-        static constexpr int kClickedEvent = static_cast<int>(SavedSignalEventType::Clicked);
-        auto clicked = _game.getObjectById(pathTarget->get().id());
-        _game.queueScriptEvent(*clicked, *this, Event(kClickedEvent, {}, {}, {}, {_game.getObjectById(_id)}));
-        return true;
     }
 
     float eps2 = std::min(0.5f * 0.5f, distance * distance);
@@ -9169,8 +9206,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
             _previousPosition.reset();
             setMovementType(MovementType::None);
             clearPath();
-            if (door && door->get().state() == DoorState::Closed && !door->get().isOpening() &&
-                _game.party().getLeader().get() != this) {
+            if (door && door->get().state() == DoorState::Closed && !door->get().isOpening()) {
                 runBlockedScript(door->get().id());
             }
             return true;
@@ -9435,14 +9471,14 @@ void Creature::planStraightPath(const glm::vec3 &point) {
     resetBlockingCreature();
 }
 
-Creature::UseRange Creature::useRange(const Object &target, bool ignorePreciseUse) const {
+Creature::UseRange Creature::useRange(const Object &target, bool ignorePreciseUse, std::optional<float> pathOffset) const {
     UseRange use {target.position(), _personalSpace};
     switch (target.type()) {
     case ObjectType::Creature: {
         const auto &creature = static_cast<const Creature &>(target);
         use.range = _game.isTSL()
                         ? kCreatureUseRange
-                        : _creaturePersonalSpace + creature._creaturePersonalSpace + kCreatureUseSpacing;
+                        : (pathOffset ? *pathOffset : _creaturePersonalSpace) + creature._creaturePersonalSpace + kCreatureUseSpacing;
         break;
     }
     case ObjectType::Trigger: {
@@ -9475,6 +9511,12 @@ Creature::UseRange Creature::useRange(const Object &target, bool ignorePreciseUs
         // over no room.
         auto doorArea = door.spatialArea();
         use.point.z = doorArea ? doorArea->get().groundHeight(use.point, Area::GroundFace::Locating) : 0.0f;
+        // The door an attack's walk heads for is used from the walk's offset
+        // beyond the personal space.
+        if (pathOffset) {
+            use.range += *pathOffset;
+            break;
+        }
         auto area = spatialArea();
         // In TSL, while a door saber is anywhere in the queue, every door is
         // used from exactly a metre.
@@ -9497,7 +9539,7 @@ Creature::UseRange Creature::useRange(const Object &target, bool ignorePreciseUs
     return use;
 }
 
-bool Creature::isInUseRange(const Object &target, float extra) const {
+bool Creature::isInUseRange(const Object &target, float extra, std::optional<float> pathOffset) const {
     auto area = target.spatialArea();
     if (!area || !sharesSpatialArea(target)) {
         return false;
@@ -9505,14 +9547,98 @@ bool Creature::isInUseRange(const Object &target, float extra) const {
     if (auto *trigger = dyn_cast<Trigger>(&target); trigger && trigger->isAreaTransition()) {
         return trigger->isIn(_position);
     }
-    const UseRange use = useRange(target);
-    const glm::vec3 lift {0.0f, 0.0f, kUseLineHeight};
+    const UseRange use = useRange(target, false, pathOffset);
+    const glm::vec3 lift {0.0f, 0.0f, Object::kEyeHeight};
     if (!area->get().isEyeLineClear(_position + lift, use.point + lift, *this, target)) {
         return false;
     }
     const glm::vec2 offset {glm::vec2(use.point) - glm::vec2(_position)};
     const float reach = use.range + extra + kUseRangeAllowance;
     return glm::dot(offset, offset) <= reach * reach;
+}
+
+bool Creature::endsWalkToward(const Object &goal, float range, bool inClearLine, std::optional<float> pathOffset) const {
+    const UseRange use = useRange(goal, false, pathOffset);
+    const float distance2 = glm::distance2(_position, use.point);
+    if (distance2 <= use.range * use.range) {
+        return true;
+    }
+    // A walk all the way onto its point closes to no range.
+    if (!inClearLine || (_path && _walksOntoPoint)) {
+        return false;
+    }
+    Area &area = *_game.module()->area();
+    const glm::vec3 lift {0.0f, 0.0f, kEyeHeight};
+    const glm::vec3 eye {_position + lift};
+    auto isClearTo = [&](const glm::vec3 &point, std::optional<std::reference_wrapper<const Object>> target) {
+        const glm::vec3 to {point + lift};
+        return area.isEyeLineClear(eye, to, *this, target) &&
+               !area.findStaticWallAlong(eye, to, *this, eye.z - kClearLineWallBand, eye.z + kClearLineWallBand);
+    };
+    if (range > use.range && distance2 <= range * range && isClearTo(use.point, goal)) {
+        return true;
+    }
+    // In KotOR the walk also ends with the end of its path within range, in a
+    // clear line to the ground there.
+    if (_game.isTSL() || !_path) {
+        return false;
+    }
+    const glm::vec3 end = getLastPathPoint(area.pathfinder(), *_path);
+    const glm::vec2 toEnd {glm::vec2(end) - glm::vec2(_position)};
+    if (glm::dot(toEnd, toEnd) > range * range) {
+        return false;
+    }
+    return isClearTo(glm::vec3(end.x, end.y, area.groundHeight(end, Area::GroundFace::Locating)), std::nullopt);
+}
+
+void Creature::clickInReach(const Object &target) {
+    setMovementType(MovementType::None);
+    clearPath();
+    static constexpr int kClickedEvent = static_cast<int>(SavedSignalEventType::Clicked);
+    auto clicked = _game.getObjectById(target.id());
+    _game.queueScriptEvent(*clicked, *this, Event(kClickedEvent, {}, {}, {}, {_game.getObjectById(_id)}));
+}
+
+bool Creature::reachesWalkGoal(const Object &goal) {
+    if (clicksTriggerInReach(goal)) {
+        clickInReach(goal);
+        return true;
+    }
+    const auto *door = dyn_cast<const Door>(&goal);
+    if (!door || !door->isLinked() || !isInUseRange(*door, 0.0f)) {
+        return false;
+    }
+    if (door->isOpen()) {
+        clickInReach(*door);
+        return true;
+    }
+    runBlockedScript(door->id());
+    setMovementType(MovementType::None);
+    clearPath();
+    return true;
+}
+
+bool Creature::walkToward(std::optional<std::reference_wrapper<const Object>> goal, const glm::vec3 &dest, bool run, float range, float dt,
+                          std::optional<std::reference_wrapper<const Object>> pathTarget, bool inClearLine,
+                          std::optional<float> pathOffset) {
+    // A walk heading for a trigger that is not a mine, or for a linked door,
+    // ends once it comes within use range of it, as it sets out, on the way or
+    // with its last step.
+    if (goal && reachesWalkGoal(goal->get())) {
+        return true;
+    }
+    if (goal && endsWalkToward(goal->get(), range, inClearLine, pathOffset)) {
+        setMovementType(MovementType::None);
+        clearPath();
+        return true;
+    }
+    if (!navigateTo(dest, run, range, dt, pathTarget)) {
+        return false;
+    }
+    if (goal) {
+        reachesWalkGoal(goal->get());
+    }
+    return true;
 }
 
 void Creature::UseApproach::follow(const UseRange &current) {
@@ -9526,32 +9652,45 @@ void Creature::UseApproach::follow(const UseRange &current) {
     fixed = true;
 }
 
-bool Creature::navigateToUse(const Object &target, float extra, float dt, bool run, bool followsPoint, bool targetsPath) {
+bool Creature::navigateToUse(const Object &target, float extra, float dt, bool run, bool followsPoint, bool targetsPath,
+                             bool toGoal, float walkExtra, bool inClearLine) {
     std::optional<std::reference_wrapper<const Object>> pathTarget;
     if (targetsPath) {
         pathTarget = target;
     }
-    if (isInUseRange(target, extra)) {
+    std::optional<std::reference_wrapper<const Object>> goal;
+    if (toGoal) {
+        goal = target;
+    }
+    // The use range is tested before a walk sets out and again once it has
+    // ended; a walk under way runs to its own end. The walk belongs to the
+    // action that set it out, and ends with it.
+    const auto walker = _executingActionNode.lock();
+    const bool walking = _useWalk && _useWalk->walker.lock() == walker;
+    if (!walking && isInUseRange(target, extra)) {
         setMovementType(MovementType::None);
         clearPath();
-        _useApproach.reset();
+        _useWalk.reset();
         return true;
     }
+    // A walk to a door or placeable keeps the use point it set out for;
+    // anything else heads for its use point of the moment.
     const UseRange use = useRange(target);
-    if (target.type() != ObjectType::Door && target.type() != ObjectType::Placeable) {
-        navigateTo(use.point, run, use.range + extra, dt, pathTarget);
+    if (!walking) {
+        _useWalk = UseWalk {walker};
+        if (target.type() == ObjectType::Door || target.type() == ObjectType::Placeable) {
+            _useWalk->kept = UseApproach {use, !followsPoint};
+        }
+    } else if (_useWalk->kept) {
+        _useWalk->kept->follow(use);
+    }
+    const UseRange &walk = _useWalk->kept ? _useWalk->kept->use : use;
+    if (!walkToward(goal, walk.point, run, walk.range + walkExtra, dt, pathTarget, inClearLine)) {
         return false;
     }
-    if (!_useApproach || _useApproach->target != target.id()) {
-        _useApproach = UseApproach {target.id(), use, !followsPoint};
-    } else {
-        _useApproach->follow(use);
-    }
     // Arriving ends the walk; the next one sets out afresh.
-    if (navigateTo(_useApproach->use.point, run, _useApproach->use.range + extra, dt, pathTarget)) {
-        _useApproach.reset();
-    }
-    return false;
+    _useWalk.reset();
+    return isInUseRange(target, extra);
 }
 
 void Creature::advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt) {
@@ -10564,10 +10703,12 @@ void Creature::deserializeAll(
     gff.readResRef(_onBlocked, "ScriptOnBlocked");
 
     // Only a saved creature record carries CreatnScrptFird; a blueprint leaves
-    // the flag clear so a freshly materialized creature still spawns once.
+    // the flag clear so a freshly materialized creature still spawns once. A
+    // creature restored with it set waits for its first look around.
     uint8_t spawnScriptFired = 0;
     if (gff.readByte(spawnScriptFired, "CreatnScrptFird")) {
         _spawnScriptFired = spawnScriptFired != 0;
+        _firstLookWaits = _spawnScriptFired;
     }
     // The record does not keep the heartbeat stamp.
     startUnstampedHeartbeat();

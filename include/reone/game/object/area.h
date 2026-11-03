@@ -287,10 +287,11 @@ public:
     bool hasDoorWallAlong(const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
     /**
      * The door or placeable with a wall, as it stands, within the creature's
-     * personal space of a point, between two heights.
+     * personal space of the level line between two points, between two
+     * heights.
      */
-    std::optional<std::reference_wrapper<const Object>> findStaticWallNear(
-        const glm::vec3 &point, const Creature &creature, float minZ, float maxZ) const;
+    std::optional<std::reference_wrapper<const Object>> findStaticWallAlong(
+        const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
     /** Which face of the room under a point gives the ground height there. */
     enum class GroundFace {
         Locating, /**< the walk-check face by which the room is found, within a thousand units of the point's height */

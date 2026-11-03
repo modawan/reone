@@ -226,7 +226,10 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
             } else if (mineWork(_subSkill) == MineWork::Disarm || mineWork(_subSkill) == MineWork::Recover) {
                 extra = kMineUseRangeExtra;
             }
-            if (!actor.navigateToUse(*_target, extra, dt, true, false, false)) {
+            // Setting a mine walks toward its object as the walk's goal, to
+            // its use range, and takes the extra reach only in the check; the
+            // other mine work walks the extra reach too, with no goal.
+            if (!actor.navigateToUse(*_target, extra, dt, true, false, false, setMine, setMine ? 0.0f : extra)) {
                 return;
             }
             actor.turnToward(*_target);

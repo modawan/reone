@@ -288,9 +288,11 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         actor.spellScriptContext().setActiveTarget(activeSpellTarget(actor));
         _ownsSpellTarget = true;
         // A cast at a location walks on toward it, however often its walk
-        // fails or its caster cannot move, until it is within range.
+        // fails or its caster cannot move, until it is within range; a walk
+        // toward an object also ends within use range of it, or within range
+        // of its use point in a clear line.
         if (_approaching) {
-            if (creature->navigateTo(aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt, targetObject())) {
+            if (creature->walkToward(targetObject(), aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt, targetObject(), true)) {
                 _approaching = false;
             } else if (_target && (creature->navigationFailed() || !creature->canMove())) {
                 // A cast at an object whose walk fails checks its use line
@@ -300,14 +302,16 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             return;
         }
         // Such a check passes once the caster is within the spell's range of
-        // the object's use point, or its use range, with a clear line to it;
-        // until then the caster walks on toward that point, however often its
-        // walk fails or its caster cannot move.
+        // the object's use point, or its use range, with a clear line to it.
+        // It is taken before the caster walks toward that point and again once
+        // the walk has ended, however often its walk fails or its caster cannot
+        // move; a walk under way runs to its own end, within use range of the
+        // object or, in a clear line, within range of the point.
         if (_checksUseLine) {
             const float range = spellRange(actor, *_spell, targetObject());
-            const Creature::UseRange use = creature->useRange(*_target);
-            if (!creature->isInUseRange(*_target, std::max(0.0f, range - use.range))) {
-                creature->navigateTo(use.point, true, range, dt, targetObject());
+            const float useRange = creature->useRange(*_target).range;
+            if (!creature->navigateToUse(*_target, std::max(0.0f, range - useRange), dt, true, false, true, true,
+                                         range - useRange, true)) {
                 return;
             }
             _checksUseLine = false;

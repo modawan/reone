@@ -438,7 +438,7 @@ bool Door::isLinked() const {
 }
 
 std::shared_ptr<Door> Door::linkedDoor() {
-    if (_linkedToFlags != kLinkedToDoor && _linkedToFlags != kLinkedToWaypoint) {
+    if (!isLinked()) {
         return nullptr;
     }
     if (auto linked = _linkedDoor.resolve()) {
@@ -766,7 +766,7 @@ void Door::onOpen(uint32_t triggererId) {
 
 void Door::receiveClick(const std::shared_ptr<Object> &clicker, std::optional<int> transition) {
     _lastEnteredId = clicker ? clicker->id() : kObjectInvalid;
-    if (_linkedToFlags == kLinkedToDoor || _linkedToFlags == kLinkedToWaypoint) {
+    if (isLinked()) {
         // A click on a linked door passes the party through it; the door
         // hears the click again with the transition's number.
         _game.module()->area()->passTransition(clicker, transition, _linkedToModule, _linkedTo,

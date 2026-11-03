@@ -61,10 +61,6 @@ static constexpr size_t kResolutionValueCount = 20;
 static constexpr uint16_t kDeathScriptEvent = 10;
 static constexpr uint64_t kDestroyDelayMilliseconds = 2000;
 
-// The doors a destroyed door is linked to: another door or a waypoint.
-static constexpr int kLinkedToDoor = 1;
-static constexpr int kLinkedToWaypoint = 2;
-
 // A dying player character loses or gains a hit point every round.
 static constexpr float kRoundSeconds = 6.0f;
 static constexpr float kMinimumDyingRate = 0.1f;
@@ -939,7 +935,7 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
         door->enterDestroyedState();
         // A door linked to another door or to a waypoint destroys the door of
         // that tag in its area too.
-        if (door->linkedToFlags() == kLinkedToDoor || door->linkedToFlags() == kLinkedToWaypoint) {
+        if (door->isLinked()) {
             auto linked = object.spatialArea()->get().getObjectByTag(door->linkedTo());
             auto linkedDoor = std::dynamic_pointer_cast<Door>(linked);
             if (linkedDoor && linkedDoor->state() != DoorState::Destroyed) {

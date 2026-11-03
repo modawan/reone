@@ -100,6 +100,8 @@ public:
      * script runs nothing.
      */
     static constexpr char kFallbackConversationScript[] = "k_hen_dialogue01";
+    /** Sight and reach lines run between points this far above the objects' positions. */
+    static constexpr float kEyeHeight = 1.5f;
 
     enum class RuntimeState {
         Constructing,
@@ -244,6 +246,8 @@ public:
     const glm::vec3 &position() const { return _position; }
     const glm::mat4 &transform() const { return _transform; }
     bool visible() const { return _visible; }
+    /** How far above the object's position a creature's look at it aims. */
+    virtual float canSeeHeight() const { return kEyeHeight; }
     /** Whether the player's side knows of this object, so it is drawn and can be picked. */
     bool isPresent() const { return _present; }
     std::shared_ptr<scene::SceneNode> sceneNode() const { return _sceneNode; }
@@ -260,7 +264,7 @@ public:
     /** Faces the object at once. */
     virtual void setFacing(float facing);
     void setVisible(bool visible);
-    void setPresent(bool present);
+    virtual void setPresent(bool present);
 
     // Animation
 
@@ -430,6 +434,8 @@ public:
     void addActionOnTop(std::shared_ptr<Action> action, std::optional<int> group = std::nullopt);
     /** Queues \p action just before \p parent, in its group; returns false when \p parent is not queued. */
     bool addActionBefore(const Action &parent, std::shared_ptr<Action> action);
+    /** The group of \p action's node, the one running it first; none when it is not queued. */
+    std::optional<int> actionGroup(const Action &action) const;
     /** Drops the actions queued directly behind one, while they match. */
     void removeActionsBehind(const Action &action, const std::function<bool(const Action &)> &matches);
     /**
@@ -875,6 +881,8 @@ protected:
      * record it was restored from, else a new group.
      */
     int chooseActionGroup(const Action &action, std::optional<int> group);
+    /** The node holding \p action, the one running it first. */
+    OrdinaryActionQueue::Nodes::const_iterator findActionNode(const Action &action) const;
     /**
      * Cancels and removes queued actions, and drops the kept saved actions;
      * see clearAllActions for \p force and \p keepUnclearable.

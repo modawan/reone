@@ -160,8 +160,10 @@ uint32_t Action::serializedActionId() const {
         type = SavedActionType::OpenContainer;
         break;
     case ActionType::Follow:
-    case ActionType::ForceFollowObject:
         type = SavedActionType::Follow;
+        break;
+    case ActionType::ForceFollowObject:
+        type = SavedActionType::FollowCheck;
         break;
     case ActionType::FollowLeader:
         type = SavedActionType::FollowLeader;

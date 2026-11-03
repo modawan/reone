@@ -300,6 +300,7 @@ private:
     bool _groundPile {false};
     uint32_t _appearance {0};
     int _appearanceNameStrRef {-1};
+    float _canSeeHeight {kEyeHeight};
     uint8_t _hardness {0};
     uint8_t _fort {0};
     uint8_t _will {0};

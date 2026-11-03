@@ -107,7 +107,7 @@ void ModelSceneNode::buildNodeTree(ModelNode &node, SceneNode &parent) {
 }
 
 void ModelSceneNode::update(float dt) {
-    // Optimization: skip invisible models
+    // A model outside the scene is not animated.
     if (!_enabled) {
         return;
     }

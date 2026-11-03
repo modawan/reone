@@ -200,9 +200,10 @@ std::shared_ptr<Creature> Combat::findNearestEnemy(
     std::optional<uint32_t> nearest;
     float nearestDistance = maxDistance;
     // The search walks the area's objects outward from the observer in X
-    // order, alternately below and above it. Line of sight is taken from the
-    // observer to those below it and from the attacker to those above it.
-    // Each way stops once the X gap from the observer exceeds the nearest
+    // order, alternately below and above it. Line of sight runs at eye height
+    // from the observer to those below it and from the attacker to those above
+    // it; doors and placeables stop it, a see-through door does not, creatures
+    // never do. Each way stops once the X gap from the observer exceeds the nearest
     // distance found so far.
     area.forEachObjectOutwardInX(observer, [&](const Object &object, bool above) {
         if (object.id() == attacker.id() || (excluded && &object == &excluded->get())) {
@@ -216,10 +217,14 @@ std::shared_ptr<Creature> Combat::findNearestEnemy(
             const float distance = attacker.getDistanceTo(*candidate) -
                                    observer.creaturePersonalSpace() -
                                    candidate->creaturePersonalSpace();
-            if (isEnemy && observer.perception().sees(candidate->id()) && distance < nearestDistance &&
-                area.isObjectSeen(above ? attacker : observer, *candidate)) {
-                nearest = candidate->id();
-                nearestDistance = distance;
+            if (isEnemy && observer.perception().sees(candidate->id()) && distance < nearestDistance) {
+                const Creature &from = above ? attacker : observer;
+                const glm::vec3 lift {0.0f, 0.0f, Object::kEyeHeight};
+                if (area.isEyeLineClear(from.position() + lift, candidate->position() + lift, from, *candidate,
+                                        /*pastSeeThroughDoor=*/true)) {
+                    nearest = candidate->id();
+                    nearestDistance = distance;
+                }
             }
         }
         return std::abs(object.position().x - observer.position().x) <= nearestDistance;

@@ -1123,12 +1123,7 @@ bool Object::addActionBefore(const Action &parent, std::shared_ptr<Action> actio
         return false;
     }
     auto &nodes = _actions.nodes;
-    auto executing = _executingActionNode.lock();
-    auto position = std::find_if(nodes.begin(), nodes.end(), [&](const auto &node) {
-        return executing && executing->action.get() == &parent
-                   ? node == executing
-                   : node->action.get() == &parent;
-    });
+    const auto position = findActionNode(parent);
     if (position == nodes.end()) {
         return false;
     }
@@ -1139,6 +1134,23 @@ bool Object::addActionBefore(const Action &parent, std::shared_ptr<Action> actio
     nodes.insert(position, node);
     action->onQueued(*this);
     return true;
+}
+
+OrdinaryActionQueue::Nodes::const_iterator Object::findActionNode(const Action &action) const {
+    const auto executing = _executingActionNode.lock();
+    return std::find_if(_actions.nodes.begin(), _actions.nodes.end(), [&](const auto &node) {
+        return executing && executing->action.get() == &action
+                   ? node == executing
+                   : node->action.get() == &action;
+    });
+}
+
+std::optional<int> Object::actionGroup(const Action &action) const {
+    const auto position = findActionNode(action);
+    if (position == _actions.nodes.end()) {
+        return std::nullopt;
+    }
+    return (*position)->groupId;
 }
 
 void Object::removeActionsBehind(const Action &action, const std::function<bool(const Action &)> &matches) {
@@ -1286,6 +1298,15 @@ void Object::executeActions(float dt) {
         throw;
     }
     _executingActionNode.reset();
+    // An action that completes behind the actions it queued ahead of itself
+    // leaves the queue now; one still in front leaves with the next update.
+    if (action->isCompleted()) {
+        auto &nodes = _actions.nodes;
+        const auto position = std::find(nodes.begin(), nodes.end(), node);
+        if (position != nodes.end() && position != nodes.begin()) {
+            nodes.erase(position);
+        }
+    }
 }
 
 bool Object::hasUserActionsPending(const Action *excluded) const {

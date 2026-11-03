@@ -26,6 +26,7 @@
 #include <tuple>
 #include <vector>
 
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include "reone/game/galaxymapstate.h"
@@ -652,6 +653,16 @@ public:
      * to the facing of the trail step the point lies on.
      */
     glm::vec3 formationSpot(int slot) const;
+    /** How far behind the leader the followers keep, by the party's follow state. */
+    float followRange() const;
+    /**
+     * Where an ordered follow sends \p member: its formation offset, a
+     * formation spacing further back, to be taken from the follow anchor. None
+     * for a creature outside the party.
+     */
+    std::optional<glm::vec2> forceFollowOffset(const Creature &member) const;
+    /** The point \p offset gives from the follow anchor, turned to the anchor's facing. */
+    glm::vec3 followAnchorPoint(const glm::vec2 &offset) const;
 
     // END Follow path
 
@@ -721,6 +732,9 @@ private:
     /** The last point the leader reached in a clear line from the trail. */
     glm::vec3 _lastClearStep {0.0f};
     std::array<FollowSlot, kPartyFollowSlots> _followSlots {};
+    /** The point ordered follows of party members are taken from, and its facing. */
+    glm::vec3 _followAnchor {0.0f};
+    float _followAnchorFacing {0.0f};
 
     // END Follow path
 
@@ -757,8 +771,11 @@ private:
     int newestStep() const { return _followHead > 0 ? _followHead - 1 : kFollowSteps - 1; }
     static int stepAfter(int step) { return step > kFollowSteps - 2 ? 0 : step + 1; }
     static int stepBefore(int step) { return step > 0 ? step - 1 : kFollowSteps - 1; }
-    /** How far behind the leader the followers keep, by the party's follow state. */
-    float followRange() const;
+    /**
+     * The follow anchor moves to the point half a metre behind the leader,
+     * taking the leader's facing, once that point lies ten metres from it.
+     */
+    void updateFollowAnchor();
     /**
      * The point a distance back along the trail from the leader, not behind
      * the slot's own step, and the step it lies on. False for a trail too short.

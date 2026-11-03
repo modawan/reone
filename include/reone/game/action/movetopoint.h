@@ -28,12 +28,17 @@ public:
     /**
      * @param range how near the point the walk ends; at zero it ends on the
      *        point itself
+     * @param goal an object the walk heads for, which also ends it as
+     *        Creature::walkToward() says
      */
-    MoveToPointAction(Game &game, ServicesView &services, glm::vec3 point, bool run = true, float range = 1.0f) :
+    MoveToPointAction(Game &game, ServicesView &services, glm::vec3 point, bool run = true, float range = 1.0f,
+                      std::shared_ptr<Object> goal = nullptr) :
         Action(game, services, ActionType::MoveToPoint),
         _point(std::move(point)),
         _run(run),
-        _range(range) {
+        _range(range),
+        _goal(std::move(goal)) {
+        requireRuntimeObject(_goal);
     }
 
     static bool classof(Action *from) {
@@ -44,11 +49,14 @@ public:
     std::optional<SavedActionRecord> saveFacingState() const override;
 
     const glm::vec3 &point() const { return _point; }
+    const std::shared_ptr<Object> &goal() const { return _goal; }
 
 private:
     glm::vec3 _point;
     bool _run {true};
     float _range {1.0f};
+    /** Not saved: a restored walk heads for its point alone. */
+    std::shared_ptr<Object> _goal;
 };
 
 } // namespace game
