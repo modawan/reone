@@ -2157,6 +2157,11 @@ public:
     void setOnEndDialogue(std::string onEndDialogue) { _onEndDialogue = onEndDialogue; }
     /** Runs the end-of-conversation script. */
     void runEndDialogScript();
+    /**
+     * Runs the disturbed script: \p disturber added \p item to the creature's
+     * inventory or removed it, as \p type says.
+     */
+    void runOnDisturbed(uint32_t disturber, InventoryDisturbType type, uint32_t item);
     void setOnBlocked(std::string onBlocked) { _onBlocked = onBlocked; }
     const std::string &onDialogue() const { return _onDialogue; }
     void setOnDialogue(std::string onDialogue) { _onDialogue = onDialogue; }

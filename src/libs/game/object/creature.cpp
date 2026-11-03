@@ -3685,6 +3685,18 @@ void Creature::runEndDialogScript() {
     _game.scriptRunner().run(_onEndDialogue, id());
 }
 
+void Creature::runOnDisturbed(uint32_t disturber, InventoryDisturbType type, uint32_t item) {
+    if (_onDisturbed.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onDisturbed,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastDisturbed, Variable::ofObject(disturber)},
+         {script::ArgKind::InventoryDisturbItem, Variable::ofObject(item)},
+         {script::ArgKind::InventoryDisturbType, Variable::ofInt(static_cast<int>(type))}});
+}
+
 void Creature::updateRegeneration(float dt) {
     if (!isPartyMember() || isDead() || isTemporarilyDead() || currentHitPoints() <= 0) {
         return;
