@@ -207,16 +207,14 @@ void validateDescriptor(const SaveSlotDescriptor &target) {
         throw std::invalid_argument("Save target must be one direct child directory");
     }
     auto parent = normalizedDirectory.parent_path();
-    if (!std::filesystem::is_directory(parent) ||
-        std::filesystem::is_symlink(parent)) {
+    if (!std::filesystem::is_directory(parent)) {
         throw std::invalid_argument(
-            "Save target parent must be an existing non-symlink directory");
+            "Save target parent must be a directory");
     }
     if (std::filesystem::exists(normalizedDirectory) &&
-        (!std::filesystem::is_directory(normalizedDirectory) ||
-         std::filesystem::is_symlink(normalizedDirectory))) {
+        (!std::filesystem::is_directory(normalizedDirectory))) {
         throw std::invalid_argument(
-            "Save target must be absent or an existing non-symlink directory");
+            "Save target must be absent or an existing directory");
     }
 }
 
