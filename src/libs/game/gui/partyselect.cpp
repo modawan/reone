@@ -17,6 +17,7 @@
 
 #include "reone/game/gui/partyselect.h"
 
+#include <array>
 #include <utility>
 
 #include "reone/game/di/services.h"
@@ -116,7 +117,17 @@ void PartySelection::bindEventHandlers() {
                 selectedNpcs.push_back(npc);
             }
         }
+        std::array<bool, kMaxNpcCount> wasMember {};
+        for (int npc = 0; npc < npcCount(); ++npc) {
+            wasMember[npc] = _game.party().isMember(npc);
+        }
         _game.reconcilePartySelection(selectedNpcs);
+        // A companion that left the party goes with the screen.
+        for (int npc = 0; npc < npcCount(); ++npc) {
+            if (wasMember[npc] && !_game.party().isMember(npc)) {
+                _materialized[npc] = true;
+            }
+        }
         releaseMaterialized();
         _game.openInGame();
         if (!_context.exitScript.empty()) {
@@ -354,7 +365,7 @@ void PartySelection::clearSelection() {
 }
 
 // Leaving the screen destroys each companion it brought into being that did
-// not join the party.
+// not join the party, and each that left the party.
 void PartySelection::releaseMaterialized() {
     for (int npc = 0; npc < npcCount(); ++npc) {
         if (_materialized[npc] && !_game.party().isMember(npc)) {

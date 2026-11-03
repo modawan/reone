@@ -105,6 +105,9 @@ private:
         std::shared_ptr<gui::Label> LBL_DISABLED1;
         std::shared_ptr<gui::Label> LBL_DISABLED2;
         std::shared_ptr<gui::Label> LBL_DISABLED3;
+        std::shared_ptr<gui::Label> LBL_DISABLE1;
+        std::shared_ptr<gui::Label> LBL_DISABLE2;
+        std::shared_ptr<gui::Label> LBL_DISABLE3;
         std::shared_ptr<gui::Label> LBL_LEVELUP1;
         std::shared_ptr<gui::Label> LBL_LEVELUP2;
         std::shared_ptr<gui::Label> LBL_LEVELUP3;
@@ -170,6 +173,9 @@ private:
         _controls.LBL_DISABLED1 = findControl<gui::Label>("LBL_DISABLED1");
         _controls.LBL_DISABLED2 = findControl<gui::Label>("LBL_DISABLED2");
         _controls.LBL_DISABLED3 = findControl<gui::Label>("LBL_DISABLED3");
+        _controls.LBL_DISABLE1 = findControl<gui::Label>("LBL_DISABLE1");
+        _controls.LBL_DISABLE2 = findControl<gui::Label>("LBL_DISABLE2");
+        _controls.LBL_DISABLE3 = findControl<gui::Label>("LBL_DISABLE3");
         _controls.LBL_LEVELUP1 = findControl<gui::Label>("LBL_LEVELUP1");
         _controls.LBL_LEVELUP2 = findControl<gui::Label>("LBL_LEVELUP2");
         _controls.LBL_LEVELUP3 = findControl<gui::Label>("LBL_LEVELUP3");
