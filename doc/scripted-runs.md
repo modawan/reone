@@ -14,11 +14,14 @@ Two commands send real input, through the same path as the mouse and keyboard:
   and says why, when the click would not reach that control: no control has
   the tag, the hit test at its centre picks something else (it is hidden,
   disabled or not selectable, or another control covers it), or a movie,
-  the credits, a confirmation popup or blocked player input would take the
-  click. Character generation and the in-game menu look up the tag in their
-  front panel (the current step, the active tab) first. Modal panels inside
-  other screens, such as the HUD's status summary or the save screen's
-  confirmation, are not looked through.
+  the credits or blocked player input would take the click. While a
+  confirmation popup (a tutorial window, for one) is up, the tag is looked
+  up in the popup, which takes every click: `click BTN_OK` dismisses it.
+  Character generation and the in-game menu look up the tag in their front
+  panel (the current step, the active tab) first, and the HUD in its status
+  summary ("Journal Entry Added" and the like) while that is shown, then its
+  pause indicator. The save screen's confirmation and name entry are not
+  looked through.
 - `key <name>` presses and releases a key: a single character (`a`, `1`) or
   a name such as `escape`, `return`, `space`, `up`, `f1`.
 

@@ -829,6 +829,20 @@ void HUD::onClick(const std::string &control) {
     }
 }
 
+// In the order handle() gives the input: a shown status summary takes all of
+// it, then the pause indicator what lands on it, then the HUD itself.
+std::optional<glm::ivec2> HUD::clickPoint(const std::string &tag) const {
+    if (_statusSummary && _statusSummary->isVisible()) {
+        return _statusSummary->clickPoint(tag);
+    }
+    if (isPausePanelShown() && _pauseLayoutReason) {
+        if (auto point = _pauseGUI->clickPoint(tag)) {
+            return point;
+        }
+    }
+    return PresentationGUI::clickPoint(tag);
+}
+
 bool HUD::handle(const input::Event &event) {
     if (_statusSummary && _statusSummary->isVisible()) {
         return _statusSummary->handle(event);

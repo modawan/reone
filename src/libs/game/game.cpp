@@ -9086,6 +9086,10 @@ GameGUI *Game::getScreenGUI() const {
 }
 
 void Game::setBarkBubbleText(std::string text, float duration) {
+    // Before the HUD exists there is nowhere to show a bark.
+    if (!_hud) {
+        return;
+    }
     _hud->barkBubble().setBarkText(text, duration);
 }
 
@@ -9592,13 +9596,14 @@ void Game::consoleClick(const ConsoleArgs &args) {
     if (_credits) {
         throw std::runtime_error("click: the credits take the input");
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
-        throw std::runtime_error("click: a confirmation popup takes the input");
-    }
     if (_playerInputBlocked) {
         throw std::runtime_error("click: player input is blocked");
     }
-    auto gui = getScreenGUI();
+    // A visible confirmation popup takes every click before the screen does,
+    // as in handle(); its buttons are what a click can reach.
+    PresentationGUI *gui = (_confirmPopup && _confirmPopup->isVisible())
+                               ? static_cast<PresentationGUI *>(_confirmPopup.get())
+                               : getScreenGUI();
     if (!gui) {
         throw std::runtime_error("click: the current screen has no GUI");
     }
