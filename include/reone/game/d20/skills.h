@@ -33,12 +33,20 @@ class Textures;
 
 namespace game {
 
+class CreatureAttributes;
+
 class ISkills {
 public:
     virtual ~ISkills() = default;
 
     virtual std::shared_ptr<Skill> get(SkillType type) const = 0;
 };
+
+/**
+ * @return whether the character can use the skill: one it has ranks in,
+ *         or, for a skill used untrained, one any of its classes can use
+ */
+bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttributes &attributes, bool tsl);
 
 class Skills : public ISkills, boost::noncopyable {
 public:

@@ -173,12 +173,6 @@ private:
      *         feats and the skill it must be able to use
      */
     bool meetsRequirements(const Feat &feat, const FeatChoice &choice) const;
-
-    /**
-     * @return whether the character can use the skill: one it has ranks in,
-     *         or, for a skill used untrained, one any of its classes can use
-     */
-    bool canUseSkill(SkillType skill, const CreatureAttributes &attributes, bool tsl) const;
 };
 
 } // namespace game

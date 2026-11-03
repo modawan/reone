@@ -37,7 +37,8 @@ static constexpr int kAuthoredCanvasHeight = 480;
 // centred, and makes the box kIconSize taller with the message below it.
 // Without Cancel the box loses the Cancel row and the gap above it,
 // kButtonGap. A button starts kButtonMinWidth wide and grows by
-// kButtonWidthStep until its label fits on one line inside its border. OK
+// kButtonWidthStep until its label fits on one line inside its border, and is
+// then padded on each side by its border's inner offset. OK
 // sits kOkGap below the message and Cancel kButtonGap below OK, both centred.
 static constexpr int kIconSize = 32;
 static constexpr int kIconTop = 10;
@@ -143,7 +144,7 @@ int ConfirmPopup::buttonWidth(const Button &button) const {
     while (width - 2 * border < textWidth) {
         width += step;
     }
-    return width + 2 * border;
+    return width + static_cast<int>(scale * static_cast<float>(2 * button.border().innerOffset));
 }
 
 void ConfirmPopup::layoutMessage() {

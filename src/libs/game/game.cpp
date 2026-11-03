@@ -375,6 +375,22 @@ static bool isMenuOverModule(Game::Screen screen) {
     }
 }
 
+// The screens that hold the input as menus: all but play, a conversation and
+// the minigames.
+static bool holdsInputAsMenu(Game::Screen screen) {
+    switch (screen) {
+    case Game::Screen::None:
+    case Game::Screen::Loading:
+    case Game::Screen::InGame:
+    case Game::Screen::Conversation:
+    case Game::Screen::SwoopRace:
+    case Game::Screen::Turret:
+        return false;
+    default:
+        return true;
+    }
+}
+
 bool Game::holdsWorld() const {
     return _paused || pausesWorld(_screen);
 }
@@ -844,11 +860,13 @@ void Game::setSceneSurfaces() {
 
 bool Game::handle(const input::Event &event) {
     // Either Shift is the alternate actions key: pressing one holds it and
-    // releasing one lets it go. KotOR does not take it while the container
-    // screen is open, so it stays as it was when the screen opened.
+    // releasing one lets it go. While a menu, the credits or a popup holds
+    // the input, a Shift is taken only when its keymap row lets menus take
+    // it; otherwise the key stays as it was when the menu opened.
+    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible());
     if ((event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
         (event.key.code == input::KeyCode::LeftShift || event.key.code == input::KeyCode::RightShift) &&
-        (isTSL() || _screen != Screen::Container)) {
+        (!menuHoldsInput || _menusTakeAlternateActions[event.key.code == input::KeyCode::LeftShift ? 0 : 1])) {
         _alternateActionsHeld = event.type == input::EventType::KeyDown;
     }
     if (_playerInputBlocked && event.type != input::EventType::KeyUp &&
@@ -5249,6 +5267,12 @@ static constexpr int kLastMappedInputEventK1 = 265;
 static constexpr int kLastMappedInputEventTSL = 269;
 static constexpr int kFirstTwoKeyInputEvent = 280;
 static constexpr int kLastTwoKeyInputEvent = 286;
+// The alternate actions events, the left Shift's and then the right's.
+static constexpr int kAlternateActionsInputEvent = 221;
+// KotOR's free-look and left look-about bindings.
+static constexpr int kFreeLookInputEventK1 = 208;
+static constexpr int kLeftLookAboutInputEventK1 = 219;
+static constexpr int kLeftAltKey = 26;
 
 /** An input event the engine defines itself, and the key it takes. */
 struct EngineInputEvent {
@@ -5256,7 +5280,7 @@ struct EngineInputEvent {
     int key {0};
 };
 
-static constexpr std::array<EngineInputEvent, 23> kEngineInputEventsK1 {{
+static constexpr std::array<EngineInputEvent, 24> kEngineInputEventsK1 {{
     {0x03, 110},
     {0x04, 111},
     {0x07, 111},
@@ -5280,6 +5304,7 @@ static constexpr std::array<EngineInputEvent, 23> kEngineInputEventsK1 {{
     {0xb8, 7},
     {0xb9, 8},
     {0xbb, 88},
+    {0xbc, 89},
 }};
 static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
     {0x01, 125},
@@ -5314,26 +5339,30 @@ static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
 }};
 
 void Game::initInputEvents() {
+    const bool tsl = isTSL();
     _inputEvents.clear();
     const auto addEngineEvents = [this](const auto &events) {
         for (const EngineInputEvent &engineEvent : events) {
             _inputEvents[engineEvent.event] = InputEventKeys {engineEvent.key, std::nullopt};
         }
     };
-    if (isTSL()) {
+    if (tsl) {
         addEngineEvents(kEngineInputEventsTSL);
     } else {
         addEngineEvents(kEngineInputEventsK1);
     }
 
     auto keymap = getRequiredTwoDA(_services.resource.twoDas, "keymap");
-    const int lastMappedEvent = isTSL() ? kLastMappedInputEventTSL : kLastMappedInputEventK1;
+    const int lastMappedEvent = tsl ? kLastMappedInputEventTSL : kLastMappedInputEventK1;
     const auto rowOf = [&keymap](int event, const std::string &suffix) {
         return keymap->indexByLabel("action" + std::to_string(event) + suffix);
     };
     // A disabled row makes no event.
     const auto enabled = [&keymap](int row) {
         return row != -1 && keymap->getInt(row, "disabled", 0) != 1;
+    };
+    const auto makesEvent = [&](int event, int row) {
+        return enabled(row) && (tsl || event != kFreeLookInputEventK1);
     };
     // Keys are read from the column of the talk table's language when an
     // enabled single-key row gives a key there, else from the first
@@ -5342,7 +5371,7 @@ void Game::initInputEvents() {
     bool languageHasKeys = false;
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
         const int row = rowOf(event, "");
-        languageHasKeys = enabled(row) && keymap->getInt(row, column, -1) >= 0;
+        languageHasKeys = makesEvent(event, row) && keymap->getInt(row, column, -1) >= 0;
     }
     if (!languageHasKeys) {
         column = "language0";
@@ -5351,10 +5380,12 @@ void Game::initInputEvents() {
     // negative.
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent; ++event) {
         const int row = rowOf(event, "");
-        const int key = enabled(row) ? keymap->getInt(row, column, -1) : -1;
-        if (key >= 0) {
-            _inputEvents[event] = InputEventKeys {key, std::nullopt};
+        const int key = makesEvent(event, row) ? keymap->getInt(row, column, -1) : -1;
+        if (key < 0) {
+            continue;
         }
+        const bool leftAlt = !tsl && event == kLeftLookAboutInputEventK1;
+        _inputEvents[event] = InputEventKeys {leftAlt ? kLeftAltKey : key, std::nullopt};
     }
     // A two-key event is made from its A and B rows when both give a key that
     // is not negative and the two differ, or are both 0: the B key is its key
@@ -5371,6 +5402,12 @@ void Game::initInputEvents() {
             continue;
         }
         _inputEvents[event] = InputEventKeys {keyB, keyA};
+    }
+    // A menu that holds the input takes an alternate actions event only when
+    // its row's ICPCGUI is set.
+    for (size_t i = 0; i < _menusTakeAlternateActions.size(); ++i) {
+        const int row = rowOf(kAlternateActionsInputEvent + static_cast<int>(i), "");
+        _menusTakeAlternateActions[i] = enabled(row) && keymap->getInt(row, "icpcgui", 0) != 0;
     }
 
     auto keys = getRequiredTwoDA(_services.resource.twoDas, "bindablekeys");

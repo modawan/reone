@@ -17,6 +17,10 @@
 
 #include "reone/game/d20/skills.h"
 
+#include <algorithm>
+
+#include "reone/game/d20/attributes.h"
+#include "reone/game/d20/class.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
@@ -66,6 +70,30 @@ void Skills::init() {
 std::shared_ptr<Skill> Skills::get(SkillType type) const {
     auto it = _skills.find(type);
     return it != _skills.end() ? it->second : nullptr;
+}
+
+bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttributes &attributes, bool tsl) {
+    // A skill past the skills table cannot be used.
+    std::shared_ptr<Skill> rules(skills.get(skill));
+    if (!rules) {
+        return false;
+    }
+    // In TSL, the camouflage powers and the personal cloaking shield let a
+    // character use Stealth.
+    if (tsl && skill == SkillType::Stealth &&
+        (attributes.hasSpell(SpellType::ForceCamouflage) ||
+         attributes.hasSpell(SpellType::ImprovedForceCamouflage) ||
+         attributes.hasSpell(SpellType::MasterForceCamouflage) ||
+         attributes.hasFeat(FeatType::PersonalCloakingShield))) {
+        return true;
+    }
+    if (rules->untrained) {
+        const auto &classLevels = attributes.classLevels();
+        return std::any_of(classLevels.begin(), classLevels.end(), [&rules](const auto &classLevel) {
+            return rules->allClassesCanUse || classLevel.first->hasSkills();
+        });
+    }
+    return attributes.getSkillRank(skill) > 0;
 }
 
 } // namespace game
