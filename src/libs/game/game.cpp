@@ -940,7 +940,14 @@ bool Game::consumeTimingDiscontinuity() {
     return discontinuity;
 }
 
+std::optional<glm::ivec2> Game::consumePointerWarp() {
+    auto warp = _pointerWarp;
+    _pointerWarp.reset();
+    return warp;
+}
+
 void Game::update(float frameTime) {
+    updateMouseLookPointer();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
@@ -1035,7 +1042,7 @@ void Game::update(float frameTime) {
                     }
                 }
             }
-            if (member->updateClientCombatMode(storedCreature, carried.get(), i == 0 && _deadTargetHold > 0.0f)) {
+            if (member->updateClientCombatMode(storedCreature, carried.get(), i == 0 && isDeadTargetHoldRunning())) {
                 _enemySightingHold = -1.0f;
             }
         }
@@ -4512,6 +4519,7 @@ void Game::renderGUI() {
         _confirmPopup->render();
     }
     // The credits cover everything, the fade included, and hide the pointer.
+    // The pointer also hides while the mouse turns the camera.
     if (_credits) {
         _credits->render();
     } else {
@@ -5698,13 +5706,26 @@ void Game::setRelativeMouseMode(bool relative) {
 // In play the cursor is also held while the mouse turns the camera, unless a
 // popup takes the input.
 bool Game::relativeMouseMode() const {
-    if (_relativeMouseMode) {
-        return true;
-    }
+    return _relativeMouseMode || isMouseLooking();
+}
+
+bool Game::isMouseLooking() const {
     if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson || hasModalPanel()) {
         return false;
     }
     return getActiveCamera()->isMouseLookMode();
+}
+
+void Game::updateMouseLookPointer() {
+    const bool looking = isMouseLooking();
+    if (looking && !_mouseLookPointer) {
+        _mouseLookPointer = _pointer->position();
+    } else if (!looking && _mouseLookPointer) {
+        const glm::ivec2 position = *_mouseLookPointer;
+        _mouseLookPointer.reset();
+        _pointerWarp = position;
+        handle(input::Event::newMouseMotion(input::MouseMotionEvent {position.x, position.y, 0.0f, 0.0f}));
+    }
 }
 
 void Game::withLoadingScreen(const std::string &moduleName, const std::function<void()> &block) {

@@ -102,23 +102,6 @@ static bool isHurt(const Creature &creature) {
     return creature.currentHitPoints() < creature.maxHitPoints();
 }
 
-/** The two entries are the same power, item, feat, skill, form, implant mode or behaviour. */
-static bool isSameEntry(const ContextAction &left, const ContextAction &right) {
-    auto spellType = [](const ContextAction &entry) {
-        return entry.spell ? std::optional<SpellType>(entry.spell->type) : std::nullopt;
-    };
-    auto implantMode = [](const ContextAction &entry) {
-        return entry.implant ? std::optional<int>(entry.implant->mode) : std::nullopt;
-    };
-    auto behaviorStyle = [](const ContextAction &entry) {
-        return entry.behavior ? std::optional<NPCAIStyle>(entry.behavior->style) : std::nullopt;
-    };
-    return left.type == right.type && left.feat == right.feat && left.skill == right.skill &&
-           left.subSkill == right.subSkill && left.item == right.item && left.form == right.form &&
-           spellType(left) == spellType(right) && implantMode(left) == implantMode(right) &&
-           behaviorStyle(left) == behaviorStyle(right);
-}
-
 /**
  * Whether the entry for \p item can be used. KotOR refuses a medical or
  * repair kit while the leader is unhurt and not poisoned, and a squad

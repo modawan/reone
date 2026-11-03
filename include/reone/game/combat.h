@@ -453,6 +453,11 @@ public:
      */
     std::optional<PendingEntry> currentRoundAction(const Creature &actor) const;
     /**
+     * The creature's round action is under way: it owns a round that has not
+     * ended, and no pause of its round has ended since the action was taken up.
+     */
+    bool isRoundActionUnderWay(const Creature &actor) const { return ownsRound(actor) && actor.roundActionKind() != 0; }
+    /**
      * The creature's dispatcher runs: unless the creature's round is held, it
      * lets go of the entry it last handed on.
      */
