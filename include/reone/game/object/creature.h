@@ -1781,7 +1781,7 @@ public:
      * a spot is chosen, this creature stands on the line through a and b
      * where it passes nearest the other. The other drops what it was doing
      * and runs to a spot just off that line on its own side, unless it is
-     * already set on a move. Failing a spot it can walk straight to, it is
+     * already set on a move. Failing a spot with no door wall in its way, it is
      * placed at once behind this creature, against moverDir from b. True
      * when the other has been dealt with.
      */

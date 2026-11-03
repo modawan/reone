@@ -261,9 +261,12 @@ public:
      * spot one direction's length along is tried first. Then come rows one,
      * two and more metres along, as many as whole personal spaces fit under
      * radius, row n holding 2n+1 spots a metre apart across the direction,
-     * from its left. Last, computeSafeLocation round base. With clearLine, a
-     * row spot must also be reachable in a straight line from base, unless
-     * the first spot is off walkable ground or among walls.
+     * from its left. Last, computeSafeLocation round base. With clearLine, no
+     * door wall may come within the creature's personal space of the level
+     * line from base to a row spot, from a tenth of a metre below the lower
+     * of their heights to the creature's height above it; other walls do not
+     * count. clearLine lapses when the first spot is off walkable ground or
+     * by a door wall.
      */
     std::optional<glm::vec3> computeSafeLocationInDirection(
         const glm::vec3 &base, const glm::vec3 &direction, float radius, const Creature &creature, bool clearLine) const;
@@ -335,9 +338,11 @@ public:
                         std::optional<std::reference_wrapper<const Door>> shutDoor = std::nullopt);
     /**
      * Note a creature's new position in every encounter and area of effect,
-     * signalling entries and exits when announce is set.
+     * signalling entries and exits when announce is set. A step from \p from
+     * that passes through one signals an entry and an exit there.
      */
-    void updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce = true);
+    void updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce = true,
+                                std::optional<glm::vec3> from = std::nullopt);
 
     /**
      * The first creature the mover walks into on a step between two points,
@@ -1010,6 +1015,14 @@ private:
         float step,
         const std::function<bool(float)> &continues,
         const std::function<std::optional<glm::vec3>(const glm::vec3 &, bool)> &accept) const;
+    /**
+     * Whether ways out from a spot are tested when a safe spot is searched
+     * from it: the spot stands on walkable ground, and no door wall comes
+     * within the creature's personal space of a diagonal reaching a
+     * hundredth of a metre either way in x and y, across the creature's
+     * height above the spot.
+     */
+    bool testsWaysFrom(const glm::vec3 &spot, const Creature &creature) const;
 
     /** Each creature's perception pass that is due, or every creature's with all. */
     void updatePerceptionPasses(float dt, bool all);
@@ -1052,7 +1065,14 @@ private:
      */
     resource::Visibility fixVisibility(const resource::Visibility &visiblity);
 
-    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions = true);
+    /**
+     * The triggers \p triggerrer has come into, entered. A step from \p from
+     * that crosses a trigger's edge and ends on the side it began on passes
+     * through it: one outside enters and leaves it, one inside leaves it and
+     * enters it again.
+     */
+    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions = true,
+                                   std::optional<glm::vec3> from = std::nullopt);
 
     // Fire OnEnter for non-transition triggers the party leader currently
     // occupies (so triggers fire when the leader is placed/spawned inside them,

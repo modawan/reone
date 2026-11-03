@@ -30,6 +30,7 @@
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/shaperules.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -93,14 +94,26 @@ void Trigger::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     std::string templateRes;
+    std::shared_ptr<Gff> utt;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
-        if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
-            deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
-            captureAuthoredRecord(*utt, gff);
-        }
+        utt = _services.resource.gffs.get(templateRes, ResType::Utt);
+    }
+    std::string blueprintClickScript;
+    if (utt) {
+        deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
+        captureAuthoredRecord(*utt, gff);
+        blueprintClickScript = utt->has("OnClick") ? _onClick : _onEnter;
     }
     deserializeAll(gff, identityContext);
+    // The click script of a trigger placed from a blueprint comes from the
+    // blueprint alone, and otherwise from the record itself. A record without
+    // an OnClick field answers clicks with its own OnEnter script.
+    if (utt) {
+        _onClick = std::move(blueprintClickScript);
+    } else if (!gff.has("OnClick")) {
+        _onClick = _onEnter;
+    }
     loadAppearance();
     updateTransform();
 }
@@ -379,11 +392,11 @@ void Trigger::fireMine(bool force) {
     std::shared_ptr<Item> key = repository->getItemByTag(keyTag);
     bool equippedKey = false;
     if (!key) {
+        // The last item worn with the tag is the key.
         for (const auto &[slot, item] : creature->equipment()) {
             if (item && item->tag() == keyTag) {
                 key = item;
                 equippedKey = true;
-                break;
             }
         }
     }
@@ -474,14 +487,7 @@ void Trigger::update(float dt) {
         tenantsToRemove.insert(tenant);
     }
     for (auto &tenant : tenantsToRemove) {
-        _tenants.erase(tenant);
-        _lastLeftId = tenant->id();
-
-        if (_onExit.empty()) {
-            continue;
-        }
-
-        _game.scriptRunner().run(_onExit, _id);
+        removeTenant(tenant.get(), true);
     }
 
     syncDebugVisual();
@@ -521,7 +527,7 @@ void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
         {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
-void Trigger::removeTenant(const Object *object) {
+void Trigger::removeTenant(const Object *object, bool announce) {
     for (auto it = _tenants.begin(); it != _tenants.end();) {
         if (it->get() == object) {
             it = _tenants.erase(it);
@@ -530,6 +536,14 @@ void Trigger::removeTenant(const Object *object) {
             ++it;
         }
     }
+    if (!announce) {
+        return;
+    }
+    _lastLeftId = object->id();
+    if (_onExit.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_onExit, _id);
 }
 
 bool Trigger::isIn(const glm::vec3 &point) const {
@@ -540,6 +554,13 @@ bool Trigger::isIn(const glm::vec3 &point) const {
     }
     auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
     return sceneNode && sceneNode->isIn(glm::vec2(point));
+}
+
+bool Trigger::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
+    if (_isTrap) {
+        return shape::crossesSphere(from, to, _position, trapRadius());
+    }
+    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry);
 }
 
 float Trigger::trapRadius() const {

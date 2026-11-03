@@ -208,12 +208,12 @@ void lockObject(Object &target, Object &actor) {
     actor.game().queueScriptEvent(target, actor, Event(kLockedEvent));
 }
 
-void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
+bool jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
                           float radius, bool clearLine, Game &game) {
     auto area = game.module()->area();
     auto spot = area->computeSafeLocation(position, radius, creature, clearLine);
     if (!spot) {
-        return;
+        return false;
     }
 
     // The position changes at once; the creature's model turns to the new facing.
@@ -236,6 +236,7 @@ void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float f
         area->jumpCarriedAreaEffects(*live);
         area->updateSubAreaOccupancy(live);
     }
+    return true;
 }
 
 // After walking up to a locked door it steps right up to, a creature waits

@@ -8709,6 +8709,11 @@ void Game::finishPostDialogCharacterSwitch() {
     }
     auto companion = _postDialogCharacterSwitch.resolve();
     _postDialogCharacterSwitch.reset();
+    // While the party selection is open, the lead stays where it is and the
+    // hand-back is dropped.
+    if (_screen == Screen::PartySelection) {
+        return;
+    }
     // The lead passes to the next member, one step at a time, until the
     // companion leads; each step is a leader change of its own. A companion
     // that is gone never leads, so the lead goes once round the party.

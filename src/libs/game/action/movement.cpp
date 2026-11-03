@@ -73,8 +73,8 @@ static float facingAlong(const glm::vec3 &direction) {
 // door's closed-state use point nearest its back, twice the jumper's creature
 // personal space further back, facing away from the door. A jump onto anything
 // else lands on it facing along +x. The trail keeps the facing the jumper had
-// before it jumped.
-static void jumpToObject(Creature &jumper, Object &target, bool clearLine, Game &game) {
+// before it jumped. Returns whether the jumper found a spot to land on.
+static bool jumpToObject(Creature &jumper, Object &target, bool clearLine, Game &game) {
     glm::vec3 destination {target.position()};
     float facing;
     if (target.type() == ObjectType::Waypoint) {
@@ -88,7 +88,7 @@ static void jumpToObject(Creature &jumper, Object &target, bool clearLine, Game 
     } else {
         facing = facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
     }
-    jumpToPositionFacing(jumper, destination, facing, jumper.getFacing(), kJumpSearchRadius, clearLine, game);
+    return jumpToPositionFacing(jumper, destination, facing, jumper.getFacing(), kJumpSearchRadius, clearLine, game);
 }
 
 MoveToObjectAction::MoveToObjectAction(
@@ -721,10 +721,13 @@ std::shared_ptr<Action> FollowOwnerAction::restore(const SavedActionRecord &reco
     return game.newAction<FollowOwnerAction>(record.floatParameter(0));
 }
 
-// A jump to a location always lands where the jumper could walk straight to it from.
+// A jump to a location always lands where the jumper could walk straight to
+// it from. Having jumped, the jumper holds a moment before its next action.
 void JumpToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     const float facing = objectFacingFromScript(_location->facing());
-    jumpToPositionFacing(cast<Creature>(actor), _location->position(), facing, facing, kJumpSearchRadius, true, _game);
+    if (jumpToPositionFacing(cast<Creature>(actor), _location->position(), facing, facing, kJumpSearchRadius, true, _game)) {
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(WaitAction::kAfterJumpSeconds));
+    }
     complete();
 }
 
@@ -754,8 +757,11 @@ std::shared_ptr<Action> JumpToLocationAction::restore(const SavedActionRecord &r
     return game.newAction<JumpToLocationAction>(std::make_shared<Location>(position, orientation));
 }
 
+// Having jumped, the jumper holds a moment before its next action.
 void JumpToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    jumpToObject(cast<Creature>(actor), *_toJumpTo, _walkStraightLine, _game);
+    if (jumpToObject(cast<Creature>(actor), *_toJumpTo, _walkStraightLine, _game)) {
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(WaitAction::kAfterJumpSeconds));
+    }
     complete();
 }
 

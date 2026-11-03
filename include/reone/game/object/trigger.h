@@ -81,11 +81,13 @@ public:
 
     void addTenant(const std::shared_ptr<Object> &object);
 
-    // Drop an object from the tenant set without firing OnExit. Used when an
-    // object is destroyed while standing inside the trigger: a destroyed object
-    // never moves, so Trigger::update would otherwise keep it as a tenant
-    // forever (leaking it and leaving the trigger stuck in the Inside state).
-    void removeTenant(const Object *object);
+    /**
+     * Drops an object from the tenants. Announced, it becomes the object that
+     * last left and the exit script runs. Unannounced, as for an object
+     * destroyed while standing inside, nothing runs: a destroyed object never
+     * moves, so it would otherwise stay a tenant for good.
+     */
+    void removeTenant(const Object *object, bool announce = false);
 
     /**
      * Whether a point is inside the trigger: for a trap, within the trap
@@ -93,6 +95,12 @@ public:
      * outline on the ground plane.
      */
     bool isIn(const glm::vec3 &point) const;
+    /**
+     * Whether the step from \p from to \p to crosses the trigger's edge: for a
+     * trap, the surface of its radius; otherwise its outline on the ground
+     * plane.
+     */
+    bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
     bool isActive() const;
     bool isLinkedDoorTransition() const { return _linkedDoorTransition; }

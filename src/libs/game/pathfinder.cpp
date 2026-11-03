@@ -65,6 +65,7 @@
 #include <cassert>
 
 #include "reone/game/debug.h"
+#include "reone/game/shaperules.h"
 #include "reone/scene/drawdebug.h"
 
 namespace reone {
@@ -845,26 +846,6 @@ int closestAvoidanceHexCorner(const AvoidanceHex &hex, const glm::vec3 &point) {
     return closest;
 }
 
-// Where two segments meet seen from above, ends included. Parallel segments
-// never meet.
-static bool intersectSegments2d(const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c, const glm::vec3 &d,
-                                glm::vec3 &outPoint) {
-    const glm::vec2 ab {b - a};
-    const glm::vec2 cd {d - c};
-    const float denominator = ab.x * cd.y - ab.y * cd.x;
-    if (denominator == 0.0f) {
-        return false;
-    }
-    const glm::vec2 ac {c - a};
-    const float t = (ac.x * cd.y - ac.y * cd.x) / denominator;
-    const float u = (ac.x * ab.y - ac.y * ab.x) / denominator;
-    if (t < 0.0f || t > 1.0f || u < 0.0f || u > 1.0f) {
-        return false;
-    }
-    outPoint = glm::vec3(glm::vec2(a) + ab * t, 0.0f);
-    return true;
-}
-
 bool findAvoidanceEntryAndExit(const AvoidanceHex &hex, const std::vector<glm::vec3> &points, uint32_t next,
                                AvoidanceCrossing &entry, AvoidanceCrossing &exit) {
     entry = AvoidanceCrossing();
@@ -900,12 +881,11 @@ bool findAvoidanceEntryAndExit(const AvoidanceHex &hex, const std::vector<glm::v
                     ++found;
                 }
             }
-            glm::vec3 crossing;
-            if (intersectSegments2d(a, b, corner, nextCorner, crossing)) {
+            if (auto along = shape::meetSegments(glm::vec2(a), glm::vec2(b), glm::vec2(corner), glm::vec2(nextCorner))) {
                 if (found > 0) {
                     entry = exit;
                 }
-                exit = {e, k, crossing};
+                exit = {e, k, glm::vec3(glm::vec2(a) + glm::vec2(b - a) * *along, 0.0f)};
                 ++found;
                 break;
             }

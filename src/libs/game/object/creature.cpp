@@ -449,6 +449,7 @@ static constexpr char kPathFailScript[] = "k_def_pathfail01";
 static constexpr float kPushAsideSpace = 0.1f;      // kept beyond both personal spaces by a creature pushed aside
 static constexpr float kPushAsideSpotRadius = 5.0f; // how far round its spot a pushed creature's place is looked for
 static constexpr float kPushBehindRadius = 4.0f;    // how far behind the pusher a creature that cannot step aside goes
+static constexpr float kPushAsideDoorBand = 0.1f;   // how far under its floor a pushed creature's way is kept clear of door walls
 // Below this run distance an appearance cannot move.
 static constexpr float kImmobileRunSpeed = 0.0001f;
 // The slowest run, as a share of the distance one loop of the run clip covers
@@ -465,9 +466,10 @@ static constexpr float kWalkPaceGain = 1.0f;
 static constexpr float kClipPaceGain = 2.0f;
 static constexpr float kRunClipMinimumWalkPace = 0.5f;
 // A walk given no more range than this goes onto its point: it ends on the
-// step that reaches the end of its path, and one that sets out within a tenth
-// of a metre of the point steps onto it at once.
+// step that reaches the end of its path.
 static constexpr float kNoMoveRange = 0.001f;
+// A walk that sets out within a tenth of a metre of its point steps onto it at
+// once, whatever its range.
 static constexpr float kArrivalSnapDistance2 = 0.01f;
 static constexpr int kMaximumDamageEffectModifier = 36;
 static constexpr int kMaximumElementalDamageBonus = 108;
@@ -9050,14 +9052,6 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         return true;
     }
 
-    // Stop if we reached the destination.
-    float distToDest2 = getSquareDistanceTo(glm::vec2(dest));
-    if (distToDest2 <= distance * distance) {
-        setMovementType(Creature::MovementType::None);
-        clearPath();
-        return true;
-    }
-
     float eps2 = std::min(0.5f * 0.5f, distance * distance);
     if (_path && getSquareDistanceTo(getLastPathPoint(pf, *_path)) < eps2) {
         // Reached the last point, but not reached the destination. Find another
@@ -9066,14 +9060,23 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         _path = std::nullopt;
     }
 
-    // A walk onto a point that sets out within a tenth of a metre of it ends
-    // at once, the creature stepping onto the point if it fits there.
-    if (!_path && distance <= kNoMoveRange && getSquareDistanceTo(dest) <= kArrivalSnapDistance2) {
+    // A walk that sets out within a tenth of a metre of its point ends at
+    // once, whatever its range, the creature stepping onto the point if it
+    // fits there.
+    if (!_path && getSquareDistanceTo(dest) <= kArrivalSnapDistance2) {
         if (area.isSafeLocationPoint(dest, *this)) {
             setPosition(dest);
             area.determineObjectRoom(*this);
         }
         setMovementType(MovementType::None);
+        return true;
+    }
+
+    // Stop if we reached the destination.
+    float distToDest2 = getSquareDistanceTo(glm::vec2(dest));
+    if (distToDest2 <= distance * distance) {
+        setMovementType(Creature::MovementType::None);
+        clearPath();
         return true;
     }
 
@@ -9359,7 +9362,7 @@ Creature::Avoidance Creature::plotPathAroundCreature(const std::shared_ptr<Creat
 }
 
 bool Creature::canPushAside(const Creature &other) const {
-    if (!_game.isTSL() || _game.globalFade().dialogPending()) {
+    if (!_game.isTSL() || _game.isDialogUnderWay()) {
         return false;
     }
     if (_game.party().getLeader().get() != this) {
@@ -9376,7 +9379,9 @@ bool Creature::pushAside(Creature &other, glm::vec3 a, glm::vec3 b, const glm::v
 
     // The spot looked for stands off the line through a and b, on the side
     // the other creature already stands, far enough out for both creatures
-    // and a little more. A creature right on the line goes along +x.
+    // and a little more. A creature right on the line goes along +x. Its way
+    // there is kept clear of door walls up its height from the lower of where
+    // it stands and that spot, and a little below.
     Area &area = *_game.module()->area();
     const glm::vec3 standing {other.position()};
     const glm::vec3 line {b - a};
@@ -9387,14 +9392,16 @@ bool Creature::pushAside(Creature &other, glm::vec3 a, glm::vec3 b, const glm::v
     const float offsetLength = glm::length(offset);
     const glm::vec3 away = offsetLength < kDirectionEpsilon ? glm::vec3(1.0f, 0.0f, 0.0f) : offset / offsetLength;
     const float reach = other.creaturePersonalSpace() + kPushAsideSpace + creaturePersonalSpace();
+    const glm::vec3 wanted {nearest + away * reach};
+    const float wayFloor = std::min(wanted.z, standing.z);
 
     // This creature stands on its line, nearest the other, while the spot is
     // chosen, and goes back where it was once done.
     const glm::vec3 saved {_position};
     setPosition(nearest);
     bool handled = false;
-    const auto spot = area.computeSafeLocation(nearest + away * reach, kPushAsideSpotRadius, other, true);
-    if (spot && area.testDirectLine(other, standing, *spot).result != Area::DirectLine::Blocked) {
+    const auto spot = area.computeSafeLocation(wanted, kPushAsideSpotRadius, other, true);
+    if (spot && !area.hasDoorWallAlong(standing, *spot, other, wayFloor - kPushAsideDoorBand, wayFloor + other.collisionHeight())) {
         // A creature already set on a move is left to it.
         const bool moving = std::any_of(other.actions().nodes.begin(), other.actions().nodes.end(),
                                         [](const OrdinaryActionQueue::Node &node) {

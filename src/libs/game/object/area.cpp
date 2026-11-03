@@ -1910,10 +1910,7 @@ std::optional<glm::vec3> Area::computeSafeLocation(
     if (isSafeLocationPoint(grounded, creature)) {
         return grounded;
     }
-    // Reachability only counts from a position on walkable ground, clear of
-    // the walls of any door.
-    const glm::vec3 probe {kSafeLocationDoorProbe, kSafeLocationDoorProbe, 0.0f};
-    if (!isPositionWalkable(grounded) || hasDoorWallAlong(grounded - probe, grounded + probe, creature, grounded.z, grounded.z + creature.collisionHeight())) {
+    if (!testsWaysFrom(grounded, creature)) {
         clearLine = false;
     }
 
@@ -1950,10 +1947,14 @@ std::optional<glm::vec3> Area::computeSafeLocation(
             return spot; });
 }
 
+bool Area::testsWaysFrom(const glm::vec3 &spot, const Creature &creature) const {
+    const glm::vec3 probe {kSafeLocationDoorProbe, kSafeLocationDoorProbe, 0.0f};
+    return isPositionWalkable(spot) && !hasDoorWallAlong(spot - probe, spot + probe, creature, spot.z, spot.z + creature.collisionHeight());
+}
+
 std::optional<glm::vec3> Area::computeSafeLocationInDirection(
     const glm::vec3 &base, const glm::vec3 &direction, float radius, const Creature &creature, bool clearLine) const {
-    static constexpr float kProbe = 0.01f;
-    static constexpr float kRowRounding = 0.01f;
+    static constexpr double kRowRounding = 0.01;
     // Spots stand at the top ground height, their rooms looked for around the
     // height of the first spot for it, and around base's height for the rows.
     const auto spotAt = [this](const glm::vec3 &point) {
@@ -1963,8 +1964,7 @@ std::optional<glm::vec3> Area::computeSafeLocationInDirection(
     if (isSafeLocationPoint(first, creature)) {
         return first;
     }
-    const glm::vec3 probe {kProbe, kProbe, 0.0f};
-    if (!isPositionWalkable(first) || testDirectLine(creature, first - probe, first + probe).result == DirectLine::Blocked) {
+    if (!testsWaysFrom(first, creature)) {
         clearLine = false;
     }
 
@@ -1972,13 +1972,14 @@ std::optional<glm::vec3> Area::computeSafeLocationInDirection(
     const glm::vec2 along {glm::normalize(glm::vec2(direction))};
     const glm::vec2 across {along.y, -along.x};
     for (float width = step; radius > width; width += step) {
-        const int row = static_cast<int>((width + kRowRounding) / step);
+        const int row = static_cast<int>((static_cast<double>(width) + kRowRounding) / static_cast<double>(step));
         for (int i = -row; i <= row; ++i) {
             const glm::vec3 spot {spotAt(glm::vec3(glm::vec2(base) + static_cast<float>(row) * along + static_cast<float>(i) * across, base.z))};
             if (!isSafeLocationPoint(spot, creature)) {
                 continue;
             }
-            if (clearLine && testDirectLine(creature, base, spot).result == DirectLine::Blocked) {
+            const float low = std::min(spot.z, base.z);
+            if (clearLine && hasDoorWallAlong(base, spot, creature, low - kSafeLocationDoorBand, low + creature.collisionHeight())) {
                 continue;
             }
             return spot;
@@ -2048,12 +2049,12 @@ void Area::budgeCreatures(const glm::vec3 &center, const graphics::AABB &bounds,
     }
 }
 
-void Area::updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce) {
+void Area::updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce, std::optional<glm::vec3> from) {
     for (const auto &object : _objectsByType[ObjectType::Encounter]) {
-        static_cast<Encounter &>(*object).updateOccupancy(creature, announce);
+        static_cast<Encounter &>(*object).updateOccupancy(creature, announce, from);
     }
     for (const auto &object : _objectsByType[ObjectType::AreaOfEffect]) {
-        static_cast<AreaOfEffect &>(*object).updateOccupancy(creature, announce);
+        static_cast<AreaOfEffect &>(*object).updateOccupancy(creature, announce, from);
     }
 }
 
@@ -2722,8 +2723,8 @@ bool Area::stepCreatureTo(const std::shared_ptr<Creature> &creature, const glm::
         onPartyLeaderMoved(userRoom != prevRoom);
     }
 
-    checkTriggersIntersection(creature);
-    updateSubAreaOccupancy(creature);
+    checkTriggersIntersection(creature, true, origin);
+    updateSubAreaOccupancy(creature, true, origin);
 
     return true;
 }
@@ -2987,7 +2988,30 @@ void Area::update3rdPersonCameraTarget() {
     }
 }
 
-void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions) {
+void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions, std::optional<glm::vec3> from) {
+    // A module transition is entered only by a creature moving into it, and
+    // only by one that moves the party between modules, which sets it off.
+    const auto enter = [&](Trigger &trigger) {
+        const bool transition = !trigger.linkedToModule().empty();
+        if (transition && !fireTransitions) {
+            // Leave module-transition triggers to movement-based firing so a
+            // creature placed inside one is not immediately warped out.
+            return false;
+        }
+        debug(str(boost::format("trigger: onenter tag=%s script=%s entering=%s") %
+                  trigger.tag() %
+                  (trigger.getOnEnter().empty() ? std::string("<none>") : trigger.getOnEnter()) %
+                  triggerrer->tag()));
+        if (transition && !trigger.acceptsTransitionActivator(triggerrer)) {
+            return false;
+        }
+        trigger.addTenant(triggerrer);
+        trigger.markDebugEntered();
+        if (transition) {
+            _game.scheduleModuleTransition(trigger.linkedToModule(), trigger.linkedTo());
+        }
+        return true;
+    };
     // Entering scripts may add triggers (a spawned mine), which are left out;
     // triggers are destroyed only between updates.
     const ObjectList &triggers = _objectsByType[ObjectType::Trigger];
@@ -2998,31 +3022,25 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
             trigger->removeTenant(triggerrer.get());
             continue;
         }
-        bool inside = trigger->isIn(triggerrer->position());
+        const bool inside = trigger->isIn(triggerrer->position());
         trigger->markDebugTested(inside);
-        if (trigger->isTenant(triggerrer) || !inside) {
+        const bool tenant = trigger->isTenant(triggerrer);
+        if (inside && !tenant) {
+            enter(*trigger);
             continue;
         }
-        bool transition = !trigger->linkedToModule().empty();
-        if (transition && !fireTransitions) {
-            // Leave module-transition triggers to movement-based firing so a
-            // creature placed inside one is not immediately warped out.
+        // A tenant that has stepped out leaves as the trigger updates. A step
+        // that crosses the edge and ends on the side it began on passes
+        // through: one inside leaves and enters again, one outside enters and
+        // leaves.
+        if (inside != tenant || !from || !trigger->crosses(*from, triggerrer->position())) {
             continue;
         }
-        debug(str(boost::format("trigger: onenter tag=%s script=%s entering=%s") %
-                  trigger->tag() %
-                  (trigger->getOnEnter().empty() ? std::string("<none>") : trigger->getOnEnter()) %
-                  triggerrer->tag()));
-
-        if (transition && !trigger->acceptsTransitionActivator(triggerrer)) {
-            continue;
-        }
-        trigger->addTenant(triggerrer);
-        trigger->markDebugEntered();
-
-        if (transition) {
-            _game.scheduleModuleTransition(trigger->linkedToModule(), trigger->linkedTo());
-            return;
+        if (inside) {
+            trigger->removeTenant(triggerrer.get(), true);
+            enter(*trigger);
+        } else if (enter(*trigger)) {
+            trigger->removeTenant(triggerrer.get(), true);
         }
     }
 }
