@@ -17,6 +17,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdio>
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
@@ -172,9 +174,19 @@ static Variable FloatToString(const std::vector<Variable> &args, const RoutineCo
     auto nDecimals = getIntOrElse(args, 2, 9);
 
     // Transform
+    // nwscript.nss: the width is 0 to 18 and the decimals 0 to 9; the number is
+    // right-justified in that width, and keeps its decimal point when there are
+    // no decimals (printf "%#*.*f"): the swoop dashboard builds "meter" +
+    // FloatToString(x, 1, 0) and drops the last character to name its
+    // animation, which only gives "meter4" when the result is "4.".
+    int width = glm::clamp(nWidth, 0, 18);
+    int decimals = glm::clamp(nDecimals, 0, 9);
 
     // Execute
-    return Variable::ofString(std::to_string(fFloat));
+    char text[64];
+    std::snprintf(text, sizeof(text), "%#*.*f", width, decimals, std::isfinite(fFloat) ? fFloat : 0.0f);
+    text[sizeof(text) - 1] = '\0';
+    return Variable::ofString(text);
 }
 
 static Variable PrintInteger(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -549,6 +561,16 @@ static Variable GetItemPossessedBy(const std::vector<Variable> &args, const Rout
         }
     } else if (isa<Item>(oObject)) {
         item = oObject->getItemByTag(itemTag);
+    }
+    if (!item) {
+        // A party member's non-equipped items live in the shared party
+        // inventory, so a member holding nothing of its own still reaches what
+        // the party carries. A non-party object receives itself here and keeps
+        // looking no further than its own inventory.
+        auto shared = ctx.game.party().sharedInventoryReceiver(oObject);
+        if (shared && shared != oObject) {
+            item = shared->getItemByTag(itemTag);
+        }
     }
 
     return Variable::ofObject(getObjectIdOrInvalid(item));

@@ -23,6 +23,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/docommand.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
@@ -58,6 +59,7 @@
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/object/waypoint.h"
+#include "reone/game/pathfinder.h"
 #include "reone/game/player.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
@@ -4668,6 +4670,98 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
 
     EXPECT_EQ(glm::vec3(0.0f), npc->position());
     EXPECT_EQ(0, fixture.scriptRuns("k_def_blocked01"));
+}
+
+// An area with no walkmesh has no path to anywhere. Walks toward objects give
+// up on it, rather than planning again every frame and holding the creature's
+// queue for good.
+TEST(CreatureNavigationFailure, a_move_to_an_object_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto target = fixture.addCreature("k_def_blocked01");
+    target->setPosition(kFarDestination);
+
+    auto action = fixture.game.newAction<MoveToObjectAction>(target, true, 1.0f);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+TEST(CreatureNavigationFailure, an_open_door_order_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.door->setPosition(kFarDestination);
+
+    auto action = fixture.game.newAction<OpenDoorAction>(fixture.door);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+// Give the area a walkmesh of two rooms, each a square of two faces: one
+// around the origin, and one apart from it that no path reaches.
+void loadTwoRoomWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    for (float x : {0.0f, 20.0f}) {
+        graphics::Walkmesh walkmesh;
+        walkmesh.vertices = {
+            {x - 5.0f, -5.0f, 0.0f},
+            {x - 5.0f, 5.0f, 0.0f},
+            {x + 5.0f, 5.0f, 0.0f},
+            {x + 5.0f, -5.0f, 0.0f}};
+        walkmesh.faces = {{{0, 1, 2}}, {{0, 2, 3}}};
+        walkmesh.materials = {0, 0};
+        uniwalkLoadRoom(area.pathfinder().uni, walkmesh, walkable);
+    }
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// Every path slot taken is no reason to give up a walk the walkmesh allows:
+// it plans again once a slot is free.
+TEST(CreatureNavigationFailure, a_move_to_an_object_waits_for_a_free_path_slot) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto target = fixture.addCreature("k_def_blocked01");
+    target->setPosition(glm::vec3(0.0f, 4.0f, 0.0f));
+    for (auto &path : fixture.area->pathfinder().paths) {
+        path.active = true;
+    }
+
+    auto action = fixture.game.newAction<MoveToObjectAction>(target, true, 1.0f);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_FALSE(action->isCompleted());
+
+    fixture.area->pathfinder().paths.back().active = false;
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_TRUE(TestGameModule::hasAreaRuntimePath(*npc));
+    EXPECT_GT(npc->position().y, 0.0f);
+}
+
+TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto target = fixture.addCreature("k_def_blocked01");
+    target->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+
+    auto action = fixture.game.newAction<MoveToObjectAction>(target, true, 1.0f);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
 }
 
 // Invoke GetBlockingDoor as the given caller.

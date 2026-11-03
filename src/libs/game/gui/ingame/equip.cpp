@@ -522,11 +522,18 @@ void Equipment::updateEquipment() {
     _controls.LBL_TOHITL->setTextMessage(_view.offAttack);
     _controls.LBL_TOHITR->setTextMessage(_view.mainAttack);
     if (isTSL()) {
-        // Only TSL has a second weapon set.
-        _controls.LBL_ATKR2->setTextMessage(_view.mainDamage2);
-        _controls.LBL_ATKL2->setTextMessage(_view.offDamage2);
-        _controls.LBL_TOHITL2->setTextMessage(_view.offAttack2);
-        _controls.LBL_TOHITR2->setTextMessage(_view.mainAttack2);
+        // Only TSL has a second weapon set, and only some of its equipment
+        // layouts label one: equip_p.gui ships the second set's slots without
+        // the attack and damage labels beside them.
+        auto setTextMessage = [](const std::shared_ptr<Label> &control, const std::string &text) {
+            if (control) {
+                control->setTextMessage(text);
+            }
+        };
+        setTextMessage(_controls.LBL_ATKR2, _view.mainDamage2);
+        setTextMessage(_controls.LBL_ATKL2, _view.offDamage2);
+        setTextMessage(_controls.LBL_TOHITL2, _view.offAttack2);
+        setTextMessage(_controls.LBL_TOHITR2, _view.mainAttack2);
     } else {
         auto color = [](bool raised) { return raised ? kK1RaisedValueColor : kK1ValueColor; };
         _controls.LBL_ATKR->setTextColor(color(_view.mainDamageRaised));
