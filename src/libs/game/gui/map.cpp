@@ -265,8 +265,9 @@ void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsi
     }
     auto &party = _game.party();
 
-    // Companions are marked where they stand; the leader carries the arrow.
-    for (int index = 1; index < party.getSize(); ++index) {
+    // The map screen marks where the companions stand; the minimap shows the
+    // leader alone. Both carry the leader's arrow.
+    for (int index = 1; mode == Mode::Default && index < party.getSize(); ++index) {
         auto member = party.getMember(index);
         if (!member) {
             continue;
