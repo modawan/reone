@@ -390,9 +390,12 @@ void HUD::onGUILoaded() {
     _controls.LBL_DEBILATATED1->setVisible(false);
     _controls.LBL_DEBILATATED2->setVisible(false);
     _controls.LBL_DEBILATATED3->setVisible(false);
-    _controls.LBL_DISABLE1->setVisible(false);
-    _controls.LBL_DISABLE2->setVisible(false);
-    _controls.LBL_DISABLE3->setVisible(false);
+    // A layout may lack the disabled marks.
+    for (auto &disabled : {_controls.LBL_DISABLED1, _controls.LBL_DISABLED2, _controls.LBL_DISABLED3}) {
+        if (disabled) {
+            disabled->setVisible(false);
+        }
+    }
     _controls.LBL_JOURNAL->setVisible(false);
     _controls.LBL_HEALTHBG->setVisible(false);
     _controls.LBL_ITEMRCVD->setVisible(false);

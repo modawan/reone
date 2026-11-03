@@ -137,9 +137,9 @@ private:
         std::shared_ptr<gui::Label> LBL_DEBILATATED1;
         std::shared_ptr<gui::Label> LBL_DEBILATATED2;
         std::shared_ptr<gui::Label> LBL_DEBILATATED3;
-        std::shared_ptr<gui::Label> LBL_DISABLE1;
-        std::shared_ptr<gui::Label> LBL_DISABLE2;
-        std::shared_ptr<gui::Label> LBL_DISABLE3;
+        std::shared_ptr<gui::Label> LBL_DISABLED1;
+        std::shared_ptr<gui::Label> LBL_DISABLED2;
+        std::shared_ptr<gui::Label> LBL_DISABLED3;
         std::shared_ptr<gui::Label> LBL_HEALTHBG;
         std::shared_ptr<gui::Label> LBL_ITEMLOST;
         std::shared_ptr<gui::Label> LBL_ITEMRCVD;
@@ -273,9 +273,9 @@ private:
         _controls.LBL_DEBILATATED1 = findControl<gui::Label>("LBL_DEBILATATED1");
         _controls.LBL_DEBILATATED2 = findControl<gui::Label>("LBL_DEBILATATED2");
         _controls.LBL_DEBILATATED3 = findControl<gui::Label>("LBL_DEBILATATED3");
-        _controls.LBL_DISABLE1 = findControl<gui::Label>("LBL_DISABLE1");
-        _controls.LBL_DISABLE2 = findControl<gui::Label>("LBL_DISABLE2");
-        _controls.LBL_DISABLE3 = findControl<gui::Label>("LBL_DISABLE3");
+        _controls.LBL_DISABLED1 = findControl<gui::Label>("LBL_DISABLED1");
+        _controls.LBL_DISABLED2 = findControl<gui::Label>("LBL_DISABLED2");
+        _controls.LBL_DISABLED3 = findControl<gui::Label>("LBL_DISABLED3");
         _controls.LBL_HEALTHBG = findControl<gui::Label>("LBL_HEALTHBG");
         _controls.LBL_ITEMLOST = findControl<gui::Label>("LBL_ITEMLOST");
         _controls.LBL_ITEMRCVD = findControl<gui::Label>("LBL_ITEMRCVD");

@@ -2843,7 +2843,10 @@ struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
             SerializedIdentityContext::templateResource());
         trigger->setPosition(glm::vec3(0.0f, 0.0f, 0.0f));
         area->add(trigger);
+        // Setting off a transition halts the player, so the module has one.
+        area->initCameras(glm::vec3(0.0f), 0.0f);
         TestGameModule::setActiveModuleArea(game, area);
+        TestGameModule::loadModulePlayer(*game.module());
     }
 
     /** A creature standing just short of the trigger's southern edge. */
