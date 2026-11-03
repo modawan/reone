@@ -1218,7 +1218,7 @@ void Object::moveActionNodeToBack(const OrdinaryActionQueue::Node &node) {
 
 void Object::delayAction(std::shared_ptr<Action> action, float seconds) {
     if (!isRuntimeLive()) return;
-    _game.postDelayedCommand(*this, std::move(action), seconds);
+    _game.postDelayedCommand(*this, *this, std::move(action), seconds);
 }
 
 void Object::updateActions(float dt) {
@@ -1873,19 +1873,19 @@ void Object::setVisible(bool visible) {
     _visible = visible;
 
     if (_sceneNode) {
-        _sceneNode->setEnabled(_visible && _clientPresent);
+        _sceneNode->setEnabled(_visible && _present);
     }
 }
 
-void Object::setClientPresent(bool present) {
-    if (_clientPresent == present) {
+void Object::setPresent(bool present) {
+    if (_present == present) {
         return;
     }
 
-    _clientPresent = present;
+    _present = present;
 
     if (_sceneNode) {
-        _sceneNode->setEnabled(_visible && _clientPresent);
+        _sceneNode->setEnabled(_visible && _present);
     }
 }
 

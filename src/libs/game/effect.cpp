@@ -910,8 +910,8 @@ void Effect::setCreatorFromCaller(const std::shared_ptr<Object> &caller) {
 }
 
 void Effect::setSaveFacingSpellId(int32_t spellId) {
-    // The game uses an all-bits-set SpellId for an independently applied effect;
-    // zero is a valid semantic grouping value.
+    // An effect applied independently of any spell has the all-bits-set spell
+    // id; zero is a valid grouping value.
     _saveFacingSpellId = static_cast<uint32_t>(spellId);
 }
 

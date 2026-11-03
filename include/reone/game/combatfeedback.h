@@ -137,7 +137,7 @@ struct CombatFeedbackMessage {
     bool targetOnly {false};
 
     /**
-     * Reads a message as the game saves it in a queued event.
+     * Reads a message as a save stores it in a queued event.
      *
      * @param gff the event's data
      * @param attackerId the event's caller, as saved: a mitigation line whose
@@ -148,7 +148,7 @@ struct CombatFeedbackMessage {
     static std::optional<CombatFeedbackMessage> fromGff(const resource::Gff &gff, uint32_t attackerId);
 
     /**
-     * Writes the message as the game saves it in a queued event.
+     * Writes the message as a save stores it in a queued event.
      *
      * @param targetId the event's object, as saved
      * @param attackerId the event's caller, as saved

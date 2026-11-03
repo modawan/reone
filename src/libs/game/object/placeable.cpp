@@ -301,8 +301,7 @@ void Placeable::onFailToOpen(uint32_t openerId) {
     }
     _game.scriptRunner().run(
         _onFailToOpen,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(openerId)}});
+        {{script::ArgKind::Caller, Variable::ofObject(_id)}});
 }
 
 void Placeable::onLocked() {

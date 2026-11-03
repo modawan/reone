@@ -1705,7 +1705,7 @@ TEST(SavedEventQueue, recovered_reference_bearing_payloads_bind_explicitly) {
     for (auto &record : queue.events) {
         EXPECT_TRUE(record.bindObjectReferences(game));
     }
-    const auto &savedAoo = std::get<SavedBroadcastAoo>(
+    const auto &savedAoo = std::get<SavedAttackOfOpportunity>(
         queue.events[0].payload);
     EXPECT_EQ(savedAoo.target.boundObject(), objects.at(4));
     const auto &melee = std::get<SavedCombatAttack>(

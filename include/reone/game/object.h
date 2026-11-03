@@ -245,7 +245,7 @@ public:
     const glm::mat4 &transform() const { return _transform; }
     bool visible() const { return _visible; }
     /** Whether the player's side knows of this object, so it is drawn and can be picked. */
-    bool isClientPresent() const { return _clientPresent; }
+    bool isPresent() const { return _present; }
     std::shared_ptr<scene::SceneNode> sceneNode() const { return _sceneNode; }
 
     void setTag(std::string tag) { _tag = std::move(tag); }
@@ -260,7 +260,7 @@ public:
     /** Faces the object at once. */
     virtual void setFacing(float facing);
     void setVisible(bool visible);
-    void setClientPresent(bool present);
+    void setPresent(bool present);
 
     // Animation
 
@@ -728,7 +728,7 @@ protected:
     RuntimeObjectRef<Object> _dialogOwner;
     glm::mat4 _transform {1.0f};
     bool _visible {true};
-    bool _clientPresent {true};
+    bool _present {true};
     /** Non-owning; Area detachment/destruction clears this before releasing ownership. */
     Area *_spatialArea {nullptr};
     Room *_room {nullptr};

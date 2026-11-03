@@ -1153,7 +1153,7 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
     _game.setLastTarget(lastTarget ? lastTarget->id() : script::kObjectInvalid);
     // A new leader in combat mode shows its own last combat-mode line again.
     const auto &combatMessage = _members[0].combatMessage;
-    if (leader && leader->clientCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
+    if (leader && leader->partyCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
         _game.presentCombatMessage(*combatMessage);
     }
 

@@ -353,8 +353,8 @@ bool SerializedScriptSituation::bindObjectReferences(const Game &game) {
 }
 
 bool SerializedScriptSituation::isBoundToCurrentRuntimeSession(const Game &game) const {
-    // The game does not check the stack's objects: an object that does not
-    // resolve is simply an invalid object when the script reads it.
+    // The stack's objects are not checked: an object that does not resolve
+    // is simply an invalid object when the script reads it.
     return _runtimeSession &&
            *_runtimeSession == game._runtimeSessionGeneration;
 }
@@ -1058,7 +1058,7 @@ SavedScheduledAction SavedScheduledAction::fromGff(
     record.applied = gff.getInt("Applied") != 0;
     record.remainingPause = gff.getFloat("PauseRemaining");
     const auto command = &SavedActionRecord::command;
-    // An entry of the game's own carries no command; its type and fields give it.
+    // An entry saved without a command takes it from its type and fields.
     // A combat stance entry's attack count names the stance.
     if (auto saved = gff.findStruct("Command")) {
         record.command = SavedActionRecord::fromGff(*saved, ids);
@@ -1444,11 +1444,11 @@ SavedEventRecord SavedEventRecord::fromGff(
         result.payload = savedBodyBagFromGff(*data, identityContext);
         break;
     case SavedEventType::OnMeleeAttacked:
-    case SavedEventType::BroadcastSafeProjectile:
+    case SavedEventType::SafeProjectile:
         result.payload = SavedCombatAttack::fromGff(*data, identityContext);
         break;
-    case SavedEventType::BroadcastAoo:
-        result.payload = SavedBroadcastAoo {
+    case SavedEventType::AttackOfOpportunity:
+        result.payload = SavedAttackOfOpportunity {
             SavedObjectReference::fromSerializedId(
                 data->getUint("Value"), identityContext)};
         break;
@@ -1477,7 +1477,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
     if (eventId == static_cast<uint32_t>(SavedEventType::SpellImpact) &&
         std::holds_alternative<SavedSpellImpact>(payload))
         return SavedExecutionSupport::Executable;
-    if (eventId == static_cast<uint32_t>(SavedEventType::BroadcastSafeProjectile)) {
+    if (eventId == static_cast<uint32_t>(SavedEventType::SafeProjectile)) {
         // Only a bolt with an attack result is shown.
         const auto *attack = std::get_if<SavedCombatAttack>(&payload);
         if (attack && attack->fields->result >= AttackResultType::HitSuccessful &&
@@ -1496,7 +1496,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
             Signal::UserDefined,
             Signal::Entered, Signal::Exited, Signal::ModuleLoaded, Signal::ItemActivated, Signal::ItemAcquired,
             Signal::ItemLost, Signal::EncounterExhausted, Signal::InventoryOpened, Signal::InventoryClosed,
-            Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
+            Signal::Disarmed, Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
         const auto *event = std::get_if<SavedScriptEvent>(&payload);
         if (event && delivered.count(static_cast<Signal>(event->type)) != 0) {
             return SavedExecutionSupport::Executable;
@@ -1556,8 +1556,8 @@ bool SavedEventRecord::bindObjectReferences(const Game &game) {
         }
     } else if (auto bodyBag = std::get_if<SavedBodyBag>(&payload)) {
         bindReference(game, bodyBag->object, allBound);
-    } else if (auto broadcast = std::get_if<SavedBroadcastAoo>(&payload)) {
-        bindReference(game, broadcast->target, allBound);
+    } else if (auto opportunity = std::get_if<SavedAttackOfOpportunity>(&payload)) {
+        bindReference(game, opportunity->target, allBound);
     } else if (auto combat = std::get_if<SavedCombatAttack>(&payload)) {
         bindReference(game, combat->reactionObject, allBound);
         bindReference(game, combat->ammoItem, allBound);

@@ -256,6 +256,9 @@ public:
     /** An encounter difficulty (encdifficulty.2da); none outside the table or at a blank cell. */
     virtual std::optional<int> encounterDifficulty(int row) const = 0;
 
+    /** The number of rows in encdifficulty.2da. */
+    virtual int encounterDifficultyCount() const = 0;
+
     /** The regeneration rates (regeneration.2da). */
     virtual const RegenerationRates &regeneration() const = 0;
 
@@ -306,6 +309,7 @@ public:
     BodyBagRow bodyBag(int row) const override;
     float fractionalChallengeMinimum(int row) const override;
     std::optional<int> encounterDifficulty(int row) const override;
+    int encounterDifficultyCount() const override;
     const RegenerationRates &regeneration() const override;
     EffectIconRow effectIcon(int row) const override;
     const std::vector<int> &itemValueLimits() const override;

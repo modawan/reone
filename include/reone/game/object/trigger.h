@@ -126,6 +126,8 @@ public:
 
     bool isTrap() const { return _isTrap; }
     bool isTrapped() const { return _isTrap; }
+    /** A trap trigger counts among the area's traps for as long as it stands. */
+    bool countsAsAreaTrap() const { return _isTrap; }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
@@ -184,8 +186,8 @@ public:
      * over it.
      */
     bool canFireMineOn(const Creature &creature, bool force) const;
-    /** The trap is disarmed by the caller: its disarm script runs. */
-    void disarmTrap(const Object &caller) { _trap.runDisarmScript(*this, caller); }
+    /** The trap is disarmed by \p disarmerId: its disarm script runs. */
+    void disarmTrap(uint32_t disarmerId) { _trap.runDisarmScript(*this, disarmerId); }
 
     // END Traps
 

@@ -164,8 +164,8 @@ ProjectilePathType normalizeProjectilePath(ProjectilePathType path);
 std::optional<ProjectilePathType> projectilePathFromScript(int value);
 /**
  * The casting source a script command picks for a creature: the first of its
- * first two classes that uses the Force, has uses of the spell left and can
- * cast it, else its spell-like ability for the spell when that is ready.
+ * classes that uses the Force, has uses of the spell left and can cast it,
+ * else its spell-like ability for the spell when that is ready.
  * Without either the command casts nothing.
  */
 std::optional<SpellSelection> scriptCastingSource(const Creature &caster, const Spell &spell);

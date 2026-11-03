@@ -104,8 +104,8 @@ static PortraitState portraitState(const Creature &member) {
 //
 // Each portrait shows one icon for every beneficial effect on its member and
 // one for every harmful effect, stacked over the portrait. A member who is
-// fallen, able to level up or held helpless shows no stacks. The rules below
-// lay the icons out to the pixel as the game does.
+// fallen, able to level up or held helpless shows no stacks. The icons are
+// laid out to the pixel by the rules below.
 
 /** The leader's portrait stacks at most nine icons of a kind; another member's at most five. */
 static constexpr int kLeaderEffectStackMax = 9;
@@ -478,7 +478,7 @@ void HUD::onGUILoaded() {
     // It also takes the rejection message off the action bar.
     _controls.BTN_CLEARALL->setOnClick([this]() {
         const auto leader = _game.party().getLeader();
-        leader->setClientCombatMode(false);
+        leader->setPartyCombatMode(false);
         _game.combat().clearAllOrders(*leader);
         _actionBar.clearRejection();
     });
@@ -976,7 +976,7 @@ void HUD::update(float dt) {
     }
 
     // With no one under control there is no combat mode to show.
-    if (auto leader = party.getLeader(); leader && leader->clientCombatMode()) {
+    if (auto leader = party.getLeader(); leader && leader->partyCombatMode()) {
         toggleCombat(true);
         refreshActionQueueItems();
     } else {

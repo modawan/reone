@@ -2028,7 +2028,7 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
 
     EXPECT_CALL(engine.resourceModule().models(), get("owner_stunt"))
         .WillOnce(Return(stuntModel));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -2660,7 +2660,7 @@ TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_t
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     testSceneGraph(engine);
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -2830,7 +2830,7 @@ TEST(LinkedDoorTransition, should_destroy_generated_threshold_with_its_source_do
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -5875,7 +5875,7 @@ TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuse
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -5921,7 +5921,7 @@ TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -5966,7 +5966,7 @@ TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -6017,7 +6017,7 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -6097,7 +6097,7 @@ TEST(CreatureVitality, permanent_bonus_changes_preserve_damage) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -6148,7 +6148,7 @@ TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     VitalityTestClass soldier(10);
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -6184,7 +6184,7 @@ TEST(CreatureVitality, creature_saved_at_zero_hit_points_loads_alive_with_the_re
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -6443,7 +6443,7 @@ TEST(CreatureVitality, primary_player_publication_preserves_saved_damage) {
     VitalityTestClass soldier(10);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier.clazz));
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",
@@ -6922,7 +6922,7 @@ struct StopMovementFixture {
     explicit StopMovementFixture(GameID gameId = GameID::KotOR) :
         game(gameId, "", engine.options(), engine.services(), console) {
         testSceneGraph(engine);
-        // The game reads its rule tables when it starts; the others are missing.
+        // The tables are read at start-up; the others are missing.
         EXPECT_CALL(engine.resourceModule().twoDas(),
                     get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                               "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",

@@ -155,7 +155,12 @@ std::string describeInstruction(const Instruction &ins, IRoutines &routines) {
         desc += " " + std::to_string(ins.objectId);
         break;
     case InstructionType::ACTION:
-        desc += str(boost::format(" %s(%d), %d") % routines.get(ins.routine).name() % ins.routine % ins.argCount);
+        // A routine that is not registered is described by its number alone.
+        if (routines.contains(ins.routine)) {
+            desc += str(boost::format(" %s(%d), %d") % routines.get(ins.routine).name() % ins.routine % ins.argCount);
+        } else {
+            desc += str(boost::format(" %d, %d") % ins.routine % ins.argCount);
+        }
         break;
     case InstructionType::EQUALTT:
     case InstructionType::NEQUALTT:

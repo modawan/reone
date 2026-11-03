@@ -71,7 +71,7 @@ static constexpr int kSkillXPPerLevel = 10;
 static constexpr int kHardSkillXPPerLevel = 15;
 static constexpr int kHardSkillDCMargin = 20;
 static constexpr int kTreatInjuryNameStrRef = 330;
-// Client animation rows for the mine work.
+// Animation rows for the mine work.
 static constexpr int kGetFromGroundAnimation = 40;
 static constexpr int kGetFromTableAnimation = 41;
 static constexpr int kUnlockDoorAnimation = 47;
@@ -335,7 +335,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
     switch (work) {
     case MineWork::Disarm: {
         if (trigger && isOwnMine(_game, actor, *trigger, false)) {
-            trigger->disarmTrap(actor);
+            trigger->disarmTrap(actor.id());
             area->destroyObject(*trigger);
             // The award compares against an unset DC; it takes the lower rate.
             awardXP(0);
@@ -350,12 +350,12 @@ void UseSkillAction::resolveMine(Creature &actor) {
                                                             : SkillFailure;
         if (success) {
             if (trigger) {
-                trigger->disarmTrap(actor);
+                trigger->disarmTrap(actor.id());
                 area->destroyObject(*trigger);
             } else if (door) {
-                door->disarmTrap(actor);
+                door->disarmTrap(actor.id());
             } else {
-                placeable->disarmTrap(actor);
+                placeable->disarmTrap(actor.id());
             }
             awardXP(dc);
         }
@@ -390,9 +390,9 @@ void UseSkillAction::resolveMine(Creature &actor) {
             if (trigger) {
                 area->destroyObject(*trigger);
             } else if (door) {
-                door->disarmTrap(actor);
+                door->disarmTrap(actor.id());
             } else {
-                placeable->disarmTrap(actor);
+                placeable->disarmTrap(actor.id());
             }
             recoverItem();
             awardXP(dc);
@@ -537,7 +537,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
 // Treat Injury
 
 static constexpr float kTreatInjuryWorkTime = 2.0f;
-// Client animation row of the work: the looping cast.
+// Animation row of the work: the looping cast.
 static constexpr int kCastLoopAnimation = 63;
 static constexpr int kHealingVisual = 1001;
 

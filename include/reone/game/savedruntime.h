@@ -41,8 +41,8 @@ constexpr uint32_t kSavedRuntimeInvalidObjectId = 0x7f000000;
  * the invalid ID.
  */
 constexpr uint32_t kSavedRuntimeMaxCharacterObjectId = 0x7fffffff;
-// The game creates the structural Module before loading its saved object graph.
-// Its contextual object-reference target is therefore slot 0 even though the
+// A load creates the structural Module before the saved object graph. Its
+// contextual object-reference target is therefore slot 0 even though the
 // IFO contains no owned Module record or explicit Module ObjectId field.
 constexpr uint32_t kSavedRuntimeModuleObjectId = 0;
 
@@ -118,6 +118,8 @@ enum class SavedSignalEventType : uint16_t {
     EncounterExhausted = 21,
     InventoryOpened = 22,
     InventoryClosed = 23,
+    /** A trap disarmed by the caller. */
+    Disarmed = 24,
     Used = 25,
     Locked = 28,
     /** A creature walked up to the trigger or door it was heading for. */
@@ -183,7 +185,7 @@ enum class ScriptSituationResumeSupport {
     ValidatedImport,
 };
 
-/** The game STORE_STATE continuation, kept separate from live ExecutionState. */
+/** A saved STORE_STATE continuation, kept separate from live ExecutionState. */
 struct SerializedScriptSituation {
     int32_t codeSize {0};
     ByteBuffer code;
@@ -333,7 +335,7 @@ enum class SavedExecutionSupport {
 struct SavedActionRecord;
 
 /**
- * A physical attack order as the game saves it: the ten parameters of an
+ * A saved physical attack order: the ten parameters of an
  * AttackObject command. They name the target and either a combat feat or the
  * values a cutscene attack forces; the rest are the same for every attack.
  */
@@ -408,7 +410,7 @@ struct SavedItemUseCommand {
 };
 
 /**
- * A walk as the game saves it: the thirteen parameters of a MoveToPoint
+ * A saved walk: the thirteen parameters of a MoveToPoint
  * command. They name the point and its area, an object walked to, how the
  * walk goes and how near it ends, and the time limit of a forced walk.
  */
@@ -624,7 +626,7 @@ struct SavedPhysicalAction {
     std::shared_ptr<resource::Gff> toGff() const;
 };
 
-/** A saved command: the game's action record, with the progress of a command under way. */
+/** A saved command: its action record, with the progress of a command under way. */
 struct SavedActionRecord {
     /** The command was issued by a scheduled round entry. */
     bool scheduled {false};
@@ -678,7 +680,7 @@ struct SavedCreatureRound {
 };
 
 /**
- * An entry of a combat round's scheduled list (SchedActionList): the game's
+ * An entry of a combat round's scheduled list (SchedActionList): its saved
  * fields, with the command it runs, whether it has been applied and the pause
  * left on it.
  */
@@ -746,8 +748,8 @@ enum class SavedEventType : uint32_t {
     SpawnBodyBag = 17,
     ForcedAction = 18,
     ItemOnHitSpellImpact = 19,
-    BroadcastAoo = 20,
-    BroadcastSafeProjectile = 21,
+    AttackOfOpportunity = 20,
+    SafeProjectile = 21,
     FeedbackMessage = 22,
     AbilityEffectApplied = 23,
     SummonCreature = 24,
@@ -790,8 +792,8 @@ struct SavedBodyBag {
  */
 struct SavedOpenObject {};
 
-/** The game EVENT_BROADCAST_AOO stores an ObjectId in its generic DWORD Value. */
-struct SavedBroadcastAoo {
+/** A saved attack-of-opportunity event names its target. */
+struct SavedAttackOfOpportunity {
     SavedObjectReference target;
 };
 
@@ -807,7 +809,7 @@ using SavedEventPayload = std::variant<
     SavedScriptEvent,
     SavedBodyBag,
     SavedOpenObject,
-    SavedBroadcastAoo,
+    SavedAttackOfOpportunity,
     SavedCombatAttack,
     CombatFeedbackMessage>;
 
@@ -832,7 +834,7 @@ struct SavedEventRecord {
     bool bindObjectReferences(const Game &game);
 };
 
-/** Parsed module/server queue; list order is the authoritative queue order. */
+/** The module's saved event queue; list order is the queue order. */
 struct SavedEventQueue {
     std::vector<SavedEventRecord> events;
 

@@ -243,11 +243,14 @@ void Encounter::setActive(bool active) {
     }
 }
 
-// A difficulty outside the table, or a blank one, leaves the encounter's as it was.
+// A difficulty outside the table leaves the encounter's as it was; a blank one
+// sets 0.
 void Encounter::setDifficulty(int difficultyIndex) {
-    if (const auto difficulty = _services.game.combatTables.encounterDifficulty(difficultyIndex)) {
-        _difficulty = *difficulty;
+    const auto &tables = _services.game.combatTables;
+    if (difficultyIndex < 0 || difficultyIndex >= tables.encounterDifficultyCount()) {
+        return;
     }
+    _difficulty = tables.encounterDifficulty(difficultyIndex).value_or(0);
 }
 
 // The creature signals the encounter when it enters or leaves; the signal is

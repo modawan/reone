@@ -287,7 +287,7 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     // clears the leader's actions, before the entry's order arrives.
     const bool hostileCreature = _selectedHostile && selectedObject->type() == ObjectType::Creature;
     const bool bash = ctxAction.type == ActionType::AttackObject && selectedObject->type() != ObjectType::Creature;
-    const bool inCombatMode = leader->clientCombatMode();
+    const bool inCombatMode = leader->partyCombatMode();
     if (!inCombatMode) {
         _game.combat().removeAllScheduled(*leader);
         if (hostileCreature || bash) {
@@ -372,7 +372,7 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         if (ctxAction.equipmentPower) {
             // A droid's item power enters combat mode as a power does, then
             // goes out as the use of the item at the target.
-            leader->setClientCombatMode(true);
+            leader->setPartyCombatMode(true);
             order = [this, leader, item = ctxAction.item, selectedObject]() {
                 _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
                                   selectedObject->position());
@@ -391,7 +391,7 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
             // A power from the target menu puts the leader into combat mode
             // whether or not it is cast. A caster without a Jedi class casts
             // nothing.
-            leader->setClientCombatMode(true);
+            leader->setPartyCombatMode(true);
             if (!_game.canMenuCast(*leader, *ctxAction.spell)) {
                 order = [this, leader]() { _game.refuseMenuCast(*leader); };
                 break;
@@ -417,9 +417,9 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     default:
         break;
     }
-    if (!leader->clientCombatMode()) {
+    if (!leader->partyCombatMode()) {
         if (!inCombatMode && hostileCreature) {
-            leader->setClientCombatMode(true);
+            leader->setPartyCombatMode(true);
         }
         _game.combat().clearActions(*leader);
     }

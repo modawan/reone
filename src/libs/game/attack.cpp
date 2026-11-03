@@ -260,8 +260,9 @@ static AttackResolution computeAttack(
     auto rightHand = attacker.getEquippedItem(InventorySlots::rightWeapon);
     bool rightHandLightsaber = rightHand && rightHand->isLightsaber();
 
-    // Critical threat. K2 applies Soresu/Ataru to the final threshold,
-    // after weapon threat, Keen, and special-attack threat have been combined.
+    // Critical threat. In TSL, Soresu and Ataru move the final threshold,
+    // after the weapon's threat, Keen and the special attack's threat are
+    // combined.
     resolution.criticalThreatThreshold = getCriticalThreatThreshold(
         attacker.game().isTSL(),
         rightHandLightsaber,

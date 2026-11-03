@@ -1660,34 +1660,7 @@ std::shared_ptr<Object> Area::getObjectByTag(const std::string &tag, int nth) co
     if (nth >= objects->second.size())
         return nullptr;
 
-    // GetObjectByTag routine requires the array to be partitioned by isDead:
-    // all alive objects should be at the front, and all dead objects should be
-    // at the back of the array.
-    //
-    // We do not actually sort the array, but traverse it in two passes with an
-    // inverted condition.
-
-    // Search "not dead" objects first.
-    size_t i = 0;
-    for (const std::shared_ptr<Object> &object : objects->second) {
-        if (!object->isDead()) {
-            if ((i++) == nth) {
-                return object;
-            }
-        }
-    }
-
-    // Search across dead objects.
-    for (const std::shared_ptr<Object> &object : objects->second) {
-        if (object->isDead()) {
-            if ((i++) == nth) {
-                return object;
-            }
-        }
-    }
-
-    assert(0 && "inconsistent getObjectByTag");
-    return nullptr;
+    return objects->second[nth];
 }
 
 void Area::landObject(Object &object) {
@@ -2790,9 +2763,6 @@ bool Area::findCreatureCollision(
 // door but the one looked at, however far away. Open doors, placeables and
 // creatures do not.
 bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
-    if (!object.visible()) {
-        return false;
-    }
     const auto *creature = dyn_cast<Creature>(&object);
     if (creature && creature->isInvisibleTo(subject)) {
         return false;
@@ -3586,7 +3556,7 @@ void Area::updatePerceptionPasses(float dt, bool all) {
     }
     _perceptionPassActive = false;
     dispatchPerceptionNotices();
-    updateClientPresence();
+    updatePresence();
 }
 
 void Area::updatePerceptionPass(const std::shared_ptr<Creature> &observer, bool partyTargets, bool fullPass) {
@@ -3662,7 +3632,7 @@ void Area::perceiveNow(const std::shared_ptr<Creature> &observer) {
     _perceptionPassActive = true;
     updatePerceptionPass(observer, false, true);
     _perceptionPassActive = active;
-    updateClientPresence();
+    updatePresence();
 }
 
 void Area::refreshPerceptionFor(Creature &changed) {
@@ -3695,7 +3665,7 @@ void Area::refreshPerceptionFor(Creature &changed) {
     if (!active) {
         dispatchPerceptionNotices();
     }
-    updateClientPresence();
+    updatePresence();
 }
 
 bool Area::isEyeLineClear(const glm::vec3 &from, const glm::vec3 &to,
@@ -3799,7 +3769,7 @@ void Area::dispatchPerceptionNotices() {
 
 // Other creatures exist for the player only while the controlled creature
 // sees or hears them.
-void Area::updateClientPresence() {
+void Area::updatePresence() {
     auto leader = _game.party().getLeader();
     if (!leader || !isObjectResident(*leader)) {
         return;
@@ -3809,7 +3779,7 @@ void Area::updateClientPresence() {
         const bool present = object == leader || _game.party().isMember(*object) ||
                              perception.sees(object->id()) || perception.hears(object->id()) ||
                              object->forceAlwaysUpdate();
-        object->setClientPresent(present);
+        object->setPresent(present);
     }
 }
 

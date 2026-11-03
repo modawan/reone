@@ -1408,6 +1408,8 @@ public:
         Object &receiver);
 
     std::shared_ptr<Item> getEquippedItem(int slot) const;
+    /** The first item worn with tag \p tag, in slot order; KotOR has no second weapon set to search. */
+    std::shared_ptr<Item> getEquippedItemByTag(const std::string &tag) const;
     CreatureWieldType getWieldType() const;
     /**
      * The weapon class of the hands, which picks the ready and combat clips:
@@ -1657,9 +1659,9 @@ public:
     /** A creature entering another module brings no hand power with it. */
     void resetHandPower();
     CombatActivation combatActivationType() const { return _combatState.activationType; }
-    bool clientCombatMode() const { return _clientCombatMode; }
-    /** Enters or leaves client combat mode, which the game takes up at once. */
-    void setClientCombatMode(bool active);
+    bool partyCombatMode() const { return _partyCombatMode; }
+    /** Enters or leaves party combat mode, which the game takes up at once. */
+    void setPartyCombatMode(bool active);
     /** Draws the creature, and its faction within sight, into combat with \p opponent. */
     void broadcastCombatState(uint32_t opponent);
     /** Ends the ordinary invisibility effects an attack breaks. */
@@ -2058,14 +2060,14 @@ public:
     /** Record the weapon of a delivered attack as this attacker's last weapon. */
     void recordAttackWeapon(int weaponAttackType);
     /**
-     * A party member enters client combat mode from its own live attempted
+     * A party member enters party combat mode from its own live attempted
      * target and leaves it once nothing keeps it there. \p storedCreature is
      * the creature stored as this member's last target, \p carriedObject the
      * object other than a creature last stored by this or an earlier member
      * in combat mode; the leader also holds while a dead target is held.
      * Returns true when the member left combat mode.
      */
-    bool updateClientCombatMode(const Creature *storedCreature, const Object *carriedObject, bool holdDeadTarget);
+    bool updatePartyCombatMode(const Creature *storedCreature, const Object *carriedObject, bool holdDeadTarget);
     void clearCurrentAttackTarget() { _combatState.attackTarget.reset(); }
     /**
      * At a round's end the creature forgets its attack and spell targets,
@@ -2597,7 +2599,7 @@ private:
     std::map<int, int> _effectIconCounts;
     CombatState _combatState;
     std::weak_ptr<Action> _currentCombatAction;
-    bool _clientCombatMode {false};
+    bool _partyCombatMode {false};
     float _mineCheckTime {0.0f};
     uint32_t _lastWeaponUsed {script::kObjectInvalid};
     SavedObjectReference _incomingAttacker;

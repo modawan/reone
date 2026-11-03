@@ -1027,7 +1027,7 @@ private:
     /** Run the notices of the pass that found them. */
     void dispatchPerceptionNotices();
     /** Mark the creatures the player is aware of. */
-    void updateClientPresence();
+    void updatePresence();
     void updateObjectSelection();
 
     /**

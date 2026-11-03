@@ -905,7 +905,7 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     case SavedEventType::OnMeleeAttacked:
         deliverAttackedEvent(savedEvent, *target);
         break;
-    case SavedEventType::BroadcastSafeProjectile:
+    case SavedEventType::SafeProjectile:
         deliverSafeProjectile(savedEvent);
         break;
     case SavedEventType::DestroyObject:
@@ -1001,9 +1001,11 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
 }
 
 // A conversation event carries in its integers the number of pieces of the
-// match, the whole string included, and the pattern number, and in its strings
-// the pieces, the whole string's place left empty. A request to talk carries
-// none of them: it matched no pattern and has no pieces.
+// match, the whole string included, the pattern number and whether the
+// conversation is private, and in its strings the dialog, then the pieces after
+// the whole string. A shout names no dialog and is not private. The hearer
+// takes the pattern number and the pieces. A request to talk carries none of
+// them: it matched no pattern and has no pieces.
 static Object::ConversationEvent conversationEventOf(const SavedScriptEvent &event, uint32_t speaker) {
     Object::ConversationEvent result;
     result.speaker = speaker;
@@ -1055,6 +1057,16 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
             placeable->onClosed(callerId());
         } else if (placeable->isUsable()) {
             placeable->runOnUsed(savedEvent.caller.boundObject());
+        }
+    } else if (type == Signal::Disarmed && (isa<Trigger>(target.get()) || doorOrPlaceable)) {
+        // A trigger, door or placeable is disarmed by the caller; a door or
+        // placeable still counts among the area's traps.
+        if (auto trigger = dyn_cast<Trigger>(target)) {
+            trigger->disarmTrap(callerId());
+        } else if (auto door = dyn_cast<Door>(target)) {
+            door->disarmTrapOnSignal(callerId());
+        } else {
+            placeable->disarmTrapOnSignal(callerId());
         }
     } else if (type == Signal::Locked && doorOrPlaceable) {
         // A locked door or placeable runs its script for being locked.
@@ -1598,7 +1610,7 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
         }
         _game.selectNearestObject(event.code == input::KeyCode::Q ? 0 : 1);
         // In combat mode a new target may pause play, whether or not one was found.
-        if (_game.clientCombatMode()) {
+        if (_game.partyCombatMode()) {
             _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
         }
         return true;

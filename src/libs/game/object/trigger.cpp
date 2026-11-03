@@ -400,7 +400,7 @@ void Trigger::fireMine(bool force) {
                 }
             }
         }
-        disarmTrap(*creature);
+        disarmTrap(creature->id());
         area->destroyObject(*this);
         return;
     }
@@ -518,8 +518,7 @@ void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
     }
     _game.scriptRunner().run(
         _onClick,
-        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-         {script::ArgKind::ClickingObject, script::Variable::ofObject(_lastEnteredId)}});
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
 void Trigger::removeTenant(const Object *object) {

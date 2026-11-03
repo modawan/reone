@@ -653,7 +653,7 @@ TEST(SaveWideSnapshot, k1_pc_utc_is_present_only_for_companion_control) {
 
 TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     auto &engine = testEngine();
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",

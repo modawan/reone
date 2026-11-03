@@ -112,8 +112,8 @@ std::shared_ptr<Gff> emptyRecord(uint32_t type) {
  * Whether an area object owns an identity in the module's saved object
  * namespace.
  *
- * The game keeps placeable cameras out of the server object table, so they never
- * receive a server ObjectId: a GIT CameraList entry carries CameraID,
+ * Placeable cameras are no objects of the module's object table and never
+ * receive an ObjectId: a GIT CameraList entry carries CameraID,
  * Position, Orientation, Pitch, Height, FieldOfView and MicRange and nothing
  * else, in both games, and no script routine can resolve a camera as an
  * object. They are presentation records rebuilt from module data, addressed
@@ -382,7 +382,7 @@ std::shared_ptr<Gff> eventToGff(
         }
     } else if (auto value = std::get_if<SavedBodyBag>(&event.payload))
         data = Gff::Builder().type(0x5555).field(Gff::Field::newDword("BodyBagId", value->object.id)).field(Gff::Field::newFloat("PositionX", value->position.x)).field(Gff::Field::newFloat("PositionY", value->position.y)).field(Gff::Field::newFloat("PositionZ", value->position.z)).build();
-    else if (auto value = std::get_if<SavedBroadcastAoo>(&event.payload)) data = Gff::Builder().type(0x3333)
+    else if (auto value = std::get_if<SavedAttackOfOpportunity>(&event.payload)) data = Gff::Builder().type(0x3333)
         .field(Gff::Field::newDword("Value", value->target.id)).build();
     else if (auto value = std::get_if<SavedCombatAttack>(&event.payload)) {
         data = value->toGff();
@@ -523,8 +523,8 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     const Module &module, const Area &area) const {
     ModuleObjectIdContext ids(
         SerializedIdentityContext::moduleGraph(_saveGroup));
-    // The game creates the structural Module before loading the owned IFO/GIT
-    // graph. Slot 0 is consequently a contextual reference target, not an
+    // A load creates the structural Module before the owned IFO/GIT graph.
+    // Slot 0 is consequently a contextual reference target, not an
     // ObjectId persisted by an owned Module record.
     ids.assignContextObject(module, kSavedRuntimeModuleObjectId);
     std::vector<std::pair<const Object *, bool>> objects;
@@ -1019,8 +1019,8 @@ void ModuleSnapshotBuilder::normalizeEventReferences(
         }
     } else if (auto bag = std::get_if<SavedBodyBag>(&event.payload)) {
         bag->object.id = serializedReferenceId(bag->object, ids);
-    } else if (auto broadcast = std::get_if<SavedBroadcastAoo>(&event.payload)) {
-        broadcast->target.id = serializedReferenceId(broadcast->target, ids);
+    } else if (auto opportunity = std::get_if<SavedAttackOfOpportunity>(&event.payload)) {
+        opportunity->target.id = serializedReferenceId(opportunity->target, ids);
     } else if (auto combat = std::get_if<SavedCombatAttack>(&event.payload)) {
         combat->reactionObject.id = serializedReferenceId(
             combat->reactionObject, ids);
@@ -1181,6 +1181,9 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newByte("BodyVariation", creature._bodyVariation));
     put(record, Gff::Field::newByte("TextureVar", creature._textureVar));
     put(record, Gff::Field::newByte("PartyInteract", creature._partyInteract));
+    if (_game.isTSL()) {
+        put(record, Gff::Field::newByte("WillNotRender", !creature.visible()));
+    }
     // The ambient state and the pose the creature was last given.
     put(record, Gff::Field::newByte("AmbientAnimState", static_cast<uint8_t>(creature._effectAmbientState)));
     const auto deadAnimation = [&creature]() {

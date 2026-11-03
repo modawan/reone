@@ -33,7 +33,7 @@ class Texture;
 namespace game {
 
 /**
- * Centered in-game message popup based on the game's confirmation dialog,
+ * Centered in-game message popup laid out on the confirmation dialog's GUI,
  * dismissed with the OK button. An optional icon is shown above the message
  * text.
  */

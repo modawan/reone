@@ -617,11 +617,11 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 void Game::init() {
     _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
     _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
-    _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
+    _options.game.difficultyLevel = loadDifficultyLevel(_options.game.configurationPath, _options.game.difficultyLevel);
     // The configuration names one of the levels the player can pick: any row
     // of the difficulty table but the last.
-    if (_options.game.clientDifficulty < 0 || _options.game.clientDifficulty > _services.game.difficultyOptions.count() - 2) {
-        throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.clientDifficulty));
+    if (_options.game.difficultyLevel < 0 || _options.game.difficultyLevel > _services.game.difficultyOptions.count() - 2) {
+        throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.difficultyLevel));
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
     initConsole();
@@ -1037,10 +1037,10 @@ void Game::update(float frameTime) {
     // Sounds wait while a movie runs and resume once the frame's module
     // transition, if any, has been made.
     _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie), nullptr);
-    syncClientCombatMode();
+    syncPartyCombatMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
-        // Each member's client combat mode follows its own targets. A door or
+        // Each member's party combat mode follows its own targets. A door or
         // placeable stored by a member in combat mode also counts for the
         // members after it in this pass. Leaving the mode lets the next enemy
         // sighting count at once.
@@ -1051,7 +1051,7 @@ void Game::update(float frameTime) {
                 continue;
             }
             const Creature *storedCreature = nullptr;
-            if (member->clientCombatMode()) {
+            if (member->partyCombatMode()) {
                 if (auto stored = _party.members()[i].lastTarget.resolve()) {
                     if (auto creature = Creature::asCreature(stored)) {
                         storedCreature = &creature->get();
@@ -1060,11 +1060,11 @@ void Game::update(float frameTime) {
                     }
                 }
             }
-            if (member->updateClientCombatMode(storedCreature, carried.get(), i == 0 && isDeadTargetHoldRunning())) {
+            if (member->updatePartyCombatMode(storedCreature, carried.get(), i == 0 && isDeadTargetHoldRunning())) {
                 _enemySightingHold = -1.0f;
             }
         }
-        syncClientCombatMode();
+        syncPartyCombatMode();
     }
     updateCamera(dt);
     if (_module) {
@@ -1199,7 +1199,7 @@ void Game::update(float frameTime) {
     if (isConversationActive()) {
         clearPlayerHostileActions();
     }
-    syncClientCombatMode();
+    syncPartyCombatMode();
     commitTutorialWindow();
     auto gui = getScreenGUI();
     if (gui) {
@@ -2005,9 +2005,9 @@ void Game::retireRuntimeSession() {
     _timeStopExclusions.clear();
     _timeStopMilliseconds = 0;
     _timeStopFraction = 0.0;
-    _clientCombatMode = false;
-    _clientCombatLeader.reset();
-    _clientCombatArea.reset();
+    _partyCombatMode = false;
+    _partyCombatLeader.reset();
+    _partyCombatArea.reset();
     _keepStealthInDialog = false;
     _relativeMouseMode = false;
 
@@ -3479,12 +3479,12 @@ int Game::scaleDamageForDifficulty(
     }
 
     const DifficultyOption &difficulty =
-        _services.game.difficultyOptions.get(_options.game.clientDifficulty);
+        _services.game.difficultyOptions.get(_options.game.difficultyLevel);
     return static_cast<int>(
         static_cast<float>(damage) * difficulty.damageMultiplier);
 }
 
-// The client difficulty settings that shift TSL trap DCs.
+// The difficulty settings that shift TSL trap DCs.
 static constexpr int kEasyDifficulty = 0;
 static constexpr int kDifficultDifficulty = 2;
 static constexpr int kTrapDifficultyShift = 5;
@@ -3493,7 +3493,7 @@ int Game::trapDifficultyModifier() const {
     if (!isTSL()) {
         return 0;
     }
-    switch (_options.game.clientDifficulty) {
+    switch (_options.game.difficultyLevel) {
     case kEasyDifficulty:
         return -kTrapDifficultyShift;
     case kDifficultDifficulty:
@@ -4181,7 +4181,7 @@ void Game::publishSavedRuntimeState() {
     }
     _module->restoreProjectilePresentations();
     _module->publishSavedEventQueue();
-    syncClientCombatMode();
+    syncPartyCombatMode();
 }
 
 // One simulation second advances a clock by 1000 milliseconds.
@@ -4293,7 +4293,7 @@ std::optional<uint64_t> Game::delayedWorldTime(float seconds) const {
     return _worldTimeMilliseconds + static_cast<uint64_t>(static_cast<int64_t>(milliseconds));
 }
 
-void Game::postDelayedCommand(Object &owner, std::shared_ptr<Action> command, float seconds) {
+void Game::postDelayedCommand(Object &owner, std::optional<std::reference_wrapper<const Object>> caller, std::shared_ptr<Action> command, float seconds) {
     const auto when = delayedWorldTime(seconds);
     if (!when) {
         return;
@@ -4302,7 +4302,9 @@ void Game::postDelayedCommand(Object &owner, std::shared_ptr<Action> command, fl
     event.day = static_cast<uint32_t>(*when / millisecondsPerWorldDay());
     event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
     event.object = SavedObjectReference::fromRuntimeId(owner.id());
-    event.caller = SavedObjectReference::fromRuntimeId(owner.id());
+    if (caller) {
+        event.caller = SavedObjectReference::fromRuntimeId(caller->get().id());
+    }
     event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
     _module->enqueueSaveEvent(std::move(event), std::move(command));
 }
@@ -5095,10 +5097,10 @@ void Game::updateCamera(float dt) {
     }
     auto &area = *_module->area();
     updateFreeLookExits();
-    // Client combat mode holds the third-person camera in its combat behavior.
-    area.setThirdPersonCombat(_clientCombatMode);
+    // Party combat mode holds the third-person camera in its combat behavior.
+    area.setThirdPersonCombat(_partyCombatMode);
     // The combat camera follows the leader's posed head every frame.
-    if (_clientCombatMode) {
+    if (_partyCombatMode) {
         area.update3rdPersonCameraTarget();
     }
     auto &thirdPerson = *area.getCamera<ThirdPersonCamera>(CameraType::ThirdPerson);
@@ -5120,10 +5122,10 @@ void Game::updateCamera(float dt) {
             auto leader = _party.getLeader();
             auto target = _lastTarget.resolve();
             // The combat camera starts turning from rest again.
-            if (_clientCombatMode) {
+            if (_partyCombatMode) {
                 thirdPerson.resetCombatTurn();
             }
-            if (_clientCombatMode && leader && target) {
+            if (_partyCombatMode && leader && target) {
                 thirdPerson.faceAlong(leader->position(), target->position());
             }
         }
@@ -5722,16 +5724,16 @@ void Game::setGlobalLocation(const std::string &name, const std::shared_ptr<Loca
 
 // Combat mode is the leader's, in the area it stands in. Outside a module (the
 // main menu, character generation) nobody is in combat mode.
-void Game::syncClientCombatMode() {
+void Game::syncPartyCombatMode() {
     auto leader = _party.getLeader();
     std::shared_ptr<Area> area;
     if (_module) {
         area = _module->area();
     }
-    _clientCombatLeader = RuntimeObjectRef<Creature>(leader);
-    _clientCombatArea = RuntimeObjectRef<Area>(area);
-    _clientCombatMode = leader && area && area->isObjectResident(*leader) && leader->clientCombatMode();
-    if (!_clientCombatMode) {
+    _partyCombatLeader = RuntimeObjectRef<Creature>(leader);
+    _partyCombatArea = RuntimeObjectRef<Area>(area);
+    _partyCombatMode = leader && area && area->isObjectResident(*leader) && leader->partyCombatMode();
+    if (!_partyCombatMode) {
         _attackMashTime = 0.0f;
     }
 }
@@ -6019,7 +6021,7 @@ void Game::delayNextEnemyAutoPause() {
 void Game::updateDeferredAutoPause(float frameTime) {
     if (_deferredAutoPauseDelay > 0.0f) {
         _deferredAutoPauseDelay -= frameTime;
-        if (_deferredAutoPauseDelay <= 0.0f && !_clientCombatMode) {
+        if (_deferredAutoPauseDelay <= 0.0f && !_partyCombatMode) {
             if (isTSL()) {
                 autoPause(AutoPauseReason::EnemySighted);
             }
@@ -6043,7 +6045,7 @@ void Game::saveFeedbackOptions() const {
 }
 
 void Game::saveDifficultyLevel() const {
-    reone::game::saveDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
+    reone::game::saveDifficultyLevel(_options.game.configurationPath, _options.game.difficultyLevel);
 }
 
 void Game::saveMouseOptions() const {
@@ -6236,11 +6238,11 @@ void Game::finishTutorialWindow(bool takeAction) {
 }
 
 void Game::beginMenuAttack(Creature &attacker) {
-    attacker.setClientCombatMode(true);
+    attacker.setPartyCombatMode(true);
     if (isTSL() && _party.isMember(attacker)) {
         for (const auto &member : _party.members()) {
             if (member.creature && member.creature.get() != &attacker) {
-                member.creature->setClientCombatMode(true);
+                member.creature->setPartyCombatMode(true);
             }
         }
     }
@@ -6487,7 +6489,7 @@ std::optional<int> Game::forcePowerTutorial(const Spell &spell) const {
 
 void Game::clearOneAction() {
     auto leader = _party.getLeader();
-    if (!leader || !_clientCombatMode) {
+    if (!leader || !_partyCombatMode) {
         return;
     }
     if (requestTutorialWindow(kClearOneActionTutorial, leader->id())) {
@@ -6507,10 +6509,10 @@ void Game::clearOneCombatAction(Creature &leader) {
 
 void Game::cancelCombat() {
     auto leader = _party.getLeader();
-    if (!leader || !_clientCombatMode) {
+    if (!leader || !_partyCombatMode) {
         return;
     }
-    leader->setClientCombatMode(false);
+    leader->setPartyCombatMode(false);
     _combat.clearAllOrders(*leader);
 }
 
@@ -6765,7 +6767,7 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
 // Direct movement out of combat mode lets go of the target after half a second.
 void Game::releaseTargetOnMove(float frameTime) {
     // A deferred autopause holds the target too.
-    if (!_clientCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
+    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
         _module->isPlayerMoving()) {
         _targetMoveTime += frameTime;
         if (_targetMoveTime >= kTargetMoveSpeedTime) {
@@ -6828,7 +6830,7 @@ void Game::takeSightedTarget(TargetPass &pass, bool hostileCreature, bool hostil
                     if (!mine) {
                         requestTutorialWindow(kHostileCreatureTutorial);
                     }
-                    if (!_clientCombatMode) {
+                    if (!_partyCombatMode) {
                         requestAutoPause(mine ? AutoPauseReason::MineSighted : AutoPauseReason::EnemySighted);
                     }
                     pass.target = object;
@@ -6885,7 +6887,7 @@ bool Game::isTargetLost(TargetPass &pass, const Creature &leader, const Area &ar
 // Otherwise the nearest visible object ahead.
 std::shared_ptr<Object> Game::pickTarget(const std::vector<size_t> &cone, bool hostileCreature,
                                          const Creature &leader, const Area &area) {
-    if (!_clientCombatMode || !hostileCreature) {
+    if (!_partyCombatMode || !hostileCreature) {
         for (size_t index : cone) {
             auto &entry = _nearestObjects[index];
             auto object = entry.object.resolve();
@@ -6941,7 +6943,7 @@ void Game::selectPassTarget(TargetPass &pass, const Creature &leader, const Area
             pass.keep = true;
         }
     }
-    if (hostileCreature && _clientCombatMode && !pass.keep) {
+    if (hostileCreature && _partyCombatMode && !pass.keep) {
         pass.keep = holdsDeadTarget(pass.target, frameTime);
     } else {
         _deadTargetHold = 0.0f;
@@ -7017,7 +7019,7 @@ std::shared_ptr<Object> Game::selectNearestObject(int direction) {
     };
     // In combat mode only hostile creatures qualify, if any visible one remains.
     // Entries that are gone or out of view are dropped on the way.
-    bool hostilesOnly = _clientCombatMode;
+    bool hostilesOnly = _partyCombatMode;
     if (hostilesOnly) {
         bool found = false;
         for (size_t i = _nearestObjects.size(); i-- > 0;) {
@@ -7127,11 +7129,11 @@ void Game::showTarget(const std::shared_ptr<Object> &object, bool look, bool cam
     if (leader) {
         leader->lookAt(object, kTargetLookDistance);
     }
-    if ((camera || _clientCombatMode) && _cameraType == CameraType::ThirdPerson) {
+    if ((camera || _partyCombatMode) && _cameraType == CameraType::ThirdPerson) {
         _module->area()->getCamera<ThirdPersonCamera>(CameraType::ThirdPerson)->setLookAtTarget(object);
     }
     auto creature = std::dynamic_pointer_cast<Creature>(object);
-    if (_clientCombatMode && creature && _module->isHostileToPartyLeader(*creature)) {
+    if (_partyCombatMode && creature && _module->isHostileToPartyLeader(*creature)) {
         auto model = creature->sceneNode();
         if (model && model->type() == SceneNodeType::Model) {
             static_cast<ModelSceneNode &>(*model).setHiliteColor(kHostileHiliteColor);

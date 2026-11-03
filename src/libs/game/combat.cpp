@@ -1958,11 +1958,11 @@ void Combat::finishOwner(Creature &actor, int runEndRound, bool suppressScript) 
     }
     const auto leader = _game.party().getLeader();
     // The script is also withheld from a party member at zero vitality.
-    if (runEndRound && !suppressScript && actor.currentSerializedActionId() != 1 &&
+    if (runEndRound && !suppressScript && actor.currentSerializedActionId() != static_cast<uint32_t>(SavedActionType::MoveToPoint) &&
         leader.get() != &actor && !actor.isDead() && !actor.isTemporarilyDead())
         actor.runEndRoundScript();
     // The controlled leader's round end can pause play while it is fighting.
-    if (runEndRound && leader.get() == &actor && actor.clientCombatMode()) {
+    if (runEndRound && leader.get() == &actor && actor.partyCombatMode()) {
         _game.requestAutoPause(AutoPauseReason::EndOfCombatRound);
     }
 }

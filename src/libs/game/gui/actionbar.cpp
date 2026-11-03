@@ -258,7 +258,7 @@ void ActionBar::handleMouseButtonDown(size_t slotIndex) {
     // drops the leader's pending round entries; when the entry is done and
     // combat mode is still off, it clears the leader's actions, before the
     // entry's order arrives.
-    if (!leader->clientCombatMode()) {
+    if (!leader->partyCombatMode()) {
         _game.combat().removeAllScheduled(*leader);
         _feedback.accept(_services);
     } else if (_game.isAutoPaused()) {
@@ -341,7 +341,7 @@ void ActionBar::handleMouseButtonDown(size_t slotIndex) {
             debug(str(boost::format("Spell selected: actor=%u spell=%d target=%u") % leader->id() % static_cast<int>(ctxAction.spell->type) % leader->id()), LogChannel::Combat);
         }
     }
-    if (!leader->clientCombatMode()) {
+    if (!leader->partyCombatMode()) {
         _game.combat().clearActions(*leader);
     }
     if (order) {

@@ -170,20 +170,6 @@ constexpr bool shouldCheckDeathImmunity(uint32_t spellId, EffectCategory categor
     return spellId != UINT32_MAX && category == EffectCategory::Magical;
 }
 
-// The visual effects that are beams, which a death leaves in place, in both
-// games and in TSL alone.
-constexpr std::array<int, 16> kBeamVisualEffects {
-    2026, 2027, 2028, 2029, 2037, 2038, 2049, 2050,
-    2051, 2052, 2053, 2061, 2065, 2066, 4037, 6000};
-constexpr std::array<int, 2> kTSLBeamVisualEffects {2068, 2069};
-
-bool isBeamVisual(bool tsl, int visualId) {
-    const auto contains = [visualId](const auto &visuals) {
-        return std::find(visuals.begin(), visuals.end(), visualId) != visuals.end();
-    };
-    return contains(kBeamVisualEffects) || (tsl && contains(kTSLBeamVisualEffects));
-}
-
 inline bool isEffectPreservedOnDeath(const EffectInstance &record,
                                      const std::vector<int> &keptTypes, bool tsl) {
     if (record.durationType() == DurationType::Innate ||
@@ -1343,7 +1329,7 @@ void Creature::retireAreaRuntime(
     _attackerList.clear();
     _receivedAttack = {};
     _lastWeaponUsed = script::kObjectInvalid;
-    _clientCombatMode = false;
+    _partyCombatMode = false;
 
     _perception.clear();
     _perceptionStarted = false;
@@ -1500,7 +1486,7 @@ void Creature::loadAppearance() {
         _sceneNode = std::move(modelSceneNode);
         _sceneNode->setUser(*this);
         _sceneNode->setLocalTransform(_transform);
-        _sceneNode->setEnabled(_visible && _clientPresent);
+        _sceneNode->setEnabled(_visible && _present);
         _stealthShell.reset();
         // A rebuilt model keeps the stealth field.
         if (_stealthMode) {
@@ -2013,7 +1999,7 @@ bool Creature::clicksTriggerInReach(const Object &target) const {
 bool Creature::isSelectable() const {
     // A creature the player's side has not detected cannot be picked. Its
     // items are never looted from it directly, but from its body bag.
-    return _clientPresent && !isTemporarilyDead() && (!_dead || _selectableWhenDead);
+    return _present && !isTemporarilyDead() && (!_dead || _selectableWhenDead);
 }
 
 bool Creature::isRunLimited() const {
@@ -4290,7 +4276,7 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
     }
     _combatState.active = false;
     _combatState.activationType = CombatActivation::None;
-    setClientCombatMode(false);
+    setPartyCombatMode(false);
     _combatState.expiryHeld = false;
     _combatState.attackTarget.reset();
     _combatState.roundTarget.reset();
@@ -4429,7 +4415,7 @@ bool Creature::applyResurrectionEffect(int hpPercent) {
     finishCombatRound();
     _combatState.active = false;
     _combatState.activationType = CombatActivation::None;
-    setClientCombatMode(false);
+    setPartyCombatMode(false);
     _combatState.expiryHeld = false;
     _combatState.attackTarget.reset();
     _combatState.roundTarget.reset();
@@ -5486,6 +5472,17 @@ std::shared_ptr<Item> Creature::getEquippedItem(int slot) const {
     return equipped != _equipment.end() ? equipped->second : nullptr;
 }
 
+std::shared_ptr<Item> Creature::getEquippedItemByTag(const std::string &tag) const {
+    const int slots = _game.isTSL() ? InventorySlots::count : InventorySlots::rightWeapon2;
+    for (int slot = 0; slot < slots; ++slot) {
+        auto item = getEquippedItem(slot);
+        if (item && item->tag() == tag) {
+            return item;
+        }
+    }
+    return nullptr;
+}
+
 void Creature::setFaction(Faction faction) {
     if (faction == _faction) {
         return;
@@ -6293,10 +6290,10 @@ void Creature::setCombatState(bool active, CombatActivation activationType, bool
         }
     }
 
-    // Entering combat state does not enter client combat mode; that follows
+    // Entering combat state does not enter party combat mode; that follows
     // the member's own attempted target. A direct exit still leaves it.
     if (!active && activationType == CombatActivation::Direct) {
-        setClientCombatMode(false);
+        setPartyCombatMode(false);
     }
     // Only a change of combat state powers the hand items on or off; leaving
     // it again puts out only the blades a weapon draw lit.
@@ -6579,9 +6576,9 @@ uint32_t Creature::getFirstAttacker() {
             return creature && creature->getAttackTarget().get() == this; }, [](const auto &object) { return object->id(); });
 }
 
-void Creature::setClientCombatMode(bool active) {
-    _clientCombatMode = active;
-    _game.syncClientCombatMode();
+void Creature::setPartyCombatMode(bool active) {
+    _partyCombatMode = active;
+    _game.syncPartyCombatMode();
 }
 
 void Creature::removeCombatInvisibilityEffects() {
@@ -6784,17 +6781,17 @@ void Creature::receiveSpellCastAt(uint32_t casterId, int spell, int harmful) {
     setExcitedState(1);
 }
 
-bool Creature::updateClientCombatMode(const Creature *storedCreature, const Object *carriedObject, bool holdDeadTarget) {
+bool Creature::updatePartyCombatMode(const Creature *storedCreature, const Object *carriedObject, bool holdDeadTarget) {
     if (!isPartyMember()) {
         return false;
     }
     const auto attack = _combatState.attemptedAttackTarget.resolve();
     const auto spell = _combatState.attemptedSpellTarget.resolve();
     const bool attacking = attack && !attack->isDead();
-    if (!_clientCombatMode) {
+    if (!_partyCombatMode) {
         const bool casting = spell && spell.get() != this && spell != attack && !spell->isDead();
         if (attacking || casting) {
-            setClientCombatMode(true);
+            setPartyCombatMode(true);
         }
         return false;
     }
@@ -6831,7 +6828,7 @@ bool Creature::updateClientCombatMode(const Creature *storedCreature, const Obje
             return false;
         }
     }
-    setClientCombatMode(false);
+    setPartyCombatMode(false);
     return true;
 }
 
@@ -6844,7 +6841,7 @@ void Creature::cancelCombat(int runEndRound) {
     _game.combat().endRound(*this, runEndRound);
     _combatState.attackTarget.reset();
     _combatState.roundTarget.reset();
-    setClientCombatMode(false);
+    setPartyCombatMode(false);
 }
 
 // The farthest an object can be seen in an area.
@@ -10480,6 +10477,12 @@ void Creature::deserializeAll(
     gff.readByte(_bodyVariation, "BodyVariation");
     gff.readByte(_textureVar, "TextureVar");
     gff.readBool(_partyInteract, "PartyInteract");
+    // A TSL creature can start with its rendering off.
+    if (_game.isTSL()) {
+        uint8_t willNotRender {0};
+        gff.readByte(willNotRender, "WillNotRender");
+        _visible = willNotRender == 0;
+    }
 
     // index into creaturespeed.2da
     gff.readInt(_walkRate, "WalkRate");
@@ -11139,7 +11142,7 @@ float Creature::walkSpeed() const {
     if (speed <= kMinimumWalkSpeed) {
         return 0.0f;
     }
-    if (movesStealthily() && isClientPresent()) {
+    if (movesStealthily() && isPresent()) {
         return _stealthWalkSpeed;
     }
     return speed;
@@ -11230,7 +11233,7 @@ int Creature::adjustedSpellForcePointCost(const Spell &spell, bool partyModifier
 }
 
 PowerMenuStatus Creature::powerMenuStatus(const Spell &spell, std::optional<std::reference_wrapper<const Object>> target) const {
-    // This is the client menu's read-only status, not casting admission or
+    // This is the menu's read-only status, not casting admission or
     // payment. Menus count the party cost modifiers for every subject.
     PowerMenuStatus status;
     // A power offered against a mine reads Force points alone, counts a

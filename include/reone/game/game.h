@@ -461,7 +461,7 @@ public:
     void setAutoPauseOptions(const AutoPauseOptions &options);
     /** Write the autopause options to the configuration. */
     void saveAutoPauseOptions() const;
-    bool clientCombatMode() const { return _clientCombatMode; }
+    bool partyCombatMode() const { return _partyCombatMode; }
     /**
      * @return whether the dead-target hold runs: in combat mode, for a moment
      * after the leader's target goes down, every creature is offered as
@@ -469,7 +469,7 @@ public:
      */
     bool isDeadTargetHoldRunning() const { return _deadTargetHold > 0.0f; }
     /** Combat mode follows the leader's, in the area it stands in. */
-    void syncClientCombatMode();
+    void syncPartyCombatMode();
     /**
      * Step the target through the nearby objects in bearing order: direction 0
      * turns counter-clockwise from the leader's facing, direction 1 clockwise.
@@ -807,8 +807,8 @@ public:
     /** Write the feedback options to the configuration. */
     void saveFeedbackOptions() const;
     /** The difficulty level the player chose: a difficultyopt.2da row. */
-    int clientDifficulty() const { return _options.game.clientDifficulty; }
-    void setClientDifficulty(int level) { _options.game.clientDifficulty = level; }
+    int difficultyLevel() const { return _options.game.difficultyLevel; }
+    void setDifficultyLevel(int level) { _options.game.difficultyLevel = level; }
     /** Write the difficulty level to the configuration. */
     void saveDifficultyLevel() const;
     /** Whether the mouse turns the camera unless the right button or a Ctrl key is held. */
@@ -1154,8 +1154,11 @@ public:
     void postObjectDestruction(Object &target, float delay);
     /** World time after a script delay, or none when the delay is dropped. */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
-    /** DelayCommand: a timed event that runs command as owner when due. */
-    void postDelayedCommand(Object &owner, std::shared_ptr<Action> command, float seconds);
+    /**
+     * DelayCommand and AssignCommand: a timed event from caller that runs
+     * command as owner when due.
+     */
+    void postDelayedCommand(Object &owner, std::optional<std::reference_wrapper<const Object>> caller, std::shared_ptr<Action> command, float seconds);
     /**
      * Visual programs 1601 and 1602 count their holders across all objects.
      * The speed blur turns on when the first holder is the player and turns
@@ -1796,9 +1799,9 @@ private:
     float _targetUnseenTime {0.0f};
     float _deadTargetHold {0.0f};
     float _targetMoveTime {0.0f};
-    bool _clientCombatMode {false};
-    RuntimeObjectRef<Creature> _clientCombatLeader;
-    RuntimeObjectRef<Area> _clientCombatArea;
+    bool _partyCombatMode {false};
+    RuntimeObjectRef<Creature> _partyCombatLeader;
+    RuntimeObjectRef<Area> _partyCombatArea;
     bool _keepStealthInDialog {false};
     bool _timingDiscontinuity {false};
     GlobalFade _globalFade;

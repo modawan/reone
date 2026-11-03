@@ -123,7 +123,7 @@ static Variable ActionMoveToLocation(const std::vector<Variable> &args, const Ro
 // Only a creature that can be commanded moves to an object, and only to one
 // standing in an area. The move ends with the object within the range or the
 // creature's use range for it, whichever is longer; a door or placeable is
-// walked to at its use point, only to that use range.
+// walked to at its use point.
 static void queueMoveToObject(const RoutineContext &ctx, std::shared_ptr<Object> target, bool run, float range,
                               bool force, float timeout) {
     auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
@@ -131,11 +131,10 @@ static void queueMoveToObject(const RoutineContext &ctx, std::shared_ptr<Object>
         return;
     }
     // The move and its check both take the longer of the range asked for and
-    // the caller's use range; a door or placeable is then closed on to the use
-    // range at the use point.
+    // the caller's use range.
     const float moveRange = std::max(range, caller->useRange(*target).range);
     caller->addAction(ctx.game.newAction<MoveToObjectAction>(
-        std::move(target), run, moveRange, force, timeout, false, moveRange, true));
+        std::move(target), run, moveRange, force, timeout, false, moveRange));
 }
 
 static Variable ActionMoveToObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
