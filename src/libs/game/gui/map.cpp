@@ -122,18 +122,18 @@ void Map::renderScissored(const glm::vec4 &bounds, const std::function<void()> &
 
 glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
     if (mode == Mode::Default) {
-        // The map screen stretches the area image over its map control.
+        // The map screen lays the area's map over its map control.
         return bounds;
     }
-    // The minimap shows the image at the layout's scale and keeps the party
-    // leader under the centre of its frame.
-    const float width = _areaTexture->width() * scale;
+    // The minimap shows the map at the image's own size, at the layout's
+    // scale, and keeps the party leader under the centre of its frame.
+    auto state = mapState();
     const float height = _areaTexture->height() * scale;
+    const float width = height * state->canvasWidth() / state->canvasHeight();
 
     glm::vec2 mapPos(0.0f);
-    auto state = mapState();
     auto leader = _game.party().getLeader();
-    if (state && leader) {
+    if (leader) {
         if (auto position = state->toMapPosition(glm::vec2(leader->position()))) {
             mapPos = *position;
         }
@@ -148,9 +148,14 @@ glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
 void Map::renderArea(const glm::vec4 &rect) {
     _services.graphics.context.bindTexture(*_areaTexture);
 
+    // The image keeps its own proportions, scaled so its height spans the
+    // map. KotOR's images are wider than the map they carry, and the empty
+    // strip past the map's right edge falls outside the frame.
+    const float width = rect[3] * _areaTexture->width() / _areaTexture->height();
+
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, glm::vec3(rect[0], rect[1], 0.0f));
-    transform = glm::scale(transform, glm::vec3(rect[2], rect[3], 1.0f));
+    transform = glm::scale(transform, glm::vec3(width, rect[3], 1.0f));
 
     _services.graphics.uniforms.setLocals([transform](auto &locals) {
         locals.reset();
