@@ -782,6 +782,8 @@ void Game::initConsole() {
     registerConsoleCommand("click", "click a control of the current screen by tag, as the mouse would", &Game::consoleClick);
     registerConsoleCommand("key", "press and release a key: a character or a name such as escape, return, space, up, f1", &Game::consoleKey);
     registerConsoleCommand("clickobject", "click an object in the world by tag, as the mouse would", &Game::consoleClickObject);
+    registerConsoleCommand("clickaction", "click an action icon (slot 0-2) above the selected object", &Game::consoleClickAction);
+    registerConsoleCommand("listactions", "log the action type showing in each slot above the selected object", &Game::consoleListActions);
     registerConsoleCommand("keydown", "press a key and hold it until keyup", &Game::consoleKeyDownOrUp);
     registerConsoleCommand("keyup", "release a key held by keydown", &Game::consoleKeyDownOrUp);
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
@@ -9810,6 +9812,40 @@ void Game::updateScriptedWalk() {
                             : input::Event::newKeyUp({false, _options.game.activeKeybinds().moveForward.keyCode, 0, false}));
         walk.forward = keys.forward;
     }
+}
+
+void Game::consoleListActions(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!_hud) {
+        throw std::runtime_error("listactions: no HUD");
+    }
+    std::string line = "listactions:";
+    for (int slot = 0; slot < 3; ++slot) {
+        auto action = _hud->selectionOverlay().actionClickPoint(slot);
+        line += action ? str(boost::format(" %d=%d") % slot % static_cast<int>(action->second))
+                       : str(boost::format(" %d=none") % slot);
+    }
+    info(line);
+}
+
+void Game::consoleClickAction(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "slot");
+    int slot = args.get<int>(1).value_or(-1);
+    if (_screen != Screen::InGame || !_hud || _cameraType != CameraType::ThirdPerson) {
+        throw std::runtime_error("clickaction: not in the game world");
+    }
+    if (_movie || _credits || (_confirmPopup && _confirmPopup->isVisible()) || _playerInputBlocked) {
+        throw std::runtime_error("clickaction: a movie, the credits, a popup or blocked input would take the click");
+    }
+    auto action = _hud->selectionOverlay().actionClickPoint(slot);
+    if (!action) {
+        throw std::runtime_error("clickaction: no selected object with an action in slot " + std::to_string(slot));
+    }
+    auto [at, type] = *action;
+    handle(input::Event::newMouseMotion({at.x, at.y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at.x, at.y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at.x, at.y}));
+    info(str(boost::format("clickaction %d (action type %d) at %d,%d") % slot % static_cast<int>(type) % at.x % at.y));
 }
 
 void Game::consoleClickObject(const ConsoleArgs &args) {

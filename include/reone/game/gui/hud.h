@@ -61,6 +61,7 @@ public:
     void onClick(const std::string &control) override;
 
     BarkBubble &barkBubble() const { return *_barkBubble; }
+    const SelectionOverlay &selectionOverlay() const { return _select; }
 
     /**
      * Flash a status row's indicator on the main interface for four seconds.

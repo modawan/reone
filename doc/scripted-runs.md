@@ -42,6 +42,11 @@ Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 `Unrecognized command: <name>`, so a scripted run leaves a trace in
 `engine.log`. A click that quits the game ends the run.
 
+`listactions` logs the action showing in each of the three slots above the
+selected object (`listactions: 0=none 1=4118 2=none`), and `clickaction
+<slot>` clicks that slot's icon, as a player picks Security on a locked door
+after selecting it.
+
 `walkto <x> <y> [max frames]` walks the party leader to a point of the area
 with the keys a player would hold: A or D to turn the camera and W to run,
 steering along the walkmesh pathfinder's route round walls and debris. The

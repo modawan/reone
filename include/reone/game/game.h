@@ -2450,6 +2450,8 @@ private:
     void consoleClick(const ConsoleArgs &tokens);
     void consoleKey(const ConsoleArgs &tokens);
     void consoleClickObject(const ConsoleArgs &tokens);
+    void consoleClickAction(const ConsoleArgs &tokens);
+    void consoleListActions(const ConsoleArgs &tokens);
     void consoleKeyDownOrUp(const ConsoleArgs &tokens);
     void consoleShowBark(const ConsoleArgs &tokens);
     void consoleShowPopup(const ConsoleArgs &tokens);

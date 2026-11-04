@@ -58,6 +58,13 @@ public:
     /** Draw the reticles and the target menu, whose icons all grey while \p leaderDown. */
     void render(bool leaderDown);
 
+    /**
+     * Where a click on the icon of action slot \p index lands, above the
+     * selected object, and the type of the action showing in it. Empty with
+     * nothing selected or nothing in the slot.
+     */
+    std::optional<std::pair<glm::ivec2, ActionType>> actionClickPoint(int index) const;
+
 private:
     /** The target menu's columns. */
     static constexpr int kNumActionSlots = 3;
