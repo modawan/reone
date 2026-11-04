@@ -174,6 +174,10 @@ void AreaMapState::setExplored(const glm::vec2 &world, int radius) {
     }
 }
 
+void AreaMapState::setFullyExplored() {
+    _explored.assign(_explored.size(), true);
+}
+
 bool AreaMapState::isExplored(const glm::vec2 &world) const {
     auto point = toMapPoint(world);
     if (!point) {

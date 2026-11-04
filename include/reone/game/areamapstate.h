@@ -81,6 +81,8 @@ public:
     /** Reveals the cell \p world falls in and \p radius rings of cells around it. */
     void setExplored(const glm::vec2 &world, int radius);
 
+    void setFullyExplored();
+
     bool isExplored(const glm::vec2 &world) const;
     bool isCellExplored(int gridX, int gridY) const;
 

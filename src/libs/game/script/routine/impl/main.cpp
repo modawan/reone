@@ -5648,10 +5648,15 @@ static Variable RevealMap(const std::vector<Variable> &args, const RoutineContex
     auto vPoint = getVectorOrElse(args, 0, glm::vec3(0.0f, 0.0f, 0.0f));
     auto nRadius = getIntOrElse(args, 1, -1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("RevealMap");
+    auto &map = ctx.game.module()->area()->mapState();
+    // The default radius reveals the whole map, wherever the point is.
+    if (nRadius == -1) {
+        map.setFullyExplored();
+    } else {
+        map.setExplored(glm::vec2(vPoint), nRadius);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetTutorialWindowsEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
