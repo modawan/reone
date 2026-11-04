@@ -2462,6 +2462,7 @@ private:
     void consoleClickAction(const ConsoleArgs &tokens);
     void consoleListActions(const ConsoleArgs &tokens);
     void consoleListCreatures(const ConsoleArgs &tokens);
+    void consoleClickAt(const ConsoleArgs &tokens);
     void consoleUnpause(const ConsoleArgs &tokens);
     void consoleCanWalk(const ConsoleArgs &tokens);
     void consoleKeyDownOrUp(const ConsoleArgs &tokens);

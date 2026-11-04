@@ -780,6 +780,7 @@ void Game::initConsole() {
     registerConsoleCommand("openchargen", "open a character-generation screen", &Game::consoleOpenCharacterGeneration);
     registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
     registerConsoleCommand("click", "click a control of the current screen by tag, as the mouse would", &Game::consoleClick);
+    registerConsoleCommand("clickat", "click a window point: x y in pixels", &Game::consoleClickAt);
     registerConsoleCommand("key", "press and release a key: a character or a name such as escape, return, space, up, f1", &Game::consoleKey);
     registerConsoleCommand("clickobject", "click an object in the world by tag, as the mouse would", &Game::consoleClickObject);
     registerConsoleCommand("clickaction", "click an action icon (slot 0-2) above the selected object", &Game::consoleClickAction);
@@ -9698,6 +9699,31 @@ void Game::consoleClick(const ConsoleArgs &args) {
     handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at->x, at->y}));
     handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at->x, at->y}));
     info(str(boost::format("click %s at %d,%d") % tag % at->x % at->y));
+}
+
+// A click at a window point, for controls a tag cannot name, such as one
+// icon of the feat chain in character generation. Nothing checks what is
+// under the point, so a script captures the screen to choose it.
+void Game::consoleClickAt(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "x y");
+    auto x = args.get<int>(1);
+    auto y = args.get<int>(2);
+    if (!x || !y || *x < 0 || *y < 0) {
+        throw std::runtime_error("clickat: x and y are window pixels, 0 or more");
+    }
+    if (_movie) {
+        throw std::runtime_error("clickat: a movie is playing; a click would skip it");
+    }
+    if (_credits) {
+        throw std::runtime_error("clickat: the credits take the input");
+    }
+    if (_playerInputBlocked) {
+        throw std::runtime_error("clickat: player input is blocked");
+    }
+    handle(input::Event::newMouseMotion({*x, *y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, *x, *y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, *x, *y}));
+    info(str(boost::format("clickat %d,%d") % *x % *y));
 }
 
 void Game::consoleKey(const ConsoleArgs &args) {

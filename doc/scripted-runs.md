@@ -36,6 +36,11 @@ Two commands send real input, through the same path as the mouse and keyboard:
   it, so turn the camera or move first. As in the game, the first click on
   an object selects it and the second uses it.
 
+- `clickat <x> <y>` clicks a window point, for a control no tag names, such
+  as one icon of the feat chain in character generation and level-up.
+  Nothing checks what is under the point, so capture the screen first to
+  choose it.
+
 Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 ...) is also available. In a scripted run, what commands print goes to the
 log as `console: ...` lines, so `selectobjectbytag end_trask` then `info`
