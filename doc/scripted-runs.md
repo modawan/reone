@@ -55,7 +55,13 @@ steering along the walkmesh pathfinder's route round walls and debris. The
 script waits until the walk ends, and the log says how it ended:
 `walkto x,y arrived at ...`, `interrupted` (a conversation or a menu took the
 screen, as walking into a trigger often does), `is blocked` or `timed out`.
-Coordinates come from the module's own data, such as its waypoints.
+Coordinates come from the module's own data, such as its waypoints. The walk
+logs at its start whether it follows a walkmesh route or, having none, goes
+straight; a closed door is no route, so a point beyond one goes straight
+into a wall. `canwalk <x> <y>` logs whether the walkmesh joins the leader to
+a point at all, to find the way before walking it. A sighting that pauses
+the game ends a walk as `paused`; `unpause` then presses Space if, and only
+if, the game is paused, since Space toggles the pause.
 
 `pause N` waits N rendered frames, not seconds. Headless with `--vsync 0`
 renders hundreds of frames a second, so allow generous counts.

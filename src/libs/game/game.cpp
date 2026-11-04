@@ -784,6 +784,8 @@ void Game::initConsole() {
     registerConsoleCommand("clickobject", "click an object in the world by tag, as the mouse would", &Game::consoleClickObject);
     registerConsoleCommand("clickaction", "click an action icon (slot 0-2) above the selected object", &Game::consoleClickAction);
     registerConsoleCommand("listactions", "log the action type showing in each slot above the selected object", &Game::consoleListActions);
+    registerConsoleCommand("unpause", "press Space if, and only if, the game is paused", &Game::consoleUnpause);
+    registerConsoleCommand("canwalk", "log whether the walkmesh joins the leader to a point: canwalk x y", &Game::consoleCanWalk);
     registerConsoleCommand("keydown", "press a key and hold it until keyup", &Game::consoleKeyDownOrUp);
     registerConsoleCommand("keyup", "release a key held by keydown", &Game::consoleKeyDownOrUp);
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
@@ -9717,6 +9719,11 @@ void Game::startScriptedWalk(glm::vec2 target, int maxFrames) {
             glm::vec3 to(target, leader->position().z);
             walk.path = createPath(_module->area()->pathfinder(), leader->position(), to);
         }
+        // Say which: a point off the walkmesh has no route, and a straight
+        // walk at it meets the first wall.
+        info(str(boost::format("walkto %.1f,%.1f from %.1f,%.1f %s") % target.x % target.y %
+                 leader->position().x % leader->position().y %
+                 (walk.path ? "along a walkmesh route" : "straight: no walkmesh route to it")));
     }
     _scriptedWalk = walk;
 }
@@ -9756,6 +9763,12 @@ void Game::updateScriptedWalk() {
     // what to do next.
     if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson) {
         endScriptedWalk("interrupted", false);
+        return;
+    }
+    // The game pauses itself when an enemy is sighted; the walk stops there
+    // rather than count the paused leader as blocked.
+    if (isPaused()) {
+        endScriptedWalk("paused", false);
         return;
     }
     auto leader = _party.getLeader();
@@ -9816,6 +9829,33 @@ void Game::updateScriptedWalk() {
                             : input::Event::newKeyUp({false, _options.game.activeKeybinds().moveForward.keyCode, 0, false}));
         walk.forward = keys.forward;
     }
+}
+
+void Game::consoleCanWalk(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "x y");
+    auto x = args.get<float>(1);
+    auto y = args.get<float>(2);
+    auto leader = _party.getLeader();
+    if (!x || !y || !leader || !_module || !_module->area()) {
+        throw std::runtime_error("canwalk: needs x, y and a leader in an area");
+    }
+    glm::vec3 to(*x, *y, leader->position().z);
+    bool joined = pathExists(_module->area()->pathfinder(), leader->position(), to);
+    info(str(boost::format("canwalk %.1f,%.1f from %.1f,%.1f: %s") % *x % *y % leader->position().x %
+             leader->position().y % (joined ? "yes" : "no")));
+}
+
+// Space toggles the pause; a script that does not know whether the game
+// auto-paused presses it only when it did.
+void Game::consoleUnpause(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!isPaused()) {
+        info("unpause: not paused");
+        return;
+    }
+    handle(input::Event::newKeyDown({true, input::KeyCode::Space, 0, false}));
+    handle(input::Event::newKeyUp({false, input::KeyCode::Space, 0, false}));
+    info(std::string("unpause: ") + (isPaused() ? "still paused" : "resumed"));
 }
 
 void Game::consoleListActions(const ConsoleArgs &args) {
