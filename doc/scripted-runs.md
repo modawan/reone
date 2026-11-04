@@ -23,7 +23,13 @@ Two commands send real input, through the same path as the mouse and keyboard:
   pause indicator. The save screen's confirmation and name entry are not
   looked through.
 - `key <name>` presses and releases a key: a single character (`a`, `1`) or
-  a name such as `escape`, `return`, `space`, `up`, `f1`.
+  a name such as `escape`, `return`, `space`, `up`, `f1`. `keydown <name>`
+  and `keyup <name>` hold a key across frames, for one such as `a` or `d`
+  that turns the camera while held: `keydown a`, `pause 40`, `keyup a`.
+- `clickobject <tag> [nth]` clicks an object in the world: the centre of
+  its model's bounds, projected through the active camera. It fails when the
+  object is not on screen, or when the game's own picking finds something
+  else under the pointer there, so turn the camera or move first.
 
 Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 ...) is also available. A command that fails is logged as

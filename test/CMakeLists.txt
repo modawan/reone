@@ -68,6 +68,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
     ${TESTS_SOURCE_DIR}/game/movieskip.cpp
+    ${TESTS_SOURCE_DIR}/game/screenpoint.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/itempossession.cpp
     ${TESTS_SOURCE_DIR}/game/inventorydisturbed.cpp

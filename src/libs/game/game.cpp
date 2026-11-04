@@ -66,6 +66,7 @@
 #include "reone/game/room.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/savewidesnapshot.h"
+#include "reone/game/screenpoint.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
 #include "reone/game/twodautil.h"
@@ -779,6 +780,9 @@ void Game::initConsole() {
     registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
     registerConsoleCommand("click", "click a control of the current screen by tag, as the mouse would", &Game::consoleClick);
     registerConsoleCommand("key", "press and release a key: a character or a name such as escape, return, space, up, f1", &Game::consoleKey);
+    registerConsoleCommand("clickobject", "click an object in the world by tag, as the mouse would", &Game::consoleClickObject);
+    registerConsoleCommand("keydown", "press a key and hold it until keyup", &Game::consoleKeyDownOrUp);
+    registerConsoleCommand("keyup", "release a key held by keydown", &Game::consoleKeyDownOrUp);
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
@@ -9627,6 +9631,63 @@ void Game::consoleKey(const ConsoleArgs &args) {
     }
     handle(input::Event::newKeyDown({true, *code, 0, false}));
     handle(input::Event::newKeyUp({false, *code, 0, false}));
+}
+
+// A held key, such as A or D turning the camera, spans frames: keydown, then
+// pause, then keyup.
+void Game::consoleKeyDownOrUp(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "key_name");
+    auto code = input::keyCodeFromName(args[1].value());
+    if (!code) {
+        throw std::runtime_error(std::string(args[0].value()) + ": unknown key " + std::string(args[1].value()));
+    }
+    if (args[0].value() == "keydown") {
+        handle(input::Event::newKeyDown({true, *code, 0, false}));
+    } else {
+        handle(input::Event::newKeyUp({false, *code, 0, false}));
+    }
+}
+
+void Game::consoleClickObject(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 2, "tag [nth]");
+    std::string tag(args[1].value());
+    int nth = args.size() > 2 ? args.get<int>(2).value() : 0;
+    if (_screen != Screen::InGame || !_module || !_module->area()) {
+        throw std::runtime_error("clickobject: not in the game world");
+    }
+    if (_movie || _credits || (_confirmPopup && _confirmPopup->isVisible()) || _playerInputBlocked) {
+        throw std::runtime_error("clickobject: a movie, the credits, a popup or blocked input would take the click");
+    }
+    auto area = _module->area();
+    auto object = area->getObjectByTag(tag, nth);
+    if (!object || !object->sceneNode()) {
+        throw std::runtime_error("clickobject: no object with a model tagged " + tag + " in the area");
+    }
+    auto camera = getActiveCamera();
+    auto cameraNode = camera ? camera->cameraSceneNode() : nullptr;
+    auto graphicsCamera = cameraNode ? cameraNode->camera() : nullptr;
+    if (!graphicsCamera) {
+        throw std::runtime_error("clickobject: no active camera");
+    }
+    auto at = worldToWindowPoint(
+        object->sceneNode()->getWorldCenterOfAABB(),
+        graphicsCamera->view(),
+        graphicsCamera->projection(),
+        _options.graphics.width,
+        _options.graphics.height);
+    if (!at) {
+        throw std::runtime_error("clickobject: " + tag + " is not on screen");
+    }
+    // The click goes to whatever the game picks under the pointer; it has to
+    // be this object, not something in front of it.
+    auto picked = area->getObjectAt(at->x, at->y);
+    if (!picked || &picked->get() != object.get()) {
+        throw std::runtime_error(str(boost::format("clickobject: something else is under the pointer at %d,%d") % at->x % at->y));
+    }
+    handle(input::Event::newMouseMotion({at->x, at->y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at->x, at->y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at->x, at->y}));
+    info(str(boost::format("clickobject %s at %d,%d") % tag % at->x % at->y));
 }
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {
