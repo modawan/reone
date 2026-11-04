@@ -2043,6 +2043,8 @@ private:
         int stillFrames {0};
         /** The walkmesh path the keys steer along; straight at the target without one. */
         std::optional<Path> path;
+        /** The id of the area the walk started in; its path belongs to that area's pathfinder. */
+        uint32_t areaId {0};
     };
     std::optional<ScriptedWalk> _scriptedWalk;
 

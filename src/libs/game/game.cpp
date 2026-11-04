@@ -9770,6 +9770,7 @@ void Game::startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly) {
     walk.target = target;
     walk.framesLeft = maxFrames;
     walk.faceOnly = faceOnly;
+    walk.areaId = _module && _module->area() ? _module->area()->id() : 0;
     if (faceOnly) {
         _scriptedWalk = walk;
         return;
@@ -9826,6 +9827,14 @@ void Game::updateScriptedWalk() {
     // what to do next.
     if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson) {
         endScriptedWalk("interrupted", false);
+        return;
+    }
+    // A door or a script can change the area within a frame. The path was
+    // made by the old area's pathfinder, which went with it, so it is dropped
+    // rather than released, and the walk ends there.
+    if (!_module || !_module->area() || _module->area()->id() != walk.areaId) {
+        walk.path.reset();
+        endScriptedWalk("interrupted by an area change", false);
         return;
     }
     // The game pauses itself when an enemy is sighted; the walk stops there
