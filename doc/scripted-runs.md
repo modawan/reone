@@ -39,7 +39,11 @@ Two commands send real input, through the same path as the mouse and keyboard:
 Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 ...) is also available. In a scripted run, what commands print goes to the
 log as `console: ...` lines, so `selectobjectbytag end_trask` then `info`
-logs a creature's position, faction, `hp=current/max` and `dead=0|1`. A command that fails is logged as
+logs a creature's position, faction, `hp=current/max`, `dead=0|1`, its
+follow slot and follow point if it follows the leader, whether it is
+commandable, and the type of the action it is doing. `listcreatures` logs
+every creature in the area the same way, with `party=1` on party members,
+to find who is still fighting. A command that fails is logged as
 `Command failed: <command>: <reason>`, and a mistyped one as
 `Unrecognized command: <name>`, so a scripted run leaves a trace in
 `engine.log`. A click that quits the game ends the run.
@@ -66,6 +70,17 @@ object behind the camera can be clicked; `info` on a door logs its
 state, locked, keyrequired and plot flags. A sighting that pauses
 the game ends a walk as `paused`; `unpause` then presses Space if, and only
 if, the game is paused, since Space toggles the pause.
+
+`savegame <slot> [name]` saves only from the in-game screen, as F4 does,
+and `loadgame <n>` loads the nth save `listgames` lists, so a long run can
+be split into stages that each start from the last one's save. A save in a
+conversation is refused: the conversation would not be in it, and the
+scripts on its remaining nodes, such as one that gives a companion back
+its AI after a cutscene, would never run. Make sure a stage has finished
+its fights before saving: what is fighting goes into the save, mid-swing.
+
+`graphics off` stops rendering and with it the world: heartbeats, walks
+and fights wait until `graphics on`.
 
 `pause N` waits N rendered frames, not seconds. Headless with `--vsync 0`
 renders hundreds of frames a second, so allow generous counts.

@@ -49,3 +49,12 @@ TEST(GameScreenFromName, should_resolve_every_listed_name_in_order) {
         EXPECT_EQ(static_cast<size_t>(*screen), i) << name;
     }
 }
+
+// A developer save is refused where F4 would not quicksave: during a
+// conversation, a save would drop the conversation and the scripts left on it.
+TEST(GameDeveloperSave, should_save_only_on_the_in_game_screen) {
+    EXPECT_TRUE(Game::isDeveloperSaveAllowedOn(Game::Screen::InGame));
+    EXPECT_FALSE(Game::isDeveloperSaveAllowedOn(Game::Screen::Conversation));
+    EXPECT_FALSE(Game::isDeveloperSaveAllowedOn(Game::Screen::Container));
+    EXPECT_FALSE(Game::isDeveloperSaveAllowedOn(Game::Screen::MainMenu));
+}

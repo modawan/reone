@@ -226,6 +226,13 @@ public:
 
     /** The screen \p name names, ignoring case; empty for any other name. */
     static std::optional<Screen> screenFromName(std::string_view name);
+    /**
+     * Whether the developer `savegame` command may save on a screen. Only on
+     * the in-game screen, where F4 quicksaves: a save taken during a
+     * conversation loads without it, so the scripts on its remaining nodes
+     * never run.
+     */
+    static bool isDeveloperSaveAllowedOn(Screen screen) { return screen == Screen::InGame; }
 
     Game(
         resource::GameID gameId,
@@ -2454,6 +2461,7 @@ private:
     void consoleClickObject(const ConsoleArgs &tokens);
     void consoleClickAction(const ConsoleArgs &tokens);
     void consoleListActions(const ConsoleArgs &tokens);
+    void consoleListCreatures(const ConsoleArgs &tokens);
     void consoleUnpause(const ConsoleArgs &tokens);
     void consoleCanWalk(const ConsoleArgs &tokens);
     void consoleKeyDownOrUp(const ConsoleArgs &tokens);

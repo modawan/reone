@@ -784,6 +784,7 @@ void Game::initConsole() {
     registerConsoleCommand("clickobject", "click an object in the world by tag, as the mouse would", &Game::consoleClickObject);
     registerConsoleCommand("clickaction", "click an action icon (slot 0-2) above the selected object", &Game::consoleClickAction);
     registerConsoleCommand("listactions", "log the action type showing in each slot above the selected object", &Game::consoleListActions);
+    registerConsoleCommand("listcreatures", "log every creature in the area: id, tag, position, hit points, faction, action", &Game::consoleListCreatures);
     registerConsoleCommand("unpause", "press Space if, and only if, the game is paused", &Game::consoleUnpause);
     registerConsoleCommand("canwalk", "log whether the walkmesh joins the leader to a point: canwalk x y", &Game::consoleCanWalk);
     registerConsoleCommand("keydown", "press a key and hold it until keyup", &Game::consoleKeyDownOrUp);
@@ -9317,7 +9318,29 @@ void Game::consoleInfo(const ConsoleArgs &args) {
            << " "
            << "hp=" << creature->currentHitPoints() << "/" << creature->maxHitPoints()
            << " "
-           << "dead=" << (creature->isDead() ? 1 : 0);
+           << "dead=" << (creature->isDead() ? 1 : 0)
+           << " "
+           << "follow=";
+        int slot = -1;
+        for (int i = 1; i < kPartyFollowSlots; ++i) {
+            if (_party.getMember(i) == creature) {
+                slot = i;
+            }
+        }
+        ss << slot;
+        if (slot != -1) {
+            auto point = _party.followPoint(slot);
+            ss << " followpoint=[" << point.x << ", " << point.y << "]";
+        }
+        ss << " "
+           << "commandable=" << (creature->isCommandable() ? 1 : 0)
+           << " "
+           << "action=";
+        if (auto action = creature->getCurrentAction()) {
+            ss << static_cast<int>(action->type());
+        } else {
+            ss << "none";
+        }
     } else if (auto placeable = dyn_cast<Placeable>(object)) {
         ss << " "
            << "app=" << placeable->appearance();
@@ -9890,6 +9913,35 @@ void Game::consoleUnpause(const ConsoleArgs &args) {
     handle(input::Event::newKeyDown({true, input::KeyCode::Space, 0, false}));
     handle(input::Event::newKeyUp({false, input::KeyCode::Space, 0, false}));
     info(std::string("unpause: ") + (isPaused() ? "still paused" : "resumed"));
+}
+
+void Game::consoleListCreatures(const ConsoleArgs &args) {
+    if (!_module || !_module->area()) {
+        throw std::runtime_error("listcreatures: no area");
+    }
+    for (const auto &object : _module->area()->getObjectsByType(ObjectType::Creature)) {
+        auto creature = dyn_cast<Creature>(object);
+        if (!creature) {
+            continue;
+        }
+        const glm::vec3 position {creature->position()};
+        std::stringstream ss;
+        ss << std::setprecision(2) << std::fixed
+           << "creature id=" << creature->id()
+           << " tag=\"" << creature->tag() << "\""
+           << " pos=[" << position.x << ", " << position.y << "]"
+           << " hp=" << creature->currentHitPoints() << "/" << creature->maxHitPoints()
+           << " dead=" << (creature->isDead() ? 1 : 0)
+           << " fac=" << static_cast<int>(creature->faction())
+           << " party=" << (_party.isMember(*creature) ? 1 : 0)
+           << " action=";
+        if (auto action = creature->getCurrentAction()) {
+            ss << static_cast<int>(action->type());
+        } else {
+            ss << "none";
+        }
+        _console.printLine(ss.str());
+    }
 }
 
 void Game::consoleListActions(const ConsoleArgs &args) {
@@ -10703,6 +10755,10 @@ void Game::consoleSaveGame(const ConsoleArgs &args) {
             name += " ";
         }
         name += std::string(*args[i]);
+    }
+    if (!isDeveloperSaveAllowedOn(_screen)) {
+        throw std::runtime_error("savegame: not on this screen; save from the in-game screen, as F4 does. "
+                                 "A save taken in a conversation loads without it, and its remaining scripts never run");
     }
     auto result = requestSave(
         {SaveKind::Developer, *slot, std::move(name), true});
