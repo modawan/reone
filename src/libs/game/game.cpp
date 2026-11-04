@@ -9309,7 +9309,7 @@ void Game::consoleInfo(const ConsoleArgs &args) {
        << " "
        << "tpl=\"" << object->blueprintResRef() << "\""
        << " "
-       << "pos=[" << position.x << ", " << position.y << ", " << position.z << "]";
+       << "pos=[" << position.x << ", " << position.y << ", " << position.z << "]" << " facing=" << object->getFacing();
 
     if (auto creature = dyn_cast<Creature>(object)) {
         ss << " "
