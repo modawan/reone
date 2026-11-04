@@ -97,6 +97,7 @@ private:
     int _scriptPauseFrames {0};
     std::optional<game::Game::Screen> _scriptWaitScreen;
     std::string _scriptWaitScreenName;
+    std::optional<int> _scriptWaitEntry;
     int _scriptWaitFrames {0};
     std::optional<CaptureRequest> _captureRequest;
     bool _scriptQuitRequested {false};

@@ -87,6 +87,13 @@ its fights before saving: what is fighting goes into the save, mid-swing.
 `graphics off` stops rendering and with it the world: heartbeats, walks
 and fights wait until `graphics on`.
 
+`waitentry <n> [max frames]` waits until the conversation on show is at
+entry n of its dialog and that entry has finished, so its replies are listed
+and a `key` answers it. Entry numbers are the dialog file's EntryList
+indices. A long dialog can then be scripted exactly, instead of timing key
+presses: `waitentry 23`, `key 3`. An entry whose only reply is taken by
+itself never lists replies, so wait for the entry after it instead.
+
 `pause N` waits N rendered frames, not seconds. Headless with `--vsync 0`
 renders hundreds of frames a second, so allow generous counts.
 

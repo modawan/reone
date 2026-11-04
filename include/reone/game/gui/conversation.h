@@ -100,6 +100,11 @@ public:
 
     void setAutoSkip(AutoSkip *skip) { _autoSkip = skip; }
 
+    /** The index of the entry on show; -1 before the first entry. */
+    int currentEntryIndex() const { return _currentEntryIndex; }
+    /** The entry on show has finished: its replies are listed, or its sole reply is due. */
+    bool isEntryEnded() const { return _entryEnded; }
+
     /** The conversation's dialog is an animated cutscene. */
     bool isAnimatedCutscene() const { return _dialog && _dialog->isAnimatedCutscene(); }
 
@@ -140,6 +145,7 @@ protected:
     std::shared_ptr<graphics::Model> _cameraModel;
     std::shared_ptr<graphics::LipAnimation> _lipAnimation;
     const resource::Dialog::EntryReply *_currentEntry {nullptr};
+    int _currentEntryIndex {-1};
     bool _entryEnded {false};
     bool _paused {false};
 

@@ -509,6 +509,7 @@ void Conversation::loadEntry(int index, bool start) {
         _game.areaMusic().playDialogAmbientTrack(_dialog->ambientTrack);
     }
     _currentEntry = &_dialog->getEntry(index);
+    _currentEntryIndex = index;
     // An entry keeps the camera angle it is given while the conversation lasts.
     const int drawnAngle = drawCameraAngle();
     // Each entry shown draws a sound variation number; only TSL marks a sound

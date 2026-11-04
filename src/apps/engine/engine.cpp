@@ -349,6 +349,15 @@ void Engine::initAutomationCommands() {
         _scriptWaitScreenName = std::string(*name);
         _scriptWaitFrames = frames;
     });
+    _console->registerCommand("waitentry", "pause command-file execution until the conversation's entry n has finished and lists its replies", [this](const auto &args) {
+        auto entry = args.template get<int>(1);
+        auto frames = args.template get<int>(2).value_or(kDefaultScriptWaitFrames);
+        if (!entry || *entry < 0 || frames < 1) {
+            throw std::invalid_argument("usage: waitentry <entry index> [max frames]");
+        }
+        _scriptWaitEntry = *entry;
+        _scriptWaitFrames = frames;
+    });
     _console->registerCommand("walkto", "walk the party leader to a point with the movement keys; the script waits", [this](const auto &args) {
         auto x = args.template get<float>(1);
         auto y = args.template get<float>(2);
@@ -413,6 +422,15 @@ void Engine::processScriptedCommands(bool &quit) {
     if (_game->isScriptedWalkActive()) {
         return;
     }
+    if (_scriptWaitEntry) {
+        if (_game->finishedConversationEntry() != *_scriptWaitEntry) {
+            if (--_scriptWaitFrames > 0) {
+                return;
+            }
+            error("waitentry " + std::to_string(*_scriptWaitEntry) + " timed out");
+        }
+        _scriptWaitEntry.reset();
+    }
     if (_scriptWaitScreen) {
         if (_game->currentScreen() != *_scriptWaitScreen) {
             if (--_scriptWaitFrames > 0) {
@@ -437,7 +455,7 @@ void Engine::processScriptedCommands(bool &quit) {
         if (_captureRequest) {
             return;
         }
-        if (_scriptPauseFrames > 0 || _scriptWaitScreen || _game->isScriptedWalkActive()) {
+        if (_scriptPauseFrames > 0 || _scriptWaitScreen || _scriptWaitEntry || _game->isScriptedWalkActive()) {
             return;
         }
     }

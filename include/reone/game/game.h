@@ -720,6 +720,17 @@ public:
     void startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly = false);
     bool isScriptedWalkActive() const { return _scriptedWalk.has_value(); }
 
+    /**
+     * The entry the conversation on show is at, once that entry has finished
+     * and its replies are listed; none otherwise.
+     */
+    std::optional<int> finishedConversationEntry() const {
+        if (_screen != Screen::Conversation || !_conversation || !_conversation->isEntryEnded()) {
+            return std::nullopt;
+        }
+        return _conversation->currentEntryIndex();
+    }
+
     Screen currentScreen() const {
         return _screen;
     }
