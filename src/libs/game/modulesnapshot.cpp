@@ -9,6 +9,7 @@
 
 #include "reone/game/modulesnapshot.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -54,6 +55,16 @@ namespace reone {
 namespace game {
 
 namespace {
+
+// A current hit point or Force value is a Short in the save, but damage can
+// take it far below what a Short holds: the console's kill deals 100000.
+// Saved as it is, -99975 would come back as 31097 and the dead would rise.
+// Clamping keeps the sign, and with it whether the object is dead.
+int32_t currentPointsField(int value) {
+    return std::clamp(value,
+                      static_cast<int>(std::numeric_limits<int16_t>::min()),
+                      static_cast<int>(std::numeric_limits<int16_t>::max()));
+}
 
 using resource::Gff;
 using resource::ResType;
@@ -1155,10 +1166,10 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newShort("HitPoints", creature._hitPoints));
     put(record, Gff::Field::newShort("MaxHitPoints", creature.maxHitPoints()));
     put(record, Gff::Field::newShort(
-                    "CurrentHitPoints", creature.serializedCurrentHitPoints()));
+                    "CurrentHitPoints", currentPointsField(creature.serializedCurrentHitPoints())));
     put(record, Gff::Field::newByte("Dead", creature._dead));
     put(record, Gff::Field::newShort("ForcePoints", creature._forcePoints));
-    put(record, Gff::Field::newShort("CurrentForce", creature.serializedCurrentForce()));
+    put(record, Gff::Field::newShort("CurrentForce", currentPointsField(creature.serializedCurrentForce())));
     put(record, Gff::Field::newShort("MaxForcePoints", creature.maxForcePoints()));
     if (_game.isTSL()) {
         put(record, Gff::Field::newChar("FuryDamageBonus", creature._furyDamageBonus));
@@ -1416,7 +1427,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     put(*result, Gff::Field::newByte("Locked", door._locked));
     put(*result, Gff::Field::newByte("Lockable", door._lockable));
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
-    put(*result, Gff::Field::newShort("CurrentHP", door._currentHitPoints));
+    put(*result, Gff::Field::newShort("CurrentHP", currentPointsField(door._currentHitPoints)));
     put(*result, Gff::Field::newByte("Dead", door.isDead()));
     put(*result, Gff::Field::newByte("TrapFlag", door.isTrapped()));
     put(*result, Gff::Field::newByte("TrapType", door.trapBaseType()));
@@ -1452,7 +1463,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("Locked", placeable._locked));
     put(*result, Gff::Field::newByte("Lockable", placeable._lockable));
     put(*result, Gff::Field::newShort("HP", placeable._hitPoints));
-    put(*result, Gff::Field::newShort("CurrentHP", placeable._currentHitPoints));
+    put(*result, Gff::Field::newShort("CurrentHP", currentPointsField(placeable._currentHitPoints)));
     put(*result, Gff::Field::newByte("Dead", placeable.isDead()));
     put(*result, Gff::Field::newByte("Useable", placeable._usable));
     put(*result, Gff::Field::newByte("HasInventory", placeable._hasInventory));
