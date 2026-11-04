@@ -43,16 +43,16 @@ public:
 
     template <std::size_t N>
     ArrayRef(const std::array<T, N> &array) :
-        _begin(&array[0]), _size(N) {}
+        _begin(array.data()), _size(N) {}
 
     ArrayRef(const std::vector<T> &vec) :
-        _begin(&vec[0]), _size(vec.size()) {}
+        _begin(vec.data()), _size(vec.size()) {}
 
     ArrayRef(const ISmallVector<T> &vec) :
-        _begin(&vec[0]), _size(vec.size()) {}
+        _begin(vec.begin()), _size(vec.size()) {}
 
     ArrayRef(const ISmallSet<T> &set) :
-        _begin(&set[0]), _size(set.size()) {}
+        _begin(set.begin()), _size(set.size()) {}
 
     ArrayRef(const T *begin, size_t size) :
         _begin(begin), _size(size) {}

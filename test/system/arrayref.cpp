@@ -46,7 +46,14 @@ TEST(ArrayRef, std_array) {
 
 TEST(ArrayRef, std_vector) {
     std::vector<int> vec {1, 2};
-    check(vec, &vec[0], &vec[vec.size()]);
+    check(vec, vec.data(), vec.data() + vec.size());
+}
+
+TEST(ArrayRef, empty) {
+    EXPECT_TRUE(ArrayRef<int>(std::vector<int>()).empty());
+    EXPECT_TRUE(ArrayRef<int>(std::array<int, 0>()).empty());
+    EXPECT_TRUE(ArrayRef<int>(SmallVector<int, 2>()).empty());
+    EXPECT_TRUE(ArrayRef<int>(SmallSet<int, 2>()).empty());
 }
 
 TEST(ArrayRef, smallvector) {
