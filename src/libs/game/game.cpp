@@ -9704,20 +9704,42 @@ void Game::consoleClickObject(const ConsoleArgs &args) {
     if (!graphicsCamera) {
         throw std::runtime_error("clickobject: no active camera");
     }
-    auto at = worldToWindowPoint(
-        object->sceneNode()->getWorldCenterOfAABB(),
+    // The centre of its bounds first, then points over the rest of it, as a
+    // player clicks around someone standing in front of a door.
+    std::vector<glm::ivec2> candidates;
+    if (auto center = worldToWindowPoint(
+            object->sceneNode()->getWorldCenterOfAABB(),
+            graphicsCamera->view(),
+            graphicsCamera->projection(),
+            _options.graphics.width,
+            _options.graphics.height)) {
+        candidates.push_back(*center);
+    }
+    const auto &bounds = object->sceneNode()->aabb();
+    auto spread = boxWindowPoints(
+        bounds.min(),
+        bounds.max(),
+        object->sceneNode()->absoluteTransform(),
         graphicsCamera->view(),
         graphicsCamera->projection(),
         _options.graphics.width,
         _options.graphics.height);
-    if (!at) {
+    candidates.insert(candidates.end(), spread.begin(), spread.end());
+    if (candidates.empty()) {
         throw std::runtime_error("clickobject: " + tag + " is not on screen");
     }
     // The click goes to whatever the game picks under the pointer; it has to
     // be this object, not something in front of it.
-    auto picked = area->getObjectAt(at->x, at->y);
-    if (!picked || &picked->get() != object.get()) {
-        throw std::runtime_error(str(boost::format("clickobject: something else is under the pointer at %d,%d") % at->x % at->y));
+    std::optional<glm::ivec2> at;
+    for (const auto &point : candidates) {
+        auto picked = area->getObjectAt(point.x, point.y);
+        if (picked && &picked->get() == object.get()) {
+            at = point;
+            break;
+        }
+    }
+    if (!at) {
+        throw std::runtime_error("clickobject: no point of " + tag + " on screen has it under the pointer; something covers it");
     }
     handle(input::Event::newMouseMotion({at->x, at->y, 0.0f, 0.0f}));
     handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at->x, at->y}));

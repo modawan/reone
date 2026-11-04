@@ -29,9 +29,12 @@ Two commands send real input, through the same path as the mouse and keyboard:
   and `keyup <name>` hold a key across frames, for one such as `a` or `d`
   that turns the camera while held: `keydown a`, `pause 40`, `keyup a`.
 - `clickobject <tag> [nth]` clicks an object in the world: the centre of
-  its model's bounds, projected through the active camera. It fails when the
-  object is not on screen, or when the game's own picking finds something
-  else under the pointer there, so turn the camera or move first.
+  its model's bounds, projected through the active camera, or else the
+  nearest point over the rest of its bounds where the game's own picking
+  finds it, as a player clicks round someone standing in front of a door.
+  It fails when the object is not on screen or something covers all of
+  it, so turn the camera or move first. As in the game, the first click on
+  an object selects it and the second uses it.
 
 Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 ...) is also available. A command that fails is logged as

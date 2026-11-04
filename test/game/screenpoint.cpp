@@ -60,6 +60,37 @@ TEST(WorldToWindowPoint, a_point_beyond_the_far_plane_has_none) {
     EXPECT_FALSE(worldToWindowPoint({0.0f, -200.0f, 0.0f}, camera.view, camera.projection, 800, 600).has_value());
 }
 
+TEST(BoxWindowPoints, should_spread_over_the_box_nearest_the_centre_first) {
+    Camera camera;
+    // A 2x2x2 box ten metres ahead.
+    auto points = boxWindowPoints(glm::vec3(-1.0f), glm::vec3(1.0f),
+                                  glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -10.0f, 0.0f)),
+                                  camera.view, camera.projection, 800, 600);
+    ASSERT_EQ(points.size(), 25u);
+    // The middle of the grid is the window centre.
+    EXPECT_NEAR(points.front().x, 400, 1);
+    EXPECT_NEAR(points.front().y, 300, 1);
+    for (size_t i = 1; i < points.size(); ++i) {
+        auto previous = glm::length(glm::vec2(points[i - 1]) - glm::vec2(400, 300));
+        auto current = glm::length(glm::vec2(points[i]) - glm::vec2(400, 300));
+        EXPECT_LE(previous, current + 1.0f) << i;
+    }
+    // Every point lies within the box's projection, here within 100 pixels
+    // of the centre for a box this size and distance.
+    for (const auto &point : points) {
+        EXPECT_LT(std::abs(point.x - 400), 100);
+        EXPECT_LT(std::abs(point.y - 300), 100);
+    }
+}
+
+TEST(BoxWindowPoints, a_box_behind_the_camera_has_none) {
+    Camera camera;
+    auto points = boxWindowPoints(glm::vec3(-1.0f), glm::vec3(1.0f),
+                                  glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 10.0f, 0.0f)),
+                                  camera.view, camera.projection, 800, 600);
+    EXPECT_TRUE(points.empty());
+}
+
 TEST(WorldToWindowPoint, a_point_outside_the_view_has_none) {
     Camera camera;
     EXPECT_FALSE(worldToWindowPoint({50.0f, -10.0f, 0.0f}, camera.view, camera.projection, 800, 600).has_value());
