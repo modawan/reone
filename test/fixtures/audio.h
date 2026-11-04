@@ -30,21 +30,33 @@ namespace audio {
 
 class MockMp3Reader : public Mp3Reader {
 public:
+    MockMp3Reader();
+    ~MockMp3Reader();
+
     MOCK_METHOD(void, load, (IInputStream & stream), (override));
 };
 
 class MockMp3ReaderFactory : public IMp3ReaderFactory, boost::noncopyable {
 public:
+    MockMp3ReaderFactory();
+    ~MockMp3ReaderFactory();
+
     MOCK_METHOD(std::shared_ptr<Mp3Reader>, create, (), (override));
 };
 
 class MockContext : public IContext, boost::noncopyable {
 public:
+    MockContext();
+    ~MockContext() override;
+
     MOCK_METHOD(void, setListenerPosition, (glm::vec3), (override));
 };
 
 class MockAudioMixer : public IAudioMixer, boost::noncopyable {
 public:
+    MockAudioMixer();
+    ~MockAudioMixer() override;
+
     MOCK_METHOD(void, render, (), (override));
     MOCK_METHOD(void, stop, (AudioType), (override));
     MOCK_METHOD(void, stopAll, (), (override));

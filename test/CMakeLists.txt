@@ -46,7 +46,15 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/extract/finder.cpp
     ${TESTS_SOURCE_DIR}/extract/installation.cpp
     ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/audio.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/game.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/graphics.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/gui.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/movie.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/resource.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/scene.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/script.cpp
     ${TESTS_SOURCE_DIR}/game/action.cpp
     ${TESTS_SOURCE_DIR}/game/actionactor.cpp
     ${TESTS_SOURCE_DIR}/game/area.cpp

@@ -30,6 +30,9 @@ namespace scene {
 
 class MockSceneGraph : public ISceneGraph, boost::noncopyable {
 public:
+    MockSceneGraph();
+    ~MockSceneGraph() override;
+
     MOCK_METHOD(void, update, (float dt), (override));
     MOCK_METHOD(graphics::Texture &, render, (const glm::ivec2 &dim), (override));
 
@@ -114,6 +117,9 @@ public:
 
 class MockSceneGraphs : public ISceneGraphs, boost::noncopyable {
 public:
+    MockSceneGraphs();
+    ~MockSceneGraphs() override;
+
     MOCK_METHOD(void, reserve, (std::string name), (override));
     MOCK_METHOD(void, reset, (std::string name), (override));
     MOCK_METHOD(ISceneGraph &, get, (const std::string &name), (override));
@@ -122,6 +128,9 @@ public:
 
 class MockRenderPipeline : public IRenderPipeline, boost::noncopyable {
 public:
+    MockRenderPipeline();
+    ~MockRenderPipeline() override;
+
     MOCK_METHOD(void, init, (), (override));
 
     MOCK_METHOD(void, reset, (), (override));
@@ -132,6 +141,9 @@ public:
 
 class MockRenderPipelineFactory : public IRenderPipelineFactory, boost::noncopyable {
 public:
+    MockRenderPipelineFactory();
+    ~MockRenderPipelineFactory() override;
+
     MOCK_METHOD(std::unique_ptr<IRenderPipeline>, create, (RendererType, glm::ivec2), (override));
 };
 
