@@ -1218,6 +1218,15 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
         return true;
     }
 
+    // A page key opens its page of the in-game menu, as the top bar's
+    // buttons do; the other menu keys act only inside the menu.
+    if (_screen == Screen::InGame && !_playerInputBlocked && !_gameOver && _inGame) {
+        if (auto key = menuKeyFor(event.code); key && key->command == MenuKeyCommand::Open) {
+            openInGameMenu(key->tab);
+            return true;
+        }
+    }
+
     switch (event.code) {
     case input::KeyCode::F4:
         if (_screen == Screen::InGame) {
@@ -5362,6 +5371,35 @@ void Game::initInputEvents() {
     for (int row = 0; row < keys->getRowCount(); ++row) {
         _keyNameStrRefs.push_back(keys->getInt(row, "keynamestrref", -1));
     }
+
+    // The in-game menu's keys, by the keyboard key each event takes and, for
+    // a two-key event, its alternate. A key names its bindablekeys.2da row.
+    _menuKeyEvents.clear();
+    for (int event : kMenuInputEvents) {
+        const auto found = _inputEvents.find(event);
+        if (found == _inputEvents.end()) {
+            continue;
+        }
+        for (const std::optional<int> key : {std::optional<int>(found->second.key), found->second.alternateKey}) {
+            if (!key || *key < kFirstKeyboardKey || *key - kFirstKeyboardKey >= keys->getRowCount()) {
+                continue;
+            }
+            if (auto code = keyCodeFromBindableKeyName(keys->getString(*key - kFirstKeyboardKey, "keyname"))) {
+                _menuKeyEvents.emplace(static_cast<int>(*code), event);
+            }
+        }
+    }
+}
+
+std::optional<MenuKey> Game::menuKeyFor(input::KeyCode code) const {
+    if (isTSL()) {
+        return std::nullopt;
+    }
+    const auto found = _menuKeyEvents.find(static_cast<int>(code));
+    if (found == _menuKeyEvents.end()) {
+        return std::nullopt;
+    }
+    return menuKeyForInputEvent(found->second);
 }
 
 // Text between "<" and ">" names a token; "<<" and "{{" stand for "<" and

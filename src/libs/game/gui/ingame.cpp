@@ -222,7 +222,41 @@ void InGameMenu::openOptions() {
 
 void InGameMenu::clearSelection() { if (_host) _host->clearSelection(); }
 
-bool InGameMenu::handle(const input::Event &event) { return _host->handle(event); }
+// The page on show takes a key first, so that Escape closes its own lists and
+// panels; only then do the menu's keys act: a page key switches to its page,
+// previous and next page walk the top bar, and Escape leaves the menu.
+bool InGameMenu::handle(const input::Event &event) {
+    if (_host->handle(event)) {
+        return true;
+    }
+    if (event.type != input::EventType::KeyDown || event.key.repeat) {
+        return false;
+    }
+    auto key = _game.menuKeyFor(event.key.code);
+    if (!key) {
+        return false;
+    }
+    switch (key->command) {
+    case MenuKeyCommand::Open:
+        navigate(key->tab);
+        return true;
+    case MenuKeyCommand::Close:
+        _game.openInGame();
+        return true;
+    case MenuKeyCommand::Previous:
+    case MenuKeyCommand::Next: {
+        const int step = key->command == MenuKeyCommand::Next ? 1 : -1;
+        const InGameMenuTab page = adjacentMenuPage(_host->activeTab(), step, [this](InGameMenuTab tab) {
+            return _host->available(tab);
+        });
+        if (page != _host->activeTab()) {
+            navigate(page);
+        }
+        return true;
+    }
+    }
+    return false;
+}
 void InGameMenu::update(float dt) { _host->update(dt); }
 void InGameMenu::render() { _host->render(); }
 std::shared_ptr<Button> InGameMenu::getBtnChange2() { return _host->getBtnChange2(); }
