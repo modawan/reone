@@ -33,11 +33,13 @@ namespace game {
 
 // The original's exact rounding cannot be observed from the game data, so the
 // price truncates, and anything with a cost asks at least one credit.
-int storeTradePrice(int itemCost, int percent) {
+int storeTradePrice(int itemCost, int64_t percent) {
     if (itemCost <= 0) {
         return 0;
     }
-    const int64_t scaled = static_cast<int64_t>(itemCost) * std::max(percent, 0) / 100;
+    // Held to an int's range, a percentage times any int cost fits in 64 bits.
+    const int64_t clampedPercent = std::clamp<int64_t>(percent, 0, std::numeric_limits<int>::max());
+    const int64_t scaled = static_cast<int64_t>(itemCost) * clampedPercent / 100;
     return static_cast<int>(std::clamp<int64_t>(scaled, 1, std::numeric_limits<int>::max()));
 }
 
@@ -46,11 +48,11 @@ static int itemCost(const Game &game, const Item &item) {
 }
 
 int storeBuyPrice(const Game &game, const Store &store, const Item &item, int bonusMarkUp) {
-    return storeTradePrice(itemCost(game, item), store.markUp() + bonusMarkUp);
+    return storeTradePrice(itemCost(game, item), static_cast<int64_t>(store.markUp()) + bonusMarkUp);
 }
 
 int storeSellPrice(const Game &game, const Store &store, const Item &item, int bonusMarkDown) {
-    return storeTradePrice(itemCost(game, item), store.markDown() + bonusMarkDown);
+    return storeTradePrice(itemCost(game, item), static_cast<int64_t>(store.markDown()) + bonusMarkDown);
 }
 
 bool isSellableToStore(const Item &item) {
@@ -68,19 +70,27 @@ static bool holds(const Object &owner, const std::shared_ptr<Item> &item) {
 }
 
 // One unit of item leaves its holder for receiver: a unit split off the
-// stack, or the stack itself when it is the last unit. An infinite stack only
-// ever gives up a copy.
-static bool moveOneUnit(Game &game, const std::shared_ptr<Item> &item, Object &receiver) {
-    if (item->isInfinite() || item->stackSize() > 1) {
+// stack, or the stack itself when it is the last unit. A store's infinite
+// stack only ever gives up a copy.
+static bool moveOneUnit(Game &game, const std::shared_ptr<Item> &item, Object &receiver, bool fromInfiniteStock) {
+    if (fromInfiniteStock || item->stackSize() > 1) {
         auto unit = game.newItemClone(*item);
         unit->setStackSize(1);
-        if (!item->isInfinite()) {
+        if (!fromInfiniteStock) {
             item->setStackSize(item->stackSize() - 1);
         }
         receiver.addItem(unit);
         return true;
     }
     return static_cast<bool>(transferItemTo(game, item, receiver));
+}
+
+int storeRowAfterRelist(const std::vector<std::string> &rowTags, const std::string &selectedTag) {
+    if (selectedTag.empty()) {
+        return -1;
+    }
+    auto row = std::find(rowTags.begin(), rowTags.end(), selectedTag);
+    return row == rowTags.end() ? -1 : static_cast<int>(row - rowTags.begin());
 }
 
 bool buyFromStore(Game &game, Store &store, const std::shared_ptr<Item> &item, int bonusMarkUp) {
@@ -95,7 +105,7 @@ bool buyFromStore(Game &game, Store &store, const std::shared_ptr<Item> &item, i
     if (game.party().gold() < price) {
         return false;
     }
-    if (!moveOneUnit(game, item, *customer)) {
+    if (!moveOneUnit(game, item, *customer, item->isInfinite())) {
         return false;
     }
     game.party().takeGold(price);
@@ -111,7 +121,9 @@ bool sellToStore(Game &game, Store &store, const std::shared_ptr<Item> &item, in
         return false;
     }
     const int price = storeSellPrice(game, store, *item, bonusMarkDown);
-    if (!moveOneUnit(game, item, store)) {
+    // Only a store's stock is unlimited, whatever flag the party's item carries.
+    item->setInfinite(false);
+    if (!moveOneUnit(game, item, store, false)) {
         return false;
     }
     game.party().giveGold(price);

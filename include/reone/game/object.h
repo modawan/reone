@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -843,12 +844,17 @@ protected:
      */
     virtual bool takesUpActions() const { return canExecuteActions(); }
 
+    /**
+     * \p onSavedItem sees each item made from a saved record, with that
+     * record, before the item joins the others.
+     */
     void deserializeOwnedItems(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         SaveRecordOriginKind originKind,
         bool forceDropable = false,
-        std::string originOwner = {});
+        std::string originOwner = {},
+        const std::function<void(Item &, const resource::Gff &)> &onSavedItem = {});
 
     // Actions
 

@@ -998,6 +998,119 @@ TEST_F(SnapshotFixture, store_item_records_keep_infinite_stock) {
 
 namespace {
 
+// Loading an item record reads its base item.
+void expectBaseItems(TestEngine &engine) {
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                    .columns({"itemclass", "itemtype"})
+                                                                    .row({"I_Medpac", ""})
+                                                                    .row({"I_Medpac", ""})
+                                                                    .build())));
+}
+
+std::shared_ptr<Item> heldByTag(const Object &owner, const std::string &tag) {
+    for (const auto &item : owner.items()) {
+        if (item->tag() == tag) return item;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST_F(SnapshotFixture, store_infinite_stock_survives_a_save_and_load) {
+    expectBaseItems(engine);
+    auto store = game.newStore();
+    auto infinite = game.newOwnedItem();
+    infinite->setTag("infinite");
+    infinite->setInfinite(true);
+    auto finite = game.newOwnedItem();
+    finite->setTag("finite");
+    store->addItem(infinite);
+    store->addItem(finite);
+    TestGameModule::addSnapshotObject(*area, store);
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+    ASSERT_TRUE(saved) << saved.message;
+    auto git = readGff(saved.snapshot->gitBytes);
+    auto record = recordById(*git, "StoreList", store->id());
+    ASSERT_TRUE(record);
+
+    StubConsole restoredConsole;
+    Game restored(
+        GameID::KotOR, "", engine.options(), engine.services(), restoredConsole);
+    auto restoredStore = restored.newStore();
+    restoredStore->deserialize(
+        *record, SerializedIdentityContext::moduleGraph("module005"));
+
+    ASSERT_EQ(restoredStore->items().size(), 2u);
+    auto restoredInfinite = heldByTag(*restoredStore, "infinite");
+    auto restoredFinite = heldByTag(*restoredStore, "finite");
+    ASSERT_TRUE(restoredInfinite);
+    ASSERT_TRUE(restoredFinite);
+    EXPECT_TRUE(restoredInfinite->isInfinite());
+    EXPECT_FALSE(restoredFinite->isInfinite());
+}
+
+TEST_F(SnapshotFixture, store_saved_without_infinite_takes_it_from_the_store_blueprint) {
+    expectBaseItems(engine);
+    auto store = game.newStore();
+    auto infinite = game.newOwnedItem();
+    infinite->setTag("infinite");
+    infinite->setInfinite(true);
+    auto finite = game.newOwnedItem();
+    finite->setTag("finite");
+    store->addItem(infinite);
+    store->addItem(finite);
+    TestGameModule::addSnapshotObject(*area, store);
+    auto utm = Gff::Builder()
+                   .field(Gff::Field::newResRef("ResRef", "m_store"))
+                   .field(Gff::Field::newList(
+                       "ItemList",
+                       {Gff::Builder()
+                            .field(Gff::Field::newResRef("InventoryRes", "g_i_infinite"))
+                            .field(Gff::Field::newByte("Infinite", 1))
+                            .build(),
+                        Gff::Builder()
+                            .field(Gff::Field::newResRef("InventoryRes", "g_i_finite"))
+                            .build()}))
+                   .build();
+    EXPECT_CALL(engine.resourceModule().gffs(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().gffs(), get("m_store", ResType::Utm))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(utm));
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+    ASSERT_TRUE(saved) << saved.message;
+    auto git = readGff(saved.snapshot->gitBytes);
+    auto record = recordById(*git, "StoreList", store->id());
+    ASSERT_TRUE(record);
+    // As a save made before store item records carried Infinite: a store from
+    // a module names its blueprint, and its items name theirs.
+    replaceSaveField(*record, Gff::Field::newResRef("ResRef", "m_store"));
+    for (const auto &item : record->getList("ItemList")) {
+        removeSaveField(*item, "Infinite");
+        replaceSaveField(*item, Gff::Field::newResRef(
+            "TemplateResRef", "g_i_" + item->getString("Tag")));
+    }
+
+    StubConsole restoredConsole;
+    Game restored(
+        GameID::KotOR, "", engine.options(), engine.services(), restoredConsole);
+    auto restoredStore = restored.newStore();
+    restoredStore->deserialize(
+        *record, SerializedIdentityContext::moduleGraph("module005"));
+
+    auto restoredInfinite = heldByTag(*restoredStore, "infinite");
+    auto restoredFinite = heldByTag(*restoredStore, "finite");
+    ASSERT_TRUE(restoredInfinite);
+    ASSERT_TRUE(restoredFinite);
+    EXPECT_TRUE(restoredInfinite->isInfinite());
+    EXPECT_FALSE(restoredFinite->isInfinite());
+}
+
+namespace {
+
 // A party member carries items whose saved IDs came from whatever module they
 // were last serialized in. Those IDs are meaningless in the module being
 // snapshotted, so they must be allocated fresh rather than retained.

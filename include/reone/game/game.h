@@ -521,12 +521,15 @@ public:
     void openContainer(const std::shared_ptr<Object> &container);
     void closeContainer(const Object &container);
     /**
-     * Opens the merchant screen for \p store, in buy mode. The bonuses are
+     * Opens the merchant screen for \p store, in buy mode, over the game or a
+     * conversation; from any other screen it does nothing. The bonuses are
      * added to the store's mark-up and mark-down percentages.
      *
      * @return whether the screen opened
      */
     bool openStore(const std::shared_ptr<Store> &store, int bonusMarkUp, int bonusMarkDown);
+    /** Leaves the merchant screen for the conversation still running, or else the game. */
+    void closeStore();
     void openPartySelection(const PartySelectionContext &ctx);
 
     /**
@@ -1933,6 +1936,8 @@ private:
     bool _pazaakPaceAutomaticDraws {true};
     std::function<bool()> _pazaakGuiLoadOverride;
     std::function<void(const std::string &, uint32_t)> _pazaakContinuationOverride;
+    /** Stands in for the store GUI, which tests cannot load. */
+    std::function<void(const std::shared_ptr<Store> &, int, int)> _storeOpenOverride;
     RuntimeObjectRef<Object> _pazaakDevelopmentSelectedObjectOverride;
     std::optional<pazaak::SideDeck> _pazaakOpponentDeckOverride;
 

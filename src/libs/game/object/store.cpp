@@ -17,8 +17,13 @@
 
 #include "reone/game/object/store.h"
 
+#include <optional>
+#include <set>
+#include <string>
+
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/item.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/strings.h"
@@ -90,8 +95,43 @@ void Store::deserializeAll(
 void Store::deserializeItems(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    if (!identityContext.isSerializedState()) {
+        deserializeOwnedItems(
+            gff, identityContext, SaveRecordOriginKind::StoreItem);
+        return;
+    }
+    // Saves made before store item records carried Infinite leave it out: such
+    // a record takes the flag from the store blueprint's entry for its template.
+    std::optional<std::set<std::string>> infiniteTemplates;
+    const auto blueprintInfinite = [&](const std::string &itemTemplate) {
+        if (!infiniteTemplates) {
+            infiniteTemplates.emplace();
+            std::string storeTemplate;
+            if (gff.readResRef(storeTemplate, "ResRef") ||
+                gff.readResRef(storeTemplate, "TemplateResRef")) {
+                if (auto utm = _services.resource.gffs.get(storeTemplate, ResType::Utm)) {
+                    for (const auto &entry : utm->getList("ItemList")) {
+                        std::string inventoryRes;
+                        if (entry->getBool("Infinite") &&
+                            entry->readResRef(inventoryRes, "InventoryRes")) {
+                            infiniteTemplates->insert(std::move(inventoryRes));
+                        }
+                    }
+                }
+            }
+        }
+        return infiniteTemplates->count(itemTemplate) != 0;
+    };
     deserializeOwnedItems(
-        gff, identityContext, SaveRecordOriginKind::StoreItem);
+        gff, identityContext, SaveRecordOriginKind::StoreItem, false, {},
+        [&](Item &item, const resource::Gff &record) {
+            std::string itemTemplate;
+            if (!record.has("Infinite") &&
+                record.readResRef(itemTemplate, "TemplateResRef") &&
+                blueprintInfinite(itemTemplate)) {
+                item.setInfinite(true);
+            }
+        });
 }
 
 } // namespace game

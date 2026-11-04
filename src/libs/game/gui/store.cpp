@@ -18,6 +18,8 @@
 #include "reone/game/gui/store.h"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 #include "reone/resource/strings.h"
 
@@ -150,9 +152,18 @@ void StoreGUI::refresh() {
         }
         const int offset = list->getItemOffset();
         const int selected = list->selectedItemIndex();
+        std::string selectedTag;
+        if (selected >= 0 && selected < list->getItemCount()) {
+            selectedTag = list->getItemAt(selected).tag;
+        }
         fill(*list);
         list->setItemOffset(offset);
-        list->setSelectedItemIndex(std::min(selected, list->getItemCount() - 1));
+        std::vector<std::string> rowTags;
+        rowTags.reserve(list->getItemCount());
+        for (int row = 0; row < list->getItemCount(); ++row) {
+            rowTags.push_back(list->getItemAt(row).tag);
+        }
+        list->setSelectedItemIndex(storeRowAfterRelist(rowTags, selectedTag));
     };
     relist(_controls.LB_SHOPITEMS.get(), [&](ListBox &list) {
         listItems(list, store.get(), false);
@@ -262,7 +273,7 @@ void StoreGUI::accept() {
 
 void StoreGUI::close() {
     _store.reset();
-    _game.openInGame();
+    _game.closeStore();
 }
 
 } // namespace game

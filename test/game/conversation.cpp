@@ -27,6 +27,7 @@
 #include "reone/game/console.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
+#include "reone/game/object/store.h"
 #include "reone/resource/dialog.h"
 
 using namespace reone;
@@ -752,6 +753,34 @@ TEST_F(ConversationTest, bark_consumes_hold_even_when_script_lock_rejects_reveal
     EXPECT_FALSE(fade.heldForDialog());
     EXPECT_TRUE(fade.locked());
     EXPECT_FLOAT_EQ(1, fade.opacity());
+}
+
+TEST_F(ConversationTest, a_store_opened_from_a_running_conversation_closes_back_to_it) {
+    startSilent();
+    attachConversation(Game::Screen::Conversation);
+    _game->setDialogUnderWay(true);
+    TestGameModule::setStoreOpenOverride(*_game, [](const std::shared_ptr<Store> &, int, int) {});
+    ASSERT_TRUE(_conversation->isRunning());
+
+    ASSERT_TRUE(_game->openStore(_game->newStore(), 0, 0));
+    ASSERT_EQ(_game->currentScreen(), Game::Screen::Store);
+    _game->closeStore();
+
+    EXPECT_EQ(_game->currentScreen(), Game::Screen::Conversation);
+}
+
+TEST_F(ConversationTest, a_store_outliving_its_conversation_closes_back_to_the_game) {
+    startSilent();
+    attachConversation(Game::Screen::Conversation);
+    _game->setDialogUnderWay(true);
+    TestGameModule::setStoreOpenOverride(*_game, [](const std::shared_ptr<Store> &, int, int) {});
+    ASSERT_TRUE(_game->openStore(_game->newStore(), 0, 0));
+    // The reply that opened the store ended the conversation.
+    _game->setDialogUnderWay(false);
+
+    _game->closeStore();
+
+    EXPECT_EQ(_game->currentScreen(), Game::Screen::InGame);
 }
 
 } // namespace

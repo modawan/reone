@@ -19,8 +19,11 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <optional>
+#include <vector>
 
 #include "../fixtures/engine.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -130,7 +133,30 @@ struct StoreFixture {
     }
 };
 
+// Stands in for the store GUI and records each screen Game::openStore opens.
+struct StoreOpenRecorder {
+    struct Opened {
+        std::shared_ptr<Store> store;
+        int bonusMarkUp {0};
+        int bonusMarkDown {0};
+    };
+
+    std::vector<Opened> opened;
+
+    explicit StoreOpenRecorder(Game &game) {
+        TestGameModule::setStoreOpenOverride(game, [this](const std::shared_ptr<Store> &store, int up, int down) {
+            opened.push_back({store, up, down});
+        });
+    }
+};
+
 } // namespace
+
+void reone::game::TestGameModule::setStoreOpenOverride(
+    Game &game,
+    std::function<void(const std::shared_ptr<Store> &, int, int)> override) {
+    game._storeOpenOverride = std::move(override);
+}
 
 // Pricing
 
@@ -163,6 +189,19 @@ TEST(StorePrice, an_item_without_a_cost_is_free) {
 TEST(StorePrice, large_costs_do_not_overflow) {
     EXPECT_EQ(storeTradePrice(100000000, 200), 200000000);
     EXPECT_EQ(storeTradePrice(std::numeric_limits<int>::max(), 1000), std::numeric_limits<int>::max());
+}
+
+TEST(StorePrice, a_bonus_at_the_ends_of_an_int_does_not_overflow) {
+    StoreFixture fixture;
+    auto store = fixture.makeStore(110, 40);
+    auto item = fixture.makeItem("blaster", 200);
+
+    EXPECT_EQ(storeBuyPrice(fixture.game, *store, *item, std::numeric_limits<int>::max()),
+              std::numeric_limits<int>::max());
+    EXPECT_EQ(storeSellPrice(fixture.game, *store, *item, std::numeric_limits<int>::max()),
+              std::numeric_limits<int>::max());
+    EXPECT_EQ(storeBuyPrice(fixture.game, *store, *item, std::numeric_limits<int>::min()), 1);
+    EXPECT_EQ(storeSellPrice(fixture.game, *store, *item, std::numeric_limits<int>::min()), 1);
 }
 
 TEST(StorePrice, buy_price_adds_the_bonus_mark_up) {
@@ -242,6 +281,22 @@ TEST(StoreBuy, buys_one_unit_of_a_stack) {
     ASSERT_TRUE(bought);
     EXPECT_EQ(bought->stackSize(), 1);
     EXPECT_NE(bought, stack);
+}
+
+TEST(StoreBuy, a_unit_split_off_a_stack_joins_the_partys_stack) {
+    StoreFixture fixture;
+    auto store = fixture.makeStore(110, 40, Store::kSellsToPlayer);
+    auto stack = fixture.stock(*store, "medpac", 100, 3);
+    auto carried = fixture.carry("medpac", 100, 2);
+    fixture.game.party().giveGold(500);
+
+    ASSERT_TRUE(buyFromStore(fixture.game, *store, stack, 0));
+
+    EXPECT_EQ(stack->stackSize(), 2);
+    ASSERT_EQ(fixture.player->items().size(), 1u);
+    EXPECT_EQ(fixture.player->items().front(), carried);
+    EXPECT_EQ(carried->stackSize(), 3);
+    EXPECT_EQ(fixture.game.party().gold(), 390);
 }
 
 TEST(StoreBuy, buying_the_last_unit_moves_the_item) {
@@ -378,6 +433,55 @@ TEST(StoreSell, a_sold_unit_stays_apart_from_infinite_stock) {
     EXPECT_FALSE(carried->isInfinite());
 }
 
+TEST(StoreSell, infinite_stock_given_to_the_party_by_a_script_is_finite) {
+    StoreFixture fixture;
+    auto store = fixture.makeStore(110, 40);
+    auto stocked = fixture.stock(*store, "grenade", 100, 2, true);
+
+    // The path ActionGiveItem, GiveItem and ActionTakeItem take, not a trade.
+    ASSERT_TRUE(transferItemTo(fixture.game, stocked, *fixture.player));
+    ASSERT_EQ(stocked->owner(), fixture.player->id());
+    EXPECT_FALSE(stocked->isInfinite());
+
+    ASSERT_TRUE(sellToStore(fixture.game, *store, stocked, 0));
+    EXPECT_EQ(stocked->stackSize(), 1);
+    EXPECT_EQ(fixture.game.party().gold(), 40);
+    ASSERT_TRUE(sellToStore(fixture.game, *store, stocked, 0));
+    EXPECT_EQ(fixture.game.party().gold(), 80);
+    EXPECT_FALSE(fixture.held(*fixture.player, "grenade"));
+    EXPECT_FALSE(sellToStore(fixture.game, *store, stocked, 0));
+    EXPECT_EQ(fixture.game.party().gold(), 80);
+}
+
+TEST(StoreSell, a_party_item_flagged_infinite_still_leaves_when_sold) {
+    StoreFixture fixture;
+    auto store = fixture.makeStore(110, 40);
+    auto carried = fixture.carry("grenade", 100);
+    // As a hand-made record could leave it.
+    carried->setInfinite(true);
+
+    ASSERT_TRUE(sellToStore(fixture.game, *store, carried, 0));
+
+    EXPECT_EQ(fixture.game.party().gold(), 40);
+    EXPECT_FALSE(fixture.held(*fixture.player, "grenade"));
+    EXPECT_EQ(carried->owner(), store->id());
+    EXPECT_FALSE(carried->isInfinite());
+    EXPECT_FALSE(sellToStore(fixture.game, *store, carried, 0));
+    EXPECT_EQ(fixture.game.party().gold(), 40);
+}
+
+TEST(StoreSell, an_item_moved_between_stores_stays_infinite) {
+    StoreFixture fixture;
+    auto from = fixture.makeStore();
+    auto to = fixture.makeStore();
+    auto stocked = fixture.stock(*from, "grenade", 100, 1, true);
+
+    ASSERT_TRUE(transferItemTo(fixture.game, stocked, *to));
+
+    EXPECT_EQ(stocked->owner(), to->id());
+    EXPECT_TRUE(stocked->isInfinite());
+}
+
 TEST(StoreSell, a_store_that_only_sells_buys_nothing) {
     StoreFixture fixture;
     auto store = fixture.makeStore(110, 40, Store::kSellsToPlayer);
@@ -493,6 +597,114 @@ TEST(StoreLoad, a_saved_item_record_keeps_infinite_stock) {
     EXPECT_TRUE(item->isInfinite());
 }
 
+namespace {
+
+// A store item record as a save writes it.
+std::shared_ptr<Gff> savedItemRecord(uint32_t objectId, const std::string &templateRes, const std::string &tag,
+                                     std::optional<bool> infinite) {
+    Gff::Builder builder;
+    builder.field(Gff::Field::newDword("ObjectId", objectId))
+        .field(Gff::Field::newResRef("TemplateResRef", templateRes))
+        .field(Gff::Field::newCExoString("Tag", tag))
+        .field(Gff::Field::newInt("BaseItem", kPlainBaseItem))
+        .field(Gff::Field::newWord("StackSize", 1))
+        .field(Gff::Field::newDword("AddCost", 100));
+    if (infinite) {
+        builder.field(Gff::Field::newByte("Infinite", *infinite));
+    }
+    return builder.build();
+}
+
+std::shared_ptr<Gff> storeBlueprintEntry(const std::string &inventoryRes, bool infinite) {
+    Gff::Builder builder;
+    builder.field(Gff::Field::newResRef("InventoryRes", inventoryRes));
+    if (infinite) {
+        builder.field(Gff::Field::newByte("Infinite", 1));
+    }
+    return builder.build();
+}
+
+} // namespace
+
+TEST(StoreLoad, a_save_without_infinite_takes_it_from_the_store_blueprint) {
+    StoreFixture fixture;
+    auto utm = Gff::Builder()
+                   .field(Gff::Field::newList("ItemList",
+                                              {storeBlueprintEntry("G_I_MEDEQPMNT01", true),
+                                               storeBlueprintEntry("g_w_blstrpstl001", false),
+                                               storeBlueprintEntry("g_i_frarmbnds01", true)}))
+                   .build();
+    EXPECT_CALL(fixture.engine.resourceModule().gffs(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(fixture.engine.resourceModule().gffs(), get("m_store", ResType::Utm))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(utm));
+    // An old save writes no Infinite; a newer one writes it on every record,
+    // and its value stands whatever the blueprint says.
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newDword("ObjectId", 40))
+                      .field(Gff::Field::newResRef("ResRef", "m_store"))
+                      .field(Gff::Field::newList(
+                          "ItemList",
+                          {savedItemRecord(41, "g_i_medeqpmnt01", "medpac", std::nullopt),
+                           savedItemRecord(42, "g_w_blstrpstl001", "blaster", std::nullopt),
+                           savedItemRecord(43, "g_i_frarmbnds01", "bands", false),
+                           savedItemRecord(44, "g_i_unknown", "unknown", std::nullopt)}))
+                      .build();
+    auto store = fixture.game.newStore();
+
+    store->deserialize(*record, SerializedIdentityContext::moduleGraph("m_test"));
+
+    ASSERT_EQ(store->items().size(), 4u);
+    ASSERT_TRUE(fixture.held(*store, "medpac"));
+    EXPECT_TRUE(fixture.held(*store, "medpac")->isInfinite());
+    ASSERT_TRUE(fixture.held(*store, "blaster"));
+    EXPECT_FALSE(fixture.held(*store, "blaster")->isInfinite());
+    ASSERT_TRUE(fixture.held(*store, "bands"));
+    EXPECT_FALSE(fixture.held(*store, "bands")->isInfinite());
+    ASSERT_TRUE(fixture.held(*store, "unknown"));
+    EXPECT_FALSE(fixture.held(*store, "unknown")->isInfinite());
+}
+
+TEST(StoreLoad, a_saved_infinite_record_needs_no_store_blueprint) {
+    StoreFixture fixture;
+    EXPECT_CALL(fixture.engine.resourceModule().gffs(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(fixture.engine.resourceModule().gffs(), get(_, ResType::Utm)).Times(0);
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newDword("ObjectId", 40))
+                      .field(Gff::Field::newResRef("ResRef", "m_store"))
+                      .field(Gff::Field::newList(
+                          "ItemList",
+                          {savedItemRecord(41, "g_i_medeqpmnt01", "medpac", true),
+                           savedItemRecord(42, "g_w_blstrpstl001", "blaster", false)}))
+                      .build();
+    auto store = fixture.game.newStore();
+
+    store->deserialize(*record, SerializedIdentityContext::moduleGraph("m_test"));
+
+    ASSERT_TRUE(fixture.held(*store, "medpac"));
+    EXPECT_TRUE(fixture.held(*store, "medpac")->isInfinite());
+    ASSERT_TRUE(fixture.held(*store, "blaster"));
+    EXPECT_FALSE(fixture.held(*store, "blaster")->isInfinite());
+}
+
+// The store lists
+
+TEST(StoreSelection, follows_the_selected_item_to_its_new_row) {
+    EXPECT_EQ(storeRowAfterRelist({"7", "9", "12"}, "9"), 1);
+    // The row above ran out, so the item moved up.
+    EXPECT_EQ(storeRowAfterRelist({"9", "12"}, "9"), 0);
+}
+
+TEST(StoreSelection, a_selected_item_that_is_gone_leaves_nothing_selected) {
+    // The last unit of "9" was traded and "12" moved into its row.
+    EXPECT_EQ(storeRowAfterRelist({"7", "12"}, "9"), -1);
+    EXPECT_EQ(storeRowAfterRelist({}, "9"), -1);
+}
+
+TEST(StoreSelection, nothing_selected_stays_unselected) {
+    EXPECT_EQ(storeRowAfterRelist({"7", "9"}, ""), -1);
+}
+
 // The script routine
 
 TEST(StoreRoutine, open_store_on_an_object_that_is_not_a_store_does_nothing) {
@@ -518,12 +730,101 @@ TEST(StoreRoutine, open_store_on_a_store_reaches_the_game) {
     Routine &routine = routines.get(routines.getIndexByName("OpenStore"));
     ExecutionContext execution;
     execution.routines = &routines;
+    StoreOpenRecorder recorder(fixture.game);
+    TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(Game::Screen::InGame));
 
-    // Without a loaded store GUI there is no screen to open; the routine is
-    // implemented and the game declines.
-    EXPECT_NO_THROW(routine.invoke(
+    routine.invoke(
         {Variable::ofObject(store->id()), Variable::ofObject(fixture.player->id()), Variable::ofInt(10), Variable::ofInt(5)},
-        execution));
+        execution);
+
+    ASSERT_EQ(recorder.opened.size(), 1u);
+    EXPECT_EQ(recorder.opened[0].store, store);
+    EXPECT_EQ(recorder.opened[0].bonusMarkUp, 10);
+    EXPECT_EQ(recorder.opened[0].bonusMarkDown, 5);
+    EXPECT_EQ(fixture.game.currentScreen(), Game::Screen::Store);
+}
+
+TEST(StoreRoutine, the_bonuses_default_to_none) {
+    StoreFixture fixture;
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+    auto store = fixture.makeStore();
+    Routine &routine = routines.get(routines.getIndexByName("OpenStore"));
+    ExecutionContext execution;
+    execution.routines = &routines;
+    StoreOpenRecorder recorder(fixture.game);
+    TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(Game::Screen::InGame));
+
+    routine.invoke({Variable::ofObject(store->id()), Variable::ofObject(fixture.player->id())}, execution);
+
+    ASSERT_EQ(recorder.opened.size(), 1u);
+    EXPECT_EQ(recorder.opened[0].bonusMarkUp, 0);
+    EXPECT_EQ(recorder.opened[0].bonusMarkDown, 0);
+}
+
+// The screen
+
+TEST(StoreScreen, opens_over_the_game_and_over_a_conversation) {
+    for (auto screen : {Game::Screen::InGame, Game::Screen::Conversation}) {
+        StoreFixture fixture;
+        auto store = fixture.makeStore();
+        StoreOpenRecorder recorder(fixture.game);
+        TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(screen));
+
+        EXPECT_TRUE(fixture.game.openStore(store, 0, 0)) << static_cast<int>(screen);
+
+        EXPECT_EQ(recorder.opened.size(), 1u);
+        EXPECT_EQ(fixture.game.currentScreen(), Game::Screen::Store);
+    }
+}
+
+TEST(StoreScreen, does_not_open_over_any_other_screen) {
+    for (auto screen : {Game::Screen::None, Game::Screen::MainMenu, Game::Screen::Loading,
+                        Game::Screen::CharacterGeneration, Game::Screen::InGameMenu,
+                        Game::Screen::Container, Game::Screen::Store, Game::Screen::PartySelection,
+                        Game::Screen::SaveLoad, Game::Screen::GalaxyMap, Game::Screen::Death,
+                        Game::Screen::SwoopRace, Game::Screen::PazaakWager, Game::Screen::PazaakSetup,
+                        Game::Screen::PazaakBoard, Game::Screen::Turret}) {
+        StoreFixture fixture;
+        auto store = fixture.makeStore();
+        StoreOpenRecorder recorder(fixture.game);
+        TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(screen));
+
+        EXPECT_FALSE(fixture.game.openStore(store, 0, 0)) << static_cast<int>(screen);
+
+        EXPECT_TRUE(recorder.opened.empty());
+        EXPECT_EQ(fixture.game.currentScreen(), screen);
+    }
+}
+
+TEST(StoreScreen, without_a_store_gui_nothing_opens) {
+    StoreFixture fixture;
+    auto store = fixture.makeStore();
+    TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(Game::Screen::InGame));
+
     EXPECT_FALSE(fixture.game.openStore(store, 0, 0));
-    EXPECT_EQ(fixture.game.currentScreen(), Game::Screen::None);
+    EXPECT_EQ(fixture.game.currentScreen(), Game::Screen::InGame);
+}
+
+TEST(StoreScreen, closes_back_to_the_game_without_a_conversation) {
+    StoreFixture fixture;
+    auto store = fixture.makeStore();
+    StoreOpenRecorder recorder(fixture.game);
+    TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(Game::Screen::Conversation));
+    ASSERT_TRUE(fixture.game.openStore(store, 0, 0));
+    // The conversation was asked for but has no running dialogue to go back to.
+    fixture.game.setDialogUnderWay(true);
+
+    fixture.game.closeStore();
+
+    EXPECT_EQ(fixture.game.currentScreen(), Game::Screen::InGame);
+}
+
+TEST(StoreScreen, closing_from_another_screen_changes_nothing) {
+    StoreFixture fixture;
+    TestGameModule::setCurrentScreen(fixture.game, static_cast<int>(Game::Screen::Death));
+
+    fixture.game.closeStore();
+
+    EXPECT_EQ(fixture.game.currentScreen(), Game::Screen::Death);
 }

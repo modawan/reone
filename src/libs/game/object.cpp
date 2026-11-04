@@ -245,7 +245,8 @@ void Object::deserializeOwnedItems(
     const SerializedIdentityContext &identityContext,
     SaveRecordOriginKind originKind,
     bool forceDropable,
-    std::string originOwner) {
+    std::string originOwner,
+    const std::function<void(Item &, const resource::Gff &)> &onSavedItem) {
     if (!identityContext.isSerializedState()) {
         if (!gff.has("ItemList")) return;
         std::vector<std::shared_ptr<Object>> obsolete(
@@ -299,6 +300,9 @@ void Object::deserializeOwnedItems(
                      originOwner.empty() ? std::to_string(_id) : originOwner});
                 if (forceDropable) {
                     item->setDropable(true);
+                }
+                if (onSavedItem) {
+                    onSavedItem(*item, *itemGff);
                 }
                 item->setOwner(_id);
                 appendOwnedItemCandidate(
@@ -1395,6 +1399,12 @@ std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
             (*alreadyOwned)->setStackSize((*alreadyOwned)->stackSize() + 1);
         }
         return *alreadyOwned;
+    }
+    // Every path that hands an item to a new owner ends here, so this is where
+    // a store's unlimited stock stops being unlimited once anything but a
+    // store holds it; before the stacking below, so it joins ordinary stacks.
+    if (_type != ObjectType::Store) {
+        item->setInfinite(false);
     }
     auto creature = dyn_cast<Creature>(this);
     if (creature && _game.party().isCountedItem(*item)) {

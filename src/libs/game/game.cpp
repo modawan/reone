@@ -7860,16 +7860,37 @@ void Game::closeContainer(const Object &container) {
     }
 }
 
+// Merchants are opened by their conversations' scripts, often a moment after
+// the reply; a store asked for over a death, a menu, a load or a minigame
+// would bury that screen, so only the game and a conversation give way.
 bool Game::openStore(const std::shared_ptr<Store> &store, int bonusMarkUp, int bonusMarkDown) {
-    if (!store || !_store) {
+    if (!store || (_screen != Screen::InGame && _screen != Screen::Conversation)) {
         return false;
     }
-    stopMovement();
-    setRelativeMouseMode(false);
-    setCursorType(CursorType::Default);
-    _store->open(store, bonusMarkUp, bonusMarkDown);
+    if (_storeOpenOverride) {
+        _storeOpenOverride(store, bonusMarkUp, bonusMarkDown);
+    } else if (_store) {
+        stopMovement();
+        setRelativeMouseMode(false);
+        setCursorType(CursorType::Default);
+        _store->open(store, bonusMarkUp, bonusMarkDown);
+    } else {
+        return false;
+    }
     changeScreen(Screen::Store);
     return true;
+}
+
+void Game::closeStore() {
+    if (_screen != Screen::Store) {
+        return;
+    }
+    // A conversation still asked for but not yet begun has no screen to return to.
+    if (_dialogUnderWay && _conversation && _conversation->isRunning()) {
+        changeScreen(Screen::Conversation);
+    } else {
+        openInGame();
+    }
 }
 
 void Game::openPartySelection(const PartySelectionContext &ctx) {

@@ -197,7 +197,7 @@ public:
     uint32_t deniedSubraces() const { return _deniedSubraces; }
     bool isIdentified() const { return _identified; }
     bool isEquipped() const { return _equipped; }
-    /** A store's unlimited stock: selling a unit of it leaves the stack as it is. */
+    /** A store's unlimited stock: buying a unit of it leaves the stack as it is. Only a store keeps it; any other new owner clears it. */
     bool isInfinite() const { return _infinite; }
     void setInfinite(bool infinite) { _infinite = infinite; }
     bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }

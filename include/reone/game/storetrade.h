@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace reone {
 
@@ -31,9 +34,9 @@ class Store;
 /**
  * What one unit trades for at \p percent of \p itemCost: truncated toward
  * zero, and at least 1 for an item with a cost. A negative percentage counts
- * as none.
+ * as none, and one past an int's range as the largest int.
  */
-int storeTradePrice(int itemCost, int percent);
+int storeTradePrice(int itemCost, int64_t percent);
 
 /** What the player pays the store for one unit of \p item. */
 int storeBuyPrice(const Game &game, const Store &store, const Item &item, int bonusMarkUp);
@@ -47,6 +50,14 @@ bool isSellableToStore(const Item &item);
 std::shared_ptr<Object> storeCustomer(Game &game);
 
 /**
+ * The row to select once a store list is listed again: the row showing the
+ * item that was selected, by its tag, or none (-1) when that item is gone or
+ * nothing was selected. Rows shift as stacks run out, so a row number alone
+ * would point at another item.
+ */
+int storeRowAfterRelist(const std::vector<std::string> &rowTags, const std::string &selectedTag);
+
+/**
  * The party buys one unit of \p item from \p store, when the store sells, it
  * holds the item and the party has the credits. The store keeps an infinite
  * stack whole.
@@ -57,7 +68,8 @@ bool buyFromStore(Game &game, Store &store, const std::shared_ptr<Item> &item, i
 
 /**
  * The party sells one unit of \p item to \p store, when the store buys, the
- * party's inventory holds the item and it is sellable.
+ * party's inventory holds the item and it is sellable. The party's items are
+ * never unlimited stock: a unit sold always leaves the stack.
  *
  * @return whether the unit was sold
  */

@@ -98,7 +98,7 @@ private:
 
     void configureItemList(gui::ListBox &list);
     void setMode(Mode mode);
-    /** Lists both sides again, keeping the shown list's selection and scroll where they can stay. */
+    /** Lists both sides again, keeping each list's scroll and selected item; a selected item that is gone leaves nothing selected. */
     void refresh();
     void listItems(gui::ListBox &list, const Object *source, bool sellableOnly);
     void showSelection();
