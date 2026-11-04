@@ -427,7 +427,7 @@ std::shared_ptr<Control> GUI::findControl(const std::string &tag) const {
     return nullptr;
 }
 
-std::optional<glm::ivec2> GUI::clickPoint(const std::string &tag) const {
+std::optional<glm::ivec2> GUI::clickPoint(const std::string &tag, int row) const {
     auto control = findControl(tag);
     if (!control) {
         return std::nullopt;
@@ -436,6 +436,15 @@ std::optional<glm::ivec2> GUI::clickPoint(const std::string &tag) const {
     // add it back.
     glm::ivec2 center;
     control->extent().getCenter(center.x, center.y);
+    if (row >= 0) {
+        // A row of a list: the list's centre line, at that row's height.
+        auto list = dynamic_cast<const ListBox *>(control.get());
+        auto rowY = list ? list->itemCenterY(row) : std::nullopt;
+        if (!rowY) {
+            return std::nullopt;
+        }
+        center.y = *rowY;
+    }
     center += renderOffset(*control);
     // A click goes to whatever selectable control the pointer selects
     // there, as in updateSelection; it has to be this one.

@@ -9,8 +9,10 @@ against the original game without a display.
 
 Two commands send real input, through the same path as the mouse and keyboard:
 
-- `click <control tag>` moves the pointer to the centre of the named control
-  on the current screen, then presses and releases the left button. It fails,
+- `click <control tag> [row]` moves the pointer to the centre of the named
+  control on the current screen, or with a row number to the middle of that
+  shown row of a list (`click LB_ITEMS 1` for the second row), then presses
+  and releases the left button. It fails,
   and says why, when the click would not reach that control: no control has
   the tag, the hit test at its centre picks something else (it is hidden,
   disabled or not selectable, or another control covers it), or a movie,
@@ -39,6 +41,13 @@ Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 
 `pause N` waits N rendered frames, not seconds. Headless with `--vsync 0`
 renders hundreds of frames a second, so allow generous counts.
+
+`waitscreen <screen> [max frames]` waits for the game instead: until it shows
+the named screen (`ingame`, `conversation`, `container`, `chargen`, ... the
+usage message lists them all), or for at most max frames (30000 by default),
+after which `waitscreen <screen> timed out` is logged and the script goes on.
+A conversation that starts when a creature has walked over, or a container
+that opens when the player arrives, is reached reliably this way.
 
 ## Example: a new game to Trask's first line
 

@@ -223,7 +223,7 @@ void InGameMenu::openOptions() {
 void InGameMenu::clearSelection() { if (_host) _host->clearSelection(); }
 
 bool InGameMenu::handle(const input::Event &event) { return _host->handle(event); }
-std::optional<glm::ivec2> InGameMenu::clickPoint(const std::string &tag) const { return _host->clickPoint(tag); }
+std::optional<glm::ivec2> InGameMenu::clickPoint(const std::string &tag, int row) const { return _host->clickPoint(tag, row); }
 void InGameMenu::update(float dt) { _host->update(dt); }
 void InGameMenu::render() { _host->render(); }
 std::shared_ptr<Button> InGameMenu::getBtnChange2() { return _host->getBtnChange2(); }

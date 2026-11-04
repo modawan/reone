@@ -9050,6 +9050,35 @@ void Game::changeScreen(Screen screen) {
     _screen = screen;
 }
 
+std::optional<Game::Screen> Game::screenFromName(std::string_view name) {
+    // In Screen order, as kScreenNames lists them.
+    static constexpr std::array<std::pair<std::string_view, Screen>, 17> kScreens {{
+        {"none", Screen::None},
+        {"mainmenu", Screen::MainMenu},
+        {"loading", Screen::Loading},
+        {"chargen", Screen::CharacterGeneration},
+        {"ingame", Screen::InGame},
+        {"ingamemenu", Screen::InGameMenu},
+        {"conversation", Screen::Conversation},
+        {"container", Screen::Container},
+        {"partyselection", Screen::PartySelection},
+        {"saveload", Screen::SaveLoad},
+        {"galaxymap", Screen::GalaxyMap},
+        {"swooprace", Screen::SwoopRace},
+        {"pazaakwager", Screen::PazaakWager},
+        {"pazaaksetup", Screen::PazaakSetup},
+        {"pazaakboard", Screen::PazaakBoard},
+        {"turret", Screen::Turret},
+        {"death", Screen::Death},
+    }};
+    for (const auto &[screenName, screen] : kScreens) {
+        if (boost::iequals(screenName, name)) {
+            return screen;
+        }
+    }
+    return std::nullopt;
+}
+
 GameGUI *Game::getScreenGUI() const {
     switch (_screen) {
     case Screen::Death:
@@ -9590,8 +9619,12 @@ void Game::consoleSkipMovie(const ConsoleArgs &args) {
 }
 
 void Game::consoleClick(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "control_tag");
+    consoleCheckUsage(args, 1, 2, "control_tag [list_row]");
     std::string tag(args[1].value());
+    int row = args.size() > 2 ? args.get<int>(2).value_or(-1) : -1;
+    if (args.size() > 2 && row < 0) {
+        throw std::runtime_error("click: a list row is 0 or more");
+    }
     // Whatever takes a real click before the screen's GUI would take this
     // one; say so rather than report a click that went elsewhere.
     if (_movie) {
@@ -9611,9 +9644,11 @@ void Game::consoleClick(const ConsoleArgs &args) {
     if (!gui) {
         throw std::runtime_error("click: the current screen has no GUI");
     }
-    auto at = gui->clickPoint(tag);
+    auto at = gui->clickPoint(tag, row);
     if (!at) {
-        throw std::runtime_error("click: no clickable control tagged " + tag + " on the current screen");
+        throw std::runtime_error(row < 0
+                                     ? "click: no clickable control tagged " + tag + " on the current screen"
+                                     : "click: no shown, clickable row " + std::to_string(row) + " of a list tagged " + tag + " on the current screen");
     }
     // A real click, not a call to the handler: the pointer moves there and
     // the press and release go through the same input path as the mouse's.

@@ -53,7 +53,7 @@ public:
     }
 
     bool handle(const input::Event &event) override;
-    std::optional<glm::ivec2> clickPoint(const std::string &tag) const override;
+    std::optional<glm::ivec2> clickPoint(const std::string &tag, int row) const override;
     void update(float dt) override;
     void render() override;
     void renderModal();

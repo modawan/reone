@@ -218,6 +218,14 @@ public:
         Death
     };
 
+    /** The screen names a script can wait for, in Screen order. */
+    static constexpr char kScreenNames[] =
+        "none, mainmenu, loading, chargen, ingame, ingamemenu, conversation, container, partyselection, "
+        "saveload, galaxymap, swooprace, pazaakwager, pazaaksetup, pazaakboard, turret, death";
+
+    /** The screen \p name names, ignoring case; empty for any other name. */
+    static std::optional<Screen> screenFromName(std::string_view name);
+
     Game(
         resource::GameID gameId,
         std::filesystem::path path,

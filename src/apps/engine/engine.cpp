@@ -59,6 +59,9 @@ static constexpr int kProfilerUpdateTimeIndex = 1;
 static constexpr int kProfilerRenderGraphicsTimeIndex = 2;
 static constexpr int kProfilerRenderAudioTimeIndex = 3;
 
+/** How long waitscreen waits by default: about a minute of headless frames. */
+static constexpr int kDefaultScriptWaitFrames = 30000;
+
 static void imguiInit() {
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -332,6 +335,20 @@ void Engine::initAutomationCommands() {
         }
         _scriptPauseFrames = *frames;
     });
+    // Waits for the game, not for a number of frames: a scripted run cannot
+    // know how long a walk or a load takes.
+    _console->registerCommand("waitscreen", "pause command-file execution until the game shows a screen", [this](const auto &args) {
+        auto name = args[1];
+        auto screen = name ? game::Game::screenFromName(*name) : std::nullopt;
+        auto frames = args.template get<int>(2).value_or(kDefaultScriptWaitFrames);
+        if (!screen || frames < 1) {
+            throw std::invalid_argument("usage: waitscreen <screen> [max frames], where screen is one of " +
+                                        std::string(game::Game::kScreenNames));
+        }
+        _scriptWaitScreen = *screen;
+        _scriptWaitScreenName = std::string(*name);
+        _scriptWaitFrames = frames;
+    });
     _console->registerCommand("capture", "capture one or more rendered frames", [this](const auto &args) {
         auto path = args[1];
         auto count = args.template get<int>(2).value_or(1);
@@ -373,6 +390,16 @@ void Engine::processScriptedCommands(bool &quit) {
             return;
         }
     }
+    if (_scriptWaitScreen) {
+        if (_game->currentScreen() != *_scriptWaitScreen) {
+            if (--_scriptWaitFrames > 0) {
+                return;
+            }
+            // Logged, not fatal: the commands after it say what happens next.
+            error("waitscreen " + _scriptWaitScreenName + " timed out");
+        }
+        _scriptWaitScreen.reset();
+    }
 
     while (!_scriptedCommands.empty()) {
         std::string command(std::move(_scriptedCommands.front()));
@@ -387,7 +414,7 @@ void Engine::processScriptedCommands(bool &quit) {
         if (_captureRequest) {
             return;
         }
-        if (_scriptPauseFrames > 0) {
+        if (_scriptPauseFrames > 0 || _scriptWaitScreen) {
             return;
         }
     }
