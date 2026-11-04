@@ -7342,8 +7342,16 @@ void Game::openSwoopRace() {
         trackModel, mg.player.trackResRef, lytTrackPos, leader->position(), leader->getFacing());
     const float finishProgress = swoopFinishProgress(trackFrame, layout);
 
+    // Ride the track model's "track" animation wherever the start frame came
+    // from the track model itself. The leader-anchored fallback keeps the
+    // straight line.
+    std::optional<MinigameTrack> track;
+    if (trackModel && trackFrame.mode != "fallback") {
+        track = buildMinigameTrack(*trackModel, lytTrackPos.value_or(glm::vec3(0.0f)));
+    }
+
     _savedCameraType = _cameraType;
-    _swoopRace.start(mg, camera, std::move(bike.root), std::move(bike.children), trackFrame.position, trackFrame.facing, finishProgress);
+    _swoopRace.start(mg, camera, std::move(bike.root), std::move(bike.children), trackFrame.position, trackFrame.facing, finishProgress, std::move(track));
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
@@ -7392,11 +7400,21 @@ void Game::openSwoopRace() {
                   % trackFrame.facing));
     }
 
-    // Movement model: track-relative progress + lateral strafe (no turning).
-    debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
-              % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
-              % trackFrame.facing
-              % finishProgress));
+    // Movement model: the sampled track animation, or the straight line from
+    // the start frame; lateral strafe either way (no turning).
+    if (_swoopRace.followsTrack()) {
+        glm::vec3 hook(_swoopRace.trackHook()[3]);
+        debug(str(boost::format("swoop: movement=track-animation strafeOnly=yes lateralAxis=hookX length=%.2f loops=%d hook=[%.1f,%.1f,%.1f] finish=%.1f")
+                  % _swoopRace.trackLength()
+                  % mg.player.numLoops
+                  % hook.x % hook.y % hook.z
+                  % finishProgress));
+    } else {
+        debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=none start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
+                  % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
+                  % trackFrame.facing
+                  % finishProgress));
+    }
 
     // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
     debug(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
@@ -10077,7 +10095,7 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
         return;
     }
     glm::vec3 pos = _swoopRace.position();
-    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=track-progress")
+    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=%s trackTime=%.2f/%.2f trackEnded=%d")
                            % _swoopRace.progress()
                            % _swoopRace.finishProgress()
                            % _swoopRace.lateralOffset()
@@ -10085,7 +10103,11 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
                            % _swoopRace.elapsed()
                            % pos.x % pos.y % pos.z
                            % _swoopRace.lateralLeftBound()
-                           % _swoopRace.lateralRightBound()));
+                           % _swoopRace.lateralRightBound()
+                           % (_swoopRace.followsTrack() ? "track-animation" : "track-progress")
+                           % _swoopRace.trackTime()
+                           % _swoopRace.trackLength()
+                           % static_cast<int>(_swoopRace.trackEnded())));
 }
 
 void Game::consoleStartTurret(const ConsoleArgs &args) {

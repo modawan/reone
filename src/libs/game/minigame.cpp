@@ -17,6 +17,10 @@
 
 #include "reone/game/minigame.h"
 
+#include "reone/graphics/animation.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
+#include "reone/graphics/types.h"
 #include "reone/resource/parser/gff/are.h"
 
 namespace reone {
@@ -38,6 +42,16 @@ std::vector<MinigameModelSpec> parseModels(const TModels &models) {
         result.push_back(std::move(spec));
     }
     return result;
+}
+
+// KeyframeTrack::valueAtTime extrapolates past the last key, so clamp to it.
+template <class Value>
+bool valueAtTrackTime(const graphics::KeyframeTrack<Value> &track, float time, Value &value) {
+    const auto &keys = track.keyframes();
+    if (keys.empty()) {
+        return false;
+    }
+    return track.valueAtTime(std::min(time, keys.back().time), value);
 }
 
 template <class TBullet>
@@ -170,6 +184,59 @@ std::optional<MinigameSpec> parseMinigameSpec(const resource::generated::ARE &ar
     }
 
     return spec;
+}
+
+MinigameTrack::MinigameTrack(glm::mat4 base,
+                             glm::vec3 restPosition,
+                             glm::quat restOrientation,
+                             graphics::KeyframeTrack<glm::vec3> positions,
+                             graphics::KeyframeTrack<glm::quat> orientations,
+                             float length) :
+    _base(base),
+    _restPosition(restPosition),
+    _restOrientation(restOrientation),
+    _positions(std::move(positions)),
+    _orientations(std::move(orientations)),
+    _length(length) {
+    _positions.update();
+    _orientations.update();
+}
+
+glm::mat4 MinigameTrack::hookAt(float time) const {
+    glm::vec3 offset(0.0f);
+    valueAtTrackTime(_positions, time, offset);
+    glm::quat orientation(_restOrientation);
+    valueAtTrackTime(_orientations, time, orientation);
+    return _base * glm::translate(_restPosition + offset) * glm::mat4_cast(orientation);
+}
+
+std::optional<MinigameTrack> buildMinigameTrack(const graphics::Model &model, const glm::vec3 &placement) {
+    auto hook = model.getNodeByNameRecursive("modelhook");
+    if (!hook) {
+        return std::nullopt;
+    }
+    glm::mat4 base(glm::translate(placement));
+    if (hook->parent()) {
+        base *= hook->parent()->absoluteTransform();
+    }
+    graphics::KeyframeTrack<glm::vec3> positions;
+    graphics::KeyframeTrack<glm::quat> orientations;
+    float length = 0.0f;
+    if (auto anim = model.getAnimation("track")) {
+        if (auto animHook = anim->getNodeByName("modelhook")) {
+            length = anim->length();
+            auto &vectors = animHook->vectorTracks();
+            if (auto it = vectors.find(graphics::ControllerTypes::position); it != vectors.end()) {
+                positions = it->second;
+            }
+            auto &quaternions = animHook->quaternionTracks();
+            if (auto it = quaternions.find(graphics::ControllerTypes::orientation); it != quaternions.end()) {
+                orientations = it->second;
+            }
+        }
+    }
+    return MinigameTrack(base, hook->restPosition(), hook->restOrientation(),
+                         std::move(positions), std::move(orientations), length);
 }
 
 } // namespace game

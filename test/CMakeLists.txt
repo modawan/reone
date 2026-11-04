@@ -100,6 +100,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/spitempresentation.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
     ${TESTS_SOURCE_DIR}/game/stringroutines.cpp
+    ${TESTS_SOURCE_DIR}/game/swooprace.cpp
     ${TESTS_SOURCE_DIR}/game/timingepoch.cpp
     ${TESTS_SOURCE_DIR}/game/transitioncandidate.cpp
     ${TESTS_SOURCE_DIR}/game/turret.cpp
