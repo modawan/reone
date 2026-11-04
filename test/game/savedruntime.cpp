@@ -1726,3 +1726,42 @@ TEST(SavedEventQueue, recovered_reference_bearing_payloads_bind_explicitly) {
 }
 
 } // namespace
+
+// A blaster bolt in flight when the game is saved: what toGff writes,
+// fromGff reads back. The reader once required two fields the writer had
+// stopped writing (Initialized, ParryBlocked), so any save taken mid-shot
+// failed to load with "Saved record has no Initialized".
+TEST(SavedProjectile, a_bolt_in_flight_loads_back_as_it_was_saved) {
+    SavedProjectile bolt;
+    bolt.id = 7;
+    bolt.kind = ProjectileKind::AttackBolt;
+    bolt.model = "w_bolt_01";
+    bolt.leg = 0;
+    bolt.released = true;
+    bolt.elapsed = 0.25f;
+    bolt.position = glm::vec3(45.0f, 30.0f, -0.3f);
+    bolt.velocity = glm::vec3(0.0f, 20.0f, 0.0f);
+    bolt.combatResult = 2;
+    SavedProjectile::Leg leg;
+    leg.origin = glm::vec3(45.0f, 25.0f, -0.3f);
+    leg.destination = glm::vec3(45.0f, 35.0f, -0.3f);
+    leg.duration = 0.5f;
+    leg.motion = ProjectileMotion::Homing;
+    leg.stopRadius = 0.1f;
+    bolt.legs.push_back(leg);
+
+    auto saved = bolt.toGff();
+    SavedProjectile loaded = SavedProjectile::fromGff(*saved, savedRuntimeIdentityContext());
+
+    EXPECT_EQ(loaded.id, 7u);
+    EXPECT_EQ(loaded.kind, ProjectileKind::AttackBolt);
+    EXPECT_EQ(loaded.model, "w_bolt_01");
+    EXPECT_TRUE(loaded.released);
+    EXPECT_FLOAT_EQ(loaded.elapsed, 0.25f);
+    EXPECT_EQ(loaded.position, bolt.position);
+    EXPECT_EQ(loaded.velocity, bolt.velocity);
+    EXPECT_EQ(loaded.combatResult, 2);
+    ASSERT_EQ(loaded.legs.size(), 1u);
+    EXPECT_EQ(loaded.legs[0].destination, leg.destination);
+    EXPECT_FLOAT_EQ(loaded.legs[0].duration, 0.5f);
+}

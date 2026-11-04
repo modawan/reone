@@ -974,8 +974,11 @@ std::shared_ptr<resource::Gff> SavedRoundClock::toGff() const {
 }
 
 SavedProjectile SavedProjectile::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
-    requireFields(g, {"Id", "Kind", "Caster", "Weapon", "Spell", "Path", "Model", "Leg", "Released", "Initialized",
-                      "Clockwise", "Elapsed", "Position", "Velocity", "Orientation", "Acceleration", "ParryBlocked",
+    // Exactly what toGff writes. A projectile no longer records Initialized
+    // or ParryBlocked; requiring them made every save with a projectile in
+    // flight unloadable. An older save that still carries them loads too.
+    requireFields(g, {"Id", "Kind", "Caster", "Weapon", "Spell", "Path", "Model", "Leg", "Released",
+                      "Clockwise", "Elapsed", "Position", "Velocity", "Orientation", "Acceleration",
                       "ActivationDelay", "TravelRate", "SourceHook", "OrientMode", "TargetHook", "CombatResult",
                       "SoundVariant", "Legs"});
     SavedProjectile p;
