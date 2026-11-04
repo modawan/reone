@@ -307,9 +307,10 @@ TEST(VirtualMachine, should_run_script_program__action_with_vectors) {
     // then
     EXPECT_EQ(-1, result);
     EXPECT_EQ(3, machine.getStackSize());
-    EXPECT_NEAR(7.0f, machine.getStackVariable(0).floatValue, 1e-5);
+    // The returned vector lies as the argument did: x deepest, z on top.
+    EXPECT_NEAR(5.0f, machine.getStackVariable(0).floatValue, 1e-5);
     EXPECT_NEAR(6.0f, machine.getStackVariable(1).floatValue, 1e-5);
-    EXPECT_NEAR(5.0f, machine.getStackVariable(2).floatValue, 1e-5);
+    EXPECT_NEAR(7.0f, machine.getStackVariable(2).floatValue, 1e-5);
     EXPECT_EQ(1ll, routine->invokeInvocations().size());
     auto &invocation = routine->invokeInvocations();
     auto inVecValue = std::get<0>(invocation[0])[0].vecValue;
@@ -317,6 +318,47 @@ TEST(VirtualMachine, should_run_script_program__action_with_vectors) {
     EXPECT_NEAR(3.0f, inVecValue.y, 1e-5);
     EXPECT_NEAR(4.0f, inVecValue.z, 1e-5);
     EXPECT_EQ(1, std::get<0>(invocation[0])[1].intValue);
+}
+
+// KotOR's scripts hand one routine's vector straight to the next, as in
+// SetFacingPoint(GetPosition(oBed)): the compiled code copies the three
+// floats without reordering them, so the vector must arrive as it left.
+TEST(VirtualMachine, should_pass_a_returned_vector_to_the_next_routine_unchanged) {
+    // given
+    auto program = std::make_shared<ScriptProgram>("some_program");
+    program->add(Instruction::newACTION(0, 0));
+    program->add(Instruction::newACTION(1, 1));
+
+    auto getPosition = std::make_shared<MockRoutine>(
+        "GetPosition",
+        VariableType::Vector,
+        Variable::ofVector(glm::vec3(90.0f, 143.0f, 1.0f)),
+        std::vector<VariableType> {});
+    auto setFacingPoint = std::make_shared<MockRoutine>(
+        "SetFacingPoint",
+        VariableType::Void,
+        Variable::ofNull(),
+        std::vector<VariableType> {VariableType::Vector});
+    auto routines = MockRoutines();
+    EXPECT_CALL(routines, get(0)).WillOnce(ReturnRef(*getPosition));
+    EXPECT_CALL(routines, get(1)).WillOnce(ReturnRef(*setFacingPoint));
+
+    auto context = std::make_unique<ExecutionContext>();
+    context->routines = &routines;
+
+    auto machine = VirtualMachine(program, std::move(context));
+
+    // when
+    auto result = machine.run();
+
+    // then
+    EXPECT_EQ(-1, result);
+    EXPECT_EQ(0, machine.getStackSize());
+    ASSERT_EQ(1ll, setFacingPoint->invokeInvocations().size());
+    auto point = std::get<0>(setFacingPoint->invokeInvocations()[0])[0].vecValue;
+    EXPECT_NEAR(90.0f, point.x, 1e-5);
+    EXPECT_NEAR(143.0f, point.y, 1e-5);
+    EXPECT_NEAR(1.0f, point.z, 1e-5);
 }
 
 TEST(VirtualMachine, should_run_script_program__action_with_store_state) {
