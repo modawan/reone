@@ -111,7 +111,7 @@ public:
             return std::find(begin(), end(), value);
         }
         auto lowerIt = std::lower_bound(begin(), end(), value);
-        if (*lowerIt != value) {
+        if (lowerIt == end() || *lowerIt != value) {
             return end();
         }
         return lowerIt;
@@ -151,11 +151,11 @@ public:
         }
 
         auto lowerIt = std::lower_bound(begin(), end(), value);
-        if (*lowerIt != value) {
+        if (lowerIt == end() || *lowerIt != value) {
             return {Base::insert(lowerIt, value), true};
         }
 
-        return {end(), false};
+        return {lowerIt, false};
     }
 
     /**
