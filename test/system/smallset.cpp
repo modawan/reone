@@ -305,3 +305,33 @@ TEST(SmallSet, string) {
     EXPECT_EQ(v[1], "b");
     EXPECT_EQ(v[2], "c");
 }
+
+TEST(SmallSet, heap_past_last_element) {
+    SmallSet<int, 2> v;
+    v.insert(0);
+    v.insert(1);
+    v.insert(2);
+
+    // Erasing the last element leaves its old value in the slot past end().
+    EXPECT_EQ(v.erase(2), 1);
+    EXPECT_EQ(v.find(2), v.end());
+    EXPECT_FALSE(v.contains(2));
+
+    auto inserted = v.insert(2);
+    EXPECT_TRUE(inserted.second);
+    EXPECT_EQ(inserted.first, &v[2]);
+    EXPECT_TRUE(v.contains(2));
+    EXPECT_EQ(v.size(), 3);
+}
+
+TEST(SmallSet, heap_insert_existing) {
+    SmallSet<int, 2> v;
+    v.insert(0);
+    v.insert(1);
+    v.insert(2);
+
+    auto existing = v.insert(1);
+    EXPECT_FALSE(existing.second);
+    EXPECT_EQ(existing.first, &v[1]);
+    EXPECT_EQ(v.size(), 3);
+}
