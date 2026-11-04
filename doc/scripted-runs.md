@@ -37,7 +37,9 @@ Two commands send real input, through the same path as the mouse and keyboard:
   an object selects it and the second uses it.
 
 Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
-...) is also available. A command that fails is logged as
+...) is also available. In a scripted run, what commands print goes to the
+log as `console: ...` lines, so `selectobjectbytag end_trask` then `info`
+logs a creature's position, faction, `hp=current/max` and `dead=0|1`. A command that fails is logged as
 `Command failed: <command>: <reason>`, and a mistyped one as
 `Unrecognized command: <name>`, so a scripted run leaves a trace in
 `engine.log`. A click that quits the game ends the run.

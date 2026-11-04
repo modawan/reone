@@ -86,6 +86,9 @@ void Console::setPrompt() {
 }
 
 void Console::printLine(const std::string &text) {
+    if (_echoToLog) {
+        info("console: " + text);
+    }
     _buffer.write(text);
     _buffer.write('\n');
     _scrollOffset = 0;

@@ -9311,7 +9311,11 @@ void Game::consoleInfo(const ConsoleArgs &args) {
         ss << " "
            << "app=" << creature->appearance()
            << " "
-           << "fac=" << static_cast<int>(creature->faction());
+           << "fac=" << static_cast<int>(creature->faction())
+           << " "
+           << "hp=" << creature->currentHitPoints() << "/" << creature->maxHitPoints()
+           << " "
+           << "dead=" << (creature->isDead() ? 1 : 0);
     } else if (auto placeable = dyn_cast<Placeable>(object)) {
         ss << " "
            << "app=" << placeable->appearance();

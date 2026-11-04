@@ -373,6 +373,9 @@ void Engine::initAutomationCommands() {
     if (_options.commandsFile.empty()) {
         return;
     }
+    // A scripted run has no one reading the console: what commands print,
+    // such as info, goes to the log as well.
+    _console->setEchoToLog(true);
     std::ifstream file(_options.commandsFile);
     if (!file.good()) {
         throw std::runtime_error("Failed to open commands file: " + _options.commandsFile);

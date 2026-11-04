@@ -67,7 +67,11 @@ public:
     void execute(std::string_view command);
     void executeNextBatch();
 
+    /** Also writes every printed line to the log, for a run no one watches. */
+    void setEchoToLog(bool echo) { _echoToLog = echo; }
+
 private:
+    bool _echoToLog {false};
     struct Command {
         std::string name;
         std::string description;
