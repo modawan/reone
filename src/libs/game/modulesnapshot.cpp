@@ -1648,8 +1648,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
     put(*result, Gff::Field::newResRef("OnOpenStore", store._onOpenStore));
     put(*result, Gff::Field::newByte("BuySellFlag", store._buySellFlag));
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : store._items) if (item) items.push_back(
-        writeItem(*item, 0, ids.objectId(*item), &ids));
+    for (const auto &item : store._items) {
+        if (!item) continue;
+        auto record = writeItem(*item, 0, ids.objectId(*item), &ids);
+        put(*record, Gff::Field::newByte("Infinite", item->_infinite));
+        items.push_back(std::move(record));
+    }
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }

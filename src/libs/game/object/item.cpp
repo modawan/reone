@@ -104,6 +104,7 @@ void Item::deserialize(
             if (gff.readByte(dropable, "Dropable")) {
                 _dropable = (dropable & 1) != 0;
             }
+            gff.readBool(_infinite, "Infinite");
             return;
         }
     }
@@ -149,6 +150,7 @@ void Item::deserializeAll(
     gff.readByte(_bodyVariation, "BodyVariation");
     gff.readBool(_dropable, "Dropable");
     gff.readBool(_nonEquippable, "NonEquippable");
+    gff.readBool(_infinite, "Infinite");
 
     deserializeProperties(gff);
     deserializeBase(gff);
@@ -353,6 +355,7 @@ void Item::clone(const Item &from) {
     _textureVariation = from._textureVariation;
     _dropable = from._dropable;
     _nonEquippable = from._nonEquippable;
+    // Not _infinite: a unit split off a store's unlimited stock is an ordinary item.
     // END Serializable
 
     _requiredFeats = from._requiredFeats;
@@ -675,6 +678,7 @@ bool Item::isStackCompatibleWith(const Item &other) const {
            _charges == other._charges &&
            _upgrades == other._upgrades &&
            _stolen == other._stolen &&
+           _infinite == other._infinite &&
            _modelVariation == other._modelVariation &&
            _bodyVariation == other._bodyVariation &&
            _textureVariation == other._textureVariation &&

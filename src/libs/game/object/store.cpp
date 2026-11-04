@@ -61,7 +61,9 @@ void Store::deserializeAll(
         boost::to_lower(_tag);
     }
 
-    if (gff.readLocString(_locName, "LocalizedName", _services.resource.strings)) {
+    // Store blueprints name the store in LocName.
+    if (gff.readLocString(_locName, "LocName", _services.resource.strings) ||
+        gff.readLocString(_locName, "LocalizedName", _services.resource.strings)) {
         _name = _locName.str();
     }
 

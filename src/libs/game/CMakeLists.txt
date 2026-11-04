@@ -207,6 +207,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/computercam.h
     ${GAME_INCLUDE_DIR}/gui/confirmpopup.h
     ${GAME_INCLUDE_DIR}/gui/container.h
+    ${GAME_INCLUDE_DIR}/gui/store.h
     ${GAME_INCLUDE_DIR}/gui/conversation.h
     ${GAME_INCLUDE_DIR}/gui/credits.h
     ${GAME_INCLUDE_DIR}/gui/deathdisplay.h
@@ -301,6 +302,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/statussummary.h
     ${GAME_INCLUDE_DIR}/journal.h
     ${GAME_INCLUDE_DIR}/statussummary.h
+    ${GAME_INCLUDE_DIR}/storetrade.h
     ${GAME_INCLUDE_DIR}/location.h
     ${GAME_INCLUDE_DIR}/listenpattern.h
     ${GAME_INCLUDE_DIR}/messagelog.h
@@ -434,6 +436,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/computercam.cpp
     ${GAME_SOURCE_DIR}/gui/confirmpopup.cpp
     ${GAME_SOURCE_DIR}/gui/container.cpp
+    ${GAME_SOURCE_DIR}/gui/store.cpp
     ${GAME_SOURCE_DIR}/gui/conversation.cpp
     ${GAME_SOURCE_DIR}/gui/credits.cpp
     ${GAME_SOURCE_DIR}/gui/dialog.cpp
@@ -463,6 +466,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/statussummary.cpp
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
+    ${GAME_SOURCE_DIR}/storetrade.cpp
     ${GAME_SOURCE_DIR}/listenpattern.cpp
     ${GAME_SOURCE_DIR}/messagelog.cpp
     ${GAME_SOURCE_DIR}/minigame.cpp

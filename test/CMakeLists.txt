@@ -99,6 +99,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/sharedpresentation.cpp
     ${TESTS_SOURCE_DIR}/game/spitempresentation.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
+    ${TESTS_SOURCE_DIR}/game/store.cpp
     ${TESTS_SOURCE_DIR}/game/stringroutines.cpp
     ${TESTS_SOURCE_DIR}/game/swooprace.cpp
     ${TESTS_SOURCE_DIR}/game/timingepoch.cpp

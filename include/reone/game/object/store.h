@@ -50,6 +50,19 @@ public:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
 
+    /** BuySellFlag bit: the store sells to the player. */
+    static constexpr uint8_t kSellsToPlayer = 1;
+    /** BuySellFlag bit: the store buys from the player. */
+    static constexpr uint8_t kBuysFromPlayer = 2;
+
+    /** The percentage of an item's cost the player pays for it. */
+    int markUp() const { return _markUp; }
+    /** The percentage of an item's cost the player is paid for it. */
+    int markDown() const { return _markDown; }
+    uint8_t buySellFlag() const { return _buySellFlag; }
+    bool sellsToPlayer() const { return (_buySellFlag & kSellsToPlayer) != 0; }
+    bool buysFromPlayer() const { return (_buySellFlag & kBuysFromPlayer) != 0; }
+
 private:
     friend class ModuleSnapshotBuilder;
     // Serializable

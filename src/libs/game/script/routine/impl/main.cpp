@@ -43,6 +43,7 @@
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routine/argutil.h"
@@ -4267,17 +4268,23 @@ static Variable GetHasSpell(const std::vector<Variable> &args, const RoutineCont
     return Variable::ofInt(creature && spell && creature->hasAffordableSpell(*spell));
 }
 
+// The K1 documentation says no more than the signature; the bonuses are taken
+// as percentages added to the store's mark-up and mark-down. The screen trades
+// with the party's shared inventory whoever oPC is.
 static Variable OpenStore(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oStore = getObject(args, 0, ctx);
-    auto oPC = getObject(args, 1, ctx);
+    auto oStore = getObjectOrNull(args, 0, ctx);
     auto nBonusMarkUp = getIntOrElse(args, 2, 0);
     auto nBonusMarkDown = getIntOrElse(args, 3, 0);
 
     // Transform
+    auto store = std::dynamic_pointer_cast<Store>(oStore);
 
     // Execute
-    throw RoutineNotImplementedException("OpenStore");
+    if (store) {
+        ctx.game.openStore(store, nBonusMarkUp, nBonusMarkDown);
+    }
+    return Variable::ofNull();
 }
 
 // Any object with a faction names the faction to step through; only

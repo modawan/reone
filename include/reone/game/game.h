@@ -61,6 +61,7 @@
 #include "gui/partyselect.h"
 #include "gui/pazaak.h"
 #include "gui/saveload.h"
+#include "gui/store.h"
 #include "journal.h"
 #include "location.h"
 #include "messagelog.h"
@@ -207,6 +208,7 @@ public:
         InGameMenu,
         Conversation,
         Container,
+        Store,
         PartySelection,
         SaveLoad,
         GalaxyMap,
@@ -518,6 +520,13 @@ public:
     void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
     void openContainer(const std::shared_ptr<Object> &container);
     void closeContainer(const Object &container);
+    /**
+     * Opens the merchant screen for \p store, in buy mode. The bonuses are
+     * added to the store's mark-up and mark-down percentages.
+     *
+     * @return whether the screen opened
+     */
+    bool openStore(const std::shared_ptr<Store> &store, int bonusMarkUp, int bonusMarkDown);
     void openPartySelection(const PartySelectionContext &ctx);
 
     /**
@@ -1898,6 +1907,7 @@ private:
      */
     float _deathTimeScale {1.0f};
     std::unique_ptr<ContainerGUI> _container;
+    std::unique_ptr<StoreGUI> _store;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;

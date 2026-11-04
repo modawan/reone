@@ -971,6 +971,31 @@ TEST_F(SnapshotFixture, module_item_ids_are_global_deterministic_and_retained) {
     EXPECT_EQ(repeated.snapshot->archiveBytes, saved.snapshot->archiveBytes);
 }
 
+TEST_F(SnapshotFixture, store_item_records_keep_infinite_stock) {
+    auto store = game.newStore();
+    auto infinite = game.newOwnedItem();
+    infinite->setTag("infinite");
+    infinite->setInfinite(true);
+    auto finite = game.newOwnedItem();
+    finite->setTag("finite");
+    store->addItem(infinite);
+    store->addItem(finite);
+    TestGameModule::addSnapshotObject(*area, store);
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto record = recordById(*saved.snapshot->git, "StoreList", store->id());
+    ASSERT_TRUE(record);
+    std::map<std::string, std::shared_ptr<Gff>> items;
+    for (const auto &item : record->getList("ItemList")) items[item->getString("Tag")] = item;
+    ASSERT_EQ(items.size(), 2u);
+    ASSERT_TRUE(items.at("infinite")->has("Infinite"));
+    EXPECT_TRUE(items.at("infinite")->getBool("Infinite"));
+    ASSERT_TRUE(items.at("finite")->has("Infinite"));
+    EXPECT_FALSE(items.at("finite")->getBool("Infinite"));
+}
+
 namespace {
 
 // A party member carries items whose saved IDs came from whatever module they

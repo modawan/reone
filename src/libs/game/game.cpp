@@ -325,6 +325,8 @@ static const char *screenName(Game::Screen screen) {
         return "Conversation";
     case Game::Screen::Container:
         return "Container";
+    case Game::Screen::Store:
+        return "Store";
     case Game::Screen::PartySelection:
         return "PartySelection";
     case Game::Screen::SaveLoad:
@@ -352,6 +354,7 @@ static bool pausesWorld(Game::Screen screen) {
     case Game::Screen::CharacterGeneration:
     case Game::Screen::InGameMenu:
     case Game::Screen::Container:
+    case Game::Screen::Store:
     case Game::Screen::PartySelection:
     case Game::Screen::SaveLoad:
     case Game::Screen::GalaxyMap:
@@ -1990,6 +1993,7 @@ void Game::retireRuntimeSession() {
     _dialog.reset();
     _computer.reset();
     _container.reset();
+    _store.reset();
     _partySelect.reset();
 
     if (_map) {
@@ -3117,6 +3121,7 @@ bool Game::hasModalPanel() const {
     switch (_screen) {
     case Screen::InGameMenu:
     case Screen::Container:
+    case Screen::Store:
     case Screen::PartySelection:
     case Screen::SaveLoad:
     case Screen::PazaakWager:
@@ -7855,6 +7860,18 @@ void Game::closeContainer(const Object &container) {
     }
 }
 
+bool Game::openStore(const std::shared_ptr<Store> &store, int bonusMarkUp, int bonusMarkDown) {
+    if (!store || !_store) {
+        return false;
+    }
+    stopMovement();
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    _store->open(store, bonusMarkUp, bonusMarkDown);
+    changeScreen(Screen::Store);
+    return true;
+}
+
 void Game::openPartySelection(const PartySelectionContext &ctx) {
     stopMovement();
     setRelativeMouseMode(false);
@@ -8661,6 +8678,9 @@ void Game::loadInGameMenus() {
     if (!_container) {
         _container = tryLoadGUI<ContainerGUI>();
     }
+    if (!_store) {
+        _store = tryLoadGUI<StoreGUI>();
+    }
     if (!_partySelect) {
         _partySelect = tryLoadGUI<PartySelection>();
     }
@@ -8724,6 +8744,8 @@ GameGUI *Game::getScreenGUI() const {
         return _conversation;
     case Screen::Container:
         return _container.get();
+    case Screen::Store:
+        return _store.get();
     case Screen::PartySelection:
         return _partySelect.get();
     case Screen::SaveLoad:

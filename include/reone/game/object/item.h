@@ -197,6 +197,9 @@ public:
     uint32_t deniedSubraces() const { return _deniedSubraces; }
     bool isIdentified() const { return _identified; }
     bool isEquipped() const { return _equipped; }
+    /** A store's unlimited stock: selling a unit of it leaves the stack as it is. */
+    bool isInfinite() const { return _infinite; }
+    void setInfinite(bool infinite) { _infinite = infinite; }
     bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
     /** Whether the base item is a ranged weapon (baseitems.2da RangedWeapon). */
     bool isRanged() const { return _rangedWeapon; }
@@ -373,6 +376,8 @@ private:
     uint8_t _textureVariation {0};
     bool _dropable {false};
     bool _nonEquippable {false};
+    /** Store item lists only. */
+    bool _infinite {false};
     // END Serializable
 
     uint32_t _ownerId {script::kObjectInvalid};
