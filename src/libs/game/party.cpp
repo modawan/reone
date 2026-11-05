@@ -1144,28 +1144,34 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
         leader->takePerception(*previous);
         area.perceiveNow(previous);
     }
-    // A new leader starts the trail over where it stands.
-    if (leader && leader != previous) {
-        resetFollowPath(area, leader->position(), leader->getFacing(), true);
-        _game.scriptRunner().run(kLeaderChangedScript, leader->id());
+    // A new leader starts the trail over where it stands. Its script may
+    // change the party: when it hands the lead on, or leaves no one, this
+    // change goes no further.
+    const auto newLeader = leader;
+    if (newLeader && newLeader != previous) {
+        resetFollowPath(area, newLeader->position(), newLeader->getFacing(), true);
+        _game.scriptRunner().run(kLeaderChangedScript, newLeader->id());
+        if (_members.empty() || _members[0].creature != newLeader) {
+            return;
+        }
     }
 
     // A dead or downed leader makes no select sound, and nor does a place
     // that names no one.
-    if (sound && leader && !leader->isDead() && !leader->isTemporarilyDead()) {
+    if (sound && newLeader && !newLeader->isDead() && !newLeader->isTemporarilyDead()) {
         playLeaderSelectSound();
     }
     auto lastTarget = _members[0].lastTarget.resolve();
     _game.setLastTarget(lastTarget ? lastTarget->id() : script::kObjectInvalid);
     // A new leader in combat mode shows its own last combat-mode line again.
     const auto &combatMessage = _members[0].combatMessage;
-    if (leader && leader->partyCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
+    if (newLeader && newLeader->partyCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
         _game.presentCombatMessage(*combatMessage);
     }
 
     // The new leader stops following; everyone else carries on.
-    if (leader) {
-        leader->removeActionsOfType(ActionType::FollowLeader);
+    if (newLeader) {
+        newLeader->removeActionsOfType(ActionType::FollowLeader);
     }
 
     area.onPartyLeaderMoved(true);
