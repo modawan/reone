@@ -556,6 +556,8 @@ public:
         const std::vector<int> &selectedNpcs);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
+    /** Whether the galaxy map's travel script is running. */
+    bool isTravelScriptRunning() const;
     /** Whether the galaxy map may take the screen over from the given one. */
     static bool canOpenGalaxyMapFrom(Screen screen);
 

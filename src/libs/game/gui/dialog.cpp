@@ -1011,13 +1011,21 @@ void DialogGUI::onReplyPicked(const Dialog::EntryReply &reply) {
     updateParticipantAnimations(reply);
 }
 
-// A reply taken without a choice puts its participants in the first places of
-// the list waited for, as far as the list goes.
+// A reply taken without a choice puts its participants and their animations
+// in the first places of the list, as far as the list goes, without playing
+// them: the next list is compared with these, and they are waited for.
 void DialogGUI::onReplyTaken(const Dialog::EntryReply &reply) {
     const size_t count = std::min(reply.animations.size(), _waitedParticipants.size());
-    for (size_t i = 0; i < count; ++i) {
-        _waitedParticipants[i] = reply.animations[i].participant;
+    std::map<std::string, int> animations;
+    for (size_t i = 0; i < _waitedParticipants.size(); ++i) {
+        if (i < count) {
+            _waitedParticipants[i] = reply.animations[i].participant;
+            animations[_waitedParticipants[i]] = reply.animations[i].animation;
+        } else if (auto previous = _previousAnimations.find(_waitedParticipants[i]); previous != _previousAnimations.end()) {
+            animations[_waitedParticipants[i]] = previous->second;
+        }
     }
+    _previousAnimations = std::move(animations);
 }
 
 // Only the creatures of the list count. KotOR waits while any of them plays a

@@ -5519,6 +5519,11 @@ static Variable StartNewModule(const std::vector<Variable> &args, const RoutineC
     } else {
         ctx.game.scheduleModuleTransitionWithMovies(moduleName, waypoint, std::move(movies));
     }
+    // During a conversation or the galaxy map's travel script the screen goes
+    // black at once.
+    if (ctx.game.isDialogUnderWay() || ctx.game.isTravelScriptRunning()) {
+        ctx.game.globalFade().request(GlobalFade::Direction::Out);
+    }
     return Variable::ofNull();
 }
 

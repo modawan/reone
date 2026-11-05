@@ -211,10 +211,19 @@ std::shared_ptr<Gff> scriptEventToGff(const SavedScriptEvent &event) {
         strings.push_back(Gff::Builder().type(kScriptEventParameterStructType).field(Gff::Field::newCExoString("Parameter", value)).build());
     for (const auto &value : event.objects)
         objects.push_back(Gff::Builder().type(kScriptEventParameterStructType).field(Gff::Field::newDword("Parameter", value.id)).build());
-    put(*result, Gff::Field::newList("IntList", makeIntList(event.integers)));
-    put(*result, Gff::Field::newList("FloatList", std::move(floats)));
-    put(*result, Gff::Field::newList("StringList", std::move(strings)));
-    put(*result, Gff::Field::newList("ObjectList", std::move(objects)));
+    // Only the parameter lists that hold something are written.
+    if (!event.integers.empty()) {
+        put(*result, Gff::Field::newList("IntList", makeIntList(event.integers)));
+    }
+    if (!floats.empty()) {
+        put(*result, Gff::Field::newList("FloatList", std::move(floats)));
+    }
+    if (!strings.empty()) {
+        put(*result, Gff::Field::newList("StringList", std::move(strings)));
+    }
+    if (!objects.empty()) {
+        put(*result, Gff::Field::newList("ObjectList", std::move(objects)));
+    }
     return result;
 }
 

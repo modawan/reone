@@ -8164,6 +8164,10 @@ bool Game::canOpenGalaxyMapFrom(Screen screen) {
     }
 }
 
+bool Game::isTravelScriptRunning() const {
+    return _galaxyMap && _galaxyMap->isRunningTravelScript();
+}
+
 void Game::openGalaxyMap(int initialPlanet) {
     if (!canOpenGalaxyMapFrom(_screen)) {
         return;
