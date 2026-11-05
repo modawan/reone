@@ -3213,10 +3213,8 @@ static Variable BeginConversation(const std::vector<Variable> &args, const Routi
     auto sResRef = getStringOrElse(args, 0, "");
     auto oObjectToDialog = getObjectOrNull(args, 1, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("BeginConversation");
+    return Variable::ofInt(ctx.game.beginConversation(getCallerOrNull(ctx), sResRef, oObjectToDialog) ? 1 : 0);
 }
 
 // The perception routines read the caller's last perception change.
@@ -7022,9 +7020,11 @@ static Variable GetIsLiveContentAvailable(const std::vector<Variable> &args, con
     throw RoutineNotImplementedException("GetIsLiveContentAvailable");
 }
 
-// No conversation counts as under way any longer, whether or not one is.
+// No conversation counts as under way any longer, whether or not one is, and
+// a request no script answered lets go of its admission.
 static Variable ResetDialogState(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
+    ctx.game.dropConversationRequest();
     ctx.game.setDialogUnderWay(false);
     return Variable::ofNull();
 }

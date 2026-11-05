@@ -1777,8 +1777,10 @@ bool Game::loadPreparedModule(
                 render();
 
                 _services.scene.graphs.get(kSceneMain).clear();
-                // A module starts with no conversation under way.
+                // A module starts with no conversation under way or asked for.
                 _dialogUnderWay = false;
+                dropConversationRequest();
+                _conversationRequestAdmitted = false;
 
                 const auto &ifo = prepared.ifo;
                 ModuleLoadContext context = prepared.context;
@@ -8734,13 +8736,13 @@ void Game::startCharacterGeneration() {
     });
 }
 
-void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
+bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                        GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
     if (_captureHUDPresentation) {
-        return;
+        return false;
     }
     if (admission && !_globalFade.isCurrentDialog(admission)) {
-        return;
+        return false;
     }
     std::shared_ptr<resource::Dialog> dialog;
     try {
@@ -8751,13 +8753,13 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
         warn("Game: conversation load failed: " + resRef + ": " + e.what());
         _globalFade.finishDialog(admission);
         _dialogUnderWay = false;
-        return;
+        return false;
     }
     if (!dialog) {
         warn("Game: conversation not found or invalid: " + resRef);
         _globalFade.finishDialog(admission);
         _dialogUnderWay = false;
-        return;
+        return false;
     }
 
     bool computerConversation = dialog->conversationType == ConversationType::Computer;
@@ -8765,7 +8767,7 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     if (!conversation) {
         _globalFade.finishDialog(admission);
         _dialogUnderWay = false;
-        return;
+        return false;
     }
 
     stopMovement();
@@ -8790,6 +8792,81 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
     _conversation->start(dialog, owner, std::move(admission), listener);
+    return true;
+}
+
+static constexpr int kConversationEventNumber = static_cast<int>(SavedSignalEventType::Conversation);
+
+// The request carries -1 for its count and pattern number, its privacy and
+// start range, and the dialog it names.
+void Game::requestConversation(const Object &speaker, Object &target, const std::string &resRef,
+                               bool privateConversation, bool ignoreStartRange,
+                               GlobalFade::DialogTicket admission) {
+    dropConversationRequest();
+    _conversationRequest = std::move(admission);
+    queueScriptEvent(target, speaker,
+                     Event(kConversationEventNumber, {-1, -1, privateConversation ? 1 : 0, ignoreStartRange ? 1 : 0},
+                           {}, {resRef}, {}));
+}
+
+void Game::dropConversationRequest() {
+    _globalFade.finishDialog(_conversationRequest);
+    _conversationRequest.reset();
+}
+
+bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string resRef, std::shared_ptr<Object> target) {
+    const bool requested = _conversationRequestAdmitted;
+    _conversationRequestAdmitted = false;
+    auto admission = std::move(_conversationRequest);
+    _conversationRequest.reset();
+    if (self && (!_dialogUnderWay || requested)) {
+        if (!target) {
+            target = getObjectById(self->lastSpeaker());
+        }
+    } else {
+        target.reset();
+    }
+    bool started = false;
+    if (target) {
+        // Each of the two stops what it was doing, unless it is the player's,
+        // and shows its pause; it faces as it did should nothing start.
+        const auto player = _party.getLeader();
+        std::vector<std::pair<std::shared_ptr<Creature>, float>> facings;
+        for (const auto &object : {target, self}) {
+            auto creature = std::dynamic_pointer_cast<Creature>(object);
+            if (!creature) {
+                continue;
+            }
+            if (creature != player) {
+                creature->clearAllActions(true);
+            }
+            facings.emplace_back(creature, creature->getFacing());
+            creature->showDialogPause();
+        }
+        if (resRef.empty()) {
+            resRef = self->lastConversation();
+        }
+        // The player's partner owns the conversation, and so does the one a
+        // party member speaks to.
+        auto selfCreature = std::dynamic_pointer_cast<Creature>(self);
+        const bool selfListens = target != player &&
+                                 (self == player || (selfCreature && _party.isMember(*selfCreature)));
+        const auto &owner = selfListens ? target : self;
+        const auto &listener = selfListens ? self : target;
+        const std::string dialog = resRef.empty() ? owner->conversation() : resRef;
+        started = !dialog.empty() && startDialog(owner, dialog, admission, listener);
+        if (!started) {
+            for (auto &[creature, facing] : facings) {
+                creature->dropOrientationLock();
+                creature->setFacing(facing);
+            }
+        }
+    }
+    if (!started) {
+        _globalFade.finishDialog(admission);
+        _dialogUnderWay = false;
+    }
+    return started;
 }
 
 void Game::resumeConversation() {

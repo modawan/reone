@@ -605,9 +605,33 @@ public:
      * from the main menu does.
      */
     void fadeOutMenuMusic();
-    void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
+    /** Whether the conversation started: false when it can't be loaded or shown. */
+    bool startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                      GlobalFade::DialogTicket admission = {},
                      const std::shared_ptr<Object> &listener = nullptr);
+    /**
+     * A request to talk from \p speaker reaches \p target as a conversation
+     * event naming \p resRef, whose conversation script decides whether a
+     * conversation begins (beginConversation). The request keeps
+     * \p admission until then.
+     */
+    void requestConversation(const Object &speaker, Object &target, const std::string &resRef,
+                             bool privateConversation, bool ignoreStartRange,
+                             GlobalFade::DialogTicket admission);
+    /** A conversation event lets the next conversation begun start while one is under way. */
+    void admitConversationRequest() { _conversationRequestAdmitted = true; }
+    /** The admission of a request no script has answered is let go. */
+    void dropConversationRequest();
+    /**
+     * \p self begins a conversation with \p target, or with the last one who
+     * spoke to it, from \p resRef, else the dialog its last conversation event
+     * named, else the owner's own: the player's partner owns it, as does the
+     * one a party member speaks to, and \p self otherwise. Refused while a
+     * conversation is under way, unless a conversation event came first.
+     *
+     * @return whether the conversation started
+     */
+    bool beginConversation(const std::shared_ptr<Object> &self, std::string resRef, std::shared_ptr<Object> target);
 
     GlobalFade &globalFade() { return _globalFade; }
     const GlobalFade &globalFade() const { return _globalFade; }
@@ -1768,6 +1792,10 @@ private:
     bool _leaderAnswersInDialog {false};
     /** See isDialogUnderWay. */
     bool _dialogUnderWay {false};
+    /** The admission of the request to talk a conversation script has still to answer. */
+    GlobalFade::DialogTicket _conversationRequest;
+    /** See admitConversationRequest. */
+    bool _conversationRequestAdmitted {false};
     std::vector<HostileHilite> _hostileHilites;
 
     void showTarget(const std::shared_ptr<Object> &object, bool look, bool camera);

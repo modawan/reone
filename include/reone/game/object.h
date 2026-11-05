@@ -607,12 +607,14 @@ public:
     struct ConversationEvent {
         /** The one who spoke. */
         uint32_t speaker {script::kObjectInvalid};
-        /** The number of the pattern that matched; 0 for a request to talk. */
+        /** The number of the pattern that matched; -1 for a request to talk. */
         int32_t patternNumber {0};
         /** The pieces of the match, after the whole string. */
         std::vector<std::string> matchedPieces;
         /** The dialog a request to talk names. */
         std::string conversation;
+        /** A request to talk asks for a private conversation. */
+        bool privateConversation {false};
     };
 
     /** A pattern the object listens for and the number it answers with. */
@@ -643,11 +645,16 @@ public:
     uint32_t lastSpeaker() const { return _lastSpeaker; }
     int32_t listenPatternNumber() const { return _listenPatternNumber; }
     const std::vector<std::string> &matchedSubstrings() const { return _matchedSubstrings; }
+    /** The dialog the last conversation event named. */
+    const std::string &lastConversation() const { return _lastConversation; }
+    /** Whether the last conversation event asked for a private conversation. */
+    bool isPrivateConversation() const { return _privateConversation; }
     /**
      * A conversation event: a shout the object heard, or a request to talk.
-     * The speaker becomes the last speaker, the event's pattern number and
-     * pieces the object's own, and its dialog the game's last conversation;
-     * then its conversation script runs.
+     * The speaker becomes the last speaker, the event's pattern number,
+     * pieces, dialog and privacy the object's own, and its dialog the game's
+     * last conversation; the next conversation begun may start even while
+     * one is under way. Then its conversation script runs.
      */
     void receiveConversationEvent(ConversationEvent event);
 
@@ -852,6 +859,8 @@ protected:
     uint32_t _lastSpeaker {script::kObjectInvalid};
     int32_t _listenPatternNumber {0};
     std::vector<std::string> _matchedSubstrings;
+    std::string _lastConversation;
+    bool _privateConversation {false};
 
     /** Runs the object's conversation script, as a conversation event does. */
     virtual void runConversationScript() {}

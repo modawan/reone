@@ -6921,6 +6921,15 @@ protected:
             .Times(AnyNumber()).WillRepeatedly(Return(Gff::Builder().build()));
         EXPECT_CALL(static_cast<resource::MockDialogs &>(fixture->engine.services().resource.dialogs), get("fade_admission"))
             .Times(AnyNumber()).WillRepeatedly(Return(dialog));
+        // The one asked to talk answers through its conversation script,
+        // which begins the conversation: BeginConversation("", OBJECT_INVALID).
+        auto answer = std::make_shared<script::ScriptProgram>("k_hen_dialogue01");
+        answer->add(script::Instruction::newCONSTO(script::kObjectInvalid));
+        answer->add(script::Instruction::newCONSTS(""));
+        answer->add(script::Instruction::newACTION(255, 2));
+        answer->add(script::Instruction(script::InstructionType::RETN));
+        EXPECT_CALL(fixture->engine.resourceModule().scripts(), get("k_hen_dialogue01"))
+            .Times(AnyNumber()).WillRepeatedly(Return(answer));
         game.openInGame();
         game.globalFade().request(GlobalFade::Direction::Out);
         game.globalFade().holdForDialog();
