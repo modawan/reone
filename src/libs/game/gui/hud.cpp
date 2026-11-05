@@ -403,8 +403,6 @@ void HUD::onGUILoaded() {
     _controls.LBL_ITEMLOST->setVisible(false);
     _controls.LBL_LIGHTSHIFT->setVisible(false);
     _controls.LBL_MAP->setVisible(false);
-    _controls.LBL_MOULDING1->setVisible(false);
-    _controls.LBL_MOULDING3->setVisible(false);
     _controls.LBL_NAME->setVisible(false);
     _controls.LBL_NAMEBG->setVisible(false);
     _controls.LBL_PLOTXP->setVisible(false);
@@ -412,7 +410,10 @@ void HUD::onGUILoaded() {
     _controls.LBL_ARROW->setVisible(false);
     _controls.BTN_TARGET0->setVisible(false);
 
+    // KotOR shows its three mouldings; TSL only the second.
     if (_game.isTSL()) {
+        _controls.LBL_MOULDING1->setVisible(false);
+        _controls.LBL_MOULDING3->setVisible(false);
         // The weapon swap queues through the leader's combat round.
         _controls.BTN_SWAPWEAPONS->setOnClick([this]() {
             if (auto leader = _game.party().getLeader()) {
@@ -435,7 +436,6 @@ void HUD::onGUILoaded() {
     } else {
         _controls.LBL_COMBATBG1->setVisible(false);
         _controls.LBL_COMBATBG2->setVisible(false);
-        _controls.LBL_MOULDING2->setVisible(false);
     }
 
     _controls.BTN_EQU->setOnClick([this]() {

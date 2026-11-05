@@ -1120,9 +1120,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newFloat("YOrientation", direction.y));
     put(record, Gff::Field::newFloat("ZOrientation", direction.z));
     // A creature made in play, such as a new player character, has no record
-    // or template to give its name back.
-    put(record, Gff::Field::newCExoLocString("FirstName", creature._firstName.id(), creature._firstName.str()));
-    put(record, Gff::Field::newCExoLocString("LastName", creature._lastName.id(), creature._lastName.str()));
+    // or template to give its name back. One that holds no name keeps its
+    // record's.
+    if (!creature._firstName.str().empty() || !creature._lastName.str().empty()) {
+        put(record, Gff::Field::newCExoLocString("FirstName", creature._firstName.id(), creature._firstName.str()));
+        put(record, Gff::Field::newCExoLocString("LastName", creature._lastName.id(), creature._lastName.str()));
+    }
     put(record, Gff::Field::newByte("IsPC", creature._isPC));
     put(record, Gff::Field::newInt("PlayerCreated", creature._playerCreated));
     put(record, Gff::Field::newByte("StealthMode", creature._stealthMode));
