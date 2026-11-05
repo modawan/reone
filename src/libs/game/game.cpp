@@ -5234,6 +5234,54 @@ static constexpr uint32_t kCalendarHoursInDay = 24;
 static constexpr uint32_t kCalendarLastYear = 32767;
 static constexpr uint32_t kCalendarYearPastLast = 1340;
 
+void Game::advanceToTime(int hours, int minutes, int seconds, int milliseconds) {
+    if ((hours | minutes | seconds | milliseconds) < 0) {
+        return;
+    }
+    // The fields carry up from the milliseconds; the hours carry whole days.
+    const uint32_t totalSeconds = static_cast<uint32_t>(milliseconds) / 1000 + seconds;
+    const uint32_t totalMinutes = totalSeconds / 60 + minutes;
+    const int totalHours = static_cast<int>(totalMinutes / 60 + hours);
+    const uint32_t second = static_cast<int>(totalSeconds) % 60;
+    const uint32_t minute = static_cast<int>(totalMinutes) % 60;
+    const uint32_t hour = totalHours % 24;
+    const int millisecond = milliseconds % 1000;
+    uint32_t daysCarried = static_cast<uint32_t>(totalHours) / 24;
+
+    const uint32_t mph = _minutesPerHour == 0 ? 5 : _minutesPerHour;
+    const uint32_t timeOfDay = (hour > 23 ? 23 * 60000 : hour * 60000) * mph +
+                               (minute > 59 ? 59 * 60000 : minute * 60000) +
+                               (second > 59 ? 56000 : second * 1000) + millisecond;
+
+    const uint32_t day = worldTimeDay();
+    uint32_t dayOfMonth = day % kCalendarDaysInMonth + 1;
+    uint32_t month = day / kCalendarDaysInMonth % kCalendarMonthsInYear + 1;
+    uint32_t year = day / (kCalendarDaysInMonth * kCalendarMonthsInYear);
+    if (year > kCalendarLastYear) {
+        year = kCalendarYearPastLast;
+    }
+
+    // A time of day already past today is tomorrow's.
+    if (daysCarried == 0 && timeOfDay < millisecondsPerWorldDay() && worldTimeOfDay() > timeOfDay) {
+        daysCarried = 1;
+    }
+    if (daysCarried != 0) {
+        const uint32_t days = daysCarried + dayOfMonth;
+        month += days / (kCalendarDaysInMonth + 1);
+        year += month / (kCalendarMonthsInYear + 1);
+        if (year > 32000) {
+            return;
+        }
+        dayOfMonth = days % (kCalendarDaysInMonth + 1);
+        month %= kCalendarMonthsInYear + 1;
+    }
+
+    uint32_t calendarDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
+    calendarDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
+    calendarDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
+    _worldTimeMilliseconds = static_cast<uint64_t>(calendarDay) * millisecondsPerWorldDay() + timeOfDay;
+}
+
 // The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
 static constexpr int kLowestNeutralGoodEvil = 41;
 static constexpr int kLowestGoodGoodEvil = 60;

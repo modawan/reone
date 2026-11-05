@@ -1344,6 +1344,11 @@ public:
     uint32_t worldTimeHour() const {
         return worldTimeOfDay() / (millisecondsPerWorldDay() / 24u);
     }
+    /**
+     * SetTime: the world clock moves on to the time of day, into the next day
+     * when that time is already past. Any negative field leaves it alone.
+     */
+    void advanceToTime(int hours, int minutes, int seconds, int milliseconds);
     /** World milliseconds since a calendar day and time; none for a moment still ahead. */
     uint64_t worldTimeSince(uint32_t day, uint32_t time) const {
         const uint64_t then = static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;

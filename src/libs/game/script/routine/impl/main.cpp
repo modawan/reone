@@ -399,7 +399,8 @@ static Variable SetTime(const std::vector<Variable> &args, const RoutineContext 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetTime");
+    ctx.game.advanceToTime(nHour, nMinute, nSecond, nMillisecond);
+    return Variable::ofNull();
 }
 
 static Variable SetPartyLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4524,24 +4525,58 @@ static Variable ExploreAreaForPlayer(const std::vector<Variable> &args, const Ro
     throw RoutineNotImplementedException("ExploreAreaForPlayer");
 }
 
+enum class TimeOfDay {
+    None,
+    Day,
+    Night,
+    Dawn,
+    Dusk
+};
+
+// The part of the day the module's dawn and dusk hours put the current hour
+// in: the dawn and dusk hours are their own, and the hours between them are
+// day or night. A module whose dawn and dusk are the same hour is always day.
+static TimeOfDay getTimeOfDay(const RoutineContext &ctx) {
+    auto module = ctx.game.module();
+    if (!module) {
+        return TimeOfDay::None;
+    }
+    const int dawn = module->info().dawnHour;
+    const int dusk = module->info().duskHour;
+    const int hour = static_cast<int>(ctx.game.worldTimeHour());
+    if (dawn == dusk) {
+        return TimeOfDay::Day;
+    }
+    if (hour == dawn) {
+        return TimeOfDay::Dawn;
+    }
+    if (hour == dusk) {
+        return TimeOfDay::Dusk;
+    }
+    if (dawn < dusk) {
+        return hour >= dawn && hour <= dusk ? TimeOfDay::Day : TimeOfDay::Night;
+    }
+    return hour >= dusk && hour <= dawn ? TimeOfDay::Night : TimeOfDay::Day;
+}
+
 static Variable GetIsDay(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetIsDay");
+    return Variable::ofInt(getTimeOfDay(ctx) == TimeOfDay::Day ? 1 : 0);
 }
 
 static Variable GetIsNight(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetIsNight");
+    return Variable::ofInt(getTimeOfDay(ctx) == TimeOfDay::Night ? 1 : 0);
 }
 
 static Variable GetIsDawn(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetIsDawn");
+    return Variable::ofInt(getTimeOfDay(ctx) == TimeOfDay::Dawn ? 1 : 0);
 }
 
 static Variable GetIsDusk(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetIsDusk");
+    return Variable::ofInt(getTimeOfDay(ctx) == TimeOfDay::Dusk ? 1 : 0);
 }
 
 static Variable GetIsEncounterCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
