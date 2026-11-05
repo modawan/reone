@@ -9615,7 +9615,7 @@ void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
 
 void Game::consoleSelectLeader(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
-    getConsoleArea()->selectObject(getConsoleLeader());
+    getConsoleArea()->selectObject(getConsoleLeader(), /*force=*/true);
 }
 
 void Game::consoleSetFaction(const ConsoleArgs &args) {
