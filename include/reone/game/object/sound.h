@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../object.h"
 #include "reone/resource/strings.h"
 
@@ -74,6 +76,21 @@ public:
     void setFixedVariance(float variance) { _fixedVariance = variance; }
     void setPitchVariation(float variation) { _pitchVariation = variation; }
 
+    /** Sets the volume, clamped to 0..127; a clip already playing follows it. */
+    void setVolume(int volume);
+
+    /**
+     * Fades the sound out over \p seconds, then stops it, as
+     * SoundObjectFadeAndStop does. A sound that is not playing, or a fade of
+     * no length, stops at once. Stopping the sound ends the fade.
+     */
+    void fadeAndStop(float seconds);
+    bool isFading() const { return _fade.has_value(); }
+    /** How far the fade has brought the volume down: 1 before a fade, towards 0 during one. */
+    float fadeScale() const;
+    /** Moves a fade on by \p dt seconds, stopping the sound when it ends. */
+    void advanceFade(float dt);
+
 private:
     friend class ModuleSnapshotBuilder;
     // Serializable
@@ -104,6 +121,17 @@ private:
     int _priority {0};
     int _soundIdx {-1};
     float _timeout {0.0f};
+
+    struct Fade {
+        float duration {0.0f};
+        float remaining {0.0f};
+    };
+    std::optional<Fade> _fade;
+    // The gain the clip on show was started with, to scale it from.
+    float _playedGain {0.0f};
+
+    float currentGain() const;
+    void applyGainToPlayingClip();
     std::vector<std::string> _sounds;
 
     void deserializeAll(

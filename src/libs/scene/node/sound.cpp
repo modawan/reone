@@ -57,6 +57,12 @@ void SoundSceneNode::stopSound() {
     }
 }
 
+void SoundSceneNode::setGainScale(float scale) {
+    if (_source) {
+        _source->setGainScale(scale);
+    }
+}
+
 void SoundSceneNode::setAudible(bool audible) {
     if (_audible == audible) {
         return;
