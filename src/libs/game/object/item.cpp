@@ -733,6 +733,19 @@ void Item::setStackSize(int stackSize) {
     _stackSize = stackSize;
 }
 
+void Item::setModelVariation(int variation) {
+    _modelVariation = static_cast<uint8_t>(variation);
+    // Body items key their icon on TextureVar, which this leaves alone.
+    if (isEquippable(InventorySlots::body) || _itemClass.empty()) {
+        return;
+    }
+    auto icon = _services.resource.textures.get(
+        str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation), TextureUsage::GUI);
+    if (icon) {
+        _icon = std::move(icon);
+    }
+}
+
 void Item::setIdentified(bool value) {
     _identified = value;
 }

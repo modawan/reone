@@ -1454,6 +1454,8 @@ public:
     /** Validate an equipment commit without changing ownership. */
     bool canEquip(int slot, const std::shared_ptr<Item> &item) const;
     bool equip(int slot, const std::shared_ptr<Item> &item);
+    /** Rebuild the model from the equipment, as after an item worn changes its look. */
+    void updateEquipmentPresentation();
     /** Validate an equipment replacement without changing ownership. */
     bool canReplaceEquipment(
         int slot,
@@ -2939,7 +2941,6 @@ private:
     // Live equipment uses the Disguise effect provider and restores the original
     // appearance when none remains. Updates _appearance only; callers rebuild the model.
     void updateDisguise();
-    void updateEquipmentPresentation();
     void updateCombat(float dt);
     /** Forgets an incoming attacker that is gone or dead, and the round's attackers. */
     void releaseRoundAttackers();

@@ -348,6 +348,10 @@ public:
 
     void setDropable(bool dropable);
     void setStackSize(int size);
+    /** Install and remove upgrades: bit n is the upgrade of upgrade.2da row n. */
+    void setUpgrades(uint32_t upgrades) { _upgrades = upgrades; }
+    /** Change the model variation, and the inventory icon that follows it. */
+    void setModelVariation(int variation);
     void setIdentified(bool value);
     void setEquipped(bool equipped);
 
