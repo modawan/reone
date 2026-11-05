@@ -6727,15 +6727,16 @@ static Variable GetNextAttacker(const std::vector<Variable> &args, const Routine
 
 static Variable SetFormation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oAnchor = getObject(args, 0, ctx);
-    auto oCreature = getObject(args, 1, ctx);
+    auto oAnchor = getObjectOrNull(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 1, ctx);
     auto nFormationPattern = getInt(args, 2);
     auto nPosition = getInt(args, 3);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("SetFormation");
+    // Execute: a creature or anchor that does not exist moves no one.
+    if (oAnchor && creature) {
+        creature->setFormation(*oAnchor, nFormationPattern, nPosition);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetForcePowerUnsuccessful(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7091,12 +7092,14 @@ static Variable CreateItemOnFloor(const std::vector<Variable> &args, const Routi
     // Load
     auto sTemplate = getString(args, 0);
     auto lLocation = getLocationArgument(args, 1);
-    auto bUseAppearAnimation = getIntOrElse(args, 2, 0);
 
     // Transform
+    auto tmplt = boost::to_lower_copy(sTemplate);
 
-    // Execute
-    throw RoutineNotImplementedException("CreateItemOnFloor");
+    // Execute: the item lies where CreateObject would put it; one whose
+    // template is missing is created empty.
+    auto item = ctx.game.module()->area()->createObject(ObjectType::Item, tmplt, lLocation, false);
+    return Variable::ofObject(getObjectIdOrInvalid(item));
 }
 
 static Variable SetAvailableNPCId(const std::vector<Variable> &args, const RoutineContext &ctx) {

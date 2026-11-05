@@ -32,6 +32,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
+#include "reone/game/action/changefacing.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/switchweapons.h"
@@ -5668,6 +5669,25 @@ void Creature::runBlockedScript(uint32_t blockingDoorId) {
         return;
     }
     _game.scriptRunner().run(_onBlocked, _id);
+}
+
+void Creature::setFormation(const Object &anchor, int formation, int slot) {
+    auto formations = _services.resource.twoDas.get("formations");
+    if (!formations || formation < 0 || formation >= formations->getRowCount()) {
+        return;
+    }
+    auto angle = formations->getIntOpt(formation, "angle_" + std::to_string(slot));
+    auto distance = formations->getIntOpt(formation, "distance_" + std::to_string(slot));
+    if (!angle || !distance) {
+        return;
+    }
+    const float facing = anchor.getFacing();
+    const float slotAngle = glm::radians(static_cast<float>(*angle)) + facing;
+    const glm::vec3 point = anchor.position() + static_cast<float>(*distance) * glm::vec3(std::cos(slotAngle), std::sin(slotAngle), 0.0f);
+    const glm::vec3 ahead(-std::sin(facing), std::cos(facing), 0.0f);
+    auto move = _game.newAction<MoveToPointAction>(point, true, 0.0f);
+    addAction(move);
+    addAction(_game.newAction<ChangeFacingAction>(point + ahead), actionGroup(*move));
 }
 
 void Creature::refreshCombatDecisionTimer() {

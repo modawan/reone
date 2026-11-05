@@ -884,6 +884,13 @@ public:
      */
     bool isRunning() const { return _running; }
     void setRunning(bool running) { _running = running; }
+    /**
+     * Runs to the slot of a formation around the anchor, then turns the way
+     * the anchor faces. formations.2da gives each slot an angle in degrees,
+     * anticlockwise from the anchor's right, and a distance; a slot the table
+     * does not give moves no one.
+     */
+    void setFormation(const Object &anchor, int formation, int slot);
     float runSpeed() const;
     float personalSpace() const { return _personalSpace; }
     float creaturePersonalSpace() const { return _creaturePersonalSpace; }
