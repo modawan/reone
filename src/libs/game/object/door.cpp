@@ -424,6 +424,18 @@ void Door::close() {
     }
 }
 
+void Door::shutAtOnce() {
+    if (_state == DoorState::Closed && _transition == DoorTransition::None) {
+        return;
+    }
+    _state = DoorState::Closed;
+    _open = false;
+    enableStateWalkmeshes();
+    if (!isClosing()) {
+        beginTransition(DoorTransition::Closing);
+    }
+}
+
 void Door::onClosed(uint32_t closerId) {
     if (_onClosed.empty()) {
         return;

@@ -77,6 +77,11 @@ public:
     void open(std::optional<std::reference_wrapper<const Object>> opener = std::nullopt);
     /** Swings the door shut, and the door it is linked to with it. */
     void close();
+    /**
+     * Shuts the door alone: it blocks the doorway at once, moving no one out
+     * of it, while its leaf swings shut.
+     */
+    void shutAtOnce();
     /** Runs the script for being closed, with the closer as the last to close the door. */
     void onClosed(uint32_t closerId);
 

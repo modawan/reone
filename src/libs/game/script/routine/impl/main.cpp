@@ -7530,12 +7530,13 @@ static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineC
 
 static Variable YavinHackDoorClose(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto oDoor = getObjectOrNull(args, 0, ctx);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("YavinHackDoorClose");
+    // Execute: the door alone shuts at once, and no closed script runs.
+    if (auto door = oDoor ? dyn_cast<Door>(oDoor) : nullptr) {
+        door->shutAtOnce();
+    }
+    return Variable::ofNull();
 }
 
 static Variable IsStealthed(const std::vector<Variable> &args, const RoutineContext &ctx) {
