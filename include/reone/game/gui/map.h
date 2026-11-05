@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/game/mapexploration.h"
 #include "reone/graphics/texture.h"
 
 #include "reone/resource/parser/gff/are.h"
@@ -68,15 +69,16 @@ private:
     Game &_game;
     ServicesView &_services;
 
-    int _northAxis {0};
-    glm::vec2 _worldPoint1 {0.0f};
-    glm::vec2 _worldPoint2 {0.0f};
-    glm::vec2 _mapPoint1 {0.0f};
-    glm::vec2 _mapPoint2 {0.0f};
+    resource::generated::ARE_Map _properties;
 
     std::shared_ptr<graphics::Texture> _areaTexture;
     std::shared_ptr<graphics::Texture> _arrowTexture;
     std::shared_ptr<graphics::Texture> _noteTexture;
+
+    /** One texel per exploration cell: opaque black where unexplored, clear where explored. */
+    std::shared_ptr<graphics::Texture> _unexploredTexture;
+    /** The revision of the exploration grid last uploaded to the texture; 0 for none. */
+    uint64_t _unexploredRevision {0};
 
     std::string _arrowResRef;
     std::shared_ptr<Waypoint> _selectedNote;
@@ -85,6 +87,9 @@ private:
     void loadTextures(const std::string &area);
 
     void renderArea(Mode mode, const glm::vec4 &bounds, float scale);
+    /** Covers the unexplored cells of the logical map canvas drawn at topLeft with the given size. */
+    void renderUnexplored(const glm::vec2 &topLeft, const glm::vec2 &size);
+    void refreshUnexploredTexture(const MapExploration &exploration);
     void renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha);
     void renderNotes(Mode mode, const glm::vec4 &bounds, float scale);
 

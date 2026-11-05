@@ -113,6 +113,10 @@ static const std::set<uint32_t> kEverySurface = [] {
     return materials;
 }();
 
+// reone's choice, as the game data does not give it: walking reveals the map
+// cells whose centres are within this many cells of the party leader's cell.
+static constexpr int kWalkingRevealRadius = 2;
+
 static constexpr float kMaxCollisionDistance = 8.0f;
 static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxCollisionDistance;
 static constexpr float kCreatureCollisionEpsilon = 0.01f;
@@ -255,6 +259,7 @@ void Area::load(
     _transitionPendingNextId = are.getUint("TransPendNextID");
     _transitionPendingCurrentId = are.getUint("TransPendCurrID");
     loadARE(areParsed);
+    loadMap(areParsed.Map, are);
     loadLYT();
     loadGIT(git, identityContext);
     loadVIS();
@@ -283,7 +288,6 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadCameraStyle(are);
     loadAmbientColor(are);
     loadScripts(are);
-    loadMap(are);
     loadStealthXP(are);
     loadHearing(are);
     loadGrass(are);
@@ -330,9 +334,25 @@ void Area::loadScripts(const resource::generated::ARE &are) {
     _onUserDefined = are.OnUserDefined;
 }
 
-void Area::loadMap(const resource::generated::ARE &are) {
-    _map = are.Map;
+void Area::loadMap(const resource::generated::ARE_Map &map, const Gff &are) {
+    loadMapExploration(map, are);
     _game.map().load(_name, _map);
+}
+
+void Area::loadMapExploration(const resource::generated::ARE_Map &map, const Gff &are) {
+    _map = map;
+    _lastExploredCell.reset();
+    // A map that cannot place the party gets no grid, so nothing is hidden
+    // and nothing warns again every frame.
+    if (!isValidMapNorthAxis(_map.NorthAxis)) {
+        warn("Area " + _name + ": invalid map north axis: " + std::to_string(_map.NorthAxis));
+        _mapExploration = MapExploration();
+        return;
+    }
+    _mapExploration = MapExploration::forMapResX(_map.MapResX, _game.isTSL());
+    // The explored cells are kept in the area's own record, and only fit the
+    // grid its MapResX gives.
+    _mapExploration.loadGff(are);
 }
 
 void Area::setPlayerRestrictMode(bool value) {
@@ -2584,6 +2604,7 @@ void Area::update(float dt) {
     doDestroyObjects();
     updateReleasedPresentation(dt);
     updateObjectSelection();
+    updateMapExploration();
 
     if (_game.isPaused()) {
         return;
@@ -2616,6 +2637,38 @@ void Area::update(float dt) {
         return;
     }
     updateLeaderTriggerOccupancy();
+}
+
+void Area::updateMapExploration() {
+    // reone's choice: the map is not revealed while the game is paused, and
+    // is during conversations and cutscenes, where the leader is moved by
+    // script if at all.
+    if (_mapExploration.empty() || _game.isPaused()) {
+        return;
+    }
+    auto leader = _game.party().getLeader();
+    if (!leader) {
+        return;
+    }
+    glm::vec2 mapPos(worldToMapPosition(_map, glm::vec2(leader->position())));
+    if (!std::isfinite(mapPos.x) || !std::isfinite(mapPos.y)) {
+        return;
+    }
+    // Only a move into another cell can reveal anything new.
+    glm::ivec2 cell(_mapExploration.cellAt(mapPos));
+    if (_lastExploredCell == cell) {
+        return;
+    }
+    _lastExploredCell = cell;
+    _mapExploration.revealAround(cell, kWalkingRevealRadius);
+}
+
+void Area::revealMap() {
+    _mapExploration.revealAll();
+}
+
+void Area::revealMap(const glm::vec3 &worldPoint, int radius) {
+    _mapExploration.revealAround(worldToMapPosition(_map, glm::vec2(worldPoint)), radius);
 }
 
 void Area::updateHeartbeat() {

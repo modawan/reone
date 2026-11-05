@@ -22,6 +22,7 @@
 #include <functional>
 #include <optional>
 
+#include "reone/game/mapexploration.h"
 #include "reone/game/minigame.h"
 #include "reone/game/transitioncandidate.h"
 #include "reone/graphics/aabb.h"
@@ -556,6 +557,18 @@ public:
 
     void setUnescapable(bool value);
 
+    // Map exploration
+
+    const MapExploration &mapExploration() const { return _mapExploration; }
+
+    /** Reveals the whole of the area's map. */
+    void revealMap();
+
+    /** Reveals the cells of the area's map within radius grid cells of a world point. */
+    void revealMap(const glm::vec3 &worldPoint, int radius);
+
+    // END Map exploration
+
     // Music and ambient sound
     //
     // The area owns these settings and tells the area music player of each
@@ -801,6 +814,9 @@ private:
     Pathfinder _pathfinder;
     std::string _localizedName;
     resource::generated::ARE_Map _map;
+    MapExploration _mapExploration;
+    /** The grid cell the party leader was last revealed around, if any. */
+    std::optional<glm::ivec2> _lastExploredCell;
     RoomMap _rooms;
     /**
      * Room lookup is first walkable hit in LYT order, not nearest
@@ -1058,6 +1074,9 @@ private:
     // left to movement-based firing to avoid spawn bounce.
     void updateLeaderTriggerOccupancy();
 
+    /** Reveals the map around the party leader when it has moved into another grid cell. */
+    void updateMapExploration();
+
     // Loading ARE
 
     void loadARE(const resource::generated::ARE &are);
@@ -1065,7 +1084,12 @@ private:
     void loadCameraStyle(const resource::generated::ARE &are);
     void loadAmbientColor(const resource::generated::ARE &are);
     void loadScripts(const resource::generated::ARE &are);
-    void loadMap(const resource::generated::ARE &are);
+    void loadMap(const resource::generated::ARE_Map &map, const resource::Gff &are);
+    /**
+     * The part of loadMap that needs no map textures: the map properties, the
+     * exploration grid they size and the explored cells the area record keeps.
+     */
+    void loadMapExploration(const resource::generated::ARE_Map &map, const resource::Gff &are);
     void loadStealthXP(const resource::generated::ARE &are);
     void loadHearing(const resource::generated::ARE &are);
     void loadGrass(const resource::generated::ARE &are);

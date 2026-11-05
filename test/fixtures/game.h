@@ -41,6 +41,7 @@
 #include "reone/game/surfaces.h"
 #include "reone/game/types.h"
 #include "reone/game/visualeffects.h"
+#include "reone/resource/parser/gff/are.h"
 #include "reone/system/exception/notimplemented.h"
 
 namespace reone {
@@ -269,6 +270,13 @@ public:
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    // Area::loadMapExploration: the part of Area::load that sizes the map
+    // grid and restores its explored cells, without the map screen textures.
+    static void loadAreaMapExploration(
+        Area &area,
+        const resource::generated::ARE_Map &map,
+        const resource::Gff &are);
+    static void updateMapExploration(Area &area);
     static void prepareFadeArrival(Game &game);
     static void cacheActiveModule(Game &game, std::string name);
     static std::pair<glm::vec3, float> resolveModuleEntry(

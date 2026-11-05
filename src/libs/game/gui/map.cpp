@@ -26,7 +26,6 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/provider/textures.h"
-#include "reone/system/logutil.h"
 
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -38,9 +37,6 @@ namespace game {
 static constexpr int kArrowSize = 32;
 static constexpr int kMapNoteSize = 16;
 static constexpr float kSelectedMapNoteScale = 1.5f;
-static constexpr float kKotorMapWidth = 440.0f;
-static constexpr float kTSLMapWidth = 512.0f;
-static constexpr float kMapHeight = 256.0f;
 
 Map::Map(Game &game, ServicesView &services) :
     _game(game),
@@ -60,14 +56,12 @@ void Map::load(const std::string &area, const resource::generated::ARE_Map &map)
 void Map::retireRuntimeSession() {
     _areaTexture.reset();
     _selectedNote.reset();
+    _unexploredTexture.reset();
+    _unexploredRevision = 0;
 }
 
 void Map::loadProperties(const resource::generated::ARE_Map &map) {
-    _northAxis = map.NorthAxis;
-    _worldPoint1 = glm::vec2(map.WorldPt1X, map.WorldPt1Y);
-    _worldPoint2 = glm::vec2(map.WorldPt2X, map.WorldPt2Y);
-    _mapPoint1 = glm::vec2(map.MapPt1X, map.MapPt1Y);
-    _mapPoint2 = glm::vec2(map.MapPt2X, map.MapPt2Y);
+    _properties = map;
 }
 
 void Map::loadTextures(const std::string &area) {
@@ -88,6 +82,7 @@ void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingA
     }
     _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &mode, &bounds, scale, pulsingAlpha]() {
         renderArea(mode, bounds, scale);
+        // Drawn over the unexplored cells too, which is reone's choice.
         renderNotes(mode, bounds, scale);
         renderPartyLeader(mode, bounds, scale, pulsingAlpha);
     });
@@ -131,6 +126,9 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
         glm::ivec4 scissorBounds(bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
         _services.graphics.context.withScissorTest(scissorBounds, [&]() {
             _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+            // Sized as the map is placed above: the canvas width across, the
+            // texture's height down.
+            renderUnexplored(topLeft, glm::vec2(logicalMapWidth * scale, mapHeight));
         });
 
     } else {
@@ -146,7 +144,70 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
         });
         _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
         _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+
+        // The texture is wider than the logical canvas, which takes its left
+        // part, as normalizeMapPosition has it.
+        float logicalMapWidth = _game.isTSL() ? kTSLMapWidth : kKotorMapWidth;
+        glm::vec2 canvasSize(
+            bounds[2] * logicalMapWidth / static_cast<float>(_areaTexture->width()),
+            bounds[3] * kMapHeight / static_cast<float>(_areaTexture->height()));
+        renderUnexplored(glm::vec2(bounds[0], bounds[1]), canvasSize);
     }
+}
+
+void Map::renderUnexplored(const glm::vec2 &topLeft, const glm::vec2 &size) {
+    auto module = _game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area || area->mapExploration().empty()) {
+        return;
+    }
+    const auto &exploration = area->mapExploration();
+    if (!_unexploredTexture || _unexploredRevision != exploration.revision()) {
+        refreshUnexploredTexture(exploration);
+    }
+    _services.graphics.context.bindTexture(*_unexploredTexture);
+
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(transform, glm::vec3(topLeft, 0.0f));
+    transform = glm::scale(transform, glm::vec3(size, 1.0f));
+
+    _services.graphics.uniforms.setLocals([transform](auto &locals) {
+        locals.reset();
+        locals.model = std::move(transform);
+    });
+    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+}
+
+void Map::refreshUnexploredTexture(const MapExploration &exploration) {
+    if (!_unexploredTexture) {
+        // Nearest filtering keeps each cell a hard-edged square, a look that
+        // is reone's choice.
+        Texture::Properties properties;
+        properties.minFilter = Texture::Filtering::Nearest;
+        properties.magFilter = Texture::Filtering::Nearest;
+        properties.wrap = Texture::Wrapping::ClampToEdge;
+        _unexploredTexture = std::make_shared<Texture>("map_unexplored", TextureType::TwoDim, properties);
+        _unexploredTexture->clear(1, 1, PixelFormat::RGBA8);
+        _unexploredTexture->init();
+    }
+    int columns = exploration.columns();
+    int rows = exploration.rows();
+    auto pixels = std::make_shared<ByteBuffer>(static_cast<size_t>(4 * columns * rows), 0);
+    for (int row = 0; row < rows; ++row) {
+        // The quad samples the last texel row at its top, and grid row 0 is
+        // the top of the map.
+        int texelRow = rows - 1 - row;
+        for (int column = 0; column < columns; ++column) {
+            // reone's choice: an unexplored cell hides the map completely.
+            if (!exploration.isExplored(column, row)) {
+                (*pixels)[4 * (texelRow * columns + column) + 3] = static_cast<char>(0xff);
+            }
+        }
+    }
+    _services.graphics.context.bindTexture(*_unexploredTexture);
+    _unexploredTexture->setPixels(columns, rows, PixelFormat::RGBA8, Texture::Layer {std::move(pixels)}, true);
+    _unexploredRevision = exploration.revision();
 }
 
 void Map::renderNotes(Mode mode, const glm::vec4 &bounds, float scale) {
@@ -194,30 +255,7 @@ void Map::normalizeMapPosition(glm::vec2 &mapPos) const {
 }
 
 glm::vec2 Map::getMapPosition(const glm::vec2 &world) const {
-    float scaleX, scaleY;
-    glm::vec2 result(0.0f);
-
-    switch (_northAxis) {
-    case 0:
-    case 1:
-        scaleX = (_mapPoint1.x - _mapPoint2.x) / (_worldPoint1.x - _worldPoint2.x);
-        scaleY = (_mapPoint1.y - _mapPoint2.y) / (_worldPoint1.y - _worldPoint2.y);
-        result.x = (world.x - _worldPoint1.x) * scaleX + _mapPoint1.x;
-        result.y = (world.y - _worldPoint1.y) * scaleY + _mapPoint1.y;
-        break;
-    case 2:
-    case 3:
-        scaleX = (_mapPoint1.y - _mapPoint2.y) / (_worldPoint1.x - _worldPoint2.x);
-        scaleY = (_mapPoint1.x - _mapPoint2.x) / (_worldPoint1.y - _worldPoint2.y);
-        result.x = (world.y - _worldPoint1.y) * scaleY + _mapPoint1.x;
-        result.y = (world.x - _worldPoint1.x) * scaleX + _mapPoint1.y;
-        break;
-    default:
-        warn("Map: invalid north axis: " + std::to_string(_northAxis));
-        break;
-    }
-
-    return result;
+    return worldToMapPosition(_properties, world);
 }
 
 void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
@@ -243,7 +281,7 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, flo
     }
 
     float facing;
-    switch (_northAxis) {
+    switch (_properties.NorthAxis) {
     case 0:
         facing = -partyLeader->getFacing();
         break;

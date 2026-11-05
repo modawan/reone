@@ -2623,4 +2623,51 @@ TEST_F(SnapshotFixture, creature_records_carry_the_creation_script_flag) {
     EXPECT_EQ(0, unspawnedRecord->getInt("CreatnScrptFird"));
 }
 
+TEST_F(SnapshotFixture, explored_map_cells_round_trip_through_the_saved_area_record) {
+    generated::ARE_Map map;
+    map.MapResX = 15;
+    map.WorldPt2X = 100.0f;
+    map.WorldPt2Y = 100.0f;
+    map.MapPt2X = 1.0f;
+    map.MapPt2Y = 1.0f;
+    TestGameModule::loadAreaMapExploration(*area, map, *Gff::Builder().build());
+    area->revealMap(glm::vec3(30.0f, 40.0f, 0.0f), 2);
+    area->revealMap(glm::vec3(95.0f, 95.0f, 0.0f), 1);
+    const auto &explored = area->mapExploration();
+    ASSERT_GT(explored.exploredCount(), 0);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto are = readGff(result.snapshot->areBytes);
+
+    auto areaMap = are->findStruct(kAreaMapStructLabel);
+    ASSERT_TRUE(areaMap);
+    EXPECT_EQ(15, areaMap->getInt("AreaMapResX"));
+    EXPECT_EQ(9, areaMap->getInt("AreaMapResY"));
+    // The rest of the area record is carried through.
+    EXPECT_EQ("preserve-area", are->getString("FutureArea"));
+
+    // A fresh area loading its map from the saved record, as Area::load
+    // does, has the same cells explored.
+    auto loaded = game.newArea();
+    TestGameModule::loadAreaMapExploration(*loaded, map, *are);
+    const auto &restored = loaded->mapExploration();
+    ASSERT_EQ(explored.columns(), restored.columns());
+    ASSERT_EQ(explored.rows(), restored.rows());
+    EXPECT_EQ(explored.exploredCount(), restored.exploredCount());
+    for (int row = 0; row < explored.rows(); ++row) {
+        for (int column = 0; column < explored.columns(); ++column) {
+            EXPECT_EQ(explored.isExplored(column, row), restored.isExplored(column, row))
+                << "cell " << column << "," << row;
+        }
+    }
+}
+
+TEST_F(SnapshotFixture, area_without_a_map_grid_saves_no_explored_cells) {
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto are = readGff(result.snapshot->areBytes);
+    EXPECT_FALSE(are->findStruct(kAreaMapStructLabel));
+}
+
 } // namespace

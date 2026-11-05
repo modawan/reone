@@ -5446,8 +5446,19 @@ static Variable RevealMap(const std::vector<Variable> &args, const RoutineContex
 
     // Transform
 
-    // Execute
-    throw RoutineNotImplementedException("RevealMap");
+    // Execute: a radius of -1 reveals the whole map, and so, by reone's
+    // choice, does any other negative radius.
+    auto module = ctx.game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area) {
+        return Variable::ofNull();
+    }
+    if (nRadius < 0) {
+        area->revealMap();
+    } else {
+        area->revealMap(vPoint, nRadius);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetTutorialWindowsEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {

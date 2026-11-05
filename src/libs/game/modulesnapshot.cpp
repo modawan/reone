@@ -1732,6 +1732,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
     put(*result, Gff::Field::newDword("StealthXPMax", static_cast<uint32_t>(std::max(0, area._maxStealthXP))));
     put(*result, Gff::Field::newDword("StealthXPCurrent", static_cast<uint32_t>(std::max(0, area._currentStealthXP))));
     put(*result, Gff::Field::newDword("StealthXPLoss", static_cast<uint32_t>(std::max(0, area._stealthXPDecrement))));
+    // How much of the map the party has seen; an area with no map grid has
+    // nothing to keep.
+    if (!area._mapExploration.empty()) {
+        put(*result, Gff::Field::newStruct(kAreaMapStructLabel, area._mapExploration.toGff()));
+    }
     return result;
 }
 
