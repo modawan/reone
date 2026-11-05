@@ -30,6 +30,7 @@ class Label;
 
 namespace game {
 
+class Creature;
 class Waypoint;
 
 class MapMenu : public GameGUI {
@@ -76,6 +77,7 @@ private:
     /** KotOR: decides travel and the return, and colours their buttons by it. */
     void refreshTravel();
     int travelRefusal() const;
+    float spotDistance(const Creature &creature) const;
     /** Asks whether to return to base, or says why it can't. */
     void offerReturn();
 

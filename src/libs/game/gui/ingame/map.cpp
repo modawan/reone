@@ -17,6 +17,11 @@
 
 #include "reone/game/gui/ingame/map.h"
 
+#include <algorithm>
+#include <limits>
+
+#include "reone/game/d20/spells.h"
+#include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/waypoint.h"
@@ -41,6 +46,9 @@ static constexpr int kStrRefRejoinPartyFirst = 38452;
 static constexpr int kStrRefEnemiesNearby = 38462;
 
 static constexpr int kReturnToBaseTutorial = 39;
+
+/** The ranges.2da row a companion in combat spots at. */
+static constexpr int kCombatSpotRangeRow = 18;
 
 void MapMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -149,8 +157,20 @@ void MapMenu::refreshTravel() {
     _controls.BTN_PRTYSLCT->setBorderColor(open ? kTravelOpenBorderColor : kTravelRefusedBorderColor);
 }
 
+// A creature spots as far as it sees, except a companion in combat, which
+// spots at its own row's range.
+float MapMenu::spotDistance(const Creature &creature) const {
+    const float sight = creature.perception().sightRange;
+    if (!creature.isInCombat() || &creature == _game.party().getLeader().get()) {
+        return sight;
+    }
+    const auto range = _services.game.spells.findRange(kCombatSpotRangeRow);
+    return range ? range->get().primary.value_or(sight) : sight;
+}
+
 // Travel is refused in an area the party can't leave, while the party is
-// apart, and while a creature hostile to a member sees that member.
+// apart, and while a creature hostile to a member sees that member. The
+// creatures looked at are those east of the westmost point a member spots to.
 int MapMenu::travelRefusal() const {
     auto &area = *_game.module()->area();
     if (area.isUnescapable()) {
@@ -160,8 +180,17 @@ int MapMenu::travelRefusal() const {
     if (!party.isReadyToTravel()) {
         return kStrRefRejoinPartyFirst;
     }
+    float westmost = std::numeric_limits<float>::max();
+    for (auto &member : party.members()) {
+        if (member.creature) {
+            westmost = std::min(westmost, member.creature->position().x - spotDistance(*member.creature));
+        }
+    }
     for (auto &object : area.getObjectsByType(ObjectType::Creature)) {
         const auto &watcher = static_cast<const Creature &>(*object);
+        if (watcher.position().x < westmost) {
+            continue;
+        }
         for (auto &member : party.members()) {
             if (member.creature && member.creature->getReputationToward(watcher) <= 10 &&
                 watcher.perception().sees(member.creature->id())) {
