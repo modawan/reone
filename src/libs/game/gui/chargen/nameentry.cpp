@@ -75,7 +75,7 @@ void NameEntry::loadRandomName() {
     const auto &nameLtrResRef = (gender == Gender::Female) ? kFemaleNameLtrResRef : kMaleNameLtrResRef;
     auto nameLtr = _services.resource.ltrs.get(nameLtrResRef);
     auto lastNameLtr = _services.resource.ltrs.get(kLastNameLtrResRef);
-    auto generated = nameLtr->randomName(8) + " " + lastNameLtr->randomName(8);
+    auto generated = nameLtr->randomName(8, {}) + " " + lastNameLtr->randomName(8, {});
     _input.setText(generated);
     _controls.NAME_BOX_EDIT->setTextMessage(generated);
     _charGen.setCharacterName(std::move(generated));

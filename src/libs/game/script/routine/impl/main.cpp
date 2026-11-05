@@ -56,6 +56,7 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/gffs.h"
+#include "reone/resource/provider/ltrs.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/collision.h"
 #include "reone/script/executioncontext.h"
@@ -3147,9 +3148,22 @@ static Variable GetSpellId(const std::vector<Variable> &, const RoutineContext &
     return Variable::ofInt(caller && isa<Creature>(caller) ? caller->spellCastContext().spellId : -1);
 }
 
+// A name drawn from names.ltr with no length limit, drawn again while
+// namefilter.2da lists it.
 static Variable RandomName(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Transform
+    std::vector<std::string> filter;
+    if (auto nameFilter = ctx.services.resource.twoDas.get("namefilter")) {
+        for (int row = 0; row < nameFilter->getRowCount(); ++row) {
+            std::string name(nameFilter->getString(row, "name"));
+            if (!name.empty()) {
+                filter.push_back(std::move(name));
+            }
+        }
+    }
+
     // Execute
-    throw RoutineNotImplementedException("RandomName");
+    return Variable::ofString(ctx.services.resource.ltrs.get(resource::ResRef("names"))->randomName(0, filter));
 }
 
 static Variable GetLoadFromSaveGame(const std::vector<Variable> &args, const RoutineContext &ctx) {
