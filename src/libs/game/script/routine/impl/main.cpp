@@ -44,6 +44,7 @@
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routine/argutil.h"
@@ -94,6 +95,12 @@ namespace game {
 static std::shared_ptr<Creature> getCreatureOrNull(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
     auto object = getObjectOrNull(args, index, ctx);
     return object ? dyn_cast<Creature>(object) : nullptr;
+}
+
+// A sound object argument; none for an object that is not a sound.
+static std::shared_ptr<Sound> getSoundOrNull(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto object = getObjectOrNull(args, index, ctx);
+    return object ? dyn_cast<Sound>(object) : nullptr;
 }
 
 // The metamagic answered outside a cast: none.
@@ -1504,13 +1511,16 @@ static Variable TurnsToSeconds(const std::vector<Variable> &args, const RoutineC
 
 static Variable SoundObjectSetFixedVariance(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
     auto fFixedVariance = getFloat(args, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectSetFixedVariance");
+    if (sound) {
+        sound->setFixedVariance(fFixedVariance);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetGoodEvilValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2409,12 +2419,12 @@ static Variable GetFactionAverageGoodEvilAlignment(const std::vector<Variable> &
 
 static Variable SoundObjectGetFixedVariance(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectGetFixedVariance");
+    return Variable::ofFloat(sound ? sound->fixedVariance() : 0.0f);
 }
 
 // The mean of the members' levels, with auto-balance and without drained
@@ -2512,12 +2522,37 @@ static Variable GetWaypointByTag(const std::vector<Variable> &args, const Routin
 
 static Variable GetTransitionTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oTransition = getObject(args, 0, ctx);
+    auto oTransition = getObjectOrNull(args, 0, ctx);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetTransitionTarget");
+    // A trigger leads to the waypoint it links to when its link names one, and
+    // otherwise to the first object of the linked tag; a door leads to the
+    // first object of its linked tag when it links to a door or a waypoint.
+    if (!oTransition) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    std::shared_ptr<Object> target;
+    auto area = ctx.game.module()->area();
+    if (auto trigger = dyn_cast<Trigger>(oTransition)) {
+        const auto &tag = trigger->linkedTo();
+        if (trigger->linkedToFlags() == 2) {
+            for (auto &waypoint : area->getObjectsByType(ObjectType::Waypoint)) {
+                if (waypoint->tag() == tag) {
+                    target = waypoint;
+                    break;
+                }
+            }
+        } else {
+            target = area->getObjectByTag(tag, 0);
+        }
+    } else if (auto door = dyn_cast<Door>(oTransition)) {
+        if (door->linkedToFlags() == 1 || door->linkedToFlags() == 2) {
+            target = area->getObjectByTag(boost::to_lower_copy(door->linkedTo()), 0);
+        }
+    }
+    return Variable::ofObject(getObjectIdOrInvalid(target));
 }
 
 static Variable GetObjectByTag(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3595,12 +3630,12 @@ static Variable GetGoldPieceValue(const std::vector<Variable> &args, const Routi
 
 static Variable GetIsPlayableRacialType(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetIsPlayableRacialType");
+    return Variable::ofInt(creature && creature->race().playerRace ? 1 : 0);
 }
 
 static Variable JumpToLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4596,9 +4631,17 @@ static Variable GetLastPlayerDying(const std::vector<Variable> &args, const Rout
     return Variable::ofObject(kObjectInvalid);
 }
 
+// The module's entry point, facing its entry direction; without a module, the
+// origin.
 static Variable GetStartingLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetStartingLocation");
+    auto module = ctx.game.module();
+    if (!module) {
+        return Variable::ofLocation(ctx.game.newLocation(glm::vec3(0.0f), glm::vec3(0.0f)));
+    }
+    const auto &moduleInfo = module->info();
+    const glm::vec3 direction(-std::sin(moduleInfo.entryFacing), std::cos(moduleInfo.entryFacing), 0.0f);
+    return Variable::ofLocation(ctx.game.newLocation(moduleInfo.entryPosition, direction));
 }
 
 static Variable ChangeToStandardFaction(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4662,13 +4705,16 @@ static Variable SoundObjectSetVolume(const std::vector<Variable> &args, const Ro
 
 static Variable SoundObjectSetPosition(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
     auto vPosition = getVector(args, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectSetPosition");
+    if (sound) {
+        sound->setPosition(vPosition);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SpeakOneLinerConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6311,23 +6357,26 @@ static Variable SoundObjectGetPitchVariance(const std::vector<Variable> &args, c
 
 static Variable SoundObjectSetPitchVariance(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
     auto fVariance = getFloat(args, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectSetPitchVariance");
+    if (sound) {
+        sound->setPitchVariation(fVariance);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SoundObjectGetVolume(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectGetVolume");
+    return Variable::ofInt(sound ? sound->volume() : 0);
 }
 
 static Variable GetGlobalLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7316,12 +7365,17 @@ static Variable ModifyInfluence(const std::vector<Variable> &args, const Routine
 
 static Variable GetRacialSubType(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oTarget = getObject(args, 0, ctx);
+    auto oTarget = getObjectOrNull(args, 0, ctx);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetRacialSubType");
+    // An invalid object answers 0, and one that is not a creature -1.
+    if (!oTarget) {
+        return Variable::ofInt(0);
+    }
+    auto creature = dyn_cast<Creature>(oTarget);
+    return Variable::ofInt(creature ? static_cast<int>(creature->subrace()) : -1);
 }
 
 // Number globals are signed 8-bit values. IncrementGlobalNumber and
@@ -7662,12 +7716,12 @@ static Variable GetScriptStringParameter(const std::vector<Variable> &args, cons
 
 static Variable GetObjectPersonalSpace(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto aObject = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetObjectPersonalSpace");
+    return Variable::ofFloat(creature ? creature->creaturePersonalSpace() : 0.0f);
 }
 
 static Variable AdjustCreatureAttributes(const std::vector<Variable> &args, const RoutineContext &ctx) {
