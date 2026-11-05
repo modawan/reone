@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../object.h"
 #include "reone/resource/strings.h"
 
@@ -71,10 +73,22 @@ public:
     float fixedVariance() const { return _fixedVariance; }
 
     void setActive(bool active);
-    /** 0-127, clamped. The sound's later plays use it. */
+    /** 0-127, clamped. A clip already playing follows it, and so do later ones. */
     void setVolume(int volume);
     void setFixedVariance(float variance) { _fixedVariance = variance; }
     void setPitchVariation(float variation) { _pitchVariation = variation; }
+
+    /**
+     * Fades the sound out over \p seconds, then stops it, as
+     * SoundObjectFadeAndStop does. A sound that is not playing, or a fade of
+     * no length, stops at once. Stopping the sound ends the fade.
+     */
+    void fadeAndStop(float seconds);
+    bool isFading() const { return _fade.has_value(); }
+    /** How far the fade has brought the volume down: 1 before a fade, towards 0 during one. */
+    float fadeScale() const;
+    /** Moves a fade on by \p dt seconds, stopping the sound when it ends. */
+    void advanceFade(float dt);
 
 private:
     friend class ModuleSnapshotBuilder;
@@ -110,14 +124,31 @@ private:
     /** Seconds until the next sound: what is left of the playing one, then the interval. */
     float _timeout {0.0f};
 
+    /** The random change to the volume of the clip on show (see nextVolumeShift). */
+    int _clipVolumeShift {0};
+    /** The gain the clip on show was started with, to scale it from. */
+    float _playedGain {0.0f};
+
+    struct Fade {
+        float duration {0.0f};
+        float remaining {0.0f};
+    };
+    std::optional<Fade> _fade;
+
     /** Whether the part of the day, or the hour, lets the sound play. */
     bool playsAtThisTime() const;
+    /** Whether the sound plays its first sound as one loop rather than its list one by one. */
+    bool loops() const;
     /** The interval before the next sound, varied at random by up to the interval variation either way. */
     float nextInterval() const;
-    /** The volume for the next sound, varied at random by up to the volume variation either way. */
-    float nextGain() const;
+    /** A random change to the volume for the next sound, by up to the volume variation either way. */
+    int nextVolumeShift() const;
     /** The pitch for the next one-shot: the fixed variance, strayed by the pitch variation. */
     float nextPitch() const;
+    /** The gain for the clip on show now: its volume, with its random change, scaled by any fade. */
+    float currentGain() const;
+    /** Makes a playing clip follow a change of volume or the fade. */
+    void applyGainToPlayingClip();
     std::vector<std::string> _sounds;
 
     void deserializeAll(

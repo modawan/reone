@@ -53,6 +53,8 @@ public:
     bool isSoundPlaying() const;
     /** Stops and releases the sound, if one is playing. */
     void stopSound();
+    /** Scales the playing sound's gain from the gain it started with. */
+    void setGainScale(float scale);
 
     float maxDistance() const { return _maxDistance; }
     /** A positional sound is heard only within its maximum distance; any other is heard everywhere. */

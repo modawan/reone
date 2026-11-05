@@ -176,8 +176,12 @@ TEST(SoundRoutines, set_volume_and_fade_and_stop_act_on_the_sound) {
         harness.call("SoundObjectSetVolume", {oSound, Variable::ofInt(-5)});
         EXPECT_EQ(0, sound->volume());
 
+        // The sound fades over the given seconds and then stops.
         sound->setActive(true);
         harness.call("SoundObjectFadeAndStop", {oSound, Variable::ofFloat(2.0f)});
+        EXPECT_TRUE(sound->isActive());
+        EXPECT_TRUE(sound->isFading());
+        sound->advanceFade(2.0f);
         EXPECT_FALSE(sound->isActive());
 
         harness.call("SoundObjectSetVolume", {oCreature, Variable::ofInt(90)});
