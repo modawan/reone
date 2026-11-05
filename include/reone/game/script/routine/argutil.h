@@ -43,6 +43,7 @@ class Object;
 class Placeable;
 class Sound;
 class Talent;
+class Waypoint;
 
 std::shared_ptr<Object> getCaller(const RoutineContext &ctx);
 
@@ -70,6 +71,7 @@ std::shared_ptr<Placeable> checkPlaceable(const std::shared_ptr<Object> &object)
 std::shared_ptr<Item> checkItem(const std::shared_ptr<Object> &object);
 std::shared_ptr<Sound> checkSound(const std::shared_ptr<Object> &object);
 std::shared_ptr<Area> checkArea(const std::shared_ptr<Object> &object);
+std::shared_ptr<Waypoint> checkWaypoint(const std::shared_ptr<Object> &object);
 
 } // namespace game
 

@@ -53,6 +53,7 @@
 #include "reone/game/object/sound.h"
 #include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
@@ -4502,9 +4503,12 @@ static Variable SetMapPinEnabled(const std::vector<Variable> &args, const Routin
     auto nEnabled = getInt(args, 1);
 
     // Transform
+    auto mapPin = checkWaypoint(oMapPin);
+    auto enabled = static_cast<bool>(nEnabled);
 
     // Execute
-    throw RoutineNotImplementedException("SetMapPinEnabled");
+    mapPin->setMapNoteEnabled(enabled);
+    return Variable::ofNull();
 }
 
 static Variable PopUpGUIPanel(const std::vector<Variable> &args, const RoutineContext &ctx) {

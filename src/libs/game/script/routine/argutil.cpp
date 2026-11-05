@@ -24,6 +24,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/sound.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/talent.h"
 #include "reone/script/executioncontext.h"
@@ -87,6 +88,12 @@ static inline void throwIfObjectNotSound(const std::shared_ptr<Object> &object) 
 static inline void throwIfObjectNotArea(const std::shared_ptr<Object> &object) {
     if (object->type() != ObjectType::Area) {
         throw RoutineArgumentException(str(boost::format("Object %u is not an area") % object->id()));
+    }
+}
+
+static inline void throwIfObjectNotWaypoint(const std::shared_ptr<Object> &object) {
+    if (object->type() != ObjectType::Waypoint) {
+        throw RoutineArgumentException(str(boost::format("Object %u is not a waypoint") % object->id()));
     }
 }
 
@@ -292,6 +299,11 @@ std::shared_ptr<Sound> checkSound(const std::shared_ptr<Object> &object) {
 std::shared_ptr<Area> checkArea(const std::shared_ptr<Object> &object) {
     throwIfObjectNotArea(object);
     return std::static_pointer_cast<Area>(object);
+}
+
+std::shared_ptr<Waypoint> checkWaypoint(const std::shared_ptr<Object> &object) {
+    throwIfObjectNotWaypoint(object);
+    return std::static_pointer_cast<Waypoint>(object);
 }
 
 } // namespace game
