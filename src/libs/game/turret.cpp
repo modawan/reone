@@ -17,6 +17,7 @@
 
 #include "reone/game/turret.h"
 
+#include <algorithm>
 #include <array>
 #include <stack>
 
@@ -25,6 +26,8 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/camera/firstperson.h"
+#include "reone/game/object/minigameobject.h"
+#include "reone/game/script/runner.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/types.h"
 #include "reone/resource/di/services.h"
@@ -50,11 +53,13 @@ namespace {
 // Models look down +Y.
 const glm::vec3 kModelForward(0.0f, 1.0f, 0.0f);
 
-// Use the existing ThirdPersonCamera rotation rates for turret aiming.
-// MiniGame.LateralAccel controls translation, not angular speed here.
-constexpr float kTurnRateMin = 1.0f;      // radians per second
-constexpr float kTurnRateMax = 2.5f;      // radians per second
-constexpr float kTurnAcceleration = 1.0f; // radians per second squared
+// The aim's top turn rate and its acceleration, in degrees per second, where
+// the area gives none.
+constexpr float kDefaultMovementPerSecond = 90.0f;
+constexpr float kDefaultLateralAcceleration = 60.0f;
+
+// The player's default speed; its track plays at a hundredth of it.
+constexpr float kDefaultSpeed = 100.0f;
 
 // Mouse aim sensitivity, matching FirstPersonCamera's kMouseMultiplier so the
 // turret aims like the first-person camera.
@@ -126,155 +131,102 @@ void silenceEmitters(SceneNode &node) {
     }
 }
 
-float normalizeAngle(float radians) {
-    while (radians > glm::pi<float>()) {
-        radians -= glm::two_pi<float>();
+
+// An infinite axis wraps into [0, 360); any other keeps between its origin
+// plus the negative and positive tunnel deltas.
+float keepAxisInTunnel(float offset, float origin, float positive, float negative, bool infinite) {
+    if (infinite) {
+        if (offset < 0.0f) {
+            return offset + 360.0f;
+        }
+        if (offset > 359.0f) {
+            return offset - 360.0f;
+        }
+        return offset;
     }
-    while (radians < -glm::pi<float>()) {
-        radians += glm::two_pi<float>();
+    if (offset > origin + positive) {
+        return origin + positive;
     }
-    return radians;
+    if (offset < origin + negative) {
+        return origin + negative;
+    }
+    return offset;
 }
 
 } // namespace
 
 void TurretAim::configure(const MinigamePlayerSpec &player) {
-    // The .are stores signed degree limits per axis, so the usable range is
-    // [Neg, Pos]; take the min/max in case an area authors them the other way
-    // round. An axis flagged in TunnelInfinite is unbounded and wraps instead.
-    _pitchBounded = player.tunnelInfinite.x == 0.0f;
-    _yawBounded = player.tunnelInfinite.z == 0.0f;
-    _minPitch = glm::radians(glm::min(player.tunnelXNeg, player.tunnelXPos));
-    _maxPitch = glm::radians(glm::max(player.tunnelXNeg, player.tunnelXPos));
-    _minYaw = glm::radians(glm::min(player.tunnelZNeg, player.tunnelZPos));
-    _maxYaw = glm::radians(glm::max(player.tunnelZNeg, player.tunnelZPos));
-
-    // Start_Offset is the authored starting aim, on the same axes and in the
-    // same units as the Tunnel limits: X is pitch, Z is yaw. K1 authors it only
-    // on the turret area - all three swoop areas leave Start_Offset, Tunnel and
-    // Mouse zeroed - and m12ab's Start_Offset_X of 7 degrees sits inside its
-    // authored 2..45 degree pitch band. It is an angle, not a translation.
-    _startPitch = glm::radians(player.startOffset.x);
-    _startYaw = glm::radians(player.startOffset.z);
-    if (_pitchBounded) {
-        _startPitch = glm::clamp(_startPitch, _minPitch, _maxPitch);
-    } else {
-        _startPitch = normalizeAngle(_startPitch);
-    }
-    if (_yawBounded) {
-        _startYaw = glm::clamp(_startYaw, _minYaw, _maxYaw);
-    } else {
-        _startYaw = normalizeAngle(_startYaw);
-    }
-
-    reset();
+    _origin = player.startOffset;
+    _offset = _origin;
+    _tunnelPositive = glm::vec3(player.tunnelXPos, player.tunnelYPos, player.tunnelZPos);
+    _tunnelNegative = glm::vec3(player.tunnelXNeg, player.tunnelYNeg, player.tunnelZNeg);
+    _tunnelInfinite = player.tunnelInfinite;
 }
 
-void TurretAim::reset() {
-    _pitch = _startPitch;
-    _yaw = _startYaw;
+void TurretAim::setOffset(const glm::vec3 &degrees) {
+    _offset = degrees;
+    keepInTunnel();
 }
 
-float TurretAim::pitchTravel() const {
-    return _pitchBounded ? glm::max(0.0f, _maxPitch - _minPitch) : glm::two_pi<float>();
+void TurretAim::turn(const glm::vec3 &degrees) {
+    setOffset(_offset + degrees);
 }
 
-float TurretAim::yawTravel() const {
-    return _yawBounded ? glm::max(0.0f, _maxYaw - _minYaw) : glm::two_pi<float>();
-}
-
-void TurretAimRate::configure(float travelRadians) {
-    // Scale the camera's full-turn rates by how much travel this axis actually has,
-    // so a narrow axis is proportionally gentler and every axis crosses its
-    // authored range in about the same time.
-    float scale = travelRadians > 0.0f
-                      ? glm::min(travelRadians / glm::two_pi<float>(), 1.0f)
-                      : 1.0f;
-    _minRate = kTurnRateMin * scale;
-    _maxRate = kTurnRateMax * scale;
-    _acceleration = kTurnAcceleration * scale;
-    reset();
-}
-
-void TurretAimRate::setDirection(int direction) {
-    int clamped = direction > 0 ? 1 : (direction < 0 ? -1 : 0);
-    if (clamped == _direction) {
-        return;
-    }
-    _direction = clamped;
-    _held = 0.0f;
-}
-
-void TurretAimRate::reset() {
-    _direction = 0;
-    _held = 0.0f;
-}
-
-float TurretAimRate::rateAt(float held) const {
-    return glm::min(_maxRate, _minRate + _acceleration * glm::max(0.0f, held));
-}
-
-float TurretAimRate::rate() const {
-    return _direction != 0 ? rateAt(_held) : 0.0f;
-}
-
-float TurretAimRate::angleOver(float from, float to) const {
-    // Integrate the ramp exactly rather than stepping it, so the angle covered
-    // over an interval is the same however many frames it is split into.
-    if (to <= from) {
-        return 0.0f;
-    }
-    float capAt = _acceleration > 0.0f ? (_maxRate - _minRate) / _acceleration
-                                       : 0.0f;
-    float rampFrom = glm::min(from, capAt);
-    float rampTo = glm::min(to, capAt);
-    float angle = 0.0f;
-    if (rampTo > rampFrom) {
-        angle += _minRate * (rampTo - rampFrom) +
-                 0.5f * _acceleration * (rampTo * rampTo - rampFrom * rampFrom);
-    }
-    float flatFrom = glm::max(from, capAt);
-    float flatTo = glm::max(to, capAt);
-    if (flatTo > flatFrom) {
-        angle += _maxRate * (flatTo - flatFrom);
-    }
-    return angle;
-}
-
-float TurretAimRate::advance(float dt) {
-    if (_direction == 0 || dt <= 0.0f) {
-        return 0.0f;
-    }
-    float from = _held;
-    _held += dt;
-    return static_cast<float>(_direction) * angleOver(from, _held);
-}
-
-void TurretAim::addPitch(float radians) {
-    _pitch += radians;
-    if (_pitchBounded) {
-        _pitch = glm::clamp(_pitch, _minPitch, _maxPitch);
-    } else {
-        _pitch = normalizeAngle(_pitch);
+void TurretAim::setOrigin(const glm::vec3 &degrees, bool trackPlaying) {
+    _origin = degrees;
+    if (!trackPlaying) {
+        _offset = degrees;
     }
 }
 
-void TurretAim::addYaw(float radians) {
-    _yaw += radians;
-    if (_yawBounded) {
-        _yaw = glm::clamp(_yaw, _minYaw, _maxYaw);
-    } else {
-        _yaw = normalizeAngle(_yaw);
+void TurretAim::keepInTunnel() {
+    for (int axis = 0; axis < 3; ++axis) {
+        _offset[axis] = keepAxisInTunnel(_offset[axis],
+                                         _origin[axis],
+                                         _tunnelPositive[axis],
+                                         _tunnelNegative[axis],
+                                         _tunnelInfinite[axis] != 0.0f);
     }
 }
 
 glm::quat TurretAim::orientation() const {
-    return glm::angleAxis(_yaw, glm::vec3(0.0f, 0.0f, 1.0f)) *
-           glm::angleAxis(_pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+    return glm::angleAxis(glm::radians(_offset.z), glm::vec3(0.0f, 0.0f, 1.0f)) *
+           glm::angleAxis(glm::radians(_offset.x), glm::vec3(1.0f, 0.0f, 0.0f)) *
+           glm::angleAxis(glm::radians(_offset.y), glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
 glm::vec3 TurretAim::forward() const {
     return orientation() * kModelForward;
+}
+
+void TurretAimRate::configure(float lateralAcceleration, float movementPerSecond) {
+    _acceleration = lateralAcceleration;
+    _topRate = movementPerSecond;
+    reset();
+}
+
+void TurretAimRate::setDirection(int direction) {
+    _direction = direction > 0 ? 1 : (direction < 0 ? -1 : 0);
+}
+
+void TurretAimRate::reset() {
+    _direction = 0;
+    _rate = 0.0f;
+}
+
+// The rate follows dv/dt = a * (target - v) / top, the target being the held
+// direction times the top rate, which settles on the target with the time
+// constant top / a. Integrated in closed form over the step.
+float TurretAimRate::advance(float dt) {
+    if (dt <= 0.0f || _topRate <= 0.0f || _acceleration <= 0.0f) {
+        return 0.0f;
+    }
+    const float target = static_cast<float>(_direction) * _topRate;
+    const float k = _acceleration / _topRate;
+    const float decay = glm::exp(-k * dt);
+    const float angle = target * dt + (_rate - target) * (1.0f - decay) / k;
+    _rate = target + (_rate - target) * decay;
+    return angle;
 }
 
 void TurretGunTimer::update(float dt) {
@@ -291,6 +243,13 @@ bool TurretGunTimer::tryFire() {
     return true;
 }
 
+void TurretGunTimer::setRateOfFire(float rateOfFire) {
+    if (_cooldown > 0.0f && _cooldown < _rateOfFire) {
+        _cooldown -= _rateOfFire - rateOfFire;
+    }
+    _rateOfFire = rateOfFire;
+}
+
 bool TurretBullet::advance(float dt) {
     // A bolt is created and integrated within the same tick, so its first step
     // is spent standing at the muzzle: that is the only frame in which it is
@@ -305,55 +264,6 @@ bool TurretBullet::advance(float dt) {
     }
     position += direction * speed * dt;
     return true;
-}
-
-const std::string kTurretAlarmTag("Alarm01");
-
-bool turretIsDestroyed(int hitPoints) {
-    // The shipped script's destruction branch: below the gauge floor the hawk is
-    // gone. It does not wait for hit points to reach zero, so the authored
-    // survivable band on a 3000 point hawk is 3000 down to 2000.
-    return hitPoints < kTurretGaugeFloor;
-}
-
-int turretHealthState(int hitPoints) {
-    // The shipped script only evaluates its formula on the healthy branch; below
-    // the floor it takes the destruction branch and plays Health00 outright. Do
-    // the same rather than extrapolating the formula, whose truncating division
-    // would otherwise still report a live state just under the floor.
-    if (hitPoints < kTurretGaugeFloor) {
-        return 0;
-    }
-    // Shipped arithmetic: ((hp - 2000) * 12) / 1000 + 1, integer division.
-    long long scaled = (static_cast<long long>(hitPoints) - kTurretGaugeFloor) *
-                       (kTurretHealthStateCount - 1);
-    int state = static_cast<int>(scaled / kTurretGaugeSpan) + 1;
-    // An undamaged hawk evaluates to 13; the script never sees it because
-    // OnDamage runs after damage, but clamp so full health reads as full.
-    return glm::clamp(state, 1, kTurretHealthStateCount - 1);
-}
-
-std::string turretHealthAnimation(int state) {
-    int clamped = glm::clamp(state, 0, kTurretHealthStateCount - 1);
-    // The script builds the name as "Health0" + n below ten, "Health" + n above.
-    return str(boost::format("health%02d") % clamped);
-}
-
-bool turretAlarmStartsAtState(int state) {
-    return state == kTurretAlarmState;
-}
-
-std::string turretContactAnimation(size_t enemyIndex) {
-    if (enemyIndex >= kTurretContactCount) {
-        return {};
-    }
-    // Enemy 0 rides track m12ab_mgt02, so the contact channels start at 02.
-    return str(boost::format("sithloop%02u") % (enemyIndex + 2));
-}
-
-std::string turretContactDeathAnimation(size_t enemyIndex) {
-    auto live = turretContactAnimation(enemyIndex);
-    return live.empty() ? live : live + "d";
 }
 
 bool turretDeathEffectComplete(float elapsed, float duration) {
@@ -384,25 +294,6 @@ void turretDisableReferenceAttachments(ModelSceneNode &model) {
             pending.push(*child);
         }
     }
-}
-
-int turretHeadingState(float yawRadians) {
-    float degrees = glm::degrees(yawRadians);
-    // Round to the nearest authored whole degree, then wrap into [0, 360).
-    int heading = static_cast<int>(glm::round(degrees));
-    heading %= 360;
-    if (heading < 0) {
-        heading += 360;
-    }
-    return heading;
-}
-
-std::string turretHeadingAnimation(int heading) {
-    int wrapped = heading % 360;
-    if (wrapped < 0) {
-        wrapped += 360;
-    }
-    return str(boost::format("hudrot_%03d") % wrapped);
 }
 
 TurretRequestError validateTurretRequest(const std::string &target,
@@ -470,15 +361,6 @@ const char *turretRequestResolutionMessage(TurretRequestResolution resolution) {
     }
 }
 
-std::string turretReturnModule(const std::string &turretModule,
-                               const std::string &originModule) {
-    // M12ab returns to ebo_m12aa. Other turret modules return to the session origin.
-    if (boost::iequals(turretModule, "m12ab")) {
-        return "ebo_m12aa";
-    }
-    return originModule;
-}
-
 glm::vec3 turretFireDirection(const glm::quat &shooterOrientation) {
     glm::vec3 direction(shooterOrientation * kModelForward);
     float length = glm::length(direction);
@@ -523,6 +405,15 @@ bool rayIntersectsSphere(const glm::vec3 &origin,
     return glm::max(entry, 0.0f) <= maxDistance;
 }
 
+
+uint32_t Turret::Actor::id() const {
+    return object ? object->id() : script::kObjectInvalid;
+}
+
+void Turret::ModelEvents::onEventSignalled(const std::string &name) {
+    _turret.onAnimationEvent(_actor, _modelName, name);
+}
+
 std::shared_ptr<ModelSceneNode> Turret::loadModel(const std::string &resRef) {
     if (resRef.empty()) {
         return nullptr;
@@ -539,19 +430,19 @@ std::shared_ptr<ModelSceneNode> Turret::loadModel(const std::string &resRef) {
 }
 
 std::shared_ptr<ModelSceneNode> Turret::loadTrack(const std::string &resRef,
-                                                  const glm::vec3 &position) {
+                                                  const glm::vec3 &position,
+                                                  std::string &animation) {
     auto node = loadModel(resRef);
     if (!node) {
         return nullptr;
     }
     node->setLocalTransform(glm::translate(position));
-    // Tracks are authored as a single looping animation that walks the
-    // "modelhook" node along the rail; everything riding the track is parented
-    // to that hook.
-    auto animations = node->model().getAnimationNames();
-    if (!animations.empty()) {
-        node->playAnimation(animations.front(), nullptr,
-                            AnimationProperties::fromFlags(AnimationFlags::loop));
+    // A track's "track" animation walks the "modelhook" node along the rail;
+    // everything riding the track is parented to that hook.
+    if (node->model().getAnimation("track")) {
+        animation = "track";
+    } else if (auto animations = node->model().getAnimationNames(); !animations.empty()) {
+        animation = animations.front();
     }
     // The scene graph decides culling per model root and prunes the whole
     // subtree behind a culled one. A track root sits at its authored origin
@@ -570,7 +461,7 @@ void Turret::loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
                           std::vector<GunBank> &out) {
     for (const auto &spec : specs) {
         GunBank bank;
-        bank.spec = &spec;
+        bank.spec = spec;
         bank.timer = TurretGunTimer(spec.bullet.rateOfFire);
         bank.modelNode = loadModel(spec.gunModelResRef);
         if (bank.modelNode) {
@@ -580,8 +471,85 @@ void Turret::loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
     }
 }
 
-bool Turret::loadPlayer(const MinigameSpec &spec) {
-    for (const auto &model : spec.player.models) {
+void Turret::registerActor(Actor &actor) {
+    actor.object = _game.newObject<MinigameObject>(kSceneMain, _game, _services);
+}
+
+void Turret::listenTo(Actor &actor, ModelSceneNode &model) {
+    actor.modelEvents.push_back(std::make_unique<ModelEvents>(*this, actor, model.model().name()));
+    model.setAnimationEventListener(*actor.modelEvents.back());
+}
+
+void Turret::loadFollower(Follower &follower,
+                          uint32_t hitPoints,
+                          uint32_t maxHitPoints,
+                          float sphereRadius,
+                          int numLoops,
+                          float invincibility,
+                          const std::string &deathSound) {
+    if (hitPoints > 0) {
+        follower.hitPoints = static_cast<int>(hitPoints);
+    }
+    follower.maxHitPoints = maxHitPoints > 0 ? static_cast<int>(maxHitPoints) : follower.hitPoints;
+    follower.sphereRadius = glm::max(0.0f, sphereRadius);
+    setNumLoops(follower, numLoops);
+    follower.invincibility = glm::max(0.0f, invincibility);
+    follower.deathSound = deathSound;
+    for (auto &model : follower.models) {
+        listenTo(follower, *model);
+    }
+    if (follower.trackNode) {
+        follower.name = follower.trackNode->model().name();
+        listenTo(follower, *follower.trackNode);
+    }
+}
+
+// The player loops a number of times or, at -1, for ever; an enemy loops once
+// or for ever. Any other count is ignored.
+void Turret::setNumLoops(Follower &follower, int loops) {
+    const bool valid = follower.player ? (loops == -1 || loops > 0) : (loops == 1 || loops == -1);
+    if (valid) {
+        follower.numLoops = loops;
+    }
+}
+
+// A follower sets off along its track at its speed: once through when it is to
+// loop once, else round and round.
+void Turret::go(Follower &follower) {
+    if (!follower.trackNode || follower.trackAnimation.empty()) {
+        return;
+    }
+    const int flags = follower.numLoops == 1 ? 0 : AnimationFlags::loop;
+    follower.trackNode->playAnimation(follower.trackAnimation, nullptr, AnimationProperties::fromFlags(flags));
+    if (follower.player) {
+        follower.trackNode->setAnimationSpeed(follower.trackAnimation, _speed / kDefaultSpeed);
+    }
+}
+
+bool Turret::loadPlayer() {
+    const auto &spec = _spec.player;
+    auto player = std::make_unique<Follower>();
+    player->player = true;
+
+    glm::vec3 trackPos(0.0f);
+    _anchorSource = "origin";
+    if (auto layout = _services.resource.layouts.get(_areaName)) {
+        if (auto placement = layout->findTrackByName(_trackResRef)) {
+            trackPos = placement->get().position;
+            _anchorSource = "lyt-track";
+        }
+    }
+    player->trackNode = loadTrack(_trackResRef, trackPos, player->trackAnimation);
+    if (player->trackNode) {
+        if (_anchorSource == "origin") {
+            _anchorSource = "track-model";
+        }
+    } else {
+        _anchorSource = "no-track";
+    }
+
+    std::vector<std::shared_ptr<ModelSceneNode>> bodyModels;
+    for (const auto &model : spec.models) {
         auto node = loadModel(model.resRef);
         if (!node) {
             debug("turret: player model '" + model.resRef + "' missing");
@@ -589,30 +557,34 @@ bool Turret::loadPlayer(const MinigameSpec &spec) {
         }
         if (model.rotating) {
             if (!_turretRoot) {
-                _turretRoot = std::move(node);
+                _turretRoot = node;
             } else {
                 _turretRoot->addChild(*node);
-                _turretChildNodes.push_back(std::move(node));
             }
+            player->models.push_back(std::move(node));
         } else {
             if (!_bodyRoot) {
-                _bodyRoot = std::move(node);
+                _bodyRoot = node;
             } else {
                 _bodyRoot->addChild(*node);
-                _bodyChildNodes.push_back(std::move(node));
             }
+            bodyModels.push_back(std::move(node));
         }
     }
     if (!_turretRoot) {
+        if (player->trackNode) {
+            _services.scene.graphs.get(kSceneMain).removeRoot(*player->trackNode);
+        }
         return false;
     }
+    player->models.insert(player->models.end(), bodyModels.begin(), bodyModels.end());
 
     // Both groups ride the player track's hook so the hull and the gun stay
     // together; only the rotating group takes the aim rotation on top.
-    if (_playerTrackNode) {
-        _playerTrackNode->attach(kModelHookName, *_turretRoot);
+    if (player->trackNode) {
+        player->trackNode->attach(kModelHookName, *_turretRoot);
         if (_bodyRoot) {
-            _playerTrackNode->attach(kModelHookName, *_bodyRoot);
+            player->trackNode->attach(kModelHookName, *_bodyRoot);
         }
     } else {
         // No usable track: the actors become roots of their own. They are still
@@ -627,58 +599,113 @@ bool Turret::loadPlayer(const MinigameSpec &spec) {
         }
     }
 
-    loadGunBanks(spec.player.gunBanks, *_turretRoot, _gunBanks);
+    loadGunBanks(spec.gunBanks, *_turretRoot, player->gunBanks);
+    player->scripts = {spec.scripts.onCreate,
+                       spec.scripts.onHeartbeat,
+                       spec.scripts.onDamage,
+                       spec.scripts.onDeath,
+                       spec.scripts.onFire,
+                       spec.scripts.onHitBullet,
+                       spec.scripts.onHitFollower,
+                       spec.scripts.onHitObstacle,
+                       spec.scripts.onTrackLoop,
+                       spec.scripts.onAnimEvent};
+    registerActor(*player);
+    loadFollower(*player, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
+                 spec.numLoops, spec.invincePeriod, spec.sounds.death);
+    _player = std::move(player);
     return true;
 }
 
-void Turret::loadEnemies(const MinigameSpec &spec) {
+void Turret::loadEnemies() {
     auto layout = _services.resource.layouts.get(_areaName);
-    for (const auto &enemySpec : spec.enemies) {
-        Enemy enemy;
-        enemy.spec = &enemySpec;
-        enemy.hitPoints = static_cast<int>(enemySpec.hitPoints);
+    for (const auto &spec : _spec.enemies) {
+        auto enemy = std::make_unique<Follower>();
 
         glm::vec3 trackPos(0.0f);
         if (layout) {
-            if (auto placement = layout->findTrackByName(enemySpec.trackResRef)) {
+            if (auto placement = layout->findTrackByName(spec.trackResRef)) {
                 trackPos = placement->get().position;
             }
         }
-        enemy.trackNode = loadTrack(enemySpec.trackResRef, trackPos);
+        enemy->trackNode = loadTrack(spec.trackResRef, trackPos, enemy->trackAnimation);
 
-        for (const auto &model : enemySpec.models) {
+        std::shared_ptr<ModelSceneNode> root;
+        for (const auto &model : spec.models) {
             auto node = loadModel(model.resRef);
             if (!node) {
                 continue;
             }
-            if (!enemy.modelNode) {
-                enemy.modelNode = std::move(node);
+            if (!root) {
+                root = node;
             } else {
-                enemy.modelNode->addChild(*node);
-                enemy.extraNodes.push_back(std::move(node));
+                root->addChild(*node);
             }
+            enemy->models.push_back(std::move(node));
         }
-        if (!enemy.modelNode) {
-            debug("turret: enemy on track '" + enemySpec.trackResRef + "' has no model");
+        // An enemy with no model or no track is not made.
+        if (!root || !enemy->trackNode) {
+            debug("turret: enemy on track '" + spec.trackResRef + "' has no model or no track");
+            if (enemy->trackNode) {
+                _services.scene.graphs.get(kSceneMain).removeRoot(*enemy->trackNode);
+            }
             continue;
         }
-        if (enemy.trackNode) {
-            enemy.trackNode->attach(kModelHookName, *enemy.modelNode);
-        } else {
-            enemy.modelNode->setCullingEnabled(false);
-            _services.scene.graphs.get(kSceneMain).addRoot(enemy.modelNode);
-        }
-        for (const auto &bankSpec : enemySpec.gunBanks) {
-            GunBank bank;
-            bank.spec = &bankSpec;
-            bank.timer = TurretGunTimer(bankSpec.bullet.rateOfFire);
-            bank.modelNode = loadModel(bankSpec.gunModelResRef);
-            if (bank.modelNode) {
-                enemy.modelNode->attach(gunBankHookName(bankSpec.bankId), *bank.modelNode);
-            }
-            enemy.gunBanks.push_back(std::move(bank));
-        }
+        enemy->trackNode->attach(kModelHookName, *root);
+        loadGunBanks(spec.gunBanks, *root, enemy->gunBanks);
+        enemy->scripts = {spec.scripts.onCreate,
+                          spec.scripts.onHeartbeat,
+                          spec.scripts.onDamage,
+                          spec.scripts.onDeath,
+                          spec.scripts.onFire,
+                          spec.scripts.onHitBullet,
+                          spec.scripts.onHitFollower,
+                          spec.scripts.onHitObstacle,
+                          spec.scripts.onTrackLoop,
+                          spec.scripts.onAnimEvent};
+        registerActor(*enemy);
+        loadFollower(*enemy, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
+                     spec.numLoops, spec.invincePeriod, spec.sounds.death);
         _enemies.push_back(std::move(enemy));
+        // An enemy's creation script runs before it is known to be a trigger.
+        auto &created = *_enemies.back();
+        runScript(created.scripts.onCreate, created);
+        created.trigger = spec.trigger;
+    }
+}
+
+// Each obstacle of the area layout is an object.
+void Turret::loadObstacles() {
+    auto layout = _services.resource.layouts.get(_areaName);
+    if (!layout) {
+        return;
+    }
+    for (const auto &placement : layout->obstacles) {
+        auto obstacle = std::make_unique<Obstacle>();
+        auto node = loadModel(placement.name);
+        if (node) {
+            node->setLocalTransform(glm::translate(placement.position));
+            _services.scene.graphs.get(kSceneMain).addRoot(node);
+            obstacle->name = node->model().name();
+            obstacle->models.push_back(std::move(node));
+        } else {
+            obstacle->name = placement.name;
+        }
+        registerActor(*obstacle);
+        _obstacles.push_back(std::move(obstacle));
+    }
+}
+
+void Turret::loadObstacleScripts() {
+    // The area names the scripts of the first obstacle with each name.
+    for (const auto &spec : _spec.obstacles) {
+        auto named = actorByName(spec.name);
+        auto obstacle = named ? this->obstacle(named->id()) : nullptr;
+        if (obstacle) {
+            obstacle->onHeartbeat = spec.onHeartbeat;
+            obstacle->onHitBullet = spec.onHitBullet;
+            obstacle->onHitFollower = spec.onHitFollower;
+        }
     }
 }
 
@@ -689,46 +716,33 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
     _spec = spec;
     _areaName = areaName;
     _camera = camera;
-    _outcome = Outcome::InProgress;
     _elapsed = 0.0f;
     _firing = false;
-
+    _trackPlaying = false;
+    _speed = kDefaultSpeed;
     _trackResRef = _spec.player.trackResRef;
-    _playerSphereRadius = _spec.player.sphereRadius;
-    _maxHitPoints = static_cast<int>(_spec.player.maxHitPoints > 0
-                                         ? _spec.player.maxHitPoints
-                                         : _spec.player.hitPoints);
-    _hitPoints = static_cast<int>(_spec.player.hitPoints);
-    // Replaying a session starts from the authored aim with no carried-over
-    // input velocity.
-    _aim.configure(_spec.player);
-    _pitchRate.configure(_aim.pitchTravel());
-    _yawRate.configure(_aim.yawTravel());
+    _lateralAcceleration = _spec.lateralAccel > 0.0f ? _spec.lateralAccel : kDefaultLateralAcceleration;
+    _nearClip = _spec.nearClip > 0.0f ? _spec.nearClip : kDefaultClipPlaneNear;
+    _farClip = _spec.farClip > 0.0f ? _spec.farClip : kDefaultClipPlaneFar;
+    _aim = TurretAim();
 
-    glm::vec3 trackPos(0.0f);
-    _anchorSource = "origin";
-    if (auto layout = _services.resource.layouts.get(_areaName)) {
-        if (auto placement = layout->findTrackByName(_trackResRef)) {
-            trackPos = placement->get().position;
-            _anchorSource = "lyt-track";
-        }
-    }
-    _playerTrackNode = loadTrack(_trackResRef, trackPos);
-    if (_playerTrackNode) {
-        if (_anchorSource == "origin") {
-            _anchorSource = "track-model";
-        }
-    } else {
-        _anchorSource = "no-track";
-    }
-
-    if (!loadPlayer(_spec)) {
+    // The layout's obstacles are made first, then the player and the enemies.
+    // The player's creation script runs before its aim is read from the area.
+    loadObstacles();
+    if (!loadPlayer()) {
         debug("turret: no visible player models loaded");
         detachAll();
         _camera = nullptr;
         return false;
     }
-    loadEnemies(_spec);
+    _active = true;
+    runScript(_player->scripts.onCreate, *_player);
+    _aim.configure(_spec.player);
+    const float movementPerSecond = _spec.movementPerSec > 0.0f ? _spec.movementPerSec : kDefaultMovementPerSecond;
+    _pitchRate.configure(_lateralAcceleration, movementPerSecond);
+    _yawRate.configure(_lateralAcceleration, movementPerSecond);
+    loadEnemies();
+    loadObstacleScripts();
 
     // The camera mount supplies only its static camerahook transform
     // and is not added to the scene.
@@ -743,12 +757,13 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
         }
     }
 
-    _active = true;
     suppressCanopyGlass();
-    bindHudPanes();
-    resetHud();
-    setCameraFieldOfView(_spec.cameraViewAngle > 0.0f ? _spec.cameraViewAngle
-                                                      : kDefaultCameraFovDegrees);
+    applyCameraProjection();
+    go(*_player);
+    for (auto it = _enemies.rbegin(); it != _enemies.rend(); ++it) {
+        go(**it);
+    }
+    _trackPlaying = true;
     updateAnchor();
     updatePlayerTransforms();
     updateCamera();
@@ -767,13 +782,8 @@ void Turret::stop() {
             kDefaultClipPlaneNear,
             kDefaultClipPlaneFar);
     }
-    clearHud();
-    _healthHud.reset();
-    _radarHud.reset();
-    _contactAlive.clear();
-    _healthState = -1;
-    _headingState = -1;
     _active = false;
+    _trackPlaying = false;
     _camera = nullptr;
     _pitchRate.reset();
     _yawRate.reset();
@@ -797,53 +807,57 @@ void clearHook(const std::shared_ptr<ModelSceneNode> &model, const std::string &
 
 } // namespace
 
-void Turret::detachEnemyFromTrack(Enemy &enemy) {
-    if (!enemy.modelNode || enemy.detachedFromTrack) {
+void Turret::detachFromTrack(Follower &follower) {
+    if (follower.models.empty() || follower.detachedFromTrack) {
         return;
     }
-    enemy.detachedFromTrack = true;
-    if (!enemy.trackNode) {
+    follower.detachedFromTrack = true;
+    if (!follower.trackNode) {
         return; // already a scene root: nothing is translating it
     }
     // Preserve the pose the fighter died in, then move it from the rail's hook
     // to the scene root the tracks themselves live under. The hook keeps
     // looping, but the wreck no longer inherits it; anything the "die"
     // animation does to the model still applies on top of this transform.
-    glm::mat4 world = enemy.modelNode->absoluteTransform();
-    clearHook(enemy.trackNode, kModelHookName);
-    enemy.modelNode->setLocalTransform(world);
+    auto &root = follower.models.front();
+    glm::mat4 world = root->absoluteTransform();
+    clearHook(follower.trackNode, kModelHookName);
+    root->setLocalTransform(world);
     // A wreck sits where it was killed while the rail carries on, so the
     // culling that assumes actors stay near their track root no longer holds.
-    enemy.modelNode->setCullingEnabled(false);
-    _services.scene.graphs.get(kSceneMain).addRoot(enemy.modelNode);
+    root->setCullingEnabled(false);
+    _services.scene.graphs.get(kSceneMain).addRoot(root);
 }
 
-void Turret::releaseEnemyNodes(Enemy &enemy) {
-    // Everything a fighter owns hangs off its model root: the authored gun bank
-    // models on their hooks, and - built by the model loader itself - the
-    // reference models the fighter names (mgf_sithfighter attaches an fx_ref
-    // engine flare at each of its OmenRef nodes), plus its lights and emitters.
-    // Dropping the root and its rail therefore retires the whole fighter,
-    // without this code having to know which effects it authored.
+void Turret::releaseFollowerNodes(Follower &follower) {
+    // Everything a follower owns hangs off its model roots: the authored gun
+    // bank models on their hooks, and - built by the model loader itself - the
+    // reference models it names (mgf_sithfighter attaches an fx_ref engine
+    // flare at each of its OmenRef nodes), plus its lights and emitters.
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    for (auto &bank : enemy.gunBanks) {
-        if (bank.spec) {
-            clearHook(enemy.modelNode, gunBankHookName(bank.spec->bankId));
+    for (auto &model : follower.models) {
+        model->clearAnimationEventListener();
+    }
+    if (follower.trackNode) {
+        follower.trackNode->clearAnimationEventListener();
+    }
+    for (auto &bank : follower.gunBanks) {
+        for (auto &model : follower.models) {
+            clearHook(model, gunBankHookName(bank.spec.bankId));
         }
     }
-    enemy.gunBanks.clear();
-    clearHook(enemy.trackNode, kModelHookName);
-    if (enemy.modelNode) {
-        enemy.modelNode->removeAllChildren();
-        sceneGraph.removeRoot(*enemy.modelNode);
+    follower.gunBanks.clear();
+    clearHook(follower.trackNode, kModelHookName);
+    for (auto &model : follower.models) {
+        model->removeAllChildren();
+        sceneGraph.removeRoot(*model);
     }
-    if (enemy.trackNode) {
-        sceneGraph.removeRoot(*enemy.trackNode);
+    if (follower.trackNode) {
+        sceneGraph.removeRoot(*follower.trackNode);
     }
-    enemy.extraNodes.clear();
-    enemy.modelNode.reset();
-    enemy.trackNode.reset();
-    enemy.nodesReleased = true;
+    follower.models.clear();
+    follower.trackNode.reset();
+    follower.released = true;
 }
 
 void Turret::detachAll() {
@@ -859,96 +873,194 @@ void Turret::detachAll() {
     _bulletNodePool.clear();
 
     for (auto &enemy : _enemies) {
-        releaseEnemyNodes(enemy);
+        releaseFollowerNodes(*enemy);
+        _game.destroyRuntimeObjectGraph(enemy->object);
     }
     _enemies.clear();
 
-    for (auto &bank : _gunBanks) {
-        if (bank.spec) {
-            clearHook(_turretRoot, gunBankHookName(bank.spec->bankId));
-        }
+    if (_player) {
+        releaseFollowerNodes(*_player);
+        _game.destroyRuntimeObjectGraph(_player->object);
+        _player.reset();
     }
-    _gunBanks.clear();
-
-    clearHook(_playerTrackNode, kModelHookName);
-    if (_turretRoot) {
-        _turretRoot->removeAllChildren();
-        sceneGraph.removeRoot(*_turretRoot);
-    }
-    if (_bodyRoot) {
-        _bodyRoot->removeAllChildren();
-        sceneGraph.removeRoot(*_bodyRoot);
-    }
-    if (_playerTrackNode) {
-        sceneGraph.removeRoot(*_playerTrackNode);
-    }
-    _turretChildNodes.clear();
-    _bodyChildNodes.clear();
     _turretRoot.reset();
     _bodyRoot.reset();
-    _playerTrackNode.reset();
+
+    for (auto &obstacle : _obstacles) {
+        for (auto &model : obstacle->models) {
+            model->clearAnimationEventListener();
+            sceneGraph.removeRoot(*model);
+        }
+        _game.destroyRuntimeObjectGraph(obstacle->object);
+    }
+    _obstacles.clear();
 }
 
-size_t Turret::contactsLive() const {
-    return static_cast<size_t>(std::count(_contactAlive.begin(), _contactAlive.end(), true));
-}
-
-size_t Turret::radarChannelCount() const {
-    return _radarHud ? _radarHud->animationChannelCount() : 0;
-}
-
-size_t Turret::enemiesAlive() const {
-    size_t count = 0;
-    for (const auto &enemy : _enemies) {
-        if (enemy.alive) {
-            ++count;
+Turret::Follower *Turret::follower(uint32_t id) {
+    if (_player && _player->id() == id) {
+        return _player.get();
+    }
+    for (auto &enemy : _enemies) {
+        if (enemy->id() == id) {
+            return enemy.get();
         }
     }
-    return count;
+    return nullptr;
 }
 
+Turret::Obstacle *Turret::obstacle(uint32_t id) {
+    for (auto &obstacle : _obstacles) {
+        if (obstacle->id() == id) {
+            return obstacle.get();
+        }
+    }
+    return nullptr;
+}
+
+Turret::Actor *Turret::actor(uint32_t id) {
+    if (auto found = follower(id)) {
+        return found;
+    }
+    return obstacle(id);
+}
+
+std::vector<Turret::Follower *> Turret::listedEnemies() {
+    std::vector<Follower *> result;
+    for (auto &enemy : _enemies) {
+        if (enemy->listed) {
+            result.push_back(enemy.get());
+        }
+    }
+    return result;
+}
+
+std::vector<Turret::Obstacle *> Turret::listedObstacles() {
+    std::vector<Obstacle *> result;
+    for (auto &obstacle : _obstacles) {
+        if (obstacle->listed) {
+            result.push_back(obstacle.get());
+        }
+    }
+    return result;
+}
+
+// Model names are compared without case: model resrefs are read in lower case.
+Turret::Actor *Turret::actorByName(const std::string &name) {
+    for (auto &obstacle : _obstacles) {
+        if (boost::iequals(obstacle->name, name)) {
+            return obstacle.get();
+        }
+    }
+    if (_player && boost::iequals(_player->name, name)) {
+        return _player.get();
+    }
+    for (auto &enemy : _enemies) {
+        if (boost::iequals(enemy->name, name)) {
+            return enemy.get();
+        }
+    }
+    return nullptr;
+}
+
+void Turret::runScript(const std::string &resRef, const Actor &actor) {
+    if (resRef.empty() || !actor.object) {
+        return;
+    }
+    _game.scriptRunner().run(resRef, actor.id());
+}
+
+// Each frame the objects run their heartbeats and count down their
+// invulnerability, the player first, then the enemies and the obstacles, each
+// last to first. Bullets are then checked against them while the player's track
+// plays.
 void Turret::update(float dt) {
     if (!_active || dt <= 0.0f) {
         return;
     }
     _elapsed += dt;
 
-    _aim.addPitch(_pitchRate.advance(dt));
-    _aim.addYaw(_yawRate.advance(dt));
+    _aim.turn(glm::vec3(_pitchRate.advance(dt), 0.0f, _yawRate.advance(dt)));
 
     updateAnchor();
     updatePlayerTransforms();
     updateCamera();
 
-    for (auto &bank : _gunBanks) {
-        bank.timer.update(dt);
+    if (_player) {
+        updateFollower(*_player, dt);
     }
-    if (_firing) {
-        fire();
+    for (size_t i = _enemies.size(); i-- > 0;) {
+        if (i < _enemies.size() && _enemies[i]->listed) {
+            updateFollower(*_enemies[i], dt);
+        }
+    }
+    for (size_t i = _obstacles.size(); i-- > 0;) {
+        if (i < _obstacles.size() && _obstacles[i]->listed) {
+            runScript(_obstacles[i]->onHeartbeat, *_obstacles[i]);
+        }
+    }
+    if (!_active) {
+        return;
     }
 
-    updateEnemies(dt);
+    if (_player) {
+        for (auto &bank : _player->gunBanks) {
+            bank.timer.update(dt);
+        }
+        if (_firing && !_player->dying) {
+            fire();
+        }
+    }
+    for (auto &enemy : _enemies) {
+        if (!enemy->dying) {
+            updateEnemyFire(*enemy, dt);
+        }
+    }
     updateBullets(dt);
-    updateHeadingHud();
+    if (_player && _trackPlaying) {
+        checkBulletHits();
+    }
 
-    if (_outcome == Outcome::InProgress) {
-        if (turretIsDestroyed(_hitPoints)) {
-            _outcome = Outcome::Lost;
-        } else if (!_enemies.empty() && enemiesAlive() == 0) {
-            _outcome = Outcome::Won;
+    if (_player) {
+        updateDeath(*_player, dt);
+    }
+    for (auto &enemy : _enemies) {
+        updateDeath(*enemy, dt);
+    }
+    // A follower whose death has played out is gone.
+    if (_player && _player->released) {
+        _game.destroyRuntimeObjectGraph(_player->object);
+        _player.reset();
+        _turretRoot.reset();
+        _bodyRoot.reset();
+    }
+    for (auto it = _enemies.begin(); it != _enemies.end();) {
+        if ((*it)->released) {
+            _game.destroyRuntimeObjectGraph((*it)->object);
+            it = _enemies.erase(it);
+        } else {
+            ++it;
         }
     }
 }
 
+void Turret::updateFollower(Follower &follower, float dt) {
+    if (!follower.models.empty()) {
+        const glm::mat4 &transform = follower.models.front()->absoluteTransform();
+        follower.position = transformOrigin(transform);
+        follower.orientation = transformOrientation(transform);
+        follower.forward = turretFireDirection(follower.orientation);
+    }
+    runScript(follower.scripts.onHeartbeat, follower);
+    follower.invincibilityTimer = glm::max(0.0f, follower.invincibilityTimer - dt);
+}
+
 void Turret::updateAnchor() {
-    if (_playerTrackNode) {
-        if (auto hook = _playerTrackNode->getNodeByName(kModelHookName)) {
+    if (_player && _player->trackNode) {
+        if (auto hook = _player->trackNode->getNodeByName(kModelHookName)) {
             _anchorTransform = hook->absoluteTransform();
         } else {
-            _anchorTransform = _playerTrackNode->absoluteTransform();
+            _anchorTransform = _player->trackNode->absoluteTransform();
         }
-    } else {
-        _anchorTransform = glm::mat4(1.0f);
     }
     _anchorPosition = transformOrigin(_anchorTransform);
 }
@@ -957,11 +1069,6 @@ void Turret::updatePlayerTransforms() {
     // The roots are parented to the track hook, so their local transform is the
     // actor's placement within the hook frame: both groups sit on the hook and
     // only the rotating one takes the aim rotation.
-    //
-    // The authored Start_Offset is deliberately not applied. Its turret meaning
-    // is unconfirmed, and m12ab's Start_Offset_X of 7
-    // slides the gun sideways out of its mount, leaving the Ebon Hawk hull
-    // clipping through the turret frame.
     if (_bodyRoot) {
         _bodyRoot->setLocalTransform(glm::mat4(1.0f));
     }
@@ -981,17 +1088,35 @@ void Turret::updateCamera() {
     _camera->cameraSceneNode()->setLocalTransform(eye);
 }
 
-void Turret::setCameraFieldOfView(float fovDegrees) {
+void Turret::applyCameraProjection() {
     if (!_camera) {
         return;
     }
-    float nearClip = _spec.nearClip > 0.0f ? _spec.nearClip : kDefaultClipPlaneNear;
-    float farClip = _spec.farClip > 0.0f ? _spec.farClip : kDefaultClipPlaneFar;
+    const float fov = _spec.cameraViewAngle > 0.0f ? _spec.cameraViewAngle : kDefaultCameraFovDegrees;
     _camera->cameraSceneNode()->setPerspectiveProjection(
-        glm::radians(fovDegrees),
+        glm::radians(fov),
         cameraAspect(),
-        nearClip,
-        farClip);
+        _nearClip,
+        _farClip);
+}
+
+void Turret::setCameraClip(float nearClip, float farClip) {
+    _nearClip = glm::min(nearClip, farClip);
+    _farClip = glm::max(nearClip, farClip);
+    applyCameraProjection();
+}
+
+void Turret::setSpeed(float speed) {
+    _speed = speed;
+    if (_trackPlaying && _player && _player->trackNode && !_player->trackAnimation.empty()) {
+        _player->trackNode->setAnimationSpeed(_player->trackAnimation, speed / kDefaultSpeed);
+    }
+}
+
+void Turret::setLateralAcceleration(float acceleration) {
+    _lateralAcceleration = acceleration;
+    _pitchRate.setLateralAcceleration(acceleration);
+    _yawRate.setLateralAcceleration(acceleration);
 }
 
 float Turret::cameraAspect() const {
@@ -1003,12 +1128,12 @@ float Turret::cameraAspect() const {
 }
 
 void Turret::fire() {
-    if (!_turretRoot) {
+    if (!_turretRoot || !_player) {
         return;
     }
     bool fired = false;
-    for (auto &bank : _gunBanks) {
-        if (!bank.spec || !bank.timer.tryFire()) {
+    for (auto &bank : _player->gunBanks) {
+        if (!bank.timer.tryFire()) {
             continue;
         }
         glm::mat4 muzzle = _turretRoot->absoluteTransform();
@@ -1020,19 +1145,13 @@ void Turret::fire() {
             }
             bank.modelNode->playAnimation("fire");
         }
-        // The muzzle decides where the bolt appears and where it goes. The gun
-        // banks are not aligned with the hull they are mounted on: on the K1
-        // turret each bullethook0 sits five degrees below the turret body and
-        // toed half a degree inboard, so the pair converges down range. Taking
-        // the heading from the turret root instead threw both corrections away
-        // and fired every bank on the hull axis - above the guns, and parallel.
-        spawnBullet(*bank.spec,
-                    transformOrigin(muzzle),
-                    transformOrientation(muzzle),
-                    /*fromPlayer=*/true);
-        if (!bank.spec->fireSound.empty()) {
-            playSound(bank.spec->fireSound);
-        }
+        // The muzzle decides where the bolt appears and, in KotOR, where it
+        // goes. The gun banks are not aligned with the hull they are mounted
+        // on: on the K1 turret each bullethook0 sits five degrees below the
+        // turret body and toed half a degree inboard, so the pair converges
+        // down range. TSL fires along the player's first model instead.
+        const glm::mat4 &heading = _game.isTSL() ? _turretRoot->absoluteTransform() : muzzle;
+        spawnBullet(bank, transformOrigin(muzzle), transformOrientation(heading), *_player);
         fired = true;
     }
     if (fired && _turretRoot) {
@@ -1040,20 +1159,56 @@ void Turret::fire() {
     }
 }
 
-void Turret::spawnBullet(const MinigameGunBankSpec &bank,
+// An enemy gun fires when the player lies along the enemy's heading within the
+// bank's sensing radius and its time between shots has passed.
+void Turret::updateEnemyFire(Follower &enemy, float dt) {
+    for (auto &bank : enemy.gunBanks) {
+        bank.timer.update(dt);
+        if (!_player || !bank.timer.ready()) {
+            continue;
+        }
+        const float sensing = bank.spec.sensingRadius > 0.0f
+                                  ? bank.spec.sensingRadius
+                                  : kFallbackSensingRadius;
+        if (!rayIntersectsSphere(enemy.position, enemy.forward,
+                                 _anchorPosition, _player->sphereRadius, sensing)) {
+            continue;
+        }
+        if (!bank.timer.tryFire()) {
+            continue;
+        }
+        glm::vec3 muzzle = enemy.position;
+        if (bank.modelNode) {
+            if (auto hook = bank.modelNode->getNodeByName(kBulletHookName)) {
+                muzzle = transformOrigin(hook->absoluteTransform());
+            }
+        }
+        spawnBullet(bank, muzzle, enemy.orientation, enemy);
+    }
+}
+
+// A shot plays the bank's fire sound and runs the shooter's fire script, which
+// finds the shot as the last bullet fired. In TSL the player's bullets also
+// carry the player's speed.
+void Turret::spawnBullet(const GunBank &bank,
                          const glm::vec3 &origin,
                          const glm::quat &orientation,
-                         bool fromPlayer) {
+                         Follower &shooter) {
+    const auto &spec = bank.spec;
     Bullet bullet;
     bullet.sim.position = origin;
     bullet.sim.orientation = orientation;
     bullet.sim.direction = turretFireDirection(orientation);
-    bullet.sim.speed = bank.bullet.speed;
-    bullet.sim.lifespan = bank.bullet.lifespan;
-    bullet.sim.damage = bank.bullet.damage;
-    bullet.sim.fromPlayer = fromPlayer;
-    bullet.modelResRef = bank.bullet.modelResRef;
-    bullet.collisionSound = bank.bullet.collisionSound;
+    bullet.sim.speed = spec.bullet.speed;
+    if (shooter.player && _game.isTSL()) {
+        bullet.sim.speed += _speed;
+    }
+    bullet.sim.lifespan = spec.bullet.lifespan;
+    bullet.sim.damage = spec.bullet.damage;
+    bullet.sim.fromPlayer = shooter.player;
+    bullet.modelResRef = spec.bullet.modelResRef;
+    bullet.info = {static_cast<int>(spec.bullet.damage), spec.bullet.targetType, spec.bullet.collisionSound};
+    bullet.shooter = shooter.id();
 
     bullet.modelNode = acquireBulletNode(bullet.modelResRef);
     if (bullet.modelNode) {
@@ -1065,7 +1220,12 @@ void Turret::spawnBullet(const MinigameGunBankSpec &bank,
         bullet.modelNode->setLocalTransform(turretBulletTransform(bullet.sim));
         _services.scene.graphs.get(kSceneMain).addRoot(bullet.modelNode);
     }
+    shooter.lastBulletFired = bullet.info;
     _bullets.push_back(std::move(bullet));
+    if (!spec.fireSound.empty()) {
+        playSound(spec.fireSound, shooter.player ? std::nullopt : std::optional<glm::vec3>(shooter.position));
+    }
+    runScript(shooter.scripts.onFire, shooter);
 }
 
 std::shared_ptr<ModelSceneNode> Turret::acquireBulletNode(const std::string &resRef) {
@@ -1090,79 +1250,6 @@ void Turret::releaseBulletNode(Bullet &bullet) {
     _bulletNodePool[bullet.modelResRef].push_back(std::move(bullet.modelNode));
 }
 
-void Turret::updateEnemies(float dt) {
-    for (auto &enemy : _enemies) {
-        if (!enemy.modelNode) {
-            continue;
-        }
-        const glm::mat4 &transform = enemy.modelNode->absoluteTransform();
-        enemy.position = transformOrigin(transform);
-        enemy.orientation = transformOrientation(transform);
-        enemy.forward = turretFireDirection(enemy.orientation);
-
-        if (!enemy.alive) {
-            if (!enemy.deathHandled) {
-                enemy.deathHandled = true;
-                // The authored death animation decides how long the wreck stays.
-                if (auto dying = enemy.modelNode->model().getAnimation("die")) {
-                    enemy.deathDuration = dying->length();
-                }
-                // The engine glow is not part of the death presentation: it
-                // burns steadily for as long as its node lives, so a wreck that
-                // kept it would trail a lit flare through the whole animation.
-                turretDisableReferenceAttachments(*enemy.modelNode);
-                // Particles are children of the emitter that made them, so a
-                // wreck still riding its rail carries its whole explosion along
-                // with it. Take the fighter off the rail first, keeping it where
-                // it died, and the blast stays at the kill instead of sailing
-                // across the sky.
-                detachEnemyFromTrack(enemy);
-                enemy.modelNode->playAnimation("die");
-                if (enemy.spec && !enemy.spec->sounds.death.empty()) {
-                    playSound(enemy.spec->sounds.death);
-                }
-            } else if (!enemy.nodesReleased) {
-                // "die" only fades the hull mesh; the fx_ref flares, lights and
-                // emitters the fighter owns are untouched by it and would keep
-                // riding the rail forever. Retire the whole fighter once the
-                // authored effect has played out.
-                enemy.deathElapsed += dt;
-                if (turretDeathEffectComplete(enemy.deathElapsed, enemy.deathDuration)) {
-                    releaseEnemyNodes(enemy);
-                }
-            }
-            continue;
-        }
-
-        for (auto &bank : enemy.gunBanks) {
-            bank.timer.update(dt);
-            if (!bank.spec || !bank.timer.ready()) {
-                continue;
-            }
-            float sensing = bank.spec->sensingRadius > 0.0f
-                                ? bank.spec->sensingRadius
-                                : kFallbackSensingRadius;
-            if (!rayIntersectsSphere(enemy.position, enemy.forward,
-                                     _anchorPosition, _playerSphereRadius, sensing)) {
-                continue;
-            }
-            if (!bank.timer.tryFire()) {
-                continue;
-            }
-            glm::vec3 muzzle = enemy.position;
-            if (bank.modelNode) {
-                if (auto hook = bank.modelNode->getNodeByName(kBulletHookName)) {
-                    muzzle = transformOrigin(hook->absoluteTransform());
-                }
-            }
-            spawnBullet(*bank.spec, muzzle, enemy.orientation, /*fromPlayer=*/false);
-            if (!bank.spec->fireSound.empty()) {
-                playSound(bank.spec->fireSound);
-            }
-        }
-    }
-}
-
 void Turret::updateBullets(float dt) {
     for (auto it = _bullets.begin(); it != _bullets.end();) {
         auto &bullet = *it;
@@ -1174,58 +1261,300 @@ void Turret::updateBullets(float dt) {
         if (bullet.modelNode) {
             bullet.modelNode->setLocalTransform(turretBulletTransform(bullet.sim));
         }
-
-        bool hit = false;
-        if (bullet.sim.fromPlayer) {
-            for (auto &enemy : _enemies) {
-                if (!enemy.alive || !enemy.spec) {
-                    continue;
-                }
-                if (!sphereContainsPoint(enemy.position, enemy.spec->sphereRadius, bullet.sim.position)) {
-                    continue;
-                }
-                damageEnemy(enemy, bullet.sim.damage);
-                hit = true;
-                break;
-            }
-        } else if (sphereContainsPoint(_anchorPosition, _playerSphereRadius, bullet.sim.position)) {
-            damagePlayer(bullet.sim.damage);
-            hit = true;
-        }
-
-        if (hit) {
-            if (!bullet.collisionSound.empty()) {
-                playSound(bullet.collisionSound);
-            }
-            releaseBulletNode(bullet);
-            it = _bullets.erase(it);
-            continue;
-        }
         ++it;
     }
 }
 
-void Turret::damagePlayer(uint32_t amount) {
-    if (turretIsDestroyed(_hitPoints)) {
-        return; // already destroyed: the destruction branch runs once
+// A follower is hit inside its sphere, an obstacle inside its model's bounds.
+// No follower is hit by its own bullets.
+bool Turret::bulletHits(const Bullet &bullet, const Actor &target) const {
+    if (target.id() == bullet.shooter) {
+        return false;
     }
-    _hitPoints = glm::max(0, _hitPoints - static_cast<int>(amount));
-    // Update the cockpit gauge once per hit, not once per frame. Do not trigger an extra
-    // cockpit damage animation or change LED nodes here.
-    updateHealthHud();
+    if (auto follower = dynamic_cast<const Follower *>(&target)) {
+        return sphereContainsPoint(follower->position, follower->sphereRadius, bullet.sim.position);
+    }
+    for (const auto &model : target.models) {
+        auto bounds = model->model().aabb() * model->absoluteTransform();
+        if (bounds.contains(bullet.sim.position)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-void Turret::damageEnemy(Enemy &enemy, uint32_t amount) {
-    if (!enemy.alive) {
+// Each bullet, last to first, is checked against the player, then the listed
+// enemies and obstacles, each last to first; the first it hits takes it. The
+// target keeps the hit, then its bullet hit hook runs. A bullet that hits an
+// obstacle in TSL runs the obstacle's hook again and takes the obstacle away.
+void Turret::checkBulletHits() {
+    for (size_t i = _bullets.size(); i-- > 0;) {
+        if (i >= _bullets.size()) {
+            continue;
+        }
+        const Bullet bullet = _bullets[i];
+        Actor *target = nullptr;
+        Obstacle *hitObstacle = nullptr;
+        if (_player && bulletHits(bullet, *_player)) {
+            target = _player.get();
+        }
+        if (!target) {
+            auto enemies = listedEnemies();
+            for (auto it = enemies.rbegin(); it != enemies.rend(); ++it) {
+                if (bulletHits(bullet, **it)) {
+                    target = *it;
+                    break;
+                }
+            }
+        }
+        if (!target) {
+            auto obstacles = listedObstacles();
+            for (auto it = obstacles.rbegin(); it != obstacles.rend(); ++it) {
+                if (bulletHits(bullet, **it)) {
+                    target = hitObstacle = *it;
+                    break;
+                }
+            }
+        }
+        if (!target) {
+            continue;
+        }
+        releaseBulletNode(_bullets[i]);
+        _bullets.erase(_bullets.begin() + static_cast<std::ptrdiff_t>(i));
+
+        target->lastBulletHit = bullet.info;
+        target->lastBulletShooter = bullet.shooter;
+        target->lastBulletHitPart = _game.isTSL() ? "root" : "hitbullet";
+        target->lastBulletHitPosition = bullet.sim.position;
+        onBulletHit(*target, false);
+        if (hitObstacle && _game.isTSL()) {
+            onBulletHit(*hitObstacle, false);
+            destroyObstacle(*hitObstacle);
+        }
+        if (!_active) {
+            return;
+        }
+    }
+}
+
+void Turret::onBulletHit(Actor &actor, bool apply) {
+    auto follower = dynamic_cast<Follower *>(&actor);
+    const auto &script = follower ? follower->scripts.onHitBullet : static_cast<Obstacle &>(actor).onHitBullet;
+    if (!apply && !script.empty()) {
+        runScript(script, actor);
         return;
     }
-    enemy.hitPoints -= static_cast<int>(amount);
-    if (enemy.hitPoints <= 0) {
-        enemy.hitPoints = 0;
-        enemy.alive = false;
-        killContactHud(static_cast<size_t>(&enemy - _enemies.data()));
-    } else if (enemy.modelNode) {
-        enemy.modelNode->playAnimation("damage");
+    // The built-in handling damages a follower the bullet was aimed at, then
+    // sounds the bullet's collision where it hit.
+    const auto hit = actor.lastBulletHit;
+    const auto position = actor.lastBulletHitPosition;
+    if (follower && (follower->targetType() & hit.targetType) != 0) {
+        adjustHitPoints(*follower, -hit.damage);
+    }
+    if (!hit.collisionSound.empty()) {
+        playSound(hit.collisionSound, position);
+    }
+}
+
+void Turret::adjustHitPoints(Follower &follower, int amount) {
+    follower.hitPointAdjust = amount;
+    onDamage(follower, false);
+}
+
+// The built-in handling applies the last change. A heal stops at the maximum;
+// damage that leaves none kills, and any other plays the damage animation.
+void Turret::onDamage(Follower &follower, bool apply) {
+    if (!apply && !follower.scripts.onDamage.empty()) {
+        runScript(follower.scripts.onDamage, follower);
+        return;
+    }
+    follower.hitPoints += follower.hitPointAdjust;
+    if (follower.hitPointAdjust >= 0) {
+        follower.hitPoints = glm::min(follower.hitPoints, follower.maxHitPoints);
+        return;
+    }
+    if (follower.hitPoints <= 0) {
+        die(follower);
+        return;
+    }
+    for (auto &model : follower.models) {
+        model->playAnimation("damage");
+    }
+}
+
+// A follower dies once.
+void Turret::die(Follower &follower) {
+    if (follower.dead) {
+        return;
+    }
+    follower.dead = true;
+    onDeath(follower, false);
+}
+
+// The built-in death stops the follower and its guns, sounds its death, plays
+// each model's "die" animation and takes an enemy out of the enemy list. The
+// follower goes once the animation has played.
+void Turret::onDeath(Follower &follower, bool apply) {
+    if (!apply && !follower.scripts.onDeath.empty()) {
+        runScript(follower.scripts.onDeath, follower);
+        return;
+    }
+    if (follower.dying || follower.models.empty()) {
+        return;
+    }
+    follower.dying = true;
+    if (follower.player) {
+        _trackPlaying = false;
+        _firing = false;
+        if (follower.trackNode && !follower.trackAnimation.empty()) {
+            follower.trackNode->setAnimationSpeed(follower.trackAnimation, 0.0f);
+        }
+    } else {
+        // Particles are children of the emitter that made them, so a wreck
+        // still riding its rail carries its whole explosion along with it. Take
+        // the fighter off the rail first, keeping it where it died, and the
+        // blast stays at the kill instead of sailing across the sky.
+        detachFromTrack(follower);
+        follower.listed = false;
+    }
+    if (!follower.deathSound.empty()) {
+        playSound(follower.deathSound);
+    }
+    auto &root = *follower.models.front();
+    if (auto dying = root.model().getAnimation("die")) {
+        follower.deathDuration = dying->length();
+    }
+    // The engine glow is not part of the death presentation: it burns steadily
+    // for as long as its node lives, so a wreck that kept it would trail a lit
+    // flare through the whole animation.
+    turretDisableReferenceAttachments(root);
+    for (auto &model : follower.models) {
+        model->playAnimation("die");
+    }
+    for (auto &bank : follower.gunBanks) {
+        if (bank.modelNode) {
+            bank.modelNode->playAnimation("die");
+        }
+    }
+}
+
+void Turret::updateDeath(Follower &follower, float dt) {
+    if (!follower.dying || follower.released) {
+        return;
+    }
+    follower.deathElapsed += dt;
+    if (turretDeathEffectComplete(follower.deathElapsed, follower.deathDuration)) {
+        releaseFollowerNodes(follower);
+    }
+}
+
+// Without bumping or obstacle contact here, nothing raises this hook; a script
+// asking for the built-in handling wrecks the follower.
+void Turret::onObstacleHit(Follower &follower, bool apply) {
+    if (!apply && !follower.scripts.onHitObstacle.empty()) {
+        runScript(follower.scripts.onHitObstacle, follower);
+        return;
+    }
+    if (_game.isTSL() && _spec.type == MinigameType::SwoopRace) {
+        return;
+    }
+    die(follower);
+}
+
+void Turret::removeObstacle(Obstacle &obstacle) {
+    obstacle.listed = false;
+    for (auto &model : obstacle.models) {
+        _services.scene.graphs.get(kSceneMain).removeRoot(*model);
+    }
+}
+
+void Turret::destroyObstacle(Obstacle &obstacle) {
+    removeObstacle(obstacle);
+    _game.destroyRuntimeObjectGraph(obstacle.object);
+    auto it = std::find_if(_obstacles.begin(), _obstacles.end(), [&obstacle](const auto &other) {
+        return other.get() == &obstacle;
+    });
+    if (it != _obstacles.end()) {
+        _obstacles.erase(it);
+    }
+}
+
+// A follower plays an animation on each of its models, an obstacle on its
+// model. No name would stop every animation, which is not supported.
+void Turret::playAnimation(Actor &actor, const std::string &name, bool looping, bool overlay) {
+    if (name.empty()) {
+        return;
+    }
+    int flags = 0;
+    if (looping) {
+        flags |= AnimationFlags::loop;
+    }
+    if (overlay) {
+        flags |= AnimationFlags::overlay;
+    }
+    for (auto &model : actor.models) {
+        model->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
+    }
+}
+
+void Turret::removeAnimation(Actor &actor, const std::string &name) {
+    for (auto &model : actor.models) {
+        model->removeAnimation(name);
+    }
+}
+
+Turret::GunBank *Turret::Follower::gunBank(int bankId) {
+    for (auto it = gunBanks.rbegin(); it != gunBanks.rend(); ++it) {
+        if (static_cast<int>(it->spec.bankId) == bankId) {
+            return &*it;
+        }
+    }
+    return nullptr;
+}
+
+int Turret::Follower::gunBankCount() const {
+    int count = 0;
+    for (const auto &bank : gunBanks) {
+        count = glm::max(count, static_cast<int>(bank.spec.bankId) + 1);
+    }
+    return count;
+}
+
+void Turret::setGunModel(Follower &follower, GunBank &gunBank, const std::string &resRef) {
+    gunBank.spec.gunModelResRef = resRef;
+    if (follower.models.empty()) {
+        return;
+    }
+    auto model = loadModel(resRef);
+    if (!model) {
+        return;
+    }
+    auto &mount = *follower.models.front();
+    const auto hook = gunBankHookName(gunBank.spec.bankId);
+    clearHook(follower.models.front(), hook);
+    mount.attach(hook, *model);
+    gunBank.modelNode = std::move(model);
+}
+
+// A custom event keeps its tag and the model that raised it, then runs the
+// animation event script; a loop event on a track runs the track loop script.
+void Turret::onAnimationEvent(Actor &actor, const std::string &modelName, const std::string &event) {
+    static const std::string kCustomPrefix("custom_");
+    if (boost::istarts_with(event, kCustomPrefix)) {
+        actor.lastEvent = event.substr(kCustomPrefix.size());
+        actor.lastEventModel = modelName;
+        if (auto follower = dynamic_cast<Follower *>(&actor)) {
+            runScript(follower->scripts.onAnimEvent, actor);
+        }
+        return;
+    }
+    if (boost::istarts_with(event, "loop")) {
+        if (auto follower = dynamic_cast<Follower *>(&actor)) {
+            if (follower->numLoops != -1) {
+                setNumLoops(*follower, follower->numLoops - 1);
+            }
+            runScript(follower->scripts.onTrackLoop, actor);
+        }
     }
 }
 
@@ -1250,148 +1579,12 @@ void Turret::suppressCanopyGlass() {
     }
 }
 
-void Turret::bindHudPanes() {
-    // The HUD panes are ordinary entries in the player's rotating model set;
-    // find them by resref so the gauge and the radar can be driven separately.
-    auto findPane = [this](const std::string &resRef) -> std::shared_ptr<ModelSceneNode> {
-        if (_turretRoot && boost::iequals(_turretRoot->model().name(), resRef)) {
-            return _turretRoot;
-        }
-        for (const auto &node : _turretChildNodes) {
-            if (boost::iequals(node->model().name(), resRef)) {
-                return node;
-            }
-        }
-        return nullptr;
-    };
-    _healthHud = findPane("mgf_hud02");
-    _radarHud = findPane("mgf_hud01");
-}
-
-void Turret::resetHud() {
-    // A replayed session must not inherit the previous run's gauge, heading,
-    // contacts or alarm.
-    clearHud();
-    // No damage state is selected yet. The shipped script only ever plays a
-    // Health animation from its damage path, so a pristine session shows the
-    // model's authored rest pose - forcing Health12 up front would put the
-    // gauge into its healthiest *damaged* state, and on the lower states would
-    // switch on damage lighting that should not exist before the first hit.
-    _healthState = -1;
-    _headingState = -1;
-    _contactAlive.assign(_enemies.size(), true);
-    startContactHud();
-    updateHeadingHud();
-}
-
-void Turret::updateHealthHud() {
-    int state = turretHealthState(_hitPoints);
-    if (state == _healthState) {
-        // Nothing crossed a band boundary, so leave the running clip alone -
-        // the low states are animated and must not be restarted every frame.
-        return;
-    }
-
-    // The shipped script starts the alarm on the frame the state becomes 3, and
-    // never restarts or clears it except in the destruction branch.
-    if (turretAlarmStartsAtState(state)) {
-        setAlarmActive(true);
-    }
-
-    if (_healthHud) {
-        if (_healthState >= 0) {
-            _healthHud->removeAnimation(turretHealthAnimation(_healthState));
-        }
-        _healthHud->playAnimation(turretHealthAnimation(state), nullptr,
-                                  AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-    }
-    _healthState = state;
-}
-
-void Turret::updateHeadingHud() {
-    int heading = turretHeadingState(_aim.yaw());
-    if (heading == _headingState) {
-        return;
-    }
-    if (_radarHud) {
-        if (_headingState >= 0) {
-            _radarHud->removeAnimation(turretHeadingAnimation(_headingState));
-        }
-        // Heading poses are zero length; overlay keeps them from disturbing the
-        // contact loops, which animate entirely different nodes.
-        _radarHud->playAnimation(turretHeadingAnimation(heading), nullptr,
-                                 AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-    }
-    _headingState = heading;
-}
-
-void Turret::startContactHud() {
-    if (!_radarHud) {
-        return;
-    }
-    for (size_t i = 0; i < _enemies.size() && i < kTurretContactCount; ++i) {
-        // Clear any death pose left by a previous session before re-arming.
-        _radarHud->removeAnimation(turretContactDeathAnimation(i));
-        _radarHud->playAnimation(turretContactAnimation(i), nullptr,
-                                 AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-    }
-}
-
-void Turret::killContactHud(size_t enemyIndex) {
-    if (enemyIndex >= _contactAlive.size() || !_contactAlive[enemyIndex]) {
-        return; // already dead: repeated notification is harmless
-    }
-    _contactAlive[enemyIndex] = false;
-    if (!_radarHud || enemyIndex >= kTurretContactCount) {
-        return;
-    }
-    // Swap the live loop for the authored removal pose, leaving the other five
-    // contacts and the heading untouched.
-    _radarHud->removeAnimation(turretContactAnimation(enemyIndex));
-    _radarHud->playAnimation(turretContactDeathAnimation(enemyIndex), nullptr,
-                             AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-}
-
-void Turret::clearHud() {
-    setAlarmActive(false);
-    if (_radarHud) {
-        for (size_t i = 0; i < kTurretContactCount; ++i) {
-            _radarHud->removeAnimation(turretContactAnimation(i));
-            _radarHud->removeAnimation(turretContactDeathAnimation(i));
-        }
-        if (_headingState >= 0) {
-            _radarHud->removeAnimation(turretHeadingAnimation(_headingState));
-        }
-    }
-    if (_healthHud && _healthState >= 0) {
-        _healthHud->removeAnimation(turretHealthAnimation(_healthState));
-    }
-}
-
-void Turret::setAlarmActive(bool active) {
-    if (active == _alarmActive) {
-        return; // never restart a looping sound that is already running
-    }
-    _alarmActive = active;
-    // Drive the authored module sound object rather than an ad hoc source.
-    auto module = _game.module();
-    auto area = module ? module->area() : nullptr;
-    if (!area) {
-        return;
-    }
-    auto object = area->getObjectByTag(kTurretAlarmTag);
-    if (!object || object->type() != ObjectType::Sound) {
-        return;
-    }
-    std::static_pointer_cast<Sound>(object)->setActive(active);
-}
-
-void Turret::playSound(const std::string &resRef) {
+void Turret::playSound(const std::string &resRef, std::optional<glm::vec3> position) {
     auto clip = _services.resource.audioClips.get(resRef);
     if (!clip) {
         return;
     }
-    _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, false, position);
 }
 
 bool Turret::handle(const input::Event &event) {

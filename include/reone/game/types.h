@@ -339,6 +339,8 @@ enum class ObjectType {
     Area = 0x1001,
     Room = 0x1002,
     Camera = 0x1003,
+    /** A minigame's player, enemy or obstacle, as its scripts see it. */
+    MinigameObject = 0x1004,
 
     All = 0x7fff,
     Invalid = 0x7fff

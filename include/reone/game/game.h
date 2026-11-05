@@ -535,6 +535,8 @@ public:
     void openTurret();
     void closeTurret();
 
+    Turret &turret() { return _turret; }
+
     // Exit the active turret: returns to the lifecycle origin if a lifecycle
     // session is in progress, otherwise just stops the dev session in place.
     void exitTurret();
@@ -2314,16 +2316,8 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
-    // Same, for the turret minigame. The outcome is carried through rather than
-    // reduced to a success flag: a win, a loss and an abandoned session all
-    // return to the origin, but only a win emits the completion state.
-    void finishTurretLifecycle(Turret::Outcome outcome);
-
-    /**
-     * Apply post-turret globals for K1 M12ab after a victory.
-     * Other modules are unchanged.
-     */
-    void applyTurretResult(const std::string &turretModule, Turret::Outcome outcome);
+    // Same, for the turret minigame.
+    void finishTurretLifecycle();
 
     // Give up on a scheduled turret session and go back where it started.
     void abandonPendingTurret(const std::string &reason);

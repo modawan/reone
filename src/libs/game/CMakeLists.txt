@@ -325,6 +325,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/object/door.h
     ${GAME_INCLUDE_DIR}/object/encounter.h
     ${GAME_INCLUDE_DIR}/object/item.h
+    ${GAME_INCLUDE_DIR}/object/minigameobject.h
     ${GAME_INCLUDE_DIR}/object/module.h
     ${GAME_INCLUDE_DIR}/object/placeable.h
     ${GAME_INCLUDE_DIR}/object/sound.h
