@@ -432,8 +432,9 @@ public:
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
-     * centre of its bounding box for any other. A model no box holds, or one
-     * whose subclassification marks it so, is in every room.
+     * centre of its bounding box for any other. A model no box holds, one
+     * whose subclassification marks it so, or an object's model placed at the
+     * world origin, is in every room.
      */
     bool isModelInShownRoom(const scene::ModelSceneNode &model) const;
     /**

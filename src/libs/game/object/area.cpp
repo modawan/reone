@@ -3000,6 +3000,11 @@ bool Area::isModelInShownRoom(const ModelSceneNode &model) const {
     if (!_cullingRooms || (model.model().subclassification() & kInEveryRoom) != 0) {
         return true;
     }
+    // A model placed at the world origin for a clip authored there is drawn
+    // whatever the room.
+    if (auto object = dynamic_cast<const Object *>(model.user()); object && object->isStuntMode()) {
+        return true;
+    }
     const glm::mat4 &transform = model.absoluteTransform();
     const glm::vec3 centre {(model.model().classification() & MdlClassification::character) != 0
                                 ? glm::vec3(transform[3])

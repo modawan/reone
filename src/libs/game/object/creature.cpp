@@ -3187,7 +3187,12 @@ void Creature::returnToStoredLoop() {
         return;
     }
     if (!current) {
-        std::static_pointer_cast<ModelSceneNode>(_sceneNode)->playAnimation(_storedLoop->clip, nullptr, _storedLoop->properties);
+        auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+        if (_storedLoop->external) {
+            model->playAnimation(*_storedLoop->external, nullptr, _storedLoop->properties);
+        } else {
+            model->playAnimation(_storedLoop->clip, nullptr, _storedLoop->properties);
+        }
     }
 }
 
@@ -3208,15 +3213,22 @@ void Creature::presentEquippedItems(const std::string &clip) {
 }
 
 bool Creature::storeLoop(const std::string &clip, const AnimationProperties &properties, bool stateDriven,
-                         AnimationSource source) {
+                         AnimationSource source, std::shared_ptr<Animation> external) {
     if (!_storedLoop || !boost::iequals(_storedLoop->clip, clip)) {
         flushFireForgetQueue();
         if (_storedLoop) {
             queueLoopTransition(source.id, _storedLoop->source.id, properties.speed);
         }
     }
-    _storedLoop = StoredLoop {clip, properties, stateDriven, source};
-    return !isPlayingOneShotAnimation();
+    _storedLoop = StoredLoop {clip, properties, stateDriven, source, std::move(external)};
+    if (isPlayingOneShotAnimation()) {
+        // A loop held behind the one-shot still places the model at once:
+        // back where the creature stands, or at the world origin for a loop
+        // played there.
+        setPlacedAtOrigin(isWorldSpaceCutClip(source.id));
+        return false;
+    }
+    return true;
 }
 
 // A loop taking over from another may first show the clip leading from one to
@@ -4642,9 +4654,10 @@ bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationPr
     });
 }
 
-// A loop the conversation gives plays at once. A one-shot first makes the
-// pause the loop, ends the running one-shot, empties the queue and starts at
-// once; when it ends the creature returns to the pause.
+// A loop the conversation gives becomes the loop, and waits for a running
+// one-shot. A one-shot first makes the pause the loop, ends the running
+// one-shot, empties the queue and starts at once; when it ends the creature
+// returns to the loop.
 bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties,
                                      AnimationSource source) {
     // A world-space animation of an animated cutscene holds the creature.
@@ -4659,6 +4672,9 @@ bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, Ani
     }
     properties.flags |= AnimationFlags::retargetRoot;
     bool started = doPlayAnimation(fireForget, [&]() {
+        if (!fireForget && !storeLoop(anim->name(), properties, false, source, anim)) {
+            return;
+        }
         auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
         if (model) {
             // The one-shot played again starts over. The ended one is still

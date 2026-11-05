@@ -150,6 +150,8 @@ private:
     void turnToward(Object &turner, const std::shared_ptr<Object> &other);
     /** Release the pair's looks and forget the pair. */
     void endSpeakerPair();
+    /** The speaker and the listener of the pair drop their orientation locks, without turning. */
+    void dropPairOrientationLocks();
     /** The object a participant tag names: a stunt participant's creature, or an object in the area. */
     std::shared_ptr<Object> participantObject(const std::string &participant) const;
     /** The creature a participant tag names: a stunt participant's, or one in the area. */

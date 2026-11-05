@@ -244,7 +244,18 @@ std::shared_ptr<Creature> DialogGUI::resolveParticipantCreature(const std::strin
     return std::dynamic_pointer_cast<Creature>(resolveParticipantObject(participant, ParticipantSite::Animation));
 }
 
+// Each entry and each list of replies first frees the pair before it from
+// the objects their orientations are locked on.
+void DialogGUI::dropPairOrientationLocks() {
+    for (auto &reference : {_pairSpeaker, _pairListener}) {
+        if (auto creature = std::dynamic_pointer_cast<Creature>(reference.resolve())) {
+            creature->dropOrientationLock();
+        }
+    }
+}
+
 void DialogGUI::onLoadEntry() {
+    dropPairOrientationLocks();
     loadCurrentSpeaker();
     updateParticipantAnimations(*_currentEntry);
     // An animated camera shot leaves everyone as they are.
@@ -376,6 +387,7 @@ void DialogGUI::turnToward(Object &turner, const std::shared_ptr<Object> &other)
 // first reply's shot takes the camera and sets the video effect. A sole reply
 // taken when the entry ends changes nothing.
 void DialogGUI::passTurnToReplySpeaker() {
+    dropPairOrientationLocks();
     _previousPairListener = _pairListener;
     _pairListener = _pairSpeaker;
     _previousPairSpeaker = _pairSpeaker;
@@ -612,6 +624,15 @@ std::vector<std::shared_ptr<Object>> DialogGUI::participantObjects(const std::ma
         }
     }
     return objects;
+}
+
+// The creature shows its pause at once: the one-shot it plays ends, and a
+// model placed at the world origin goes back to where the creature stands.
+static void showPauseAtOnce(Creature &creature) {
+    if (creature.currentAnimationId() != kPauseAnimationId) {
+        creature.abortFireForgetAnimation();
+        creature.showDialogPause();
+    }
 }
 
 // A released creature may look again and returns to its pause, unless it
@@ -881,15 +902,18 @@ void DialogGUI::onFinish() {
 }
 
 void DialogGUI::releaseStuntParticipants() {
-    // The animated cutscene is over, and holds no one. Elsewhere a stunt
-    // participant ends as any other participant does.
-    if (_dialog->isAnimatedCutscene()) {
-        for (auto &participant : _participantByTag) {
-            auto creature = participant.second.creature.resolve();
-            if (!creature) continue;
-            creature->releaseCutsceneAnimation();
+    // The animated cutscene is over, and holds no one. Elsewhere each living
+    // stunt participant shows its pause at once, whatever the last list left
+    // it playing.
+    for (auto &participant : _participantByTag) {
+        auto creature = participant.second.creature.resolve();
+        if (!creature) continue;
+        creature->releaseCutsceneAnimation();
+        if (_dialog->isAnimatedCutscene()) {
             creature->resumeStateDrivenAnimation();
             creature->setIsInConversation(false);
+        } else if (!creature->isDead()) {
+            showPauseAtOnce(*creature);
         }
     }
     _participantByTag.clear();

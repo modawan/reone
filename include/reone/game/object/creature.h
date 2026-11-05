@@ -2509,6 +2509,8 @@ private:
         scene::AnimationProperties properties;
         bool stateDriven {true};
         AnimationSource source;
+        /** A clip of another model, played as it is; none for the model's own. */
+        std::shared_ptr<graphics::Animation> external;
     };
 
     /** The attack penalty of two-weapon fighting, and the part a light off-hand weapon gives back. */
@@ -3082,10 +3084,11 @@ private:
     bool doPlayAnimation(bool fireForget, const std::function<void()> &callback);
     /**
      * Records a loop arriving; a loop other than the stored one empties the
-     * queue. False while a one-shot runs: the loop waits for it.
+     * queue. False while a one-shot runs: the loop waits for it, but places
+     * the model at once.
      */
     bool storeLoop(const std::string &clip, const scene::AnimationProperties &properties, bool stateDriven,
-                   AnimationSource source);
+                   AnimationSource source, std::shared_ptr<graphics::Animation> external = nullptr);
     void returnToStoredLoop();
     /**
      * The body shows \p clip: one that hides equipped items puts the hand
