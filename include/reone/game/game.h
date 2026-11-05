@@ -441,6 +441,11 @@ public:
         const std::string &message,
         std::shared_ptr<graphics::Texture> icon = nullptr,
         std::function<void()> onConfirm = {});
+    /** Show a message box answered Yes or No. False when the popup cannot be loaded. */
+    bool showConfirmPopup(
+        const std::string &message,
+        std::function<void()> onConfirm,
+        std::function<void()> onCancel = {});
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
     /**

@@ -665,6 +665,10 @@ bool Item::isEquippable(int slot) const {
 }
 
 bool Item::isStackCompatibleWith(const Item &other) const {
+    return _maxStackSize > 1 && isIdenticalTo(other);
+}
+
+bool Item::isIdenticalTo(const Item &other) const {
     auto sameProperty = [](const PropertyEntry &lhs, const PropertyEntry &rhs) {
         return lhs.costTable == rhs.costTable &&
                lhs.costValue == rhs.costValue &&
@@ -675,8 +679,7 @@ bool Item::isStackCompatibleWith(const Item &other) const {
                lhs.upgradeType == rhs.upgradeType &&
                lhs.usesPerDay == rhs.usesPerDay;
     };
-    return _maxStackSize > 1 &&
-           _baseItem == other._baseItem &&
+    return _baseItem == other._baseItem &&
            _plot == other._plot &&
            _charges == other._charges &&
            _upgrades == other._upgrades &&

@@ -183,6 +183,8 @@ public:
     bool isEquippable() const;
     bool isEquippable(int slot) const;
     bool isStackCompatibleWith(const Item &other) const;
+    /** The same item in every way a stack or a store's stock compares. */
+    bool isIdenticalTo(const Item &other) const;
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }
     bool isDropable() const { return _dropable; }

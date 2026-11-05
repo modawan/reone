@@ -9350,6 +9350,21 @@ bool Game::showMessagePopup(
     return true;
 }
 
+bool Game::showConfirmPopup(
+    const std::string &message,
+    std::function<void()> onConfirm,
+    std::function<void()> onCancel) {
+    if (!_confirmPopup) {
+        _confirmPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_confirmPopup) {
+        return false;
+    }
+    stopMovement();
+    _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel));
+    return true;
+}
+
 void Game::consoleSeed(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "number");
     setRandomSeed(static_cast<uint32_t>(args.get<int>(1).value()));
