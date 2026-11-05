@@ -810,7 +810,7 @@ void Game::initConsole() {
     registerConsoleCommand("spawncompanion", "spawn a companion", &Game::consoleSpawnCompanion);
     registerConsoleCommand("addavailablenpc", "add an NPC to the party selection roster", &Game::consoleAddAvailableNpc);
     registerConsoleCommand("selectobjectbyid", "select an object by id", &Game::consoleSelectObjectById);
-    registerConsoleCommand("selectobjectbytag", "select an object by tag", &Game::consoleSelectObjectByTag);
+    registerConsoleCommand("selectobjectbytag", "select an object by tag, the nth (from 0) of those sharing it", &Game::consoleSelectObjectByTag);
     registerConsoleCommand("selectleader", "select the party leader", &Game::consoleSelectLeader);
     registerConsoleCommand("setfaction", "change faction of a creature", &Game::consoleSetFaction);
     registerConsoleCommand("setposition", "change position of a creature", &Game::consoleSetPosition);
@@ -9780,8 +9780,10 @@ void Game::startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly) {
         // Round walls and debris along the walkmesh, as a player steering by
         // eye would; with no path, straight at the target.
         if (_module && _module->area()) {
-            glm::vec3 to(target, leader->position().z);
-            walk.path = createPath(_module->area()->pathfinder(), leader->position(), to);
+            auto &pathfinder = _module->area()->pathfinder();
+            const float z = walkmeshHeightAt(pathfinder, target, leader->position().z).value_or(leader->position().z);
+            glm::vec3 to(target, z);
+            walk.path = createPath(pathfinder, leader->position(), to);
         }
         // Say which: a point off the walkmesh has no route, and a straight
         // walk at it meets the first wall.
@@ -9931,8 +9933,10 @@ void Game::consoleCanWalk(const ConsoleArgs &args) {
     if (!x || !y || !leader || !_module || !_module->area()) {
         throw std::runtime_error("canwalk: needs x, y and a leader in an area");
     }
-    glm::vec3 to(*x, *y, leader->position().z);
-    bool joined = pathExists(_module->area()->pathfinder(), leader->position(), to);
+    const auto &pathfinder = _module->area()->pathfinder();
+    const float z = walkmeshHeightAt(pathfinder, {*x, *y}, leader->position().z).value_or(leader->position().z);
+    glm::vec3 to(*x, *y, z);
+    bool joined = pathExists(pathfinder, leader->position(), to);
     info(str(boost::format("canwalk %.1f,%.1f from %.1f,%.1f: %s") % *x % *y % leader->position().x %
              leader->position().y % (joined ? "yes" : "no")));
 }
@@ -10397,12 +10401,15 @@ void Game::consoleSelectObjectById(const ConsoleArgs &args) {
 }
 
 void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "tag");
+    consoleCheckUsage(args, 1, 2, "tag [nth]");
     std::string_view tag = args[1].value();
+    // Several objects can share a tag; nth (from 0) picks one of them in the
+    // area's order, as clickobject's does.
+    int nth = args.get<int>(2).value_or(0);
 
     auto area = getConsoleArea();
     for (auto &object : area->objects()) {
-        if (object->tag() == tag) {
+        if (object->tag() == tag && nth-- == 0) {
             area->selectObject(object, /*force=*/true);
             return;
         }

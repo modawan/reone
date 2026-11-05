@@ -98,3 +98,51 @@ TEST(Pathfinder, should_find_shortest_path) {
         0, 7, 6, 5};
     EXPECT_EQ(astarPath.faces, expectedPath);
 }
+
+// Two floors joined by a ramp: a high one at z 8 (x 0..2) and a low one at
+// z 3 (x 4..6). Faces are looked up within their rooms' bounds, height
+// included, so a point on the low floor given at the high floor's height
+// finds no face; walkmeshHeightAt gives the height to look it up at.
+static void buildTwoFloors(Pathfinder &pf) {
+    pf.uni.vertices = {
+        {0.0f, 0.0f, 8.0f}, {2.0f, 0.0f, 8.0f}, {2.0f, 2.0f, 8.0f}, {0.0f, 2.0f, 8.0f}, // 0-3 high
+        {4.0f, 0.0f, 3.0f}, {4.0f, 2.0f, 3.0f},                                         // 4-5 ramp foot
+        {6.0f, 0.0f, 3.0f}, {6.0f, 2.0f, 3.0f},                                         // 6-7 low
+    };
+    pf.uni.faces = {
+        {{0, 1, 2}}, {{0, 2, 3}}, // high, room 0
+        {{1, 4, 5}}, {{1, 5, 2}}, // ramp, room 1
+        {{4, 6, 7}}, {{4, 7, 5}}, // low, room 2
+    };
+    pf.uni.rooms = {
+        {0, 2, {0.0f, 0.0f, 8.0f}, {2.0f, 2.0f, 8.0f}},
+        {2, 4, {2.0f, 0.0f, 3.0f}, {4.0f, 2.0f, 8.0f}},
+        {4, 6, {4.0f, 0.0f, 3.0f}, {6.0f, 2.0f, 3.0f}},
+    };
+    for (Uniface &face : pf.uni.faces) {
+        for (uint32_t i = 0; i < 3; ++i) {
+            face.adjecent[i] = UINT32_MAX;
+        }
+    }
+    uniwalkFinalize(pf.uni);
+}
+
+TEST(Pathfinder, walkmesh_height_is_found_under_a_point_on_any_floor) {
+    Pathfinder pf;
+    buildTwoFloors(pf);
+
+    EXPECT_FLOAT_EQ(8.0f, walkmeshHeightAt(pf, {1.0f, 1.0f}, 3.0f).value());
+    EXPECT_FLOAT_EQ(3.0f, walkmeshHeightAt(pf, {5.0f, 1.0f}, 8.0f).value());
+    EXPECT_NEAR(5.5f, walkmeshHeightAt(pf, {3.0f, 1.0f}, 8.0f).value(), 0.001f);
+    EXPECT_FALSE(walkmeshHeightAt(pf, {9.0f, 1.0f}, 8.0f).has_value());
+}
+
+TEST(Pathfinder, a_lower_floor_is_joined_once_looked_up_at_its_own_height) {
+    Pathfinder pf;
+    buildTwoFloors(pf);
+    const glm::vec3 high(1.0f, 1.0f, 8.0f);
+
+    EXPECT_FALSE(pathExists(pf, high, {5.0f, 1.0f, 8.0f}));
+    EXPECT_TRUE(pathExists(pf, high, {5.0f, 1.0f, *walkmeshHeightAt(pf, {5.0f, 1.0f}, 8.0f)}));
+    EXPECT_TRUE(pathExists(pf, {5.0f, 1.0f, 3.0f}, high));
+}

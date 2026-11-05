@@ -648,6 +648,24 @@ static bool findPath(AStarPath &path, AStarContext &astar, const Uniwalk &uni,
     return true;
 }
 
+std::optional<float> walkmeshHeightAt(const Pathfinder &pf, const glm::vec2 &point, float nearZ) {
+    std::optional<float> best;
+    for (const Uniroom &room : pf.uni.rooms) {
+        if (point.x < room.min.x || point.x > room.max.x || point.y < room.min.y || point.y > room.max.y) {
+            continue;
+        }
+        // Cast from above the room's highest point, so every face in it is below.
+        const glm::vec3 from(point, room.max.z + 1.0f);
+        for (uint32_t i = room.begin; i < room.end; ++i) {
+            CastResult res = castFace(pf.uni, i, from);
+            if (res.intersects && (!best || std::fabs(res.intersection.z - nearZ) < std::fabs(*best - nearZ))) {
+                best = res.intersection.z;
+            }
+        }
+    }
+    return best;
+}
+
 bool pathExists(const Pathfinder &pf, const glm::vec3 &from, const glm::vec3 &to) {
     const uint32_t fromFace = findFaceAt(pf.uni, from);
     const uint32_t toFace = findFaceAt(pf.uni, to);

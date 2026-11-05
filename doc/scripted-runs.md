@@ -48,7 +48,8 @@ logs a creature's position, faction, `hp=current/max`, `dead=0|1`, its
 follow slot and follow point if it follows the leader, whether it is
 commandable, and the type of the action it is doing. `listcreatures` logs
 every creature in the area the same way, with `party=1` on party members,
-to find who is still fighting. A command that fails is logged as
+to find who is still fighting. Objects that share a tag are told apart by
+an index from 0: `selectobjectbytag tar03_vulkaptenc 2` selects the third. A command that fails is logged as
 `Command failed: <command>: <reason>`, and a mistyped one as
 `Unrecognized command: <name>`, so a scripted run leaves a trace in
 `engine.log`. A click that quits the game ends the run.
