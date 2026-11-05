@@ -562,8 +562,10 @@ public:
     std::shared_ptr<Creature> spawnPuppet(int puppet, const glm::vec3 &position, float facing);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
-    /** Whether the galaxy map's travel script is running. */
+    /** Whether a map's travel script is running: the galaxy map's, or the return to base. */
     bool isTravelScriptRunning() const;
+    /** KotOR: the map's return to base closes the menu and runs its script. */
+    void returnToBase();
     /** Whether the galaxy map may take the screen over from the given one. */
     static bool canOpenGalaxyMapFrom(Screen screen);
 
@@ -849,6 +851,8 @@ public:
         uint32_t actor = script::kObjectInvalid,
         uint32_t subject = script::kObjectInvalid,
         uint32_t param = 0);
+    /** As above, for a window that hands its action back to \p onClosed once dismissed. */
+    bool requestTutorialWindow(int id, std::function<void()> onClosed);
     /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
     std::optional<int> feedbackTextStrRef(int row) const;
     /**
@@ -1779,6 +1783,7 @@ private:
         uint32_t actor {script::kObjectInvalid};
         uint32_t subject {script::kObjectInvalid};
         uint32_t param {0};
+        std::function<void()> onClosed;
     };
 
     /** The window asked for this frame; it opens on the next. */
@@ -1986,6 +1991,7 @@ private:
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;
+    bool _runningReturnScript {false};
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;

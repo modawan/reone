@@ -2022,13 +2022,12 @@ static Variable GetDistanceBetween(const std::vector<Variable> &args, const Rout
 
 static Variable SetReturnStrref(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
+    auto bShow = getIntOrElse(args, 0, 0);
     auto srStringRef = getIntOrElse(args, 1, 0);
+    auto srQueryStringRef = getIntOrElse(args, 2, 0);
 
-    // Transform
-
-    // Execute: the map never offers the return, so whether it is shown and
-    // the question it asks are not kept.
-    ctx.game.party().setReturnStrRef(srStringRef);
+    // Execute
+    ctx.game.party().setReturn(bShow != 0, srStringRef, srQueryStringRef);
     return Variable::ofNull();
 }
 

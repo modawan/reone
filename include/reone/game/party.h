@@ -613,10 +613,21 @@ public:
     // END Galaxy map
 
     static constexpr int kDefaultReturnStrRef = 32179;
+    static constexpr int kDefaultReturnQueryStrRef = 42120;
 
-    /** The caption of the map's return button, as a script last set it. Not saved. */
+    // The map's return button, as a script last set it. Not saved.
+
+    /** Whether the map offers the return. */
+    bool isReturnOffered() const { return _returnOffered; }
+    /** The button's caption. */
     int returnStrRef() const { return _returnStrRef; }
-    void setReturnStrRef(int strRef) { _returnStrRef = strRef; }
+    /** The question the return asks first. */
+    int returnQueryStrRef() const { return _returnQueryStrRef; }
+    void setReturn(bool offered, int strRef, int queryStrRef) {
+        _returnOffered = offered;
+        _returnStrRef = strRef;
+        _returnQueryStrRef = queryStrRef;
+    }
 
     // Inventory
     //
@@ -734,7 +745,9 @@ private:
     int _gold {0};
     int _xp {0};
     GalaxyMapState _galaxyMap;
+    bool _returnOffered {true};
     int _returnStrRef {kDefaultReturnStrRef};
+    int _returnQueryStrRef {kDefaultReturnQueryStrRef};
     bool _pazaakDataValid {false};
     size_t _pazaakCardCount {kK1PazaakCardCount};
     PazaakCardCounts _pazaakCardCounts {};

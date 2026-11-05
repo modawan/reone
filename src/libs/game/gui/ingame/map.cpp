@@ -18,6 +18,7 @@
 #include "reone/game/gui/ingame/map.h"
 
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
 #include "reone/gui/control/button.h"
@@ -35,13 +36,16 @@ namespace reone {
 namespace game {
 
 static constexpr int kStrRefMapNote = 349;
+static constexpr int kStrRefTravelUnavailable = 38451;
 static constexpr int kStrRefRejoinPartyFirst = 38452;
+static constexpr int kStrRefEnemiesNearby = 38462;
+
+static constexpr int kReturnToBaseTutorial = 39;
 
 void MapMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
-    _controls.BTN_RETURN->setDisabled(true);
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
     });
@@ -59,6 +63,8 @@ void MapMenu::onGUILoaded() {
     });
 
     if (_game.isTSL()) {
+        // TSL's map offers no return.
+        _controls.BTN_RETURN->setDisabled(true);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         useK2ShellTitle(_controls.LBL_TITLE);
         enableK2ButtonBodyFill(_controls.BTN_RETURN);
@@ -73,13 +79,30 @@ void MapMenu::onGUILoaded() {
         _controls.BTN_RETURN->setTextAlignment(Control::TextAlign::CenterCenter);
         _controls.BTN_PRTYSLCT->setOnClick([this]() {
             // The party selection opens only while travel is open.
-            if (!_game.party().isReadyToTravel()) {
-                _game.showMessagePopup(_services.resource.strings.getText(kStrRefRejoinPartyFirst));
+            if (_travelRefusal != 0) {
+                _game.showMessagePopup(_services.resource.strings.getText(_travelRefusal));
                 return;
             }
             _game.openPartySelection(PartySelectionContext());
         });
+        // The first press shows its tutorial, which then presses again.
+        _controls.BTN_RETURN->setOnClick([this]() {
+            if (!_game.requestTutorialWindow(kReturnToBaseTutorial, [this]() { offerReturn(); })) {
+                offerReturn();
+            }
+        });
     }
+}
+
+void MapMenu::offerReturn() {
+    if (!_returnOpen) {
+        const int refusal = _travelRefusal != 0 ? _travelRefusal : kStrRefTravelUnavailable;
+        _game.showMessagePopup(_services.resource.strings.getText(refusal));
+        return;
+    }
+    _game.showConfirmPopup(_services.resource.strings.getText(_game.party().returnQueryStrRef()), [this]() {
+        _game.returnToBase();
+    });
 }
 
 void MapMenu::render() {
@@ -115,10 +138,38 @@ void MapMenu::refreshControls() {
 }
 
 void MapMenu::refreshTravel() {
-    _controls.BTN_RETURN->setTextMessage(_services.resource.strings.getText(_game.party().returnStrRef()));
-    const bool open = _game.party().isReadyToTravel();
+    const Party &party = _game.party();
+    _travelRefusal = travelRefusal();
+    const bool open = _travelRefusal == 0;
+    _returnOpen = open && party.isReturnOffered();
+    _controls.BTN_RETURN->setTextMessage(_services.resource.strings.getText(party.returnStrRef()));
+    _controls.BTN_RETURN->setTextColor(_returnOpen ? kTravelOpenTextColor : kTravelRefusedTextColor);
+    _controls.BTN_RETURN->setBorderColor(_returnOpen ? kTravelOpenBorderColor : kTravelRefusedBorderColor);
     _controls.BTN_PRTYSLCT->setTextColor(open ? kTravelOpenTextColor : kTravelRefusedTextColor);
     _controls.BTN_PRTYSLCT->setBorderColor(open ? kTravelOpenBorderColor : kTravelRefusedBorderColor);
+}
+
+// Travel is refused in an area the party can't leave, while the party is
+// apart, and while a creature hostile to a member sees that member.
+int MapMenu::travelRefusal() const {
+    auto &area = *_game.module()->area();
+    if (area.isUnescapable()) {
+        return kStrRefTravelUnavailable;
+    }
+    const Party &party = _game.party();
+    if (!party.isReadyToTravel()) {
+        return kStrRefRejoinPartyFirst;
+    }
+    for (auto &object : area.getObjectsByType(ObjectType::Creature)) {
+        const auto &watcher = static_cast<const Creature &>(*object);
+        for (auto &member : party.members()) {
+            if (member.creature && member.creature->getReputationToward(watcher) <= 10 &&
+                watcher.perception().sees(member.creature->id())) {
+                return kStrRefEnemiesNearby;
+            }
+        }
+    }
+    return 0;
 }
 
 void MapMenu::refreshSelectedNote() {

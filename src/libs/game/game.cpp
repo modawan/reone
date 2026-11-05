@@ -6198,6 +6198,14 @@ bool Game::requestTutorialWindow(int id, uint32_t actor, uint32_t subject, uint3
     return true;
 }
 
+bool Game::requestTutorialWindow(int id, std::function<void()> onClosed) {
+    if (!requestTutorialWindow(id)) {
+        return false;
+    }
+    _tutorialPending->onClosed = std::move(onClosed);
+    return true;
+}
+
 void Game::commitTutorialWindow() {
     if (!_tutorialPending) {
         return;
@@ -6273,6 +6281,10 @@ void Game::finishTutorialWindow(bool takeAction) {
         return;
     }
     // The window finishes the action it interrupted.
+    if (tutorial.onClosed) {
+        tutorial.onClosed();
+        return;
+    }
     auto actor = getObjectById<Creature>(tutorial.actor);
     if (!actor) {
         return;
@@ -8190,7 +8202,17 @@ bool Game::canOpenGalaxyMapFrom(Screen screen) {
 }
 
 bool Game::isTravelScriptRunning() const {
-    return _galaxyMap && _galaxyMap->isRunningTravelScript();
+    return _runningReturnScript || (_galaxyMap && _galaxyMap->isRunningTravelScript());
+}
+
+static constexpr char kReturnToBaseScript[] = "k_sup_gohawk";
+
+void Game::returnToBase() {
+    openInGame();
+    // KotOR runs the script with no caller.
+    _runningReturnScript = true;
+    _scriptRunner->run(kReturnToBaseScript, 0);
+    _runningReturnScript = false;
 }
 
 void Game::openGalaxyMap(int initialPlanet) {
