@@ -1042,8 +1042,8 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
 // match, the whole string included, the pattern number and whether the
 // conversation is private, and in its strings the dialog, then the pieces after
 // the whole string. A shout names no dialog and is not private. The hearer
-// takes the pattern number and the pieces. A request to talk carries none of
-// them: it matched no pattern and has no pieces.
+// takes the pattern number, the pieces and the dialog. A request to talk
+// carries no pattern number or pieces: it matched no pattern.
 static Object::ConversationEvent conversationEventOf(const SavedScriptEvent &event, uint32_t speaker) {
     Object::ConversationEvent result;
     result.speaker = speaker;
@@ -1053,6 +1053,9 @@ static Object::ConversationEvent conversationEventOf(const SavedScriptEvent &eve
     const int32_t count = event.integers.empty() ? 0 : event.integers[0];
     for (int32_t i = 1; i < count; ++i) {
         result.matchedPieces.push_back(static_cast<size_t>(i) < event.strings.size() ? event.strings[i] : "");
+    }
+    if (!event.strings.empty()) {
+        result.conversation = event.strings[0];
     }
     return result;
 }

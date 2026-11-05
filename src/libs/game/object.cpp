@@ -412,6 +412,7 @@ void Object::receiveConversationEvent(ConversationEvent event) {
     _lastSpeaker = event.speaker;
     _listenPatternNumber = event.patternNumber;
     _matchedSubstrings = std::move(event.matchedPieces);
+    _game.setLastConversation(std::move(event.conversation));
     runConversationScript();
 }
 

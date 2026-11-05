@@ -611,6 +611,8 @@ public:
         int32_t patternNumber {0};
         /** The pieces of the match, after the whole string. */
         std::vector<std::string> matchedPieces;
+        /** The dialog a request to talk names. */
+        std::string conversation;
     };
 
     /** A pattern the object listens for and the number it answers with. */
@@ -643,8 +645,9 @@ public:
     const std::vector<std::string> &matchedSubstrings() const { return _matchedSubstrings; }
     /**
      * A conversation event: a shout the object heard, or a request to talk.
-     * The speaker becomes the last speaker, and the event's pattern number
-     * and pieces the object's own; then its conversation script runs.
+     * The speaker becomes the last speaker, the event's pattern number and
+     * pieces the object's own, and its dialog the game's last conversation;
+     * then its conversation script runs.
      */
     void receiveConversationEvent(ConversationEvent event);
 

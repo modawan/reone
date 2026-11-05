@@ -1287,6 +1287,10 @@ public:
     bool isLoadingFromSaveGame() const { return _loadingFromSaveGame; }
     void setLoadingFromSaveGame(bool loading) { _loadingFromSaveGame = loading; }
 
+    /** The dialog the last request to talk named; empty for one that named none, or a shout. */
+    const std::string &lastConversation() const { return _lastConversation; }
+    void setLastConversation(std::string conversation) { _lastConversation = std::move(conversation); }
+
     /**
      * Persist the current state of one roster NPC over its availnpc record.
      *
@@ -1889,6 +1893,7 @@ private:
     uint64_t _runtimeSessionGeneration {1};
     uint64_t _savedGraphGeneration {1};
     bool _loadingFromSaveGame {false};
+    std::string _lastConversation;
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};

@@ -3707,14 +3707,12 @@ static Variable GetIsInCombat(const std::vector<Variable> &args, const RoutineCo
                            (!onlyCountReal || creature->combatActivationType() == CombatActivation::Direct));
 }
 
+// The routine takes nothing from the script and gives nothing back, so the
+// script reads its own argument as the answer: the associate's object number,
+// or OBJECT_SELF's own number when it names the caller.
 static Variable GetLastAssociateCommand(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oAssociate = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetLastAssociateCommand");
+    return Variable::ofInt(static_cast<int>(args.at(0).objectId));
 }
 
 // A positive amount of credits goes to a creature; a party member's go to the
@@ -6080,25 +6078,17 @@ static Variable GetStrRefSoundDuration(const std::vector<Variable> &args, const 
     return Variable::ofFloat(nStrRef < 0 ? 0.0f : ctx.services.resource.strings.getSoundDuration(nStrRef));
 }
 
+// Both creatures must be player characters, and the only one is already in
+// its own party.
 static Variable AddToParty(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oPC = getObject(args, 0, ctx);
-    auto oPartyLeader = getObject(args, 1, ctx);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("AddToParty");
+    return Variable::ofNull();
 }
 
+// The player character keeps its faction.
 static Variable RemoveFromParty(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oPC = getObject(args, 0, ctx);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("RemoveFromParty");
+    return Variable::ofNull();
 }
 
 static Variable AddPartyMember(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6587,7 +6577,7 @@ static Variable ClearAllEffects(const std::vector<Variable> &args, const Routine
 
 static Variable GetLastConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastConversation");
+    return Variable::ofString(ctx.game.lastConversation());
 }
 
 static Variable ShowPartySelectionGUI(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -312,6 +312,9 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         }
     }
 
+    // The one asked to talk hears the request, with the dialog it names.
+    _game.setLastConversation(_dialogResRef);
+
     // If no valid owner can be resolved there is no dialogue to start (e.g. an
     // invalid target combined with an empty resref). Complete the action so it
     // does not block the queue, but do not dereference a null owner -
