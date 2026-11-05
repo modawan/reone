@@ -72,14 +72,14 @@ std::shared_ptr<Object> SavedObjectReference::boundObject() const {
 
 namespace {
 
-// A record only this build writes is written whole: one that lacks a field is
-// invalid.
-void requireFields(const resource::Gff &gff, std::initializer_list<const char *> labels) {
-    for (const char *label : labels) {
-        if (!gff.has(label)) {
-            throw ValidationException(std::string("Saved record has no ") + label);
-        }
+// A record only this build writes is written whole: one that lacks a field it
+// is read for is invalid. The read names the field it requires, so nothing
+// else lists what a record must hold.
+const char *required(const resource::Gff &gff, const char *label) {
+    if (!gff.has(label)) {
+        throw ValidationException(std::string("Saved record has no ") + label);
     }
+    return label;
 }
 
 template <class... Visitors>
@@ -959,20 +959,19 @@ std::shared_ptr<resource::Gff> SavedCastAction::toGff() const {
 }
 
 SavedRoundClock SavedRoundClock::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
-    requireFields(g, {"Id", "Slot", "State", "Elapsed", "Duration", "PauseRemaining", "PauseOwner", "Master",
-                      "Engaged", "Joined", "Duel"});
+    auto field = [&g](const char *label) { return required(g, label); };
     SavedRoundClock s;
-    s.id = g.getUint64("Id");
-    s.slot = g.getInt("Slot");
-    s.state = g.getInt("State");
-    s.elapsed = g.getFloat("Elapsed");
-    s.duration = g.getFloat("Duration");
-    s.pauseRemaining = g.getFloat("PauseRemaining");
-    s.pauseOwner = SavedObjectReference::fromSerializedId(g.getUint("PauseOwner"), ids);
-    s.master = SavedObjectReference::fromSerializedId(g.getUint("Master"), ids);
-    s.engaged = SavedObjectReference::fromSerializedId(g.getUint("Engaged"), ids);
-    s.joined = g.getBool("Joined");
-    s.duel = g.getBool("Duel");
+    s.id = g.getUint64(field("Id"));
+    s.slot = g.getInt(field("Slot"));
+    s.state = g.getInt(field("State"));
+    s.elapsed = g.getFloat(field("Elapsed"));
+    s.duration = g.getFloat(field("Duration"));
+    s.pauseRemaining = g.getFloat(field("PauseRemaining"));
+    s.pauseOwner = SavedObjectReference::fromSerializedId(g.getUint(field("PauseOwner")), ids);
+    s.master = SavedObjectReference::fromSerializedId(g.getUint(field("Master")), ids);
+    s.engaged = SavedObjectReference::fromSerializedId(g.getUint(field("Engaged")), ids);
+    s.joined = g.getBool(field("Joined"));
+    s.duel = g.getBool(field("Duel"));
     return s;
 }
 std::shared_ptr<resource::Gff> SavedRoundClock::toGff() const {
@@ -981,43 +980,39 @@ std::shared_ptr<resource::Gff> SavedRoundClock::toGff() const {
 }
 
 SavedProjectile SavedProjectile::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
-    requireFields(g, {"Id", "Kind", "Caster", "Weapon", "Spell", "Path", "Model", "Leg", "Released", "Initialized",
-                      "Clockwise", "Elapsed", "Position", "Velocity", "Orientation", "Acceleration", "ParryBlocked",
-                      "ActivationDelay", "TravelRate", "SourceHook", "OrientMode", "TargetHook", "CombatResult",
-                      "SoundVariant", "Legs"});
     SavedProjectile p;
     auto ref = [&](const resource::Gff &r, const char *key) {
-        return SavedObjectReference::fromSerializedId(r.getUint(key), ids);
+        return SavedObjectReference::fromSerializedId(r.getUint(required(r, key)), ids);
     };
-    p.id = g.getUint64("Id");
-    p.kind = static_cast<ProjectileKind>(g.getInt("Kind"));
+    auto field = [&g](const char *label) { return required(g, label); };
+    p.id = g.getUint64(field("Id"));
+    p.kind = static_cast<ProjectileKind>(g.getInt(field("Kind")));
     p.caster = ref(g, "Caster");
     p.weapon = ref(g, "Weapon");
-    p.spellId = g.getInt("Spell");
-    p.path = g.getInt("Path");
-    p.model = g.getString("Model");
-    p.leg = g.getInt("Leg");
-    p.released = g.getBool("Released");
-    p.clockwise = g.getBool("Clockwise");
-    p.elapsed = g.getFloat("Elapsed");
-    p.position = g.getVector("Position");
-    p.velocity = g.getVector("Velocity");
-    p.orientation = g.getOrientation("Orientation");
-    p.acceleration = g.getVector("Acceleration");
-    p.activationDelay = g.getFloat("ActivationDelay");
-    p.travelRate = g.getFloat("TravelRate");
-    p.sourceHook = g.getString("SourceHook");
-    p.orientationMode = g.getInt("OrientMode");
-    p.targetHook = g.getString("TargetHook");
-    p.combatResult = g.getInt("CombatResult");
-    p.soundVariant = g.getInt("SoundVariant");
-    for (const auto &v : g.getList("Legs")) {
-        requireFields(*v, {"Source", "Target", "Origin", "Destination", "Duration", "Motion", "TargetOffset",
-                           "TargetHook", "OwnTargetHook", "StopRadius"});
+    p.spellId = g.getInt(field("Spell"));
+    p.path = g.getInt(field("Path"));
+    p.model = g.getString(field("Model"));
+    p.leg = g.getInt(field("Leg"));
+    p.released = g.getBool(field("Released"));
+    p.clockwise = g.getBool(field("Clockwise"));
+    p.elapsed = g.getFloat(field("Elapsed"));
+    p.position = g.getVector(field("Position"));
+    p.velocity = g.getVector(field("Velocity"));
+    p.orientation = g.getOrientation(field("Orientation"));
+    p.acceleration = g.getVector(field("Acceleration"));
+    p.activationDelay = g.getFloat(field("ActivationDelay"));
+    p.travelRate = g.getFloat(field("TravelRate"));
+    p.sourceHook = g.getString(field("SourceHook"));
+    p.orientationMode = g.getInt(field("OrientMode"));
+    p.targetHook = g.getString(field("TargetHook"));
+    p.combatResult = g.getInt(field("CombatResult"));
+    p.soundVariant = g.getInt(field("SoundVariant"));
+    for (const auto &v : g.getList(field("Legs"))) {
+        auto legField = [&v](const char *label) { return required(*v, label); };
         Leg leg {ref(*v, "Source"), ref(*v, "Target"),
-                 v->getVector("Origin"), v->getVector("Destination"), v->getFloat("Duration"),
-                 static_cast<ProjectileMotion>(v->getInt("Motion")), v->getVector("TargetOffset"), v->getString("TargetHook"),
-                 v->getBool("OwnTargetHook"), v->getFloat("StopRadius")};
+                 v->getVector(legField("Origin")), v->getVector(legField("Destination")), v->getFloat(legField("Duration")),
+                 static_cast<ProjectileMotion>(v->getInt(legField("Motion"))), v->getVector(legField("TargetOffset")),
+                 v->getString(legField("TargetHook")), v->getBool(legField("OwnTargetHook")), v->getFloat(legField("StopRadius"))};
         // Only a grenade's bounce keeps the ground it lands on.
         int32_t surface = 0;
         if (v->readInt(surface, "Surface")) {
