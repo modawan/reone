@@ -604,6 +604,8 @@ public:
     void resumeConversationBy(Object &caller);
     /** The object stops taking part in the running conversation. */
     void stopConversationParticipation(const Object &object);
+    /** A script shows placed camera \p cameraId in the running conversation; nothing happens without one. */
+    void showConversationPlacedCamera(int cameraId);
 
     void setBarkBubbleText(std::string text, float durartion);
     /**

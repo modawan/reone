@@ -46,6 +46,12 @@ protected:
     void onFinish() override;
     void onLoadEntry() override;
     void onEntryEnded() override;
+    /**
+     * The camera panel shows the feed, with its return label; nothing changes
+     * in an area that places no camera. An id the area doesn't place shows
+     * the view from the world origin.
+     */
+    bool takePlacedCameraView(int cameraId) override;
 
 private:
     /** What the conversation shows: nothing yet, the panel, or a camera shot. */

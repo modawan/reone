@@ -67,13 +67,11 @@ static const char kParticipantFirstCompanion[] = "npc1";
 static const char kParticipantSecondCompanion[] = "npc2";
 
 // Camera shots: the placed camera and same-pair angles, the animated shot
-// range, and the video effect values a shot can carry besides a row.
+// range, and the videoeffects.2da row of the security camera look.
 static constexpr int kPlacedCameraAngle = 6;
 static constexpr int kSamePairCameraAngle = 5;
 static constexpr int kFirstCameraAnimation = 1000;
 static constexpr int kLastCameraAnimation = 1727;
-static constexpr int kNoShotVideoEffect = -1;
-static constexpr int kKeepShotVideoEffect = -2;
 static constexpr int kSecurityCameraVideoEffect = 0;
 // The angles an entry or reply without one takes in turn, and the angle of
 // the first entry and the first list of replies without one.
@@ -646,6 +644,21 @@ void Conversation::applyCinematicShotVideoEffect(const Dialog::EntryReply &shot)
     } else if (!none) {
         _game.enableVideoEffect(effect);
     }
+}
+
+void Conversation::showPlacedCamera(int cameraId) {
+    if (!takePlacedCameraView(cameraId)) {
+        return;
+    }
+    if (_dialog->conversationType == ConversationType::Computer) {
+        _game.enableVideoEffect(kSecurityCameraVideoEffect);
+    }
+}
+
+bool Conversation::takePlacedCameraView(int cameraId) {
+    _shotCamera = CameraType::Static;
+    _shotCameraId = cameraId;
+    return true;
 }
 
 // A shot after an animated one starts on the dialog camera.

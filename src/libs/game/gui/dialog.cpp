@@ -527,6 +527,17 @@ void DialogGUI::updateCamera() {
     camera->playAnimation(_currentEntry->cameraAnimation);
 }
 
+bool DialogGUI::takePlacedCameraView(int cameraId) {
+    auto area = _game.module()->area();
+    area->setStaticCamera(cameraId);
+    const Camera *placed = area->getCamera(CameraType::Static);
+    if (!placed || placed->cameraId() != cameraId) {
+        return false;
+    }
+    area->getCamera<DialogCamera>(CameraType::Dialog)->takePlacedShot(placed->position());
+    return Conversation::takePlacedCameraView(cameraId);
+}
+
 // The dialog camera starts afresh at the conversation's first shot and after
 // each animated shot. Angle 5 keeps the view as it is, and a placed camera
 // (angle 6) shows itself; any other angle frames the speaker pair.

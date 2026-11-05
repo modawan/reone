@@ -121,6 +121,8 @@ private:
     void repositionMessage();
 
     void updateCamera();
+    /** A cinematic conversation shows only a camera its area places; the dialog camera takes its place too. */
+    bool takePlacedCameraView(int cameraId) override;
     /** Frames the camera shot of \p shot, an entry or a reply, at \p angle. */
     void frameShot(const resource::Dialog::EntryReply &shot, int angle);
     /** How far the face shot of the speaker pair pulls back. */

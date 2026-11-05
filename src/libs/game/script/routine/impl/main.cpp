@@ -4963,10 +4963,9 @@ static Variable SetDialogPlaceableCamera(const std::vector<Variable> &args, cons
     // Load
     auto nCameraId = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetDialogPlaceableCamera");
+    ctx.game.showConversationPlacedCamera(nCameraId);
+    return Variable::ofNull();
 }
 
 static Variable GetSoloMode(const std::vector<Variable> &args, const RoutineContext &ctx) {

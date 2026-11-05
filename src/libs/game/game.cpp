@@ -346,7 +346,9 @@ static const char *screenName(Game::Screen screen) {
 
 // The menus and panels that pause the world while they are shown over a
 // running module; levelling up is the only character generation with a
-// module behind it.
+// module behind it. Their pause freezes the area: its scene stops animating,
+// its animated camera included, and a conversation shown under them waits
+// for them to close.
 static bool pausesWorld(Game::Screen screen) {
     switch (screen) {
     case Game::Screen::CharacterGeneration:
@@ -5143,7 +5145,8 @@ void Game::updateCamera(float dt) {
     }
     Camera *camera = getActiveCamera();
     if (camera) {
-        camera->update(dt);
+        // An animated camera's shot stands still while the area is frozen.
+        camera->update(_cameraType == CameraType::Animated && pausesWorld(_screen) ? 0.0f : dt);
 
         // Behind the leader the listener sits three quarters of the way from
         // the camera to the point it follows, the leader's camera hook; any
@@ -5163,9 +5166,11 @@ void Game::updateSceneGraph(float dt) {
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.setActiveCamera(camera->cameraSceneNode().get());
-    sceneGraph.setUpdateRoots(!_paused && !_timeStopped);
-    // While time is stopped only the excluded objects' models animate.
-    if (!_paused && _timeStopped) {
+    const bool areaFrozen = pausesWorld(_screen);
+    sceneGraph.setUpdateRoots(!_paused && !_timeStopped && !areaFrozen);
+    // While time is stopped only the excluded objects' models animate; a
+    // frozen area stops them too.
+    if (!_paused && !areaFrozen && _timeStopped) {
         for (const auto &excluded : _timeStopExclusions) {
             auto object = excluded.resolve();
             auto model = object ? std::dynamic_pointer_cast<ModelSceneNode>(object->sceneNode()) : nullptr;
@@ -8694,6 +8699,13 @@ void Game::stopConversationParticipation(const Object &object) {
         return;
     }
     _conversation->stopParticipant(object);
+}
+
+void Game::showConversationPlacedCamera(int cameraId) {
+    if (!_conversation || !isConversationActive()) {
+        return;
+    }
+    _conversation->showPlacedCamera(cameraId);
 }
 
 void Game::pauseConversation() {

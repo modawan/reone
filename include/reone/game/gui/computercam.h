@@ -13,6 +13,12 @@
 
 namespace reone {
 
+namespace gui {
+
+class Label;
+
+} // namespace gui
+
 namespace game {
 
 // Transparent presentation only; the owning computer conversation drives it.
@@ -20,9 +26,14 @@ class ComputerCamGUI : public GameGUI {
 public:
     /** The overlay of a computer conversation's camera shot; it has no input of its own. */
     ComputerCamGUI(Game &game, ServicesView &services);
+    /** Shows or hides the return label. */
+    void setReturnLabelVisible(bool visible);
 
 private:
+    std::shared_ptr<gui::Label> _returnLabel;
+
     void preload(gui::IGUI &gui) override;
+    void onGUILoaded() override;
 };
 
 } // namespace game

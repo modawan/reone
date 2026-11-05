@@ -66,6 +66,13 @@ public:
     bool isRunning() const { return _dialog && _fadeDialog; }
 
     CameraType getCamera(int &cameraId) const;
+    /**
+     * A script shows placed camera \p cameraId until the next entry or reply
+     * takes its own shot; the entry under way keeps it over its own shot. A
+     * computer conversation shows the camera's feed in the security-camera
+     * look, and a cinematic one only a camera its area places.
+     */
+    void showPlacedCamera(int cameraId);
 
     void pause();
 
@@ -95,6 +102,10 @@ public:
     static float spokenLineSeconds(const std::string &text);
 
 protected:
+    /** The video effect values a shot can carry besides a videoeffects.2da row. */
+    static constexpr int kNoShotVideoEffect = -1;
+    static constexpr int kKeepShotVideoEffect = -2;
+
     std::shared_ptr<Object> owner() const { return _owner.resolve(); }
     /**
      * The object a participant tag names: the owner, the player, the party's
@@ -131,6 +142,12 @@ protected:
     void takeCameraShot(const resource::Dialog::EntryReply &shot, int angle);
     /** The dialog camera shows the shot, as for a placed camera the area lacks. */
     void showShotOnDialogCamera() { _shotCamera = CameraType::Dialog; }
+    /**
+     * The view takes placed camera \p cameraId at a script's request.
+     *
+     * @return false when there is no such camera to show
+     */
+    virtual bool takePlacedCameraView(int cameraId);
     /** The camera shot of \p shot, an entry or a reply, keeps the previous speaker pair. */
     static bool keepsPreviousSpeakerPair(const resource::Dialog::EntryReply &shot);
     /** Set or clear the video effect for the cinematic camera shot of \p shot, an entry or a reply. */

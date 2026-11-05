@@ -45,6 +45,8 @@ static constexpr char kComputerSpikeTag[] = "k_computer_spike";
 static constexpr char kRepairPartTag[] = "k_repair_part";
 static constexpr float kStaticBandAlpha = 0.4f;
 static constexpr char kComputerTypesResRef[] = "comptypes";
+// The videoeffects.2da row of the security camera look without its label.
+static constexpr int kUnlabelledSecurityCameraVideoEffect = 10;
 
 void ComputerGUI::init() {
     Conversation::init();
@@ -91,7 +93,33 @@ void ComputerGUI::onLoadEntry() {
     setPresentation(getCamera(cameraId) == CameraType::Static ? Presentation::Camera : Presentation::Normal);
     if (_presentation == Presentation::Camera) {
         _cameraGUI.clearSelection();
+        const int effect = _currentEntry->camVidEffect;
+        // TSL: a shot carrying -2, which shows no effect there, or the
+        // security camera look without its label hides the return label.
+        const bool returnless = effect == kKeepShotVideoEffect || effect == kUnlabelledSecurityCameraVideoEffect;
+        _cameraGUI.setReturnLabelVisible(!(_game.isTSL() && returnless));
     }
+}
+
+// An area that places no camera leaves the view as it is. In place of a
+// camera the area doesn't place, the dialog camera shows its unturned view
+// from the world origin.
+bool ComputerGUI::takePlacedCameraView(int cameraId) {
+    auto area = _game.module()->area();
+    if (area->getObjectsByType(ObjectType::Camera).empty()) {
+        return false;
+    }
+    Conversation::takePlacedCameraView(cameraId);
+    area->setStaticCamera(cameraId);
+    const Camera *placed = area->getCamera(CameraType::Static);
+    if (!placed || placed->cameraId() != cameraId) {
+        showShotOnDialogCamera();
+        area->getCamera<DialogCamera>(CameraType::Dialog)->takePlacedShot(glm::vec3(0.0f));
+    }
+    setPresentation(Presentation::Camera);
+    _cameraGUI.clearSelection();
+    _cameraGUI.setReturnLabelVisible(true);
+    return true;
 }
 
 void ComputerGUI::onEntryEnded() {
