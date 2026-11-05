@@ -6930,6 +6930,9 @@ protected:
         answer->add(script::Instruction(script::InstructionType::RETN));
         EXPECT_CALL(fixture->engine.resourceModule().scripts(), get("k_hen_dialogue01"))
             .Times(AnyNumber()).WillRepeatedly(Return(answer));
+        // Each of the two shows its pause as the conversation begins.
+        EXPECT_CALL(static_cast<MockAnimations &>(fixture->engine.services().game.animations), isDialogAnimation(_))
+            .Times(AnyNumber());
         game.openInGame();
         game.globalFade().request(GlobalFade::Direction::Out);
         game.globalFade().holdForDialog();
