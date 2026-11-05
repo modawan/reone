@@ -118,6 +118,8 @@ public:
     virtual bool isForceSightEnabled() const = 0;
     /** The Force Sight glow's pulse, between 0.5 and 1. */
     virtual float forceSightPulse() const = 0;
+    /** Seconds the scene has been shown for, a pause included: texture procedures run on it. */
+    virtual float textureTime() const = 0;
 
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
@@ -276,6 +278,7 @@ public:
     void setVideoEffect(std::optional<VideoEffect> effect) override { _frameEffects.videoEffect = std::move(effect); }
     bool isForceSightEnabled() const override { return _frameEffects.videoEffect && _frameEffects.videoEffect->forceSight; }
     float forceSightPulse() const override;
+    float textureTime() const override { return _textureTime; }
 
     void addRoot(std::shared_ptr<ModelSceneNode> node) override;
     void addRoot(std::shared_ptr<WalkmeshSceneNode> node) override;
@@ -390,6 +393,7 @@ private:
     std::unique_ptr<IRenderPipeline> _renderPipeline;
     FrameEffects _frameEffects;
     float _forceSightPhase {0.0f}; /**< seconds into the current Force Sight pulse */
+    float _textureTime {0.0f};
 
     bool _updateRoots {true};
 

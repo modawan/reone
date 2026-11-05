@@ -41,6 +41,7 @@ public:
     MOCK_METHOD(void, setVideoEffect, (std::optional<VideoEffect>), (override));
     MOCK_METHOD(bool, isForceSightEnabled, (), (const override));
     MOCK_METHOD(float, forceSightPulse, (), (const override));
+    MOCK_METHOD(float, textureTime, (), (const override));
 
     MOCK_METHOD(void, addRoot, (std::shared_ptr<ModelSceneNode>), (override));
     MOCK_METHOD(void, addRoot, (std::shared_ptr<WalkmeshSceneNode>), (override));

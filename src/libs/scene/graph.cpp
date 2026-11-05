@@ -157,6 +157,7 @@ static constexpr float kForceSightPulsePeriod = 2.048f;
 
 void SceneGraph::update(float dt) {
     _forceSightPhase = std::fmod(_forceSightPhase + dt, kForceSightPulsePeriod);
+    _textureTime += dt;
     if (_updateRoots) {
         for (auto &root : _modelRoots) {
             root->update(dt);
