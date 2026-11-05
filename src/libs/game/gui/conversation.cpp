@@ -592,6 +592,7 @@ void Conversation::loadEntry(int index, bool start) {
     }
     loadVoiceOver(sound);
     scheduleEndOfEntry();
+    _game.coolDownConversationClicks();
     if (isAnimatedCameraShot()) {
         _animatedView = true;
     } else {
@@ -1319,6 +1320,9 @@ void Conversation::endCurrentEntry() {
     loadReplies();
     if (!isCurrent(generation)) {
         return;
+    }
+    if (!_replies.empty()) {
+        _game.coolDownConversationClicks();
     }
     resetEntryFade();
 

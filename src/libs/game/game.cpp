@@ -863,6 +863,27 @@ void Game::setSceneSurfaces() {
     }
 }
 
+static constexpr uint32_t kConversationClickCooldownMillis = 750;
+
+void Game::coolDownConversationClicks() {
+    _clickCooldownStart = _services.system.clock.millis();
+}
+
+bool Game::isCoolingDown(const input::Event &event) {
+    if (!_clickCooldownStart) {
+        return false;
+    }
+    if (_services.system.clock.millis() - *_clickCooldownStart >= kConversationClickCooldownMillis) {
+        _clickCooldownStart.reset();
+        return false;
+    }
+    const bool leftButton = (event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+                            event.button.button == input::MouseButton::Left;
+    const bool returnKey = (event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
+                           event.key.code == input::KeyCode::Return;
+    return leftButton || returnKey;
+}
+
 bool Game::handle(const input::Event &event) {
     // Either Shift is the alternate actions key: pressing one holds it and
     // releasing one lets it go. While a menu, the credits or a popup holds
@@ -878,6 +899,9 @@ bool Game::handle(const input::Event &event) {
     // which takes the input while it plays.
     if (_playerInputBlocked && !_movie && event.type != input::EventType::KeyUp &&
         event.type != input::EventType::MouseButtonUp) {
+        return true;
+    }
+    if (isCoolingDown(event)) {
         return true;
     }
     if (_credits) {
@@ -5156,8 +5180,9 @@ void Game::updateCamera(float dt) {
     }
     Camera *camera = getActiveCamera();
     if (camera) {
-        // An animated camera's shot stands still while the area is frozen.
-        camera->update(_cameraType == CameraType::Animated && pausesWorld(_screen) ? 0.0f : dt);
+        // An animated camera's shot stands still while the world is held, the
+        // player's pause included.
+        camera->update(_cameraType == CameraType::Animated && holdsWorld() ? 0.0f : dt);
 
         // Behind the leader the listener sits three quarters of the way from
         // the camera to the point it follows, the leader's camera hook; any
@@ -8900,13 +8925,23 @@ void Game::bark(Object &speaker, int strRef) {
     playBarkSound(speaker, _services.resource.strings.getSound(strRef));
 }
 
-void Game::playBarkSound(Object &speaker, const std::string &sound) {
+void Game::bark(int strRef) {
+    const std::string text = getInterfaceText(strRef);
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    startBarkVoice(_services.resource.strings.getSound(strRef), std::nullopt);
+}
+
+void Game::startBarkVoice(const std::string &sound, std::optional<glm::vec3> position) {
     if (_barkVoice) {
         _barkVoice->stop();
     }
     auto clip = _services.resource.audioClips.get(sound);
-    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, 1.0f, false, speaker.position())
+    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, 1.0f, false, position)
                       : nullptr;
+}
+
+void Game::playBarkSound(Object &speaker, const std::string &sound) {
+    startBarkVoice(sound, speaker.position());
     if (auto *creature = dyn_cast<Creature>(&speaker)) {
         if (auto lip = _services.resource.lips.get(sound)) {
             creature->talkOnce(lip);

@@ -431,8 +431,9 @@ void DialogGUI::turnToward(Object &turner, const std::shared_ptr<Object> &other)
     if (!creature || _game.isDialogOrientationLocked(turner.id()) || creature->walkSpeed() <= 0.0f) {
         return;
     }
-    // A participant turned by the conversation drops its orientation lock.
-    creature->setOrientationLock(script::kObjectInvalid);
+    // A participant turned by the conversation drops its orientation lock
+    // without turning toward the object it was locked on.
+    creature->dropOrientationLock();
     bool head = false;
     float facing = turner.getFacing();
     if (!_game.isDialogHeadFollowLocked(turner.id())) {

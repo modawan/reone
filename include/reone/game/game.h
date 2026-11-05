@@ -427,6 +427,8 @@ public:
     void setLeaderAnswersInDialog(bool leader) { _leaderAnswersInDialog = leader; }
     /** The party leader, rather than the player character, answers in conversations. */
     bool leaderAnswersInDialog() const { return _leaderAnswersInDialog; }
+    /** For a moment after a conversation's line or its replies come up, the left button and Return do nothing. */
+    void coolDownConversationClicks();
     /**
      * Whether a conversation is under way: from the moment one is asked for,
      * by a click to talk or a script, through the walk to the one talked to,
@@ -620,6 +622,8 @@ public:
      * its text for the time it takes to speak, and its sound plays as a bark.
      */
     void bark(Object &speaker, int strRef);
+    /** As bark(), with no speaker: the sound plays where the listener is. */
+    void bark(int strRef);
     /**
      * Plays \p sound, a barked line's sound, from where \p speaker stands,
      * cutting off the bark sound before it. A creature's head speaks the line
@@ -1671,6 +1675,8 @@ private:
     bool _soloModeQueryOpen {false};
     bool _freeLook {false};
     bool _playerInputBlocked {false};
+    /** When the left button and Return last started cooling down. */
+    std::optional<uint32_t> _clickCooldownStart;
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool _alternateActionsHeld {false};
     /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
@@ -2032,6 +2038,9 @@ private:
     /** The sound of the last line barked, while it plays; every bark plays here. */
     std::shared_ptr<audio::AudioSource> _barkVoice;
 
+    /** Plays a barked line's sound in place of the one before, at \p position or where the listener is. */
+    void startBarkVoice(const std::string &sound, std::optional<glm::vec3> position);
+
     // END Audio
 
     // Global variables
@@ -2209,6 +2218,8 @@ private:
     void applyTarisForcedWinningTime();
 
     bool handleKeyDown(const input::KeyEvent &event);
+    /** Whether the event is a left button or Return press or release dropped while cooling down. */
+    bool isCoolingDown(const input::Event &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
     bool handleMouseButtonUp(const input::MouseButtonEvent &event);

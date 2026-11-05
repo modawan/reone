@@ -2751,9 +2751,11 @@ static Variable AdjustReputation(const std::vector<Variable> &args, const Routin
     return Variable::ofNull();
 }
 
+// The module's resource name.
 static Variable GetModuleFileName(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetModuleFileName");
+    auto module = ctx.game.module();
+    return Variable::ofString(module ? module->name() : "");
 }
 
 static Variable GetGoingToBeAttackedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3808,7 +3810,7 @@ static Variable GetClickingObject(const std::vector<Variable> &args, const Routi
 
 static Variable SetAssociateListenPatterns(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    // Does nothing in either game.
+    // Listen patterns for associates are not used.
     return Variable::ofNull();
 }
 
@@ -6276,15 +6278,24 @@ static Variable AddJournalWorldEntryStrref(const std::vector<Variable> &args, co
 
 static Variable BarkString(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto oCreature = getObjectOrNull(args, 0, ctx);
     auto strRef = getInt(args, 1);
     auto nBarkX = getIntOrElse(args, 2, -1);
     auto nBarkY = getIntOrElse(args, 3, -1);
 
     // Transform
 
-    // Execute
-    throw RoutineNotImplementedException("BarkString");
+    // Execute: nobody barks while a conversation is under way. A speaker
+    // that can't be found barks with no speaker.
+    if (ctx.game.isDialogUnderWay()) {
+        return Variable::ofNull();
+    }
+    if (oCreature) {
+        ctx.game.bark(*oCreature, strRef);
+    } else {
+        ctx.game.bark(strRef);
+    }
+    return Variable::ofNull();
 }
 
 static Variable DeleteJournalWorldAllEntries(const std::vector<Variable> &args, const RoutineContext &ctx) {
