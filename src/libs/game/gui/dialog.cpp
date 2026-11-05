@@ -51,10 +51,6 @@ namespace game {
 
 static const char kControlTagTopFrame[] = "TOP";
 static const char kControlTagBottomFrame[] = "BOTTOM";
-static const char kObjectTagOwner[] = "owner";
-// The participants that name the party's second and third members.
-static const char kParticipantFirstCompanion[] = "npc1";
-static const char kParticipantSecondCompanion[] = "npc2";
 /** How far a participant of a conversation looks at the other of its pair. */
 static constexpr float kDialogLookDistance = 10.0f;
 /** A participant turning its body brings the other a degree inside its head arc. */
@@ -215,7 +211,7 @@ void DialogGUI::loadStuntParticipants() {
     _participantByTag.clear();
 
     for (auto &stunt : _dialog->stunts) {
-        std::shared_ptr<Creature> creature(resolveParticipantCreature(stunt.participant));
+        auto creature = std::dynamic_pointer_cast<Creature>(resolveParticipantObject(stunt.participant, ParticipantSite::Stunt));
         if (!creature) {
             warn("Dialog: participant creature not found by tag: " + stunt.participant);
             continue;
@@ -245,7 +241,7 @@ bool DialogGUI::hasStuntPresentation() const {
 }
 
 std::shared_ptr<Creature> DialogGUI::resolveParticipantCreature(const std::string &participant) const {
-    return std::dynamic_pointer_cast<Creature>(resolveParticipantObject(participant));
+    return std::dynamic_pointer_cast<Creature>(resolveParticipantObject(participant, ParticipantSite::Animation));
 }
 
 std::shared_ptr<Animation> DialogGUI::getStuntParticipantAnimation(
@@ -287,7 +283,7 @@ void DialogGUI::restoreInactiveStuntParticipants(const Dialog::EntryReply &node)
         }
         bool drivenThisEntry = false;
         for (auto &anim : node.animations) {
-            if (anim.participant == entry.first && getStuntParticipantAnimation(anim.participant, anim.animation)) {
+            if (boost::iequals(anim.participant, entry.first) && getStuntParticipantAnimation(anim.participant, anim.animation)) {
                 drivenThisEntry = true;
                 break;
             }
@@ -373,7 +369,7 @@ std::shared_ptr<Object> DialogGUI::resolveEntryListener() const {
     if (listener.empty()) {
         return nullptr;
     }
-    return resolveParticipantObject(listener);
+    return resolveParticipantObject(listener, ParticipantSite::Speaker);
 }
 
 // The first entry's listener defaults to whoever started the conversation, or
@@ -800,7 +796,7 @@ std::shared_ptr<Object> DialogGUI::participantObject(const std::string &particip
     if (stunt != _participantByTag.end()) {
         return stunt->second.creature.resolve();
     }
-    return resolveParticipantObject(participant);
+    return resolveParticipantObject(participant, ParticipantSite::Animation);
 }
 
 std::shared_ptr<Creature> DialogGUI::participantCreature(const std::string &participant) const {

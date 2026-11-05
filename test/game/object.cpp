@@ -1780,7 +1780,7 @@ TEST(DialogGUI, should_animate_the_real_player_when_an_animated_cut_authors_no_s
 
     // A held clip resolves through the supermodel and stays on the creature.
     Dialog::EntryReply inTank;
-    inTank.animations.push_back({"player", 1409});
+    inTank.animations.push_back({"PLAYER", 1409});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, inTank);
 
     ASSERT_EQ(node->animationChannels().size(), 1);
@@ -1793,7 +1793,7 @@ TEST(DialogGUI, should_animate_the_real_player_when_an_animated_cut_authors_no_s
 
     // A one-shot clip from the same band group plays once.
     Dialog::EntryReply draining;
-    draining.animations.push_back({"player", 1011});
+    draining.animations.push_back({"PLAYER", 1011});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, draining);
 
     EXPECT_EQ(node->activeAnimationName(), "cut012");
@@ -1938,7 +1938,7 @@ TEST(DialogGUI, should_drive_stunt_and_ordinary_participants_from_one_animated_c
 
     Dialog::EntryReply entry;
     entry.animations.push_back({"owner", 1200});
-    entry.animations.push_back({"player", 1200});
+    entry.animations.push_back({"PLAYER", 1200});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 
     // The stunt-bound principal is driven from the stunt model.
@@ -1975,13 +1975,13 @@ TEST(DialogGUI, should_keep_driving_fully_stunted_animated_cuts_from_the_stunt_m
 
     auto dialog = std::make_shared<Dialog>();
     dialog->animatedCutscene = true;
-    dialog->stunts.push_back({"player", "player_stunt"});
+    dialog->stunts.push_back({"PLAYER", "player_stunt"});
     DialogGUI gui(game, engine.services());
     MixedStuntTestAccess::loadParticipants(gui, dialog);
     ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
 
     Dialog::EntryReply entry;
-    entry.animations.push_back({"player", 1201});
+    entry.animations.push_back({"PLAYER", 1201});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 
     ASSERT_EQ(node->animationChannels().size(), 1);

@@ -61,11 +61,12 @@ namespace game {
 static constexpr float kSpokenTimeBase = 1.0f;
 static constexpr float kSpokenTimePerCharacter = 0.11f;
 
-// The participants that name the owner and the party's second and third
-// members.
-static const char kParticipantOwner[] = "owner";
-static const char kParticipantFirstCompanion[] = "npc1";
-static const char kParticipantSecondCompanion[] = "npc2";
+// The participants that name the owner, the player and the party's second
+// and third members.
+static const char kParticipantOwner[] = "OWNER";
+static const char kParticipantPlayer[] = "PLAYER";
+static const char kParticipantFirstCompanion[] = "NPC1";
+static const char kParticipantSecondCompanion[] = "NPC2";
 
 // Camera shots: the placed camera and same-pair angles, the animated shot
 // range, and the videoeffects.2da row of the security camera look.
@@ -198,18 +199,38 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     }
 }
 
-std::shared_ptr<Object> Conversation::resolveParticipantObject(const std::string &participant) const {
-    if (boost::iequals(participant, kParticipantOwner)) {
-        return owner();
-    }
-    if (boost::iequals(participant, kObjectTagPlayer)) {
-        return _game.party().player();
-    }
-    if (participant == kParticipantFirstCompanion) {
-        return _game.party().getMember(1);
-    }
-    if (participant == kParticipantSecondCompanion) {
-        return _game.party().getMember(2);
+std::shared_ptr<Object> Conversation::resolveParticipantObject(const std::string &participant, ParticipantSite site) const {
+    switch (site) {
+    case ParticipantSite::Speaker:
+        if (boost::iequals(participant, kParticipantOwner)) {
+            return owner();
+        }
+        if (!_game.isTSL() && boost::iequals(participant, kParticipantPlayer)) {
+            return _game.party().player();
+        }
+        break;
+    case ParticipantSite::Animation:
+        if (participant == kParticipantOwner) {
+            return owner();
+        }
+        if (participant == kParticipantPlayer) {
+            return _game.party().player();
+        }
+        if (participant == kParticipantFirstCompanion) {
+            return _game.party().getMember(1);
+        }
+        if (participant == kParticipantSecondCompanion) {
+            return _game.party().getMember(2);
+        }
+        break;
+    case ParticipantSite::Stunt:
+        if (participant == kParticipantPlayer) {
+            return _game.party().player();
+        }
+        if (participant == kParticipantOwner || participant.empty()) {
+            return owner();
+        }
+        break;
     }
     // Any other participant is the object with its tag nearest the owner,
     // the owner itself first; a dead one counts as much as a living one.
@@ -500,7 +521,7 @@ void Conversation::loadEntry(int index, bool start) {
     _firstEntryShot = false;
     _entryCameraAngle = angle;
     if (!_currentEntry->speaker.empty()) {
-        attachDialogParticipant(resolveParticipantObject(_currentEntry->speaker));
+        attachDialogParticipant(resolveParticipantObject(_currentEntry->speaker, ParticipantSite::Speaker));
     }
 
     // A conversation is a one-liner when it opens on an entry with no replies,
@@ -1289,7 +1310,7 @@ bool Conversation::isSkippableEntry() const {
 std::shared_ptr<Object> Conversation::currentEntrySpeaker() const {
     std::shared_ptr<Object> speaker;
     if (!_currentEntry->speaker.empty()) {
-        speaker = resolveParticipantObject(_currentEntry->speaker);
+        speaker = resolveParticipantObject(_currentEntry->speaker, ParticipantSite::Speaker);
     }
     return speaker ? speaker : owner();
 }

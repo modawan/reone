@@ -115,12 +115,22 @@ protected:
     static constexpr int kKeepShotVideoEffect = -2;
 
     std::shared_ptr<Object> owner() const { return _owner.resolve(); }
+    /** Where a participant's name is read, which decides the names that stand for someone. */
+    enum class ParticipantSite {
+        /** An entry's or a reply's speaker or listener: OWNER, and in KotOR PLAYER, whatever their case. */
+        Speaker,
+        /** An animation's participant: PLAYER, OWNER, NPC1 and NPC2, as written. */
+        Animation,
+        /** A stunt's participant: PLAYER, and OWNER or nothing, as written. */
+        Stunt
+    };
     /**
-     * The object a participant tag names: the owner, the player, the party's
-     * second or third member, or the object with the tag nearest the owner,
-     * the owner itself first, dead or alive. Tags match whatever their case.
+     * The object a participant name names at \p site: one the site's names
+     * stand for (the owner, the player, the party's second or third member),
+     * or else the object with the tag nearest the owner, the owner itself
+     * first, dead or alive. Tags match whatever their case.
      */
-    std::shared_ptr<Object> resolveParticipantObject(const std::string &participant) const;
+    std::shared_ptr<Object> resolveParticipantObject(const std::string &participant, ParticipantSite site) const;
     /** The current entry's speaker: the participant its speaker tag names, or else the owner. */
     std::shared_ptr<Object> currentEntrySpeaker() const;
     std::shared_ptr<resource::Dialog> _dialog;

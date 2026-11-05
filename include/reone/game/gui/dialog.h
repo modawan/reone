@@ -83,7 +83,13 @@ private:
     Controls _controls;
 
     RuntimeObjectRef<Object> _currentSpeaker;
-    std::map<std::string, Participant> _participantByTag;
+    /** Orders participant names whatever their case, as the stunts and animations name them. */
+    struct ParticipantNameLess {
+        bool operator()(const std::string &lhs, const std::string &rhs) const {
+            return boost::algorithm::ilexicographical_compare(lhs, rhs);
+        }
+    };
+    std::map<std::string, Participant, ParticipantNameLess> _participantByTag;
 
     /**
      * The pair that turns to each other on each entry, and the pair before it.
