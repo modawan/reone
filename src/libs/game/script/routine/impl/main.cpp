@@ -19,6 +19,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
@@ -162,9 +163,15 @@ static Variable PrintFloat(const std::vector<Variable> &args, const RoutineConte
     auto nDecimals = getIntOrElse(args, 2, 9);
 
     // Transform
+    int width = glm::clamp(nWidth, 0, 18);
+    int decimals = glm::clamp(nDecimals, 0, 9);
 
     // Execute
-    throw RoutineNotImplementedException("PrintFloat");
+    char text[64];
+    std::snprintf(text, sizeof(text), "%*.*f", width, decimals, fFloat);
+    text[sizeof(text) - 1] = '\0';
+    info(text);
+    return Variable::ofNull();
 }
 
 static Variable FloatToString(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -196,7 +203,7 @@ static Variable PrintInteger(const std::vector<Variable> &args, const RoutineCon
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PrintInteger");
+    return Variable::ofNull();
 }
 
 static Variable PrintObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -206,7 +213,7 @@ static Variable PrintObject(const std::vector<Variable> &args, const RoutineCont
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PrintObject");
+    return Variable::ofNull();
 }
 
 static Variable AssignCommand(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -770,7 +777,12 @@ static Variable GetStringUpperCase(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetStringUpperCase");
+    for (auto &c : sString) {
+        if (c >= 'a' && c <= 'z') {
+            c -= 'a' - 'A';
+        }
+    }
+    return Variable::ofString(std::move(sString));
 }
 
 static Variable GetStringLowerCase(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -780,7 +792,12 @@ static Variable GetStringLowerCase(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetStringLowerCase");
+    for (auto &c : sString) {
+        if (c >= 'A' && c <= 'Z') {
+            c += 'a' - 'A';
+        }
+    }
+    return Variable::ofString(std::move(sString));
 }
 
 static Variable GetStringRight(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -822,7 +839,11 @@ static Variable InsertString(const std::vector<Variable> &args, const RoutineCon
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("InsertString");
+    // Only a position inside the destination takes the string.
+    if (!sString.empty() && nPosition >= 0 && nPosition < static_cast<int>(sDestination.size())) {
+        sDestination.insert(static_cast<size_t>(nPosition), sString);
+    }
+    return Variable::ofString(std::move(sDestination));
 }
 
 static Variable GetSubString(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1457,7 +1478,7 @@ static Variable RoundsToSeconds(const std::vector<Variable> &args, const Routine
     // Transform
 
     // Execute
-    return Variable::ofFloat(nRounds / 6.0f);
+    return Variable::ofFloat(nRounds * 3.0f);
 }
 
 static Variable HoursToSeconds(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1467,7 +1488,7 @@ static Variable HoursToSeconds(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    return Variable::ofInt(nHours * 3600);
+    return Variable::ofFloat(nHours * 60.0f * ctx.game.minutesPerHour());
 }
 
 static Variable TurnsToSeconds(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1477,7 +1498,7 @@ static Variable TurnsToSeconds(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("TurnsToSeconds");
+    return Variable::ofFloat(nTurns * 30.0f);
 }
 
 static Variable SoundObjectSetFixedVariance(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1748,7 +1769,7 @@ static Variable PrintVector(const std::vector<Variable> &args, const RoutineCont
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PrintVector");
+    return Variable::ofNull();
 }
 
 static Variable Vector(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2921,11 +2942,7 @@ static Variable StringToInt(const std::vector<Variable> &args, const RoutineCont
     // Transform
 
     // Execute
-    int intValue = 0;
-    if (!sNumber.empty()) {
-        intValue = stoi(sNumber);
-    }
-    return Variable::ofInt(intValue);
+    return Variable::ofInt(std::atoi(sNumber.c_str()));
 }
 
 static Variable StringToFloat(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2935,7 +2952,7 @@ static Variable StringToFloat(const std::vector<Variable> &args, const RoutineCo
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("StringToFloat");
+    return Variable::ofFloat(static_cast<float>(std::atof(sNumber.c_str())));
 }
 
 // How oTarget regards oSource, by default the caller. An invalid source is
@@ -4446,7 +4463,9 @@ static Variable IntToHexString(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("IntToHexString");
+    char text[16];
+    std::snprintf(text, sizeof(text), "0x%08x", static_cast<unsigned int>(nInteger));
+    return Variable::ofString(text);
 }
 
 static Variable GetBaseItemType(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5857,7 +5876,8 @@ static Variable WriteTimestampedLogEntry(const std::vector<Variable> &args, cons
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("WriteTimestampedLogEntry");
+    info(sLogEntry);
+    return Variable::ofNull();
 }
 
 static Variable GetModuleName(const std::vector<Variable> &args, const RoutineContext &ctx) {
