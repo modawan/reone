@@ -443,6 +443,12 @@ public:
         const std::string &message,
         std::shared_ptr<graphics::Texture> icon = nullptr,
         std::function<void()> onConfirm = {});
+    /**
+     * TSL: a script's message box, showing \p text with the icon
+     * \p iconResRef when it names one. Play pauses while it shows, unless it
+     * is paused already or a conversation is under way.
+     */
+    void showScriptMessageBox(const std::string &text, const std::string &iconResRef = "");
     /** Show a message box answered Yes or No. False when the popup cannot be loaded. */
     bool showConfirmPopup(
         const std::string &message,
@@ -1821,6 +1827,9 @@ private:
     int _tutorialPage {0};
     /** The open window paused play, and resumes it when dismissed. */
     bool _tutorialPausedGame {false};
+    /** A script's message box paused play, and resumes it when it closes. */
+    bool _messageBoxPausedGame {false};
+    void releaseMessageBoxPause();
 
     bool isTutorialWindowValid(int id) const;
     void commitTutorialWindow();

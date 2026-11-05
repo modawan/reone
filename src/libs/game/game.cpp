@@ -8998,6 +8998,7 @@ void Game::changeScreen(Screen screen) {
     if (_confirmPopup) {
         _confirmPopup->hide();
     }
+    releaseMessageBoxPause();
     if (_tutorial) {
         finishTutorialWindow(false);
     }
@@ -9572,6 +9573,27 @@ bool Game::showMessagePopup(
     stopMovement();
     _confirmPopup->show(message, std::move(icon), std::move(onConfirm));
     return true;
+}
+
+void Game::showScriptMessageBox(const std::string &text, const std::string &iconResRef) {
+    std::shared_ptr<Texture> icon;
+    if (!iconResRef.empty()) {
+        icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
+    }
+    if (!showMessagePopup(text, std::move(icon), [this]() { releaseMessageBoxPause(); })) {
+        return;
+    }
+    if (!_paused && !_dialogUnderWay) {
+        setPaused(true);
+        _messageBoxPausedGame = true;
+    }
+}
+
+void Game::releaseMessageBoxPause() {
+    if (_messageBoxPausedGame) {
+        _messageBoxPausedGame = false;
+        setPaused(false);
+    }
 }
 
 bool Game::showConfirmPopup(

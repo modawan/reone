@@ -8100,20 +8100,27 @@ static Variable DisplayMessageBox(const std::vector<Variable> &args, const Routi
     auto nStrRef = getInt(args, 0);
     auto sIcon = getStringOrElse(args, 1, "");
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("DisplayMessageBox");
+    ctx.game.showScriptMessageBox(ctx.services.resource.strings.getText(nStrRef), sIcon);
+    return Variable::ofNull();
 }
+
+/** The local boolean a datapad sets once a script has shown it. */
+static constexpr int kDatapadShownBoolean = 94;
 
 static Variable DisplayDatapad(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oDatapad = getObject(args, 0, ctx);
+    auto oDatapad = getObjectOrNull(args, 0, ctx);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("DisplayDatapad");
+    // Execute: the datapad is marked as shown, and its identified
+    // description shows in a message box.
+    auto item = oDatapad ? dyn_cast<Item>(oDatapad) : nullptr;
+    if (!item) {
+        return Variable::ofNull();
+    }
+    item->setLocalBoolean(kDatapadShownBoolean, true);
+    ctx.game.showScriptMessageBox(item->descIdentified());
+    return Variable::ofNull();
 }
 
 static Variable RemoveHeartbeat(const std::vector<Variable> &args, const RoutineContext &ctx) {
