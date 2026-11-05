@@ -38,6 +38,7 @@
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
+#include "reone/game/action/orientcamera.h"
 #include "reone/game/action/pickupitem.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/putdownitem.h"
@@ -1303,6 +1304,8 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::ItemCastSpell, &isItemUseCommand, &CastSpellAction::restore},
     {SavedActionType::JumpToObject, &hasParameters<Type::Object, Type::Integer>, &JumpToObjectAction::restore},
     {SavedActionType::FacePoint, &hasParameters<Type::Float, Type::Float, Type::Float>, &ChangeFacingAction::restore},
+    {SavedActionType::OrientCamera, &hasParameters<Type::Integer, Type::Float, Type::Float, Type::Float, Type::Integer>,
+     &OrientCameraAction::restore},
     {SavedActionType::Appear, &hasParameters<>, &AppearAction::restore},
     {SavedActionType::Follow,
      &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Float, Type::Integer, Type::Float, Type::Float>,

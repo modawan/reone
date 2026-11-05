@@ -264,14 +264,19 @@ static Variable DelayCommand(const std::vector<Variable> &args, const RoutineCon
 static Variable ExecuteScript(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sScript = getString(args, 0);
-    auto oTarget = getObject(args, 1, ctx);
     auto nScriptVar = getIntOrElse(args, 2, -1);
 
     // Transform
 
-    // Execute
+    // Execute: the script runs as the target, even one that is gone. A script
+    // that has no owner, one the game's screens start, runs it with no owner
+    // either, whatever the target.
+    const Variable *callerArg = ctx.execution.findArg(ArgKind::Caller);
     std::vector<script::Argument> scriptArgs;
-    scriptArgs.emplace_back(script::ArgKind::Caller, Variable::ofObject(oTarget->id()));
+    if (callerArg && callerArg->objectId != kObjectInvalid) {
+        const uint32_t targetId = args[1].objectId == kObjectSelf ? callerArg->objectId : args[1].objectId;
+        scriptArgs.emplace_back(script::ArgKind::Caller, Variable::ofObject(targetId));
+    }
     scriptArgs.emplace_back(script::ArgKind::ScriptVar, Variable::ofInt(nScriptVar));
 
     // Copy all arguments from the parent execution context. This essentially
@@ -669,8 +674,14 @@ static Variable SetCameraFacing(const std::vector<Variable> &args, const Routine
 
     // Transform
 
-    // Execute
-    throw RoutineNotImplementedException("SetCameraFacing");
+    // Execute: a commandable creature queues a camera command with the
+    // direction scaled by 180/pi. A script with no caller queues nothing.
+    auto caller = getCallerOrNull(ctx);
+    auto creature = caller ? dyn_cast<Creature>(caller) : nullptr;
+    if (creature && creature->isCommandable()) {
+        creature->queueCameraFacing(glm::degrees(fDirection));
+    }
+    return Variable::ofNull();
 }
 
 static Variable PlaySound(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2011,14 +2022,14 @@ static Variable GetDistanceBetween(const std::vector<Variable> &args, const Rout
 
 static Variable SetReturnStrref(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto bShow = getInt(args, 0);
     auto srStringRef = getIntOrElse(args, 1, 0);
-    auto srReturnQueryStrRef = getIntOrElse(args, 2, 0);
 
     // Transform
 
-    // Execute
-    throw RoutineNotImplementedException("SetReturnStrref");
+    // Execute: the map never offers the return, so whether it is shown and
+    // the question it asks are not kept.
+    ctx.game.party().setReturnStrRef(srStringRef);
+    return Variable::ofNull();
 }
 
 static Variable GetItemInSlot(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3295,7 +3306,7 @@ static Variable SetItemNonEquippable(const std::vector<Variable> &args, const Ro
 
 static Variable GetButtonMashCheck(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetButtonMashCheck");
+    return Variable::ofInt(ctx.game.buttonMashCheck());
 }
 
 static Variable SetButtonMashCheck(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3305,7 +3316,8 @@ static Variable SetButtonMashCheck(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetButtonMashCheck");
+    ctx.game.setButtonMashCheck(nCheck);
+    return Variable::ofNull();
 }
 
 static Variable GiveItem(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4415,14 +4427,8 @@ static Variable SetMapPinEnabled(const std::vector<Variable> &args, const Routin
 }
 
 static Variable PopUpGUIPanel(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oPC = getObject(args, 0, ctx);
-    auto nGUIPanel = getInt(args, 1);
-
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("PopUpGUIPanel");
+    // Execute: no panel is shown.
+    return Variable::ofNull();
 }
 
 static Variable AddMultiClass(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4561,15 +4567,10 @@ static Variable GetItemACValue(const std::vector<Variable> &args, const RoutineC
     return Variable::ofInt(item ? item->armorValue(false) : 0);
 }
 
+// The area map is not revealed.
 static Variable ExploreAreaForPlayer(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oArea = getObject(args, 0, ctx);
-    auto oPlayer = getObject(args, 1, ctx);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("ExploreAreaForPlayer");
+    return Variable::ofNull();
 }
 
 enum class TimeOfDay {
@@ -4732,12 +4733,20 @@ static Variable SoundObjectSetPosition(const std::vector<Variable> &args, const 
 static Variable SpeakOneLinerConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sDialogResRef = getStringOrElse(args, 0, "");
-    auto oTokenTarget = getObjectOrNull(args, 1, ctx);
 
     // Transform
 
-    // Execute
-    throw RoutineNotImplementedException("SpeakOneLinerConversation");
+    // Execute: an empty resref stands for the caller's own conversation. A
+    // script with no caller says nothing.
+    auto caller = getCallerOrNull(ctx);
+    if (!caller) {
+        return Variable::ofNull();
+    }
+    const std::string resRef = sDialogResRef.empty() ? caller->conversation() : sDialogResRef;
+    if (!resRef.empty()) {
+        speakOneLiner(ctx.game, ctx.services, *caller, resRef);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetGold(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5787,23 +5796,23 @@ static Variable GetHasFeatEffect(const std::vector<Variable> &args, const Routin
 
 static Variable SetPlaceableIllumination(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlaceable = getObjectOrCaller(args, 0, ctx);
+    auto oPlaceable = getObjectOrNull(args, 0, ctx);
     auto bIlluminate = getIntOrElse(args, 1, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetPlaceableIllumination");
+    if (auto placeable = oPlaceable ? dyn_cast<Placeable>(oPlaceable) : nullptr) {
+        placeable->setLightState(bIlluminate);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetPlaceableIllumination(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlaceable = getObjectOrCaller(args, 0, ctx);
+    auto oPlaceable = getObjectOrNull(args, 0, ctx);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("GetPlaceableIllumination");
+    // Execute: anything but a placeable has no light.
+    auto placeable = oPlaceable ? dyn_cast<Placeable>(oPlaceable) : nullptr;
+    return Variable::ofInt(placeable ? placeable->lightState() : 0);
 }
 
 static Variable GetIsPlaceableObjectActionPossible(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5949,9 +5958,11 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     return Variable::ofObject(actorId);
 }
 
+// Only characters kept in a server vault are exported, and the player's is
+// not one.
 static Variable ExportAllCharacters(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("ExportAllCharacters");
+    return Variable::ofNull();
 }
 
 static Variable MusicBackgroundGetDayTrack(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6950,15 +6961,16 @@ static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const 
 
 static Variable SetAreaFogColor(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oArea = getObject(args, 0, ctx);
+    auto oArea = getAreaOrNull(args, 0, ctx);
     auto fRed = getFloat(args, 1);
     auto fGreen = getFloat(args, 2);
     auto fBlue = getFloat(args, 3);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetAreaFogColor");
+    if (oArea) {
+        oArea->setFogColor(glm::vec3(fRed, fGreen, fBlue));
+    }
+    return Variable::ofNull();
 }
 
 static Variable ChangeItemCost(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6986,9 +6998,11 @@ static Variable GetIsLiveContentAvailable(const std::vector<Variable> &args, con
     throw RoutineNotImplementedException("GetIsLiveContentAvailable");
 }
 
+// No conversation counts as under way any longer, whether or not one is.
 static Variable ResetDialogState(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("ResetDialogState");
+    ctx.game.setDialogUnderWay(false);
+    return Variable::ofNull();
 }
 
 // The good/evil value runs from 0, the dark side, to 100, the light side.
@@ -7317,13 +7331,14 @@ static Variable GetOwnerDemolitionsSkill(const std::vector<Variable> &args, cons
 
 static Variable SetOrientOnClick(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObjectOrCaller(args, 0, ctx);
+    auto oCreature = getObjectOrNull(args, 0, ctx);
     auto nState = getIntOrElse(args, 1, 1);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("SetOrientOnClick");
+    // Execute: only a creature turns to whoever clicks to talk to it.
+    if (auto creature = oCreature ? dyn_cast<Creature>(oCreature) : nullptr) {
+        creature->setNotReorienting(nState == 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetInfluence(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7504,7 +7519,7 @@ static Variable GetBonusForcePoints(const std::vector<Variable> &args, const Rou
 
 static Variable IsMoviePlaying(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("IsMoviePlaying");
+    return Variable::ofInt(ctx.game.movie() ? 1 : 0);
 }
 
 static Variable QueueMovie(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -8038,7 +8053,10 @@ static Variable SetDisableTransit(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetDisableTransit");
+    if (auto module = ctx.game.module(); module && module->area()) {
+        module->area()->setTransitDisabled(nFlag != 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetInputClass(const std::vector<Variable> &args, const RoutineContext &ctx) {

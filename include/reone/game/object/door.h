@@ -79,7 +79,8 @@ public:
     void close();
     /**
      * Shuts the door alone: it blocks the doorway at once, moving no one out
-     * of it, while its leaf swings shut.
+     * of it, while its leaf swings shut. A door whose type shows no model is
+     * destroyed instead.
      */
     void shutAtOnce();
     /** Runs the script for being closed, with the closer as the last to close the door. */

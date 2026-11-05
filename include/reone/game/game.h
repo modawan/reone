@@ -1291,6 +1291,10 @@ public:
     const std::string &lastConversation() const { return _lastConversation; }
     void setLastConversation(std::string conversation) { _lastConversation = std::move(conversation); }
 
+    /** The number scripts keep for a button-mash check; nothing else reads it, and it is not saved. */
+    int buttonMashCheck() const { return _buttonMashCheck; }
+    void setButtonMashCheck(int check) { _buttonMashCheck = check; }
+
     /**
      * Persist the current state of one roster NPC over its availnpc record.
      *
@@ -1894,6 +1898,7 @@ private:
     uint64_t _savedGraphGeneration {1};
     bool _loadingFromSaveGame {false};
     std::string _lastConversation;
+    int _buttonMashCheck {0};
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};

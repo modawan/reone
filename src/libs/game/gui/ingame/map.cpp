@@ -115,6 +115,7 @@ void MapMenu::refreshControls() {
 }
 
 void MapMenu::refreshTravel() {
+    _controls.BTN_RETURN->setTextMessage(_services.resource.strings.getText(_game.party().returnStrRef()));
     const bool open = _game.party().isReadyToTravel();
     _controls.BTN_PRTYSLCT->setTextColor(open ? kTravelOpenTextColor : kTravelRefusedTextColor);
     _controls.BTN_PRTYSLCT->setBorderColor(open ? kTravelOpenBorderColor : kTravelRefusedBorderColor);

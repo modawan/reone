@@ -1462,6 +1462,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     } else {
         put(*result, Gff::Field::newResRef("Portrait", placeable._portrait));
     }
+    put(*result, Gff::Field::newByte("LightState", static_cast<uint8_t>(placeable.lightState())));
     // A body bag is made at runtime with no blueprint, so it carries all of
     // its own fields.
     if (placeable._isBodyBag) {

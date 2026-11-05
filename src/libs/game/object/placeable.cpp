@@ -446,6 +446,22 @@ void Placeable::applyDamageEffect(
     damage(amount, damager);
 }
 
+// An appearance with a light colour in placeables.2da has a light.
+static bool hasLight(ITwoDAs &twoDas, int appearance) {
+    auto placeables = twoDas.get("placeables");
+    return placeables && placeables->getIntOpt(appearance, "lightcolor").has_value();
+}
+
+int Placeable::lightState() const {
+    return hasLight(_services.resource.twoDas, _appearance) ? _lightState : 0;
+}
+
+void Placeable::setLightState(int state) {
+    if (_lightState != state && hasLight(_services.resource.twoDas, _appearance)) {
+        _lightState = static_cast<uint8_t>(state);
+    }
+}
+
 int Placeable::savingThrow(SavingThrow save) const {
     switch (save) {
     case SavingThrow::Fortitude:

@@ -442,6 +442,19 @@ void Area::applySceneProperties() {
     sceneGraph.setFog(fogProperties);
 }
 
+void Area::setFogColor(const glm::vec3 &color) {
+    const auto channel = [](float value) {
+        return static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int>(value * 255.0f)));
+    };
+    _sunFogColor = channel(color.r) | channel(color.g) << 8 | channel(color.b) << 16;
+    auto fogProperties = FogProperties();
+    fogProperties.enabled = _fogEnabled;
+    fogProperties.nearPlane = _fogNear;
+    fogProperties.farPlane = _fogFar;
+    fogProperties.color = color;
+    _services.scene.graphs.get(_sceneName).setFog(fogProperties);
+}
+
 void Area::loadGIT(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {

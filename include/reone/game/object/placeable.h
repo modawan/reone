@@ -148,6 +148,13 @@ public:
     int appearance() const { return _appearance; }
     /** The name of the placeable's appearance, shown for a placeable that has none of its own. */
     int appearanceNameStrRef() const { return _appearanceNameStrRef; }
+    /**
+     * Whether the placeable's light is on, 0 for one whose appearance has no
+     * light colour in placeables.2da.
+     */
+    int lightState() const;
+    /** Turns the light on or off; one whose appearance has no light is left as it is. */
+    void setLightState(int state);
     Faction faction() const { return _faction; }
     void setFaction(Faction faction) { _faction = faction; }
     /** The placeable's own saving throw from its template; effects never change it. */
@@ -316,7 +323,7 @@ private:
     std::string _portrait;
     uint8_t _bodyBagId {0xFF};
     bool _dieWhenEmpty {false};
-    uint8_t _lightState {0};
+    uint8_t _lightState {1};
     resource::LocString _description;
 
     std::string _onClosed;

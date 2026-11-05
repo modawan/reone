@@ -612,6 +612,12 @@ public:
 
     // END Galaxy map
 
+    static constexpr int kDefaultReturnStrRef = 32179;
+
+    /** The caption of the map's return button, as a script last set it. Not saved. */
+    int returnStrRef() const { return _returnStrRef; }
+    void setReturnStrRef(int strRef) { _returnStrRef = strRef; }
+
     // Inventory
     //
     // The party's carried items are held by the player character's creature
@@ -728,6 +734,7 @@ private:
     int _gold {0};
     int _xp {0};
     GalaxyMapState _galaxyMap;
+    int _returnStrRef {kDefaultReturnStrRef};
     bool _pazaakDataValid {false};
     size_t _pazaakCardCount {kK1PazaakCardCount};
     PazaakCardCounts _pazaakCardCounts {};

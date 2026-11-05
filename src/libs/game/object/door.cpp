@@ -425,6 +425,11 @@ void Door::close() {
 }
 
 void Door::shutAtOnce() {
+    // A door whose type shows no model takes the destroyed state instead.
+    if (_appearance != 0 && _services.resource.twoDas.get("doortypes")->getInt(_appearance, "visiblemodel", 1) == 0) {
+        enterDestroyedState();
+        return;
+    }
     if (_state == DoorState::Closed && _transition == DoorTransition::None) {
         return;
     }

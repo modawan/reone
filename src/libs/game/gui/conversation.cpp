@@ -37,6 +37,7 @@
 #include "reone/graphics/di/services.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/provider/dialogs.h"
 #include "reone/resource/provider/lips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/resources.h"
@@ -111,6 +112,43 @@ static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Par
     }
     args.emplace_back(script::ArgKind::ScriptStringParam, script::Variable::ofString(params.str));
     return args;
+}
+
+bool speakOneLiner(Game &game, ServicesView &services, Object &speaker, const std::string &resRef) {
+    auto dialog = services.resource.dialogs.get(resRef);
+    if (!dialog) {
+        return false;
+    }
+    auto conditionHolds = [&](const std::string &script, bool negated, const Dialog::EntryReplyLink::ConditionParams &params) {
+        return (game.scriptRunner().run(script, makeScriptArgs(speaker.id(), params)) != 0) != negated;
+    };
+    for (const auto &link : dialog->startEntries) {
+        const auto &entry = dialog->getEntry(link.index);
+        if (!entry.speaker.empty()) {
+            continue;
+        }
+        std::optional<bool> active;
+        std::optional<bool> active2;
+        if (!link.active.empty()) {
+            active = conditionHolds(link.active, link.notActive, link.params);
+        }
+        if (!link.active2.empty()) {
+            active2 = conditionHolds(link.active2, link.notActive2, link.params2);
+        }
+        const bool holds = active && active2 ? (link.logic == 1 ? *active || *active2 : *active && *active2)
+                                             : active.value_or(true) && active2.value_or(true);
+        if (!holds || !entry.replies.empty()) {
+            continue;
+        }
+        const std::string text = game.substituteCustomTokens(entry.text);
+        game.playBarkSound(speaker, entry.voResRef.empty() ? services.resource.strings.getSound(entry.textStrRef) : entry.voResRef);
+        game.setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+        if (!entry.script.empty()) {
+            game.scriptRunner().run(entry.script, speaker.id());
+        }
+        return true;
+    }
+    return false;
 }
 
 bool Conversation::isCurrent(uint64_t generation) const {

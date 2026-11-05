@@ -595,6 +595,8 @@ public:
     Pathfinder &pathfinder() { return _pathfinder; }
 
     void setUnescapable(bool value);
+    /** Whether the map's transit button is disabled; the area saves it. */
+    void setTransitDisabled(bool disabled) { _transitDisabled = disabled; }
 
     // Music and ambient sound
     //
@@ -791,6 +793,11 @@ public:
     float fogFar() const { return _fogFar; }
     /** The fog colour, red, green and blue from 0 to 1. */
     glm::vec3 fogColor() const { return resource::Gff::colorFromUint32(_sunFogColor); }
+    /**
+     * The fog is drawn in the colour given; the area keeps and saves it as a
+     * byte a channel, each channel's value times 255, cut to a whole number.
+     */
+    void setFogColor(const glm::vec3 &color);
 
     // END Fog
 

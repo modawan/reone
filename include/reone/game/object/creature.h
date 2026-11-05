@@ -1063,6 +1063,9 @@ public:
     int actsAsPCValue() const { return _actsAsPC; }
     /** Whether a click to talk leaves the creature facing the way it was. */
     bool isNotReorienting() const { return _notReorienting; }
+    void setNotReorienting(bool notReorienting) { _notReorienting = notReorienting; }
+    /** Queues a camera command that sets the facing alone. */
+    void queueCameraFacing(float facing);
     /** The character was made by the player (TSL item limitation). */
     bool isPlayerCreated() const { return _playerCreated; }
     bool isPartyInteract() const { return _partyInteract; }

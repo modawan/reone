@@ -1043,6 +1043,7 @@ enum class ActionType {
     Appear = 0x1028,
     DoorSaber = 0x1029,
     ChangeFacing = 0x102a,
+    OrientCamera = 0x102b,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe

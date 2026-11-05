@@ -86,6 +86,9 @@ uint32_t Action::serializedActionId() const {
     case ActionType::JumpToObject:
         type = SavedActionType::JumpToObject;
         break;
+    case ActionType::OrientCamera:
+        type = SavedActionType::OrientCamera;
+        break;
     case ActionType::Appear:
         type = SavedActionType::Appear;
         break;
