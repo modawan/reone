@@ -244,23 +244,7 @@ std::shared_ptr<Creature> DialogGUI::resolveParticipantCreature(const std::strin
     return std::dynamic_pointer_cast<Creature>(resolveParticipantObject(participant, ParticipantSite::Animation));
 }
 
-std::shared_ptr<Animation> DialogGUI::getStuntParticipantAnimation(
-    const std::string &participant,
-    int ordinal) const {
-    auto cut = decodeCutAnimation(ordinal);
-    if (!cut) {
-        return nullptr;
-    }
-    auto maybeParticipant = _participantByTag.find(participant);
-    if (maybeParticipant == _participantByTag.end()) {
-        return nullptr;
-    }
-    auto creature = maybeParticipant->second.creature.resolve();
-    return maybeParticipant->second.model->getAnimation(creature ? getCutClipName(cut->name, *creature) : cut->name);
-}
-
 void DialogGUI::onLoadEntry() {
-    restoreInactiveStuntParticipants(*_currentEntry);
     loadCurrentSpeaker();
     updateParticipantAnimations(*_currentEntry);
     // An animated camera shot leaves everyone as they are.
@@ -271,76 +255,6 @@ void DialogGUI::onLoadEntry() {
     repositionMessage();
 
     _controls.LB_REPLIES->setVisible(false);
-}
-
-void DialogGUI::restoreInactiveStuntParticipants(const Dialog::EntryReply &node) {
-    if (_dialog->isAnimatedCutscene()) {
-        return;
-    }
-    for (auto &entry : _participantByTag) {
-        if (!entry.second.mixedStuntActive) {
-            continue;
-        }
-        bool drivenThisEntry = false;
-        for (auto &anim : node.animations) {
-            if (boost::iequals(anim.participant, entry.first) && getStuntParticipantAnimation(anim.participant, anim.animation)) {
-                drivenThisEntry = true;
-                break;
-            }
-        }
-        if (!drivenThisEntry) {
-            leaveMixedStunt(entry.second);
-        }
-    }
-}
-
-bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation, bool looping, int animationId) {
-    auto creature = participant.creature.resolve();
-    if (!creature) {
-        participant.mixedStuntActive = false;
-        return false;
-    }
-    if (!participant.mixedStuntActive && creature->isStuntMode()) {
-        warn("Dialog: participant is already in stunt mode: " + creature->tag());
-        return false;
-    }
-
-    AnimationProperties properties;
-    properties.flags = AnimationFlags::propagate | (looping ? AnimationFlags::loop : 0);
-    properties.scale = 1.0f;
-    if (!creature->playExternalAnimation(animation, std::move(properties), AnimationSource {animationId, true})) {
-        return false;
-    }
-
-    if (!participant.mixedStuntActive) {
-        participant.restorePosition = creature->position();
-        participant.restoreFacing = creature->getFacing();
-        if (auto node = creature->sceneNode()) {
-            participant.restoreCulling = node->isCullingEnabled();
-        }
-        creature->startStuntMode();
-        participant.mixedStuntActive = true;
-    }
-    return true;
-}
-
-void DialogGUI::leaveMixedStunt(Participant &participant) {
-    if (!participant.mixedStuntActive) {
-        return;
-    }
-    auto creature = participant.creature.resolve();
-    if (!creature) {
-        participant.mixedStuntActive = false;
-        return;
-    }
-    creature->resumeStateDrivenAnimation();
-    creature->setPosition(participant.restorePosition);
-    creature->setFacing(participant.restoreFacing);
-    creature->stopStuntMode();
-    if (auto node = creature->sceneNode()) {
-        node->setCullingEnabled(participant.restoreCulling);
-    }
-    participant.mixedStuntActive = false;
 }
 
 void DialogGUI::loadCurrentSpeaker() {
@@ -815,22 +729,21 @@ bool DialogGUI::applyCutAnimation(const std::string &participant, const CutAnima
     if (maybeParticipant != _participantByTag.end()) {
         Participant &stunt = maybeParticipant->second;
         auto stuntCreature = stunt.creature.resolve();
-        const std::string name = stuntCreature ? getCutClipName(cut.name, *stuntCreature) : cut.name;
-        if (auto animation = stunt.model->getAnimation(name)) {
-            if (!_dialog->isAnimatedCutscene()) {
-                return enterMixedStunt(stunt, animation, cut.looping, cut.id);
-            }
-            // The clip's ID decides whether it plays at the world origin.
-            AnimationProperties properties;
-            properties.flags = AnimationFlags::propagate | (cut.looping ? AnimationFlags::loop : 0);
-            properties.scale = 1.0f;
-            return stuntCreature && stuntCreature->playExternalAnimation(animation, std::move(properties), AnimationSource {cut.id, true});
+        if (!stuntCreature) {
+            return false;
         }
-        // The stunt model is the authored source for this participant, so a
-        // missing clip is a data problem rather than a reason to silently
-        // animate from somewhere else.
-        warn("Dialog: stunt model has no animation: " + name);
-        return false;
+        const std::string name = getCutClipName(cut.name, *stuntCreature);
+        auto animation = stunt.model->getAnimation(name);
+        if (!animation) {
+            warn("Dialog: stunt model has no animation: " + name);
+            return false;
+        }
+        // The clip plays where the participant stands, or at the world origin
+        // when its ID says so, whatever the conversation.
+        AnimationProperties properties;
+        properties.flags = AnimationFlags::propagate | (cut.looping ? AnimationFlags::loop : 0);
+        properties.scale = 1.0f;
+        return stuntCreature->playExternalAnimation(animation, std::move(properties), AnimationSource {cut.id, true});
     }
 
     auto creature = resolveParticipantCreature(participant);
@@ -842,11 +755,17 @@ bool DialogGUI::applyCutAnimation(const std::string &participant, const CutAnima
     if (!node || node->type() != SceneNodeType::Model) {
         return false;
     }
-    // Cut clips authored without the world-space suffix live on the creature's
-    // own model, so they play in place rather than through stunt staging.
-    auto animation = std::static_pointer_cast<ModelSceneNode>(node)->model().getAnimation(
-        getCutClipName(cut.name, *creature));
+    const std::string name = getCutClipName(cut.name, *creature);
+    auto animation = std::static_pointer_cast<ModelSceneNode>(node)->model().getAnimation(name);
     if (!animation) {
+        // A one-shot the model lacks still goes through the queue, for the
+        // shortest time and showing nothing, and is placed by its ID.
+        if (!cut.looping) {
+            creature->showDialogPause();
+            creature->abortFireForgetAnimation();
+            creature->flushFireForgetQueue();
+            creature->addFireForgetAnimation(name, false, AnimationSource {cut.id, true});
+        }
         return false;
     }
     AnimationProperties properties;
@@ -962,20 +881,16 @@ void DialogGUI::onFinish() {
 }
 
 void DialogGUI::releaseStuntParticipants() {
-    if (!_dialog->isAnimatedCutscene()) {
+    // The animated cutscene is over, and holds no one. Elsewhere a stunt
+    // participant ends as any other participant does.
+    if (_dialog->isAnimatedCutscene()) {
         for (auto &participant : _participantByTag) {
-            leaveMixedStunt(participant.second);
+            auto creature = participant.second.creature.resolve();
+            if (!creature) continue;
+            creature->releaseCutsceneAnimation();
+            creature->resumeStateDrivenAnimation();
+            creature->setIsInConversation(false);
         }
-        _participantByTag.clear();
-        return;
-    }
-    // The animated cutscene is over, and holds no one.
-    for (auto &participant : _participantByTag) {
-        auto creature = participant.second.creature.resolve();
-        if (!creature) continue;
-        creature->releaseCutsceneAnimation();
-        creature->resumeStateDrivenAnimation();
-        creature->setIsInConversation(false);
     }
     _participantByTag.clear();
 }
@@ -1003,7 +918,6 @@ void DialogGUI::onReplyPicked(const Dialog::EntryReply &reply) {
     if (_dialog->isAnimatedCutscene()) {
         return;
     }
-    restoreInactiveStuntParticipants(reply);
     updateParticipantAnimations(reply);
 }
 

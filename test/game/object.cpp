@@ -192,12 +192,8 @@ public:
     }
 
     static bool applyAnimation(DialogGUI &gui, const std::string &tag, int ordinal) {
-        auto animation = gui.getStuntParticipantAnimation(tag, ordinal);
-        if (!animation) {
-            return false;
-        }
         auto cut = DialogGUI::decodeCutAnimation(ordinal);
-        return gui.enterMixedStunt(gui._participantByTag.at(tag), animation, cut && cut->looping, ordinal);
+        return cut && gui.applyCutAnimation(tag, *cut);
     }
 
     static std::optional<DialogGUI::CutAnimation> decodeCut(int ordinal) {
@@ -211,15 +207,6 @@ public:
     static void updateAnimationsForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
         gui._currentEntry = &entry;
         gui.updateParticipantAnimations(entry);
-    }
-
-    static bool isActive(DialogGUI &gui, const std::string &tag) {
-        return gui._participantByTag.at(tag).mixedStuntActive;
-    }
-
-    static void restoreForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
-        gui._currentEntry = &entry;
-        gui.restoreInactiveStuntParticipants(entry);
     }
 
     static void finish(DialogGUI &gui) {
@@ -1510,7 +1497,7 @@ TEST(DialogGUI, should_prepare_the_real_player_from_a_stunt_model_without_creati
     EXPECT_FALSE(player->isStuntMode());
 }
 
-TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardown) {
+TEST(DialogGUI, should_place_a_stunt_clip_by_its_id_and_put_the_participant_back_after_it) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -1545,7 +1532,6 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
     MixedStuntTestAccess::loadParticipants(gui, dialog);
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
-    EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
     EXPECT_TRUE(player->isStuntMode());
     EXPECT_TRUE(modelNode->isEnabled());
     EXPECT_FALSE(modelNode->isCulled());
@@ -1564,7 +1550,6 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
 
     modelNode->update(0.7f);
     player->update(0.0f);
-    EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
     EXPECT_TRUE(player->isStuntMode());
     EXPECT_TRUE(modelNode->isEnabled());
     EXPECT_FALSE(modelNode->isCulled());
@@ -1600,13 +1585,13 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
     EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
 
-    Dialog::EntryReply droppedEntry;
-    MixedStuntTestAccess::restoreForEntry(gui, droppedEntry);
-    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    // The pause it returns to puts the participant back where it stands.
+    modelNode->update(1.2f);
+    player->update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_FALSE(player->isStuntMode());
     EXPECT_EQ(player->position(), glm::vec3(1.0f, 2.0f, 3.0f));
     EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
-    EXPECT_FALSE(modelNode->isCullingEnabled());
-    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
     EXPECT_NEAR(modelNode->localTransform()[3].x, 1.0f, 1e-5);
     EXPECT_NEAR(modelNode->localTransform()[3].y, 2.0f, 1e-5);
     EXPECT_NEAR(modelNode->localTransform()[3].z, 3.0f, 1e-5);
@@ -1614,14 +1599,6 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
     MixedStuntTestAccess::finish(gui);
     EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
-    EXPECT_FALSE(player->isStuntMode());
-    EXPECT_EQ(player->position(), glm::vec3(1.0f, 2.0f, 3.0f));
-    EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
-    EXPECT_FALSE(modelNode->isCullingEnabled());
-    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
-    EXPECT_NEAR(modelNode->localTransform()[3].x, 1.0f, 1e-5);
-    EXPECT_NEAR(modelNode->localTransform()[3].y, 2.0f, 1e-5);
-    EXPECT_NEAR(modelNode->localTransform()[3].z, 3.0f, 1e-5);
 }
 
 TEST(DialogGUI, should_leave_no_partial_mixed_stunt_state_when_inputs_are_missing) {
@@ -1651,9 +1628,7 @@ TEST(DialogGUI, should_leave_no_partial_mixed_stunt_state_when_inputs_are_missin
     ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
 
     EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
-    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
     EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
-    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
     EXPECT_FALSE(player->isStuntMode());
 }
 
@@ -2081,7 +2056,7 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
     ASSERT_EQ(node->animationChannels().size(), 1);
     EXPECT_EQ(node->animationChannels().front().anim, talk.get());
     EXPECT_NE(node->animationChannels().front().anim, stuntClip.get());
-    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "owner"));
+    EXPECT_FALSE(owner->isStuntMode());
 }
 
 TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {

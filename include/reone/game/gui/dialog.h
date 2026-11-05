@@ -55,10 +55,6 @@ private:
     struct Participant {
         std::shared_ptr<graphics::Model> model;
         RuntimeObjectRef<Creature> creature;
-        bool mixedStuntActive {false};
-        glm::vec3 restorePosition {0.0f};
-        float restoreFacing {0.0f};
-        bool restoreCulling {true};
     };
 
     /**
@@ -191,21 +187,10 @@ private:
     bool applyCutAnimation(const std::string &participant, const CutAnimation &cut);
     /** Plays a dialog animation that is not a cut clip on a participant. */
     void applyDialogAnimation(const std::string &participant, int ordinal);
-    /** Mixed-stunt participants that \p node does not drive from their stunt model leave their staging. */
-    void restoreInactiveStuntParticipants(const resource::Dialog::EntryReply &node);
-    /**
-     * Stages a mixed-stunt participant in \p animation, a loop or a one-shot,
-     * shown as animation \p animationId.
-     */
-    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation, bool looping, int animationId);
-    void leaveMixedStunt(Participant &participant);
 
     static std::optional<CutAnimation> decodeCutAnimation(int ordinal);
     std::shared_ptr<Creature> resolveParticipantCreature(const std::string &participant) const;
     bool hasStuntPresentation() const;
-    std::shared_ptr<graphics::Animation> getStuntParticipantAnimation(
-        const std::string &participant,
-        int ordinal) const;
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;
