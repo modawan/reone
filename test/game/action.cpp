@@ -35,11 +35,13 @@
 #include "reone/game/attack.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/types.h"
 #include "reone/script/executioncontext.h"
+#include "reone/script/program.h"
 #include "reone/system/randomutil.h"
 
 // Attack animation selection stays internal to the action implementation. The
@@ -943,4 +945,86 @@ TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
                       501, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_LT(target->currentHitPoints(), 20);
+}
+
+// The one talked to answers the conversation request through its conversation
+// script, the fallback k_hen_dialogue01: BeginConversation("", OBJECT_INVALID).
+static void answerConversationRequests(TestEngine &engine) {
+    auto answer = std::make_shared<script::ScriptProgram>("k_hen_dialogue01");
+    answer->add(script::Instruction::newCONSTO(script::kObjectInvalid));
+    answer->add(script::Instruction::newCONSTS(""));
+    answer->add(script::Instruction::newACTION(255, 2));
+    answer->add(script::Instruction(script::InstructionType::RETN));
+    EXPECT_CALL(engine.resourceModule().scripts(), get("k_hen_dialogue01"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(answer));
+}
+
+// A partner no path reaches, as a merchant behind a counter is, is talked to
+// from where the speaker stands when near and in sight: the conversation
+// starts rather than the speaker waiting on a walk that cannot end. The area
+// here has no walkmesh, so no path reaches anything. Each test has its own
+// engine, so its expectations are checked, and its scene graph let go, as
+// it ends.
+TEST(Action, start_conversation_with_a_partner_no_path_reaches_talks_from_where_it_stands) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    game.initLocalServices();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    answerConversationRequests(engine);
+    EXPECT_CALL(engine.resourceModule().gffs(), get("tar02_janice", resource::ResType::Dlg)).Times(AtLeast(1));
+
+    auto speaker = game.newCreature();
+    speaker->setPosition({0.0f, 0.0f, 0.0f});
+    auto listener = game.newCreature();
+    listener->setPosition({3.3f, 0.0f, 0.0f});
+    listener->setConversation("tar02_janice");
+    area->add(speaker);
+    area->add(listener);
+
+    auto action = game.newAction<StartConversationAction>(listener, "");
+    for (int i = 0; i < 4 && !action->isCompleted(); ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+    game.module()->dispatchDueSavedEvents();
+
+    EXPECT_TRUE(speaker->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+// Too far to talk across: a partner no path reaches and more than ten metres
+// off is not talked to.
+TEST(Action, start_conversation_with_a_far_partner_no_path_reaches_does_not_start) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    game.initLocalServices();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    answerConversationRequests(engine);
+    EXPECT_CALL(engine.resourceModule().gffs(), get("tar02_janice", resource::ResType::Dlg)).Times(0);
+
+    auto speaker = game.newCreature();
+    speaker->setPosition({0.0f, 0.0f, 0.0f});
+    auto listener = game.newCreature();
+    listener->setPosition({30.0f, 0.0f, 0.0f});
+    listener->setConversation("tar02_janice");
+    area->add(speaker);
+    area->add(listener);
+
+    auto action = game.newAction<StartConversationAction>(listener, "");
+    for (int i = 0; i < 4; ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+    game.module()->dispatchDueSavedEvents();
+
+    EXPECT_FALSE(action->isCompleted());
 }
