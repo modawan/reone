@@ -7267,6 +7267,10 @@ const Race &Creature::race() const {
     return _services.game.races.get(_race);
 }
 
+bool Creature::hasPlayerRace() const {
+    return race().playerRace;
+}
+
 void Creature::setRacialType(RacialType race) {
     // Only a race of the race table can be set.
     _services.game.races.get(race);

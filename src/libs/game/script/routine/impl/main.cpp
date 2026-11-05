@@ -3649,7 +3649,7 @@ static Variable GetIsPlayableRacialType(const std::vector<Variable> &args, const
     // Transform
 
     // Execute
-    return Variable::ofInt(creature && creature->race().playerRace ? 1 : 0);
+    return Variable::ofInt(creature && creature->hasPlayerRace() ? 1 : 0);
 }
 
 static Variable JumpToLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {

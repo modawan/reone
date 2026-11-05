@@ -1036,6 +1036,8 @@ public:
     RacialType racialType() const { return _race; }
     /** The creature's race: its names, ability adjustments and favoured class. */
     const Race &race() const;
+    /** Whether a player's character may take the creature's race. */
+    bool hasPlayerRace() const;
     /** Set the race; a race without a row of the race table is invalid. */
     void setRacialType(RacialType race);
     Subrace subrace() const { return _subrace; }
