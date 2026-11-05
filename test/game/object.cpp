@@ -1721,7 +1721,7 @@ TEST(DialogGUI, should_preserve_cut_band_precedence_for_k1_direct_rows) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
     Dialog::EntryReply entry;
-    entry.animations.push_back({"owner", 1000});
+    entry.animations.push_back({"OWNER", 1000});
 
     EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_)).Times(0);
 
@@ -1798,14 +1798,14 @@ TEST(DialogGUI, should_animate_an_ordinary_participant_from_a_cut_band_ordinal) 
     MixedStuntTestAccess::setOwner(gui, owner);
 
     Dialog::EntryReply lying;
-    lying.animations.push_back({"owner", 1412});
+    lying.animations.push_back({"OWNER", 1412});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, lying);
     EXPECT_EQ(node->activeAnimationName(), "cut013l");
     EXPECT_EQ(node->animationChannels().front().anim, prone.get());
     EXPECT_TRUE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
 
     Dialog::EntryReply standing;
-    standing.animations.push_back({"owner", 1013});
+    standing.animations.push_back({"OWNER", 1013});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, standing);
     EXPECT_EQ(node->activeAnimationName(), "cut014");
     EXPECT_EQ(node->animationChannels().front().anim, rise.get());
@@ -1835,7 +1835,7 @@ TEST(DialogGUI, should_return_a_finished_cut_clip_to_the_pause_until_the_next_au
 
     // A one-shot cut clip runs to its end.
     Dialog::EntryReply draining;
-    draining.animations.push_back({"owner", 1011});
+    draining.animations.push_back({"OWNER", 1011});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, draining);
     EXPECT_EQ(node->activeAnimationName(), "cut012");
 
@@ -1860,7 +1860,7 @@ TEST(DialogGUI, should_return_a_finished_cut_clip_to_the_pause_until_the_next_au
 
     // The next authored animation replaces it.
     Dialog::EntryReply lying;
-    lying.animations.push_back({"owner", 1412});
+    lying.animations.push_back({"OWNER", 1412});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, lying);
     owner->update(0.0f);
     EXPECT_EQ(node->activeAnimationName(), "cut013l");
@@ -1905,14 +1905,14 @@ TEST(DialogGUI, should_drive_stunt_and_ordinary_participants_from_one_animated_c
 
     auto dialog = std::make_shared<Dialog>();
     dialog->animatedCutscene = true;
-    dialog->stunts.push_back({"owner", "principal_stunt"});
+    dialog->stunts.push_back({"OWNER", "principal_stunt"});
     DialogGUI gui(game, engine.services());
     MixedStuntTestAccess::setOwner(gui, principal);
     MixedStuntTestAccess::loadParticipants(gui, dialog);
     ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
 
     Dialog::EntryReply entry;
-    entry.animations.push_back({"owner", 1200});
+    entry.animations.push_back({"OWNER", 1200});
     entry.animations.push_back({"PLAYER", 1200});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 
@@ -1988,14 +1988,14 @@ TEST(DialogGUI, should_not_animate_a_stunt_participant_from_its_own_model) {
 
     auto dialog = std::make_shared<Dialog>();
     dialog->animatedCutscene = true;
-    dialog->stunts.push_back({"owner", "owner_stunt"});
+    dialog->stunts.push_back({"OWNER", "owner_stunt"});
     DialogGUI gui(game, engine.services());
     MixedStuntTestAccess::setOwner(gui, owner);
     MixedStuntTestAccess::loadParticipants(gui, dialog);
     ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
 
     Dialog::EntryReply entry;
-    entry.animations.push_back({"owner", 1201});
+    entry.animations.push_back({"OWNER", 1201});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 
     EXPECT_EQ(node->activeAnimationName(), "cpause1");
@@ -2041,14 +2041,14 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
 
     auto dialog = std::make_shared<Dialog>();
     dialog->animatedCutscene = false;
-    dialog->stunts.push_back({"owner", "owner_stunt"});
+    dialog->stunts.push_back({"OWNER", "owner_stunt"});
     DialogGUI gui(game, engine.services());
     MixedStuntTestAccess::setOwner(gui, owner);
     MixedStuntTestAccess::loadParticipants(gui, dialog);
     ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
 
     Dialog::EntryReply entry;
-    entry.animations.push_back({"owner", 10030});
+    entry.animations.push_back({"OWNER", 10030});
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 
     // Resolved through dialoganimations.2da on the creature's own model, and
