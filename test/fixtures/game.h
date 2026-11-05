@@ -65,6 +65,7 @@ struct Pathfinder;
 class Door;
 class Game;
 class Item;
+class Placeable;
 class Module;
 class SaveLoad;
 class MainMenu;
@@ -307,6 +308,7 @@ public:
     // without the area/scene machinery a full load would need.
     static void loadModuleInfo(Module &module, std::string name, const resource::Gff &ifo);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
+    static void clickPlaceable(Module &module, const std::shared_ptr<Placeable> &placeable);
     static void setPerceptionRanges(
         Creature &creature,
         float sight,

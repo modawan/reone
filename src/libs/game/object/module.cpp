@@ -642,7 +642,13 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
         if (!placeable->isLocked()) {
             partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
         }
-    } else if (!placeable->conversation().empty()) {
+    } else if (!placeable->conversation().empty() && !placeable->hasOnUsedScript()) {
+        // A placeable with a dialog and no used script talks when clicked.
+        // One with a used script is used, and the script decides: in KotOR
+        // 129 of the 130 conversation placeables with an OnUsed script start
+        // the conversation from it, many choosing between dialogs, as the
+        // Taris sewer force field's k_ptar_startconv does between its
+        // computer and Mission's tar05_ff_dlg2.
         partyLeader->clearOrdersUnlessBusy();
         _game.setDialogUnderWay(true);
         partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));

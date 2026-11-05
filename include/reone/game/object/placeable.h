@@ -76,6 +76,9 @@ public:
     bool isSelectable() const override { return _usable; }
     glm::vec3 getSelectablePosition() const override;
     bool isUsable() const { return _usable; }
+    /** Whether the placeable has an OnUsed script. */
+    bool hasOnUsedScript() const { return !_onUsed.empty(); }
+    void setOnUsedScript(std::string script) { _onUsed = std::move(script); }
     /** Appearances marked hostile in placeables.2da read as hostile objects. */
     bool isHostileAppearance() const { return _hostileAppearance; }
     /** Destruction animation and pending deletion do not change the HP predicate. */
