@@ -3174,7 +3174,11 @@ static Variable RandomName(const std::vector<Variable> &args, const RoutineConte
     }
 
     // Execute
-    return Variable::ofString(ctx.services.resource.ltrs.get(resource::ResRef("names"))->randomName(0, filter));
+    auto names = ctx.services.resource.ltrs.get(resource::ResRef("names"));
+    if (!names) {
+        return Variable::ofString("");
+    }
+    return Variable::ofString(names->randomName(0, filter));
 }
 
 static Variable GetLoadFromSaveGame(const std::vector<Variable> &args, const RoutineContext &ctx) {

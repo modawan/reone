@@ -384,6 +384,11 @@ void ResumeConversationAction::execute(std::shared_ptr<Action> self, Object &act
     complete();
 }
 
+bool ResumeConversationAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    _game.releaseConversationPauseBy(actor);
+    return true;
+}
+
 std::optional<SavedActionRecord> ResumeConversationAction::saveFacingState() const {
     return SavedActionRecord::command(SavedActionType::ResumeConversation, {});
 }

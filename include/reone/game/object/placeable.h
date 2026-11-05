@@ -232,8 +232,8 @@ public:
     /**
      * The inventory of a closed placeable that has one opens on the
      * controlled creature's container screen, and its open script is
-     * signalled with the opener. Anyone else is refused, and the placeable
-     * takes its close pose.
+     * signalled with the opener. Anyone else, or anyone during a
+     * conversation, is refused, and the placeable takes its close pose.
      */
     void openInventory(Object &opener);
     /**

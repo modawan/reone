@@ -1220,6 +1220,7 @@ public:
     void interruptActivities(bool keepStealth = false);
     /** A creature that paused its conversation keeps its place in it until it resumes. */
     void setConversationPaused(bool paused) { _conversationPaused = paused; }
+    bool isConversationPaused() const { return _conversationPaused; }
     /** A cast or item use takes the round. */
     void beginSpellActivity(int spellId, bool itemCast);
     /** A cast or item use breaks off stealth and conversation as its kind does. */

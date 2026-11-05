@@ -607,6 +607,8 @@ public:
     void pauseConversationBy(Object &caller);
     /** Resuming releases the caller's hold on the conversation and ends its stealth. */
     void resumeConversationBy(Object &caller);
+    /** A cleared resume lets go of a pause the caller holds, keeping its stealth. */
+    void releaseConversationPauseBy(Object &caller);
     /** The object stops taking part in the running conversation. */
     void stopConversationParticipation(const Object &object);
     /** A script shows placed camera \p cameraId in the running conversation; nothing happens without one. */

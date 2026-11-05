@@ -43,10 +43,10 @@ class ListBox;
 namespace game {
 
 /**
- * \p speaker barks the first start entry of dialog \p resRef that names no
+ * \p speaker voices the first start entry of dialog \p resRef that names no
  * speaker, whose condition holds with the speaker as caller and that has no
- * replies, then runs the entry's first script as the speaker. False when no
- * entry qualifies.
+ * replies, showing no text, then runs the entry's first script as the
+ * speaker. False when no entry qualifies.
  */
 bool speakOneLiner(Game &game, ServicesView &services, Object &speaker, const std::string &resRef);
 

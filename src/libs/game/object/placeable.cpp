@@ -694,7 +694,8 @@ void Placeable::openInventory(Object &opener) {
     if (_open || !_hasInventory) {
         return;
     }
-    if (&opener != _game.party().getLeader().get()) {
+    // A conversation under way, like an opener other than the leader, keeps it shut.
+    if (_game.isDialogUnderWay() || &opener != _game.party().getLeader().get()) {
         setStateAnimation(kCloseAnimationId);
         return;
     }

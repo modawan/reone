@@ -8753,6 +8753,17 @@ void Game::resumeConversationBy(Object &caller) {
     }
 }
 
+void Game::releaseConversationPauseBy(Object &caller) {
+    auto *creature = dyn_cast<Creature>(&caller);
+    if (creature && !creature->isConversationPaused()) {
+        return;
+    }
+    resumeConversation();
+    if (creature) {
+        creature->setConversationPaused(false);
+    }
+}
+
 void Game::stopConversationParticipation(const Object &object) {
     if (!_conversation || !isConversationActive()) {
         return;

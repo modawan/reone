@@ -140,9 +140,8 @@ bool speakOneLiner(Game &game, ServicesView &services, Object &speaker, const st
         if (!holds || !entry.replies.empty()) {
             continue;
         }
-        const std::string text = game.substituteCustomTokens(entry.text);
+        // The line is heard only; no text shows.
         game.playBarkSound(speaker, entry.voResRef.empty() ? services.resource.strings.getSound(entry.textStrRef) : entry.voResRef);
-        game.setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
         if (!entry.script.empty()) {
             game.scriptRunner().run(entry.script, speaker.id());
         }
