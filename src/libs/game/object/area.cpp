@@ -2475,6 +2475,16 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
     // The player arrives in the encounter areas, areas of effect and door
     // outlines it stands in; a restored game records them without signalling.
     updateSubAreaOccupancy(leader, !preserveSavedPlacement);
+    // A restored game also counts the leader inside the area transitions it
+    // stands in, so it has to step out and in again to set one off.
+    if (preserveSavedPlacement) {
+        for (const auto &object : _objectsByType[ObjectType::Trigger]) {
+            auto &trigger = static_cast<Trigger &>(*object);
+            if (trigger.isAreaTransition() && trigger.isIn(leader->position())) {
+                trigger.recordTenant(leader);
+            }
+        }
+    }
     // Entering the area starts the trail over at the leader.
     party.resetFollowPath(*this, leader->position(), leader->getFacing(), false);
 
@@ -3034,10 +3044,11 @@ void Area::update3rdPersonCameraTarget() {
 }
 
 void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions, std::optional<glm::vec3> from) {
-    // A module transition is entered only by a creature moving into it, and
-    // only by one that moves the party between modules, which sets it off.
+    // An area transition is entered only by a creature moving into it. Every
+    // creature that does is announced to it; only one that moves the party
+    // between modules sets it off.
     const auto enter = [&](Trigger &trigger) {
-        const bool transition = !trigger.linkedToModule().empty();
+        const bool transition = trigger.isAreaTransition();
         if (transition && !fireTransitions) {
             // Leave module-transition triggers to movement-based firing so a
             // creature placed inside one is not immediately warped out.
@@ -3047,9 +3058,6 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
                   trigger.tag() %
                   (trigger.getOnEnter().empty() ? std::string("<none>") : trigger.getOnEnter()) %
                   triggerrer->tag()));
-        if (transition && !trigger.acceptsTransitionActivator(triggerrer)) {
-            return false;
-        }
         trigger.addTenant(triggerrer);
         trigger.markDebugEntered();
         if (transition) {

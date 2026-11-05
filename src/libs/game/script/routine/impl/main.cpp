@@ -6145,9 +6145,14 @@ static Variable AddPartyMember(const std::vector<Variable> &args, const RoutineC
 
     // Execute
     bool added = ctx.game.party().addMember(nNPC, creature);
-    // A companion joining the party takes up the alignment its influence gives.
+    // A companion joining the party takes up the alignment its influence
+    // gives, and in TSL brings its assigned puppet to where it stands.
     if (added && nNPC >= 0) {
         creature->recomputeInfluenceAlignment();
+        const int puppet = creature->assignedPuppet();
+        if (ctx.game.isTSL() && puppet >= 0 && ctx.game.party().isPuppet(puppet)) {
+            ctx.game.spawnPuppet(puppet, creature->position(), creature->getFacing());
+        }
     }
     return Variable::ofInt(static_cast<int>(added));
 }
@@ -7871,29 +7876,8 @@ static Variable SpawnAvailablePUP(const std::vector<Variable> &args, const Routi
     auto lLocation = getLocationArgument(args, 1);
 
     // Execute
-    auto puppet = ctx.game.party().getAvailablePuppet(nPUP, true);
-    auto module = ctx.game.module();
-    auto area = module ? module->area() : nullptr;
-    if (!puppet || !area) {
-        return Variable::ofObject(kObjectInvalid);
-    }
-    puppet->setPuppet(true);
-    // A spawned puppet drops its actions, commandable or not.
-    puppet->clearAllActions(true, true);
-    puppet->setPosition(area->partySpawnPosition(lLocation->position(), *puppet));
-    puppet->setFacing(objectFacingFromScript(lLocation->facing()));
-    area->landObject(*puppet);
-    const bool alreadyResident = std::find(
-        area->objects().begin(), area->objects().end(), puppet) !=
-        area->objects().end();
-    if (!alreadyResident) {
-        area->add(puppet);
-    } else if (!puppet->isDead()) {
-        // One already standing here leaves the area and comes back, which
-        // the area hears as an exit.
-        area->signalExited(*puppet);
-    }
-    return Variable::ofObject(puppet->id());
+    auto puppet = ctx.game.spawnPuppet(nPUP, lLocation->position(), objectFacingFromScript(lLocation->facing()));
+    return Variable::ofObject(puppet ? puppet->id() : kObjectInvalid);
 }
 
 static Variable AddPartyPuppet(const std::vector<Variable> &args, const RoutineContext &ctx) {

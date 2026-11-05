@@ -79,6 +79,8 @@ public:
         const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) override;
 
     void addTenant(const std::shared_ptr<Object> &object);
+    /** Counts the object inside without announcing it: it must step out and in again to be announced. */
+    void recordTenant(const std::shared_ptr<Object> &object);
 
     /**
      * Drops an object from the tenants. Announced, it becomes the object that
@@ -103,7 +105,6 @@ public:
     bool isTenant(const std::shared_ptr<Object> &object) const;
     /** Whether the trigger's type makes it an area transition. */
     bool isAreaTransition() const { return _triggerType == kAreaTransitionType; }
-    bool acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const;
 
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
     DebugState debugState() const;

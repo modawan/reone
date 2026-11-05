@@ -239,10 +239,6 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         }
         return;
     }
-    // A caster that already acted in a round that has not ended waits for its end.
-    if (!_started && creature && _game.combat().awaitsRoundEnd(*creature, *self)) {
-        return;
-    }
     // A caster keeps turning toward the object its spell is aimed at; using an
     // item does not.
     if (creature && _target && !_item) {
@@ -336,10 +332,15 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         return;
     }
     // A cast breaks off the caster's activities on every frame it runs once
-    // its approach is over, its round entry's wait included; a fake cast
+    // its approach is over, its waits for the round included; a fake cast
     // interrupts nothing.
     if (creature && !_fake) {
         creature->interruptForSpell(static_cast<int>(_spell->type), _item.has_value(), _spell->hostile);
+    }
+    // A caster that already acted in a round that has not ended waits for its
+    // end once it has walked up.
+    if (!_started && creature && _game.combat().awaitsRoundEnd(*creature, *self)) {
+        return;
     }
     if (_instantSpell) {
         if (creature) {

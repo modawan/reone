@@ -554,6 +554,12 @@ public:
      */
     bool reconcilePartySelection(
         const std::vector<int> &selectedNpcs);
+    /**
+     * TSL: brings available puppet \p puppet into the area at \p position,
+     * dropping its actions; one already there leaves the area and comes back.
+     * None when the puppet can't be had or there is no area.
+     */
+    std::shared_ptr<Creature> spawnPuppet(int puppet, const glm::vec3 &position, float facing);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
     /** Whether the galaxy map's travel script is running. */

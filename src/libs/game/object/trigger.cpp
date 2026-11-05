@@ -471,10 +471,14 @@ void Trigger::update(float dt) {
     syncDebugVisual();
 }
 
-void Trigger::addTenant(const std::shared_ptr<Object> &object) {
+void Trigger::recordTenant(const std::shared_ptr<Object> &object) {
     _tenants.insert(object);
-    _lastEnteredId = object->id();
     syncDebugVisual();
+}
+
+void Trigger::addTenant(const std::shared_ptr<Object> &object) {
+    recordTenant(object);
+    _lastEnteredId = object->id();
     // An area transition runs no enter script.
     if (isAreaTransition()) {
         return;
@@ -570,19 +574,6 @@ float Trigger::trapRadius() const {
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {
     auto maybeTenant = find(_tenants.begin(), _tenants.end(), object);
     return maybeTenant != _tenants.end();
-}
-
-bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const {
-    if (_linkedToModule.empty()) {
-        return false;
-    }
-    if (!activator) {
-        return false;
-    }
-    // A following companion crossing a transition is ignored. Taking control
-    // of a companion makes it the leader, so it keeps the ability to
-    // transition and stays controlled in the destination.
-    return _game.party().movesBetweenModules(*activator);
 }
 
 Trigger::DebugState Trigger::debugState() const {

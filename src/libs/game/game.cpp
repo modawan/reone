@@ -363,17 +363,19 @@ static bool pausesWorld(Game::Screen screen) {
     }
 }
 
-// The screens shown over a running module. Pazaak does not pause the world,
-// but the world waits behind it here, apart from due events. The minigames
-// hold the module instead.
-static bool isMenuOverModule(Game::Screen screen) {
+// The screens that leave the world running: play, a conversation, the death
+// sequence and pazaak.
+static bool runsWorld(Game::Screen screen) {
     switch (screen) {
+    case Game::Screen::InGame:
+    case Game::Screen::Conversation:
+    case Game::Screen::Death:
     case Game::Screen::PazaakWager:
     case Game::Screen::PazaakSetup:
     case Game::Screen::PazaakBoard:
         return true;
     default:
-        return pausesWorld(screen);
+        return false;
     }
 }
 
@@ -1139,9 +1141,7 @@ void Game::update(float frameTime) {
     }
     updateTemporaryDeath();
 
-    // The world keeps running behind the death sequence.
-    bool updModule = !_movie && _module &&
-                     (_screen == Screen::InGame || _screen == Screen::Conversation || _screen == Screen::Death);
+    bool updModule = !_movie && _module && runsWorld(_screen);
     const auto clockSample = _services.system.clock.micros();
     const auto elapsed = _worldClockSample ? clockSample - *_worldClockSample : 0;
     _worldClockSample = clockSample;
@@ -1196,7 +1196,7 @@ void Game::update(float frameTime) {
     // While the world is held, creatures new to it still run their creation
     // script and every object its actions, with the clock stopped; an event
     // an action posts is delivered in the same frame.
-    const bool moduleLive = updModule || (!_movie && _module && isMenuOverModule(_screen));
+    const bool moduleLive = updModule || (!_movie && _module && pausesWorld(_screen));
     if (moduleLive && !(updModule && !_paused)) {
         auto heldModule = _module;
         auto generation = _runtimeSessionGeneration;
@@ -8140,6 +8140,31 @@ bool Game::reconcilePartySelection(
 
     area->repositionParty();
     return isPartySelectionRealized(selectedNpcs);
+}
+
+std::shared_ptr<Creature> Game::spawnPuppet(int puppet, const glm::vec3 &position, float facing) {
+    auto creature = _party.getAvailablePuppet(puppet, true);
+    auto area = _module ? _module->area() : nullptr;
+    if (!creature || !area) {
+        return nullptr;
+    }
+    creature->setPuppet(true);
+    // A spawned puppet drops its actions, commandable or not.
+    creature->clearAllActions(true, true);
+    creature->setPosition(area->partySpawnPosition(position, *creature));
+    creature->setFacing(facing);
+    area->landObject(*creature);
+    const bool alreadyResident = std::find(
+        area->objects().begin(), area->objects().end(), creature) !=
+        area->objects().end();
+    if (!alreadyResident) {
+        area->add(creature);
+    } else if (!creature->isDead()) {
+        // One already standing here leaves the area and comes back, which
+        // the area hears as an exit.
+        area->signalExited(*creature);
+    }
+    return creature;
 }
 
 void Game::openSaveLoad(SaveLoadMode mode) {
