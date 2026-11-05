@@ -95,6 +95,11 @@ std::string Strings::getSound(int strRef) {
     return string->soundResRef;
 }
 
+float Strings::getSoundDuration(int strRef) {
+    auto string = findString(strRef);
+    return string ? string->soundLength : 0.0f;
+}
+
 } // namespace resource
 
 } // namespace reone

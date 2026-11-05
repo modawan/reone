@@ -6031,7 +6031,7 @@ static Variable GetStrRefSoundDuration(const std::vector<Variable> &args, const 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetStrRefSoundDuration");
+    return Variable::ofFloat(nStrRef < 0 ? 0.0f : ctx.services.resource.strings.getSoundDuration(nStrRef));
 }
 
 static Variable AddToParty(const std::vector<Variable> &args, const RoutineContext &ctx) {
