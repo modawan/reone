@@ -26,6 +26,18 @@ runs:
           boost-algorithm boost-endian boost-format boost-functional boost-program-options boost-json \
           glm sdl2 sdl3 glew openal-soft libmad ffmpeg wxwidgets gtest
 
+    - name: Configure ccache
+      shell: bash
+      run: echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> $GITHUB_ENV
+
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1
+      with:
+        key: windows
+        max-size: 1G
+        evict-old-files: job
+        save: ${{github.event_name == 'push' && github.ref == 'refs/heads/master'}}
+
     - name: Configure CMake
       shell: cmd
       run: |-
@@ -36,7 +48,8 @@ runs:
           -G Ninja ^
           -DCMAKE_BUILD_TYPE=Release ^
           -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
-          -DVCPKG_TARGET_TRIPLET=x64-windows
+          -DVCPKG_TARGET_TRIPLET=x64-windows ^
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
     - name: Build
       shell: cmd
