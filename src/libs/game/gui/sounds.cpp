@@ -48,6 +48,8 @@ void GUISounds::init() {
     loadSound(*sounds, "Clicked_Default", _onClick);
     loadSound(*sounds, "Entered_Default", _onEnter);
     loadSound(*sounds, "Level_Up_Notify", _onLevelUpNotify);
+    loadSound(*sounds, "Quest_New_Notify", _questNewNotify);
+    loadSound(*sounds, "Quest_Complete_Notify", _questCompleteNotify);
     // An item chosen for, or cleared from, an equipment slot.
     loadSound(*sounds, "Inventory_Select", _inventorySelect);
     loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
@@ -76,6 +78,8 @@ void GUISounds::deinit() {
     _onClick.reset();
     _onEnter.reset();
     _onLevelUpNotify.reset();
+    _questNewNotify.reset();
+    _questCompleteNotify.reset();
     _actionAccepted.reset();
     _actionUnavailable.reset();
     _actionMenuScroll.reset();

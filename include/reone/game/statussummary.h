@@ -74,6 +74,10 @@ struct StatusSummaryBatch {
     bool requested {false};
     /** The level-up chime plays when the batch is presented. */
     bool levelUpSound {false};
+    /** The new quest notice plays when the batch is presented. */
+    bool questNewSound {false};
+    /** The completed quest notice plays when the batch is presented. */
+    bool questCompleteSound {false};
 
     /** Whether nothing was reported. */
     bool empty() const;
@@ -102,16 +106,22 @@ public:
      * @return false when a suppression swallowed it
      */
     bool submitLevelUpSound();
+    /**
+     * Queues the new quest notice, or the completed quest notice for an entry
+     * that ends its quest, for the next presentation.
+     *
+     * @return false when a suppression swallowed it
+     */
+    bool submitQuestSound(bool complete);
     /** The next \p count reports are swallowed; a negative count changes nothing. */
     void suppress(int count);
     /**
-     * Takes the level-up chime of a pending batch that has nothing else to
-     * present, while no batch is displayed. Such a batch plays its chime
-     * without being shown.
+     * Takes a pending batch that has only sounds to play, while no batch is
+     * displayed. Such a batch plays its sounds without being shown.
      *
-     * @return true when the chime was taken and should play
+     * @return the batch whose sounds should play; none when there is no such batch
      */
-    bool takeLevelUpSound();
+    std::optional<StatusSummaryBatch> takeSoundBatch();
 
     bool beginPresentation();
     void acknowledge();
@@ -127,13 +137,25 @@ private:
     StatusSummaryBatch _pending;
     std::optional<StatusSummaryBatch> _displayed;
     int _suppressed {0};
+
+    /**
+     * Uses up one suppression, if any is left.
+     *
+     * @return whether a suppression swallowed the report
+     */
+    bool swallowedBySuppression();
 };
 
 /** Visibility state for one fixed HUD category indicator. */
 class StatusSummaryIndicator {
 public:
     void activate();
-    void update(float dt);
+    /**
+     * Counts the flash down by \p dt.
+     *
+     * @return whether this is the first update with time passing since the flash started
+     */
+    bool update(float dt);
     void reset();
 
     bool visible() const { return _visible; }
@@ -141,6 +163,8 @@ public:
 private:
     Timer _timer;
     bool _visible {false};
+    /** The flash has started and no time has passed on it yet. */
+    bool _starting {false};
 };
 
 } // namespace game

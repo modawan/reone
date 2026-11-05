@@ -679,6 +679,25 @@ bool Item::isIdenticalTo(const Item &other) const {
                lhs.upgradeType == rhs.upgradeType &&
                lhs.usesPerDay == rhs.usesPerDay;
     };
+    // Use properties and the other properties are compared as two lists, each
+    // in order; how the two kinds interleave plays no part.
+    const auto samePropertiesOfKind = [&](bool use) {
+        const auto nextOfKind = [use](auto it, auto end) {
+            return std::find_if(it, end, [use](const PropertyEntry &property) {
+                return isUseProperty(property.propertyName) == use;
+            });
+        };
+        auto lhs = nextOfKind(_properties.begin(), _properties.end());
+        auto rhs = nextOfKind(other._properties.begin(), other._properties.end());
+        while (lhs != _properties.end() && rhs != other._properties.end()) {
+            if (!sameProperty(*lhs, *rhs)) {
+                return false;
+            }
+            lhs = nextOfKind(std::next(lhs), _properties.end());
+            rhs = nextOfKind(std::next(rhs), other._properties.end());
+        }
+        return lhs == _properties.end() && rhs == other._properties.end();
+    };
     return _baseItem == other._baseItem &&
            _plot == other._plot &&
            _charges == other._charges &&
@@ -690,12 +709,8 @@ bool Item::isIdenticalTo(const Item &other) const {
            _tag == other._tag &&
            _localizedName.id() == other._localizedName.id() &&
            _localizedName.str() == other._localizedName.str() &&
-           _properties.size() == other._properties.size() &&
-           std::equal(
-               _properties.begin(),
-               _properties.end(),
-               other._properties.begin(),
-               sameProperty);
+           samePropertiesOfKind(true) &&
+           samePropertiesOfKind(false);
 }
 
 bool Item::mergeStackFrom(Item &other) {

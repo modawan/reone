@@ -730,7 +730,9 @@ const TrapTypeRow &Game::trapType(int type) const {
 
 void Game::initJournalNotifications() {
     _journal.setOnQuestChanged([this](const Journal::EntryChange &change) {
+        // The journal row comes with the notice of a new or completed quest.
         submitStatusSummary(StatusSummaryCategory::Journal);
+        _statusSummary.submitQuestSound(change.end);
         awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
     });
 }

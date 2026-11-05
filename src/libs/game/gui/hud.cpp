@@ -760,6 +760,20 @@ void HUD::presentAlignmentShift(const StatusSummaryBatch &batch) {
     leader->applyEffect(std::move(instance));
 }
 
+void HUD::playSummarySounds(const StatusSummaryBatch &batch) {
+    auto &mixer = _services.audio.mixer;
+    const auto &sounds = _services.game.guiSounds;
+    if (batch.levelUpSound) {
+        mixer.play(sounds.getOnLevelUpNotify(), AudioType::Sound);
+    }
+    if (batch.questNewSound) {
+        mixer.play(sounds.getQuestNewNotify(), AudioType::Sound);
+    }
+    if (batch.questCompleteSound) {
+        mixer.play(sounds.getQuestCompleteNotify(), AudioType::Sound);
+    }
+}
+
 void HUD::flashStatus(StatusSummaryCategory category) {
     auto shared = [](StatusSummaryCategory flashed) -> std::optional<StatusSummaryCategory> {
         switch (flashed) {
@@ -856,18 +870,15 @@ void HUD::update(float dt) {
     auto &summary = _game.statusSummary();
     if (_statusSummary && !_game.feedbackOptions().statusSummary) {
         // With the summary option off, the pending rows only flash their
-        // indicators, a pending level-up chime plays, and the batch is
-        // dropped.
+        // indicators, the pending sounds play, and the batch is dropped.
         const auto &pending = summary.pending();
         for (auto category : pending.activeCategories()) {
             if (pending.flashes(category, _game.isTSL())) {
                 flashStatus(category);
             }
         }
+        playSummarySounds(pending);
         presentAlignmentShift(pending);
-        if (pending.levelUpSound) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
-        }
         const bool reported = !pending.empty();
         summary.discardPending();
         if (reported) {
@@ -876,14 +887,10 @@ void HUD::update(float dt) {
     } else if (_statusSummary && _statusSummary->presentPending()) {
         // The summary takes all input, releases included; steering stops.
         _game.stopMovement();
-        auto clip = _services.resource.audioClips.get("gui_quest");
-        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        playSummarySounds(*summary.displayed());
         presentAlignmentShift(*summary.displayed());
-        if (summary.displayed()->levelUpSound) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
-        }
-    } else if (summary.takeLevelUpSound()) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+    } else if (const auto sounds = summary.takeSoundBatch()) {
+        playSummarySounds(*sounds);
     }
 
     Party &party = _game.party();
@@ -989,11 +996,16 @@ void HUD::update(float dt) {
 
     updateCombatMessage(dt);
     for (size_t i = 0; i < _statusFlashes.size(); ++i) {
-        auto label = statusFlashLabel(static_cast<StatusSummaryCategory>(i));
+        const auto category = static_cast<StatusSummaryCategory>(i);
+        auto label = statusFlashLabel(category);
         if (!label) {
             continue;
         }
-        _statusFlashes[i].update(dt);
+        // An indicator other than the journal's sounds the new quest notice
+        // as its flash gets under way; it plays with the next summary.
+        if (_statusFlashes[i].update(dt) && category != StatusSummaryCategory::Journal) {
+            summary.submitQuestSound(false);
+        }
         label->get().setVisible(_statusFlashes[i].visible());
     }
 

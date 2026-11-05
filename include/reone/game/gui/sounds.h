@@ -48,6 +48,10 @@ public:
     /** The sound of an action menu scrolling to another entry. */
     virtual std::shared_ptr<audio::AudioClip> getActionMenuScroll() const = 0;
     virtual std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const = 0;
+    /** The notice of a new or advanced quest on the status summary. */
+    virtual std::shared_ptr<audio::AudioClip> getQuestNewNotify() const = 0;
+    /** The notice of a completed quest on the status summary. */
+    virtual std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const = 0;
     /** The click of a toggle button. */
     virtual std::shared_ptr<audio::AudioClip> getCheckboxCheck() const = 0;
     /** The sound of an item chosen for an equipment slot. */
@@ -81,6 +85,8 @@ public:
     std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return _actionUnavailable; }
     std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return _actionMenuScroll; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return _onLevelUpNotify; }
+    std::shared_ptr<audio::AudioClip> getQuestNewNotify() const override { return _questNewNotify; }
+    std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return _questCompleteNotify; }
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return _checkboxCheck; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return _inventorySelect; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return _inventoryDrop; }
@@ -98,6 +104,8 @@ private:
     std::shared_ptr<audio::AudioClip> _onClick;
     std::shared_ptr<audio::AudioClip> _onEnter;
     std::shared_ptr<audio::AudioClip> _onLevelUpNotify;
+    std::shared_ptr<audio::AudioClip> _questNewNotify;
+    std::shared_ptr<audio::AudioClip> _questCompleteNotify;
     std::shared_ptr<audio::AudioClip> _actionAccepted;
     std::shared_ptr<audio::AudioClip> _actionUnavailable;
     std::shared_ptr<audio::AudioClip> _actionMenuScroll;

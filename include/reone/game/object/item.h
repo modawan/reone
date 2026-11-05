@@ -183,7 +183,11 @@ public:
     bool isEquippable() const;
     bool isEquippable(int slot) const;
     bool isStackCompatibleWith(const Item &other) const;
-    /** The same item in every way a stack or a store's stock compares. */
+    /**
+     * Whether \p other is the same item: base item, tag, name, plot flag,
+     * charges, upgrades, stolen flag and model variations alike, its use
+     * properties alike in order, and its other properties alike in order.
+     */
     bool isIdenticalTo(const Item &other) const;
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }

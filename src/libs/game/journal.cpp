@@ -145,6 +145,7 @@ void Journal::notifyQuestChanged(const JRL::Category *category, const JRL::Entry
         }
         if (entry) {
             change.xpPercentage = entry->xpPercentage;
+            change.end = entry->end;
         }
         _onQuestChanged(change);
     }

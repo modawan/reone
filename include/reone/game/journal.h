@@ -41,6 +41,8 @@ public:
     struct EntryChange {
         int plotIndex {-1};
         float xpPercentage {0.0f};
+        /** The entry ends its quest. */
+        bool end {false};
     };
 
     struct Quest {
