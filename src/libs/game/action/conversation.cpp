@@ -139,8 +139,8 @@ void StartConversationAction::handOffToPlayer(std::shared_ptr<Action> self, Obje
 }
 
 // Once the fade is done the player character takes the companion's place
-// facing the target, takes control, gets the player's input back, and hands
-// control back after the conversation.
+// facing the target, takes control with no select sound, gets the player's
+// input back, and hands control back after the conversation.
 bool StartConversationAction::takeOverFromCompanion(Object &actor) {
     if (_game.globalFade().fading()) {
         return false;
@@ -161,7 +161,7 @@ bool StartConversationAction::takeOverFromCompanion(Object &actor) {
     auto &party = _game.party();
     for (int i = 1; i < party.getSize(); ++i) {
         if (party.getMember(i).get() == &actor) {
-            party.setPartyLeaderByIndex(i);
+            party.setPartyLeaderByIndex(i, false);
             break;
         }
     }

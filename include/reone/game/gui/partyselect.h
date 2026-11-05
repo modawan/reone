@@ -37,6 +37,11 @@ class PartySelection : public GameGUI {
 public:
     PartySelection(Game &game, ServicesView &services);
 
+    /**
+     * Open the screen on the party as it stands, with the companions \p ctx
+     * forces in. In KotOR the screen first hands the lead to the player
+     * character, quietly.
+     */
     void prepare(const PartySelectionContext &ctx);
 
     /** Called whenever the screen is left, however it is left. */

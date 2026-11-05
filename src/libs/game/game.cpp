@@ -2771,8 +2771,17 @@ bool Game::killRosterCreature(const RosterIdentity &identity) {
         _party.clearRosterCreature(identity);
         return false;
     }
-    // Its place in the party stays, naming nothing, and the events still
-    // pending for it go with it.
+    // A creature that leads hands the lead to the player character, quietly,
+    // as it starts to fade out, which is at once. The change of leader runs
+    // its script at once, and a creature that script kills or destroys is
+    // gone already. Otherwise its place in the party stays, naming nothing,
+    // and the events still pending for it go with it.
+    if (_party.getLeader() == creature) {
+        _party.leadWithPlayerCharacter();
+        if (_party.rosterCreature(identity) != creature) {
+            return true;
+        }
+    }
     _party.vacateMemberEntries(*creature);
     if (_module) {
         _module->dropPendingEvents(*creature);
@@ -8023,7 +8032,7 @@ bool Game::reconcilePartySelection(
             // A deselected companion leaves the party as any removed member
             // does: its effects are cleared, its record saved and its puppet
             // dismissed. Its creature stays where it stands.
-            _party.removeMember(member.npc);
+            _party.removeMember(member.npc, true);
         }
     }
 

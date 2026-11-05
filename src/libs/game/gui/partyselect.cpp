@@ -183,6 +183,10 @@ void PartySelection::bindEventHandlers() {
 }
 
 void PartySelection::prepare(const PartySelectionContext &ctx) {
+    // In KotOR the screen opens with the player character leading.
+    if (!_game.isTSL()) {
+        _game.party().leadWithPlayerCharacter();
+    }
     _gui->setEventListener(*this);
     bindEventHandlers();
     _game.requestTutorialWindow(kPartySelectionTutorial);

@@ -1923,15 +1923,20 @@ void Object::setFacing(float facing) {
     updateTransform();
 }
 
+void Object::updateSceneNodeEnabled() {
+    if (_sceneNode) {
+        _sceneNode->setEnabled(_present);
+        _sceneNode->setRendered(_visible);
+    }
+}
+
 void Object::setVisible(bool visible) {
     if (_visible == visible)
         return;
 
     _visible = visible;
 
-    if (_sceneNode) {
-        _sceneNode->setEnabled(_visible && _present);
-    }
+    updateSceneNodeEnabled();
 }
 
 void Object::setPresent(bool present) {
@@ -1941,9 +1946,7 @@ void Object::setPresent(bool present) {
 
     _present = present;
 
-    if (_sceneNode) {
-        _sceneNode->setEnabled(_visible && _present);
-    }
+    updateSceneNodeEnabled();
 }
 
 std::shared_ptr<Item> Object::getFirstItem() {

@@ -31,7 +31,6 @@ public:
     struct ForcedState {
         glm::vec3 destination {0.0f};
         uint32_t areaId {kSavedRuntimeInvalidObjectId};
-        glm::vec2 offset {0.0f};
         bool active {false};
         /**
          * Absolute deadline in world milliseconds. The saved record stores a
@@ -45,8 +44,7 @@ public:
      * The flags a range check in front of an attack, a cast or an item use
      * carries: its use-range test also tests the objects in the line, and a
      * walk it starts ends once the object is in range in a clear line
-     * (clearLineWalk). Any walk of such a check ends once the mover is
-     * within its use range of the object.
+     * (clearLineWalk).
      */
     struct ApproachFlags {
         int objectsInLine {0};
@@ -69,7 +67,9 @@ public:
      * and closed on to \p range. With a check range the move ends only
      * once the object is within the mover's use range for it, lengthened to
      * the check range, and otherwise sets out afresh; a move to an object in
-     * no area that is not a creature then ends as it is. A move given
+     * no area that is not a creature then ends as it is. Every such move ends
+     * once the mover is within its use range of the object's use point,
+     * measured in three dimensions. A move given
      * \p approachFlags is the range check in front of an attack, a cast or
      * an item use.
      */
@@ -139,7 +139,6 @@ private:
     float _timeout;
     ForcedState _forcedState;
     std::optional<float> _checkRange;
-    bool _closeToUseRange {false};
     /** The use point and range of a move to a door or placeable. */
     std::optional<Creature::UseApproach> _approach;
     /** The flags of a range check in front of an attack, a cast or an item use. */
@@ -152,9 +151,6 @@ private:
     std::optional<float> _pathOffset;
     /** What a walk along a point path keeps of the command it was restored from. */
     SavedMoveCommand::Carried _carried;
-
-    /** The distance the mover closes to: the use range taken, when it closes on it, else the move's range. */
-    float closingRange() const;
 };
 
 } // namespace game

@@ -1490,7 +1490,7 @@ void Creature::loadAppearance() {
         _sceneNode = std::move(modelSceneNode);
         _sceneNode->setUser(*this);
         _sceneNode->setLocalTransform(_transform);
-        _sceneNode->setEnabled(_visible && _present);
+        updateSceneNodeEnabled();
         _stealthShell.reset();
         // A rebuilt model keeps the stealth field.
         if (_stealthMode) {
@@ -1973,22 +1973,31 @@ bool Creature::permitsAction(const Action &action) const {
     if (isTemporarilyDead()) {
         return runsWhileDown(static_cast<SavedActionType>(command.serializedActionId()));
     }
+    // A walk to a point, or one heading for an object, fails a creature that
+    // cannot move unless its goal is a trigger or a linked door already in
+    // reach, which it clicks or is blocked by; a walk to a location and a
+    // follow of the leader or of the owner fail it too. A walk to an object
+    // that checks its reach, a move away and a follow of another creature
+    // keep their order: only death or going down ends them. A random walk
+    // asks nothing.
     switch (command.type()) {
-    case ActionType::MoveToObject:
-        return canMove() || isWalkGoalInReach(*static_cast<const MoveToObjectAction &>(command).target());
+    case ActionType::MoveToObject: {
+        const auto &move = static_cast<const MoveToObjectAction &>(command);
+        if (!move.usesPointPath()) {
+            return canExecuteActions();
+        }
+        return canMove() || isWalkGoalInReach(*move.target());
+    }
     case ActionType::MoveToPoint: {
         const auto &goal = static_cast<const MoveToPointAction &>(command).goal();
         return canMove() || (goal && isWalkGoalInReach(*goal));
     }
     case ActionType::MoveToLocation:
-    case ActionType::MoveAwayFromObject:
-    case ActionType::MoveAwayFromLocation:
-    case ActionType::RandomWalk:
-    case ActionType::Follow:
     case ActionType::FollowLeader:
     case ActionType::FollowOwner:
-    case ActionType::ForceFollowObject:
         return canMove();
+    case ActionType::RandomWalk:
+        return true;
     case ActionType::AttackObject:
         return canAttack();
     case ActionType::UseFeat:
@@ -10627,9 +10636,8 @@ void Creature::deserializeAll(
     gff.readByte(_textureVar, "TextureVar");
     gff.readBool(_partyInteract, "PartyInteract");
     // A TSL creature can start with its rendering off.
-    if (_game.isTSL()) {
-        uint8_t willNotRender {0};
-        gff.readByte(willNotRender, "WillNotRender");
+    uint8_t willNotRender {0};
+    if (_game.isTSL() && gff.readByte(willNotRender, "WillNotRender")) {
         _visible = willNotRender == 0;
     }
 

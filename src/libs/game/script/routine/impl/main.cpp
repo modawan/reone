@@ -3009,9 +3009,10 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
     oDestroy->setFadeOutTime(static_cast<uint32_t>(static_cast<int>(fDelayUntilFade * 1000.0f)));
     if (auto creature = dyn_cast<Creature>(oDestroy)) {
         // The creature leading hands the lead along the party to the first
-        // place naming a creature, dead or alive, and then leaves the party.
-        // A follower keeps its place, naming nothing, and stays listed with
-        // the party, as a puppet stays listed with it.
+        // place naming a creature, dead or alive, and then leaves the party,
+        // at once, whatever the delay. A follower keeps its place, naming
+        // nothing, and stays listed with the party, as a puppet stays listed
+        // with it.
         auto &party = ctx.game.party();
         if (party.getLeader() == creature) {
             for (int tries = party.getSize(); tries > 0; --tries) {
@@ -3762,23 +3763,24 @@ static Variable GetAbilityModifier(const std::vector<Variable> &args, const Rout
 
 static Variable GetIdentified(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
-
-    // Transform
+    auto oItem = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetIdentified");
+    // Every item answers that it is identified; anything else that it is not.
+    return Variable::ofInt(std::dynamic_pointer_cast<Item>(oItem) ? 1 : 0);
 }
 
 static Variable SetIdentified(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    auto item = std::dynamic_pointer_cast<Item>(getObjectOrNull(args, 0, ctx));
     auto bIdentified = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetIdentified");
+    // Only the lowest bit of the flag counts.
+    if (item) {
+        item->setIdentified((bIdentified & 1) != 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetDistanceBetweenLocations2D(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6022,7 +6024,7 @@ static Variable RemovePartyMember(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    bool removed = ctx.game.party().removeMember(nNPC);
+    bool removed = ctx.game.party().removeMember(nNPC, true);
     return Variable::ofInt(static_cast<int>(removed));
 }
 
@@ -7775,9 +7777,10 @@ static Variable RemoveNPCFromPartyToBase(const std::vector<Variable> &args, cons
     const bool wasControlled = party.controlledNpc() == nNPC;
     // The companion leaves the party as RemovePartyMember removes it, then
     // its creature is taken out of the world, unless it is still travelling
-    // with the party as a follower. Nothing else follows: a controlled
-    // companion taken out this way leaves no one under control.
-    party.removeMember(nNPC);
+    // with the party as a follower. Nothing else follows: a companion standing
+    // in for the player character taken out this way leaves no one under
+    // control.
+    party.removeMember(nNPC, true);
     if (!wasControlled && party.isFollower(nNPC)) {
         return Variable::ofInt(0);
     }

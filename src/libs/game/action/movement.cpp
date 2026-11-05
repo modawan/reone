@@ -158,7 +158,6 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     auto destination = [&]() {
         return toUsePoint ? _approach->use.point : _moveTo->position();
     };
-    const float closeTo = closingRange();
 
     if (_force && !_forcedState.active) {
         _forcedState.active = true;
@@ -188,16 +187,11 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     if (_moveTo) {
         pathTarget = *_moveTo;
     }
-    // The walk of a range check ends where the mover stands once it is near
-    // enough to the object, and then the check is taken.
-    bool reached = false;
-    if (_approachFlags && _moveTo && creatureActor->endsWalkToward(*_moveTo, closeTo, _approachFlags->clearLineWalk != 0)) {
-        creatureActor->setMovementType(Creature::MovementType::None);
-        creatureActor->clearPath();
-        reached = true;
-    } else {
-        reached = creatureActor->navigateTo(dest, _run, closeTo, dt, pathTarget);
-    }
+    // A walk to an object ends where the mover stands once it is within its
+    // use range of the object, or, for a range check, near enough to it; then
+    // any check is taken.
+    const bool reached = creatureActor->walkToward(pathTarget, dest, _run, _range, dt, pathTarget,
+                                                   _approachFlags && _approachFlags->clearLineWalk != 0, _pathOffset);
     if (!reached) {
         // No path reaches the object (a locked room, off the walkmesh): give
         // up, as a walk to a point does, rather than planning again every
@@ -225,10 +219,6 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         }
     }
     complete();
-}
-
-float MoveToObjectAction::closingRange() const {
-    return _closeToUseRange && _approach ? _approach->use.range : _range;
 }
 
 // A forced walk under way keeps its absolute deadline as the day and time a
@@ -268,10 +258,10 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
             _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
         command.target = SavedObjectReference::fromRuntimeId(_moveTo->id());
         command.run = _run;
-        command.range = closingRange();
+        command.carried = _carried;
+        command.range = _range;
         command.forcedPending = _force && !_forcedState.active;
         command.timeout = command.forcedPending ? _timeout : 0.0f;
-        command.offset = _forcedState.offset;
         if (_force && _forcedState.active) {
             saveExpiry(command, _forcedState.expiryMilliseconds, _game.millisecondsPerWorldDay());
         }

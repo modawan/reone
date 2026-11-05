@@ -1423,7 +1423,7 @@ bool Party::setPartyLeader(int npc) {
         return false;
     }
     if (memberIdx > 0) {
-        setPartyLeaderByIndex(memberIdx);
+        setPartyLeaderByIndex(memberIdx, false);
     }
     return true;
 }
@@ -1433,14 +1433,14 @@ void Party::leadWithPlayerCharacter() {
         const auto &creature = _members[i].creature;
         if (creature && creature->isPC()) {
             if (i > 0) {
-                setPartyLeaderByIndex(i);
+                setPartyLeaderByIndex(i, false);
             }
             return;
         }
     }
 }
 
-void Party::setPartyLeaderByIndex(int index) {
+void Party::setPartyLeaderByIndex(int index, bool sound) {
     if (index < 1 || index >= _members.size())
         return;
 
@@ -1450,7 +1450,7 @@ void Party::setPartyLeaderByIndex(int index) {
     const auto previous = _members[0].creature;
     std::rotate(_members.begin(), _members.begin() + index, _members.end());
 
-    onLeaderChanged(previous);
+    onLeaderChanged(previous, sound);
 }
 
 void Party::setPlayer(const std::shared_ptr<Creature> &player) {
@@ -1508,7 +1508,7 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
     _persistedState.controlledNpc = npc;
 }
 
-bool Party::removeMember(int npc) {
+bool Party::removeMember(int npc, bool handOverLead) {
     const RosterIdentity identity {RosterKind::Npc, npc};
     // Removal needs a follower in the party and an available roster slot;
     // KotOR refuses it while another actor stands in for the player character.
@@ -1533,14 +1533,25 @@ bool Party::removeMember(int npc) {
     if (npc == _persistedState.controlledNpc) {
         return false;
     }
-    auto maybeMember = std::find_if(_members.begin(), _members.end(), [&npc](auto &member) { return member.npc == npc; });
+    auto isRemoved = [&npc](const Member &member) { return member.npc == npc; };
+    auto maybeMember = std::find_if(_members.begin(), _members.end(), isRemoved);
     if (maybeMember == _members.end()) {
         return false;
     }
-    const auto removed = maybeMember->creature;
-    _members.erase(maybeMember);
-    if (removed) {
-        removed->refreshDeath();
+    // A member that leads may hand the lead to the player character before it
+    // leaves. The change of leader runs its script at once, and that script
+    // may already have taken the member out of the party; the companion has
+    // left all the same.
+    if (handOverLead && maybeMember == _members.begin()) {
+        leadWithPlayerCharacter();
+        maybeMember = std::find_if(_members.begin(), _members.end(), isRemoved);
+    }
+    if (maybeMember != _members.end()) {
+        const auto removed = maybeMember->creature;
+        _members.erase(maybeMember);
+        if (removed) {
+            removed->refreshDeath();
+        }
     }
     // Solo mode ends with the last companion.
     if (companionCount() == 0) {

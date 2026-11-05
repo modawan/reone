@@ -298,15 +298,18 @@ public:
      */
     bool setPartyLeader(int npc);
     /**
-     * Hand the lead to the first member that is a player character; nothing
-     * changes when it already leads or no member is one.
+     * Hand the lead to the first member that is a player character, with no
+     * select sound; nothing changes when it already leads or no member is
+     * one.
      */
     void leadWithPlayerCharacter();
     /**
      * Hand the lead to the member at an index: the members ahead of it move
      * to the back in their order.
+     *
+     * @param sound whether the new leader makes its select sound
      */
-    void setPartyLeaderByIndex(int index);
+    void setPartyLeaderByIndex(int index, bool sound = true);
     void setPlayer(const std::shared_ptr<Creature> &player);
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     /** Leaving solo mode ends the party's stealth. */
@@ -325,7 +328,16 @@ public:
      */
     bool addMember(int npc, std::shared_ptr<Creature> creature);
 
-    bool removeMember(int npc);
+    /**
+     * Take a companion out of the party.
+     *
+     * @param npc NPC number of the companion
+     * @param handOverLead whether a companion that leads first hands the lead
+     *        to the player character, as it does when a script or the party
+     *        selection removes it, but not when control changes hands
+     * @return whether the companion was a follower and has left
+     */
+    bool removeMember(int npc, bool handOverLead = false);
 
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;

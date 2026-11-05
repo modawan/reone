@@ -245,6 +245,10 @@ public:
     Room *room() const { return _room; }
     const glm::vec3 &position() const { return _position; }
     const glm::mat4 &transform() const { return _transform; }
+    /**
+     * Whether the object's model renders. A script can turn it off, and a TSL
+     * creature can start with it off; sight and selection do not read it.
+     */
     bool visible() const { return _visible; }
     /** How far above the object's position a creature's look at it aims. */
     virtual float canSeeHeight() const { return kEyeHeight; }
@@ -855,6 +859,11 @@ protected:
            Game &game, ServicesView &services);
 
     virtual void updateTransform();
+    /**
+     * Keeps the model in the scene, animated, while the object is present, and
+     * draws it only while the object renders.
+     */
+    void updateSceneNodeEnabled();
     /** The orientation the scene node shows. */
     virtual glm::quat presentedOrientation() const { return _orientation; }
     virtual bool canExecuteActions() const { return true; }
