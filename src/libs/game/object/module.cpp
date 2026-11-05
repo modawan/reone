@@ -557,6 +557,15 @@ void Module::onObjectClick(const std::shared_ptr<Object> &object, bool sound) {
     }
 }
 
+void Module::removeWorldJournalEntry(int32_t id, bool byStrRef) {
+    auto entry = std::find_if(_worldJournal.rbegin(), _worldJournal.rend(), [&](const WorldJournalEntry &e) {
+        return e.byStrRef == byStrRef && e.id == id;
+    });
+    if (entry != _worldJournal.rend()) {
+        _worldJournal.erase(std::next(entry).base());
+    }
+}
+
 // With no one under control nothing is hostile to the leader.
 bool Module::isHostileToPartyLeader(const Creature &creature) const {
     const auto leader = _game.party().getLeader();

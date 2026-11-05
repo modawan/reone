@@ -6215,7 +6215,16 @@ static Variable AddJournalWorldEntry(const std::vector<Variable> &args, const Ro
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("AddJournalWorldEntry");
+    if (auto module = ctx.game.module()) {
+        WorldJournalEntry entry;
+        entry.id = nIndex;
+        entry.entry = std::move(szEntry);
+        entry.title = std::move(szTitle);
+        entry.day = ctx.game.worldTimeDay();
+        entry.time = ctx.game.worldTimeOfDay();
+        module->addWorldJournalEntry(std::move(entry));
+    }
+    return Variable::ofNull();
 }
 
 static Variable AddJournalWorldEntryStrref(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6226,7 +6235,16 @@ static Variable AddJournalWorldEntryStrref(const std::vector<Variable> &args, co
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("AddJournalWorldEntryStrref");
+    if (auto module = ctx.game.module()) {
+        WorldJournalEntry entry;
+        entry.id = strref;
+        entry.byStrRef = true;
+        entry.titleStrRef = strrefTitle;
+        entry.day = ctx.game.worldTimeDay();
+        entry.time = ctx.game.worldTimeOfDay();
+        module->addWorldJournalEntry(std::move(entry));
+    }
+    return Variable::ofNull();
 }
 
 static Variable BarkString(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6244,7 +6262,10 @@ static Variable BarkString(const std::vector<Variable> &args, const RoutineConte
 
 static Variable DeleteJournalWorldAllEntries(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("DeleteJournalWorldAllEntries");
+    if (auto module = ctx.game.module()) {
+        module->clearWorldJournal();
+    }
+    return Variable::ofNull();
 }
 
 static Variable DeleteJournalWorldEntry(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6254,7 +6275,10 @@ static Variable DeleteJournalWorldEntry(const std::vector<Variable> &args, const
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("DeleteJournalWorldEntry");
+    if (auto module = ctx.game.module()) {
+        module->removeWorldJournalEntry(nIndex, false);
+    }
+    return Variable::ofNull();
 }
 
 static Variable DeleteJournalWorldEntryStrref(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6264,7 +6288,10 @@ static Variable DeleteJournalWorldEntryStrref(const std::vector<Variable> &args,
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("DeleteJournalWorldEntryStrref");
+    if (auto module = ctx.game.module()) {
+        module->removeWorldJournalEntry(strref, true);
+    }
+    return Variable::ofNull();
 }
 
 static Variable PlayVisualAreaEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6282,18 +6309,10 @@ static Variable PlayVisualAreaEffect(const std::vector<Variable> &args, const Ro
     return Variable::ofNull();
 }
 
+// A quest entry's picture is kept nowhere the journal reads it.
 static Variable SetJournalQuestEntryPicture(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto szPlotID = getString(args, 0);
-    auto oObject = getObject(args, 1, ctx);
-    auto nPictureIndex = getInt(args, 2);
-    auto bAllPartyMemebers = getIntOrElse(args, 3, 1);
-    auto bAllPlayers = getIntOrElse(args, 4, 0);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetJournalQuestEntryPicture");
+    return Variable::ofNull();
 }
 
 static Variable GetLocalBoolean(const std::vector<Variable> &args, const RoutineContext &ctx) {

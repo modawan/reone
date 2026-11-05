@@ -78,6 +78,23 @@ struct ModuleItemEvents {
     uint32_t equipped {script::kObjectInvalid};
 };
 
+/**
+ * An entry of the module's world journal: one keyed by its index with its own
+ * entry and title, or one keyed by the string reference of its entry with the
+ * string reference of its title. Nothing shows the world journal, and it is
+ * not saved.
+ */
+struct WorldJournalEntry {
+    int32_t id {0};
+    bool byStrRef {false};
+    std::string entry;
+    std::string title;
+    int32_t titleStrRef {0};
+    /** The calendar day and the time of day it was added. */
+    uint32_t day {0};
+    uint32_t time {0};
+};
+
 class Door;
 class Placeable;
 class SavedScriptContinuation;
@@ -147,6 +164,13 @@ public:
 
     const std::string &name() const { return _name; }
     const ModuleItemEvents &itemEvents() const { return _itemEvents; }
+    void addWorldJournalEntry(WorldJournalEntry entry) { _worldJournal.push_back(std::move(entry)); }
+    /**
+     * Removes the last entry with the id, of the entries keyed by a string
+     * reference or of the others.
+     */
+    void removeWorldJournalEntry(int32_t id, bool byStrRef);
+    void clearWorldJournal() { _worldJournal.clear(); }
     /** The party member whose death last reached the module's player-death script. */
     uint32_t lastPlayerDied() const { return _lastPlayerDied; }
     /** The player's character as it last entered the module. */
@@ -208,6 +232,7 @@ private:
     std::string _localizedName;
     ModuleInfo _info;
     ModuleItemEvents _itemEvents;
+    std::vector<WorldJournalEntry> _worldJournal;
     uint32_t _lastPlayerDied {script::kObjectInvalid};
     uint32_t _lastEnteredId {script::kObjectInvalid};
     std::shared_ptr<Area> _area;
