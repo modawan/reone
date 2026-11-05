@@ -5350,13 +5350,21 @@ static Variable SetStealthXPDecrement(const std::vector<Variable> &args, const R
 
 static Variable DuplicateHeadAppearance(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oidCreatureToChange = getObject(args, 0, ctx);
-    auto oidCreatureToMatch = getObject(args, 1, ctx);
+    auto target = getCreatureOrNull(args, 0, ctx);
+    auto donor = getCreatureOrNull(args, 1, ctx);
 
     // Transform
+    auto appearances = ctx.services.resource.twoDas.get("appearance");
+    if (!target || !donor || !appearances) {
+        return Variable::ofNull();
+    }
+    const int head = appearances->getInt(donor->appearance(), donor->useBackupHead() ? "backuphead" : "normalhead", 0);
 
-    // Execute
-    throw RoutineNotImplementedException("DuplicateHeadAppearance");
+    // Execute: the creature to change wears the head of the one to match,
+    // that one's appearance's backup head when it wears it and its normal
+    // head otherwise. A blank head reads as row 0.
+    target->duplicateHead(head);
+    return Variable::ofNull();
 }
 
 static Variable CutsceneAttack(const std::vector<Variable> &args, const RoutineContext &ctx) {

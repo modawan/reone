@@ -1135,6 +1135,7 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     }
     put(record, Gff::Field::newWord("FactionID", static_cast<uint16_t>(creature._faction)));
     put(record, Gff::Field::newWord("Appearance_Type", creature._appearance));
+    put(record, Gff::Field::newByte("UseBackupHead", creature._useBackupHead));
     put(record, Gff::Field::newByte("PM_IsDisguised", creature._disguised));
     if (creature._disguised) {
         put(record, Gff::Field::newWord("PM_Appearance", creature._appearanceBeforeDisguise));

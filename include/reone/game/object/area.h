@@ -733,6 +733,12 @@ public:
         const glm::vec3 &position,
         float facing,
         bool preserveSavedPlacement = false);
+    /**
+     * Each creature of the area outside the party whose appearance has the
+     * normal head of the leader's appearance wears its backup head. A blank
+     * normal head reads as row 0.
+     */
+    void wearBackupHeadsApartFrom(const Creature &leader);
     /** End every session-owned creature's residency in this Area. */
     void retirePartyAreaRuntime();
     /** Bring an actor taking control into this Area at the given spot and announce it. */

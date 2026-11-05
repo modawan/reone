@@ -2408,6 +2408,21 @@ void Area::retirePartyMemberAreaRuntime(const std::shared_ptr<Creature> &member)
     }
 }
 
+void Area::wearBackupHeadsApartFrom(const Creature &leader) {
+    auto appearances = _services.resource.twoDas.get("appearance");
+    if (!appearances) {
+        return;
+    }
+    const int head = appearances->getInt(leader.appearance(), "normalhead", 0);
+    const Party &party = _game.party();
+    for (const auto &object : getObjectsByType(ObjectType::Creature)) {
+        auto &creature = static_cast<Creature &>(*object);
+        if (!party.isMember(creature) && appearances->getInt(creature.appearance(), "normalhead", 0) == head) {
+            creature.wearBackupHead();
+        }
+    }
+}
+
 void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSavedPlacement) {
     Party &party = _game.party();
     auto leader = party.getLeader();

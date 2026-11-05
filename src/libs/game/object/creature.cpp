@@ -10495,7 +10495,7 @@ std::string Creature::getHeadModelName() const {
     if (!appearance) {
         throw ResourceNotFoundException("appearance 2DA not found");
     }
-    int headIdx = appearance->getInt(_appearance, "normalhead", -1);
+    int headIdx = headRow(*appearance);
     if (headIdx == -1) {
         return "";
     }
@@ -10508,6 +10508,36 @@ std::string Creature::getHeadModelName() const {
     boost::to_lower(modelName);
 
     return modelName;
+}
+
+int Creature::headRow(const TwoDA &appearances) const {
+    if (_duplicatedHead != 0xff) {
+        return _duplicatedHead;
+    }
+    // A blank backup head reads as row 0.
+    if (useBackupHead()) {
+        return appearances.getInt(_appearance, "backuphead", 0);
+    }
+    return appearances.getInt(_appearance, "normalhead", -1);
+}
+
+void Creature::refreshHead() {
+    if (_sceneNode) {
+        updateModel();
+    }
+}
+
+void Creature::duplicateHead(int row) {
+    _duplicatedHead = static_cast<uint8_t>(row);
+    refreshHead();
+}
+
+void Creature::wearBackupHead() {
+    const bool shown = useBackupHead();
+    _wearsBackupHead = true;
+    if (!shown) {
+        refreshHead();
+    }
 }
 
 std::string Creature::getMaskModelName() const {
@@ -10613,6 +10643,10 @@ void Creature::deserializeAll(
 
     // index into appearance.2da
     gff.readEnum(_appearance, "Appearance_Type");
+    uint8_t useBackupHead;
+    if (gff.readByte(useBackupHead, "UseBackupHead")) {
+        _useBackupHead = useBackupHead != 0;
+    }
 
     // Savegames keep the visible disguise appearance in Appearance_Type and
     // the normal appearance separately. Restore this before equipped items

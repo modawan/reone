@@ -370,6 +370,11 @@ void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     float facing = 0.0f;
     getEntryPoint(entry, position, facing);
 
+    // The area's creatures keep apart from the leader's face before the
+    // party joins them.
+    if (auto leader = _game.party().getLeader()) {
+        _area->wearBackupHeadsApartFrom(*leader);
+    }
     _area->loadParty(position, facing, preserveSavedPlacement);
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();

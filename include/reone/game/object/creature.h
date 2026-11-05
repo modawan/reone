@@ -867,6 +867,22 @@ public:
     const std::string &lastName() const { return _lastName.str(); }
     ModelType modelType() const { return _modelType; }
     int appearance() const { return _appearance; }
+    /**
+     * Whether the head is the appearance's backup head rather than its normal
+     * one: the record says so, or the creature wears it apart from the leader.
+     */
+    bool useBackupHead() const { return _useBackupHead || _wearsBackupHead; }
+    /**
+     * Wears the appearance's backup head until the creature is loaded again;
+     * the record's choice of head is kept and saved.
+     */
+    void wearBackupHead();
+    /**
+     * Wears the heads.2da row as its head in place of its appearance's. Rows
+     * from 255 up wrap to a byte, and 255 is the appearance's head again. The
+     * head is not saved.
+     */
+    void duplicateHead(int row);
     CreaturePresentation presentation() const;
     void setPresentation(const CreaturePresentation &presentation);
     uint16_t portraitId() const { return _portraitId; }
@@ -2501,6 +2517,7 @@ private:
     int _appearance {0};
     int _appearanceBeforeDisguise {0};
     bool _disguised {false};
+    bool _useBackupHead {false};
     Gender _gender {Gender::Male};
     uint16_t _portraitId {0};
     /** The record's IsPC byte; any value but 0 marks a player character. */
@@ -2608,6 +2625,9 @@ private:
     std::map<int, std::shared_ptr<Item>> _equipment;
     // END Serializable
 
+    /** The heads.2da row worn in place of the appearance's head; 255 for none. */
+    uint8_t _duplicatedHead {0xff};
+    bool _wearsBackupHead {false};
     ModelType _modelType {ModelType::Creature};
     std::shared_ptr<graphics::Texture> _portrait;
 
@@ -3044,6 +3064,10 @@ private:
     std::string getBodyTextureName() const;
     std::string getHeadModelName() const;
     std::string getMaskModelName() const;
+    /** The heads.2da row of the head: the duplicated one, or the appearance's; -1 for none. */
+    int headRow(const resource::TwoDA &appearances) const;
+    /** Shows the head headRow() now gives. */
+    void refreshHead();
 
     // END Appearance
 
