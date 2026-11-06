@@ -177,6 +177,14 @@ void Control::updateTransform() {
     _transform = glm::scale(_transform, glm::vec3(_extent.width, _extent.height, 1.0f));
 }
 
+bool Control::handleKeyDown(const input::KeyCode key) {
+    return false;
+}
+
+bool Control::handleKeyUp(const input::KeyCode key) {
+    return false;
+}
+
 bool Control::handleMouseMotion(int x, int y) {
     return false;
 }
