@@ -680,8 +680,9 @@ void DialogGUI::returnToPause(Object &object) const {
     }
 }
 
-// A pair creature that can play dialog animations first ends its one-shot,
-// unless it shows its pause, then loops its pose.
+// A pair creature that can play dialog animations first ends its one-shot and
+// shows its pause, unless it shows its pause already, then loops its pose
+// over it.
 void DialogGUI::poseSpeakerPair(const std::vector<std::shared_ptr<Object>> &listed) {
     const auto pose = [&listed, this](const std::shared_ptr<Object> &object, int id, int injuredId) {
         auto creature = std::dynamic_pointer_cast<Creature>(object);
@@ -691,6 +692,7 @@ void DialogGUI::poseSpeakerPair(const std::vector<std::shared_ptr<Object>> &list
         }
         if (creature->currentAnimationId() != kPauseAnimationId) {
             creature->abortFireForgetAnimation();
+            creature->showDialogPause();
         }
         // A pose the conversation gives counts as a dialog animation.
         auto animation = creature->getScriptAnimation(creature->isInjured() ? injuredId : id);
@@ -831,10 +833,14 @@ void DialogGUI::applyDialogAnimation(const std::string &participant, int ordinal
     }
     const std::string clip = creature->getScriptAnimation(ordinal).clip;
     if (row->get().looping) {
-        // An overlay dialog pose ends the one-shot the creature is playing,
-        // unless it shows its pause.
-        if (row->get().overlay && row->get().dialog && creature->currentAnimationId() != kPauseAnimationId) {
-            creature->abortFireForgetAnimation();
+        // A looping dialog pose first shows the pause, and an overlay one
+        // ends the one-shot the creature is playing, unless it shows its
+        // pause.
+        if (creature->currentAnimationId() != kPauseAnimationId) {
+            if (row->get().overlay && row->get().dialog) {
+                creature->abortFireForgetAnimation();
+            }
+            creature->showDialogPause();
         }
         creature->playDialogAnimation(clip, true, source);
     }

@@ -1308,6 +1308,7 @@ void Creature::retireAreaRuntime(
     _oneShot.reset();
     _animFireForget = false;
     _storedLoop.reset();
+    _overlayLoop.reset();
     _swingAttack.reset();
     _weaponDrawPending = false;
     _injuredIdle = false;
@@ -3147,6 +3148,8 @@ void Creature::playTopFireForgetAnimation() {
         properties.flags = AnimationFlags::overlay | AnimationFlags::layer | AnimationFlags::fireForget |
                            AnimationFlags::propagate;
     } else {
+        // A one-shot of the body takes the talk or listen loop away.
+        stopOverlayLoop();
         properties.flags = AnimationFlags::blend | AnimationFlags::propagate;
         properties.speed = static_cast<float>(entry.lengthMilliseconds) * entry.rate / static_cast<float>(length);
         if (properties.speed == 0.0f) {
@@ -3176,6 +3179,7 @@ void Creature::returnToStoredLoop() {
     // Returning to the loop shows again the items a one-shot put away.
     presentEquippedItems(_storedLoop ? _storedLoop->clip : getActiveAnimationName());
     if (_animDirty) {
+        showWaitingOverlayLoop();
         return;
     }
     const bool current = _storedLoop && boost::iequals(getActiveAnimationName(), _storedLoop->clip);
@@ -3184,6 +3188,7 @@ void Creature::returnToStoredLoop() {
     }
     if (!current && (!_storedLoop || _storedLoop->stateDriven)) {
         _animDirty = true;
+        showWaitingOverlayLoop();
         return;
     }
     if (!current) {
@@ -3194,6 +3199,52 @@ void Creature::returnToStoredLoop() {
             model->playAnimation(_storedLoop->clip, nullptr, _storedLoop->properties);
         }
     }
+    showWaitingOverlayLoop();
+}
+
+void Creature::playOverlayLoop(const std::string &clip, AnimationProperties properties, AnimationSource source) {
+    stopOverlayLoop();
+    properties.flags |= AnimationFlags::loop | AnimationFlags::overlay | AnimationFlags::layer | AnimationFlags::propagate;
+    _overlayLoop = OverlayLoop {clip, std::move(properties), source};
+    if (!isPlayingOneShotAnimation()) {
+        showWaitingOverlayLoop();
+    }
+}
+
+void Creature::showWaitingOverlayLoop() {
+    if (!_overlayLoop || _overlayLoop->shown) {
+        return;
+    }
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (!model) {
+        return;
+    }
+    model->playAnimation(_overlayLoop->clip, nullptr, _overlayLoop->properties);
+    _overlayLoop->shown = true;
+    setAnimationSource(_overlayLoop->source);
+    // The lip sync of a line still being spoken stays on top of it.
+    const std::string headTalk = getHeadTalkAnimation();
+    const auto &channels = model->animationChannels();
+    auto speaking = std::find_if(channels.begin(), channels.end(), [&headTalk](const ModelSceneNode::AnimationChannel &channel) {
+        return channel.lipAnim && !channel.finished && channel.anim->name() == headTalk;
+    });
+    if (speaking != channels.end()) {
+        auto lipAnim = speaking->lipAnim;
+        model->playAnimation(headTalk, std::move(lipAnim), AnimationProperties::fromFlags(kHeadTalkFlags));
+    }
+}
+
+void Creature::stopOverlayLoop() {
+    if (!_overlayLoop) {
+        return;
+    }
+    auto body = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (_overlayLoop->shown && body && body->fadeOutLayer(_overlayLoop->clip)) {
+        if (auto head = static_cast<ModelSceneNode *>(body->getAttachment(g_headHookNode))) {
+            head->fadeOutLayer(_overlayLoop->clip);
+        }
+    }
+    _overlayLoop.reset();
 }
 
 void Creature::presentEquippedItems(const std::string &clip) {
@@ -3214,6 +3265,10 @@ void Creature::presentEquippedItems(const std::string &clip) {
 
 bool Creature::storeLoop(const std::string &clip, const AnimationProperties &properties, bool stateDriven,
                          AnimationSource source, std::shared_ptr<Animation> external) {
+    // Any loop asked for takes the talk or listen loop away.
+    if (!stateDriven) {
+        stopOverlayLoop();
+    }
     if (!_storedLoop || !boost::iequals(_storedLoop->clip, clip)) {
         flushFireForgetQueue();
         if (_storedLoop) {
@@ -3343,6 +3398,7 @@ void Creature::abortFireForgetAnimation(bool clearLayers) {
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (clearLayers && model) {
         model->removeLayers();
+        _overlayLoop.reset();
     }
     // The running one-shot, or the flinch pose, ends in the stored loop; with
     // neither the loop is already current. The class-0 ready pose, which
@@ -4354,6 +4410,7 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
     }
     flushFireForgetQueue();
     _storedLoop.reset();
+    stopOverlayLoop();
     playDieTransition(leftLoopId);
     removeEffectsOnDeath();
     _currentHitPoints = std::min(-11, static_cast<int>(_currentHitPoints));
@@ -4601,6 +4658,11 @@ void Creature::playAnimation(const std::string &name, AnimationProperties proper
     if (model && !model->model().getAnimation(name)) {
         return;
     }
+    // The talk and listen loops go over the loop beneath them, as layers.
+    if (!fireForget && playsAsOverlay(source.id, _game.isTSL())) {
+        playOverlayLoop(name, std::move(properties), source);
+        return;
+    }
 
     doPlayAnimation(fireForget, [&]() {
         if (!fireForget && !storeLoop(name, properties, false, source)) {
@@ -4623,7 +4685,9 @@ bool Creature::doPlayAnimation(bool fireForget, const std::function<void()> &cal
     markAnimationChosen();
 
     if (fireForget) {
-        // A clip played directly takes the place of a queued one-shot.
+        // A clip played directly takes the place of a queued one-shot, and
+        // of the talk or listen loop.
+        stopOverlayLoop();
         _oneShot.reset();
         _animFireForget = true;
     } else {

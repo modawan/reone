@@ -2513,6 +2513,14 @@ private:
         std::shared_ptr<graphics::Animation> external;
     };
 
+    /** A talk or listen loop, shown as a layer over the loop beneath it. */
+    struct OverlayLoop {
+        std::string clip;
+        scene::AnimationProperties properties;
+        AnimationSource source;
+        bool shown {false};
+    };
+
     /** The attack penalty of two-weapon fighting, and the part a light off-hand weapon gives back. */
     struct TwoWeaponPenalty {
         int penalty {0};
@@ -2873,6 +2881,7 @@ private:
     std::deque<FireForgetEntry> _fireForgetQueue;
     std::optional<RunningOneShot> _oneShot;
     std::optional<StoredLoop> _storedLoop;
+    std::optional<OverlayLoop> _overlayLoop;
     AnimationSource _animationSource;        /**< the clip shown */
     std::optional<SwingAttack> _swingAttack; /**< the attack of the last swing started */
     bool _weaponDrawPending {false};         /**< a draw waiting for play to resume */
@@ -3090,6 +3099,15 @@ private:
     bool storeLoop(const std::string &clip, const scene::AnimationProperties &properties, bool stateDriven,
                    AnimationSource source, std::shared_ptr<graphics::Animation> external = nullptr);
     void returnToStoredLoop();
+    /**
+     * Shows a talk or listen loop over the loop beneath it, in place of the
+     * one shown; while a one-shot runs it waits for the one-shot to end.
+     */
+    void playOverlayLoop(const std::string &clip, scene::AnimationProperties properties, AnimationSource source);
+    /** Shows the talk or listen loop that waited for a one-shot. */
+    void showWaitingOverlayLoop();
+    /** Takes away the talk or listen loop. */
+    void stopOverlayLoop();
     /**
      * The body shows \p clip: one that hides equipped items puts the hand
      * weapons away; the next one that does not, outside a conversation, brings

@@ -2031,6 +2031,9 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
     EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), findDialogAnimation(_))
         .Times(1)
         .WillRepeatedly(makeDialogAnimations());
+    // The pause the pose goes over asks about its own ID.
+    EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), isDialogAnimation(_))
+        .Times(AnyNumber());
     // Only a dialog animation is played.
     EXPECT_CALL(static_cast<MockAnimations &>(engine.services().game.animations), isDialogAnimation(10030))
         .WillRepeatedly(Return(true));
@@ -2052,9 +2055,11 @@ TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_mod
     MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 
     // Resolved through dialoganimations.2da on the creature's own model, and
-    // the stunt model was never asked for a semantic animation name.
+    // the stunt model was never asked for a semantic animation name. The talk
+    // loop goes on as a layer.
     ASSERT_EQ(node->animationChannels().size(), 1);
     EXPECT_EQ(node->animationChannels().front().anim, talk.get());
+    EXPECT_TRUE(node->animationChannels().front().properties.flags & scene::AnimationFlags::layer);
     EXPECT_NE(node->animationChannels().front().anim, stuntClip.get());
     EXPECT_FALSE(owner->isStuntMode());
 }

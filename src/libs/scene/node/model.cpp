@@ -884,6 +884,26 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
             break;
         }
 
+        // The model's root is placed by the newest base clip, or in an overlay
+        // by any base clip, that moves it, as a clip of another model placed
+        // on it does (see computeAnimationStates); otherwise it stands at rest,
+        // not where the last such clip left it.
+        if (!modelNode.parent()) {
+            bool moved = false;
+            for (size_t i = layers; i < _animChannels.size() && !moved; ++i) {
+                if (i > layers && _animBlendMode != AnimationBlendMode::Overlay) {
+                    break;
+                }
+                const auto &states = _animChannels[i].stateByNodeNumber;
+                auto state = states.find(modelNode.number());
+                moved = state != states.end() && (state->second.flags & AnimationStateFlags::transform);
+            }
+            if (!moved) {
+                combined.flags |= AnimationStateFlags::transform;
+                combined.transform = glm::translate(modelNode.restPosition()) * glm::mat4_cast(modelNode.restOrientation());
+            }
+        }
+
         // Layers go over the base from the oldest to the newest. Each pulls
         // the transform of every node it animates toward its own by its
         // weight, from what lies beneath or, where nothing beneath animates
