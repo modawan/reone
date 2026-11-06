@@ -63,6 +63,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 #include "reone/game/debug.h"
 #include "reone/game/shaperules.h"
@@ -942,6 +943,26 @@ void insertAvoidanceWay(std::vector<glm::vec3> &points, uint32_t &next, int entr
     next = std::min(next, static_cast<uint32_t>(entryIndex));
 }
 
+std::optional<float> walkmeshElevationAt(const Uniwalk &uni, const glm::vec2 &xy, float nearZ) {
+    std::optional<float> best;
+    for (const Uniroom &room : uni.rooms) {
+        if (xy.x > room.max.x || xy.y > room.max.y || xy.x < room.min.x || xy.y < room.min.y) {
+            continue;
+        }
+        glm::vec3 top(xy, room.max.z + 1.0f);
+        for (uint32_t i = room.begin; i < room.end; ++i) {
+            CastResult res = castFace(uni, i, top);
+            if (!res.intersects) {
+                continue;
+            }
+            float z = res.intersection.z;
+            if (!best || std::fabs(z - nearZ) < std::fabs(*best - nearZ)) {
+                best = z;
+            }
+        }
+    }
+    return best;
+}
 // Keepout vector points away from a border edge or a corner vertex.
 glm::vec3 computeKeepoutForce(const Uniwalk &uni, const glm::vec3 &position) {
     float keepoutDistance2 = 4.0f;
