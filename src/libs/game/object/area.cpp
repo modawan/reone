@@ -2707,7 +2707,6 @@ void Area::update(float dt) {
     doDestroyObjects();
     updateReleasedPresentation(dt);
     updateObjectSelection();
-    updateMapData();
 
     if (_game.isPaused()) {
         return;

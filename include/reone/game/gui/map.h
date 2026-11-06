@@ -62,14 +62,18 @@ public:
      */
     void render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha);
 
-    bool isLoaded() const { return static_cast<bool>(_areaTexture); }
+    /** Whether there is a map to show: the area carries one and its image loaded. */
+    bool isLoaded() const { return _areaTexture && mapState(); }
 
     /** The map notes the map shows, with the rect each one occupies. */
     std::vector<NoteMarker> noteMarkers(const glm::vec4 &bounds, float scale) const;
 
     void setSelectedNote(std::shared_ptr<Waypoint> waypoint) { _selectedNote = std::move(waypoint); }
 
-    /** Whether the map shows \p waypoint: its note is on and its place explored. */
+    /**
+     * Whether the map shows \p waypoint: it carries a note, the note is on,
+     * and its place is explored.
+     */
     bool isNoteVisible(const Waypoint &waypoint) const;
 
 private:

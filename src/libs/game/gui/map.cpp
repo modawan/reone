@@ -99,7 +99,7 @@ const AreaMapState *Map::mapState() const {
 }
 
 void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
-    if (!_areaTexture || !mapState()) {
+    if (!isLoaded()) {
         return;
     }
     const glm::vec4 rect(mapRect(mode, bounds, scale));
@@ -207,7 +207,7 @@ void Map::renderFog(const glm::vec4 &bounds, const glm::vec4 &rect) {
 }
 
 bool Map::isNoteVisible(const Waypoint &waypoint) const {
-    if (!waypoint.isMapNoteEnabled() || waypoint.mapNote().empty()) {
+    if (!waypoint.hasMapNote() || !waypoint.isMapNoteEnabled()) {
         return false;
     }
     auto state = mapState();

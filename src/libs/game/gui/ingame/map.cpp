@@ -57,11 +57,12 @@ void MapMenu::onGUILoaded() {
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
     });
+    // Up moves on to the note further along world X, down back.
     _controls.BTN_UP->setOnClick([this]() {
-        selectAdjacentNote(-1);
+        selectAdjacentNote(1);
     });
     _controls.BTN_DOWN->setOnClick([this]() {
-        selectAdjacentNote(1);
+        selectAdjacentNote(-1);
     });
 
     if (_game.isTSL()) {
@@ -148,16 +149,21 @@ void MapMenu::refreshControls() {
     _controls.LBL_Area->setTextMessage(_game.module()->area()->localizedName());
     _notes.clear();
 
+    // The map takes every note the area places, shown or not: a note can be
+    // turned on, or its place explored, while the map is open.
     for (auto &object : _game.module()->area()->getObjectsByType(ObjectType::Waypoint)) {
         auto waypoint = std::static_pointer_cast<Waypoint>(object);
-        if (waypoint->isMapNoteEnabled() && !waypoint->mapNote().empty()) {
+        if (waypoint->hasMapNote()) {
             _notes.push_back(waypoint);
         }
     }
+    std::stable_sort(_notes.begin(), _notes.end(), [](const auto &left, const auto &right) {
+        return left->position().x < right->position().x;
+    });
 
-    // The map opens on the first note it can show, which is the first one
-    // standing somewhere the party has been.
-    _selectedNoteIdx = 0;
+    // The map opens on the first note it shows. When it shows none, nothing
+    // is selected until a note is clicked.
+    _selectedNoteIdx = -1;
     for (size_t index = 0; index < _notes.size(); ++index) {
         if (_game.map().isNoteVisible(*_notes[index])) {
             _selectedNoteIdx = static_cast<int>(index);
@@ -171,7 +177,7 @@ void MapMenu::refreshControls() {
 }
 
 void MapMenu::selectAdjacentNote(int step) {
-    if (_notes.empty()) {
+    if (_selectedNoteIdx == -1) {
         return;
     }
     // Stepping passes over the notes the map does not show.
@@ -253,9 +259,11 @@ int MapMenu::travelRefusal() const {
 void MapMenu::refreshSelectedNote() {
     std::shared_ptr<Waypoint> note;
 
-    if (!_notes.empty() && _game.map().isNoteVisible(*_notes[_selectedNoteIdx])) {
+    // The label keeps the selected note's text until the selection changes.
+    if (_selectedNoteIdx != -1) {
         note = _notes[_selectedNoteIdx];
-
+    }
+    if (note && !note->mapNote().empty()) {
         std::string text(_services.resource.strings.getText(kStrRefMapNote));
         text += ": ";
         text += note->mapNote();

@@ -430,6 +430,8 @@ public:
      * before any room, everything is drawn.
      */
     void updateRoomVisibility();
+    /** Reveals the map around each party member where it stands. */
+    void updateMapData();
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
@@ -1177,8 +1179,6 @@ private:
     void loadAmbientColor(const resource::generated::ARE &are);
     void loadScripts(const resource::generated::ARE &are);
     void loadMap(const resource::generated::ARE &are);
-    /** Reveals the map around each party member and keeps the map pointed at this area. */
-    void updateMapData();
     /**
      * Stealth experience as the area file or the saved area properties give
      * it: the maximum, then the pool, which starts full unless given and

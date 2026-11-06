@@ -1223,6 +1223,11 @@ void Game::update(float frameTime) {
     if (_module && _module->area() && !_movie) {
         _module->area()->updateRoomVisibility();
     }
+    // The party explores the map wherever it stands on every frame the module
+    // is live. An action run while the world is held can still move a member.
+    if (moduleLive && _module && _module->area()) {
+        _module->area()->updateMapData();
+    }
     // A companion brought into being outside the area, such as one the party
     // selection screen shows, runs its creation script on the next frame,
     // whether or not the world is paused.
