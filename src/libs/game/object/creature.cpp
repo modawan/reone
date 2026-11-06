@@ -9353,6 +9353,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
                 // with for progress.
                 _previousPosition.reset();
                 if (bump == Bump::WalkEnded) {
+                    _avoidance.walkEnded = true;
                     setMovementType(MovementType::None);
                     clearPath();
                     return true;
@@ -9378,6 +9379,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
 
     // Find a path and start following it.
     _avoidance.bumps = 0;
+    _avoidance.walkEnded = false;
     _path = createPath(pf, position(), dest);
     if (!_path) {
         // No path is found either when none reaches the destination or when
@@ -9601,6 +9603,7 @@ void Creature::planStraightPath(const glm::vec3 &point) {
     clearPath();
     Pathfinder &pf = _game.module()->area()->pathfinder();
     _avoidance.bumps = 0;
+    _avoidance.walkEnded = false;
     _path = createPath(pf, _position, point);
     if (!_path) {
         return;
