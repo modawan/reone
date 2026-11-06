@@ -97,7 +97,10 @@ void Engine::init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
-
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "%s", SDL_GetError());
+    }
+    
     if (_options.graphics.headless) {
         _options.graphics.winScale = 100;
         _options.audio.muted = true;
@@ -495,7 +498,9 @@ std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent)
         });
     case SDL_EVENT_GAMEPAD_AXIS_MOTION:
         return input::Event::newGamepadAxisMotion(input::GamepadAxisMotionEvent {
-            
+            sdlEvent.gaxis.which,
+            sdlEvent.gaxis.value,
+            static_cast<input::GamepadAxis>(sdlEvent.gaxis.axis)
         });
     case SDL_EVENT_KEY_DOWN:
         return input::Event::newKeyDown(input::KeyEvent {

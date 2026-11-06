@@ -462,6 +462,18 @@ bool Module::handle(const input::Event &event) {
         return true;
 
     switch (event.type) {
+    case input::EventType::GamepadAxisMotion:
+        if (handleGamepadAxisMotion(event.gamepadAxisMotion))
+            return true;
+        break;
+    case input::EventType::GamepadButtonDown:
+        if (handleGamepadButtonDown(event.gamepadButton))
+            return true;
+        break;
+    case input::EventType::GamepadButtonUp:
+        if (handleGamepadButtonUp(event.gamepadButton))
+            return true;
+        break;
     case input::EventType::MouseMotion:
         if (handleMouseMotion(event.motion))
             return true;
@@ -1548,6 +1560,56 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     }
 
     return actions;
+}
+
+bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    auto &keybinds = game().options().game.activeKeybinds();
+
+    if (event.axis == input::GamepadAxis::LeftTrigger || event.axis == input::GamepadAxis::RightTrigger) {
+        _game.cancelPartyItemTarget();
+        if (_game.cameraType() != CameraType::ThirdPerson) {
+            return false;
+        }
+        _game.selectNearestObject(event.axis == input::GamepadAxis::LeftTrigger ? 0 : 1);
+        // In combat mode a new target may pause play, whether or not one was found.
+        if (_game.clientCombatMode()) {
+            _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
+        }
+        return true;
+    }
+}
+
+bool Module::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    auto &keybinds = game().options().game.activeKeybinds();
+
+    if (keybinds.pause.check(event.button)) {
+        _game.pressPauseKey();
+        return true;
+    }
+    if (keybinds.toggleStealth.check(event.button)) {
+        _game.requestStealth();
+        return true;
+    }
+    if (keybinds.clearOneAction.check(event.button)) {
+        _game.clearOneAction();
+        return true;
+    }
+    if (keybinds.cancelCombat.check(event.button)) {
+        _game.cancelCombat();
+        return true;
+    }
+    if (keybinds.defaultAction.check(event.button)) {
+        if (auto selected = _area->selectedObject()) {
+            onObjectClick(selected, false);
+        }
+        return true;
+    }
+    
+    return false;
+}
+
+bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
 }
 
 bool Module::handleKeyDown(const input::KeyEvent &event) {

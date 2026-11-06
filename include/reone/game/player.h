@@ -56,14 +56,17 @@ private:
     Camera &_camera;
     const Party &_party;
 
-    bool _moveForward {false};
-    bool _moveLeft {false};
-    bool _moveBackward {false};
-    bool _moveRight {false};
+    float _moveForward {false};
+    float _moveLeft {false};
+    float _moveBackward {false};
+    float _moveRight {false};
     bool _leftPressedInMouseLook {false};
     bool _walk {false};
     bool _moving {false};
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
+    bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
+    bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);

@@ -230,10 +230,12 @@ struct GamepadAxisMotionEvent {
     GamepadAxis axis;
 
     GamepadAxisMotionEvent(uint32_t which,
-                           float value,
+                           int16_t rawValue,
                            GamepadAxis axis) :
         which(which),
-        value(value),
+        value(rawValue < 0
+                  ? static_cast<float>(rawValue) / 32768.0f
+                  : static_cast<float>(rawValue) / 32767.0f),
         axis(axis) {
     }
 };
@@ -323,7 +325,7 @@ struct Event {
         MouseButtonEvent button;
         MouseWheelEvent wheel;
         GamepadButtonEvent gamepadButton;
-        GamepadAxisMotionEvent gamepadAxis;
+        GamepadAxisMotionEvent gamepadAxisMotion;
     };
 
     Event(EventType type) :
@@ -344,7 +346,7 @@ struct Event {
 
     inline static Event newGamepadAxisMotion(GamepadAxisMotionEvent gamepadAxisMotion) {
         Event event {EventType::GamepadAxisMotion};
-        event.newGamepadAxisMotion = std::move(gamepadAxisMotion);
+        event.gamepadAxisMotion = std::move(gamepadAxisMotion);
         return event;
     }
 

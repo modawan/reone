@@ -2134,6 +2134,9 @@ private:
     void applySwoopForcedSuccessResult(const std::string &raceModule);
     void applyTarisForcedWinningTime();
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
+    bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
+    bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);

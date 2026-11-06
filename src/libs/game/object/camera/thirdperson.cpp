@@ -107,6 +107,12 @@ float ThirdPersonCamera::projectionFovy() const {
 
 bool ThirdPersonCamera::handle(const input::Event &event) {
     switch (event.type) {
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion);
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton);
     case input::EventType::KeyDown:
         return handleKeyDown(event.key);
     case input::EventType::KeyUp:
@@ -120,6 +126,55 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
     default:
         return false;
     }
+}
+
+bool ThirdPersonCamera::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.cameraRotateLeft.check(event.button)) {
+        _rotateCCW = true;
+        _rotateCW = false;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+    if (keybinds.cameraRotateRight.check(event.button)) {
+        _rotateCCW = false;
+        _rotateCW = true;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+
+    return false;
+}
+
+bool ThirdPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.cameraRotateLeft.check(event.button)) {
+        _rotateCCW = false;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+    if (keybinds.cameraRotateRight.check(event.button)) {
+        _rotateCW = false;
+        _rotationSpeed = kMinRotationSpeed;
+        return true;
+    }
+
+    return false;
+}
+
+bool ThirdPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.cameraRotateLeft.check(event.axis) || keybinds.cameraRotateRight.check(event.axis)) {
+        _rotateCCW = event.value < -0.1f;
+        _rotateCW = event.value > 0.1f;
+        _rotationSpeed = kMaxRotationSpeed * std::abs(event.value);
+        return true;
+    }
+
+    return false;
 }
 
 // The turn keys work whether or not the mouse turns the camera. Either Ctrl
@@ -155,6 +210,8 @@ bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
     if (keybinds.cameraRotateLeft.check(event.code)) {
         _rotateCCW = false;
         return true;
+    }
+    else if (keybinds.cameraRotateRight.check(event.code)) {
     } else if (keybinds.cameraRotateRight.check(event.code)) {
         _rotateCW = false;
         return true;
