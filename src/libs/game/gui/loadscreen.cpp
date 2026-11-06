@@ -54,6 +54,11 @@ void LoadingScreen::onGUILoaded() {
 void LoadingScreen::setModuleImage(const std::string &moduleName) {
     static constexpr char kImageColumn[] = "bmpresref";
     static constexpr char kDefaultRow[] = "default";
+    // No module name gives no picture.
+    if (moduleName.empty()) {
+        _gui->rootControl().setBorderFill("");
+        return;
+    }
     std::string image;
     const int row = _loadScreens->indexByLabel(moduleName);
     if (auto named = row != -1 ? _loadScreens->getStringOpt(row, kImageColumn) : std::nullopt) {

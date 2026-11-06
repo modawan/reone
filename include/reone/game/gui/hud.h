@@ -64,7 +64,9 @@ public:
     /**
      * Flash a status row's indicator on the main interface for four seconds.
      * Plot and stealth experience share a place, as do the dark and light
-     * side shifts: flashing one takes the other away.
+     * side shifts: flashing one takes the other away. Every indicator but
+     * the journal's queues the new quest notice once time first passes on
+     * its flash.
      */
     void flashStatus(StatusSummaryCategory category);
     /**
@@ -137,6 +139,9 @@ private:
         std::shared_ptr<gui::Label> LBL_DEBILATATED1;
         std::shared_ptr<gui::Label> LBL_DEBILATATED2;
         std::shared_ptr<gui::Label> LBL_DEBILATATED3;
+        std::shared_ptr<gui::Label> LBL_DISABLED1;
+        std::shared_ptr<gui::Label> LBL_DISABLED2;
+        std::shared_ptr<gui::Label> LBL_DISABLED3;
         std::shared_ptr<gui::Label> LBL_DISABLE1;
         std::shared_ptr<gui::Label> LBL_DISABLE2;
         std::shared_ptr<gui::Label> LBL_DISABLE3;
@@ -222,6 +227,8 @@ private:
      * that side's visual.
      */
     void presentAlignmentShift(const StatusSummaryBatch &batch);
+    /** A summary plays the level-up chime and the new and completed quest notices it holds. */
+    void playSummarySounds(const StatusSummaryBatch &batch);
 
     void bindControls() {
         _controls.BTN_ABI = findControl<gui::Button>("BTN_ABI");
@@ -273,6 +280,9 @@ private:
         _controls.LBL_DEBILATATED1 = findControl<gui::Label>("LBL_DEBILATATED1");
         _controls.LBL_DEBILATATED2 = findControl<gui::Label>("LBL_DEBILATATED2");
         _controls.LBL_DEBILATATED3 = findControl<gui::Label>("LBL_DEBILATATED3");
+        _controls.LBL_DISABLED1 = findControl<gui::Label>("LBL_DISABLED1");
+        _controls.LBL_DISABLED2 = findControl<gui::Label>("LBL_DISABLED2");
+        _controls.LBL_DISABLED3 = findControl<gui::Label>("LBL_DISABLED3");
         _controls.LBL_DISABLE1 = findControl<gui::Label>("LBL_DISABLE1");
         _controls.LBL_DISABLE2 = findControl<gui::Label>("LBL_DISABLE2");
         _controls.LBL_DISABLE3 = findControl<gui::Label>("LBL_DISABLE3");

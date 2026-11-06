@@ -78,6 +78,23 @@ struct ModuleItemEvents {
     uint32_t equipped {script::kObjectInvalid};
 };
 
+/**
+ * An entry of the module's world journal: one keyed by its index with its own
+ * entry and title, or one keyed by the string reference of its entry with the
+ * string reference of its title. Nothing shows the world journal, and it is
+ * not saved.
+ */
+struct WorldJournalEntry {
+    int32_t id {0};
+    bool byStrRef {false};
+    std::string entry;
+    std::string title;
+    int32_t titleStrRef {0};
+    /** The calendar day and the time of day it was added. */
+    uint32_t day {0};
+    uint32_t time {0};
+};
+
 class Door;
 class Placeable;
 class SavedScriptContinuation;
@@ -147,6 +164,13 @@ public:
 
     const std::string &name() const { return _name; }
     const ModuleItemEvents &itemEvents() const { return _itemEvents; }
+    void addWorldJournalEntry(WorldJournalEntry entry) { _worldJournal.push_back(std::move(entry)); }
+    /**
+     * Removes the last entry with the id, of the entries keyed by a string
+     * reference or of the others.
+     */
+    void removeWorldJournalEntry(int32_t id, bool byStrRef);
+    void clearWorldJournal() { _worldJournal.clear(); }
     /** The party member whose death last reached the module's player-death script. */
     uint32_t lastPlayerDied() const { return _lastPlayerDied; }
     /** The player's character as it last entered the module. */
@@ -181,7 +205,7 @@ public:
         SavedEventRecord event, std::shared_ptr<Action> command = nullptr,
         bool keepsCallerFade = false);
     size_t enqueueBoundSaveEvent(
-        SavedEventRecord event, bool targetBound,
+        SavedEventRecord event,
         std::shared_ptr<Action> command = nullptr,
         bool keepsCallerFade = false);
     bool cancelSaveEvent(size_t index);
@@ -208,6 +232,7 @@ private:
     std::string _localizedName;
     ModuleInfo _info;
     ModuleItemEvents _itemEvents;
+    std::vector<WorldJournalEntry> _worldJournal;
     uint32_t _lastPlayerDied {script::kObjectInvalid};
     uint32_t _lastEnteredId {script::kObjectInvalid};
     std::shared_ptr<Area> _area;
@@ -215,11 +240,12 @@ private:
     bool _isSaveGame {false};
     std::vector<std::shared_ptr<Creature>> _limboCreatures;
     struct PendingSavedEvent {
-        SavedEventRecord record;
         /**
          * Delivery looks up only the target. References in the caller or the
          * payload that do not resolve are delivered as invalid objects.
          */
+        SavedEventRecord record;
+        /** The target was found, or the event has none, when the event was queued or loaded. */
         bool targetBound {false};
         std::optional<uint64_t> publishedDueMilliseconds;
         std::shared_ptr<Action> command;
@@ -280,9 +306,10 @@ private:
     void loadPlayer();
     void loadLimboCreatures(const resource::Gff &ifo);
     /**
-     * Schedules a pending event for delivery. An event that cannot be
-     * delivered, a timed event whose script situation cannot be resumed
-     * among them, stays pending without being scheduled, to be saved again.
+     * Schedules a pending event for its due time. One that cannot run -
+     * its target not found, its kind not run, or a timed event whose script
+     * situation cannot be resumed - stays pending without being scheduled,
+     * to be saved again as it was loaded.
      */
     void publishSavedEvent(size_t index);
     void deliverSavedEvent(PublishedSavedEvent &event);
@@ -302,6 +329,10 @@ private:
     void deliverDestruction(const std::shared_ptr<Object> &target, bool keepsCallerFade);
     void deliverBodyBag(const SavedBodyBag &spawn, Area &area);
     void deliverAppliedEffect(const EffectInstance &effect, Object &target);
+    /** Takes a creature or placeable out of its area, into no area. */
+    void deliverRemovalFromArea(const SavedEventRecord &event, const std::shared_ptr<Object> &target);
+    /** Shows the animation the event names on its creature, door or placeable. */
+    void deliverAnimation(const SavedEventRecord &event, Object &target);
     /**
      * Makes the body bag a dead creature or a destroyed placeable leaves and
      * queues its appearance. Returns the bag, or the invalid object when none

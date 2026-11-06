@@ -41,8 +41,8 @@ constexpr uint32_t kSavedRuntimeInvalidObjectId = 0x7f000000;
  * the invalid ID.
  */
 constexpr uint32_t kSavedRuntimeMaxCharacterObjectId = 0x7fffffff;
-// The game creates the structural Module before loading its saved object graph.
-// Its contextual object-reference target is therefore slot 0 even though the
+// A load creates the structural Module before the saved object graph. Its
+// contextual object-reference target is therefore slot 0 even though the
 // IFO contains no owned Module record or explicit Module ObjectId field.
 constexpr uint32_t kSavedRuntimeModuleObjectId = 0;
 
@@ -118,6 +118,8 @@ enum class SavedSignalEventType : uint16_t {
     EncounterExhausted = 21,
     InventoryOpened = 22,
     InventoryClosed = 23,
+    /** A trap disarmed by the caller. */
+    Disarmed = 24,
     Used = 25,
     Locked = 28,
     /** A creature walked up to the trigger or door it was heading for. */
@@ -183,7 +185,7 @@ enum class ScriptSituationResumeSupport {
     ValidatedImport,
 };
 
-/** The game STORE_STATE continuation, kept separate from live ExecutionState. */
+/** A saved STORE_STATE continuation, kept separate from live ExecutionState. */
 struct SerializedScriptSituation {
     int32_t codeSize {0};
     ByteBuffer code;
@@ -220,6 +222,8 @@ private:
 enum class SavedActionType : uint32_t {
     MoveToPoint = 1,
     MoveAwayFromObject = 3,
+    /** The check that follows a jump: the jumper holds a moment before its next action. */
+    CheckAfterJump = 4,
     JumpToLocation = 5,
     PlayAnimation = 6,
     PickUpItem = 7,
@@ -232,10 +236,17 @@ enum class SavedActionType : uint32_t {
     CastSpell = 15,
     /** A move to an object that ends once it is within range. */
     MoveToObject = 17,
+    /**
+     * The range check in front of an action aimed at a point: it ends at once
+     * when the walker is within range of the point, and otherwise walks there.
+     */
+    PointRangeCheck = 18,
     /** A turn to face an object. */
     FaceObject = 19,
     OpenDoor = 20,
     CloseDoor = 21,
+    /** A turn of the third-person camera. */
+    OrientCamera = 22,
     StartConversation = 24,
     DisarmMine = 25,
     RecoverMine = 26,
@@ -271,9 +282,15 @@ enum class SavedActionType : uint32_t {
     BarkString = 62,
     /** The command that dispatches its creature's combat round. */
     CombatDispatch = 63,
+    /** A follower's check, after a walk to keep up, that it is near the point it was headed for. */
+    CheckFollowRange = 64,
     SurrenderToEnemies = 65,
     /** TSL: a lightsaber burnt through a locked door. */
     DoorSaber = 67,
+    /**
+     * Total Defense: a saved command of this type is kept in the queue and
+     * saved again unchanged; it is not carried out.
+     */
     TotalDefense = 68,
     Meditate = 69,
     FollowOwner = 70,
@@ -329,7 +346,7 @@ enum class SavedExecutionSupport {
 struct SavedActionRecord;
 
 /**
- * A physical attack order as the game saves it: the ten parameters of an
+ * A saved physical attack order: the ten parameters of an
  * AttackObject command. They name the target and either a combat feat or the
  * values a cutscene attack forces; the rest are the same for every attack.
  */
@@ -404,18 +421,35 @@ struct SavedItemUseCommand {
 };
 
 /**
- * A walk as the game saves it: the thirteen parameters of a MoveToPoint
+ * A saved walk: the thirteen parameters of a MoveToPoint
  * command. They name the point and its area, an object walked to, how the
  * walk goes and how near it ends, and the time limit of a forced walk.
  */
 struct SavedMoveCommand {
+    /**
+     * What a walk keeps of its command without acting on it, so that it saves
+     * the same command again.
+     */
+    struct Carried {
+        /** The walk may end once within its range in a clear line, which every walk does already. */
+        bool clearLine {false};
+        /** Flags with no bearing on the walk. */
+        int32_t flags {0};
+        /** The tag of the order that set the walk going. */
+        int32_t orderTag {0};
+    };
+
     glm::vec3 destination {0.0f};
     SavedObjectReference area;
-    /** The object walked to; invalid for a walk to a point. */
+    /**
+     * The object walked to; invalid for a walk to a point. With an offset,
+     * the object the point was reckoned from.
+     */
     SavedObjectReference target;
     bool run {false};
     /** A walk to a point keeps to the straight line to it. */
     bool straight {false};
+    Carried carried;
     /** How near the point or the object the walk ends. */
     float range {0.0f};
     /** A forced walk not yet begun: it is forced to its end once timeout seconds have passed. */
@@ -425,7 +459,7 @@ struct SavedMoveCommand {
     bool forcedActive {false};
     uint32_t expiryDay {0};
     uint32_t expiryTime {0};
-    /** Where a walk to an object ends, from the object. */
+    /** Where the point lies from the object it was reckoned from. */
     glm::vec2 offset {0.0f};
 
     /** Reads the walk from a command, or none when its parameters do not describe one. */
@@ -504,12 +538,6 @@ struct SavedRoundClock {
     bool duel {false};
     static SavedRoundClock fromGff(const resource::Gff &, const SerializedIdentityContext &);
     std::shared_ptr<resource::Gff> toGff() const;
-};
-
-/** A creature's round that no queued command carries: its clock and whether it is a spell round. */
-struct SavedCreatureRound {
-    SavedRoundClock clock;
-    bool spellRound {false};
 };
 
 /** What a projectile shows: a spell's projectile, a thrown lightsaber's route, or a ranged attack's bolt. */
@@ -622,11 +650,13 @@ struct SavedPhysicalAction {
     std::vector<SavedCombatAttack> histories;
     /** A ranged round's shared attack record. */
     std::optional<SavedCombatAttack> roundRecord;
+    /** The progress has its state, and a source pair, target effects and a record for each attack it lists. */
+    bool isWellFormed() const;
     static SavedPhysicalAction fromGff(const resource::Gff &, const SerializedIdentityContext &);
     std::shared_ptr<resource::Gff> toGff() const;
 };
 
-/** A saved command: the game's action record, with the progress of a command under way. */
+/** A saved command: its action record, with the progress of a command under way. */
 struct SavedActionRecord {
     /** The command was issued by a scheduled round entry. */
     bool scheduled {false};
@@ -670,7 +700,19 @@ struct SavedActionRecord {
 };
 
 /**
- * An entry of a combat round's scheduled list (SchedActionList): the game's
+ * A creature's round that no queued command carries: its clock, whether it is
+ * a spell round, and the swung attack whose hits have not all landed.
+ */
+struct SavedCreatureRound {
+    SavedRoundClock clock;
+    /** The creature's round target; invalid for none. */
+    SavedObjectReference target;
+    bool spellRound {false};
+    std::optional<SavedActionRecord> command;
+};
+
+/**
+ * An entry of a combat round's scheduled list (SchedActionList): its saved
  * fields, with the command it runs, whether it has been applied and the pause
  * left on it.
  */
@@ -738,8 +780,8 @@ enum class SavedEventType : uint32_t {
     SpawnBodyBag = 17,
     ForcedAction = 18,
     ItemOnHitSpellImpact = 19,
-    BroadcastAoo = 20,
-    BroadcastSafeProjectile = 21,
+    AttackOfOpportunity = 20,
+    SafeProjectile = 21,
     FeedbackMessage = 22,
     AbilityEffectApplied = 23,
     SummonCreature = 24,
@@ -782,8 +824,8 @@ struct SavedBodyBag {
  */
 struct SavedOpenObject {};
 
-/** The game EVENT_BROADCAST_AOO stores an ObjectId in its generic DWORD Value. */
-struct SavedBroadcastAoo {
+/** A saved attack-of-opportunity event names its target. */
+struct SavedAttackOfOpportunity {
     SavedObjectReference target;
 };
 
@@ -799,7 +841,7 @@ using SavedEventPayload = std::variant<
     SavedScriptEvent,
     SavedBodyBag,
     SavedOpenObject,
-    SavedBroadcastAoo,
+    SavedAttackOfOpportunity,
     SavedCombatAttack,
     CombatFeedbackMessage>;
 
@@ -820,11 +862,15 @@ struct SavedEventRecord {
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
     SavedExecutionSupport executionSupport() const;
+    /**
+     * Whether a loaded event is kept: every event but a discarded one, its
+     * kind known or not.
+     */
     bool shouldRestore() const;
     bool bindObjectReferences(const Game &game);
 };
 
-/** Parsed module/server queue; list order is the authoritative queue order. */
+/** The module's saved event queue; list order is the queue order. */
 struct SavedEventQueue {
     std::vector<SavedEventRecord> events;
 

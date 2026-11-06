@@ -133,8 +133,8 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         return;
     }
     // A target that is dead, or a party member down at zero vitality, ends
-    // the attack; released discharges keep draining.
-    if (isAttackTargetDown(*target) && !_attacks.hasPendingMelee() && !_attacks.hasPendingDischarges()) {
+    // the attack.
+    if (isAttackTargetDown(*target)) {
         finish(attacker);
         return;
     }
@@ -166,96 +166,65 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
     attacker.setDesiredFacingToward(target->position());
 
-    // Once its round has been ended, a started attack has nothing left to do,
-    // also when its creature has been given a new round meanwhile: the attack
-    // does not carry over into it.
-    if ((_schedule.isMelee() || _schedule.isRanged()) && !_game.combat().runsRound(*self)) {
-        finish(attacker);
+    // A round held while the attacker owns none keeps the attack from starting,
+    // as does a paused round of the attacker's other than its own. An attack
+    // waits for no round end: the dispatcher takes no round action while its
+    // creature's round action is spent.
+    if (_game.combat().awaitsRoundPause(attacker, *self)) {
         return;
     }
-
-    // A round held while the attacker owns none keeps the attack from starting,
-    // as does a round the attacker has acted in that has not ended.
-    if (_game.combat().awaitsRoundEnd(attacker, *self)) {
+    // An attacker engaged by a partner that masters the exchange waits for the
+    // partner's swing to start its side.
+    if (_game.combat().awaitsMaster(attacker, *target)) {
         return;
     }
     const CombatRound &round = _game.combat().addAction(self, actor);
     if (round.suspends(*self)) {
         return;
     }
-    AttackSchedule::State state = _schedule.update(round, *self, dt);
-
-    // Gameplay updates
-    switch (state) {
-    case AttackSchedule::Attack: {
-        lock();
-        attacker.setMovementType(Creature::MovementType::None);
-        attacker.setMovementRestricted(true);
-
-        auto swing = beginPhysicalAttack(
-            attacker,
-            *target,
-            _services.game.animations,
-            _attacks,
-            _approach.forceJump,
-            true,
-            !_approach.withoutSwing);
-        if (!swing || isCompleted() || isCancelled()) {
-            return;
-        }
-        if (swing->animations.empty()) {
-            // The round still retires normally, without a swing or hit to emit.
-            _schedule.skipAttacks();
-            return;
-        }
-        _attacks.resolve(attacker, *target);
-        if (isCompleted() || isCancelled()) {
-            return;
-        }
-        presentPhysicalAttack(attacker, *target, _services.game.animations, _attacks, *swing);
-
-        // Hits and discharges are released from the next update on.
-        if (!swing->ranged) {
-            _attacks.prepareMeleeSequence(
-                _services.game.animations,
-                swing->animations);
-            _schedule.startMelee();
-        } else {
-            _schedule.startRanged();
-        }
+    if (_schedule.update(round, *self) != AttackSchedule::Attack) {
         return;
     }
-    case AttackSchedule::WaitDamage:
-    case AttackSchedule::Damage: {
-        if (_schedule.isMelee()) {
-            _attacks.signalReadyMelee(
-                _schedule.elapsedMilliseconds(),
-                _game,
-                _services,
-                attacker,
-                *target);
-        } else if (_schedule.isRanged()) {
-            _attacks.signalReadyRanged(
-                _schedule.elapsedMilliseconds(),
-                _game,
-                _services,
-                attacker,
-                *target);
-        }
-        // The pause end flushes the last hits; a round that ends with them
-        // clears their record before their events are delivered.
-        if (state == AttackSchedule::Damage && !isCompleted() && !isCancelled()) {
-            _game.combat().requestSettle(self);
-        }
-        break;
+
+    lock();
+    attacker.setMovementType(Creature::MovementType::None);
+    attacker.setMovementRestricted(true);
+    // Each swing turns the attacker toward its own target.
+    attacker.setOrientationLock(target->id());
+
+    auto swing = beginPhysicalAttack(
+        attacker,
+        *target,
+        _services.game.animations,
+        _attacks,
+        _approach.forceJump,
+        true,
+        !_approach.withoutSwing);
+    if (isCompleted() || isCancelled()) {
+        return;
     }
-    case AttackSchedule::Finish: {
+    // The attack is over with its swing; one with no swing or hit to show
+    // shows nothing.
+    if (!swing || swing->animations.empty()) {
         finish(attacker);
         return;
     }
-    default:
-        break;
+    _attacks.resolve(attacker, *target);
+    if (isCompleted() || isCancelled()) {
+        return;
     }
+    presentPhysicalAttack(attacker, *target, _services.game.animations, _attacks, *swing);
+
+    // The round lands the hits and discharges over the swing's pause.
+    if (!swing->ranged) {
+        _attacks.prepareMeleeSequence(
+            _services.game.animations,
+            swing->animations);
+        _schedule.startMelee();
+    } else {
+        _schedule.startRanged();
+    }
+    finish(attacker);
 }
 
 // An attack restored from a save was recorded as queued when it was given;
@@ -315,6 +284,9 @@ std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
 
 std::shared_ptr<Action> AttackObjectAction::restore(const SavedActionRecord &record, Game &game) {
     const auto command = SavedAttackCommand::fromAction(record);
+    if (!command || (record.physical && !record.physical->isWellFormed())) {
+        return nullptr;
+    }
     auto target = command->target.boundObject();
     if (!target) {
         return nullptr;
@@ -344,6 +316,11 @@ void AttackObjectAction::restorePhysicalState(const SavedPhysicalAction &state) 
     _approach.withoutSwing = state.state->getBool("NoSwing");
     _roundContinuation = state.state->getBool("RoundContinues");
     _continuationDispatched = state.state->getBool("ContinueTaken");
+    // An attack is over with its swing. An earlier save keeps one queued
+    // until its round ends.
+    if (_schedule.started()) {
+        complete();
+    }
 }
 
 void AttackObjectAction::finish(Creature &attacker) {

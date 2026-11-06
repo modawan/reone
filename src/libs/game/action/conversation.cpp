@@ -139,8 +139,8 @@ void StartConversationAction::handOffToPlayer(std::shared_ptr<Action> self, Obje
 }
 
 // Once the fade is done the player character takes the companion's place
-// facing the target, takes control, gets the player's input back, and hands
-// control back after the conversation.
+// facing the target, takes control with no select sound, gets the player's
+// input back, and hands control back after the conversation.
 bool StartConversationAction::takeOverFromCompanion(Object &actor) {
     if (_game.globalFade().fading()) {
         return false;
@@ -161,7 +161,7 @@ bool StartConversationAction::takeOverFromCompanion(Object &actor) {
     auto &party = _game.party();
     for (int i = 1; i < party.getSize(); ++i) {
         if (party.getMember(i).get() == &actor) {
-            party.setPartyLeaderByIndex(i);
+            party.setPartyLeaderByIndex(i, false);
             break;
         }
     }
@@ -176,6 +176,8 @@ void StartConversationAction::admit() {
     }
     _admitted = true;
     if (!_game.isConversationActive()) {
+        // A new request lets go of one no script answered.
+        _game.dropConversationRequest();
         _fadeDialog = _game.globalFade().admitDialog();
     }
     if (!_fadeDialog) {
@@ -215,6 +217,14 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     admit();
     // No conversation starts, whoever starts it, while the whole party is down.
     if (isPartyDown(_game.party())) {
+        cancel(self, actor);
+        complete();
+        return;
+    }
+    // Nor does a dead speaker, nor one whose partner is dead or can't be
+    // commanded, unless a companion handed it over.
+    if (actor.isDead() ||
+        (!_transferredFrom && _objectToConverse && (!_objectToConverse->isCommandable() || _objectToConverse->isDead()))) {
         cancel(self, actor);
         complete();
         return;
@@ -274,62 +284,18 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         }
     }
 
-    // Dialog owner selection - i.e. which participant's Conversation/DLG plays:
-    //
-    //  - Explicit DialogResRef: the named dialog is caller-owned (PR #150).
-    //
-    //  - Blank DialogResRef: a party member is always the listener, never the
-    //    dialog owner, so the OTHER participant owns the conversation:
-    //      * the target owns it when the target is not a party member and has
-    //        its own Conversation. This covers the player clicking an NPC or a
-    //        placeable, and a script pointing the caller at an invisible dialog
-    //        anchor whose Conversation is the scene's dialogue (an NPC told to
-    //        converse with such a placeable).
-    //      * otherwise the caller owns it when the caller has a Conversation.
-    //        This is the common NPC-starts-dialogue-with-the-PC shape, where the
-    //        target is the party member.
-    //      * otherwise fall back to the target's Conversation if it has one.
-    //
-    // Keyed only on party membership and Conversation presence, so it is generic
-    // (it does not depend on whether the PC/leader happens to have a
-    // Conversation field of its own).
-    std::shared_ptr<Object> dialogOwner;
-    if (!_dialogResRef.empty()) {
-        dialogOwner = actorPtr;
-    } else {
-        bool targetHasConversation =
-            _objectToConverse && !_objectToConverse->conversation().empty();
-        bool targetIsPartyMember =
-            _objectToConverse && _game.party().isMember(*_objectToConverse);
-        bool callerHasConversation = actorPtr && !actorPtr->conversation().empty();
-
-        if (targetHasConversation && !targetIsPartyMember) {
-            dialogOwner = _objectToConverse;
-        } else if (callerHasConversation) {
-            dialogOwner = actorPtr;
-        } else if (targetHasConversation) {
-            dialogOwner = _objectToConverse;
-        }
-    }
-
-    // If no valid owner can be resolved there is no dialogue to start (e.g. an
-    // invalid target combined with an empty resref). Complete the action so it
-    // does not block the queue, but do not dereference a null owner -
-    // Area::startDialog reads owner->conversation() for an empty resref.
-    if (!dialogOwner) {
+    // The one talked to hears the request, and its conversation script
+    // decides whether a conversation begins; the request is done and passes
+    // its admission on.
+    if (!_objectToConverse) {
         cancel(self, actor);
         complete();
         return;
     }
-
-    // The request is done before its conversation starts, and the
-    // conversation owns the admission from then on: the opening entry's
-    // scripts run inside the start, and may clear this request.
-    const auto listener = dialogOwner == actorPtr ? _objectToConverse : actorPtr;
     auto admission = std::move(_fadeDialog);
     complete();
-    _game.startDialog(dialogOwner, _dialogResRef.empty() ? dialogOwner->conversation() : _dialogResRef,
-                      std::move(admission), listener);
+    _game.requestConversation(actor, *_objectToConverse, _dialogResRef, _privateConversation, _ignoreStartRange,
+                              std::move(admission));
 }
 
 // A conversation names its dialog by a resource name of at most sixteen
@@ -379,6 +345,11 @@ std::shared_ptr<Action> StartConversationAction::restore(const SavedActionRecord
 void ResumeConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     _game.resumeConversationBy(actor);
     complete();
+}
+
+bool ResumeConversationAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    _game.releaseConversationPauseBy(actor);
+    return true;
 }
 
 std::optional<SavedActionRecord> ResumeConversationAction::saveFacingState() const {
@@ -491,8 +462,7 @@ std::shared_ptr<Action> SpeakStringByStrRefAction::restore(const SavedActionReco
 }
 
 void BarkStringAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
-
+    _game.bark(actor, _strRef);
     complete();
 }
 

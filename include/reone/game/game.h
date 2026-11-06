@@ -234,7 +234,7 @@ public:
         _combat(*this, services),
         _swoopRace(*this),
         _turret(*this, services),
-        _journal(services.resource.gffs, services.resource.strings),
+        _journal(services.resource.gffs, services.resource.strings, services.resource.twoDas),
         _floatingText(*this, services),
         _areaMusic(services),
         _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
@@ -266,6 +266,12 @@ public:
     void holdWorldClock() { _worldClockSample.reset(); }
 
     /**
+     * @return where the system cursor is to be moved, in screen coordinates,
+     * once; empty while it stays where it is
+     */
+    std::optional<glm::ivec2> consumePointerWarp();
+
+    /**
      * Play a movie, ending any module transition movies.
      *
      * @param streamingMusic whether area music set to play through movies
@@ -283,7 +289,8 @@ public:
     bool isFreeLook() const { return _freeLook; }
     /**
      * While blocked, the player's presses, pointer motion and wheel are
-     * ignored; releases still arrive, so nothing stays held.
+     * ignored, except by a movie playing; releases still arrive, so nothing
+     * stays held.
      */
     void setPlayerInputBlocked(bool blocked) { _playerInputBlocked = blocked; }
     /** Stops the leader's steering and the camera's turning and mouse-look. */
@@ -420,6 +427,8 @@ public:
     void setLeaderAnswersInDialog(bool leader) { _leaderAnswersInDialog = leader; }
     /** The party leader, rather than the player character, answers in conversations. */
     bool leaderAnswersInDialog() const { return _leaderAnswersInDialog; }
+    /** For a moment after a conversation's line or its replies come up, the left button and Return do nothing. */
+    void coolDownConversationClicks();
     /**
      * Whether a conversation is under way: from the moment one is asked for,
      * by a click to talk or a script, through the walk to the one talked to,
@@ -434,6 +443,17 @@ public:
         const std::string &message,
         std::shared_ptr<graphics::Texture> icon = nullptr,
         std::function<void()> onConfirm = {});
+    /**
+     * TSL: a script's message box, showing \p text with the icon
+     * \p iconResRef when it names one. Play pauses while it shows, unless it
+     * is paused already or a conversation is under way.
+     */
+    void showScriptMessageBox(const std::string &text, const std::string &iconResRef = "");
+    /** Show a message box answered Yes or No. False when the popup cannot be loaded. */
+    bool showConfirmPopup(
+        const std::string &message,
+        std::function<void()> onConfirm,
+        std::function<void()> onCancel = {});
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
     /**
@@ -455,9 +475,15 @@ public:
     void setAutoPauseOptions(const AutoPauseOptions &options);
     /** Write the autopause options to the configuration. */
     void saveAutoPauseOptions() const;
-    bool clientCombatMode() const { return _clientCombatMode; }
+    bool partyCombatMode() const { return _partyCombatMode; }
+    /**
+     * @return whether the dead-target hold runs: in combat mode, for a moment
+     * after the leader's target goes down, every creature is offered as
+     * hostile
+     */
+    bool isDeadTargetHoldRunning() const { return _deadTargetHold > 0.0f; }
     /** Combat mode follows the leader's, in the area it stands in. */
-    void syncClientCombatMode();
+    void syncPartyCombatMode();
     /**
      * Step the target through the nearby objects in bearing order: direction 0
      * turns counter-clockwise from the leader's facing, direction 1 clockwise.
@@ -534,8 +560,18 @@ public:
      */
     bool reconcilePartySelection(
         const std::vector<int> &selectedNpcs);
+    /**
+     * TSL: brings available puppet \p puppet into the area at \p position,
+     * dropping its actions; one already there leaves the area and comes back.
+     * None when the puppet can't be had or there is no area.
+     */
+    std::shared_ptr<Creature> spawnPuppet(int puppet, const glm::vec3 &position, float facing);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
+    /** Whether a map's travel script is running: the galaxy map's, or the return to base. */
+    bool isTravelScriptRunning() const;
+    /** KotOR: the map's return to base closes the menu and runs its script. */
+    void returnToBase();
     /** Whether the galaxy map may take the screen over from the given one. */
     static bool canOpenGalaxyMapFrom(Screen screen);
 
@@ -575,9 +611,33 @@ public:
      * from the main menu does.
      */
     void fadeOutMenuMusic();
-    void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
+    /** Whether the conversation started: false when it can't be loaded or shown. */
+    bool startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                      GlobalFade::DialogTicket admission = {},
                      const std::shared_ptr<Object> &listener = nullptr);
+    /**
+     * A request to talk from \p speaker reaches \p target as a conversation
+     * event naming \p resRef, whose conversation script decides whether a
+     * conversation begins (beginConversation). The request keeps
+     * \p admission until then.
+     */
+    void requestConversation(const Object &speaker, Object &target, const std::string &resRef,
+                             bool privateConversation, bool ignoreStartRange,
+                             GlobalFade::DialogTicket admission);
+    /** A conversation event lets the next conversation begun start while one is under way. */
+    void admitConversationRequest() { _conversationRequestAdmitted = true; }
+    /** The admission of a request no script has answered is let go. */
+    void dropConversationRequest();
+    /**
+     * \p self begins a conversation with \p target, or with the last one who
+     * spoke to it, from \p resRef, else the dialog its last conversation event
+     * named, else the owner's own: the player's partner owns it, as does the
+     * one a party member speaks to, and \p self otherwise. Refused while a
+     * conversation is under way, unless a conversation event came first.
+     *
+     * @return whether the conversation started
+     */
+    bool beginConversation(const std::shared_ptr<Object> &self, std::string resRef, std::shared_ptr<Object> target);
 
     GlobalFade &globalFade() { return _globalFade; }
     const GlobalFade &globalFade() const { return _globalFade; }
@@ -589,10 +649,27 @@ public:
     void pauseConversationBy(Object &caller);
     /** Resuming releases the caller's hold on the conversation and ends its stealth. */
     void resumeConversationBy(Object &caller);
+    /** A cleared resume lets go of a pause the caller holds, keeping its stealth. */
+    void releaseConversationPauseBy(Object &caller);
     /** The object stops taking part in the running conversation. */
     void stopConversationParticipation(const Object &object);
+    /** A script shows placed camera \p cameraId in the running conversation; nothing happens without one. */
+    void showConversationPlacedCamera(int cameraId);
 
     void setBarkBubbleText(std::string text, float durartion);
+    /**
+     * \p speaker barks the talk-table line \p strRef: the bark bubble shows
+     * its text for the time it takes to speak, and its sound plays as a bark.
+     */
+    void bark(Object &speaker, int strRef);
+    /** As bark(), with no speaker: the sound plays where the listener is. */
+    void bark(int strRef);
+    /**
+     * Plays \p sound, a barked line's sound, from where \p speaker stands,
+     * cutting off the bark sound before it. A creature's head speaks the line
+     * once when the sound has lip data.
+     */
+    void playBarkSound(Object &speaker, const std::string &sound);
     /** Show a combat-mode line for the controlled character. */
     void presentCombatMessage(int strref);
     /** End the choice of a party member to use an item on, if the main interface is making one. */
@@ -609,8 +686,6 @@ public:
      * time the player's own character can level up, runs the level-up dialog.
      */
     void finishStatusSummaryCycle();
-
-    int getPlotXP(const std::string &plotName);
 
     /** Award the whole-number percentage used by the GivePlotXP script routine. */
     void awardPlotXP(const std::string &plotName, int percentage);
@@ -784,8 +859,8 @@ public:
     /** Write the feedback options to the configuration. */
     void saveFeedbackOptions() const;
     /** The difficulty level the player chose: a difficultyopt.2da row. */
-    int clientDifficulty() const { return _options.game.clientDifficulty; }
-    void setClientDifficulty(int level) { _options.game.clientDifficulty = level; }
+    int difficultyLevel() const { return _options.game.clientDifficulty; }
+    void setDifficultyLevel(int level) { _options.game.clientDifficulty = level; }
     /** Write the difficulty level to the configuration. */
     void saveDifficultyLevel() const;
     /** Whether the mouse turns the camera unless the right button or a Ctrl key is held. */
@@ -807,6 +882,8 @@ public:
         uint32_t actor = script::kObjectInvalid,
         uint32_t subject = script::kObjectInvalid,
         uint32_t param = 0);
+    /** As above, for a window that hands its action back to \p onClosed once dismissed. */
+    bool requestTutorialWindow(int id, std::function<void()> onClosed);
     /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
     std::optional<int> feedbackTextStrRef(int row) const;
     /**
@@ -1121,19 +1198,31 @@ public:
     uint64_t worldTimeMilliseconds() const { return _worldTimeMilliseconds; }
     /** Apply an effect to the target through the module's event queue, after the delay. */
     void queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds = 0);
-    /** SignalEvent: the event runs on the target through the module's event queue. */
-    void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event);
+    /** SignalEvent: the event runs on the target through the module's event queue, after the delay. */
+    void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event,
+                          uint32_t delayMilliseconds = 0);
+    /**
+     * A click on \p target by \p clicker, sent by \p sender through the
+     * module's event queue after the delay; a transition's click carries its
+     * number.
+     */
+    void queueClick(const Object &target, const Object &sender, const Object &clicker,
+                    std::optional<int> transition = std::nullopt, uint32_t delayMilliseconds = 0);
+    /**
+     * \p creature passing through \p subArea in one step, signalled to it
+     * through the module's event queue in the order it crossed: it leaves and
+     * enters again when it ends \p inside, and enters and leaves otherwise.
+     */
+    void queuePassage(Object &subArea, const std::shared_ptr<Creature> &creature, bool inside);
     /** Remove an effect from the target through the module's event queue. */
     void queueEffectRemoval(Object &target, EffectId id);
-    /**
-     * Destroy the target after the delay. A destruction already pending for
-     * it stays pending; whichever falls due first destroys it.
-     */
-    void postObjectDestruction(Object &target, float delay);
     /** World time after a script delay, or none when the delay is dropped. */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
-    /** DelayCommand: a timed event that runs command as owner when due. */
-    void postDelayedCommand(Object &owner, std::shared_ptr<Action> command, float seconds);
+    /**
+     * DelayCommand and AssignCommand: a timed event from caller that runs
+     * command as owner when due.
+     */
+    void postDelayedCommand(Object &owner, std::optional<std::reference_wrapper<const Object>> caller, std::shared_ptr<Action> command, float seconds);
     /**
      * Visual programs 1601 and 1602 count their holders across all objects.
      * The speed blur turns on when the first holder is the player and turns
@@ -1168,8 +1257,13 @@ public:
     bool isVideoEffectHeldByScript() const { return _scriptVideoEffectHeld; }
     /** A swoop race or turret session is running. */
     bool isMiniGameActive() const;
-    /** DestroyObject: a destroy event for target after the delay. */
-    void postObjectDestruction(Object &target, std::optional<std::reference_wrapper<const Object>> caller, float seconds, bool keepsCallerFade);
+    /**
+     * Destroy the target after the delay, through a destroy event whose
+     * caller is \p callerId, kept whether or not that object still exists. A
+     * destruction already pending for the target stays pending; whichever
+     * falls due first destroys it.
+     */
+    void postObjectDestruction(Object &target, uint32_t callerId, float seconds, bool keepsCallerFade = false);
     /**
      * Every frame: the party falls when every member is down, and downed
      * members recover once no hostile has seen a member for a while.
@@ -1217,6 +1311,8 @@ public:
     LastSaveLaunch launchMostRecentSave();
     /** Whether a panel holds the input instead of the world: a popup in play, or an exclusive screen. */
     bool hasModalPanel() const;
+    /** The mouse turns the third-person camera in play, with no popup taking the input. */
+    bool isMouseLooking() const;
     /** End the game on the next frame, returning to the main menu. */
     void requestEndGame() {
         _endGamePending = true;
@@ -1239,6 +1335,14 @@ public:
      */
     bool isLoadingFromSaveGame() const { return _loadingFromSaveGame; }
     void setLoadingFromSaveGame(bool loading) { _loadingFromSaveGame = loading; }
+
+    /** The dialog the last request to talk named; empty for one that named none, or a shout. */
+    const std::string &lastConversation() const { return _lastConversation; }
+    void setLastConversation(std::string conversation) { _lastConversation = std::move(conversation); }
+
+    /** The number scripts keep for a button-mash check; nothing else reads it, and it is not saved. */
+    int buttonMashCheck() const { return _buttonMashCheck; }
+    void setButtonMashCheck(int check) { _buttonMashCheck = check; }
 
     /**
      * Persist the current state of one roster NPC over its availnpc record.
@@ -1297,6 +1401,11 @@ public:
     uint32_t worldTimeHour() const {
         return worldTimeOfDay() / (millisecondsPerWorldDay() / 24u);
     }
+    /**
+     * SetTime: the world clock moves on to the time of day, into the next day
+     * when that time is already past. Any negative field leaves it alone.
+     */
+    void advanceToTime(int hours, int minutes, int seconds, int milliseconds);
     /** World milliseconds since a calendar day and time; none for a moment still ahead. */
     uint64_t worldTimeSince(uint32_t day, uint32_t time) const {
         const uint64_t then = static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;
@@ -1609,8 +1718,12 @@ private:
     bool _soloModeQueryOpen {false};
     bool _freeLook {false};
     bool _playerInputBlocked {false};
+    /** When the left button and Return last started cooling down. */
+    std::optional<uint32_t> _clickCooldownStart;
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool _alternateActionsHeld {false};
+    /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
+    std::array<bool, 2> _menusTakeAlternateActions {};
     /** The world time a click was last shut off at, and for how long. */
     uint32_t _noClickDay {0};
     uint32_t _noClickTime {0};
@@ -1686,6 +1799,10 @@ private:
     bool _leaderAnswersInDialog {false};
     /** See isDialogUnderWay. */
     bool _dialogUnderWay {false};
+    /** The admission of the request to talk a conversation script has still to answer. */
+    GlobalFade::DialogTicket _conversationRequest;
+    /** See admitConversationRequest. */
+    bool _conversationRequestAdmitted {false};
     std::vector<HostileHilite> _hostileHilites;
 
     void showTarget(const std::shared_ptr<Object> &object, bool look, bool camera);
@@ -1701,6 +1818,7 @@ private:
         uint32_t actor {script::kObjectInvalid};
         uint32_t subject {script::kObjectInvalid};
         uint32_t param {0};
+        std::function<void()> onClosed;
     };
 
     /** The window asked for this frame; it opens on the next. */
@@ -1710,6 +1828,9 @@ private:
     int _tutorialPage {0};
     /** The open window paused play, and resumes it when dismissed. */
     bool _tutorialPausedGame {false};
+    /** A script's message box paused play, and resumes it when it closes. */
+    bool _messageBoxPausedGame {false};
+    void releaseMessageBoxPause();
 
     bool isTutorialWindowValid(int id) const;
     void commitTutorialWindow();
@@ -1770,9 +1891,9 @@ private:
     float _targetUnseenTime {0.0f};
     float _deadTargetHold {0.0f};
     float _targetMoveTime {0.0f};
-    bool _clientCombatMode {false};
-    RuntimeObjectRef<Creature> _clientCombatLeader;
-    RuntimeObjectRef<Area> _clientCombatArea;
+    bool _partyCombatMode {false};
+    RuntimeObjectRef<Creature> _partyCombatLeader;
+    RuntimeObjectRef<Area> _partyCombatArea;
     bool _keepStealthInDialog {false};
     bool _timingDiscontinuity {false};
     GlobalFade _globalFade;
@@ -1782,6 +1903,10 @@ private:
     std::set<std::string> _saveNames;
     bool _quitRequested {false};
     bool _relativeMouseMode {false};
+    /** Where the pointer stood when the mouse began turning the camera; set while it turns. */
+    std::optional<glm::ivec2> _mouseLookPointer;
+    /** Where the system cursor is to be moved, until the driver takes it. */
+    std::optional<glm::ivec2> _pointerWarp;
     bool _showImGui {false};
 
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
@@ -1831,6 +1956,8 @@ private:
     uint64_t _runtimeSessionGeneration {1};
     uint64_t _savedGraphGeneration {1};
     bool _loadingFromSaveGame {false};
+    std::string _lastConversation;
+    int _buttonMashCheck {0};
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};
@@ -1902,6 +2029,7 @@ private:
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;
+    bool _runningReturnScript {false};
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
@@ -1959,6 +2087,11 @@ private:
     std::shared_ptr<audio::AudioSource> _loadMusic;
     /** The coming module load follows transition movies, and plays no loading-screen music. */
     bool _loadComesWithMovies {false};
+    /** The sound of the last line barked, while it plays; every bark plays here. */
+    std::shared_ptr<audio::AudioSource> _barkVoice;
+
+    /** Plays a barked line's sound in place of the one before, at \p position or where the listener is. */
+    void startBarkVoice(const std::string &sound, std::optional<glm::vec3> position);
 
     // END Audio
 
@@ -1989,6 +2122,8 @@ private:
     void runLevelUpDialogOnce();
 
     void advanceWorldTime(double dt);
+    /** Sets \p event due at the world time \p milliseconds, as a day and a time of day. */
+    void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
     void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
     std::shared_ptr<const resource::SaveWorkingState>
@@ -2135,6 +2270,8 @@ private:
     void applyTarisForcedWinningTime();
 
     bool handleKeyDown(const input::KeyEvent &event);
+    /** Whether the event is a left button or Return press or release dropped while cooling down. */
+    bool isCoolingDown(const input::Event &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
     bool handleMouseButtonUp(const input::MouseButtonEvent &event);
@@ -2167,6 +2304,12 @@ private:
     bool isNearestObjectSeen(NearestObject &entry, const Creature &leader, const Area &area);
     bool isDownForSelection(const Creature &creature) const;
     void updateCamera(float dt);
+    /**
+     * When the mouse begins turning the camera, remember where the pointer
+     * stands; when it stops, put the pointer and the system cursor back there
+     * and move the mouse there once.
+     */
+    void updateMouseLookPointer();
     void updateSceneGraph(float dt);
     void updateImGui(float dt);
 
@@ -2228,7 +2371,6 @@ private:
     void initTables();
     /** Builds the input events and their default keys, and reads the key names. */
     void initInputEvents();
-    int getPlotXPByIndex(int plotIndex);
 
     using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);
     void registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler);

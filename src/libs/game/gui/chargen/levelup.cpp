@@ -19,7 +19,6 @@
 
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
-#include "reone/game/d20/spells.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
@@ -183,21 +182,11 @@ bool LevelUpMenu::hasFeatChoices() const {
 }
 
 bool LevelUpMenu::hasPowerChoices() const {
+    // A level offers powers when the newest class is a Jedi class that gains
+    // powers at its new level, whether or not any power can be shown.
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
-    if (!clazz) {
-        return false;
-    }
-
-    int targetClassLevel = attributes.getClassLevel(clazz->type()) + 1;
-    if (clazz->getPowerGain(targetClassLevel) <= 0) {
-        return false;
-    }
-
-    auto entries = _services.game.spells.getLevelUpDisplayEntries(attributes, *clazz, {});
-    return std::any_of(entries.begin(), entries.end(), [](const SpellDisplayEntry &entry) {
-        return entry.visible;
-    });
+    return clazz->getPowerGain(attributes.getClassLevel(clazz->type()) + 1) > 0;
 }
 
 } // namespace game

@@ -134,6 +134,10 @@ void Window::setRelativeMouseMode(bool isRelative) {
     SDL_SetWindowRelativeMouseMode(_window, isRelative);
 }
 
+void Window::warpMouse(int x, int y) {
+    SDL_WarpMouseInWindow(_window, static_cast<float>(x), static_cast<float>(y));
+}
+
 } // namespace graphics
 
 } // namespace reone

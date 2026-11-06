@@ -119,6 +119,10 @@ public:
         return static_cast<int>(_options.size());
     }
 
+    bool keepsPlayerCharacterAtOneHitPoint() const override {
+        return false;
+    }
+
 private:
     std::vector<DifficultyOption> _options {
         {-1, "Easy", 0.5f},
@@ -139,7 +143,7 @@ public:
     MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
     MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {
@@ -162,6 +166,8 @@ public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionUnavailable, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionMenuScroll, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestNewNotify, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestCompleteNotify, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
@@ -418,7 +424,6 @@ public:
     static void setSnapshotDoorState(Door &door, DoorState state);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
-    static void markSnapshotLinkedDoorHelper(Trigger &trigger);
     static void configureSnapshotCamera(
         StaticCamera &camera, int cameraId, glm::vec3 position,
         glm::quat orientation, float pitch, float height,

@@ -20,16 +20,17 @@
 #include "reone/game/animations.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/messagelog.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
-#include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/shaperules.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -93,30 +94,26 @@ void Trigger::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     std::string templateRes;
+    std::shared_ptr<Gff> utt;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
-        if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
-            deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
-            captureAuthoredRecord(*utt, gff);
-        }
+        utt = _services.resource.gffs.get(templateRes, ResType::Utt);
+    }
+    std::string blueprintClickScript;
+    if (utt) {
+        deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
+        captureAuthoredRecord(*utt, gff);
+        blueprintClickScript = utt->has("OnClick") ? _onClick : _onEnter;
     }
     deserializeAll(gff, identityContext);
-    loadAppearance();
-    updateTransform();
-}
-
-void Trigger::configureLinkedDoorTransition(const std::shared_ptr<Door> &door) {
-    _linkedDoor = door;
-    _linkedDoorTransition = true;
-    _linkedToModule = door->linkedToModule();
-    _linkedTo = door->linkedTo();
-    _linkedToFlags = door->linkedToFlags();
-    _transitionDestin = door->transitionDestination();
-    _name = _transitionDestin.str();
-    _geometry = door->linkedTransitionGeometry();
-
-    setPosition(door->position());
-    setFacing(door->getFacing());
+    // The click script of a trigger placed from a blueprint comes from the
+    // blueprint alone, and otherwise from the record itself. A record without
+    // an OnClick field answers clicks with its own OnEnter script.
+    if (utt) {
+        _onClick = std::move(blueprintClickScript);
+    } else if (!gff.has("OnClick")) {
+        _onClick = _onEnter;
+    }
     loadAppearance();
     updateTransform();
 }
@@ -379,11 +376,11 @@ void Trigger::fireMine(bool force) {
     std::shared_ptr<Item> key = repository->getItemByTag(keyTag);
     bool equippedKey = false;
     if (!key) {
+        // The last item worn with the tag is the key.
         for (const auto &[slot, item] : creature->equipment()) {
             if (item && item->tag() == keyTag) {
                 key = item;
                 equippedKey = true;
-                break;
             }
         }
     }
@@ -400,7 +397,7 @@ void Trigger::fireMine(bool force) {
                 }
             }
         }
-        disarmTrap(*creature);
+        disarmTrap(creature->id());
         area->destroyObject(*this);
         return;
     }
@@ -460,12 +457,6 @@ void Trigger::update(float dt) {
     _debugInsideAge = glm::max(0.0f, _debugInsideAge - dt);
     _debugEnterAge = glm::max(0.0f, _debugEnterAge - dt);
 
-    if (!isActive()) {
-        _tenants.clear();
-        syncDebugVisual();
-        return;
-    }
-
     std::set<std::shared_ptr<Object>> tenantsToRemove;
     for (auto &tenant : _tenants) {
         if (tenant && isIn(tenant->position())) {
@@ -474,23 +465,24 @@ void Trigger::update(float dt) {
         tenantsToRemove.insert(tenant);
     }
     for (auto &tenant : tenantsToRemove) {
-        _tenants.erase(tenant);
-        _lastLeftId = tenant->id();
-
-        if (_onExit.empty()) {
-            continue;
-        }
-
-        _game.scriptRunner().run(_onExit, _id);
+        removeTenant(tenant.get(), true);
     }
 
     syncDebugVisual();
 }
 
-void Trigger::addTenant(const std::shared_ptr<Object> &object) {
+void Trigger::recordTenant(const std::shared_ptr<Object> &object) {
     _tenants.insert(object);
-    _lastEnteredId = object->id();
     syncDebugVisual();
+}
+
+void Trigger::addTenant(const std::shared_ptr<Object> &object) {
+    recordTenant(object);
+    _lastEnteredId = object->id();
+    // An area transition runs no enter script.
+    if (isAreaTransition()) {
+        return;
+    }
     // Stepping on a trap goes through the trap, which runs the enter script itself.
     if (_isTrap) {
         fireMine(false);
@@ -518,11 +510,27 @@ void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
     }
     _game.scriptRunner().run(
         _onClick,
-        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-         {script::ArgKind::ClickingObject, script::Variable::ofObject(_lastEnteredId)}});
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
-void Trigger::removeTenant(const Object *object) {
+static constexpr int kEnteredEvent = static_cast<int>(SavedSignalEventType::Entered);
+
+void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition) {
+    _lastEnteredId = enterer ? enterer->id() : script::kObjectInvalid;
+    auto area = spatialArea();
+    if (!area) {
+        return;
+    }
+    // The trigger signals the entry to itself again: the one who entered is
+    // its first object, and the transition's number its second integer.
+    area->get().passTransition(enterer, transition, _linkedToModule, _linkedTo,
+                               [this](const Creature &traveller, int id, uint32_t delay) {
+                                   _game.queueScriptEvent(*this, *this,
+                                                          Event(kEnteredEvent, {0, id}, {}, {}, {_game.getObjectById(traveller.id())}), delay);
+                               });
+}
+
+void Trigger::removeTenant(const Object *object, bool announce) {
     for (auto it = _tenants.begin(); it != _tenants.end();) {
         if (it->get() == object) {
             it = _tenants.erase(it);
@@ -531,6 +539,14 @@ void Trigger::removeTenant(const Object *object) {
             ++it;
         }
     }
+    if (!announce) {
+        return;
+    }
+    _lastLeftId = object->id();
+    if (_onExit.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_onExit, _id);
 }
 
 bool Trigger::isIn(const glm::vec3 &point) const {
@@ -543,6 +559,13 @@ bool Trigger::isIn(const glm::vec3 &point) const {
     return sceneNode && sceneNode->isIn(glm::vec2(point));
 }
 
+bool Trigger::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
+    if (_isTrap) {
+        return shape::crossesSphere(from, to, _position, trapRadius());
+    }
+    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry);
+}
+
 float Trigger::trapRadius() const {
     const auto row = _services.game.spells.findRange(kTrapRadiusRange);
     return row && row->get().primary ? *row->get().primary : kDefaultTrapRadius;
@@ -551,41 +574,6 @@ float Trigger::trapRadius() const {
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {
     auto maybeTenant = find(_tenants.begin(), _tenants.end(), object);
     return maybeTenant != _tenants.end();
-}
-
-bool Trigger::isActive() const {
-    if (!_linkedDoorTransition) {
-        return true;
-    }
-    auto door = _linkedDoor.resolve();
-    return door && door->isOpen();
-}
-
-bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const {
-    if (_linkedToModule.empty() || !isActive()) {
-        return false;
-    }
-    if (!activator) {
-        return false;
-    }
-    // A following companion crossing a transition is ignored. Taking control
-    // of a companion makes it the leader, so it keeps the ability to
-    // transition and stays controlled in the destination.
-    return _game.party().movesBetweenModules(*activator);
-}
-
-bool Trigger::detachLinkedDoorTransition(const Door &door) {
-    auto linkedDoor = _linkedDoor.resolve();
-    if (!_linkedDoorTransition || linkedDoor.get() != &door) {
-        return false;
-    }
-
-    _linkedDoor.reset();
-    _linkedToModule.clear();
-    _linkedTo.clear();
-    _tenants.clear();
-    syncDebugVisual();
-    return true;
 }
 
 Trigger::DebugState Trigger::debugState() const {

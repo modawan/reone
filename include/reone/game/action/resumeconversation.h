@@ -34,6 +34,8 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    /** Cleared before it runs, it still lets go of the actor's pause. */
+    bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
 
     /** A saved ResumeConversation command. */

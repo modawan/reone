@@ -223,6 +223,9 @@ void InGameMenuHost::refreshK2Footer() {
     hide(_controls.LBL_DEBILATATED1);
     hide(_controls.LBL_DEBILATATED2);
     hide(_controls.LBL_DEBILATATED3);
+    hide(_controls.LBL_DISABLED1);
+    hide(_controls.LBL_DISABLED2);
+    hide(_controls.LBL_DISABLED3);
     hide(_controls.LBL_DISABLE1);
     hide(_controls.LBL_DISABLE2);
     hide(_controls.LBL_DISABLE3);

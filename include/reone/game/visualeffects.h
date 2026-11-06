@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <optional>
@@ -44,6 +45,25 @@ class Models;
 } // namespace resource
 
 namespace game {
+
+/**
+ * Whether \p visualId is one of the visual effects that are beams: those of
+ * both games, and two more in TSL. A death leaves such a beam in place, and
+ * EffectBeam takes no other visual.
+ */
+inline bool isBeamVisual(bool tsl, int visualId) {
+    static constexpr std::array<int, 16> kBeamVisualEffects {
+        2026, 2027, 2028, 2029, 2037, 2038, 2049, 2050,
+        2051, 2052, 2053, 2061, 2065, 2066, 4037, 6000};
+    static constexpr std::array<int, 2> kTSLBeamVisualEffects {2068, 2069};
+    const auto contains = [visualId](const auto &visuals) {
+        return std::find(visuals.begin(), visuals.end(), visualId) != visuals.end();
+    };
+    return contains(kBeamVisualEffects) || (tsl && contains(kTSLBeamVisualEffects));
+}
+
+/** The visual effect of the stealth field. */
+constexpr int kStealthFieldVisual = 8002;
 
 /**
  * The beam model a visual program draws: programs 608-621 in KotOR and

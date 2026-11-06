@@ -17,7 +17,14 @@
 
 #include "reone/game/journal.h"
 
+#include <algorithm>
+
+#include <boost/algorithm/string/predicate.hpp>
+
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
@@ -29,6 +36,25 @@ namespace reone {
 namespace game {
 
 static const char kGlobalJournalResRef[] = "global";
+
+void Journal::init() {
+    auto plots = getRequiredTwoDA(_twoDas, "plot");
+    _plots.clear();
+    for (int row = 0; row < plots->getRowCount(); ++row) {
+        _plots.push_back({plots->getString(row, "label"), plots->getInt(row, "xp")});
+    }
+}
+
+int Journal::plotXP(const std::string &label) const {
+    auto plot = std::find_if(_plots.begin(), _plots.end(), [&label](const Plot &row) {
+        return boost::iequals(row.label, label);
+    });
+    return plot != _plots.end() ? plot->xp : 0;
+}
+
+int Journal::plotXP(int plotIndex) const {
+    return plotIndex >= 0 && plotIndex < static_cast<int>(_plots.size()) ? _plots[plotIndex].xp : 0;
+}
 
 void Journal::reset() {
     _quests.clear();
@@ -119,6 +145,7 @@ void Journal::notifyQuestChanged(const JRL::Category *category, const JRL::Entry
         }
         if (entry) {
             change.xpPercentage = entry->xpPercentage;
+            change.end = entry->end;
         }
         _onQuestChanged(change);
     }

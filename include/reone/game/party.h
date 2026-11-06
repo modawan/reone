@@ -26,6 +26,7 @@
 #include <tuple>
 #include <vector>
 
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include "reone/game/galaxymapstate.h"
@@ -297,15 +298,18 @@ public:
      */
     bool setPartyLeader(int npc);
     /**
-     * Hand the lead to the first member that is a player character; nothing
-     * changes when it already leads or no member is one.
+     * Hand the lead to the first member that is a player character, with no
+     * select sound; nothing changes when it already leads or no member is
+     * one.
      */
     void leadWithPlayerCharacter();
     /**
      * Hand the lead to the member at an index: the members ahead of it move
      * to the back in their order.
+     *
+     * @param sound whether the new leader makes its select sound
      */
-    void setPartyLeaderByIndex(int index);
+    void setPartyLeaderByIndex(int index, bool sound = true);
     void setPlayer(const std::shared_ptr<Creature> &player);
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     /** Leaving solo mode ends the party's stealth. */
@@ -324,7 +328,16 @@ public:
      */
     bool addMember(int npc, std::shared_ptr<Creature> creature);
 
-    bool removeMember(int npc);
+    /**
+     * Take a companion out of the party.
+     *
+     * @param npc NPC number of the companion
+     * @param handOverLead whether a companion that leads first hands the lead
+     *        to the player character, as it does when a script or the party
+     *        selection removes it, but not when control changes hands
+     * @return whether the companion was a follower and has left
+     */
+    bool removeMember(int npc, bool handOverLead = false);
 
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
@@ -333,6 +346,21 @@ public:
      * character or the current leader does.
      */
     bool movesBetweenModules(const Object &object) const;
+    /**
+     * Whether the party may travel between areas and, in TSL, change its
+     * members: in KotOR while it keeps together, in TSL while nobody in it
+     * is down.
+     */
+    bool isReadyToTravel() const;
+    /** Whether a member of the party takes part in combat directly. */
+    bool isInCombat() const;
+    /**
+     * Let a traveller set off while the party is ready to travel; otherwise
+     * the transition-refused script runs on the traveller.
+     *
+     * @return whether the traveller may set off
+     */
+    bool admitTraveller(const Object &traveller);
     /**
      * Whether a companion travels with the party as a follower. A follower
      * whose creature was destroyed still does: its place stays, naming
@@ -584,15 +612,31 @@ public:
 
     // END Galaxy map
 
+    static constexpr int kDefaultReturnStrRef = 32179;
+    static constexpr int kDefaultReturnQueryStrRef = 42120;
+
+    // The map's return button, as a script last set it. Not saved.
+
+    /** Whether the map offers the return. */
+    bool isReturnOffered() const { return _returnOffered; }
+    /** The button's caption. */
+    int returnStrRef() const { return _returnStrRef; }
+    /** The question the return asks first. */
+    int returnQueryStrRef() const { return _returnQueryStrRef; }
+    void setReturn(bool offered, int strRef, int queryStrRef) {
+        _returnOffered = offered;
+        _returnStrRef = strRef;
+        _returnQueryStrRef = queryStrRef;
+    }
+
     // Inventory
     //
-    // KOTOR keeps a single shared party inventory, modelled here as the player
-    // creature's item list. Non-equipped items acquired by any party member
-    // belong to that shared inventory.
+    // The party's carried items are held by the player character's creature
+    // (actualPlayer).
 
-    // Returns the object that should receive a newly acquired, non-equipped
-    // item: the player creature when the intended receiver is a party member,
-    // otherwise the receiver unchanged (so non-party inventories stay separate).
+    // The object that receives an item given to \p receiver: the party's items
+    // when the receiver is a creature that draws on them
+    // (Creature::itemRepositoryOwner), otherwise the receiver itself.
     std::shared_ptr<Object> sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const;
 
     // END Inventory
@@ -638,6 +682,16 @@ public:
      * to the facing of the trail step the point lies on.
      */
     glm::vec3 formationSpot(int slot) const;
+    /** How far behind the leader the followers keep, by the party's follow state. */
+    float followRange() const;
+    /**
+     * Where an ordered follow sends \p member: its formation offset, a
+     * formation spacing further back, to be taken from the follow anchor. None
+     * for a creature outside the party.
+     */
+    std::optional<glm::vec2> forceFollowOffset(const Creature &member) const;
+    /** The point \p offset gives from the follow anchor, turned to the anchor's facing. */
+    glm::vec3 followAnchorPoint(const glm::vec2 &offset) const;
 
     // END Follow path
 
@@ -691,6 +745,9 @@ private:
     int _gold {0};
     int _xp {0};
     GalaxyMapState _galaxyMap;
+    bool _returnOffered {true};
+    int _returnStrRef {kDefaultReturnStrRef};
+    int _returnQueryStrRef {kDefaultReturnQueryStrRef};
     bool _pazaakDataValid {false};
     size_t _pazaakCardCount {kK1PazaakCardCount};
     PazaakCardCounts _pazaakCardCounts {};
@@ -707,6 +764,9 @@ private:
     /** The last point the leader reached in a clear line from the trail. */
     glm::vec3 _lastClearStep {0.0f};
     std::array<FollowSlot, kPartyFollowSlots> _followSlots {};
+    /** The point ordered follows of party members are taken from, and its facing. */
+    glm::vec3 _followAnchor {0.0f};
+    float _followAnchorFacing {0.0f};
 
     // END Follow path
 
@@ -743,8 +803,11 @@ private:
     int newestStep() const { return _followHead > 0 ? _followHead - 1 : kFollowSteps - 1; }
     static int stepAfter(int step) { return step > kFollowSteps - 2 ? 0 : step + 1; }
     static int stepBefore(int step) { return step > 0 ? step - 1 : kFollowSteps - 1; }
-    /** How far behind the leader the followers keep, by the party's follow state. */
-    float followRange() const;
+    /**
+     * The follow anchor moves to the point half a metre behind the leader,
+     * taking the leader's facing, once that point lies ten metres from it.
+     */
+    void updateFollowAnchor();
     /**
      * The point a distance back along the trail from the leader, not behind
      * the slot's own step, and the step it lies on. False for a trail too short.

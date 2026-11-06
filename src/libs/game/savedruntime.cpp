@@ -38,6 +38,7 @@
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
+#include "reone/game/action/orientcamera.h"
 #include "reone/game/action/pickupitem.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/putdownitem.h"
@@ -72,14 +73,14 @@ std::shared_ptr<Object> SavedObjectReference::boundObject() const {
 
 namespace {
 
-// A record only this build writes is written whole: one that lacks a field is
-// invalid.
-void requireFields(const resource::Gff &gff, std::initializer_list<const char *> labels) {
-    for (const char *label : labels) {
-        if (!gff.has(label)) {
-            throw ValidationException(std::string("Saved record has no ") + label);
-        }
+// A record only this build writes is written whole: one that lacks a field it
+// is read for is invalid. The read names the field it requires, so nothing
+// else lists what a record must hold.
+const char *required(const resource::Gff &gff, const char *label) {
+    if (!gff.has(label)) {
+        throw ValidationException(std::string("Saved record has no ") + label);
     }
+    return label;
 }
 
 template <class... Visitors>
@@ -136,16 +137,21 @@ std::vector<resource::Gff::Field> unknownFieldsOf(const resource::Gff &gff, cons
 }
 
 // The MoveToPoint command's flags: the walk runs, it is forced to its end once
-// its time limit has passed, and it keeps to the straight line to its point.
-// A walk to an object may also be headed for the object's use point already,
-// and may end once the object is within its range in a clear line.
+// its time limit has passed, it keeps to the straight line to its point, and
+// it may end once within its range in a clear line. A walk to an object may
+// also be headed for the object's use point already. The walk keeps the
+// remaining flags, and its use-point flag, without acting on them.
 constexpr int32_t kRunMoveFlag = 1;
 constexpr int32_t kTimedMoveFlag = 4;
 constexpr int32_t kStraightMoveFlag = 8;
 constexpr int32_t kUsePointMoveFlag = 512;
 constexpr int32_t kClearLineMoveFlag = 1024;
-constexpr int32_t kObjectWalkMoveFlags = kUsePointMoveFlag | kClearLineMoveFlag;
-constexpr int32_t kKnownMoveFlags = kRunMoveFlag | kTimedMoveFlag | kStraightMoveFlag | kObjectWalkMoveFlags;
+// The remaining flags: one on its own and two small fields.
+constexpr int32_t kKeptMoveFlag = 2;
+constexpr int32_t kKeptMoveFieldA = 0x70;
+constexpr int32_t kKeptMoveFieldB = 0x180;
+constexpr int32_t kCarriedMoveFlags = kKeptMoveFlag | kKeptMoveFieldA | kKeptMoveFieldB | kUsePointMoveFlag;
+constexpr int32_t kKnownMoveFlags = kRunMoveFlag | kTimedMoveFlag | kStraightMoveFlag | kClearLineMoveFlag | kCarriedMoveFlags;
 constexpr size_t kMoveCommandParameterCount = 13;
 
 SavedLocationValue savedLocationFromGff(const resource::Gff &gff) {
@@ -353,8 +359,8 @@ bool SerializedScriptSituation::bindObjectReferences(const Game &game) {
 }
 
 bool SerializedScriptSituation::isBoundToCurrentRuntimeSession(const Game &game) const {
-    // The game does not check the stack's objects: an object that does not
-    // resolve is simply an invalid object when the script reads it.
+    // The stack's objects are not checked: an object that does not resolve
+    // is simply an invalid object when the script reads it.
     return _runtimeSession &&
            *_runtimeSession == game._runtimeSessionGeneration;
 }
@@ -629,6 +635,14 @@ std::shared_ptr<resource::Gff> SavedPhysicalAction::toGff() const {
     return result;
 }
 
+bool SavedPhysicalAction::isWellFormed() const {
+    if (!state) {
+        return false;
+    }
+    const size_t attacks = state->getList("Attacks").size();
+    return sources.size() >= attacks * 2 && targetEffects.size() >= attacks && histories.size() >= attacks;
+}
+
 SavedPhysicalAction SavedPhysicalAction::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
     SavedPhysicalAction result;
     result.state = g.findStruct("State");
@@ -851,8 +865,10 @@ std::optional<SavedMoveCommand> SavedMoveCommand::fromAction(const SavedActionRe
     const int32_t flags = record.integerParameter(5);
     result.run = (flags & kRunMoveFlag) != 0;
     result.straight = (flags & kStraightMoveFlag) != 0;
+    result.carried.clearLine = (flags & kClearLineMoveFlag) != 0;
+    result.carried.flags = flags & kCarriedMoveFlags;
     result.range = record.floatParameter(6);
-    const int32_t subtype = record.integerParameter(7);
+    result.carried.orderTag = record.integerParameter(7);
     result.timeout = record.floatParameter(8);
     result.offset = glm::vec2(record.floatParameter(9), record.floatParameter(10));
     const int32_t day = record.integerParameter(11);
@@ -870,11 +886,11 @@ std::optional<SavedMoveCommand> SavedMoveCommand::fromAction(const SavedActionRe
         std::isfinite(result.destination.z) && std::isfinite(result.range) &&
         result.range >= 0.0f && std::isfinite(result.timeout) &&
         std::isfinite(result.offset.x) && std::isfinite(result.offset.y) &&
-        result.offset == glm::vec2(0.0f) && subtype == 0 && (flags & ~kKnownMoveFlags) == 0 &&
+        (flags & ~kKnownMoveFlags) == 0 &&
         // Only a walk to a point keeps to the straight line, and only a walk
-        // to an object heads for its use point or its clear line.
+        // to an object heads for its use point.
         (!result.straight || result.target.isInvalid()) &&
-        ((flags & kObjectWalkMoveFlags) == 0 || !result.target.isInvalid()) &&
+        ((flags & kUsePointMoveFlag) == 0 || !result.target.isInvalid()) &&
         !result.area.isInvalid() &&
         (ordinary || result.forcedPending || result.forcedActive);
     if (!valid) {
@@ -890,10 +906,10 @@ void SavedMoveCommand::toAction(SavedActionRecord &record) const {
     const auto integer = [](int32_t value) { return SavedActionParameter {kSavedIntegerParameter, value}; };
     const auto object = [](const SavedObjectReference &value) { return SavedActionParameter {kSavedObjectParameter, value}; };
     const int32_t flags = (run ? kRunMoveFlag : 0) | (forcedPending ? kTimedMoveFlag : 0) |
-                          (straight ? kStraightMoveFlag : 0);
+                          (straight ? kStraightMoveFlag : 0) | (carried.clearLine ? kClearLineMoveFlag : 0) |
+                          carried.flags;
     record.actionId = static_cast<uint32_t>(SavedActionType::MoveToPoint);
     record.declaredParameterCount = kMoveCommandParameterCount;
-    // The subtype is zero.
     record.parameters = {
         real(destination.x),
         real(destination.y),
@@ -902,7 +918,7 @@ void SavedMoveCommand::toAction(SavedActionRecord &record) const {
         object(target),
         integer(flags),
         real(range),
-        integer(0),
+        integer(carried.orderTag),
         real(timeout),
         real(offset.x),
         real(offset.y),
@@ -952,20 +968,19 @@ std::shared_ptr<resource::Gff> SavedCastAction::toGff() const {
 }
 
 SavedRoundClock SavedRoundClock::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
-    requireFields(g, {"Id", "Slot", "State", "Elapsed", "Duration", "PauseRemaining", "PauseOwner", "Master",
-                      "Engaged", "Joined", "Duel"});
+    auto field = [&g](const char *label) { return required(g, label); };
     SavedRoundClock s;
-    s.id = g.getUint64("Id");
-    s.slot = g.getInt("Slot");
-    s.state = g.getInt("State");
-    s.elapsed = g.getFloat("Elapsed");
-    s.duration = g.getFloat("Duration");
-    s.pauseRemaining = g.getFloat("PauseRemaining");
-    s.pauseOwner = SavedObjectReference::fromSerializedId(g.getUint("PauseOwner"), ids);
-    s.master = SavedObjectReference::fromSerializedId(g.getUint("Master"), ids);
-    s.engaged = SavedObjectReference::fromSerializedId(g.getUint("Engaged"), ids);
-    s.joined = g.getBool("Joined");
-    s.duel = g.getBool("Duel");
+    s.id = g.getUint64(field("Id"));
+    s.slot = g.getInt(field("Slot"));
+    s.state = g.getInt(field("State"));
+    s.elapsed = g.getFloat(field("Elapsed"));
+    s.duration = g.getFloat(field("Duration"));
+    s.pauseRemaining = g.getFloat(field("PauseRemaining"));
+    s.pauseOwner = SavedObjectReference::fromSerializedId(g.getUint(field("PauseOwner")), ids);
+    s.master = SavedObjectReference::fromSerializedId(g.getUint(field("Master")), ids);
+    s.engaged = SavedObjectReference::fromSerializedId(g.getUint(field("Engaged")), ids);
+    s.joined = g.getBool(field("Joined"));
+    s.duel = g.getBool(field("Duel"));
     return s;
 }
 std::shared_ptr<resource::Gff> SavedRoundClock::toGff() const {
@@ -974,43 +989,39 @@ std::shared_ptr<resource::Gff> SavedRoundClock::toGff() const {
 }
 
 SavedProjectile SavedProjectile::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
-    requireFields(g, {"Id", "Kind", "Caster", "Weapon", "Spell", "Path", "Model", "Leg", "Released", "Initialized",
-                      "Clockwise", "Elapsed", "Position", "Velocity", "Orientation", "Acceleration", "ParryBlocked",
-                      "ActivationDelay", "TravelRate", "SourceHook", "OrientMode", "TargetHook", "CombatResult",
-                      "SoundVariant", "Legs"});
     SavedProjectile p;
     auto ref = [&](const resource::Gff &r, const char *key) {
-        return SavedObjectReference::fromSerializedId(r.getUint(key), ids);
+        return SavedObjectReference::fromSerializedId(r.getUint(required(r, key)), ids);
     };
-    p.id = g.getUint64("Id");
-    p.kind = static_cast<ProjectileKind>(g.getInt("Kind"));
+    auto field = [&g](const char *label) { return required(g, label); };
+    p.id = g.getUint64(field("Id"));
+    p.kind = static_cast<ProjectileKind>(g.getInt(field("Kind")));
     p.caster = ref(g, "Caster");
     p.weapon = ref(g, "Weapon");
-    p.spellId = g.getInt("Spell");
-    p.path = g.getInt("Path");
-    p.model = g.getString("Model");
-    p.leg = g.getInt("Leg");
-    p.released = g.getBool("Released");
-    p.clockwise = g.getBool("Clockwise");
-    p.elapsed = g.getFloat("Elapsed");
-    p.position = g.getVector("Position");
-    p.velocity = g.getVector("Velocity");
-    p.orientation = g.getOrientation("Orientation");
-    p.acceleration = g.getVector("Acceleration");
-    p.activationDelay = g.getFloat("ActivationDelay");
-    p.travelRate = g.getFloat("TravelRate");
-    p.sourceHook = g.getString("SourceHook");
-    p.orientationMode = g.getInt("OrientMode");
-    p.targetHook = g.getString("TargetHook");
-    p.combatResult = g.getInt("CombatResult");
-    p.soundVariant = g.getInt("SoundVariant");
-    for (const auto &v : g.getList("Legs")) {
-        requireFields(*v, {"Source", "Target", "Origin", "Destination", "Duration", "Motion", "TargetOffset",
-                           "TargetHook", "OwnTargetHook", "StopRadius"});
+    p.spellId = g.getInt(field("Spell"));
+    p.path = g.getInt(field("Path"));
+    p.model = g.getString(field("Model"));
+    p.leg = g.getInt(field("Leg"));
+    p.released = g.getBool(field("Released"));
+    p.clockwise = g.getBool(field("Clockwise"));
+    p.elapsed = g.getFloat(field("Elapsed"));
+    p.position = g.getVector(field("Position"));
+    p.velocity = g.getVector(field("Velocity"));
+    p.orientation = g.getOrientation(field("Orientation"));
+    p.acceleration = g.getVector(field("Acceleration"));
+    p.activationDelay = g.getFloat(field("ActivationDelay"));
+    p.travelRate = g.getFloat(field("TravelRate"));
+    p.sourceHook = g.getString(field("SourceHook"));
+    p.orientationMode = g.getInt(field("OrientMode"));
+    p.targetHook = g.getString(field("TargetHook"));
+    p.combatResult = g.getInt(field("CombatResult"));
+    p.soundVariant = g.getInt(field("SoundVariant"));
+    for (const auto &v : g.getList(field("Legs"))) {
+        auto legField = [&v](const char *label) { return required(*v, label); };
         Leg leg {ref(*v, "Source"), ref(*v, "Target"),
-                 v->getVector("Origin"), v->getVector("Destination"), v->getFloat("Duration"),
-                 static_cast<ProjectileMotion>(v->getInt("Motion")), v->getVector("TargetOffset"), v->getString("TargetHook"),
-                 v->getBool("OwnTargetHook"), v->getFloat("StopRadius")};
+                 v->getVector(legField("Origin")), v->getVector(legField("Destination")), v->getFloat(legField("Duration")),
+                 static_cast<ProjectileMotion>(v->getInt(legField("Motion"))), v->getVector(legField("TargetOffset")),
+                 v->getString(legField("TargetHook")), v->getBool(legField("OwnTargetHook")), v->getFloat(legField("StopRadius"))};
         // Only a grenade's bounce keeps the ground it lands on.
         int32_t surface = 0;
         if (v->readInt(surface, "Surface")) {
@@ -1058,12 +1069,10 @@ SavedScheduledAction SavedScheduledAction::fromGff(
     record.applied = gff.getInt("Applied") != 0;
     record.remainingPause = gff.getFloat("PauseRemaining");
     const auto command = &SavedActionRecord::command;
-    // An entry of the game's own carries no command; its type and fields give it.
+    // An entry saved without a command takes it from its type and fields.
     // A combat stance entry's attack count names the stance.
     if (auto saved = gff.findStruct("Command")) {
         record.command = SavedActionRecord::fromGff(*saved, ids);
-    } else if (record.type == kCombatStanceType && record.numAttacks == static_cast<int32_t>(CombatStance::TotalDefense)) {
-        record.command = command(SavedActionType::TotalDefense, {{static_cast<uint32_t>(Type::Object), record.target}});
     } else if (record.type == kCombatStanceType && record.numAttacks == static_cast<int32_t>(CombatStance::Meditative)) {
         record.command = command(SavedActionType::Meditate, {});
     } else if (record.type == kSwitchWeaponsType) {
@@ -1217,6 +1226,16 @@ bool isMoveToObjectCommand(const SavedActionRecord &record) {
                                      Type::Integer});
 }
 
+// The range check in front of an action aimed at a point keeps the point, its
+// area, an object, the run flag and the range, and may keep whether its walk
+// may end in a clear line.
+bool isPointRangeCheckCommand(const SavedActionRecord &record) {
+    return record.hasParameterTypes({Type::Float, Type::Float, Type::Float, Type::Object, Type::Object, Type::Integer,
+                                     Type::Float}) ||
+           record.hasParameterTypes({Type::Float, Type::Float, Type::Float, Type::Object, Type::Object, Type::Integer,
+                                     Type::Float, Type::Integer});
+}
+
 // A wait keeps its seconds first.
 bool isWaitCommand(const SavedActionRecord &record) {
     return !record.parameters.empty() && std::holds_alternative<float>(record.parameters.front().payload);
@@ -1246,6 +1265,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::MoveToPoint, &isMoveCommand, &MoveToLocationAction::restore},
     {SavedActionType::MoveAwayFromObject, &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Integer>,
      &MoveAwayFromObject::restore},
+    {SavedActionType::CheckAfterJump, &hasParameters<>, &WaitAction::restoreAfterJump},
     {SavedActionType::JumpToLocation,
      &hasParameters<Type::Float, Type::Float, Type::Float, Type::Object, Type::Integer, Type::Float, Type::Float, Type::Float>,
      &JumpToLocationAction::restore},
@@ -1260,6 +1280,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::SpeakString, &hasParameters<Type::String, Type::Integer>, &SpeakStringAction::restore},
     {SavedActionType::CastSpell, &isSpellCommand, &CastSpellAction::restore},
     {SavedActionType::MoveToObject, &isMoveToObjectCommand, &MoveToObjectAction::restore},
+    {SavedActionType::PointRangeCheck, &isPointRangeCheckCommand, &MoveToLocationAction::restoreRangeCheck},
     {SavedActionType::FaceObject, &hasParameters<Type::Object>, &ChangeFacingAction::restore},
     {SavedActionType::OpenDoor, &hasParameters<Type::Object, Type::Integer>, &OpenDoorAction::restore},
     {SavedActionType::CloseDoor, &hasParameters<Type::Object, Type::Integer>, &CloseDoorAction::restore},
@@ -1291,6 +1312,8 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::ItemCastSpell, &isItemUseCommand, &CastSpellAction::restore},
     {SavedActionType::JumpToObject, &hasParameters<Type::Object, Type::Integer>, &JumpToObjectAction::restore},
     {SavedActionType::FacePoint, &hasParameters<Type::Float, Type::Float, Type::Float>, &ChangeFacingAction::restore},
+    {SavedActionType::OrientCamera, &hasParameters<Type::Integer, Type::Float, Type::Float, Type::Float, Type::Integer>,
+     &OrientCameraAction::restore},
     {SavedActionType::Appear, &hasParameters<>, &AppearAction::restore},
     {SavedActionType::Follow,
      &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Float, Type::Integer, Type::Float, Type::Float>,
@@ -1298,13 +1321,15 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::Heal, &hasParameters<Type::Object, Type::Object, Type::Integer, Type::Integer>,
      &UseSkillAction::restore},
     {SavedActionType::FollowCheck, &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Float>,
-     &FollowAction::restore},
+     &FollowCheckAction::restore},
     {SavedActionType::FollowLeader, &hasParameters<>, &FollowLeaderAction::restore},
     {SavedActionType::BarkString, &hasParameters<Type::Integer>, &BarkStringAction::restore},
     {SavedActionType::CombatDispatch, &hasParameters<Type::Integer>, &CombatDispatchAction::restore},
+    {SavedActionType::CheckFollowRange,
+     &hasParameters<Type::Float, Type::Float, Type::Float, Type::Object, Type::Object, Type::Integer, Type::Float>,
+     &WaitAction::restoreFollowRangeCheck},
     {SavedActionType::SurrenderToEnemies, &hasParameters<>, &SurrenderToEnemiesAction::restore},
     {SavedActionType::DoorSaber, &hasParameters<Type::Object>, &DoorSaberAction::restore},
-    {SavedActionType::TotalDefense, &hasParameters<Type::Object>, &CombatStanceAction::restore},
     {SavedActionType::Meditate, &hasParameters<>, &CombatStanceAction::restore},
     {SavedActionType::FollowOwner, &hasParameters<Type::Float>, &FollowOwnerAction::restore},
     {SavedActionType::SwitchWeapons, &hasParameters<>, &SwitchWeaponsAction::restore},
@@ -1447,11 +1472,11 @@ SavedEventRecord SavedEventRecord::fromGff(
         result.payload = savedBodyBagFromGff(*data, identityContext);
         break;
     case SavedEventType::OnMeleeAttacked:
-    case SavedEventType::BroadcastSafeProjectile:
+    case SavedEventType::SafeProjectile:
         result.payload = SavedCombatAttack::fromGff(*data, identityContext);
         break;
-    case SavedEventType::BroadcastAoo:
-        result.payload = SavedBroadcastAoo {
+    case SavedEventType::AttackOfOpportunity:
+        result.payload = SavedAttackOfOpportunity {
             SavedObjectReference::fromSerializedId(
                 data->getUint("Value"), identityContext)};
         break;
@@ -1480,7 +1505,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
     if (eventId == static_cast<uint32_t>(SavedEventType::SpellImpact) &&
         std::holds_alternative<SavedSpellImpact>(payload))
         return SavedExecutionSupport::Executable;
-    if (eventId == static_cast<uint32_t>(SavedEventType::BroadcastSafeProjectile)) {
+    if (eventId == static_cast<uint32_t>(SavedEventType::SafeProjectile)) {
         // Only a bolt with an attack result is shown.
         const auto *attack = std::get_if<SavedCombatAttack>(&payload);
         if (attack && attack->fields->result >= AttackResultType::HitSuccessful &&
@@ -1499,7 +1524,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
             Signal::UserDefined,
             Signal::Entered, Signal::Exited, Signal::ModuleLoaded, Signal::ItemActivated, Signal::ItemAcquired,
             Signal::ItemLost, Signal::EncounterExhausted, Signal::InventoryOpened, Signal::InventoryClosed,
-            Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
+            Signal::Disarmed, Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
         const auto *event = std::get_if<SavedScriptEvent>(&payload);
         if (event && delivered.count(static_cast<Signal>(event->type)) != 0) {
             return SavedExecutionSupport::Executable;
@@ -1516,6 +1541,15 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
         return SavedExecutionSupport::Executable;
     if (eventId == static_cast<uint32_t>(SavedEventType::FeedbackMessage) &&
         std::holds_alternative<CombatFeedbackMessage>(payload))
+        return SavedExecutionSupport::Executable;
+    // These kinds run whatever data they carry: an animation event without
+    // data shows nothing, and a creature stays in its area for a removal
+    // without data.
+    if (eventId == static_cast<uint32_t>(SavedEventType::RemoveFromArea) ||
+        eventId == static_cast<uint32_t>(SavedEventType::CloseObject) ||
+        eventId == static_cast<uint32_t>(SavedEventType::PlayAnimation) ||
+        eventId == static_cast<uint32_t>(SavedEventType::DecrementStackSize) ||
+        eventId == static_cast<uint32_t>(SavedEventType::AcquireItem))
         return SavedExecutionSupport::Executable;
     if (eventId == static_cast<uint32_t>(SavedEventType::ForcedAction)) {
         return SavedExecutionSupport::Discarded;
@@ -1559,8 +1593,8 @@ bool SavedEventRecord::bindObjectReferences(const Game &game) {
         }
     } else if (auto bodyBag = std::get_if<SavedBodyBag>(&payload)) {
         bindReference(game, bodyBag->object, allBound);
-    } else if (auto broadcast = std::get_if<SavedBroadcastAoo>(&payload)) {
-        bindReference(game, broadcast->target, allBound);
+    } else if (auto opportunity = std::get_if<SavedAttackOfOpportunity>(&payload)) {
+        bindReference(game, opportunity->target, allBound);
     } else if (auto combat = std::get_if<SavedCombatAttack>(&payload)) {
         bindReference(game, combat->reactionObject, allBound);
         bindReference(game, combat->ammoItem, allBound);

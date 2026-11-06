@@ -54,8 +54,9 @@ static constexpr int kDefaultOnHitDifficultyClass = 20;
 // The baseitems.2da model type of an item drawn as its wearer's body model.
 static constexpr int kBodyModelType = 1;
 
-// The length of a combat round.
-static constexpr float kRoundSeconds = 6.0f;
+// The seconds an On Hit state lasts per iprp_onhitdur round: KotOR, then TSL.
+static constexpr float kOnHitStateSecondsPerRoundK1 = 6.0f;
+static constexpr float kOnHitStateSecondsPerRoundTSL = 3.0f;
 
 // The iprp_onhit parameter table that gives a chance and duration.
 static constexpr int kOnHitDurationParameterTable = 1;
@@ -215,12 +216,16 @@ void Item::deserializeBase(const resource::Gff &gff) {
 
     auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
     _itemType = baseItems->getInt(_baseItem, "itemtype", 0);
+    _storePanelSort = baseItems->getInt(_baseItem, "storepanelsort", 0);
     _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
     _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
     _bodyModel = baseItems->getInt(_baseItem, "modeltype", 0) == kBodyModelType;
     _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
     _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
     _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
+    if (_damageFlags == 0) {
+        _damageFlags = static_cast<int>(_game.isTSL() ? DamageType::Bludgeoning : DamageType::Universal);
+    }
     _weaponMaterialType = baseItems->getInt(_baseItem, "weaponmattype", 0);
     _armorType = boost::to_lower_copy(baseItems->getString(_baseItem, "armortype"));
     _dieToRoll = baseItems->getInt(_baseItem, "dietoroll", 0);
@@ -396,6 +401,7 @@ void Item::clone(const Item &from) {
 
     _activateSpell = from._activateSpell;
     _itemType = from._itemType;
+    _storePanelSort = from._storePanelSort;
     _disguiseAppearance = from._disguiseAppearance;
     _properties = from._properties;
 
@@ -659,6 +665,10 @@ bool Item::isEquippable(int slot) const {
 }
 
 bool Item::isStackCompatibleWith(const Item &other) const {
+    return _maxStackSize > 1 && isIdenticalTo(other);
+}
+
+bool Item::isIdenticalTo(const Item &other) const {
     auto sameProperty = [](const PropertyEntry &lhs, const PropertyEntry &rhs) {
         return lhs.costTable == rhs.costTable &&
                lhs.costValue == rhs.costValue &&
@@ -669,8 +679,26 @@ bool Item::isStackCompatibleWith(const Item &other) const {
                lhs.upgradeType == rhs.upgradeType &&
                lhs.usesPerDay == rhs.usesPerDay;
     };
-    return _maxStackSize > 1 &&
-           _baseItem == other._baseItem &&
+    // Use properties and the other properties are compared as two lists, each
+    // in order; how the two kinds interleave plays no part.
+    const auto samePropertiesOfKind = [&](bool use) {
+        const auto nextOfKind = [use](auto it, auto end) {
+            return std::find_if(it, end, [use](const PropertyEntry &property) {
+                return isUseProperty(property.propertyName) == use;
+            });
+        };
+        auto lhs = nextOfKind(_properties.begin(), _properties.end());
+        auto rhs = nextOfKind(other._properties.begin(), other._properties.end());
+        while (lhs != _properties.end() && rhs != other._properties.end()) {
+            if (!sameProperty(*lhs, *rhs)) {
+                return false;
+            }
+            lhs = nextOfKind(std::next(lhs), _properties.end());
+            rhs = nextOfKind(std::next(rhs), other._properties.end());
+        }
+        return lhs == _properties.end() && rhs == other._properties.end();
+    };
+    return _baseItem == other._baseItem &&
            _plot == other._plot &&
            _charges == other._charges &&
            _upgrades == other._upgrades &&
@@ -681,12 +709,8 @@ bool Item::isStackCompatibleWith(const Item &other) const {
            _tag == other._tag &&
            _localizedName.id() == other._localizedName.id() &&
            _localizedName.str() == other._localizedName.str() &&
-           _properties.size() == other._properties.size() &&
-           std::equal(
-               _properties.begin(),
-               _properties.end(),
-               other._properties.begin(),
-               sameProperty);
+           samePropertiesOfKind(true) &&
+           samePropertiesOfKind(false);
 }
 
 bool Item::mergeStackFrom(Item &other) {
@@ -831,7 +855,7 @@ std::vector<ItemOnHitProperty> Item::itemOnHitProperties() const {
             selection.rounds = duration.rounds;
         }
         value.chance = selection.chance;
-        value.duration = selection.rounds * kRoundSeconds;
+        value.duration = selection.rounds * (_game.isTSL() ? kOnHitStateSecondsPerRoundTSL : kOnHitStateSecondsPerRoundK1);
 
         value.difficultyClass = tables.costTable(kOnHitDifficultyClassTable)
                                     .row(property.costValue)

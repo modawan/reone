@@ -149,7 +149,7 @@ uint16_t subTypeOf(DurationType durationType, EffectCategory category) {
 
 struct VersusParameterIndices {
     size_t race;
-    // Invisibility and sanctuary are limited by good and evil alone.
+    // Invisibility is limited by good and evil alone.
     std::optional<size_t> lawChaos;
     size_t goodEvil;
     // The slot compared against the opposing creature's alignment.
@@ -241,8 +241,6 @@ uint16_t serializedEffectType(EffectType type) {
         return SavedEffectTypes::skillIncrease;
     case EffectType::SkillDecrease:
         return SavedEffectTypes::skillDecrease;
-    case EffectType::Sanctuary:
-        return SavedEffectTypes::sanctuary;
     case EffectType::SeeInvisible:
         return SavedEffectTypes::seeInvisible;
     case EffectType::Ultravision:
@@ -466,8 +464,6 @@ EffectType runtimeEffectType(uint16_t serializedType, int state) {
         return EffectType::SkillIncrease;
     case SavedEffectTypes::skillDecrease:
         return EffectType::SkillDecrease;
-    case SavedEffectTypes::sanctuary:
-        return EffectType::Sanctuary;
     case SavedEffectTypes::seeInvisible:
         return EffectType::SeeInvisible;
     case SavedEffectTypes::ultravision:
@@ -582,7 +578,6 @@ std::optional<VersusParameterIndices> versusParameterIndices(uint16_t serialized
     case SavedEffectTypes::savingThrowDecrease:
         return VersusParameterIndices {3, 4, 5, 5};
     case SavedEffectTypes::invisibility:
-    case SavedEffectTypes::sanctuary:
         return VersusParameterIndices {1, std::nullopt, 3, 3};
     default:
         return std::nullopt;
@@ -915,8 +910,8 @@ void Effect::setCreatorFromCaller(const std::shared_ptr<Object> &caller) {
 }
 
 void Effect::setSaveFacingSpellId(int32_t spellId) {
-    // The game uses an all-bits-set SpellId for an independently applied effect;
-    // zero is a valid semantic grouping value.
+    // An effect applied independently of any spell has the all-bits-set spell
+    // id; zero is a valid grouping value.
     _saveFacingSpellId = static_cast<uint32_t>(spellId);
 }
 
@@ -1346,8 +1341,6 @@ int EffectInstance::scriptEffectType(bool tsl) const {
         return static_cast<int>(EffectType::NegativeLevel);
     case SavedEffectTypes::disguise:
         return static_cast<int>(EffectType::Disguise);
-    case SavedEffectTypes::sanctuary:
-        return static_cast<int>(EffectType::Sanctuary);
     case SavedEffectTypes::trueSeeing:
         return static_cast<int>(EffectType::TrueSeeing);
     case SavedEffectTypes::seeInvisible:

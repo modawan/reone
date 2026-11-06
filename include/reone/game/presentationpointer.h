@@ -38,7 +38,8 @@ public:
     /** Where the pointer last moved to, in screen coordinates. */
     glm::ivec2 position() const { return _position; }
     void setPressed(bool pressed);
-    void render(const graphics::GraphicsOptions &options, bool relativeMouseMode);
+    /** Draw the pointer, unless \p hidden. */
+    void render(const graphics::GraphicsOptions &options, bool hidden);
 
 private:
     resource::ICursors &_cursors;

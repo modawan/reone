@@ -131,6 +131,8 @@ struct Dialog {
     std::string resRef;
     bool skippable {false};
     std::string cameraModel;
+    /** The music the conversation plays once from its start; empty for none. */
+    std::string ambientTrack;
     std::vector<EntryReplyLink> startEntries;
     std::vector<EntryReply> entries;
     std::vector<EntryReply> replies;

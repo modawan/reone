@@ -129,6 +129,8 @@ private:
 int queryCasterLevel(const Object &object);
 /** The spell an item property casts for \p actor: in TSL, a wrist launcher launches grenades. */
 SpellType itemSpellForActor(const Object &actor, SpellType propertySpell);
+/** Whether a grenade's \p spell is thrown by hand: one before the spells a wrist launcher fires. */
+bool isHandThrownGrenadeSpell(SpellType spell);
 /** Casts the next item spell of \p caster at the level of its last class. */
 void publishItemCastLevel(Creature &caster);
 
@@ -162,8 +164,8 @@ ProjectilePathType normalizeProjectilePath(ProjectilePathType path);
 std::optional<ProjectilePathType> projectilePathFromScript(int value);
 /**
  * The casting source a script command picks for a creature: the first of its
- * first two classes that uses the Force, has uses of the spell left and can
- * cast it, else its spell-like ability for the spell when that is ready.
+ * classes that uses the Force, has uses of the spell left and can cast it,
+ * else its spell-like ability for the spell when that is ready.
  * Without either the command casts nothing.
  */
 std::optional<SpellSelection> scriptCastingSource(const Creature &caster, const Spell &spell);
@@ -179,7 +181,7 @@ void presentSpellRelease(Object &caster, const Spell &spell);
  */
 uint32_t spellProjectileTimeMilliseconds(
     const Spell &spell, const glm::vec3 &origin, const glm::vec3 &destination,
-    ProjectilePathType path, bool tsl);
+    ProjectilePathType path);
 /** The path a spell's projectile takes: the spell's own, unless another is given. */
 ProjectilePathType effectiveProjectilePath(const Spell &spell, ProjectilePathType overridePath);
 
@@ -197,7 +199,7 @@ bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
  * Use an item at once, as the inventory does: its first cast-spell property,
  * whether or not an upgrade gates it, takes effect on the user after the
  * user's last measured spell flight, with no action or animation (the release
- * still shows its cast sound and cast visuals), spends one
+ * still shows its cast sound and cast visuals, and is announced), spends one
  * use (an exhausted item is destroyed), and, in combat, holds back the next
  * item use. A party member's use breaks the forfeit condition that forbids
  * items.
@@ -282,6 +284,8 @@ public:
     void restore(const SavedCastAction &record);
     /** Whether the cast has not yet been released. */
     bool awaitingRelease() const { return _state < WaitFinish; }
+    /** Whether the cast has started and is still in its conjure. */
+    bool conjuring() const { return _state == Conjure || _state == WaitCast; }
     /** The seconds since the cast started. */
     float time() const { return _time; }
     /** The last update carried the cast's time across \p seconds. */
@@ -378,7 +382,11 @@ bool interruptEntangledCast(Creature &caster);
  */
 class CastPresenter {
 public:
-    /** The item use's presentation and times, computed when it starts. */
+    /**
+     * The item use's presentation and times, computed when it starts. A
+     * thrown item is thrown near or far by the distance to \p targetPosition,
+     * the location the use's command carries.
+     */
     const ItemUsePresentation &itemUse(const Creature &user, const Spell &spell, int itemType,
                                        std::optional<std::reference_wrapper<const Creature>> targetCreature, const glm::vec3 &targetPosition);
     /** Shows the cast or item use in \p state. */

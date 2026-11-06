@@ -27,6 +27,9 @@ namespace game {
 
 class WaitAction : public Action {
 public:
+    /** How long a creature holds after a jump before its next action. */
+    static constexpr float kAfterJumpSeconds = 0.75f;
+
     WaitAction(Game &game, ServicesView &services, float seconds) :
         Action(game, services, ActionType::Wait) {
         _timer.reset(seconds);
@@ -40,6 +43,10 @@ public:
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** A saved Wait command: the seconds left. */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
+    /** A saved check that follows a jump: the hold after the jump. */
+    static std::shared_ptr<Action> restoreAfterJump(const SavedActionRecord &record, Game &game);
+    /** A saved follower's check that it is near the point it walked to: it has nothing left to do. */
+    static std::shared_ptr<Action> restoreFollowRangeCheck(const SavedActionRecord &record, Game &game);
 
 private:
     Timer _timer;

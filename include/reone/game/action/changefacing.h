@@ -49,6 +49,10 @@ public:
 
     /** A saved FaceObject or FacePoint command; none once the object faced is gone. */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
+    /** The saved FaceObject command for a turn toward \p target. */
+    static SavedActionRecord savedCommand(const Object &target);
+    /** The saved FacePoint command for a turn toward \p point. */
+    static SavedActionRecord savedCommand(const glm::vec3 &point);
 
 private:
     std::shared_ptr<Object> _target;

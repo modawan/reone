@@ -29,14 +29,18 @@ namespace game {
  * Top-centre module transition banner: destination text over the banner
  * background, with the running-person icon beneath. Purely presentational -
  * accepts a destination string, never a live object, so it cannot hold stale
- * state across module unloads.
+ * state across module unloads. While travel is refused, the banner is drawn
+ * dimmed.
  */
 class AreaTransition : public GameGUI {
 public:
     AreaTransition(Game &game, ServicesView &services);
 
-    /** Show the banner and icon for a transition with the given destination. */
-    void show(const std::string &destination);
+    /**
+     * Show the banner and icon for a transition with the given destination,
+     * dimmed unless travel is open.
+     */
+    void show(const std::string &destination, bool travelOpen);
     void hide();
 
     bool isVisible() const { return _visible; }
@@ -55,7 +59,17 @@ private:
     bool _visible {false};
     std::string _destination;
 
+    /** Whether the banner is coloured for open travel rather than dimmed. */
+    bool _travelOpen {true};
+    /** The destination's colour while travel is open. */
+    glm::vec3 _travelOpenTextColor {1.0f};
+    /** The destination's colour while travel is refused. */
+    glm::vec3 _travelRefusedTextColor {1.0f};
+
     void onGUILoaded() override;
+
+    /** Colour the banner for open travel, or dim it while travel is refused. */
+    void setTravelOpen(bool open);
 
     void bindControls() {
         _controls.LBL_DESCRIPTION = findControl<gui::Label>("LBL_DESCRIPTION");

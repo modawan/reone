@@ -17,6 +17,7 @@
 
 #include "reone/game/surfaces.h"
 
+#include "reone/game/twodautil.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
@@ -28,10 +29,7 @@ namespace reone {
 namespace game {
 
 void Surfaces::init() {
-    std::shared_ptr<TwoDA> surfacemat(_twoDas.get("surfacemat"));
-    if (!surfacemat) {
-        return;
-    }
+    auto surfacemat = getRequiredTwoDA(_twoDas, "surfacemat");
     for (int row = 0; row < surfacemat->getRowCount(); ++row) {
         Surface surface;
         surface.label = surfacemat->getString(row, "label");

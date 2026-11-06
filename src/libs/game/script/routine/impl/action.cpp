@@ -16,6 +16,7 @@
  */
 
 #include <algorithm>
+#include <cmath>
 
 #include "reone/game/action/barkstring.h"
 #include "reone/game/action/castspellatlocation.h"
@@ -123,7 +124,7 @@ static Variable ActionMoveToLocation(const std::vector<Variable> &args, const Ro
 // Only a creature that can be commanded moves to an object, and only to one
 // standing in an area. The move ends with the object within the range or the
 // creature's use range for it, whichever is longer; a door or placeable is
-// walked to at its use point, only to that use range.
+// walked to at its use point.
 static void queueMoveToObject(const RoutineContext &ctx, std::shared_ptr<Object> target, bool run, float range,
                               bool force, float timeout) {
     auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
@@ -131,11 +132,10 @@ static void queueMoveToObject(const RoutineContext &ctx, std::shared_ptr<Object>
         return;
     }
     // The move and its check both take the longer of the range asked for and
-    // the caller's use range; a door or placeable is then closed on to the use
-    // range at the use point.
+    // the caller's use range.
     const float moveRange = std::max(range, caller->useRange(*target).range);
     caller->addAction(ctx.game.newAction<MoveToObjectAction>(
-        std::move(target), run, moveRange, force, timeout, false, moveRange, true));
+        std::move(target), run, moveRange, force, timeout, false, moveRange));
 }
 
 static Variable ActionMoveToObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -452,11 +452,22 @@ static Variable ActionForceFollowObject(const std::vector<Variable> &args, const
     auto fFollowDistance = getFloatOrElse(args, 1, 0.0f);
 
     // Transform
+    auto caller = getCaller(ctx);
 
     // Execute
-    auto action = ctx.game.newAction<FollowAction>(oFollow, fFollowDistance);
-    auto caller = getCaller(ctx);
-    caller->addAction(std::move(action));
+    // Only a creature follows. A party member heads for its place by the
+    // party's follow anchor; anyone else for the point the distance in front
+    // of the one followed. The follow sets out running from where the
+    // follower stands, a check queued behind it.
+    auto *creature = dyn_cast<Creature>(caller.get());
+    if (!creature) {
+        return Variable::ofNull();
+    }
+    const float facing = oFollow->getFacing();
+    const glm::vec2 point = ctx.game.party().forceFollowOffset(*creature).value_or(
+        glm::vec2(oFollow->position()) + fFollowDistance * glm::vec2(-std::sin(facing), std::cos(facing)));
+    caller->addAction(ctx.game.newAction<FollowAction>(oFollow, true, point, false, glm::vec2(caller->position())));
+    caller->addAction(ctx.game.newAction<FollowCheckAction>(std::move(oFollow), true, point));
     return Variable::ofNull();
 }
 
@@ -539,9 +550,7 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
         ctx.game.combat().clearAllOrders(*leader);
         leader->clearAllActions(true);
     }
-    // TSL refuses while a conversation runs or while nobody in the party
-    // stands: an empty first place counts as standing, an empty later one
-    // as down.
+    // TSL refuses while nobody in the party stands.
     if (ctx.game.isTSL()) {
         bool partyDown = true;
         for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
@@ -551,9 +560,14 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
                 break;
             }
         }
-        if (partyDown || ctx.game.isConversationActive()) {
+        if (partyDown) {
             return Variable::ofNull();
         }
+    }
+    // No conversation is asked for while one is under way, the walk to the
+    // one talked to included.
+    if (ctx.game.isDialogUnderWay()) {
+        return Variable::ofNull();
     }
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
@@ -572,10 +586,10 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
             member->applyEffect(std::move(revive), DurationType::Instant);
         }
     }
-    // The conversation is under way from now on. Unless told not to, the
-    // caller drops what it was doing first.
+    // The conversation is under way from now on. In TSL, unless told not to,
+    // the caller drops what it was doing first.
     ctx.game.setDialogUnderWay(true);
-    if (!dontClearAllActions) {
+    if (ctx.game.isTSL() && !dontClearAllActions) {
         caller->clearAllActions(true);
     }
     auto action = ctx.game.newAction<StartConversationAction>(
@@ -1032,9 +1046,14 @@ static Variable ActionBarkString(const std::vector<Variable> &args, const Routin
 
     // Transform
 
-    // Execute
+    // Execute: only a creature barks, and nobody does while a conversation is
+    // under way.
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!caller || ctx.game.isDialogUnderWay()) {
+        return Variable::ofNull();
+    }
     auto action = ctx.game.newAction<BarkStringAction>(strRef);
-    getCaller(ctx)->addAction(std::move(action));
+    caller->addAction(std::move(action));
     return Variable::ofNull();
 }
 

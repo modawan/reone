@@ -73,19 +73,22 @@ public:
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
-    void configureLinkedDoorTransition(const std::shared_ptr<Door> &door);
 
     void update(float dt) override;
     void resolveSavedReferences(
         const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) override;
 
     void addTenant(const std::shared_ptr<Object> &object);
+    /** Counts the object inside without announcing it: it must step out and in again to be announced. */
+    void recordTenant(const std::shared_ptr<Object> &object);
 
-    // Drop an object from the tenant set without firing OnExit. Used when an
-    // object is destroyed while standing inside the trigger: a destroyed object
-    // never moves, so Trigger::update would otherwise keep it as a tenant
-    // forever (leaking it and leaving the trigger stuck in the Inside state).
-    void removeTenant(const Object *object);
+    /**
+     * Drops an object from the tenants. Announced, it becomes the object that
+     * last left and the exit script runs. Unannounced, as for an object
+     * destroyed while standing inside, nothing runs: a destroyed object never
+     * moves, so it would otherwise stay a tenant for good.
+     */
+    void removeTenant(const Object *object, bool announce = false);
 
     /**
      * Whether a point is inside the trigger: for a trap, within the trap
@@ -93,13 +96,15 @@ public:
      * outline on the ground plane.
      */
     bool isIn(const glm::vec3 &point) const;
+    /**
+     * Whether the step from \p from to \p to crosses the trigger's edge: for a
+     * trap, the surface of its radius; otherwise its outline on the ground
+     * plane.
+     */
+    bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
-    bool isActive() const;
-    bool isLinkedDoorTransition() const { return _linkedDoorTransition; }
     /** Whether the trigger's type makes it an area transition. */
     bool isAreaTransition() const { return _triggerType == kAreaTransitionType; }
-    bool acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const;
-    bool detachLinkedDoorTransition(const Door &door);
 
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
     DebugState debugState() const;
@@ -116,6 +121,12 @@ public:
      * default one, takes the stock transition script for good.
      */
     void receiveClick(const std::shared_ptr<Object> &clicker);
+    /**
+     * A creature entering an area transition, or the transition's own entry
+     * signalled again with its number \p transition: it becomes the entering
+     * object, and the party passes as Area::passTransition() says.
+     */
+    void receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition = std::nullopt);
     const std::string &getOnExit() const { return _onExit; }
     /** The object that last came into the trigger, kept until the next one does. */
     uint32_t lastEnteredId() const { return _lastEnteredId; }
@@ -126,6 +137,8 @@ public:
 
     bool isTrap() const { return _isTrap; }
     bool isTrapped() const { return _isTrap; }
+    /** A trap trigger counts among the area's traps for as long as it stands. */
+    bool countsAsAreaTrap() const { return _isTrap; }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
@@ -184,8 +197,8 @@ public:
      * over it.
      */
     bool canFireMineOn(const Creature &creature, bool force) const;
-    /** The trap is disarmed by the caller: its disarm script runs. */
-    void disarmTrap(const Object &caller) { _trap.runDisarmScript(*this, caller); }
+    /** The trap is disarmed by \p disarmerId: its disarm script runs. */
+    void disarmTrap(uint32_t disarmerId) { _trap.runDisarmScript(*this, disarmerId); }
 
     // END Traps
 

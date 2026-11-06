@@ -819,6 +819,10 @@ ValidatedSlot validateSlot(
             throw std::runtime_error(
                 "Published Mod_NextObjId0 does not advance beyond ordinary object IDs");
         }
+        if (!reservedPartyIds.empty() && ifo->getUint("Mod_NextCharId0") >= *reservedPartyIds.begin()) {
+            throw std::runtime_error(
+                "Published Mod_NextCharId0 does not descend below reserved party IDs");
+        }
         auto screenshot = std::filesystem::exists(directory / kScreenshotName);
         if (screenshot != expected->screenshotPresent) {
             throw std::runtime_error("Published screenshot presence is wrong");

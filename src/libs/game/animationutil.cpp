@@ -247,7 +247,7 @@ int scriptAnimationRow(int id, bool characterModel) {
         int characterRow;
         int creatureRow;
     };
-    static constexpr std::array<ScriptAnimationRows, 64> kRows {{
+    static constexpr std::array<ScriptAnimationRows, 87> kRows {{
         {10000, 6, 256},   // pause1 / cpause1
         {10006, 81, 275},  // dead / cdead
         {10017, 63, -1},   // force cast
@@ -293,6 +293,7 @@ int scriptAnimationRow(int id, bool characterModel) {
         {10137, 76, 267},  // sleep
         {10139, 79, -1},   // prone
         {10142, 346, 346}, // custom
+        {10149, 6, 256},   // second pause
         {10150, 72, 264},  // choke
         {10151, 359, -1},  // third pause
         {10152, 360, 369}, // weld
@@ -304,6 +305,17 @@ int scriptAnimationRow(int id, bool characterModel) {
         {10163, 384, -1}, // talking on the knees
         {10164, 385, -1},
         {10165, 51, -1},  // checking a body
+        {10403, 462, -1}, // TSL: touching the heart
+        {10404, 463, -1}, // rolling the eyes
+        {10405, 464, -1}, // using an item on another
+        {10406, 465, -1}, // standing at attention
+        {10407, 466, -1}, // nodding yes
+        {10408, 467, -1}, // nodding no
+        {10409, 468, -1}, // pointing
+        {10410, 469, -1},
+        {10411, 470, -1},
+        {10412, 471, -1}, // scanning
+        {10413, 472, -1}, // shrugging
         {10414, 461, -1}, // rage
         {10418, 457, -1}, // sitting and meditating
         {10419, 458, -1}, // meditating standing
@@ -312,6 +324,17 @@ int scriptAnimationRow(int id, bool characterModel) {
         {10426, 318, -1},
         {10427, 319, -1},
         {10428, 320, -1},
+        {10499, 557, -1}, // TSL: cutting a hand
+        {10500, 558, -1}, // a hand cut off
+        {10501, 560, -1}, // collapsed
+        {10503, 561, -1}, // standing from the collapse
+        {10504, 562, -1}, // power punch
+        {10505, 563, -1}, // raising and lowering the pointing arm
+        {10506, 564, -1},
+        {10507, 565, -1}, // the hood off and on
+        {10508, 566, -1},
+        {10510, 568, -1}, // talking prone
+        {10511, 569, -1},
     }};
     const auto found = std::find_if(kRows.begin(), kRows.end(), [id](const ScriptAnimationRows &rows) { return rows.id == id; });
     if (found == kRows.end()) {

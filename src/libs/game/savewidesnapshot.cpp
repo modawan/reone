@@ -647,7 +647,7 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
                                const std::shared_ptr<Creature> &creature,
                                bool sharedInventoryOwner = false) {
             if (!creature) {
-                // The game keeps the last AVAILNPC/AVAILPUP record when its
+                // The last AVAILNPC/AVAILPUP record is kept when its
                 // transient runtime object is killed. An available but unbound
                 // slot therefore persists that detached record unchanged.
                 auto working =

@@ -261,9 +261,12 @@ public:
      * spot one direction's length along is tried first. Then come rows one,
      * two and more metres along, as many as whole personal spaces fit under
      * radius, row n holding 2n+1 spots a metre apart across the direction,
-     * from its left. Last, computeSafeLocation round base. With clearLine, a
-     * row spot must also be reachable in a straight line from base, unless
-     * the first spot is off walkable ground or among walls.
+     * from its left. Last, computeSafeLocation round base. With clearLine, no
+     * door wall may come within the creature's personal space of the level
+     * line from base to a row spot, from a tenth of a metre below the lower
+     * of their heights to the creature's height above it; other walls do not
+     * count. clearLine lapses when the first spot is off walkable ground or
+     * by a door wall.
      */
     std::optional<glm::vec3> computeSafeLocationInDirection(
         const glm::vec3 &base, const glm::vec3 &direction, float radius, const Creature &creature, bool clearLine) const;
@@ -284,10 +287,11 @@ public:
     bool hasDoorWallAlong(const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
     /**
      * The door or placeable with a wall, as it stands, within the creature's
-     * personal space of a point, between two heights.
+     * personal space of the level line between two points, between two
+     * heights.
      */
-    std::optional<std::reference_wrapper<const Object>> findStaticWallNear(
-        const glm::vec3 &point, const Creature &creature, float minZ, float maxZ) const;
+    std::optional<std::reference_wrapper<const Object>> findStaticWallAlong(
+        const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
     /** Which face of the room under a point gives the ground height there. */
     enum class GroundFace {
         Locating, /**< the walk-check face by which the room is found, within a thousand units of the point's height */
@@ -334,10 +338,15 @@ public:
     void budgeCreatures(const glm::vec3 &center, const graphics::AABB &bounds,
                         std::optional<std::reference_wrapper<const Door>> shutDoor = std::nullopt);
     /**
-     * Note a creature's new position in every encounter and area of effect,
-     * signalling entries and exits when announce is set.
+     * Note a creature's new position in every encounter, area of effect and
+     * door outline, signalling entries and exits when announce is set: the
+     * leader's entry into a door's outline clicks the door. A step from
+     * \p from that passes through an encounter or area of effect signals an
+     * entry and an exit there; a door outline counts only where the step
+     * ends.
      */
-    void updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce = true);
+    void updateSubAreaOccupancy(const std::shared_ptr<Creature> &creature, bool announce = true,
+                                std::optional<glm::vec3> from = std::nullopt);
 
     /**
      * The first creature the mover walks into on a step between two points,
@@ -423,8 +432,9 @@ public:
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
-     * centre of its bounding box for any other. A model no box holds, or one
-     * whose subclassification marks it so, is in every room.
+     * centre of its bounding box for any other. A model no box holds, one
+     * whose subclassification marks it so, or an object's model placed at the
+     * world origin, is in every room.
      */
     bool isModelInShownRoom(const scene::ModelSceneNode &model) const;
     /**
@@ -543,6 +553,37 @@ public:
 
     const CameraStyle &camStyleDefault() const { return _camStyleDefault; }
     bool transitionPending() const { return _transitionPending; }
+    /** The number the pending transition's click carries. */
+    int transitionPendingId() const { return _transitionPendingCurrentId; }
+    /**
+     * Sets the area's transition pending under \p id, or clears it. Setting it
+     * lets go of the movement keys held and blocks the player's input;
+     * clearing it gives the input back, as does the end of a load. A game
+     * restored with the transition pending does not block the input.
+     */
+    void setTransitionPending(bool pending, int id);
+    /**
+     * A transition to \p module, at \p waypoint, that \p traveller sets off
+     * through a linked door or an area transition, or that a pending one's
+     * number \p transition brings back to it. With no conversation under way,
+     * the player character or the leader sets it off while the party is ready
+     * to travel: \p sendAgain has the door or trigger signal itself again
+     * after a delay with a new number, over which the screen fades out while
+     * play goes on, the player's input is held and the pause lifted; on that
+     * signal the party travels, unless the traveller has died or gone down,
+     * which stops the fade. No creature, or a conversation under way, calls a
+     * pending transition off.
+     */
+    void passTransition(const std::shared_ptr<Object> &traveller, std::optional<int> transition,
+                        const std::string &module, const std::string &waypoint,
+                        const std::function<void(const Creature &traveller, int transition, uint32_t delayMilliseconds)> &sendAgain);
+    /** The next transition's number: one more than the last, wrapping round and never 0. */
+    int nextTransitionPendingId() {
+        if (++_transitionPendingNextId == 0) {
+            ++_transitionPendingNextId;
+        }
+        return _transitionPendingNextId;
+    }
     bool playerRestrictMode() const { return _playerRestrictMode; }
     /** Turning restrict mode on ends the party's stealth. */
     void setPlayerRestrictMode(bool value);
@@ -555,6 +596,8 @@ public:
     Pathfinder &pathfinder() { return _pathfinder; }
 
     void setUnescapable(bool value);
+    /** Whether the map's transit button is disabled; the area saves it. */
+    void setTransitDisabled(bool disabled) { _transitDisabled = disabled; }
 
     // Music and ambient sound
     //
@@ -628,6 +671,8 @@ public:
      */
     std::shared_ptr<Creature> getFirstFactionMember(Faction faction, int pc);
     std::shared_ptr<Creature> getNextFactionMember(Faction faction, int pc);
+    /** The faction's creatures in the order they joined it. */
+    std::vector<std::shared_ptr<Creature>> getFactionMembers(Faction faction);
 
     // END Objects
 
@@ -691,6 +736,12 @@ public:
         const glm::vec3 &position,
         float facing,
         bool preserveSavedPlacement = false);
+    /**
+     * Each creature of the area outside the party whose appearance has the
+     * normal head of the leader's appearance wears its backup head. A blank
+     * normal head reads as row 0.
+     */
+    void wearBackupHeadsApartFrom(const Creature &leader);
     /** End every session-owned creature's residency in this Area. */
     void retirePartyAreaRuntime();
     /** Bring an actor taking control into this Area at the given spot and announce it. */
@@ -743,6 +794,11 @@ public:
     float fogFar() const { return _fogFar; }
     /** The fog colour, red, green and blue from 0 to 1. */
     glm::vec3 fogColor() const { return resource::Gff::colorFromUint32(_sunFogColor); }
+    /**
+     * The fog is drawn in the colour given; the area keeps and saves it as a
+     * byte a channel, each channel's value times 255, cut to a whole number.
+     */
+    void setFogColor(const glm::vec3 &color);
 
     // END Fog
 
@@ -1008,6 +1064,14 @@ private:
         float step,
         const std::function<bool(float)> &continues,
         const std::function<std::optional<glm::vec3>(const glm::vec3 &, bool)> &accept) const;
+    /**
+     * Whether ways out from a spot are tested when a safe spot is searched
+     * from it: the spot stands on walkable ground, and no door wall comes
+     * within the creature's personal space of a diagonal reaching a
+     * hundredth of a metre either way in x and y, across the creature's
+     * height above the spot.
+     */
+    bool testsWaysFrom(const glm::vec3 &spot, const Creature &creature) const;
 
     /** Each creature's perception pass that is due, or every creature's with all. */
     void updatePerceptionPasses(float dt, bool all);
@@ -1025,7 +1089,7 @@ private:
     /** Run the notices of the pass that found them. */
     void dispatchPerceptionNotices();
     /** Mark the creatures the player is aware of. */
-    void updateClientPresence();
+    void updatePresence();
     void updateObjectSelection();
 
     /**
@@ -1050,7 +1114,14 @@ private:
      */
     resource::Visibility fixVisibility(const resource::Visibility &visiblity);
 
-    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions = true);
+    /**
+     * The triggers \p triggerrer has come into, entered. A step from \p from
+     * that crosses a trigger's edge and ends on the side it began on passes
+     * through it: one outside enters and leaves it, one inside leaves it and
+     * enters it again.
+     */
+    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions = true,
+                                   std::optional<glm::vec3> from = std::nullopt);
 
     // Fire OnEnter for non-transition triggers the party leader currently
     // occupies (so triggers fire when the leader is placed/spawned inside them,

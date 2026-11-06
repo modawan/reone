@@ -208,12 +208,12 @@ void lockObject(Object &target, Object &actor) {
     actor.game().queueScriptEvent(target, actor, Event(kLockedEvent));
 }
 
-void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
+bool jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
                           float radius, bool clearLine, Game &game) {
     auto area = game.module()->area();
     auto spot = area->computeSafeLocation(position, radius, creature, clearLine);
     if (!spot) {
-        return;
+        return false;
     }
 
     // The position changes at once; the creature's model turns to the new facing.
@@ -236,6 +236,7 @@ void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float f
         area->jumpCarriedAreaEffects(*live);
         area->updateSubAreaOccupancy(live);
     }
+    return true;
 }
 
 // After walking up to a locked door it steps right up to, a creature waits
@@ -256,7 +257,7 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
             return;
         }
         auto &creature = static_cast<Creature &>(actor);
-        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false)) {
+        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false, false)) {
             if (creature.navigationFailed()) {
                 // No path reaches the door: give up.
                 complete();
@@ -311,7 +312,7 @@ std::shared_ptr<Action> OpenDoorAction::restore(const SavedActionRecord &record,
 void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
 
-    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false);
+    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false, false);
     if (!reached && creatureActor->navigationFailed()) {
         // No path reaches the door: give up.
         complete();

@@ -40,9 +40,11 @@ namespace game {
 
 class Game;
 class Creature;
+class Item;
 class Object;
 struct ServicesView;
 struct SavingThrowBreakdown;
+struct Spell;
 enum class CreatureState : int;
 
 /**
@@ -135,7 +137,7 @@ struct CombatFeedbackMessage {
     bool targetOnly {false};
 
     /**
-     * Reads a message as the game saves it in a queued event.
+     * Reads a message as a save stores it in a queued event.
      *
      * @param gff the event's data
      * @param attackerId the event's caller, as saved: a mitigation line whose
@@ -146,7 +148,7 @@ struct CombatFeedbackMessage {
     static std::optional<CombatFeedbackMessage> fromGff(const resource::Gff &gff, uint32_t attackerId);
 
     /**
-     * Writes the message as the game saves it in a queued event.
+     * Writes the message as a save stores it in a queued event.
      *
      * @param targetId the event's object, as saved
      * @param attackerId the event's caller, as saved
@@ -341,17 +343,32 @@ void addLinkImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator,
                              ImmunityType immunity);
 
 /**
- * The spell-immunity line (1458): the target and the name of the spell it is
- * immune to, told to the target and to the caster, whichever is the
- * controlled creature. A creature that is both is told twice.
+ * The spell-immunity line (1458): the target and a power's name, told to the
+ * target and to the caster, whichever is the controlled creature. A creature
+ * that is both is told twice.
  *
  * @param game the game
  * @param target the immune creature
  * @param caster the object that cast the spell
- * @param spellName the spell's name
+ * @param spellName the name of the power the line names
  */
 void addSpellImmunityFeedback(Game &game, const Creature &target, const Object &caster,
                               const std::string &spellName);
+
+/**
+ * Announces in the combat log, highlighted, a creature's use of a power or
+ * an item, when the controlled creature is within 30 metres of it:
+ * "<caster> uses <power>.", naming the item when one is used, or the power's
+ * own line naming the caster. When the use charges Force points, the line
+ * goes on with the points spent, the power's base cost and the difference
+ * between them; in TSL, when it charges vitality, with the vitality spent.
+ *
+ * @param game the game
+ * @param caster the creature that used the power
+ * @param spell the power used
+ * @param item the item used, if any
+ */
+void addPowerUseFeedback(Game &game, const Creature &caster, const Spell &spell, const std::shared_ptr<Item> &item);
 
 /**
  * The hit-point healing line, told to the target and to a different creator,

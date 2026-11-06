@@ -40,7 +40,8 @@ public:
     /**
      * Shows the loading picture of the module named \p moduleName: the one its
      * row of the loading-screen table names, else its own load_ picture when
-     * there is one, else the one the table's default row names.
+     * there is one, else the one the table's default row names. No module
+     * name shows no picture.
      */
     void setModuleImage(const std::string &moduleName);
     /**

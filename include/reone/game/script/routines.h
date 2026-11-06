@@ -50,6 +50,7 @@ public:
         script::Variable (*fn)(const std::vector<script::Variable> &args, const RoutineContext &ctx));
 
     script::Routine &get(int index) override;
+    bool contains(int index) const override { return _routines.count(index) > 0; }
 
     int getNumRoutines() const override { return static_cast<int>(_routines.size()); }
     int getIndexByName(const std::string &name) const override;

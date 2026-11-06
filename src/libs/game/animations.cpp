@@ -192,10 +192,10 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
 void Animations::parseDialogAnims(TwoDA &dialogAnimDa) {
     for (int row = 0; row < dialogAnimDa.getRowCount(); ++row) {
         DialogAnimation anim;
-        anim.name = boost::to_lower_copy(dialogAnimDa.getString(row, "name"));
         anim.dialog = isDialogAnimationRow(dialogAnimDa, row);
         anim.looping = dialogAnimDa.getBool(row, "looping");
         anim.fireForget = dialogAnimDa.getBool(row, "fireforget");
+        anim.overlay = dialogAnimDa.getBool(row, "overlay");
         anim.pullBack = dialogAnimDa.getFloat(row, "cu_pb_range", 0.0f);
         _dialogAnims.push_back(std::move(anim));
     }

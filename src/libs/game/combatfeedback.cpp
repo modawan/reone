@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdlib>
 #include <initializer_list>
 #include <map>
 #include <stdexcept>
@@ -31,6 +32,7 @@
 #include "reone/game/effect/creaturestate.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 #include "reone/resource/gff.h"
 #include "reone/system/exception/validation.h"
 
@@ -90,6 +92,12 @@ static constexpr int kStrRefConstitution = 213;
 static constexpr int kStrRefWisdom = 214;
 static constexpr int kStrRefIntelligence = 215;
 static constexpr int kStrRefCharisma = 216;
+
+static constexpr int kStrRefPowerUse = 32292;
+static constexpr int kStrRefForcePointsSpent = 42006;
+static constexpr int kStrRefForceAdjustment = 42008;
+static constexpr int kStrRefForceAdjustmentWithVitality = 131356;
+static constexpr int kStrRefVitalityPointsSpent = 48451;
 
 static constexpr int kStrRefWeaponIneffective = 1473;
 static constexpr int kStrRefCriticalHitImmunity = 1480;
@@ -358,6 +366,35 @@ void addSpellImmunityFeedback(Game &game, const Creature &target, const Object &
     tellRecipients(game, {target, caster}, MessageLog::Buffer::Combat, [&] {
         return game.getFeedbackText(kStrRefDamageImmunity, {{0, target.name()}, {1, spellName}});
     });
+}
+
+void addPowerUseFeedback(Game &game, const Creature &caster, const Spell &spell, const std::shared_ptr<Item> &item) {
+    const auto controlled = game.party().getLeader();
+    if (!controlled || controlled->getSquareDistanceTo(caster) > kCombatFeedbackRangeSquared) {
+        return;
+    }
+    std::string text;
+    if (spell.altMessage) {
+        text = game.getFeedbackText(*spell.altMessage, {{0, caster.name()}});
+    } else {
+        text = game.getFeedbackText(kStrRefPowerUse, {{0, caster.name()}, {1, item ? item->name() : spell.name}});
+    }
+    const bool tsl = game.isTSL();
+    const auto charge = caster.spellForcePointCharge(spell);
+    const int vitality = tsl ? charge.spentHitPoints : 0;
+    if (charge.spentForce != 0) {
+        const int base = spell.forcePointCost;
+        const int difference = charge.spentForce - base;
+        const int adjustment = vitality != 0 ? kStrRefForceAdjustmentWithVitality : kStrRefForceAdjustment;
+        text += " " + game.getFeedbackText(kStrRefForcePointsSpent) + " " + std::to_string(charge.spentForce) +
+                " (" + std::to_string(base) + (difference < 0 ? " - " : " + ") + std::to_string(std::abs(difference)) +
+                " " + game.getFeedbackText(adjustment) + ")";
+    }
+    if (vitality != 0) {
+        text += " " + game.getFeedbackText(kStrRefVitalityPointsSpent) + " " + std::to_string(vitality) + " ";
+    }
+    game.messageLog().add(MessageLog::kFeedbackMessageType, MessageLog::Style::Combat, std::move(text),
+                          MessageLog::Buffer::Combat);
 }
 
 void addDispelFeedback(Game &game, ServicesView &services, const Object &target,

@@ -71,8 +71,8 @@ static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> 
             const glm::vec3 position {leader->position()};
             const float minZ = position.z - kStaticWallReach;
             const float maxZ = position.z + kStaticWallReach;
-            const auto wall = area.findStaticWallNear(target, *leader, minZ, maxZ);
-            if (!wall || area.findStaticWallNear(position, *leader, minZ, maxZ)) {
+            const auto wall = area.findStaticWallAlong(target, target, *leader, minZ, maxZ);
+            if (!wall || area.findStaticWallAlong(position, position, *leader, minZ, maxZ)) {
                 // The room under the step is looked for around height 0.
                 area.stepCreatureTo(leader, glm::vec3(glm::vec2(target), 0.0f), Area::MoveFacing::Keep);
                 return;

@@ -28,6 +28,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/damage.h"
+#include "reone/game/effect/damageresistance.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -411,6 +412,10 @@ void Object::receiveConversationEvent(ConversationEvent event) {
     _lastSpeaker = event.speaker;
     _listenPatternNumber = event.patternNumber;
     _matchedSubstrings = std::move(event.matchedPieces);
+    _lastConversation = event.conversation;
+    _privateConversation = event.privateConversation;
+    _game.setLastConversation(std::move(event.conversation));
+    _game.admitConversationRequest();
     runConversationScript();
 }
 
@@ -461,6 +466,11 @@ void Object::deserializeRuntimeState(
             SavedCreatureRound saved;
             saved.clock = SavedRoundClock::fromGff(*entry, identityContext);
             saved.spellRound = entry->getUint("SpellCastRound") != 0;
+            saved.target = SavedObjectReference::fromSerializedId(
+                entry->getUint("RoundTarget", kSavedRuntimeInvalidObjectId), identityContext);
+            if (const auto command = entry->findStruct("Command")) {
+                saved.command = SavedActionRecord::fromGff(*command, identityContext);
+            }
             _savedRounds.push_back(std::move(saved));
         }
         if (round->getUint("RoundPaused") != 0 && round->getInt("PauseTimer") > 0) {
@@ -471,6 +481,7 @@ void Object::deserializeRuntimeState(
     }
     if (auto *creature = dyn_cast<Creature>(this)) {
         creature->setWeaponIneffectiveReported(round && round->getUint("WeaponSucks") != 0);
+        creature->setRoundMaster(round && round->getInt("Master") != 0);
     }
     _savedRuntimePublished = false;
     if (_savedRuntimeParsed) {
@@ -568,6 +579,10 @@ void Object::bindSavedRuntimeState() {
         _game.bindSavedObjectReference(saved.clock.pauseOwner);
         _game.bindSavedObjectReference(saved.clock.master);
         _game.bindSavedObjectReference(saved.clock.engaged);
+        _game.bindSavedObjectReference(saved.target);
+        if (saved.command) {
+            saved.command->bindObjectReferences(_game);
+        }
     }
 }
 
@@ -728,6 +743,10 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             continue;
         }
         if (auto saved = saveAction(*action, index)) {
+            for (auto &command : action->rangeCheckCommands(*this)) {
+                command.groupActionId = node->groupId;
+                result.push_back(std::move(command));
+            }
             saved->groupActionId = node->groupId;
             saved->round = _game.combat().saveRound(*action);
             saved->scheduled = action->isScheduledCommand();
@@ -1015,11 +1034,12 @@ void Object::discardHostileActionGroups() {
 void Object::discardGroupNode(const OrdinaryActionQueue::Node &node) {
     if (node->action) {
         node->action->markCancelled();
-        // Nothing else of the cast is undone; only its conjuring projectile,
-        // which belongs to the action, goes with it.
+        // Nothing else of the cast is undone; only what belongs to the action
+        // goes with it: its conjuring projectile and visuals, and its holds on
+        // its caster's movement, pose and spell target.
         auto &command = node->action->combatAction();
         if (auto *cast = dyn_cast<CastSpellAction>(&command)) {
-            cast->dropPresentation();
+            cast->drop(*this);
         }
     }
     auto &queue = _actions.nodes;
@@ -1127,12 +1147,7 @@ bool Object::addActionBefore(const Action &parent, std::shared_ptr<Action> actio
         return false;
     }
     auto &nodes = _actions.nodes;
-    auto executing = _executingActionNode.lock();
-    auto position = std::find_if(nodes.begin(), nodes.end(), [&](const auto &node) {
-        return executing && executing->action.get() == &parent
-                   ? node == executing
-                   : node->action.get() == &parent;
-    });
+    const auto position = findActionNode(parent);
     if (position == nodes.end()) {
         return false;
     }
@@ -1143,6 +1158,23 @@ bool Object::addActionBefore(const Action &parent, std::shared_ptr<Action> actio
     nodes.insert(position, node);
     action->onQueued(*this);
     return true;
+}
+
+OrdinaryActionQueue::Nodes::const_iterator Object::findActionNode(const Action &action) const {
+    const auto executing = _executingActionNode.lock();
+    return std::find_if(_actions.nodes.begin(), _actions.nodes.end(), [&](const auto &node) {
+        return executing && executing->action.get() == &action
+                   ? node == executing
+                   : node->action.get() == &action;
+    });
+}
+
+std::optional<int> Object::actionGroup(const Action &action) const {
+    const auto position = findActionNode(action);
+    if (position == _actions.nodes.end()) {
+        return std::nullopt;
+    }
+    return (*position)->groupId;
 }
 
 void Object::removeActionsBehind(const Action &action, const std::function<bool(const Action &)> &matches) {
@@ -1226,7 +1258,7 @@ void Object::moveActionNodeToBack(const OrdinaryActionQueue::Node &node) {
 
 void Object::delayAction(std::shared_ptr<Action> action, float seconds) {
     if (!isRuntimeLive()) return;
-    _game.postDelayedCommand(*this, std::move(action), seconds);
+    _game.postDelayedCommand(*this, *this, std::move(action), seconds);
 }
 
 void Object::updateActions(float dt) {
@@ -1254,6 +1286,7 @@ void Object::executeActions(float dt) {
         _spellScriptContext.clearActiveTarget();
         if (auto *creature = dyn_cast<Creature>(this)) {
             creature->setAttemptedAttackTarget(script::kObjectInvalid);
+            creature->setAttemptedSpellTarget(script::kObjectInvalid);
             creature->resetAttemptedMovementTarget();
             creature->resetBlockingCreature();
         }
@@ -1265,10 +1298,7 @@ void Object::executeActions(float dt) {
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
         return;
     }
-    // An action that cannot be cleared is refused only to a party member at
-    // zero vitality.
-    const bool refused = creature && (action->isClearable() || creature->isTemporarilyDead()) &&
-                         !creature->permitsAction(*action);
+    const bool refused = creature && !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
     // ends the creature's combat modes.
     Action &command = action->combatAction();
@@ -1292,8 +1322,15 @@ void Object::executeActions(float dt) {
         throw;
     }
     _executingActionNode.reset();
-    // A round an attack asked to settle ends now, before events are delivered.
-    _game.combat().settleRequested();
+    // An action that completes behind the actions it queued ahead of itself
+    // leaves the queue now; one still in front leaves with the next update.
+    if (action->isCompleted()) {
+        auto &nodes = _actions.nodes;
+        const auto position = std::find(nodes.begin(), nodes.end(), node);
+        if (position != nodes.end() && position != nodes.begin()) {
+            nodes.erase(position);
+        }
+    }
 }
 
 bool Object::hasUserActionsPending(const Action *excluded) const {
@@ -1598,6 +1635,21 @@ bool Object::applyEffect(const std::shared_ptr<Effect> &effect,
     return applied;
 }
 
+void Object::applyHardness(int hardness) {
+    if (hardness == 0) {
+        return;
+    }
+    auto effect = _game.newEffect<DamageResistanceEffect>(static_cast<DamageType>(kAllDamageTypeFlags), hardness, 0);
+    EffectInstance instance = effect->saveFacingInstance();
+    instance.effect = std::move(effect);
+    instance.exposed = 0;
+    instance.setDuration(DurationType::Permanent, 0.0f);
+    // It is given as the object loads, before the object is live.
+    instance.id = _game.allocateEffectId();
+    instance.materialize();
+    admitEffect(std::move(instance));
+}
+
 bool Object::applyEffect(EffectInstance effect) {
     if (!isRuntimeLive()) {
         return false;
@@ -1878,27 +1930,30 @@ void Object::setFacing(float facing) {
     updateTransform();
 }
 
+void Object::updateSceneNodeEnabled() {
+    if (_sceneNode) {
+        _sceneNode->setEnabled(_present);
+        _sceneNode->setRendered(_visible);
+    }
+}
+
 void Object::setVisible(bool visible) {
     if (_visible == visible)
         return;
 
     _visible = visible;
 
-    if (_sceneNode) {
-        _sceneNode->setEnabled(_visible && _clientPresent);
-    }
+    updateSceneNodeEnabled();
 }
 
-void Object::setClientPresent(bool present) {
-    if (_clientPresent == present) {
+void Object::setPresent(bool present) {
+    if (_present == present) {
         return;
     }
 
-    _clientPresent = present;
+    _present = present;
 
-    if (_sceneNode) {
-        _sceneNode->setEnabled(_visible && _clientPresent);
-    }
+    updateSceneNodeEnabled();
 }
 
 std::shared_ptr<Item> Object::getFirstItem() {
@@ -2077,6 +2132,7 @@ std::shared_ptr<Effect> Object::getNextEffect() {
 
 void Object::applyDamageEffect(
     int amount,
+    int,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction>) {
 

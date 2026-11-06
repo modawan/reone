@@ -82,8 +82,10 @@ bool springTrapOnUse(Object &target, Object &actor);
  * makes the spot one the creature could walk straight to the position from. A
  * jumping leader starts the party's trail over at the spot, facing
  * \p trailFacing. With no safe spot the creature stays as it is.
+ *
+ * @return whether the creature found a spot and jumped to it
  */
-void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
+bool jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
                           float radius, bool clearLine, Game &game);
 
 } // namespace game

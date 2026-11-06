@@ -75,11 +75,37 @@ static float interfaceScalar(bool tsl, int screenWidth) {
     return tsl && screenWidth > 1022 ? 1.0f + ((screenWidth - 1022) / 1024) * 0.5f : 1.0f;
 }
 
+/**
+ * The state a party portrait shows, in order of precedence: fallen, able to
+ * level up, held helpless. A fallen member shows no mark; a pending level-up
+ * shows ahead of being held helpless.
+ */
+enum class PortraitState {
+    Normal,
+    Down,
+    LevelUp,
+    Debilitated
+};
+
+static PortraitState portraitState(const Creature &member) {
+    if (member.isDead() || member.isTemporarilyDead()) {
+        return PortraitState::Down;
+    }
+    if (member.isLevelUpPending()) {
+        return PortraitState::LevelUp;
+    }
+    if (member.isDebilitated()) {
+        return PortraitState::Debilitated;
+    }
+    return PortraitState::Normal;
+}
+
 // Effect stacks
 //
 // Each portrait shows one icon for every beneficial effect on its member and
-// one for every harmful effect, stacked over the portrait. The rules below lay
-// the icons out to the pixel as the game does.
+// one for every harmful effect, stacked over the portrait. A member who is
+// fallen, able to level up or held helpless shows no stacks. The icons are
+// laid out to the pixel by the rules below.
 
 /** The leader's portrait stacks at most nine icons of a kind; another member's at most five. */
 static constexpr int kLeaderEffectStackMax = 9;
@@ -364,17 +390,19 @@ void HUD::onGUILoaded() {
     _controls.LBL_DEBILATATED1->setVisible(false);
     _controls.LBL_DEBILATATED2->setVisible(false);
     _controls.LBL_DEBILATATED3->setVisible(false);
-    _controls.LBL_DISABLE1->setVisible(false);
-    _controls.LBL_DISABLE2->setVisible(false);
-    _controls.LBL_DISABLE3->setVisible(false);
+    // Layouts name the disabled marks either way, or lack them.
+    for (auto &disabled : {_controls.LBL_DISABLED1, _controls.LBL_DISABLED2, _controls.LBL_DISABLED3,
+                           _controls.LBL_DISABLE1, _controls.LBL_DISABLE2, _controls.LBL_DISABLE3}) {
+        if (disabled) {
+            disabled->setVisible(false);
+        }
+    }
     _controls.LBL_JOURNAL->setVisible(false);
     _controls.LBL_HEALTHBG->setVisible(false);
     _controls.LBL_ITEMRCVD->setVisible(false);
     _controls.LBL_ITEMLOST->setVisible(false);
     _controls.LBL_LIGHTSHIFT->setVisible(false);
     _controls.LBL_MAP->setVisible(false);
-    _controls.LBL_MOULDING1->setVisible(false);
-    _controls.LBL_MOULDING3->setVisible(false);
     _controls.LBL_NAME->setVisible(false);
     _controls.LBL_NAMEBG->setVisible(false);
     _controls.LBL_PLOTXP->setVisible(false);
@@ -382,7 +410,10 @@ void HUD::onGUILoaded() {
     _controls.LBL_ARROW->setVisible(false);
     _controls.BTN_TARGET0->setVisible(false);
 
+    // KotOR shows its three mouldings; TSL only the second.
     if (_game.isTSL()) {
+        _controls.LBL_MOULDING1->setVisible(false);
+        _controls.LBL_MOULDING3->setVisible(false);
         // The weapon swap queues through the leader's combat round.
         _controls.BTN_SWAPWEAPONS->setOnClick([this]() {
             if (auto leader = _game.party().getLeader()) {
@@ -405,7 +436,6 @@ void HUD::onGUILoaded() {
     } else {
         _controls.LBL_COMBATBG1->setVisible(false);
         _controls.LBL_COMBATBG2->setVisible(false);
-        _controls.LBL_MOULDING2->setVisible(false);
     }
 
     _controls.BTN_EQU->setOnClick([this]() {
@@ -452,7 +482,7 @@ void HUD::onGUILoaded() {
     // It also takes the rejection message off the action bar.
     _controls.BTN_CLEARALL->setOnClick([this]() {
         const auto leader = _game.party().getLeader();
-        leader->setClientCombatMode(false);
+        leader->setPartyCombatMode(false);
         _game.combat().clearAllOrders(*leader);
         _actionBar.clearRejection();
     });
@@ -730,6 +760,20 @@ void HUD::presentAlignmentShift(const StatusSummaryBatch &batch) {
     leader->applyEffect(std::move(instance));
 }
 
+void HUD::playSummarySounds(const StatusSummaryBatch &batch) {
+    auto &mixer = _services.audio.mixer;
+    const auto &sounds = _services.game.guiSounds;
+    if (batch.levelUpSound) {
+        mixer.play(sounds.getOnLevelUpNotify(), AudioType::Sound);
+    }
+    if (batch.questNewSound) {
+        mixer.play(sounds.getQuestNewNotify(), AudioType::Sound);
+    }
+    if (batch.questCompleteSound) {
+        mixer.play(sounds.getQuestCompleteNotify(), AudioType::Sound);
+    }
+}
+
 void HUD::flashStatus(StatusSummaryCategory category) {
     auto shared = [](StatusSummaryCategory flashed) -> std::optional<StatusSummaryCategory> {
         switch (flashed) {
@@ -826,18 +870,15 @@ void HUD::update(float dt) {
     auto &summary = _game.statusSummary();
     if (_statusSummary && !_game.feedbackOptions().statusSummary) {
         // With the summary option off, the pending rows only flash their
-        // indicators, a pending level-up chime plays, and the batch is
-        // dropped.
+        // indicators, the pending sounds play, and the batch is dropped.
         const auto &pending = summary.pending();
         for (auto category : pending.activeCategories()) {
             if (pending.flashes(category, _game.isTSL())) {
                 flashStatus(category);
             }
         }
+        playSummarySounds(pending);
         presentAlignmentShift(pending);
-        if (pending.levelUpSound) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
-        }
         const bool reported = !pending.empty();
         summary.discardPending();
         if (reported) {
@@ -846,14 +887,10 @@ void HUD::update(float dt) {
     } else if (_statusSummary && _statusSummary->presentPending()) {
         // The summary takes all input, releases included; steering stops.
         _game.stopMovement();
-        auto clip = _services.resource.audioClips.get("gui_quest");
-        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        playSummarySounds(*summary.displayed());
         presentAlignmentShift(*summary.displayed());
-        if (summary.displayed()->levelUpSound) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
-        }
-    } else if (summary.takeLevelUpSound()) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+    } else if (const auto sounds = summary.takeSoundBatch()) {
+        playSummarySounds(*sounds);
     }
 
     Party &party = _game.party();
@@ -902,11 +939,9 @@ void HUD::update(float dt) {
             LBL_CHAR.setVisible(true);
             LBL_CHAR.setBorderFill(member->portrait());
             LBL_BACK.setVisible(true);
-            // A fallen member shows no mark; otherwise a pending level-up
-            // shows ahead of being held helpless.
-            const bool down = member->isDead() || member->isTemporarilyDead();
-            const bool levelUp = !down && member->isLevelUpPending();
-            const bool debilitated = !down && !levelUp && member->isDebilitated();
+            const PortraitState state = portraitState(*member);
+            const bool levelUp = state == PortraitState::LevelUp;
+            const bool debilitated = state == PortraitState::Debilitated;
             // A member standing able to level up raises the level-up chime
             // once, until it levels up again.
             if (levelUp && member->isLevelUpChimeArmed()) {
@@ -952,7 +987,7 @@ void HUD::update(float dt) {
     }
 
     // With no one under control there is no combat mode to show.
-    if (auto leader = party.getLeader(); leader && leader->clientCombatMode()) {
+    if (auto leader = party.getLeader(); leader && leader->partyCombatMode()) {
         toggleCombat(true);
         refreshActionQueueItems();
     } else {
@@ -961,11 +996,16 @@ void HUD::update(float dt) {
 
     updateCombatMessage(dt);
     for (size_t i = 0; i < _statusFlashes.size(); ++i) {
-        auto label = statusFlashLabel(static_cast<StatusSummaryCategory>(i));
+        const auto category = static_cast<StatusSummaryCategory>(i);
+        auto label = statusFlashLabel(category);
         if (!label) {
             continue;
         }
-        _statusFlashes[i].update(dt);
+        // An indicator other than the journal's sounds the new quest notice
+        // as its flash gets under way; it plays with the next summary.
+        if (_statusFlashes[i].update(dt) && category != StatusSummaryCategory::Journal) {
+            summary.submitQuestSound(false);
+        }
         label->get().setVisible(_statusFlashes[i].visible());
     }
 
@@ -1010,7 +1050,7 @@ void HUD::showTransitionCapturePresentation(const std::string &destination) {
         throw std::runtime_error("Area-transition GUI is unavailable");
     }
     _captureTransitionPresentation = true;
-    _areaTransition->show(destination);
+    _areaTransition->show(destination, _game.party().isReadyToTravel());
 }
 
 void HUD::clearCapturePresentation() {
@@ -1034,7 +1074,7 @@ void HUD::updateTransitionPresentation() {
     }
     auto candidate = currentTransitionCandidate();
     if (candidate) {
-        _areaTransition->show(candidate->destination);
+        _areaTransition->show(candidate->destination, _game.party().isReadyToTravel());
     } else {
         _areaTransition->hide();
     }
@@ -1080,7 +1120,7 @@ void HUD::render() {
     if (_areaTransition && _areaTransition->isVisible()) {
         _areaTransition->render();
     }
-    _select.render();
+    _select.render(_actionBar.isLeaderDown());
     _actionBar.render(_gui->scale());
     _game.floatingText().render();
 }
@@ -1211,10 +1251,12 @@ void HUD::refreshActionQueueItems() const {
         *_controls.LBL_QUEUE1,
         *_controls.LBL_QUEUE2,
         *_controls.LBL_QUEUE3};
-    // The leader's round action under way, if any.
+    // The entry the leader's dispatcher last handed on, if any, and whether
+    // the leader's round action is under way.
     const auto current = _game.combat().currentRoundAction(*leader);
+    const bool running = _game.combat().isRoundActionUnderWay(*leader);
     // An icon takes the next slot and no icon takes none. The first slot is
-    // dimmed while nothing is under way.
+    // dimmed while no round action is under way.
     size_t shown = 0;
     auto show = [&](const std::shared_ptr<graphics::Texture> &icon) {
         if (!icon || shown == queueLabels.size()) {
@@ -1222,7 +1264,7 @@ void HUD::refreshActionQueueItems() const {
         }
         Label &label = queueLabels[shown].get();
         label.setBorderFill(icon);
-        label.setBorderAlpha(shown == 0 && !current ? kIdleActionQueueOpacity : 1.0f);
+        label.setBorderAlpha(shown == 0 && !running ? kIdleActionQueueOpacity : 1.0f);
         label.setVisible(true);
         ++shown;
     };
@@ -1265,10 +1307,10 @@ void HUD::refreshActionQueueItems() const {
 
     // Only attacks, casts, item uses and the round dispatcher show. The first
     // attack, cast or item use, or the dispatcher while a round action is
-    // under way, shows the action under way: an attack as that action, a cast
+    // under way, shows the entry last handed on: an attack as that entry, a cast
     // or item use as itself. Without one an attack shows nothing. The
     // dispatcher then shows each entry still pending, or with none pending
-    // and nothing shown yet, the stance or attack its round serves.
+    // and nothing shown yet, the attack its round serves.
     SmallVector<Combat::PendingEntry, kActionQueueSize> pending;
     _game.combat().pendingScheduled(*leader, pending);
     bool currentShown = false;
@@ -1282,7 +1324,7 @@ void HUD::refreshActionQueueItems() const {
         const SavedActionType type = node->type();
         const bool dispatcher = type == SavedActionType::CombatDispatch;
         const bool cast = type == SavedActionType::CastSpell || type == SavedActionType::ItemCastSpell;
-        if (((dispatcher && current) || cast || type == SavedActionType::AttackObject) && !currentShown) {
+        if (((dispatcher && running && current) || cast || type == SavedActionType::AttackObject) && !currentShown) {
             currentShown = true;
             if (cast) {
                 show(commandIcon(node->action->combatAction()));
@@ -1295,7 +1337,7 @@ void HUD::refreshActionQueueItems() const {
         }
         if (pending.empty()) {
             if (!currentShown) {
-                show(namedIcon(leader->isInTotalDefense() ? kDefensiveStanceIcon : g_attackIcon));
+                show(namedIcon(g_attackIcon));
             }
             continue;
         }
@@ -1339,6 +1381,9 @@ void HUD::renderEffectStacks() {
                 continue;
             }
             auto member = party.getMember(*memberIndex);
+            if (portraitState(*member) != PortraitState::Normal) {
+                continue;
+            }
             const bool leader = *memberIndex == 0;
             const auto &portrait = portraits[portraitIndex]->extent();
             auto counts = member->effectStackCounts();

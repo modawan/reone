@@ -115,6 +115,8 @@ public:
     // Traps
 
     bool isTrapped() const { return _trap.isArmed(); }
+    /** Whether the object counts among the area's traps; see Trap::countsAsAreaTrap(). */
+    bool countsAsAreaTrap() const { return _trap.countsAsAreaTrap(); }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
@@ -132,8 +134,10 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** An armed trap goes off on the caller; forced firing skips the standing test. */
     void triggerTrap(const std::shared_ptr<Creature> &caller, bool force);
-    /** The trap is disarmed by the caller. */
-    void disarmTrap(const Object &caller) { _trap.disarm(*this, caller); }
+    /** The trap is disarmed by \p disarmerId. */
+    void disarmTrap(uint32_t disarmerId) { _trap.disarm(*this, disarmerId); }
+    /** A disarm signal from \p disarmerId disarms the trap; it still counts among the area's traps. */
+    void disarmTrapOnSignal(uint32_t disarmerId) { _trap.disarmOnSignal(*this, disarmerId); }
     /** Arm a set mine; the linked mine trigger marks the trap in the world (TSL). */
     void armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                  const std::shared_ptr<Trigger> &linkedMine,
@@ -144,6 +148,13 @@ public:
     int appearance() const { return _appearance; }
     /** The name of the placeable's appearance, shown for a placeable that has none of its own. */
     int appearanceNameStrRef() const { return _appearanceNameStrRef; }
+    /**
+     * Whether the placeable's light is on, 0 for one whose appearance has no
+     * light colour in placeables.2da.
+     */
+    int lightState() const;
+    /** Turns the light on or off; one whose appearance has no light is left as it is. */
+    void setLightState(int state);
     Faction faction() const { return _faction; }
     void setFaction(Faction faction) { _faction = faction; }
     /** The placeable's own saving throw from its template; effects never change it. */
@@ -221,8 +232,8 @@ public:
     /**
      * The inventory of a closed placeable that has one opens on the
      * controlled creature's container screen, and its open script is
-     * signalled with the opener. Anyone else is refused, and the placeable
-     * takes its close pose.
+     * signalled with the opener. Anyone else, or anyone during a
+     * conversation, is refused, and the placeable takes its close pose.
      */
     void openInventory(Object &opener);
     /**
@@ -257,6 +268,7 @@ public:
 
     void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
 
@@ -295,6 +307,7 @@ private:
     bool _groundPile {false};
     uint32_t _appearance {0};
     int _appearanceNameStrRef {-1};
+    float _canSeeHeight {kEyeHeight};
     uint8_t _hardness {0};
     uint8_t _fort {0};
     uint8_t _will {0};
@@ -310,7 +323,7 @@ private:
     std::string _portrait;
     uint8_t _bodyBagId {0xFF};
     bool _dieWhenEmpty {false};
-    uint8_t _lightState {0};
+    uint8_t _lightState {1};
     resource::LocString _description;
 
     std::string _onClosed;

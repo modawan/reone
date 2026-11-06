@@ -136,6 +136,7 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
     }
 
     border->dimension = gui.DIMENSION;
+    border->innerOffset = gui.INNEROFFSET;
     border->color = gui.COLOR;
     border->pulseFrame = (gui.PULSING & kPulsingFrameFlag) != 0;
     border->pulseFill = (gui.PULSING & kPulsingFillFlag) != 0;

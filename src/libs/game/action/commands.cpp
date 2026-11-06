@@ -26,6 +26,7 @@
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/placeable.h"
@@ -120,8 +121,9 @@ std::optional<SavedActionRecord> DoCommandAction::saveFacingState() const {
 // An animation the actor has no clip for still takes a second.
 static constexpr float kNoClipSeconds = 1.0f;
 static constexpr float kCoalescingSeconds = 30.0f;
-// The animation constants a negative duration plays at once: in KotOR those up
-// to this one, in TSL those below the first and from the second on.
+// The animation constants a negative duration plays at once, none of them
+// negative: in KotOR those up to this one, in TSL those below the first and
+// from the second on.
 static constexpr int kLastImmediateAnimation = 32;
 static constexpr int kFirstQueuedAnimationTSL = 47;
 static constexpr int kFirstImmediateDialogAnimationTSL = 10001;
@@ -145,17 +147,10 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
     }
     const int animation = callerAnimationId(game, caller, constant);
     if (seconds < 0.0f) {
-        const bool direct = game.isTSL() ? (constant < kFirstQueuedAnimationTSL || constant >= kFirstImmediateDialogAnimationTSL)
-                                         : constant <= kLastImmediateAnimation;
-        if (!direct) {
-            return;
-        }
-        if (creature) {
-            creature->playScriptAnimation(creature->getScriptAnimation(animation), 1.0f);
-        } else if (auto *placeable = dyn_cast<Placeable>(&caller)) {
-            placeable->setStateAnimation(animation);
-        } else if (auto *door = dyn_cast<Door>(&caller)) {
-            door->setStateAnimation(animation);
+        const bool direct = constant >= 0 && (game.isTSL() ? (constant < kFirstQueuedAnimationTSL || constant >= kFirstImmediateDialogAnimationTSL)
+                                                           : constant <= kLastImmediateAnimation);
+        if (direct) {
+            showAnimation(caller, animation);
         }
         return;
     }
@@ -168,6 +163,16 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
         caller.addActionOnTop(std::move(action));
     } else {
         caller.addAction(std::move(action));
+    }
+}
+
+void showAnimation(Object &object, int animation) {
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->playScriptAnimation(creature->getScriptAnimation(animation), 1.0f);
+    } else if (auto *placeable = dyn_cast<Placeable>(&object)) {
+        placeable->setStateAnimation(animation);
+    } else if (auto *door = dyn_cast<Door>(&object)) {
+        door->setStateAnimation(animation);
     }
 }
 
@@ -298,6 +303,19 @@ std::optional<SavedActionRecord> WaitAction::saveFacingState() const {
 
 std::shared_ptr<Action> WaitAction::restore(const SavedActionRecord &record, Game &game) {
     return game.newAction<WaitAction>(record.floatParameter(0));
+}
+
+std::shared_ptr<Action> WaitAction::restoreAfterJump(const SavedActionRecord &record, Game &game) {
+    return game.newAction<WaitAction>(kAfterJumpSeconds);
+}
+
+// The check's only effect is on the party's own record of who is keeping up,
+// which the follow behind it takes care of; it ends at once.
+std::shared_ptr<Action> WaitAction::restoreFollowRangeCheck(const SavedActionRecord &record, Game &game) {
+    if (!std::dynamic_pointer_cast<Area>(record.objectParameter(3).boundObject())) {
+        return nullptr;
+    }
+    return game.newAction<WaitAction>(0.0f);
 }
 
 // Only non-player creatures are given this action; a player character's

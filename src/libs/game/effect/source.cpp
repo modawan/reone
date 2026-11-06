@@ -36,6 +36,10 @@ EffectSourceKey getEffectSourceKey(const EffectInstance &effect) {
             };
         }
     }
+    return getEffectSpellKey(effect);
+}
+
+EffectSourceKey getEffectSpellKey(const EffectInstance &effect) {
     if (effect.spellId != std::numeric_limits<uint32_t>::max()) {
         return {
             EffectSourceKind::Spell,
@@ -43,6 +47,33 @@ EffectSourceKey getEffectSourceKey(const EffectInstance &effect) {
         };
     }
     return {EffectSourceKind::Independent, effect.id};
+}
+
+void EffectSourceSlots::add(EffectSourceKey source, int amount, bool addsUp) {
+    if (source.kind != EffectSourceKind::Independent) {
+        auto it = _bySource.find(source);
+        if (it != _bySource.end()) {
+            it->second = addsUp ? it->second + amount : std::max(it->second, amount);
+            return;
+        }
+    }
+    if (_sources == _capacity) {
+        return;
+    }
+    ++_sources;
+    if (source.kind == EffectSourceKind::Independent) {
+        _independent += amount;
+    } else {
+        _bySource.emplace(source, amount);
+    }
+}
+
+int EffectSourceSlots::total() const {
+    int sum = _independent;
+    for (const auto &[source, amount] : _bySource) {
+        sum += amount;
+    }
+    return sum;
 }
 
 void EffectModifierReducer::addIncrease(

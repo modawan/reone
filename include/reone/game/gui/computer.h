@@ -46,6 +46,12 @@ protected:
     void onFinish() override;
     void onLoadEntry() override;
     void onEntryEnded() override;
+    /**
+     * The camera panel shows the feed, with its return label; nothing changes
+     * in an area that places no camera. An id the area doesn't place shows
+     * the view from the world origin.
+     */
+    bool takePlacedCameraView(int cameraId) override;
 
 private:
     /** What the conversation shows: nothing yet, the panel, or a camera shot. */
@@ -64,6 +70,10 @@ private:
     /** KotOR: the computer type the panel was last framed for, which numbers the backdrop. */
     int _computerType {0};
 
+    /** Whether the area places any camera; without one a camera shot changes nothing. */
+    bool placesCameras() const;
+    /** Aims the feed at the placed camera, or at the world origin for an id the area doesn't place. */
+    void aimPlacedCamera(int cameraId);
     /** Switches between the panel and a camera shot; the terminal hum starts when the panel shows. */
     void setPresentation(Presentation presentation);
     /** Starts the terminal hum from its beginning. */

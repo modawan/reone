@@ -55,10 +55,6 @@ private:
     struct Participant {
         std::shared_ptr<graphics::Model> model;
         RuntimeObjectRef<Creature> creature;
-        bool mixedStuntActive {false};
-        glm::vec3 restorePosition {0.0f};
-        float restoreFacing {0.0f};
-        bool restoreCulling {true};
     };
 
     /**
@@ -83,7 +79,13 @@ private:
     Controls _controls;
 
     RuntimeObjectRef<Object> _currentSpeaker;
-    std::map<std::string, Participant> _participantByTag;
+    /** Orders participant names whatever their case, as the stunts and animations name them. */
+    struct ParticipantNameLess {
+        bool operator()(const std::string &lhs, const std::string &rhs) const {
+            return boost::algorithm::ilexicographical_compare(lhs, rhs);
+        }
+    };
+    std::map<std::string, Participant, ParticipantNameLess> _participantByTag;
 
     /**
      * The pair that turns to each other on each entry, and the pair before it.
@@ -121,6 +123,8 @@ private:
     void repositionMessage();
 
     void updateCamera();
+    /** A cinematic conversation shows only a camera its area places; the dialog camera takes its place too. */
+    bool takePlacedCameraView(int cameraId) override;
     /** Frames the camera shot of \p shot, an entry or a reply, at \p angle. */
     void frameShot(const resource::Dialog::EntryReply &shot, int angle);
     /** How far the face shot of the speaker pair pulls back. */
@@ -146,6 +150,8 @@ private:
     void turnToward(Object &turner, const std::shared_ptr<Object> &other);
     /** Release the pair's looks and forget the pair. */
     void endSpeakerPair();
+    /** The speaker and the listener of the pair drop their orientation locks, without turning. */
+    void dropPairOrientationLocks();
     /** The object a participant tag names: a stunt participant's creature, or an object in the area. */
     std::shared_ptr<Object> participantObject(const std::string &participant) const;
     /** The creature a participant tag names: a stunt participant's, or one in the area. */
@@ -183,30 +189,10 @@ private:
     bool applyCutAnimation(const std::string &participant, const CutAnimation &cut);
     /** Plays a dialog animation that is not a cut clip on a participant. */
     void applyDialogAnimation(const std::string &participant, int ordinal);
-    /** Mixed-stunt participants that \p node does not drive from their stunt model leave their staging. */
-    void restoreInactiveStuntParticipants(const resource::Dialog::EntryReply &node);
-    /**
-     * Stages a mixed-stunt participant in \p animation, a loop or a one-shot,
-     * shown as animation \p animationId.
-     */
-    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation, bool looping, int animationId);
-    void leaveMixedStunt(Participant &participant);
 
     static std::optional<CutAnimation> decodeCutAnimation(int ordinal);
-    /**
-     * The pose a dialoganimations.2da ordinal names; Invalid for a lower
-     * ordinal and for one the table does not name.
-     */
-    AnimationType getDialogAnimationType(int ordinal) const;
-    /** The pose a dialoganimations.2da row names; Invalid for a name no pose has. */
-    static AnimationType getDialogAnimationType(const DialogAnimation &row);
-    /** The object a participant tag names in the area: the owner, the player, or one by tag. */
-    std::shared_ptr<Object> resolveParticipantObject(const std::string &participant) const;
     std::shared_ptr<Creature> resolveParticipantCreature(const std::string &participant) const;
     bool hasStuntPresentation() const;
-    std::shared_ptr<graphics::Animation> getStuntParticipantAnimation(
-        const std::string &participant,
-        int ordinal) const;
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;

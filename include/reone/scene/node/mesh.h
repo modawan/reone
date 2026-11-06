@@ -127,8 +127,6 @@ private:
     ModelSceneNode &_model;
 
     glm::vec2 _uvOffset {0.0f};
-    float _bumpmapCycleTime {0.0f};
-    int _bumpmapCycleFrame {0};
     float _alpha {1.0f};
     glm::vec3 _selfIllumColor {0.0f};
 
@@ -154,7 +152,6 @@ private:
     // Animation
 
     void updateUVAnimation(float dt, const graphics::ModelNode::TriangleMesh &mesh);
-    void updateBumpmapAnimation(float dt, const graphics::ModelNode::TriangleMesh &mesh);
     void updateDanglyAnimation(float dt, const graphics::ModelNode::Danglymesh &mesh);
     void updateSaberAnimation(float dt);
 

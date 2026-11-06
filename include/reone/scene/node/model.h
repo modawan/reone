@@ -87,16 +87,19 @@ public:
         float time {0.0f};
         std::unordered_map<uint16_t, AnimationState> stateByNodeNumber;
         bool freeze {false};     /**< channel time is not to be updated */
-        bool transition {false}; /**< when computing states, use animation transition time as channel time */
+        bool transition {false}; /**< blending in over the channel beneath */
         bool finished {false};   /**< finished channels will be erased from the queue */
-        float weight {1.0f};     /**< how far a layer pulls the nodes it animates toward its own state */
+        float weight {1.0f};     /**< how far a layer, or a channel blending in, pulls the nodes toward its own state */
 
         AnimationChannel(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim, AnimationProperties properties) :
             anim(&anim),
             lipAnim(std::move(lipAnim)),
             properties(std::move(properties)) {
-            // A channel played backwards starts at its end.
-            if (this->properties.speed < 0.0f) {
+            // A channel starts at its start time; without one, a channel played
+            // backwards starts at its end.
+            if (this->properties.startTime > 0.0f) {
+                time = this->properties.startTime;
+            } else if (this->properties.speed < 0.0f) {
                 time = this->lipAnim ? this->lipAnim->length() : anim.length();
             }
         }
@@ -142,6 +145,14 @@ public:
 
     ModelNodeSceneNode *getNodeByNumber(uint16_t number);
     ModelNodeSceneNode *getNodeByName(const std::string &name);
+
+    /**
+     * Where the segment from \p from to \p to first meets a triangle of the
+     * model's own meshes as they are posed, as a share of its length; none
+     * when it meets none. Skinned meshes, lightsaber blades and attached
+     * models are not tested.
+     */
+    std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const;
 
     const graphics::Model &model() const { return *_model; }
     ModelUsage usage() const { return _usage; }

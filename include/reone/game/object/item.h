@@ -183,6 +183,12 @@ public:
     bool isEquippable() const;
     bool isEquippable(int slot) const;
     bool isStackCompatibleWith(const Item &other) const;
+    /**
+     * Whether \p other is the same item: base item, tag, name, plot flag,
+     * charges, upgrades, stolen flag and model variations alike, its use
+     * properties alike in order, and its other properties alike in order.
+     */
+    bool isIdenticalTo(const Item &other) const;
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }
     bool isDropable() const { return _dropable; }
@@ -212,12 +218,8 @@ public:
     int weaponMaterialType() const { return _weaponMaterialType; }
     /** The base item's armour sound material, lower case. */
     const std::string &armorType() const { return _armorType; }
-    int damageFlags() const {
-        // A zero or missing base-item damage flag selects bludgeoning.
-        return _damageFlags != 0
-                   ? _damageFlags
-                   : static_cast<int>(DamageType::Bludgeoning);
-    }
+    /** The base item's damage flags: without any, Universal in KotOR and Bludgeoning in TSL. */
+    int damageFlags() const { return _damageFlags; }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
     int numDice() const { return _numDice; }
@@ -242,6 +244,8 @@ public:
     /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
     int cost(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
+    /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
+    int storePanelSort() const { return _storePanelSort; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
@@ -429,6 +433,7 @@ private:
 
     std::optional<SpellType> _activateSpell;
     int _itemType {0};
+    int _storePanelSort {0};
     int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
     std::shared_ptr<audio::AudioSource> _audioSource;

@@ -222,8 +222,6 @@ const char *argKindToString(ArgKind kind) {
         return "LastAttacker";
     case ArgKind::LastDamager:
         return "LastDamager";
-    case ArgKind::LastDisarmed:
-        return "LastDisarmed";
     case ArgKind::SpellId:
         return "SpellId";
     case ArgKind::SpellLocation:
@@ -315,9 +313,6 @@ Argument Argument::fromString(std::string str) {
     if (kind == "LastDamager") {
         return {ArgKind::LastDamager, Variable::ofObject(std::stoul(value))};
     }
-    if (kind == "LastDisarmed") {
-        return {ArgKind::LastDisarmed, Variable::ofObject(std::stoul(value))};
-    }
     if (kind == "SpellId") {
         return {ArgKind::SpellId, Variable::ofInt(std::stoul(value))};
     }
@@ -369,7 +364,6 @@ void Argument::verify() {
     case ArgKind::LastPerceived:
     case ArgKind::LastUsedBy:
     case ArgKind::LastAttacker:
-    case ArgKind::LastDisarmed:
     case ArgKind::LastDamager: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
             throw std::invalid_argument(toString() + ": expected an object != self");
