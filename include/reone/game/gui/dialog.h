@@ -202,8 +202,6 @@ private:
     void onFinish() override;
     void onLoadEntry() override;
     void onEntryEnded() override;
-    /** A reply can be chosen only while every participant of its animation list exists. */
-    bool canPickReply(const resource::Dialog::EntryReply &reply) const override;
     void onReplyPicked(const resource::Dialog::EntryReply &reply) override;
     void onReplyTaken(const resource::Dialog::EntryReply &reply) override;
     /** A creature named by the last list of animations still shows a dialog animation. */

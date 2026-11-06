@@ -107,9 +107,11 @@ bool CombatRound::canExecute(Action &action) const {
     return false;
 }
 
+// A command that joined a running round answers only for its own objects, not
+// for the target the round keeps.
 bool CombatRound::RoundAction::participantBindingsLive() const {
     return attacker.resolve() &&
-           (target.empty() || target.resolve());
+           (joined || target.empty() || target.resolve());
 }
 
 bool CombatRound::RoundAction::remainsInActorQueue() const {
@@ -320,7 +322,11 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
 
     // A creature fights one round at a time. A round that an earlier command
     // began, and that command has finished with, is still the creature's.
+    std::shared_ptr<CombatRound> joined;
     for (auto &round : _rounds) {
+        if (joined) {
+            break;
+        }
         for (auto &entry : round->actions) {
             if (!entry.running() || entry.attacker.resolve() != attacker || entry.action == action ||
                 !entry.action->isCompleted())
@@ -332,18 +338,30 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
             // attack.
             if (command.joinsRunningRound() ||
                 (physical && !isInstantCast(command) && target && answersMaster(*attacker, *target))) {
-                entry.action = action;
-                entry.actorQueueAssociated = actorQueueAssociated;
-                entry.joined = true;
-                recordCombatAction(actor, target, *action);
-                activateCombat();
-                return *round;
+                joined = round;
+                break;
             }
             // Any other command starts the round afresh; the round it gives up
             // has no end, and a partner it holds is left as it is.
             entry.retired = true;
             entry.action->retireCombatRound();
             entry.target.reset();
+        }
+    }
+    // Combat state is set before the command takes its turn in the round, as
+    // it is before a round starts: a creature that cannot enter combat ends
+    // that round, and the command starts one afresh.
+    if (joined) {
+        activateCombat();
+        for (auto &entry : joined->actions) {
+            if (!entry.running() || entry.attacker.resolve() != attacker || !entry.action->isCompleted()) {
+                continue;
+            }
+            entry.action = action;
+            entry.actorQueueAssociated = actorQueueAssociated;
+            entry.joined = true;
+            recordCombatAction(actor, target, *action);
+            return *joined;
         }
     }
 
@@ -2071,6 +2089,13 @@ void Combat::pruneInvalidRounds() {
             if (entry.retired) {
                 continue;
             }
+            // A creature that is gone leaves the round with a command it had
+            // finished with too.
+            if (entry.action->isCompleted() && !entry.attacker.resolve()) {
+                entry.retired = true;
+                entry.action->retireCombatRound();
+                continue;
+            }
             if (!entry.action->isCompleted() && (entry.action->isCancelled() ||
                                                  !entry.participantBindingsLive() || !entry.remainsInActorQueue() ||
                                                  !entry.action->runtimeDependenciesLive())) {
@@ -2441,7 +2466,9 @@ void Combat::beginCast(const std::shared_ptr<Action> &action, Creature &caster, 
             holdRound(entry, pause, _game.getObjectById(caster.id()), true);
         }
         partnerHeld = partnerHeld || partnerHere;
-        if (partnerHere && &round != owner.get()) {
+        // A cast that begins its round brings its target's round into the
+        // pair; one that joins a round only holds it.
+        if (partnerHere && &round != owner.get() && !joined) {
             round.master = owner->master;
             round.engaged = _game.getObjectById(caster.id());
         }
@@ -2535,10 +2562,13 @@ std::vector<SavedCreatureRound> Combat::saveRounds(const Object &actor) const {
             SavedCreatureRound saved;
             saved.clock = saveClock(*round, entry);
             saved.spellRound = isSpellRound(entry);
-            // A swung attack whose hits have not all landed is kept with them.
+            auto target = entry.target.resolve();
+            saved.target = SavedObjectReference::fromRuntimeId(target ? target->id() : script::kObjectInvalid);
+            _game.bindSavedObjectReference(saved.target);
+            // A swung attack is kept, with the hits it has not landed; one
+            // that was cleared is not.
             Action &command = entry.action->combatAction();
-            const auto attacks = command.combatAttacks();
-            if (command.isCompleted() && attacks && (attacks->get().hasPendingMelee() || attacks->get().hasPendingDischarges())) {
+            if (command.isCompleted() && !command.isCancelled() && command.combatAttacks()) {
                 saved.command = command.saveFacingState();
             }
             result.push_back(std::move(saved));
@@ -2560,16 +2590,25 @@ void Combat::restoreRound(const std::shared_ptr<Action> &action,
 }
 
 void Combat::restoreRound(const std::shared_ptr<Creature> &actor, const SavedCreatureRound &saved) {
-    // The round runs on with no target. A swung attack whose hits have not
-    // all landed comes back over, with them; otherwise a finished wait stands
-    // in for the command given up, and so it does when the attack's target
-    // is gone. The round keeps whether it is a spell round.
+    // A swung attack comes back over, with its target and the hits it has
+    // not landed; otherwise a finished wait stands in for the command given
+    // up, and so it does when the attack's target is gone, and the round runs
+    // on with no target. The round keeps whether it is a spell round.
     auto command = saved.command ? AttackObjectAction::restore(*saved.command, _game) : nullptr;
     if (!command) {
         command = _game.newAction<WaitAction>(0.0f);
     }
     command->complete();
-    restoreEntry(command, actor, nullptr, saved.clock, false, saved.spellRound);
+    std::shared_ptr<Object> target = saved.target.boundObject();
+    if (!target) {
+        target = getTarget(*command, *actor);
+    }
+    restoreEntry(command, actor, target, saved.clock, false, saved.spellRound);
+    // The swung attack is still the creature's current combat action, unless
+    // a queued command has taken over.
+    if (command->combatAttacks() && !actor->currentCombatAction()) {
+        actor->setCurrentCombatAction(command);
+    }
 }
 
 void Combat::restoreEntry(const std::shared_ptr<Action> &action, const std::shared_ptr<Creature> &actor,
@@ -2594,12 +2633,29 @@ void Combat::restoreEntry(const std::shared_ptr<Action> &action, const std::shar
     // which keeps the pause it was given then rather than taking a new one.
     restored.joined = saved.joined || isItemUse(action->combatAction());
     restored.spellRound = spellRound;
-    restored.state = static_cast<CombatRound::State>(saved.state);
+    restored.state = saved.state == CombatRound::Pending || saved.state == CombatRound::Finished
+                         ? static_cast<CombatRound::State>(saved.state)
+                         : CombatRound::Running;
     restored.time = saved.elapsed;
     restored.duration = saved.duration;
     restored.pauseOwner = saved.pauseOwner.boundObject();
-    // A pause comes back with an end of its own: the seconds it had left.
+    // A pause comes back with an end of its own: the seconds it had left. One
+    // whose owner is gone comes back only while a swing still has hits to
+    // land over it, then the creature's own.
     restored.pauseRemaining = restored.pauseOwner.resolve() ? saved.pauseRemaining : 0.0f;
+    if (saved.pauseRemaining > 0.0f && !restored.pauseOwner.resolve()) {
+        const auto attacks = action->combatAction().combatAttacks();
+        if (attacks && (attacks->get().hasPendingMelee() || attacks->get().hasPendingDischarges())) {
+            restored.pauseRemaining = saved.pauseRemaining;
+            restored.pauseOwner = actor;
+        }
+    }
+    // An attack an earlier save took past its swing holds and shortens its
+    // round as a swing does, for what was left of the swing, and lands the
+    // hits it has left over that pause, after any pause already on it.
+    if (const int left = action->combatAction().pauseLeftAtLoadMilliseconds(); left > 0) {
+        holdRound(restored, left, actor, true);
+    }
     round->duel = saved.duel;
     if (round->actions.size() == 2 && round->actions[0].slot > round->actions[1].slot) {
         std::swap(round->actions[0], round->actions[1]);

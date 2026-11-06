@@ -1845,8 +1845,8 @@ public:
     /** The weapon of the off hand: a double-bladed right-hand weapon, else the left-hand weapon. */
     std::shared_ptr<Item> getEquippedOffhandWeapon() const;
 
-    /** The creature lies under a knockdown effect. */
-    bool isKnockedDown() const { return hasEffect(EffectType::Knockdown); }
+    /** The creature lies under a knockdown that took it down alive. */
+    bool isKnockedDown() const;
     /** Show the fall of a knockdown under the given animation ID. */
     void showKnockdownFall(int animationId);
 

@@ -215,8 +215,6 @@ protected:
     virtual void onFinish();
     virtual void onLoadEntry();
     virtual void onEntryEnded();
-    /** Whether \p reply, chosen or taken without a choice, can be taken now. */
-    virtual bool canPickReply(const resource::Dialog::EntryReply &reply) const;
     /** The player chose \p reply from the listed replies; called before the reply's scripts run. */
     virtual void onReplyPicked(const resource::Dialog::EntryReply &reply);
     /** A reply was taken without a choice, as the entry ended; called before the reply's scripts run. */
@@ -253,8 +251,6 @@ private:
     int _waitFlags {0};
     /** The entry that follows a reply taken without a choice, once the reply's delay and waits are over. */
     std::optional<int> _pendingEntry;
-    /** The reply chosen, or taken without a choice, that waits until it can be taken. */
-    std::optional<int> _pendingReply;
     /** A skip of the shown entry has been asked for and not yet honoured. */
     bool _entrySkipped {false};
     EntryFade _entryFade;

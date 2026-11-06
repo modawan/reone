@@ -175,7 +175,6 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
         releaseDialogParticipants(_owner.resolve());
     }
     _pendingEntry.reset();
-    _pendingReply.reset();
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
@@ -428,7 +427,6 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     _paused = false;
     _entryEnded = true;
     _pendingEntry.reset();
-    _pendingReply.reset();
     // A closed conversation keeps no replies to take.
     _replies.clear();
     stopVoice();
@@ -486,7 +484,6 @@ void Conversation::cleanupForModuleTransition() {
         return;
     }
     _pendingEntry.reset();
-    _pendingReply.reset();
     _replies.clear();
     stopVoice();
     resetEntryFade();
@@ -1105,14 +1102,6 @@ void Conversation::pickReply(int index) {
     }
     auto generation = _generation;
     const Dialog::EntryReply &reply = *_replies[index];
-    // A reply chosen or taken without a choice that cannot be taken now waits
-    // and is tried again on each update, until it is taken or another choice
-    // replaces it.
-    if (!canPickReply(reply)) {
-        _pendingReply = index;
-        return;
-    }
-    _pendingReply.reset();
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
 
     // The chosen reply goes to the dialog list under the party leader's name.
@@ -1371,10 +1360,6 @@ void Conversation::endCurrentEntry() {
 void Conversation::onEntryEnded() {
 }
 
-bool Conversation::canPickReply(const Dialog::EntryReply &) const {
-    return true;
-}
-
 void Conversation::onReplyPicked(const Dialog::EntryReply &) {
 }
 
@@ -1412,8 +1397,6 @@ void Conversation::update(float dt) {
                 loadEntry(index);
             }
         }
-    } else if (_pendingReply) {
-        pickReply(*_pendingReply);
     }
 }
 

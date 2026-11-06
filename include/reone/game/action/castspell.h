@@ -71,7 +71,8 @@ public:
 
     /**
      * The cast leaves its caster's queue unfinished: the unreleased projectile
-     * shown while conjuring goes, and its caster may move again.
+     * and conjure visuals go, its caster may move again, no longer holds the
+     * cast pose, and lets go of the spell target the cast set.
      */
     void drop(Object &caster);
     /** Takes up the progress of a cast loaded from a save. */

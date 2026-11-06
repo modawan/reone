@@ -635,6 +635,14 @@ std::shared_ptr<resource::Gff> SavedPhysicalAction::toGff() const {
     return result;
 }
 
+bool SavedPhysicalAction::isWellFormed() const {
+    if (!state) {
+        return false;
+    }
+    const size_t attacks = state->getList("Attacks").size();
+    return sources.size() >= attacks * 2 && targetEffects.size() >= attacks && histories.size() >= attacks;
+}
+
 SavedPhysicalAction SavedPhysicalAction::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
     SavedPhysicalAction result;
     result.state = g.findStruct("State");
@@ -1559,7 +1567,9 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
 }
 
 bool SavedEventRecord::shouldRestore() const {
-    return executionSupport() != SavedExecutionSupport::Discarded;
+    return eventId > 0 &&
+           eventId <= static_cast<uint32_t>(SavedEventType::ControllerRumble) &&
+           eventId != static_cast<uint32_t>(SavedEventType::ForcedAction);
 }
 
 bool SavedEventRecord::bindObjectReferences(const Game &game) {

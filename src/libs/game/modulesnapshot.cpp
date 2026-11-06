@@ -876,8 +876,10 @@ void ModuleSnapshotBuilder::writeCombatRound(
         saved.clock.pauseOwner.id = serializedReferenceId(saved.clock.pauseOwner, ids);
         saved.clock.master.id = serializedReferenceId(saved.clock.master, ids);
         saved.clock.engaged.id = serializedReferenceId(saved.clock.engaged, ids);
+        saved.target.id = serializedReferenceId(saved.target, ids);
         auto entry = saved.clock.toGff();
         put(*entry, Gff::Field::newByte("SpellCastRound", saved.spellRound ? 1 : 0));
+        put(*entry, Gff::Field::newDword("RoundTarget", saved.target.id));
         if (saved.command) {
             normalizeActionReferences(*saved.command, ids);
             put(*entry, Gff::Field::newStruct("Command", actionToGff(*saved.command, &_game)));

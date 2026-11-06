@@ -284,6 +284,9 @@ std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
 
 std::shared_ptr<Action> AttackObjectAction::restore(const SavedActionRecord &record, Game &game) {
     const auto command = SavedAttackCommand::fromAction(record);
+    if (!command || (record.physical && !record.physical->isWellFormed())) {
+        return nullptr;
+    }
     auto target = command->target.boundObject();
     if (!target) {
         return nullptr;
@@ -313,6 +316,11 @@ void AttackObjectAction::restorePhysicalState(const SavedPhysicalAction &state) 
     _approach.withoutSwing = state.state->getBool("NoSwing");
     _roundContinuation = state.state->getBool("RoundContinues");
     _continuationDispatched = state.state->getBool("ContinueTaken");
+    // An attack is over with its swing. An earlier save keeps one queued
+    // until its round ends.
+    if (_schedule.started()) {
+        complete();
+    }
 }
 
 void AttackObjectAction::finish(Creature &attacker) {

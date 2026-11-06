@@ -63,6 +63,7 @@ public:
     void releaseSwingHits(Creature &attacker, int pauseLeftMilliseconds, bool flush) override {
         releasePhysicalHits(_schedule, _attacks, _game, _services, attacker, _target.resolve(), pauseLeftMilliseconds, flush);
     }
+    int pauseLeftAtLoadMilliseconds() const override { return _schedule.pauseLeftAtLoadMilliseconds(); }
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** Takes up the progress of an attack loaded from a save. */
     void restorePhysicalState(const SavedPhysicalAction &state);

@@ -1572,7 +1572,7 @@ TEST(SavedEventQueue, should_preserve_K1_and_K2_records_absolute_time_payload_an
     EXPECT_EQ(queue.events[3].executionSupport(), SavedExecutionSupport::Discarded);
     EXPECT_FALSE(queue.events[3].shouldRestore());
     EXPECT_TRUE(std::holds_alternative<std::monostate>(queue.events[4].payload));
-    EXPECT_TRUE(queue.events[4].shouldRestore());
+    EXPECT_FALSE(queue.events[4].shouldRestore());
 }
 
 TEST(SavedEventQueue, should_bind_event_references_only_through_current_B_registry) {

@@ -245,6 +245,8 @@ private:
          * payload that do not resolve are delivered as invalid objects.
          */
         SavedEventRecord record;
+        /** The target was found, or the event has none, when the event was queued or loaded. */
+        bool targetBound {false};
         std::optional<uint64_t> publishedDueMilliseconds;
         std::shared_ptr<Action> command;
         /**
@@ -304,10 +306,10 @@ private:
     void loadPlayer();
     void loadLimboCreatures(const resource::Gff &ifo);
     /**
-     * Schedules a pending event for its due time. Every pending event is
-     * scheduled: one whose kind is unknown or cannot run, a timed event whose
-     * script situation cannot be resumed, and one whose target is gone are
-     * consumed when they fall due without running.
+     * Schedules a pending event for its due time. One that cannot run -
+     * its target not found, its kind not run, or a timed event whose script
+     * situation cannot be resumed - stays pending without being scheduled,
+     * to be saved again as it was loaded.
      */
     void publishSavedEvent(size_t index);
     void deliverSavedEvent(PublishedSavedEvent &event);

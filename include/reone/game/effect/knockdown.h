@@ -36,6 +36,12 @@ public:
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
     void onRemove(Object &object, const EffectInstance &instance) override;
+
+    /** The knockdown took a living creature down, which holds its round; one kept on the dead or the downed does not. */
+    bool holdsRound() const { return _holdsRound; }
+
+private:
+    bool _holdsRound {false};
 };
 
 } // namespace game

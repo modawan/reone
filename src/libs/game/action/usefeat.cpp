@@ -215,6 +215,11 @@ void UseFeatAction::restorePhysicalState(const SavedPhysicalAction &state) {
     _approach.reached = state.state->getBool("Reached");
     _approach.withoutSwing = state.state->getBool("NoSwing");
     _instantCastAttack = state.state->getBool("InstantCast");
+    // An attack is over with its swing. An earlier save keeps one queued
+    // until its round ends.
+    if (_schedule.started()) {
+        complete();
+    }
 }
 
 void UseFeatAction::finish(Creature &attacker) {

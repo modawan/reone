@@ -65,6 +65,7 @@
 #include "reone/game/effect/blasterdeflectionincrease.h"
 #include "reone/game/effect/bonusfeat.h"
 #include "reone/game/effect/creaturestate.h"
+#include "reone/game/effect/knockdown.h"
 #include "reone/game/effect/damage.h"
 #include "reone/game/effect/damagedecrease.h"
 #include "reone/game/effect/damageimmunitydecrease.h"
@@ -493,6 +494,8 @@ static constexpr float kLeapDuration = 0.33f;
 // Animation IDs of the poses, fidgets and turns a creature shows.
 static constexpr int kPauseAnimationId = 10000;
 static constexpr int kReadyAnimationId = 10001;
+// The second ready, which shows the ready as the first does.
+static constexpr int kSecondReadyAnimationId = 10148;
 // The one animation ID that names no clip shows nothing rather than the pause.
 static constexpr int kNoPauseFallbackAnimationId = 10098;
 static constexpr int kWalkAnimationId = 10002;
@@ -5106,7 +5109,7 @@ bool Creature::showsPauseReadyAnimation() const {
 Creature::ScriptAnimation Creature::getScriptAnimation(int id) const {
     ScriptAnimation result;
     const bool characterModel = _modelType != ModelType::Creature;
-    if (id == kReadyAnimationId) {
+    if (id == kReadyAnimationId || id == kSecondReadyAnimationId) {
         result.clip = getAnimationName(AnimationType::LoopingReady);
         result.loop = true;
     } else {
@@ -9992,6 +9995,13 @@ void Creature::playDieTransition(int leftLoopId) {
 
 // In TSL a character model's knock-down fall waits in the one-shot queue. KotOR
 // shows no fall, nor does a creature model.
+bool Creature::isKnockedDown() const {
+    return std::any_of(effects().begin(), effects().end(), [](const EffectInstance &applied) {
+        const auto *knockdown = dynamic_cast<const KnockdownEffect *>(applied.effect.get());
+        return knockdown && knockdown->holdsRound() && applied.hasLiveRuntimeSource();
+    });
+}
+
 void Creature::showKnockdownFall(int animationId) {
     if (!_game.isTSL() || _modelType == ModelType::Creature) {
         return;
@@ -12195,6 +12205,11 @@ void Creature::rebuildStateEffects(std::optional<std::reference_wrapper<const Ef
         setCommandable(false);
     }
     auto internal = makeInternalStateInstance(*winner, removal);
+    if (removal) {
+        if (auto creator = winner->boundCreator()) {
+            internal.spellId = creator->effectSpellId();
+        }
+    }
     internal.id = _game.allocateEffectId();
     setInternalStateEffect(static_cast<int>(state), getStateAmbientCode(state, _game.isTSL()), internal.id);
     _activeStateRootId = winner->id;

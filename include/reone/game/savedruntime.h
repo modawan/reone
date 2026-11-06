@@ -650,6 +650,8 @@ struct SavedPhysicalAction {
     std::vector<SavedCombatAttack> histories;
     /** A ranged round's shared attack record. */
     std::optional<SavedCombatAttack> roundRecord;
+    /** The progress has its state, and a source pair, target effects and a record for each attack it lists. */
+    bool isWellFormed() const;
     static SavedPhysicalAction fromGff(const resource::Gff &, const SerializedIdentityContext &);
     std::shared_ptr<resource::Gff> toGff() const;
 };
@@ -703,6 +705,8 @@ struct SavedActionRecord {
  */
 struct SavedCreatureRound {
     SavedRoundClock clock;
+    /** The creature's round target; invalid for none. */
+    SavedObjectReference target;
     bool spellRound {false};
     std::optional<SavedActionRecord> command;
 };

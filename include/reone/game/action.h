@@ -88,6 +88,11 @@ public:
      */
     virtual void releaseSwingHits(Creature &attacker, int pauseLeftMilliseconds, bool flush) {}
     /**
+     * For an attack an earlier save took past its swing, with hits still to
+     * land, the swing's pause it had left; 0 for any other action.
+     */
+    virtual int pauseLeftAtLoadMilliseconds() const { return 0; }
+    /**
      * The command this action carries out. A wrapper keeps its queue
      * identity while it exposes the command it runs.
      */

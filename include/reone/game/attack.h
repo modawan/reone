@@ -964,10 +964,14 @@ private:
 
 class AttackSchedule {
 public:
+    /**
+     * Saves hold these values; earlier saves also hold 2 and 3, an attack
+     * whose damage was still to come, and 4, one whose damage was done.
+     */
     enum State {
-        WaitAttack,
-        Attack,
-        Finish,
+        WaitAttack = 0,
+        Attack = 1,
+        Finish = 5,
     };
 
     /** The attack is taken up once \p round lets \p action take its turn. */
@@ -995,6 +999,11 @@ public:
     bool isRanged() const { return _ranged; }
     /** The attack has swung and its pause has not yet run out. */
     bool releasing() const { return clocked() && _state != Finish; }
+    /**
+     * For an attack an earlier save took past its swing, with hits still to
+     * land, the swing's pause it had left; 0 for any other attack.
+     */
+    int pauseLeftAtLoadMilliseconds() const;
 
 private:
     bool clocked() const { return _melee || _ranged; }
@@ -1002,6 +1011,8 @@ private:
     State _state {WaitAttack};
     bool _melee {false};
     bool _ranged {false};
+    /** How far an earlier save had taken the swing; none for a save that keeps no swing clock. */
+    std::optional<int> _swingElapsedAtLoadMilliseconds;
 };
 
 /** How far an attack has come in closing on its target. */

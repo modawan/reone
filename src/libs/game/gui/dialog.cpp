@@ -933,13 +933,6 @@ void DialogGUI::onEntryEnded() {
     repositionMessage();
 }
 
-// A reply waits while a participant its animation list names is missing.
-bool DialogGUI::canPickReply(const Dialog::EntryReply &reply) const {
-    return std::all_of(reply.animations.begin(), reply.animations.end(), [this](const auto &anim) {
-        return static_cast<bool>(participantObject(anim.participant));
-    });
-}
-
 // A chosen reply animates its participants and poses the answering pair,
 // except in an animated cutscene.
 // In an animated cutscene a chosen reply leaves the entry's participants

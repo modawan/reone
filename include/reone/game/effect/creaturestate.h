@@ -304,7 +304,8 @@ inline bool stateRemovalAppliesPose(int state, bool tsl) {
 /**
  * The internal record that lays the root's state. A root being applied lays it
  * for as long as it lasts, with its own spell; when a root is removed, the
- * strongest remaining one lays it for good, with no spell.
+ * strongest remaining one lays it for good, with the spell its creator is
+ * casting then, or none.
  */
 inline EffectInstance makeInternalStateInstance(const EffectInstance &root, bool afterRemoval) {
     auto effect = std::make_shared<CreatureStateInternalEffect>(static_cast<CreatureState>(root.integerParameter(0)));

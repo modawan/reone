@@ -87,10 +87,11 @@ struct CombatRound {
     /** The length of a round, in seconds, until something rescales it. */
     static constexpr float kDuration = 3.0f;
 
+    /** Saves hold these values; earlier saves also hold 2, a round's second action. */
     enum State {
-        Pending,
-        Running,
-        Finished
+        Pending = 0,
+        Running = 1,
+        Finished = 3
     };
 
     /** A creature's command in the round, with the creature's own round. */
@@ -132,7 +133,11 @@ struct CombatRound {
         /** The round, restored without its command, is a spell round. */
         bool spellRound {false};
 
-        /** The attacker and the target of the command are still the objects it was given. */
+        /**
+         * The attacker and the target of the command are still the objects it
+         * was given; a command that joined a running round answers for its
+         * attacker alone.
+         */
         bool participantBindingsLive() const;
         /** The command is still in its creature's queue, if it was put there. */
         bool remainsInActorQueue() const;

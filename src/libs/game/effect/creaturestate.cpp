@@ -557,7 +557,8 @@ EffectApplicationResult KnockdownEffect::onApply(Object &object, EffectInstance 
         return EffectApplicationResult::Rejected;
     }
     // The dead and the downed keep the record and nothing more.
-    if (creature->isDead() || creature->isTemporarilyDead()) {
+    _holdsRound = !creature->isDead() && !creature->isTemporarilyDead();
+    if (!_holdsRound) {
         return EffectApplicationResult::Retained;
     }
     game.combat().holdKnockedDown(*creature);

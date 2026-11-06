@@ -748,8 +748,8 @@ void Module::deserializeSavedEventQueue(
     _pendingSavedEvents.clear();
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
-    // Every event but a discarded one is kept, its kind known or not. It waits
-    // for its due time and is saved again as it was loaded while it waits.
+    // Every event but a discarded one is kept. One that cannot run stays
+    // pending, is never published, and is saved again as it was loaded.
     for (auto &event : queue.events) {
         const auto index = _nextSavedEventIndex++;
         if (event.shouldRestore()) {
@@ -792,11 +792,17 @@ size_t Module::enqueueSaveEvent(SavedEventRecord event, std::shared_ptr<Action> 
     return enqueueBoundSaveEvent(std::move(event), std::move(command), keepsCallerFade);
 }
 
+// Only the target decides whether a bound event can be delivered.
+static bool isTargetBound(const SavedEventRecord &event) {
+    return event.object.isInvalid() || event.object.boundObject() != nullptr;
+}
+
 size_t Module::enqueueBoundSaveEvent(
     SavedEventRecord event, std::shared_ptr<Action> command, bool keepsCallerFade) {
     // The caller has bound the target already.
     const auto index = _nextSavedEventIndex++;
     PendingSavedEvent pending {std::move(event)};
+    pending.targetBound = isTargetBound(pending.record);
     pending.command = std::move(command);
     pending.keepsCallerFade = keepsCallerFade;
     _pendingSavedEvents.emplace(index, std::move(pending));
@@ -821,6 +827,7 @@ bool Module::cancelSaveEvent(size_t index) {
 void Module::bindSavedEventQueue() {
     for (auto &[index, pending] : _pendingSavedEvents) {
         pending.record.bindObjectReferences(_game);
+        pending.targetBound = isTargetBound(pending.record);
     }
 }
 
@@ -846,22 +853,25 @@ void Module::publishSavedEventQueue() {
 void Module::publishSavedEvent(size_t index) {
     auto &pending = _pendingSavedEvents.find(index)->second;
     const auto &savedEvent = pending.record;
+    if (!pending.targetBound) {
+        return;
+    }
+    if (!pending.command && savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
+        return;
+    }
     PublishedSavedEvent event;
     event.savedIndex = index;
     event.dueMilliseconds = static_cast<uint64_t>(savedEvent.day) * _game.millisecondsPerWorldDay() + savedEvent.time;
     event.command = pending.command;
     event.keepsCallerFade = pending.keepsCallerFade;
-    const auto *situation = std::get_if<SerializedScriptSituation>(&savedEvent.payload);
-    if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed) && situation) {
+    if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
         SavedScriptSituationImporter importer(_game, _services.resource.scripts);
-        auto imported = importer.import(*situation);
-        // A situation that cannot be resumed waits like any other event, is
-        // saved again as it was loaded, and runs nothing when it falls due.
-        if (imported) {
-            event.continuation = std::move(imported.continuation);
-        } else {
-            warn("Module: a timed event cannot be resumed: " + imported.message);
+        auto imported = importer.import(std::get<SerializedScriptSituation>(savedEvent.payload));
+        if (!imported) {
+            warn("Module: keeping a timed event that cannot be resumed: " + imported.message);
+            return;
         }
+        event.continuation = std::move(imported.continuation);
     }
     const SavedEventDeadline deadline {event.dueMilliseconds, index};
     _publishedSavedEvents.emplace(deadline, std::move(event));
@@ -890,8 +900,7 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     auto node = _pendingSavedEvents.extract(published.savedIndex);
     const auto savedEvent = std::move(node.mapped().record);
     node = {};
-    // An event whose target is gone, and one that cannot run, is consumed
-    // when it falls due all the same.
+    // An event whose target has gone since it was queued is consumed.
     auto target = savedEvent.object.boundObject();
     if (!target) {
         return;
@@ -1012,7 +1021,12 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
     if (!caster) {
         return;
     }
-    auto spell = *_services.game.spells.get(static_cast<SpellType>(impact->spellId));
+    // The impact runs the script it carries, even for a spell spells.2da has
+    // no row for.
+    const auto type = static_cast<SpellType>(impact->spellId);
+    auto known = _services.game.spells.get(type);
+    Spell spell = known ? *known : Spell();
+    spell.type = type;
     spell.impactScript = impact->script;
     auto spellTarget = impact->target.boundObject();
     // The event updates the spell and its cost; the impact otherwise reads

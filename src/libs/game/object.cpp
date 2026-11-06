@@ -466,6 +466,8 @@ void Object::deserializeRuntimeState(
             SavedCreatureRound saved;
             saved.clock = SavedRoundClock::fromGff(*entry, identityContext);
             saved.spellRound = entry->getUint("SpellCastRound") != 0;
+            saved.target = SavedObjectReference::fromSerializedId(
+                entry->getUint("RoundTarget", kSavedRuntimeInvalidObjectId), identityContext);
             if (const auto command = entry->findStruct("Command")) {
                 saved.command = SavedActionRecord::fromGff(*command, identityContext);
             }
@@ -577,6 +579,7 @@ void Object::bindSavedRuntimeState() {
         _game.bindSavedObjectReference(saved.clock.pauseOwner);
         _game.bindSavedObjectReference(saved.clock.master);
         _game.bindSavedObjectReference(saved.clock.engaged);
+        _game.bindSavedObjectReference(saved.target);
         if (saved.command) {
             saved.command->bindObjectReferences(_game);
         }
@@ -1031,9 +1034,9 @@ void Object::discardHostileActionGroups() {
 void Object::discardGroupNode(const OrdinaryActionQueue::Node &node) {
     if (node->action) {
         node->action->markCancelled();
-        // Nothing else of the cast is undone; only its conjuring projectile and
-        // its hold on its caster's movement, which belong to the action, go
-        // with it.
+        // Nothing else of the cast is undone; only what belongs to the action
+        // goes with it: its conjuring projectile and visuals, and its holds on
+        // its caster's movement, pose and spell target.
         auto &command = node->action->combatAction();
         if (auto *cast = dyn_cast<CastSpellAction>(&command)) {
             cast->drop(*this);

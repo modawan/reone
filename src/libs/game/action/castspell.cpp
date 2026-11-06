@@ -606,6 +606,18 @@ bool CastSpellAction::breaksConcentration(const Creature &caster, int damage) co
 void CastSpellAction::drop(Object &caster) {
     _services.game.projectiles.cancelSpell(_presentationId);
     releaseMovementRestriction(caster);
+    if (_ownsSpellTarget) {
+        caster.spellScriptContext().clearActiveTarget();
+        _ownsSpellTarget = false;
+    }
+    // Only a cast that has begun holds its caster's pose and visuals.
+    auto *creature = dyn_cast<Creature>(&caster);
+    if (creature && _started) {
+        creature->releaseCastAnimation();
+        if (!_dispatched && !_item) {
+            creature->spellCastVisuals().clear();
+        }
+    }
 }
 
 void CastSpellAction::releaseMovementRestriction(Object &caster) {
