@@ -621,11 +621,11 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 void Game::init() {
     _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
     _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
-    _options.game.difficultyLevel = loadDifficultyLevel(_options.game.configurationPath, _options.game.difficultyLevel);
+    _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
     // The configuration names one of the levels the player can pick: any row
     // of the difficulty table but the last.
-    if (_options.game.difficultyLevel < 0 || _options.game.difficultyLevel > _services.game.difficultyOptions.count() - 2) {
-        throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.difficultyLevel));
+    if (_options.game.clientDifficulty < 0 || _options.game.clientDifficulty > _services.game.difficultyOptions.count() - 2) {
+        throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.clientDifficulty));
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
     initConsole();
@@ -3521,7 +3521,7 @@ int Game::scaleDamageForDifficulty(
     }
 
     const DifficultyOption &difficulty =
-        _services.game.difficultyOptions.get(_options.game.difficultyLevel);
+        _services.game.difficultyOptions.get(_options.game.clientDifficulty);
     return static_cast<int>(
         static_cast<float>(damage) * difficulty.damageMultiplier);
 }
@@ -3535,7 +3535,7 @@ int Game::trapDifficultyModifier() const {
     if (!isTSL()) {
         return 0;
     }
-    switch (_options.game.difficultyLevel) {
+    switch (_options.game.clientDifficulty) {
     case kEasyDifficulty:
         return -kTrapDifficultyShift;
     case kDifficultDifficulty:
@@ -6146,7 +6146,7 @@ void Game::saveFeedbackOptions() const {
 }
 
 void Game::saveDifficultyLevel() const {
-    reone::game::saveDifficultyLevel(_options.game.configurationPath, _options.game.difficultyLevel);
+    reone::game::saveDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
 }
 
 void Game::saveMouseOptions() const {

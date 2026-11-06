@@ -584,7 +584,7 @@ TEST(CombatDifficulty, loads_retail_damage_multipliers_once) {
 TEST(CombatDifficulty, scales_only_party_damage_and_uses_the_scaled_amount) {
     TestEngine engine;
     engine.init();
-    engine.options().game.difficultyLevel = 0;
+    engine.options().game.clientDifficulty = 0;
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto partyTarget = game.newCreature();
@@ -602,7 +602,7 @@ TEST(CombatDifficulty, scales_only_party_damage_and_uses_the_scaled_amount) {
     partyTarget->applyEffect(damage, DurationType::Instant);
     EXPECT_EQ(16, partyTarget->currentHitPoints());
 
-    engine.options().game.difficultyLevel = 2;
+    engine.options().game.clientDifficulty = 2;
     EXPECT_EQ(13, game.scaleDamageForDifficulty(9, *partyTarget));
 }
 

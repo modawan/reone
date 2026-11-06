@@ -5551,7 +5551,7 @@ static Variable GetGameDifficulty(const std::vector<Variable> &args, const Routi
     // TSL scripts read the difficulty chosen in the gameplay options; KotOR
     // scripts always read the normal difficulty.
     return Variable::ofInt(ctx.game.isTSL()
-                               ? ctx.game.options().game.difficultyLevel
+                               ? ctx.game.options().game.clientDifficulty
                                : static_cast<int>(GameDifficulty::Normal));
 }
 
@@ -5638,7 +5638,7 @@ static Variable GetCurrentAction(const std::vector<Variable> &args, const Routin
 // The multiplier of the chosen difficulty (difficultyopt.2da MULTIPLIER).
 static Variable GetDifficultyModifier(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    const int difficulty = ctx.game.options().game.difficultyLevel;
+    const int difficulty = ctx.game.options().game.clientDifficulty;
     return Variable::ofFloat(ctx.services.game.difficultyOptions.get(difficulty).damageMultiplier);
 }
 

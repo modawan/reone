@@ -859,8 +859,8 @@ public:
     /** Write the feedback options to the configuration. */
     void saveFeedbackOptions() const;
     /** The difficulty level the player chose: a difficultyopt.2da row. */
-    int difficultyLevel() const { return _options.game.difficultyLevel; }
-    void setDifficultyLevel(int level) { _options.game.difficultyLevel = level; }
+    int difficultyLevel() const { return _options.game.clientDifficulty; }
+    void setDifficultyLevel(int level) { _options.game.clientDifficulty = level; }
     /** Write the difficulty level to the configuration. */
     void saveDifficultyLevel() const;
     /** Whether the mouse turns the camera unless the right button or a Ctrl key is held. */
