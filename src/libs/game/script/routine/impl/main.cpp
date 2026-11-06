@@ -4210,8 +4210,9 @@ static Variable PlayRumblePattern(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    // There is no rumble device to drive.
-    return Variable::ofInt(0);
+    // The engine hands the pattern to the client and reports that it took
+    // it, whether or not a rumble device is there to feel it.
+    return Variable::ofInt(1);
 }
 
 static Variable StopRumblePattern(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4221,8 +4222,8 @@ static Variable StopRumblePattern(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    // There is no rumble device, so no pattern is playing.
-    return Variable::ofInt(0);
+    // As with starting one, the engine reports that the pattern was taken off.
+    return Variable::ofInt(1);
 }
 
 // An empty text adds no line to the message list.

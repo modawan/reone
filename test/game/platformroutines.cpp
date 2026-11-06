@@ -76,12 +76,13 @@ TEST(PlatformRoutines, get_is_live_content_available_returns_false) {
     }
 }
 
-// There is no rumble device to drive, so both calls do nothing and return 0.
-TEST(PlatformRoutines, rumble_patterns_return_zero) {
+// The engine reports that it took the pattern, and that it took it off again,
+// whether or not a rumble device is there to feel it.
+TEST(PlatformRoutines, rumble_patterns_report_success) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
         PlatformRoutineHarness harness(gameId);
 
-        EXPECT_EQ(0, harness.call("PlayRumblePattern", {Variable::ofInt(1)}).intValue);
-        EXPECT_EQ(0, harness.call("StopRumblePattern", {Variable::ofInt(1)}).intValue);
+        EXPECT_EQ(1, harness.call("PlayRumblePattern", {Variable::ofInt(1)}).intValue);
+        EXPECT_EQ(1, harness.call("StopRumblePattern", {Variable::ofInt(1)}).intValue);
     }
 }
