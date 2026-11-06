@@ -38,22 +38,24 @@ class FirstPersonCamera;
  * Developer skeleton for the swoop racing minigame, consuming passive metadata
  * parsed from the area's .are MiniGame struct (see MinigameSpec).
  *
- * Movement uses an explicit track-relative progress model that matches the
- * game's drag-race shape (not an arcade racer):
+ * The bike rides the "modelhook" node of the player's track model as the
+ * model's "track" animation plays, at speed / 100 of the authored rate:
+ *
+ *   hook    = track.hookAt(trackTime)
+ *   bikePos = hook * (lateralOffset, 0, 0)
+ *
+ * The bike faces along the hook and strafes along the hook's X axis. Left and
+ * right input is a lateral strafe only; any lean is small and purely cosmetic.
+ * The track is placed at the LYT track position. When the race starts without
+ * an animated track (no track model, no "modelhook", no "track" animation, or
+ * the leader-anchored fallback), the bike instead moves in a straight line
+ * from the start frame:
  *
  *   centerline = trackStart + trackForward * progress
  *   bikePos    = centerline + trackRight   * lateralOffset
  *
- * Forward progress is automatic/speed-driven down the authored track frame;
- * left/right input is a lateral strafe only (it never turns/yaws the bike for
- * navigation). The bike always faces down-course; any lean is small and purely
- * cosmetic. The track frame (start/forward/right) comes from the LYT track
- * placement combined with the track model's "modelhook"; a leader-anchored
- * fallback is used when that is unavailable.
- *
  * Intentionally minimal: no obstacles, enemies, boost, lap/finish, HUD, or
- * scripts; the track model's animation is not sampled for progress (the game
- * does not either).
+ * scripts.
  */
 class SwoopRace {
 public:
@@ -69,6 +71,7 @@ public:
      * @param bikeRoot the visible bike model root scene node (already added to the scene)
      * @param bikeChildNodes visible bike model child scene nodes attached to the root
      * @param finishProgress forward-progress distance at which the race is considered finished
+     * @param track the player's track; the bike follows it when its animation has a length
      */
     void start(const MinigameSpec &spec,
                FirstPersonCamera *camera,
@@ -76,7 +79,8 @@ public:
                std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeChildNodes,
                const glm::vec3 &startPosition,
                float startFacing,
-               float finishProgress);
+               float finishProgress,
+               std::optional<MinigameTrack> track = std::nullopt);
 
     void stop();
 
@@ -109,6 +113,17 @@ public:
 
     float finishProgress() const { return _finishProgress; }
 
+    // True when the bike rides an animated track rather than the straight line.
+    bool followsTrack() const { return _track.has_value(); }
+
+    // Time into the track animation, and the hook transform the bike rides.
+    float trackTime() const { return _trackTime; }
+    float trackLength() const { return _track ? _track->length() : 0.0f; }
+    const glm::mat4 &trackHook() const { return _trackHook; }
+
+    // True once a track with no loops left has played to its end.
+    bool trackEnded() const { return _trackEnded; }
+
     // True once forward progress has reached the finish threshold.
     bool finishReached() const { return _finishProgress > 0.0f && _progress >= _finishProgress; }
 
@@ -136,6 +151,13 @@ private:
     glm::vec3 _trackRight {1.0f, 0.0f, 0.0f};
     float _facing {0.0f};
 
+    // The animated track the bike rides, if any; see followsTrack.
+    std::optional<MinigameTrack> _track;
+    float _trackTime {0.0f};
+    glm::mat4 _trackHook {1.0f};
+    int _trackLoops {0}; // Num_Loops: below 0 loops forever, above 1 replays
+    bool _trackEnded {false};
+
     // Runtime state
 
     float _speed {0.0f};
@@ -162,6 +184,8 @@ private:
 
     float cameraAspect() const;
     glm::vec3 bikePosition() const;
+    glm::vec3 bikeForward() const;
+    void advanceTrack(float dt);
     void applyChaseCamera();
     void applyBikeTransform();
     void setCameraFieldOfView(float fovDegrees);

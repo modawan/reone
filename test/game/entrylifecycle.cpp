@@ -15,6 +15,8 @@
 #include "../fixtures/scene.h"
 
 #include "reone/game/game.h"
+#include "reone/game/gui/dialog.h"
+#include "reone/gui/gui.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/docommand.h"
@@ -28,6 +30,7 @@
 #include "reone/game/party.h"
 #include "reone/game/room.h"
 #include "reone/game/script/routines.h"
+#include "reone/resource/dialog.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/layout.h"
 #include "reone/scene/collision.h"
@@ -635,6 +638,69 @@ TEST_P(EntryLifecycleFixture, fade_hold_transfers_to_reconstructed_party_convers
     incoming->cancel(incoming, *player);
     EXPECT_TRUE(game->globalFade().heldForDialog());
     EXPECT_TRUE(game->globalFade().dialogPending());
+}
+
+namespace {
+
+// The real Game -> Conversation path, with GUI controls and camera
+// presentation replaced.
+class TransitionDialogGUI : public DialogGUI {
+public:
+    TransitionDialogGUI(Game &game, ServicesView &services) : DialogGUI(game, services) {
+        _gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    }
+
+    void update(float dt) override { Conversation::update(dt); }
+
+private:
+    void onStart() override {}
+    void onFinish() override {}
+    void onLoadEntry() override {}
+    void onEntryEnded() override {}
+    void setMessage(std::string) override {}
+    void setReplyLines(std::vector<std::string>) override {}
+};
+
+} // namespace
+
+// A module change during a conversation cuts it off: none of its participants
+// is left in conversation in the next module (K1 end_m01aa, whose conversation
+// a transition can leave on screen).
+TEST_P(EntryLifecycleFixture, transition_during_a_conversation_releases_its_participants) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    game->openInGame();
+    auto gui = std::make_unique<TransitionDialogGUI>(*game, engine.services());
+    TestGameModule::setDialogGUI(*game, std::move(gui));
+    auto dialog = std::make_shared<Dialog>();
+    dialog->resRef = "transition_talk";
+    Dialog::EntryReplyLink link;
+    link.index = 0;
+    dialog->startEntries.push_back(link);
+    dialog->entries.resize(1);
+    dialog->entries[0].text = "A valid conversation";
+    dialog->entries[0].delay = 100;
+    // Two replies, so the conversation opens instead of barking a one-liner.
+    dialog->entries[0].replies.push_back(link);
+    dialog->entries[0].replies.push_back(link);
+    dialog->replies.resize(1);
+    dialog->replies[0].text = "Finish";
+    EXPECT_CALL(engine.resourceModule().gffs(), get("transition_talk", ResType::Dlg))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(Gff::Builder().build()));
+    EXPECT_CALL(static_cast<resource::MockDialogs &>(engine.services().resource.dialogs), get("transition_talk"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(dialog));
+    auto owner = game->newPlaceable();
+    game->module()->area()->add(owner);
+    game->startDialog(owner, "transition_talk", {}, player);
+    ASSERT_EQ(Game::Screen::Conversation, game->currentScreen());
+    ASSERT_TRUE(player->isInConversation());
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_FALSE(player->isInConversation());
+    EXPECT_FALSE(game->globalFade().dialogPending());
 }
 
 TEST_P(EntryLifecycleFixture, rejected_destination_preserves_source_fade_and_admission) {

@@ -48,6 +48,7 @@ void Waypoint::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utw = _services.resource.gffs.get(templateRes, ResType::Utw)) {
             deserializeAll(*utw, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*utw, gff);
         }
     }
     deserializeAll(gff, identityContext);

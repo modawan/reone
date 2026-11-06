@@ -3309,7 +3309,7 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     const bool sight = area.isEyeLineClear(eye, targetEye, attacker, target, rightHand && rightHand->isRanged());
     if (sight) {
         attacker.clearBlockedAttackSight();
-    } else if (attacker.noteBlockedAttackSight() && attacker.isPC()) {
+    } else if (attacker.noteBlockedAttackSight() && attacker.actsAsPC()) {
         // The player character gives up a target it cannot see; the line
         // reaches the player only while controlling it.
         if (game.party().getLeader().get() == &attacker) {

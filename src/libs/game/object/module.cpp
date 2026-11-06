@@ -1551,34 +1551,30 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 }
 
 bool Module::handleKeyDown(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::Space:
-    case input::KeyCode::Pause:
+    auto &keybinds = game().options().game.activeKeybinds();
+
+    if (keybinds.pause.check(event.code)) {
         // Pause keys do not repeat: holding one toggles once.
         if (!event.repeat) {
             _game.pressPauseKey();
         }
         return true;
-    case input::KeyCode::G:
-        // The stealth key.
+    } else if (keybinds.toggleStealth.check(event.code)) {
         if (!event.repeat) {
             _game.requestStealth();
         }
         return true;
-    case input::KeyCode::Y:
-        // The clear-one key.
+    } else if (keybinds.clearOneAction.check(event.code)) {
         if (!event.repeat) {
             _game.clearOneAction();
         }
         return true;
-    case input::KeyCode::F:
-        // The cancel-combat key.
+    } else if (keybinds.cancelCombat.check(event.code)) {
         if (!event.repeat) {
             _game.cancelCombat();
         }
         return true;
-    case input::KeyCode::R:
-        // The default action key runs the selected target's default action, silently.
+    } else if (keybinds.defaultAction.check(event.code)) {
         if (event.repeat) {
             return true;
         }
@@ -1586,24 +1582,21 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
             onObjectClick(selected, false);
         }
         return true;
-    case input::KeyCode::Q:
-    case input::KeyCode::E: {
-        // Target cycling: Q steps counter-clockwise, E clockwise. Either key
-        // ends the choice of a party member to use an item on.
+    } else if (keybinds.cycleTargetLeft.check(event.code) || keybinds.cycleTargetRight.check(event.code)) {
+        // Either key ends the choice of a party member to use an item on.
         _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
             return false;
         }
-        _game.selectNearestObject(event.code == input::KeyCode::Q ? 0 : 1);
+        _game.selectNearestObject(keybinds.cycleTargetLeft.check(event.code) ? 0 : 1);
         // In combat mode a new target may pause play, whether or not one was found.
         if (_game.clientCombatMode()) {
             _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
         }
         return true;
     }
-    default:
-        return false;
-    }
+
+    return false;
 }
 
 } // namespace game

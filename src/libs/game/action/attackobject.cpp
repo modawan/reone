@@ -166,8 +166,10 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
     attacker.setDesiredFacingToward(target->position());
 
-    // Once its round has been ended, a started attack has nothing left to do.
-    if ((_schedule.isMelee() || _schedule.isRanged()) && !_game.combat().ownsRound(attacker)) {
+    // Once its round has been ended, a started attack has nothing left to do,
+    // also when its creature has been given a new round meanwhile: the attack
+    // does not carry over into it.
+    if ((_schedule.isMelee() || _schedule.isRanged()) && !_game.combat().runsRound(*self)) {
         finish(attacker);
         return;
     }

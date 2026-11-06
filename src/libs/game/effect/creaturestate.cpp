@@ -353,7 +353,7 @@ void CreatureStateInternalEffect::onRemove(Object &object, const EffectInstance 
         creature->onInternalStateRemoved(instance.id, stateRemovalAppliesPose(state, object.game().isTSL()));
         // A creature other than a player character forgets what it perceived
         // and looks around anew.
-        if (!creature->isPC()) {
+        if (!creature->actsAsPC()) {
             creature->perceiveAfresh();
         }
     }
@@ -711,7 +711,7 @@ EffectApplicationResult EntangleEffect::onApply(Object &object, EffectInstance &
 }
 
 void EntangleEffect::onRemove(Object &object, const EffectInstance &) {
-    if (auto *creature = dyn_cast<Creature>(&object); creature && !creature->isPC()) {
+    if (auto *creature = dyn_cast<Creature>(&object); creature && !creature->actsAsPC()) {
         creature->perceiveAfresh();
     }
 }

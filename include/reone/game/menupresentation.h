@@ -13,6 +13,8 @@
 #include <optional>
 #include <string>
 
+#include "reone/input/event.h"
+
 namespace reone {
 
 namespace game {
@@ -33,6 +35,35 @@ struct MenuPresentation {
     std::string modelResRef(bool tsl) const;
     static MenuPresentation load(const std::filesystem::path &path);
     void save(const std::filesystem::path &path) const;
+};
+
+struct Keybind {
+    input::KeyCode keyCode;
+    input::KeyCode keyCodeAlt;
+
+    bool check(input::KeyCode keyCode) {
+        return this->keyCode == keyCode || keyCodeAlt == keyCode;
+    }
+};
+struct KeybindOptions {
+    Keybind moveForward {input::KeyCode::W};
+    Keybind moveBackward {input::KeyCode::S};
+    Keybind moveLeft {input::KeyCode::Z};
+    Keybind moveRight {input::KeyCode::C};
+    Keybind flourish {input::KeyCode::X};
+    Keybind walk {input::KeyCode::B};
+    Keybind cameraRotateLeft {input::KeyCode::A};
+    Keybind cameraRotateRight {input::KeyCode::D};
+    Keybind cycleTargetLeft {input::KeyCode::Q};
+    Keybind cycleTargetRight {input::KeyCode::E};
+    Keybind toggleStealth {input::KeyCode::G};
+    Keybind clearOneAction {input::KeyCode::Y};
+    Keybind cancelCombat {input::KeyCode::F};
+    Keybind defaultAction {input::KeyCode::R};
+    Keybind pause {input::KeyCode::Space, input::KeyCode::Pause};
+
+    static KeybindOptions load(const std::filesystem::path &path, const int index);
+    void save(const std::filesystem::path &path, const int index) const;
 };
 
 /**
@@ -65,6 +96,9 @@ struct FeedbackOptions {
 int loadDifficultyLevel(const std::filesystem::path &path, int level);
 /** Write the difficulty level into the configuration, keeping every other line. */
 void saveDifficultyLevel(const std::filesystem::path &path, int level);
+
+int loadActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
+void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
 
 /** Each bit of the unlocked planet songs opens one group of the main menu's music list; there are eleven. */
 constexpr int kAllPlanetSongs = 0x7ff;

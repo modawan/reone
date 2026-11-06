@@ -82,14 +82,14 @@ void Map::loadTextures(const std::string &area) {
     }
 }
 
-void Map::render(Mode mode, const glm::vec4 &bounds, float scale) {
+void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
     if (!_areaTexture) {
         return;
     }
-    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &mode, &bounds, scale]() {
+    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &mode, &bounds, scale, pulsingAlpha]() {
         renderArea(mode, bounds, scale);
         renderNotes(mode, bounds, scale);
-        renderPartyLeader(mode, bounds, scale);
+        renderPartyLeader(mode, bounds, scale, pulsingAlpha);
     });
 }
 
@@ -220,7 +220,7 @@ glm::vec2 Map::getMapPosition(const glm::vec2 &world) const {
     return result;
 }
 
-void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale) {
+void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     if (!partyLeader) {
         return;
@@ -264,9 +264,12 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale) {
     transform = glm::translate(transform, glm::vec3(-0.5f * arrowSize, -0.5f * arrowSize, 0.0f));
     transform = glm::scale(transform, glm::vec3(arrowSize, arrowSize, 1.0f));
 
-    _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
+    // On the map screen the arrow pulses; on the minimap it is steady.
+    const float alpha = mode == Mode::Default ? pulsingAlpha : 1.0f;
+    _services.graphics.uniforms.setLocals([this, transform, alpha](auto &locals) {
         locals.reset();
         locals.model = std::move(transform);
+        locals.color.a = alpha;
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);

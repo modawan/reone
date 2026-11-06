@@ -20,6 +20,7 @@
 #include "reone/resource/container/memory.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/gff.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/dialogs.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/resources.h"
@@ -67,7 +68,8 @@ TEST(Dialogs, should_preserve_quest_and_plot_xp_fields_from_dlg) {
 
     auto gffs = Gffs(resources);
     auto strings = Strings();
-    auto dialogs = Dialogs(gffs, strings);
+    auto twoDas = TwoDAs(resources);
+    auto dialogs = Dialogs(gffs, strings, twoDas, GameID::KotOR);
 
     // when
 
@@ -107,7 +109,8 @@ TEST(Dialogs, should_preserve_resource_identity) {
 
     auto gffs = Gffs(resources);
     auto strings = Strings();
-    auto dialogs = Dialogs(gffs, strings);
+    auto twoDas = TwoDAs(resources);
+    auto dialogs = Dialogs(gffs, strings, twoDas, GameID::KotOR);
 
     // when
 

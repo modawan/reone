@@ -147,15 +147,23 @@ void WavReader::loadIMAADPCM(uint32_t chunkSize) {
     AudioClip::Frame frame;
     frame.format = getAudioFormat();
     frame.sampleRate = _sampleRate;
-    frame.samples.reserve(2 * (chunkSize - 4 * _channelCount * chunkSize / _blockAlign));
+    frame.samples.reserve(2 * (chunkSize - 4 * _channelCount * chunkSize / _blockAlign) + 2 * _channelCount * (chunkSize / _blockAlign + 1));
 
     uint32_t off = 0;
     while (off < chunkSize) {
         if (off % _blockAlign == 0) {
             for (int i = 0; i < _channelCount; ++i) {
                 _ima[i].lastSample = *reinterpret_cast<int16_t *>(&chunk[off + 0]);
-                _ima[i].stepIndex = *reinterpret_cast<int16_t *>(&chunk[off + 2]);
+                // The step index is one byte; the byte after it is reserved.
+                _ima[i].stepIndex = std::min<int>(static_cast<uint8_t>(chunk[off + 2]), 88);
                 off += 4;
+            }
+            // The block header's predictor is the block's first sample; the
+            // nibbles that follow are the rest. Leaving it out drops a sample
+            // per block, a click at the block rate.
+            for (int i = 0; i < _channelCount; ++i) {
+                frame.samples.push_back((_ima[i].lastSample >> 0) & 0xff);
+                frame.samples.push_back((_ima[i].lastSample >> 8) & 0xff);
             }
         }
         int16_t samples[16];
@@ -214,7 +222,11 @@ void WavReader::getIMASamples(int channel, uint8_t nibbles, int16_t &sample1, in
 }
 
 int16_t WavReader::getIMASample(int channel, uint8_t nibble) {
-    int step = (2 * (nibble & 0x7) + 1) * kIMAStepTable[_ima[channel].stepIndex] / 8;
+    int stepSize = kIMAStepTable[_ima[channel].stepIndex];
+    int step = stepSize >> 3;
+    if (nibble & 4) step += stepSize;
+    if (nibble & 2) step += stepSize >> 1;
+    if (nibble & 1) step += stepSize >> 2;
     int diff = nibble & 0x8 ? -step : step;
     int sample = std::min(std::max(_ima[channel].lastSample + diff, -32768), 32767);
 

@@ -26,6 +26,9 @@
 #include <numeric>
 #include <optional>
 
+#include <chrono>
+#include <thread>
+
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <imgui.h>
@@ -78,6 +81,7 @@
 #include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/guis.h"
 #include "reone/movie/format/bikreader.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -595,6 +599,10 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 }
 
 void Game::init() {
+    _options.game.activeKeybindsIndex = loadActiveKeybinds(_options.game.configurationPath, _options.game.activeKeybindsIndex);
+    for (int i = 0; i < _options.game.keybinds.size(); ++i) {
+        _options.game.keybinds.at(i) = KeybindOptions::load(_options.game.configurationPath, i);
+    }
     _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
     _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
     _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
@@ -614,7 +622,8 @@ void Game::init() {
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
 
-    playVideo("legal");
+    // No movie plays at start-up: the main menu opens, and its music starts,
+    // at once.
     openMainMenu();
 }
 
@@ -687,6 +696,11 @@ void Game::initTables() {
 
     _trapTypes = Trap::readTypes(twoDas);
     _areaMusic.init(isTSL());
+    if (isTSL()) {
+        _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
+            return takeLoadMusic(resRef);
+        });
+    }
     _party.init();
 }
 
@@ -935,6 +949,9 @@ void Game::update(float frameTime) {
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
     updateDeathSequence();
+    // Every GUI's pulse runs through pauses, whatever the screen, and slows
+    // with the world under the sequel's gameover panel.
+    _services.gui.guis.updatePulsingAlpha(frameTime * _deathTimeScale);
     if (_endGamePending) {
         if (_endGameDelay <= 0.0f) {
             if (!_gameOver) {
@@ -1511,7 +1528,11 @@ void Game::endSourceSession(const std::string &destination) {
                   _pendingTurret.targetModule % destination));
         _pendingTurret = PendingTurretRequest();
     }
-    if (_screen == Screen::Conversation && _conversation) {
+    // The loading screen is already up here (withLoadingScreen changes the
+    // screen first), so a conversation the transition cuts off is found by its
+    // own state too: left running, its participants would keep their
+    // in-conversation flag in the next module.
+    if (_conversation && (_screen == Screen::Conversation || _conversation->isRunning())) {
         _conversation->cleanupForModuleTransition();
     }
 
@@ -1935,6 +1956,8 @@ void Game::retireRuntimeSession() {
 
     _services.audio.mixer.stopAll();
     _music.reset();
+    _loadMusic.reset();
+    _loadComesWithMovies = false;
     _movie.reset();
     _musicResRef.clear();
     while (!_moduleTransitionMovies.empty()) {
@@ -2111,6 +2134,7 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
         }
         autosave.pauseDay = params->getUint("TIME_PAUSEDAY");
         autosave.pauseTime = params->getUint("TIME_PAUSETIME");
+        autosave.loadMusic = params->getString("LOADMUSIC");
         prepared.autosave = std::move(autosave);
     }
     validatePartyLoad(prepared.partyTable.get());
@@ -2130,6 +2154,12 @@ bool Game::loadGame(const resource::SaveSlotDescriptor &slot) {
         // Commit. The old runtime and the old mounts retire together, and only
         // then does the candidate become authoritative: no runtime ever
         // observes the other session's resources.
+        // A save loads with no loading-screen music, except an autosave of the
+        // world's template, which plays the one it recorded.
+        _loadMusicResRef.clear();
+        if (prepared.autosave) {
+            _loadMusicResRef = prepared.autosave->loadMusic;
+        }
         resetGame();
         _services.resource.director.commitGameLoad(std::move(prepared.session));
         return restoreSaveLoad(std::move(prepared));
@@ -2854,6 +2884,8 @@ void Game::setCursorType(CursorType type) {
 
 void Game::playVideo(const std::string &name, bool streamingMusic) {
     _moduleTransitionMovies = std::queue<std::string>();
+    // A script's movie empties the transition list when it ends.
+    _loadComesWithMovies = false;
     startVideo(name, streamingMusic);
 }
 
@@ -2870,6 +2902,81 @@ void Game::playMusic(const std::string &resRef) {
     if (!resRef.empty()) {
         _areaMusic.stopSounds();
     }
+}
+
+// A new game, TSL's character generation and the module picker set the
+// loading-screen music from the module's row of the loading-screen table.
+void Game::setLoadMusicForModule(const std::string &moduleName) {
+    if (!_loadScreen) {
+        _loadScreen = tryLoadGUI<LoadingScreen>();
+    }
+    _loadMusicResRef = _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
+}
+
+// Every loading screen shown with music starts it: the menu music stops;
+// nothing starts while transition movies are listed for the load; music that
+// is there but not playing is resumed; else the set track starts, looping, in
+// the streamed music group, at that group's volume.
+void Game::startLoadMusic() {
+    playMusic("");
+    if (_loadComesWithMovies) {
+        return;
+    }
+    if (_loadMusic) {
+        if (!_loadMusic->isPlaying()) {
+            _loadMusic->resume();
+        }
+        return;
+    }
+    if (_loadMusicResRef.empty()) {
+        return;
+    }
+    _loadMusic = _services.audio.mixer.play(
+        _services.resource.audioClips.get(_loadMusicResRef),
+        AudioType::Music,
+        _areaMusic.musicGroupGain(),
+        true);
+}
+
+// KotOR's loading screen stops the loading music when it goes; both titles
+// stop it when the area's sounds start, and TSL when character generation
+// ends.
+void Game::stopLoadMusic() {
+    if (_loadMusic) {
+        _loadMusic->stop();
+        _loadMusic.reset();
+    }
+}
+
+// The menu music fades out over 2500 ms; only the sound runs until 750 ms have
+// passed, and then the menu music stops at once.
+static constexpr uint32_t kMenuMusicFadeMilliseconds = 2500;
+static constexpr uint32_t kMenuMusicWaitMilliseconds = 750;
+
+// The wait is real time.
+void Game::fadeOutMenuMusic() {
+    using namespace std::chrono;
+    const auto start = steady_clock::now();
+    for (auto elapsed = milliseconds(0); elapsed < milliseconds(kMenuMusicWaitMilliseconds);
+         elapsed = duration_cast<milliseconds>(steady_clock::now() - start)) {
+        if (_music) {
+            _music->setGainScale(1.0f - static_cast<float>(elapsed.count()) / kMenuMusicFadeMilliseconds);
+        }
+        _services.audio.mixer.render();
+        std::this_thread::sleep_for(milliseconds(1));
+    }
+    playMusic("");
+}
+
+// The playing loading music, when it is the track asked for (ignoring case),
+// becomes the background music and plays once through.
+std::shared_ptr<AudioSource> Game::takeLoadMusic(const std::string &resRef) {
+    if (!_loadMusic || !boost::iequals(resRef, _loadMusicResRef)) {
+        return nullptr;
+    }
+    auto music = std::move(_loadMusic);
+    music->setLooping(false);
+    return music;
 }
 
 void Game::renderScene() {
@@ -2900,11 +3007,6 @@ static constexpr int kHighestHostileReputation = 10;
 static constexpr float kDeathFadeWait = 12.0f;
 static constexpr float kDeathFadeLength = 1.0f;
 static constexpr float kHurriedFadeLength = 0.5f;
-// The first title's slow motion: it reaches kDeathSlowestSpeed after
-// kDeathSlowSeconds of real time, easing logarithmically from full speed.
-static constexpr float kDeathSlowSeconds = 4.0f;
-static constexpr float kDeathSlowestSpeed = 0.2f;
-static constexpr double kDeathSlowSpan = 0.8;
 // The sequel's gameover panel runs the world at a quarter of its speed.
 static constexpr float kDeathPanelTimeScale = 0.25f;
 // The first title's death message.
@@ -3043,7 +3145,6 @@ void Game::setLastPartyMemberTempKilled(const Creature &creature) {
 // holds before fading to black. Only a fallen party in a module's area starts it.
 void Game::runDeathSequence() {
     _gameOver = true;
-    _deathSequenceStarting = true;
     // Every panel closes, a tutorial window about to open included.
     _tutorialPending.reset();
     stopMovement();
@@ -3096,7 +3197,6 @@ void Game::endGame(bool showGui) {
     _endGameDelay = showGui ? (isTSL() ? kEndGameGuiDelayTSL : kEndGameGuiDelayKotOR) : 0.0f;
     if (showGui && !isTSL()) {
         _gameOver = true;
-        _deathSequenceStarting = true;
     }
 }
 
@@ -3115,36 +3215,22 @@ void Game::hurryDeathSequence() {
     _globalFade.request(GlobalFade::Direction::Out, 0.0f, kHurriedFadeLength, glm::vec3 {0.0f});
 }
 
-// The first title slows the world while its game is over, and ends the game
-// once the fade to black has finished or an end was asked for, and the death
-// message of a scripted end has had its time. The sequel's gameover panel
-// slows the world for as long as it is up.
+// The first title ends the game once the fade to black has finished or an end
+// was asked for, and the death message of a scripted end has had its time; its
+// world keeps full speed throughout. The sequel's gameover panel slows the
+// world for as long as it is up.
 void Game::updateDeathSequence() {
     if (isTSL()) {
         _deathTimeScale = _deathDisplay && _deathDisplay->isPresented() ? kDeathPanelTimeScale : 1.0f;
         return;
     }
-    const auto now = static_cast<uint32_t>(_services.system.clock.millis());
-    const uint32_t elapsed = now - _deathSequenceSample;
-    _deathSequenceSample = now;
     if (!_gameOver) {
         return;
     }
-    _deathSequenceSeconds += static_cast<float>(elapsed) / 1000.0f;
-    if (_deathSequenceStarting) {
-        _deathSequenceStarting = false;
-        _deathSlowRate = static_cast<float>(
-            -std::log(static_cast<double>(_deathSequenceSeconds * (1.0f / kDeathSlowSeconds))) / kDeathSlowSpan);
-    }
-    _deathTimeScale = _deathSequenceSeconds > kDeathSlowSeconds
-                          ? kDeathSlowestSpeed
-                          : -std::log(_deathSequenceSeconds * (1.0f / kDeathSlowSeconds)) / _deathSlowRate + kDeathSlowestSpeed;
     if ((_globalFade.fading() && !_endGamePending) || _endGameDelay > 0.0f) {
         return;
     }
-    _deathTimeScale = 1.0f;
     _gameOver = false;
-    _deathSequenceStarting = true;
     _globalFade.stop();
     requestEndGame();
     if (_deathMessage) {
@@ -4435,6 +4521,13 @@ void Game::renderGlobalFade() {
     if (alpha <= 0.0f) {
         return;
     }
+    // Compatibility approximation: color, then blackfill.
+    for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
+        renderScreenFill(color, alpha);
+    }
+}
+
+void Game::renderScreenFill(const glm::vec3 &color, float alpha) {
     auto &graphics = _services.graphics;
     auto &context = graphics.context;
     GlobalUniforms previousGlobals;
@@ -4454,17 +4547,14 @@ void Game::renderGlobalFade() {
                     context.withPolygonMode(PolygonMode::Fill, [&]() {
                         // Inherit the GUI viewport, including window/drawable
                         // scaling. Logical GUI dimensions need not be pixels.
-                        // Compatibility approximation: color, then blackfill.
-                        for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
-                            graphics.uniforms.setLocals([&](auto &locals) {
-                                locals.reset();
-                                locals.model = glm::scale(glm::mat4(1.0f),
-                                                          glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
-                                locals.color = glm::vec4(color, alpha);
-                            });
-                            context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-                            graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
-                        }
+                        graphics.uniforms.setLocals([&](auto &locals) {
+                            locals.reset();
+                            locals.model = glm::scale(glm::mat4(1.0f),
+                                                      glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
+                            locals.color = glm::vec4(color, alpha);
+                        });
+                        context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
+                        graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
                     });
                 });
             });
@@ -4484,6 +4574,7 @@ void Game::settleFadeArrival() {
         if (_musicResRef.empty()) {
             _areaMusic.start();
         }
+        stopLoadMusic();
         _globalFade.settleArrival(_fadeArrival);
     }
     _fadeArrival.reset();
@@ -4927,11 +5018,12 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     if (!_movie) {
         return false;
     }
-    // A movie ends the area's music and ambient loop for good. Every other
-    // sound waits for it, including sounds started before it is first shown;
-    // a movie that lets music play leaves area music set to play through
-    // movies sounding while it fades.
-    _areaMusic.stopSounds();
+    // A movie ends the area's music and ambient loop for good; one that
+    // comes before arrival, as an enter script's, leaves the music to start
+    // on arrival but no ambient loop. Every other sound waits for it, including
+    // sounds started before it is first shown; a movie that lets music play
+    // leaves area music set to play through movies sounding while it fades.
+    _areaMusic.stopSoundsForMovie();
     _services.audio.mixer.setSoundsHeldForMovie(true, streamingMusic ? _areaMusic.musicPlayingThroughMovies() : nullptr);
     return true;
 }
@@ -4942,6 +5034,11 @@ bool Game::playNextModuleTransitionMovie() {
         _moduleTransitionMovies.pop();
 
         if (startVideo(name, false)) {
+            // A transition list holds only movies that exist, and its load
+            // plays no loading-screen music.
+            if (!_nextModule.empty()) {
+                _loadComesWithMovies = true;
+            }
             return true;
         }
     }
@@ -5616,7 +5713,15 @@ void Game::withLoadingScreen(const std::string &moduleName, const std::function<
     }
     changeScreen(Screen::Loading);
     render();
+    startLoadMusic();
     block();
+    // KotOR's loading screen takes its music with it; TSL's plays on until
+    // the area's sounds start. The transition list is cleared at the load's
+    // end.
+    if (!isTSL()) {
+        stopLoadMusic();
+    }
+    _loadComesWithMovies = false;
     // Player input returns once a load is done.
     _playerInputBlocked = false;
 }
@@ -5881,6 +5986,12 @@ void Game::saveDifficultyLevel() const {
 
 void Game::saveMouseOptions() const {
     _options.game.mouse.save(_options.game.configurationPath);
+}
+
+void Game::saveKeybindOptions() const {
+    for (int i = 0; i < _options.game.keybinds.size(); ++i) {
+        _options.game.keybinds[i].save(_options.game.configurationPath, i);
+    }
 }
 
 // Tutorial windows
@@ -7241,8 +7352,16 @@ void Game::openSwoopRace() {
         trackModel, mg.player.trackResRef, lytTrackPos, leader->position(), leader->getFacing());
     const float finishProgress = swoopFinishProgress(trackFrame, layout);
 
+    // Ride the track model's "track" animation wherever the start frame came
+    // from the track model itself. The leader-anchored fallback keeps the
+    // straight line.
+    std::optional<MinigameTrack> track;
+    if (trackModel && trackFrame.mode != "fallback") {
+        track = buildMinigameTrack(*trackModel, lytTrackPos.value_or(glm::vec3(0.0f)));
+    }
+
     _savedCameraType = _cameraType;
-    _swoopRace.start(mg, camera, std::move(bike.root), std::move(bike.children), trackFrame.position, trackFrame.facing, finishProgress);
+    _swoopRace.start(mg, camera, std::move(bike.root), std::move(bike.children), trackFrame.position, trackFrame.facing, finishProgress, std::move(track));
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
@@ -7291,11 +7410,21 @@ void Game::openSwoopRace() {
                   % trackFrame.facing));
     }
 
-    // Movement model: track-relative progress + lateral strafe (no turning).
-    debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
-              % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
-              % trackFrame.facing
-              % finishProgress));
+    // Movement model: the sampled track animation, or the straight line from
+    // the start frame; lateral strafe either way (no turning).
+    if (_swoopRace.followsTrack()) {
+        glm::vec3 hook(_swoopRace.trackHook()[3]);
+        debug(str(boost::format("swoop: movement=track-animation strafeOnly=yes lateralAxis=hookX length=%.2f loops=%d hook=[%.1f,%.1f,%.1f] finish=%.1f")
+                  % _swoopRace.trackLength()
+                  % mg.player.numLoops
+                  % hook.x % hook.y % hook.z
+                  % finishProgress));
+    } else {
+        debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=none start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
+                  % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
+                  % trackFrame.facing
+                  % finishProgress));
+    }
 
     // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
     debug(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
@@ -8375,11 +8504,17 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     }
     // TSL introduces levelling up the first time the player character can,
     // outside a conversation.
-    if (isTSL() && creature.isPlayerCreated() && !isConversationActive() &&
-        getGlobalNumber(kLevelUpDialogFiredGlobal) == 0) {
-        setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
-        _scriptRunner->run(kLevelUpDialogScript);
+    if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
+        runLevelUpDialogOnce();
     }
+}
+
+void Game::runLevelUpDialogOnce() {
+    if (getGlobalNumber(kLevelUpDialogFiredGlobal) != 0) {
+        return;
+    }
+    setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
+    _scriptRunner->run(kLevelUpDialogScript);
 }
 
 /** The name character generation loads under. */
@@ -8395,11 +8530,18 @@ void Game::startCharacterGeneration() {
     }
     // Character generation loads as the class selection does, and every new
     // character starts from a new class selection.
+    // TSL's character generation plays its loading screen's music throughout;
+    // KotOR's plays its menu music once the panel is up.
+    if (isTSL()) {
+        setLoadMusicForModule(kClassSelectionLoadScreen);
+    }
     withLoadingScreen(kClassSelectionLoadScreen, [this]() {
         _charGen->startCreation();
         _loadScreen->setProgress(100);
         render();
-        playMusic(_charGen->musicResRef());
+        if (!isTSL()) {
+            playMusic(_charGen->musicResRef());
+        }
         changeScreen(Screen::CharacterGeneration);
     });
 }
@@ -8650,8 +8792,13 @@ void Game::submitStatusSummary(
 
 void Game::finishStatusSummaryCycle() {
     static constexpr char kAlignmentMovieScript[] = "k_align_movie";
-    if (isTSL()) {
-        _scriptRunner->run(kAlignmentMovieScript);
+    if (!isTSL()) {
+        return;
+    }
+    _scriptRunner->run(kAlignmentMovieScript);
+    const auto &player = *_party.player();
+    if (player.isPlayerCreated() && player.isLevelUpPending()) {
+        runLevelUpDialogOnce();
     }
 }
 
@@ -9958,7 +10105,7 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
         return;
     }
     glm::vec3 pos = _swoopRace.position();
-    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=track-progress")
+    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=%s trackTime=%.2f/%.2f trackEnded=%d")
                            % _swoopRace.progress()
                            % _swoopRace.finishProgress()
                            % _swoopRace.lateralOffset()
@@ -9966,7 +10113,11 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
                            % _swoopRace.elapsed()
                            % pos.x % pos.y % pos.z
                            % _swoopRace.lateralLeftBound()
-                           % _swoopRace.lateralRightBound()));
+                           % _swoopRace.lateralRightBound()
+                           % (_swoopRace.followsTrack() ? "track-animation" : "track-progress")
+                           % _swoopRace.trackTime()
+                           % _swoopRace.trackLength()
+                           % static_cast<int>(_swoopRace.trackEnded())));
 }
 
 void Game::consoleStartTurret(const ConsoleArgs &args) {

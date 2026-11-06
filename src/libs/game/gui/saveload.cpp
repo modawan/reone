@@ -178,6 +178,7 @@ void SaveLoad::onGUILoaded() {
     _saveNameGUI = _services.gui.guis.get(guiResRef("savename"), [this](IGUI &gui) {
         gui.setResolution(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
         gui.setScaling(GUI::ScalingMode::Center);
+        gui.setImageButtonTextPulses(_game.isTSL());
     });
     if (_saveNameGUI) {
         _saveNameControls.BTN_CANCEL = std::static_pointer_cast<Button>(_saveNameGUI->findControl("BTN_CANCEL"));
@@ -452,6 +453,10 @@ void SaveLoad::loadGame(uint32_t number) {
     auto save = findSave(number);
     if (!save) return;
     try {
+        // A load from the main menu first fades the menu music out.
+        if (_mode == SaveLoadMode::LoadFromMainMenu) {
+            _game.fadeOutMenuMusic();
+        }
         // Hand over the slot discovered by indexing. Reducing it to a name here
         // would make the loader resolve the directory a second time, and the
         // entity it found need not be the one the player selected.

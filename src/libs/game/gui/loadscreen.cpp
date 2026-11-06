@@ -20,6 +20,7 @@
 #include "reone/game/game.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/resources.h"
 
 using namespace reone::audio;
@@ -65,6 +66,27 @@ void LoadingScreen::setModuleImage(const std::string &moduleName) {
         image = _loadScreens->getString(_loadScreens->indexByLabel(kDefaultRow), kImageColumn);
     }
     _gui->rootControl().setBorderFill(image);
+}
+
+// The music of the loading-screen table's row named by the module; failing
+// that, load_<module> when that MP3 exists; else the default row's. No module
+// name gives no music.
+std::string LoadingScreen::musicResRef(const std::string &moduleName) const {
+    static constexpr char kMusicColumn[] = "musicresref";
+    static constexpr char kDefaultRow[] = "default";
+    if (moduleName.empty()) {
+        return "";
+    }
+    const int row = _loadScreens->indexByLabel(moduleName);
+    if (auto named = row != -1 ? _loadScreens->getStringOpt(row, kMusicColumn) : std::nullopt) {
+        return *named;
+    }
+    if (const std::string own = "load_" + moduleName;
+        _services.resource.audioClips.hasMp3(own)) {
+        return own;
+    }
+    const int defaultRow = _loadScreens->indexByLabel(kDefaultRow);
+    return defaultRow != -1 ? _loadScreens->getStringOpt(defaultRow, kMusicColumn).value_or("") : "";
 }
 
 void LoadingScreen::setProgress(int progress) {

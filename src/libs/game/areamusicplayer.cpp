@@ -139,9 +139,19 @@ bool AreaMusicPlayer::isAmbientPlaying() {
     return _ambient && _ambient->isPlaying();
 }
 
-bool AreaMusicPlayer::playTrack(const std::string &resRef) {
+bool AreaMusicPlayer::playTrack(const std::string &resRef, bool takeLoadMusic) {
     if (resRef.empty()) {
         return false;
+    }
+    // TSL's background music takes over the load-screen music when it is the
+    // same track, and lets it play on, once through.
+    if (takeLoadMusic && _loadMusicHandover) {
+        if (auto loadMusic = _loadMusicHandover(resRef)) {
+            _music = std::move(loadMusic);
+            _fadeEnd.reset();
+            _playingResRef = resRef;
+            return true;
+        }
     }
     _music = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, _musicGroupGain);
     _fadeEnd.reset();
@@ -205,6 +215,25 @@ void AreaMusicPlayer::stopSounds() {
     _ambientFailed = false;
 }
 
+// A movie turns the music off only once the area's sounds have started: before
+// that, the music starts on arrival as the area asks. The battle music, the
+// pending restart and the ambient loop are switched off either way, so an area
+// whose enter script plays a movie before arrival has no ambient loop.
+void AreaMusicPlayer::stopSoundsForMovie() {
+    if (_started) {
+        stopSounds();
+        return;
+    }
+    _battleOn = false;
+    _countdown = 0;
+    if (_ambient) {
+        _ambient->stop();
+    }
+    _ambientFadeEnd.reset();
+    _ambientOn = false;
+    _ambientFailed = false;
+}
+
 // Nothing is on once the area is left, so nothing restarts until the next one
 // is loaded; a fading track still fades out.
 void AreaMusicPlayer::unload() {
@@ -228,7 +257,7 @@ void AreaMusicPlayer::switchMusic(bool play) {
     if (play) {
         if (!isMusicPlaying()) {
             _countdown = 0;
-            if (!playTrack(track(_area->ambientAudio().musicDay).resRef)) {
+            if (!playTrack(track(_area->ambientAudio().musicDay).resRef, true)) {
                 _countdown = kMusicRetryMilliseconds;
             }
         }

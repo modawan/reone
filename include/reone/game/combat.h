@@ -304,8 +304,8 @@ public:
      * round: a round the partner began, or one of its own, ends. A round the
      * two share starts again from the beginning for both; a partner whose
      * round was its own gets a side, with no command yet, in the attacker's
-     * round, held for the attack's pause. An engaged partner owning no round
-     * is held for the attack's pause.
+     * round, held for the attack's pause and free to act as soon as that hold
+     * ends. An engaged partner owning no round is held for the attack's pause.
      */
     bool engagePhysicalTarget(const Creature &attacker, Object &target, int pauseMilliseconds);
     /** The round the action runs in is engaged. */
@@ -319,6 +319,8 @@ public:
     bool awaitsRoundEnd(const Creature &actor, std::optional<std::reference_wrapper<const Action>> self) const;
     /** Whether the creature has a command in a round that has not ended. */
     bool ownsRound(const Creature &actor) const;
+    /** The action carries out its creature's side of a round that has not ended. */
+    bool runsRound(const Action &action) const;
     /** The creature owns a round that no action still waiting in its queue belongs to. */
     bool ownsDetachedRound(const Creature &actor) const;
     /** The creature takes part in an engaged (paired) round. */

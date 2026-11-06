@@ -25,9 +25,12 @@
 #include "../fixtures/engine.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/followleader.h"
+#include "reone/game/action/movetopoint.h"
+#include "reone/game/action/randomwalk.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/action/wait.h"
 #include "reone/game/animations.h"
 #include "reone/game/attack.h"
 #include "reone/game/game.h"
@@ -534,6 +537,61 @@ TEST(Action, follow_leader_keeps_running_once_the_follower_is_with_the_leader) {
     action->execute(action, *follower, 1.0f);
 
     EXPECT_FALSE(action->isCompleted());
+}
+
+// F. "All commands will remove a RandomWalk() from the action queue if there
+// is one in place" (nwscript.nss, ActionRandomWalk).
+TEST(Action, a_queued_action_removes_a_random_walk_with_its_moves_and_pauses) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto walker = game.newCreature();
+    auto walk = game.newAction<RandomWalkAction>(glm::vec3(0.0f));
+    walker->addAction(walk);
+    // The pause a walk queues before itself while it runs.
+    ASSERT_TRUE(walker->addActionBefore(*walk, game.newAction<WaitAction>(3.0f)));
+    ASSERT_EQ(2u, walker->actions().size());
+
+    walker->addAction(game.newAction<MoveToPointAction>(glm::vec3(5.0f, 0.0f, 0.0f), false));
+
+    ASSERT_EQ(1u, walker->actions().size());
+    EXPECT_EQ(ActionType::MoveToPoint, walker->actions().front()->type());
+    EXPECT_TRUE(walk->isCancelled());
+}
+
+TEST(Action, an_action_queued_on_top_removes_a_random_walk) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto walker = game.newCreature();
+    walker->addAction(game.newAction<RandomWalkAction>(glm::vec3(0.0f)));
+
+    walker->addActionOnTop(game.newAction<WaitAction>(1.0f));
+
+    ASSERT_EQ(1u, walker->actions().size());
+    EXPECT_EQ(ActionType::Wait, walker->actions().front()->type());
+}
+
+TEST(Action, a_new_random_walk_replaces_the_queued_one_and_keeps_other_actions) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto walker = game.newCreature();
+    auto wait = game.newAction<WaitAction>(1.0f);
+    walker->addAction(wait);
+    auto first = game.newAction<RandomWalkAction>(glm::vec3(0.0f));
+    walker->addAction(first);
+    auto second = game.newAction<RandomWalkAction>(glm::vec3(1.0f, 0.0f, 0.0f));
+
+    walker->addAction(second);
+
+    ASSERT_EQ(2u, walker->actions().size());
+    EXPECT_EQ(wait, walker->actions()[0]);
+    EXPECT_EQ(second, walker->actions()[1]);
+    EXPECT_FALSE(wait->isCancelled());
 }
 
 namespace {

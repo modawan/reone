@@ -23,6 +23,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/docommand.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
@@ -58,6 +59,7 @@
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/object/waypoint.h"
+#include "reone/game/pathfinder.h"
 #include "reone/game/player.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
@@ -195,7 +197,7 @@ public:
             return false;
         }
         auto cut = DialogGUI::decodeCutAnimation(ordinal);
-        return gui.enterMixedStunt(gui._participantByTag.at(tag), animation, cut && cut->looping);
+        return gui.enterMixedStunt(gui._participantByTag.at(tag), animation, cut && cut->looping, ordinal);
     }
 
     static std::optional<DialogGUI::CutAnimation> decodeCut(int ordinal) {
@@ -1298,18 +1300,21 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
     EXPECT_EQ(leftSaberNode->activeAnimationName(), "powerdown");
 }
 
-TEST(Conversation, should_advance_script_only_auto_routing_entry_without_presenting_it) {
+TEST(Conversation, should_show_script_only_auto_routing_entry_and_advance_at_the_next_update) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     RoutingConversation conversation(game, engine.services());
 
     conversation.start(makeRoutingDialog(), nullptr);
+    conversation.update(0.0f);
 
-    ASSERT_EQ(conversation.messages.size(), 2);
+    // The entry's message, the taken reply's own empty text, then the next entry's.
+    ASSERT_EQ(conversation.messages.size(), 3);
     EXPECT_EQ(conversation.messages[0], "");
-    EXPECT_EQ(conversation.messages[1], "visible");
-    EXPECT_EQ(conversation.presentedEntryCount, 1);
+    EXPECT_EQ(conversation.messages[1], "");
+    EXPECT_EQ(conversation.messages[2], "visible");
+    EXPECT_EQ(conversation.presentedEntryCount, 2);
 }
 
 TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_data) {
@@ -2382,7 +2387,8 @@ TEST(TransitionPresentationLayout, should_uniformly_scale_and_top_anchor_the_aut
     graphics::GraphicsOptions options;
     options.width = 3440;
     options.height = 1440;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::PulsingAlpha pulsingAlpha;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(640, 480);
     guiInstance.setScaling(gui::GUI::ScalingMode::ScaledTopCenter);
 
@@ -2455,7 +2461,8 @@ TEST(GUIControlLayout, should_scale_text_uniformly_when_geometry_uses_different_
     options.width = 1920;
     options.height = 1080;
     options.guiTextScale = 1.25f;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::PulsingAlpha pulsingAlpha;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(640, 480);
     TestScaledControl control(guiInstance, engine);
     control.setAuthoredGeometry({20, 30, 200, 80}, 8, 8);
@@ -2486,7 +2493,8 @@ TEST(GUIInputCoordinates, should_hit_screen_positioned_controls_without_authored
     graphics::GraphicsOptions options;
     options.width = 1920;
     options.height = 1080;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::PulsingAlpha pulsingAlpha;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(640, 480);
     guiInstance.setScaling(gui::GUI::ScalingMode::PositionRelativeToCenter);
 
@@ -2562,7 +2570,8 @@ TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {
     options.width = 1920;
     options.height = 1080;
     options.guiBorderScale = 1.25f;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::PulsingAlpha pulsingAlpha;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(800, 600);
     guiInstance.setScaling(gui::GUI::ScalingMode::Scaled);
     TestScaledControl protoRow(guiInstance, engine);
@@ -2581,7 +2590,8 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
     graphics::GraphicsOptions options;
     options.guiListScale = 0.5f;
     options.guiTextScale = 0.75f;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::PulsingAlpha pulsingAlpha;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
 
     resource::generated::GUI_CONTROLS definition;
     definition.CONTROLTYPE = static_cast<int>(gui::ControlType::ListBox);
@@ -4974,6 +4984,98 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
     EXPECT_EQ(0, fixture.scriptRuns("k_def_blocked01"));
 }
 
+// An area with no walkmesh has no path to anywhere. Walks toward objects give
+// up on it, rather than planning again every frame and holding the creature's
+// queue for good.
+TEST(CreatureNavigationFailure, a_move_to_an_object_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto target = fixture.addCreature("k_def_blocked01");
+    target->setPosition(kFarDestination);
+
+    auto action = fixture.game.newAction<MoveToObjectAction>(target, true, 1.0f);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+TEST(CreatureNavigationFailure, an_open_door_order_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.door->setPosition(kFarDestination);
+
+    auto action = fixture.game.newAction<OpenDoorAction>(fixture.door);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+// Give the area a walkmesh of two rooms, each a square of two faces: one
+// around the origin, and one apart from it that no path reaches.
+void loadTwoRoomWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    for (float x : {0.0f, 20.0f}) {
+        graphics::Walkmesh walkmesh;
+        walkmesh.vertices = {
+            {x - 5.0f, -5.0f, 0.0f},
+            {x - 5.0f, 5.0f, 0.0f},
+            {x + 5.0f, 5.0f, 0.0f},
+            {x + 5.0f, -5.0f, 0.0f}};
+        walkmesh.faces = {{{0, 1, 2}}, {{0, 2, 3}}};
+        walkmesh.materials = {0, 0};
+        uniwalkLoadRoom(area.pathfinder().uni, walkmesh, walkable);
+    }
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// Every path slot taken is no reason to give up a walk the walkmesh allows:
+// it plans again once a slot is free.
+TEST(CreatureNavigationFailure, a_move_to_an_object_waits_for_a_free_path_slot) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto target = fixture.addCreature("k_def_blocked01");
+    target->setPosition(glm::vec3(0.0f, 4.0f, 0.0f));
+    for (auto &path : fixture.area->pathfinder().paths) {
+        path.active = true;
+    }
+
+    auto action = fixture.game.newAction<MoveToObjectAction>(target, true, 1.0f);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_FALSE(action->isCompleted());
+
+    fixture.area->pathfinder().paths.back().active = false;
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_TRUE(TestGameModule::hasAreaRuntimePath(*npc));
+    EXPECT_GT(npc->position().y, 0.0f);
+}
+
+TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto target = fixture.addCreature("k_def_blocked01");
+    target->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+
+    auto action = fixture.game.newAction<MoveToObjectAction>(target, true, 1.0f);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+}
+
 // Invoke GetBlockingDoor as the given caller.
 uint32_t callGetBlockingDoor(Routines &routines, const script::ExecutionContext &execution) {
     script::ExecutionContext copy(execution);
@@ -7094,7 +7196,11 @@ public:
     }
 
     void update(float dt) override { Conversation::update(dt); }
-    void chooseReply() { pickReply(0); }
+    // The replies are listed when the entry ends.
+    void chooseReply() {
+        endCurrentEntry();
+        pickReply(0);
+    }
     int entries {0};
 
 private:

@@ -156,20 +156,16 @@ void ConfirmPopup::layoutMessage() {
     const float scale = _gui->scale();
     const auto scaled = [scale](int value) { return static_cast<int>(std::lround(value * scale)); };
 
-    // The box is laid out relative to its top-left corner and centred where
-    // the authored box was centred.
+    // The box and its controls are laid out from the box's top-left corner,
+    // where its controls were authored, and the box is centred where the
+    // authored box was centred.
     int centreX = 0;
     int centreY = 0;
     _rootExtent.getCenter(centreX, centreY);
-    const auto relative = [this](Control::Extent extent) {
-        extent.left -= _rootExtent.left;
-        extent.top -= _rootExtent.top;
-        return extent;
-    };
     Control::Extent panel {0, 0, _rootExtent.width, _rootExtent.height};
-    auto listExtent = relative(_listExtent);
-    auto okExtent = relative(_okExtent);
-    auto cancelExtent = relative(_cancelExtent);
+    auto listExtent = _listExtent;
+    auto okExtent = _okExtent;
+    auto cancelExtent = _cancelExtent;
 
     // An icon makes the box taller and moves the message below it. Without
     // Cancel its row goes.
@@ -214,29 +210,36 @@ void ConfirmPopup::layoutMessage() {
     // Place the box and its message on screen and lay the message out across
     // the list's inner width, less the scroll bar while it is enabled, a line
     // to a row; the message overflows when its lines and the list's padding
-    // are taller than the list inside its border.
-    const auto absolute = [&](Control::Extent extent) {
+    // are taller than the list inside its border. The box's controls are
+    // drawn from the corner the box had when it was loaded, so they move by
+    // as much as the box does.
+    const auto onScreen = [&](Control::Extent extent) {
         extent.left += centreX - panel.width / 2;
         extent.top += centreY - panel.height / 2;
         return extent;
     };
+    const auto inBox = [&](Control::Extent extent) {
+        extent.left += centreX - panel.width / 2 - _rootExtent.left;
+        extent.top += centreY - panel.height / 2 - _rootExtent.top;
+        return extent;
+    };
     const auto wrap = [&]() {
-        root.setExtent(absolute(panel));
-        const auto listOnScreen = absolute(listExtent);
-        list.setExtent(listOnScreen);
+        root.setExtent(onScreen(panel));
+        const auto listInBox = inBox(listExtent);
+        list.setExtent(listInBox);
         if (scrollBar) {
             Control::Extent bar;
-            bar.left = listOnScreen.left + listOnScreen.width - barRightInset - barWidth;
-            bar.top = listOnScreen.top + barTopOffset;
+            bar.left = listInBox.left + listInBox.width - barRightInset - barWidth;
+            bar.top = listInBox.top + barTopOffset;
             bar.width = barWidth;
-            bar.height = listOnScreen.height + barHeightOffset;
+            bar.height = listInBox.height + barHeightOffset;
             scrollBar->setExtent(std::move(bar));
         }
         // The list places the lines itself; the row is a line high and as
         // wide as the room.
         auto textExtent = _messageExtent;
-        textExtent.left = listOnScreen.left;
-        textExtent.top = listOnScreen.top;
+        textExtent.left = listInBox.left;
+        textExtent.top = listInBox.top;
         textExtent.width = std::max(0, list.getItemWidth());
         textExtent.height = lineHeight;
         list.protoItem().setExtent(std::move(textExtent));
@@ -283,13 +286,13 @@ void ConfirmPopup::layoutMessage() {
     Control::Extent iconExtent = _icon->extent();
     iconExtent.left = panel.width / 2 - iconExtent.width / 2;
     iconExtent.top = scaled(kIconTop);
-    _icon->setExtent(absolute(iconExtent));
+    _icon->setExtent(inBox(iconExtent));
     okExtent.top = listExtent.top + listExtent.height + scaled(kOkGap);
     okExtent.left = panel.width / 2 - okExtent.width / 2;
-    ok.setExtent(absolute(okExtent));
+    ok.setExtent(inBox(okExtent));
     cancelExtent.top = okExtent.top + okExtent.height + scaled(kButtonGap);
     cancelExtent.left = panel.width / 2 - cancelExtent.width / 2;
-    cancel.setExtent(absolute(cancelExtent));
+    cancel.setExtent(inBox(cancelExtent));
 }
 
 void ConfirmPopup::showConfirm(

@@ -254,3 +254,21 @@ TEST(TextBuffer, readlineReverse) {
     EXPECT_EQ(buf.tell(), 0);
     buf.clear();
 }
+
+TEST(TextBuffer, empty_buffer) {
+    TextBuffer buf;
+    EXPECT_EQ(buf.str(), "");
+    EXPECT_FALSE(buf.search("\n"));
+    EXPECT_EQ(buf.tell(), 0);
+    EXPECT_FALSE(buf.rsearch("\n"));
+    EXPECT_EQ(buf.tell(), 0);
+    EXPECT_EQ(buf.readline(), "");
+    EXPECT_EQ(buf.readlineReverse(), "");
+}
+
+TEST(TextBuffer, search_at_end) {
+    TextBuffer buf;
+    buf.write("Hello\n");
+    EXPECT_FALSE(buf.search("\n"));
+    EXPECT_EQ(buf.tell(), 6);
+}

@@ -37,7 +37,17 @@ public:
 
     ~AudioSource() { deinit(); }
 
+    /**
+     * Prepares the sound. A clip whose frames share one format and rate goes
+     * into one buffer whole and plays on the device's clock; any other clip is
+     * streamed a few frames at a time.
+     */
     void init();
+    /**
+     * Refills a stream's queue with the sound that follows. A stream that ran
+     * out of queued sound since the last refill, because the frame came late,
+     * plays on from where it ran out.
+     */
     void render();
 
     void play();
@@ -53,6 +63,8 @@ public:
     void startPaused();
 
     void setPosition(glm::vec3 position);
+    /** Sets whether the source starts again from the beginning when it ends. */
+    void setLooping(bool loop);
     /** Scales the gain the source was created with; used to fade it out. */
     void setGainScale(float scale);
     /** Plays the source at \p pitch times its own rate, which raises or lowers its pitch. */
@@ -70,6 +82,8 @@ private:
 
     bool _inited {false};
     bool _playing {false};
+    /** Paused, or created paused, and not resumed since. */
+    bool _paused {false};
 
     std::vector<uint32_t> _buffers;
     bool _streaming {false};

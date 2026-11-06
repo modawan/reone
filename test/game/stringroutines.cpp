@@ -34,6 +34,7 @@ using namespace testing;
 namespace {
 
 constexpr int kGetSubString = 65;
+constexpr int kFloatToString = 3;
 
 struct StringRoutineFixture {
     TestEngine &engine = testEngine();
@@ -55,6 +56,12 @@ struct StringRoutineFixture {
                      script::Variable::ofInt(start),
                      script::Variable::ofInt(count)},
                     ctx)
+            .strValue;
+    }
+
+    std::string floatToString(float value, int width, int decimals) {
+        return routines.get(kFloatToString)
+            .invoke({script::Variable::ofFloat(value), script::Variable::ofInt(width), script::Variable::ofInt(decimals)}, ctx)
             .strValue;
     }
 };
@@ -151,4 +158,16 @@ TEST(GetSubString, takes_its_arguments_in_order_through_the_virtual_machine) {
     execution->routines = &fixture.routines;
 
     EXPECT_EQ(1, script::VirtualMachine(program, std::move(execution)).run());
+}
+
+// nwscript.nss: nWidth is 0 to 18 and nDecimals 0 to 9. The number is
+// right-justified in the width, and with no decimals it keeps its decimal point.
+TEST(FloatToString, is_right_justified_in_its_width_with_its_decimals) {
+    StringRoutineFixture fixture(GameID::KotOR);
+
+    EXPECT_EQ("       1.500000000", fixture.floatToString(1.5f, 18, 9));
+    EXPECT_EQ("     0.03", fixture.floatToString(0.03f, 9, 2));
+    EXPECT_EQ("4.", fixture.floatToString(4.2f, 1, 0));
+    EXPECT_EQ("-2.25", fixture.floatToString(-2.25f, 0, 2));
+    EXPECT_EQ("12.000000000", fixture.floatToString(12.0f, 99, 99).substr(6)) << "width and decimals are bounded";
 }

@@ -52,12 +52,13 @@ public:
     /**
      * Whether the room's box holds a point seen from above, edges included.
      * The box spans the room's meshes, but for animated meshes and background
-     * geometry; a room without such a mesh holds no point.
+     * geometry; a room without such a mesh, or whose model has no walkmesh,
+     * holds no point.
      */
     bool boxHolds(const glm::vec2 &point) const;
     /** The room's box (see boxHolds). */
     graphics::AABB box() const { return graphics::AABB(_boxMin, _boxMax); }
-    /** Whether the room has background geometry, which keeps it drawn wherever the view looks. */
+    /** Whether the room has background geometry. */
     bool hasBackgroundGeometry() const { return _backgroundGeometry; }
 
     const std::string &name() const { return _name; }

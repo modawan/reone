@@ -18,15 +18,11 @@ namespace game {
 // Transparent presentation only; the owning computer conversation drives it.
 class ComputerCamGUI : public GameGUI {
 public:
-    ComputerCamGUI(Game &game, ServicesView &services, std::function<void()> onReturn);
-
-    bool handle(const input::Event &event) override;
+    /** The overlay of a computer conversation's camera shot; it has no input of its own. */
+    ComputerCamGUI(Game &game, ServicesView &services);
 
 private:
-    std::function<void()> _onReturn;
-
     void preload(gui::IGUI &gui) override;
-    void onGUILoaded() override;
 };
 
 } // namespace game

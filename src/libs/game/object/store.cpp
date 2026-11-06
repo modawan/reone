@@ -46,6 +46,7 @@ void Store::deserialize(
         gff.readResRef(templateRes, "ResRef")) {
         if (auto utm = _services.resource.gffs.get(templateRes, ResType::Utm)) {
             deserializeAll(*utm, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*utm, gff);
         }
     }
     deserializeAll(gff, identityContext);

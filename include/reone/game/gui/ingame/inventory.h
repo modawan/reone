@@ -61,6 +61,8 @@ private:
         std::shared_ptr<gui::Button> BTN_ARMOR;
         std::shared_ptr<gui::Button> BTN_CHANGE1;
         std::shared_ptr<gui::Button> BTN_CHANGE2;
+        std::shared_ptr<gui::Button> BTN_CHARLEFT;
+        std::shared_ptr<gui::Button> BTN_CHARRIGHT;
         std::shared_ptr<gui::Button> BTN_DATAPADS;
         std::shared_ptr<gui::Button> BTN_EXIT;
         std::shared_ptr<gui::Button> BTN_MISC;
@@ -119,6 +121,8 @@ private:
         _controls.BTN_ARMOR = findControl<gui::Button>("BTN_ARMOR");
         _controls.BTN_CHANGE1 = findControl<gui::Button>("BTN_CHANGE1");
         _controls.BTN_CHANGE2 = findControl<gui::Button>("BTN_CHANGE2");
+        _controls.BTN_CHARLEFT = findControl<gui::Button>("BTN_CHARLEFT");
+        _controls.BTN_CHARRIGHT = findControl<gui::Button>("BTN_CHARRIGHT");
         _controls.BTN_DATAPADS = findControl<gui::Button>("BTN_DATAPADS");
         _controls.BTN_EXIT = findControl<gui::Button>("BTN_EXIT");
         _controls.BTN_MISC = findControl<gui::Button>("BTN_MISC");

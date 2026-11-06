@@ -120,22 +120,22 @@ void CharGenAbilities::onGUILoaded() {
     });
 
     _controls.STR_LBL->setOnSelectionChanged([this](bool selected) {
-        onAbilityLabelSelectionChanged(Ability::Strength, selected);
+        onAbilityLabelSelectionChanged(Ability::Strength, *_controls.STR_LBL, *_controls.STR_POINTS_BTN, selected);
     });
     _controls.DEX_LBL->setOnSelectionChanged([this](bool selected) {
-        onAbilityLabelSelectionChanged(Ability::Dexterity, selected);
+        onAbilityLabelSelectionChanged(Ability::Dexterity, *_controls.DEX_LBL, *_controls.DEX_POINTS_BTN, selected);
     });
     _controls.CON_LBL->setOnSelectionChanged([this](bool selected) {
-        onAbilityLabelSelectionChanged(Ability::Constitution, selected);
+        onAbilityLabelSelectionChanged(Ability::Constitution, *_controls.CON_LBL, *_controls.CON_POINTS_BTN, selected);
     });
     _controls.INT_LBL->setOnSelectionChanged([this](bool selected) {
-        onAbilityLabelSelectionChanged(Ability::Intelligence, selected);
+        onAbilityLabelSelectionChanged(Ability::Intelligence, *_controls.INT_LBL, *_controls.INT_POINTS_BTN, selected);
     });
     _controls.WIS_LBL->setOnSelectionChanged([this](bool selected) {
-        onAbilityLabelSelectionChanged(Ability::Wisdom, selected);
+        onAbilityLabelSelectionChanged(Ability::Wisdom, *_controls.WIS_LBL, *_controls.WIS_POINTS_BTN, selected);
     });
     _controls.CHA_LBL->setOnSelectionChanged([this](bool selected) {
-        onAbilityLabelSelectionChanged(Ability::Charisma, selected);
+        onAbilityLabelSelectionChanged(Ability::Charisma, *_controls.CHA_LBL, *_controls.CHA_POINTS_BTN, selected);
     });
 
     _controls.STR_MINUS_BTN->setOnClick([this]() {
@@ -238,7 +238,10 @@ void CharGenAbilities::updateCharacter() {
     _charGen.setCharacter(std::move(character));
 }
 
-void CharGenAbilities::onAbilityLabelSelectionChanged(Ability ability, bool selected) {
+void CharGenAbilities::onAbilityLabelSelectionChanged(Ability ability, Label &label, Button &points, bool selected) {
+    // The hovered row's name and points pulse.
+    label.setTextPulsing(selected);
+    points.setTextPulsing(selected);
     if (!selected)
         return;
 

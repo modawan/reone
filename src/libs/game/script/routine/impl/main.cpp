@@ -17,6 +17,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdio>
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
@@ -147,9 +149,19 @@ static Variable FloatToString(const std::vector<Variable> &args, const RoutineCo
     auto nDecimals = getIntOrElse(args, 2, 9);
 
     // Transform
+    // nwscript.nss: the width is 0 to 18 and the decimals 0 to 9; the number is
+    // right-justified in that width, and keeps its decimal point when there are
+    // no decimals (printf "%#*.*f"): the swoop dashboard builds "meter" +
+    // FloatToString(x, 1, 0) and drops the last character to name its
+    // animation, which only gives "meter4" when the result is "4.".
+    int width = glm::clamp(nWidth, 0, 18);
+    int decimals = glm::clamp(nDecimals, 0, 9);
 
     // Execute
-    return Variable::ofString(std::to_string(fFloat));
+    char text[64];
+    std::snprintf(text, sizeof(text), "%#*.*f", width, decimals, std::isfinite(fFloat) ? fFloat : 0.0f);
+    text[sizeof(text) - 1] = '\0';
+    return Variable::ofString(text);
 }
 
 static Variable PrintInteger(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -526,6 +538,16 @@ static Variable GetItemPossessedBy(const std::vector<Variable> &args, const Rout
                     item = equippedItem;
                 }
             }
+        }
+    }
+    if (!item) {
+        // A party member's non-equipped items live in the shared party
+        // inventory, so a member holding nothing of its own still reaches what
+        // the party carries. A non-party object receives itself here and keeps
+        // looking no further than its own inventory.
+        auto shared = ctx.game.party().sharedInventoryReceiver(oObject);
+        if (shared && shared != oObject) {
+            item = shared->getItemByTag(itemTag);
         }
     }
 
@@ -2718,10 +2740,12 @@ static Variable GetIsPC(const std::vector<Variable> &args, const RoutineContext 
     // Transform
     auto creature = checkCreature(oCreature);
 
-    // Execute: TSL reads the creature's own player-character flag; KotOR
-    // asks whether it is the creature the player controls.
-    const bool pc = ctx.game.isTSL() ? creature->isPC() : creature == ctx.game.party().getLeader();
-    return Variable::ofInt(static_cast<int>(pc));
+    // Execute: TSL returns the record's IsPC as stored; KotOR asks whether
+    // it is the creature the player controls.
+    if (ctx.game.isTSL()) {
+        return Variable::ofInt(creature->isPCValue());
+    }
+    return Variable::ofInt(static_cast<int>(creature == ctx.game.party().getLeader()));
 }
 
 static Variable FeetToMeters(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4391,9 +4415,9 @@ static Variable SetXP(const std::vector<Variable> &args, const RoutineContext &c
     // Transform
     auto creature = checkCreature(oCreature);
 
-    // Execute: only the named creature changes, and a script cannot lower
-    // its experience.
-    if (nXpAmount >= creature->xp()) {
+    // Execute: only the named creature changes, a negative amount is ignored,
+    // and a script cannot lower its experience; experience compares unsigned.
+    if (nXpAmount >= 0 && static_cast<uint32_t>(nXpAmount) >= static_cast<uint32_t>(creature->xp())) {
         creature->setXP(nXpAmount);
     }
     return Variable::ofNull();
@@ -5877,7 +5901,7 @@ static Variable GetFactionLeader(const std::vector<Variable> &args, const Routin
             continue;
         }
         if (!npcFaction) {
-            if (member->isPC()) {
+            if (member->actsAsPC()) {
                 return Variable::ofObject(member->id());
             }
             continue;

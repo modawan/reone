@@ -77,7 +77,7 @@ std::string_view TextBuffer::readline() {
         seekCur(1);
     }
     size_t end = tell();
-    return std::string_view(&_data[start], end - start);
+    return std::string_view(_data.data() + start, end - start);
 }
 
 std::string_view TextBuffer::readlineReverse() {
@@ -92,7 +92,7 @@ std::string_view TextBuffer::readlineReverse() {
         seekCur(1);
     }
     size_t start = tell();
-    return std::string_view(&_data[start], end - start);
+    return std::string_view(_data.data() + start, end - start);
 }
 
 void TextBuffer::erase() {
@@ -105,7 +105,7 @@ void TextBuffer::erase() {
 }
 
 bool TextBuffer::search(std::string_view sub) {
-    size_t index = std::string_view(&_data[_cur], _data.size() - _cur).find(sub);
+    size_t index = std::string_view(_data.data() + _cur, _data.size() - _cur).find(sub);
     if (index == std::string_view::npos) {
         _cur = _data.size();
         return false;
@@ -115,7 +115,7 @@ bool TextBuffer::search(std::string_view sub) {
 }
 
 bool TextBuffer::rsearch(std::string_view sub) {
-    size_t index = std::string_view(&_data[0], _cur).rfind(sub);
+    size_t index = std::string_view(_data.data(), _cur).rfind(sub);
     if (index == std::string_view::npos) {
         _cur = 0;
         return false;

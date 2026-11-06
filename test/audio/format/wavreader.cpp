@@ -109,16 +109,55 @@ TEST(WavReader, should_load_obfuscated_wav) {
     auto &frame = stream->getFrame(0);
     EXPECT_EQ(static_cast<int>(AudioFormat::Mono16), static_cast<int>(frame.format));
     EXPECT_EQ(22050, frame.sampleRate);
-    EXPECT_EQ(16ll, frame.samples.size());
-    auto samples = reinterpret_cast<const uint16_t *>(frame.samples.data());
-    EXPECT_EQ(6, samples[0]);
-    EXPECT_EQ(9, samples[1]);
-    EXPECT_EQ(18, samples[2]);
-    EXPECT_EQ(26, samples[3]);
-    EXPECT_EQ(40, samples[4]);
-    EXPECT_EQ(62, samples[5]);
-    EXPECT_EQ(60, samples[6]);
-    EXPECT_EQ(99, samples[7]);
+    // The block header's predictor leads, then eight decoded samples.
+    // Expected values come from an independent reference decoder.
+    EXPECT_EQ(18ll, frame.samples.size());
+    auto samples = reinterpret_cast<const int16_t *>(frame.samples.data());
+    const int16_t expected[] {0, 6, 9, 18, 26, 40, 62, 60, 98};
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_EQ(expected[i], samples[i]) << "sample " << i;
+    }
+}
+
+TEST(WavReader, should_read_ima_step_index_as_one_byte) {
+    // given
+    auto wavBytes = StringBuilder()
+                        // Header
+                        .append("RIFF")                // signature
+                        .append("\x00\x00\x00\x00", 4) // chunk size
+                        .append("WAVE")                // format
+                        // Fmt Chunk
+                        .append("fmt ")                // chunk id
+                        .append("\x10\x00\x00\x00", 4) // chunk size
+                        .append("\x11\x00", 2)         // audio format
+                        .append("\x01\x00", 2)         // number of channels
+                        .append("\x22\x56\x00\x00", 4) // sample rate
+                        .append("\x00\x00\x00\x00", 4) // byte rate
+                        .append("\x08\x00", 2)         // block align
+                        .append("\x04\x00", 2)         // bits per sample
+                        // Data Chunk
+                        .append("data")                // chunk id
+                        .append("\x08\x00\x00\x00", 4) // chunk size
+                        // IMA Blocks: step index 3, then a nonzero reserved byte
+                        .append("\x00\x00\x03\xff\x12\x34\x56\x78", 8)
+                        .string();
+    auto wav = MemoryInputStream(wavBytes);
+    auto mp3ReaderFactory = MockMp3ReaderFactory();
+    auto reader = WavReader(wav, mp3ReaderFactory);
+
+    // when
+    reader.load();
+
+    // then the reserved byte is ignored: the same samples as a zero byte gives
+    auto stream = reader.stream();
+    EXPECT_TRUE(static_cast<bool>(stream));
+    auto &frame = stream->getFrame(0);
+    EXPECT_EQ(18ll, frame.samples.size());
+    auto samples = reinterpret_cast<const int16_t *>(frame.samples.data());
+    const int16_t expected[] {0, 6, 9, 18, 26, 40, 62, 60, 98};
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_EQ(expected[i], samples[i]) << "sample " << i;
+    }
 }
 
 TEST(WavReader, should_load_obfuscated_mp3) {

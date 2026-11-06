@@ -91,6 +91,7 @@ void Placeable::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utp = _services.resource.gffs.get(templateRes, ResType::Utp)) {
             deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*utp, gff);
         }
     }
     deserializeAll(gff, identityContext);
@@ -708,6 +709,10 @@ static std::string getPlaceableClip(const IAnimations &animations, int id) {
 // swing the model lacks is passed over.
 void Placeable::setStateAnimation(int animation) {
     _animation = animation;
+    // A world-space animation of an animated cutscene holds the placeable.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (_isCorpse || !model || animation == _shownAnimation) {
         return;
@@ -744,6 +749,10 @@ bool Placeable::playsAnimationOnce(int id) const {
 
 // The loop that follows a one-shot stands where the placeable does.
 void Placeable::updateOpenStateAnimation() {
+    // A world-space animation of an animated cutscene holds the placeable.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (_openStateLoop.empty() || !model) {
         return;
@@ -759,6 +768,10 @@ void Placeable::updateOpenStateAnimation() {
 }
 
 bool Placeable::showAnimationLoop(int id) {
+    // A world-space animation of an animated cutscene holds the placeable.
+    if (holdsCutsceneAnimation()) {
+        return false;
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     const std::string clip = getPlaceableClip(_services.game.animations, id);
     if (_isCorpse || !model || clip.empty() || !model->model().getAnimation(clip)) {
@@ -774,6 +787,10 @@ bool Placeable::showAnimationLoop(int id) {
 // The default pose comes first: a loop the model lacks leaves it, and a
 // one-shot returns to it.
 void Placeable::playDialogAnimation(int id, bool looping) {
+    // A world-space animation of an animated cutscene holds the placeable.
+    if (holdsCutsceneAnimation()) {
+        return;
+    }
     if (looping) {
         if (!showAnimationLoop(id)) {
             showAnimationLoop(kDefaultAnimationId);

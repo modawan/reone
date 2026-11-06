@@ -188,16 +188,17 @@ TEST(AssignCommand, should_keep_the_order_of_commands_assigned_in_sequence) {
 
     // when
     // Two commands, each queueing a different action, so the order they landed
-    // in is readable off the queue.
-    assignCommand(routines, subject->id(), newCommandCalling(routines, "ActionRandomWalk"));
+    // in is readable off the queue. The walk goes second: a command queued
+    // behind a walk takes the walk off the queue.
     assignCommand(routines, subject->id(), newCommandCallingWithFloat(routines, "ActionWait", 0.5f));
+    assignCommand(routines, subject->id(), newCommandCalling(routines, "ActionRandomWalk"));
 
     // then
     // Running in place has to leave the sequence as written. Dispatching onto
     // the front of the queue instead would hand these back reversed.
     ASSERT_EQ(2u, subject->actions().size());
-    EXPECT_EQ(ActionType::RandomWalk, subject->actions()[0]->type());
-    EXPECT_EQ(ActionType::Wait, subject->actions()[1]->type());
+    EXPECT_EQ(ActionType::Wait, subject->actions()[0]->type());
+    EXPECT_EQ(ActionType::RandomWalk, subject->actions()[1]->type());
 }
 
 TEST(AssignCommand, should_not_leak_the_rewritten_caller_into_the_saved_command) {

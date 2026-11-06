@@ -556,6 +556,14 @@ bool Combat::ownsRound(const Creature &actor) const {
     });
 }
 
+bool Combat::runsRound(const Action &action) const {
+    return std::any_of(_rounds.begin(), _rounds.end(), [&action](const auto &round) {
+        return std::any_of(round->actions.begin(), round->actions.end(), [&action](const auto &entry) {
+            return entry.running() && (entry.action.get() == &action || &entry.action->combatAction() == &action);
+        });
+    });
+}
+
 bool Combat::ownsDetachedRound(const Creature &actor) const {
     const auto &nodes = actor.actions().nodes;
     bool owned = false;
@@ -2336,7 +2344,9 @@ bool Combat::engagePhysicalTarget(const Creature &attacker, Object &target, int 
             endRound(*partner, 1);
             // The partner's round starts again on the attacker's side, with no
             // command yet, aimed at the attacker and held for the attack's
-            // pause; it runs out like any round.
+            // pause. The hold stands for the attacker's turn: once it ends,
+            // the partner may act at once, and its round runs out a full
+            // round later.
             if (round && round->actions.size() == 1) {
                 auto placeholder = _game.newAction<WaitAction>(0.0f);
                 placeholder->complete();
@@ -2345,6 +2355,7 @@ bool Combat::engagePhysicalTarget(const Creature &attacker, Object &target, int 
                 round->actions.emplace_back(placeholder, live, master, false);
                 auto &side = round->actions.back();
                 side.slot = 1;
+                side.state = CombatRound::SecondAction;
                 side.pauseRemaining = pauseMilliseconds / 1000.0f;
                 side.pauseOwner = master;
                 round->duel = true;

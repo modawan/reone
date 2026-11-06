@@ -623,6 +623,14 @@ void Object::captureSaveRecord(
         SaveGffShadow::capture(gff), std::move(origin), std::move(identity)};
 }
 
+void Object::captureAuthoredRecord(const resource::Gff &blueprint, const resource::Gff &placement) {
+    auto record = blueprint.deepCopy();
+    for (const auto &field : placement.fields()) {
+        replaceSaveField(*record, field.deepCopy());
+    }
+    _saveRecordProvenance = SaveRecordProvenance {SaveGffShadow::capture(*record), SaveRecordOrigin {}, std::nullopt};
+}
+
 void Object::assignSerializedObjectIdentity(
     const SerializedObjectIdentity &identity) {
     if (_saveRecordProvenance) {
@@ -1056,10 +1064,25 @@ int Object::chooseActionGroup(const Action &action, std::optional<int> group) {
     return _actions.newGroup();
 }
 
+// "All commands will remove a RandomWalk() from the action queue if there is
+// one in place" (nwscript.nss, ActionRandomWalk), a new random walk included.
+void Object::removeRandomWalks(const Action &incoming) {
+    const auto isRandomWalk = [&incoming](const Action &action) {
+        return action.type() == ActionType::RandomWalk && &action != &incoming;
+    };
+    const bool queued = std::any_of(_actions.nodes.begin(), _actions.nodes.end(), [&](const auto &node) {
+        return node->action && isRandomWalk(*node->action);
+    });
+    if (queued) {
+        cancelActionGroups(isRandomWalk);
+    }
+}
+
 void Object::addAction(std::shared_ptr<Action> action, std::optional<int> group) {
     if (!isRuntimeLive() || !action) {
         return;
     }
+    removeRandomWalks(*action);
     auto node = std::make_shared<ActionQueueNode>();
     node->action = action;
     node->actionId = action->serializedActionId();
@@ -1087,6 +1110,7 @@ void Object::addActionOnTop(std::shared_ptr<Action> action, std::optional<int> g
     if (!isRuntimeLive() || !action) {
         return;
     }
+    removeRandomWalks(*action);
     auto node = std::make_shared<ActionQueueNode>();
     node->action = action;
     node->actionId = action->serializedActionId();
@@ -2025,10 +2049,15 @@ void Object::setPlacedAtOrigin(bool placed) {
         }
         return;
     }
+    _playingCutsceneAnimation = true;
     if (!_stunt) {
         startStuntMode();
         _placedAtOrigin = true;
     }
+}
+
+bool Object::holdsCutsceneAnimation() const {
+    return _playingCutsceneAnimation && _game.isAnimatedCutsceneShowing();
 }
 
 std::shared_ptr<Effect> Object::getFirstEffect() {

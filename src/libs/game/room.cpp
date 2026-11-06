@@ -49,6 +49,7 @@ void Room::computeBox() {
     if (!_model) {
         return;
     }
+    bool walkable = false;
     std::stack<std::reference_wrapper<const ModelNode>> nodes;
     nodes.push(*_model->model().rootNode());
     while (!nodes.empty()) {
@@ -60,6 +61,7 @@ void Room::computeBox() {
         if (!node.isMesh() || (node.flags() & MdlNodeFlags::anim) != 0) {
             continue;
         }
+        walkable = walkable || node.isAABBMesh();
         if (node.mesh()->backgroundGeometry) {
             _backgroundGeometry = true;
             continue;
@@ -69,6 +71,11 @@ void Room::computeBox() {
             _boxMin = glm::min(_boxMin, point);
             _boxMax = glm::max(_boxMax, point);
         }
+    }
+    // A room whose model has no walkmesh holds no point.
+    if (!walkable) {
+        _boxMin = kEmptyBoxMin;
+        _boxMax = kEmptyBoxMax;
     }
 }
 

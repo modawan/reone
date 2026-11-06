@@ -69,6 +69,8 @@ std::shared_ptr<Dialog> computerDialog(bool camera = true, bool automatic = fals
     auto dialog = std::make_shared<Dialog>();
     dialog->resRef = "computer_test";
     dialog->conversationType = ConversationType::Computer;
+    // Returning from a camera shot is a skip.
+    dialog->skippable = true;
     dialog->startEntries.push_back({});
     dialog->entries.resize(2);
     dialog->replies.resize(3);
@@ -103,6 +105,10 @@ input::Event key(input::KeyCode code) {
     return input::Event::newKeyUp({false, code, 0, false});
 }
 
+input::Event press(input::KeyCode code) {
+    return input::Event::newKeyDown({true, code, 0, false});
+}
+
 class ComputerGUITest : public TestWithParam<GameID> {
 protected:
     void SetUp() override {
@@ -112,8 +118,6 @@ protected:
         normal = std::make_shared<NiceMock<MockGUI>>();
         camera = std::make_shared<NiceMock<MockGUI>>();
         auto &svc = engine.services();
-        returnControl = std::make_shared<Label>(*camera, svc.scene.graphs, svc.graphics, svc.resource);
-        EXPECT_CALL(*camera, findControl("LBL_RETURN")).WillOnce(Return(returnControl));
         EXPECT_CALL(*camera, setBackground(_)).Times(0);
         EXPECT_CALL(engine.guiModule().guis(), get(GetParam() == GameID::KotOR ? "computer" : "computer_p", _))
             .WillOnce(Return(normal));
@@ -127,6 +131,13 @@ protected:
                 preload(*camera);
                 return camera;
             }));
+        if (GetParam() == GameID::KotOR) {
+            // The KotOR terminal frames its panel from comptypes.2da.
+            std::shared_ptr<TwoDA> computerTypes(TwoDA::Builder().columns({"label", "computerbackground"}).row({"Standard", "panel01"}).build());
+            ON_CALL(engine.resourceModule().twoDas(), get(std::string("comptypes"))).WillByDefault(Return(computerTypes));
+            panel = std::make_shared<Label>(*normal, svc.scene.graphs, svc.graphics, svc.resource);
+            ON_CALL(*normal, rootControl()).WillByDefault(ReturnRef(*panel));
+        }
         computer = std::make_unique<TestComputer>(*game, svc);
         computer->init();
     }
@@ -144,7 +155,7 @@ protected:
     std::unique_ptr<Game> game;
     std::shared_ptr<NiceMock<MockGUI>> normal;
     std::shared_ptr<NiceMock<MockGUI>> camera;
-    std::shared_ptr<Label> returnControl;
+    std::shared_ptr<Label> panel;
     std::unique_ptr<TestComputer> computer;
 };
 
@@ -189,14 +200,13 @@ TEST_P(ComputerGUITest, return_auto_selects_empty_reply_once_without_replaying_s
     EXPECT_CALL(scripts, get("next_entry")).WillOnce(Return(nullptr));
 
     computer->start(dialog, nullptr);
-    EXPECT_TRUE(computer->handle(key(input::KeyCode::Escape)));
+    EXPECT_TRUE(computer->handle(press(input::KeyCode::Return)));
+    computer->update(0.0f);
     EXPECT_EQ(computer->entry(), &dialog->entries[1]);
     EXPECT_EQ(computer->ends, 1);
     EXPECT_EQ(computer->loads, 2);
     expectRender(false);
 
-    // A queued duplicate click on the old camera control cannot advance again.
-    returnControl->handleClick(0, 0, 1);
     computer->update(3.0f);
     EXPECT_EQ(computer->ends, 1);
     EXPECT_EQ(computer->loads, 2);
@@ -205,18 +215,19 @@ TEST_P(ComputerGUITest, return_auto_selects_empty_reply_once_without_replaying_s
 TEST_P(ComputerGUITest, return_preserves_entry_and_existing_multiple_replies) {
     auto dialog = computerDialog();
     computer->start(dialog, nullptr);
-    auto replies = computer->replies;
-    EXPECT_TRUE(returnControl->isSelectable());
-    returnControl->handleClick(0, 0, 1);
+    // The replies are listed when the entry ends.
+    EXPECT_TRUE(computer->replies.empty());
+    computer->handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, 100, 100}));
+    computer->update(0.0f);
     EXPECT_EQ(computer->entry(), &dialog->entries[0]);
-    EXPECT_EQ(computer->replies, replies);
+    EXPECT_EQ(computer->replies.size(), 2u);
     EXPECT_EQ(computer->replyRefreshes, 1);
     EXPECT_EQ(computer->loads, 1);
     EXPECT_EQ(computer->ends, 1);
     expectRender(false);
     computer->update(3.0f);
     EXPECT_EQ(computer->ends, 1);
-    computer->handle(key(input::KeyCode::Key1));
+    computer->handle(press(input::KeyCode::Key1));
     EXPECT_EQ(computer->entry(), &dialog->entries[1]);
     EXPECT_EQ(computer->loads, 2);
 }
@@ -251,12 +262,14 @@ TEST_P(ComputerGUITest, consecutive_camera_entries_keep_the_next_feed_visible) {
     dialog->entries[1].cameraId = 3;
     dialog->entries[1].cameraAngle = 6;
     computer->start(dialog, nullptr);
-    computer->handle(key(input::KeyCode::Return));
+    computer->handle(press(input::KeyCode::Return));
+    computer->update(0.0f);
     EXPECT_EQ(computer->entry(), &dialog->entries[1]);
     EXPECT_EQ(computer->loads, 2);
     EXPECT_EQ(computer->ends, 1);
     expectRender(true);
-    computer->handle(key(input::KeyCode::Return));
+    computer->handle(press(input::KeyCode::Return));
+    computer->update(0.0f);
     EXPECT_EQ(computer->ends, 2);
     EXPECT_EQ(computer->replies.size(), 1u);
     expectRender(false);
@@ -265,7 +278,7 @@ TEST_P(ComputerGUITest, consecutive_camera_entries_keep_the_next_feed_visible) {
 TEST_P(ComputerGUITest, paused_entry_cannot_be_completed_by_return_or_timeout) {
     computer->start(computerDialog(), nullptr);
     computer->pause();
-    computer->handle(key(input::KeyCode::Return));
+    computer->handle(press(input::KeyCode::Return));
     computer->update(3.0f);
     expectRender(true);
     EXPECT_EQ(computer->ends, 0);
@@ -284,7 +297,8 @@ TEST_P(ComputerGUITest, finish_without_replies_clears_camera) {
     dialog->entries[0].replies[0].notActive = true;
     computer->start(dialog, nullptr);
     expectRender(true);
-    computer->handle(key(input::KeyCode::Return));
+    computer->handle(press(input::KeyCode::Return));
+    computer->update(0.0f);
     expectRender(false);
     EXPECT_EQ(computer->finishes, 1);
     computer->update(3.0f);
@@ -330,7 +344,8 @@ TEST_P(ComputerGUITest, automatic_reply_script_replacement_preserves_new_convers
             return nullptr;
         }));
     computer->start(dialog, nullptr);
-    computer->handle(key(input::KeyCode::Return));
+    computer->handle(press(input::KeyCode::Return));
+    computer->update(0.0f);
     EXPECT_EQ(computer->entry(), &replacement->entries[0]);
     EXPECT_EQ(computer->loads, 2);
     EXPECT_EQ(computer->ends, 1);

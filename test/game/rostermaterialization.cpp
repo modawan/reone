@@ -1558,3 +1558,63 @@ TEST(RemoveNPCFromPartyToBase, routine_is_tsl_only) {
         -1,
         kotor.routines.getIndexByName("RemoveNPCFromPartyToBase"));
 }
+
+// K1 parks Trask in companion slot 0 on the Endar Spire; on Taris Bastila's
+// record replaces slot 0. The runtime creature bound to the slot in the first
+// module survived the new record, so the next spawn (party selection after a
+// transition) brought Trask back until a save/load dropped the bindings.
+TEST(RosterBinding, a_new_record_for_a_slot_retires_the_old_runtime_binding) {
+    RosterHarness harness(GameID::KotOR);
+    auto &director = testEngine().resourceModule().director();
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(director, committedSaveWorkingState())
+        .WillRepeatedly(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(director, adoptSaveWorkingState(_))
+        .WillRepeatedly(Invoke([&committed](auto state) { committed = std::move(state); }));
+
+    // Module 1: slot 0 is bound to template A (Trask), who then leaves.
+    auto trask = harness.creature("end_trask");
+    ASSERT_TRUE(harness.game.party().addAvailableMember(0, trask));
+    ASSERT_EQ(trask, harness.game.party().getAvailableMember(0));
+
+    // Module 2: slot 0 is given template B (Bastila).
+    auto bastila = harness.creature("bastila");
+    ASSERT_EQ(1, harness.call(
+                       "AddAvailableNPCByObject",
+                       {Variable::ofInt(0), Variable::ofObject(bastila->id())})
+                     .intValue);
+    EXPECT_FALSE(harness.game.party().rosterCreature({RosterKind::Npc, 0}));
+    EXPECT_FALSE(harness.game.isRuntimeObjectLive(*trask));
+
+    // The spawn materializes B from the new record.
+    EXPECT_CALL(director, findSaveWorking(ResourceId("availnpc0", ResType::Utc)))
+        .WillOnce(Invoke([&committed]() {
+            auto saved = committed->find({"availnpc0", ResType::Utc});
+            return Resource {saved->data};
+        }));
+    auto spawned = harness.game.party().getAvailableMember(0, true);
+    ASSERT_TRUE(spawned);
+    EXPECT_EQ("bastila", spawned->tag());
+}
+
+TEST(RosterBinding, a_new_record_keeps_the_body_of_a_slot_already_in_the_party) {
+    RosterHarness harness(GameID::KotOR);
+    auto &director = testEngine().resourceModule().director();
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(director, committedSaveWorkingState())
+        .WillRepeatedly(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(director, adoptSaveWorkingState(_))
+        .WillRepeatedly(Invoke([&committed](auto state) { committed = std::move(state); }));
+    auto member = harness.creature("carth");
+    ASSERT_TRUE(harness.game.party().addAvailableMember(2, member));
+    ASSERT_TRUE(harness.game.party().addMember(2, member));
+
+    auto other = harness.creature("carth");
+    ASSERT_EQ(1, harness.call(
+                       "AddAvailableNPCByObject",
+                       {Variable::ofInt(2), Variable::ofObject(other->id())})
+                     .intValue);
+
+    EXPECT_EQ(member, harness.game.party().getMemberByNPC(2));
+    EXPECT_EQ(member, harness.game.party().rosterCreature({RosterKind::Npc, 2}));
+}

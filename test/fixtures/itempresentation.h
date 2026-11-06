@@ -36,6 +36,7 @@
 #include "scene.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <set>
 
 using namespace reone;
 using namespace reone::game;
@@ -69,6 +70,8 @@ public:
     bool consume {false};
     std::vector<std::string> *trace {nullptr};
     std::string name;
+    // Tags a screen does not define, as a shipped GUI omits optional controls.
+    std::set<std::string> absent;
 
     void render() override {
         ++renders;
@@ -83,6 +86,8 @@ public:
         auto found = GUI::findControl(tag);
         if (found)
             return found;
+        if (absent.count(tag) > 0)
+            return nullptr;
         auto self = const_cast<RecordingGUI *>(this);
         ControlType type = ControlType::Label;
         if (tag.rfind("BTN_", 0) == 0)
@@ -123,9 +128,11 @@ public:
                     TestGraphicsModule &graphics, TestResourceModule &resources) :
         options(options), scene(scene), graphics(graphics), resources(resources) {}
     void clear() override { screens.clear(); }
+    void updatePulsingAlpha(float) override {}
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
-        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services());
+        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), pulsingAlpha);
         gui->name = name;
+        gui->absent = absent;
         if (preload)
             preload(*gui);
         auto extent = Gff::Builder().field(Gff::Field::newInt("WIDTH", 640)).field(Gff::Field::newInt("HEIGHT", 480)).build();
@@ -134,7 +141,10 @@ public:
         screens[name] = gui;
         return gui;
     }
+    PulsingAlpha pulsingAlpha;
     std::unordered_map<std::string, std::shared_ptr<RecordingGUI>> screens;
+    // Tags the screens built here do not define.
+    std::set<std::string> absent;
 
 private:
     GraphicsOptions &options;

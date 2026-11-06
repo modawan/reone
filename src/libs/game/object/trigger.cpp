@@ -97,6 +97,7 @@ void Trigger::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
             deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*utt, gff);
         }
     }
     deserializeAll(gff, identityContext);

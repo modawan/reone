@@ -201,19 +201,17 @@ void Console::executeInputText() {
         _historyIndex = _history.size();
     }
 
-    while (cmdBegin < cmdEnd) {
-        _buffer.seekSet(cmdBegin);
-        std::string_view line = _buffer.readline();
-        cmdBegin = _buffer.tell();
-
-        assert(!line.empty() && "missing \n terminator");
-        line = string_strip(line);
-        if (line.empty()) {
+    // Commands write to the buffer and `clear` empties it, so offsets and views
+    // into the buffer go stale. Lines are taken from the copy instead.
+    std::vector<std::string> lines;
+    boost::split(lines, multiline, boost::is_any_of("\n"));
+    for (const auto &line : lines) {
+        std::string_view command = string_strip(line);
+        if (command.empty()) {
             continue;
         }
-
         _buffer.seekEnd(0);
-        execute(line);
+        execute(command);
     }
     setPrompt();
 }
@@ -230,7 +228,7 @@ void Console::execute(std::string_view command) {
     }
 
     if (tokens[0] == "batch") {
-        if (tokens.size() != 2 && tokens[1] != "{") {
+        if (tokens.size() != 2 || tokens[1] != "{") {
             printLine("batch must be followed by {");
             return;
         }

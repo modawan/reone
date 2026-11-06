@@ -384,6 +384,16 @@ public:
         const RosterIdentity &identity,
         const std::string &blueprint);
 
+    /**
+     * A new persistent record replaced the slot's character: drop the runtime
+     * creature still bound to the slot (unless it is in the party or is the
+     * player), so the next spawn materializes the new record. The dropped
+     * creature is destroyed unless it stands in the current area.
+     */
+    void retireStaleRosterBinding(
+        const RosterIdentity &identity,
+        const Creature *keep = nullptr);
+
     bool addAvailableMember(int npc, const std::string &blueprint);
     /**
      * Runtime-construction helper: make a slot available and bind this exact

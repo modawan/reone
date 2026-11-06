@@ -105,7 +105,7 @@ public:
     /**
      * Get the whole buffer as a string.
      */
-    std::string_view str() { return std::string_view(&_data[0], _data.size()); }
+    std::string_view str() { return std::string_view(_data.data(), _data.size()); }
 
     /**
      * Search for a pattern forward starting from the cursor. If \p sub is

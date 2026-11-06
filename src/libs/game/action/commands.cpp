@@ -304,7 +304,7 @@ std::shared_ptr<Action> WaitAction::restore(const SavedActionRecord &record, Gam
 // surrender fails.
 void SurrenderToEnemiesAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &creature = static_cast<Creature &>(actor);
-    if (!creature.isPC()) {
+    if (creature.actsAsPCValue() != 1) {
         creature.surrenderToEnemies(false);
     }
     complete();

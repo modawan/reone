@@ -72,6 +72,7 @@ public:
     void clearSelection();
 
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
+    bool handleKeyDown(input::KeyCode key) override;
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     bool handleClick(int x, int y, int clicks = 1) override;
@@ -84,6 +85,11 @@ public:
     void setExtent(Extent extent) override;
     void setExtentHeight(int height) override;
     void setSelectionMode(SelectionMode mode);
+    /**
+     * Whether a hovered list keeps its selected row when the pointer is over
+     * no row or leaves the list, rather than losing it.
+     */
+    void setKeepsSelection(bool keeps) { _keepsSelection = keeps; }
     void setSelectedItemIndex(int index);
     void setItemsInteractive(bool interactive);
     void setScrollBarEnabled(bool enabled);
@@ -103,6 +109,12 @@ public:
     void setTextLineRows(bool lines);
     void setRenderItemIconsForButtonProto(bool render);
     void scrollToBottom();
+    /**
+     * Scroll the least that brings row \p index into view: up to it when it
+     * is above the visible rows, or down until it is the last visible row.
+     */
+    void scrollToItem(int index);
+    void scrollToSelectedItem();
 
     /**
      * Draws underneath the list's own frame and rows. Lets a GUI repaint
@@ -152,6 +164,8 @@ public:
     const Item &getItemAt(int index) const;
     int getItemOffset() const { return _itemOffset; }
     void setItemOffset(int offset);
+    void selectNextItem();
+    void selectPreviousItem();
 
     Control &protoItem() const { return *_protoItem; }
     Control *protoItemOrNull() const { return _protoItem.get(); }
@@ -168,6 +182,7 @@ public:
 
 private:
     SelectionMode _selectionMode {SelectionMode::OnHover};
+    bool _keepsSelection {false};
     std::shared_ptr<Control> _protoItem;
     std::shared_ptr<Control> _scrollBar;
     std::vector<Item> _items;

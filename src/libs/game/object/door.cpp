@@ -74,6 +74,7 @@ void Door::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utd = _services.resource.gffs.get(templateRes, ResType::Utd)) {
             deserializeAll(*utd, SerializedIdentityContext::templateResource(templateRes));
+            captureAuthoredRecord(*utd, gff);
         }
     }
     deserializeAll(gff, identityContext);
