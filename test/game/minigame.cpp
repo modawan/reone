@@ -568,5 +568,5 @@ TEST(MinigameSpec, gff_accel_secs_sets_the_acceleration_per_second) {
     EXPECT_FLOAT_EQ(parseWithAccelSecs(4.0f), 25.0f); // the range over the seconds
     EXPECT_FLOAT_EQ(parseWithAccelSecs(0.5f), 200.0f);
     EXPECT_FLOAT_EQ(parseWithAccelSecs(0.0f), 100.0f); // the whole range in one second
-    EXPECT_FLOAT_EQ(parseWithAccelSecs(-2.0f), -1.0f); // negative gives -1
+    EXPECT_FLOAT_EQ(parseWithAccelSecs(-2.0f), 1.0f); // negative leaves it at 1
 }

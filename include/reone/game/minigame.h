@@ -139,7 +139,7 @@ struct MinigameObstacleScriptSpec {
 /**
  * Player acceleration in speed units per second, from the authored speed
  * range and Accel_Secs (the seconds to go from minimum to maximum speed).
- * Accel_Secs 0 gives the whole range in one second; a negative value gives -1.
+ * Accel_Secs 0 gives the whole range in one second; a negative value gives 1.
  */
 float minigameAccelerationPerSecond(float minimumSpeed, float maximumSpeed, float accelSecs);
 

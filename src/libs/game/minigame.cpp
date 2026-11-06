@@ -79,7 +79,7 @@ float minigameAccelerationPerSecond(float minimumSpeed, float maximumSpeed, floa
         return maximumSpeed - minimumSpeed;
     }
     if (accelSecs < 0.0f) {
-        return -1.0f;
+        return 1.0f;
     }
     return (maximumSpeed - minimumSpeed) / accelSecs;
 }
