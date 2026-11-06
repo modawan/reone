@@ -1608,7 +1608,41 @@ bool Module::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
     return false;
 }
 
-bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event)  {
+    auto &keybinds = game().options().game.activeKeybinds();
+
+    if (keybinds.pause.check(event.button)) {
+        _game.pressPauseKey();
+        return true;
+    } else if (keybinds.toggleStealth.check(event.button)) {
+        _game.requestStealth();
+        return true;
+    } else if (keybinds.clearOneAction.check(event.button)) {
+        _game.clearOneAction();
+        return true;
+    } else if (keybinds.cancelCombat.check(event.button)) {
+        _game.cancelCombat();
+        return true;
+    } else if (keybinds.defaultAction.check(event.button)) {
+        if (auto selected = _area->selectedObject()) {
+            onObjectClick(selected, false);
+        }
+        return true;
+    } else if (keybinds.cycleTargetLeft.check(event.button) || keybinds.cycleTargetRight.check(event.button)) {
+        // Either key ends the choice of a party member to use an item on.
+        _game.cancelPartyItemTarget();
+        if (_game.cameraType() != CameraType::ThirdPerson) {
+            return false;
+        }
+        _game.selectNearestObject(keybinds.cycleTargetLeft.check(event.button) ? 0 : 1);
+        // In combat mode a new target may pause play, whether or not one was found.
+        if (_game.clientCombatMode()) {
+            _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
+        }
+        return true;
+    }
+
+
     return false;
 }
 
