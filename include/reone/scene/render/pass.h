@@ -124,12 +124,14 @@ public:
 
     virtual void drawAABB(const std::vector<glm::vec4> &corners) = 0;
 
+    /** A texture that cycles through frames shows \p frame. */
     virtual void drawImage(graphics::Texture &texture,
                            const glm::ivec2 &position,
                            const glm::ivec2 &scale,
                            glm::vec4 color = glm::vec4(1.0f),
                            glm::mat3x4 uv = glm::mat3x4(1.0f),
-                           ImageAlphaMode alphaMode = ImageAlphaMode::Default) = 0;
+                           ImageAlphaMode alphaMode = ImageAlphaMode::Default,
+                           int frame = 0) = 0;
 
     void drawIcon(graphics::Texture &texture,
                   const glm::ivec2 &position,

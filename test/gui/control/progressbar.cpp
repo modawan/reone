@@ -58,7 +58,8 @@ public:
         const glm::ivec2 &size,
         glm::vec4,
         glm::mat3x4,
-        ImageAlphaMode) override {
+        ImageAlphaMode,
+        int) override {
         imageDraws.push_back({position, size});
     }
 

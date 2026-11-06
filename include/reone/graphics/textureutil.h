@@ -25,6 +25,13 @@ namespace graphics {
 
 void convertGridTextureToArray(Texture &texture, int numX, int numY);
 
+/**
+ * The frame a cycling texture shows \p time seconds into its clock: its
+ * frames in turn at their rate, over and over. Any other texture shows its
+ * first frame.
+ */
+int getCycleFrame(const Texture &texture, float time);
+
 Texture::Properties getTextureProperties(TextureUsage usage);
 
 inline bool isCompressed(PixelFormat format) {

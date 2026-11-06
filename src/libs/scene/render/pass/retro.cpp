@@ -339,19 +339,27 @@ void RetroRenderPass::drawImage(Texture &texture,
                                 const glm::ivec2 &scale,
                                 glm::vec4 color,
                                 glm::mat3x4 uv,
-                                ImageAlphaMode alphaMode) {
-    _uniforms.setLocals([&position, &color, &uv, &scale](auto &locals) {
+                                ImageAlphaMode alphaMode,
+                                int frame) {
+    _uniforms.setLocals([&position, &color, &uv, &scale, frame](auto &locals) {
         locals.reset();
         locals.model = glm::translate(glm::vec3(position.x, position.y, 0.0f));
         locals.model *= glm::scale(glm::vec3(scale.x, scale.y, 1.0f));
         locals.uv = std::move(uv);
         locals.color = std::move(color);
+        locals.mainTexFrame = frame;
     });
-    const char *programId = alphaMode == ImageAlphaMode::Sharpen
-                                ? ShaderProgramId::mvpIcon
-                                : ShaderProgramId::mvpTexture;
-    _context.useProgram(_shaderRegistry.get(programId));
-    _context.bindTexture(texture, TextureUnits::mainTex);
+    // A texture of frames is drawn one frame at a time.
+    if (texture.is2DArray()) {
+        _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpTextureArray));
+        _context.bindTexture(texture, TextureUnits::mainTexArray);
+    } else {
+        const char *programId = alphaMode == ImageAlphaMode::Sharpen
+                                    ? ShaderProgramId::mvpIcon
+                                    : ShaderProgramId::mvpTexture;
+        _context.useProgram(_shaderRegistry.get(programId));
+        _context.bindTexture(texture, TextureUnits::mainTex);
+    }
     _meshRegistry.get(MeshName::quad).draw(_statistic);
 }
 

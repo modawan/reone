@@ -285,6 +285,8 @@ protected:
     bool _isProtoItem {false};
     bool _tintBorderFill {false};
     bool _sharpenBorderFillAlpha {false};
+    /** Seconds the control has been updated while shown, which runs its fills that cycle through frames. */
+    float _textureTime {0.0f};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};
     std::vector<std::string> _textLines;
