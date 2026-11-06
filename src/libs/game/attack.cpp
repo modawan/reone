@@ -3307,9 +3307,11 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     // A ranged attacker sees through a see-through door.
     const auto rightHand = attacker.getEquippedItem(InventorySlots::rightWeapon);
     const bool sight = area.isEyeLineClear(eye, targetEye, attacker, target, rightHand && rightHand->isRanged());
+    // Whether the attacker already failed to see the target from where it stands.
+    bool blockedHere = false;
     if (sight) {
         attacker.clearBlockedAttackSight();
-    } else if (attacker.noteBlockedAttackSight() && attacker.actsAsPC()) {
+    } else if ((blockedHere = attacker.noteBlockedAttackSight()) && attacker.actsAsPC()) {
         // The player character gives up a target it cannot see; the line
         // reaches the player only while controlling it.
         if (game.party().getLeader().get() == &attacker) {
@@ -3435,9 +3437,18 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     } else if (usedObject) {
         closeTo = attacker.useRange(target).range;
     }
-    if (distance2 <= closeTo * closeTo) {
+    // A party member the party AI fights with (not the player character)
+    // that cannot see a creature it could shoot from where it stands closes
+    // in, half the way at a time, until it sees it; waiting for sight where
+    // it stands held it for good (a corner, or a body in the line).
+    const bool closesForSight = !sight && blockedHere && targetCreature && !usedObject && !attacker.actsAsPC() &&
+                                attacker.isPartyMember();
+    if (distance2 <= closeTo * closeTo && !closesForSight) {
         attacker.setDesiredFacingToward(targetPosition);
         return AttackApproachStep::Approaching;
+    }
+    if (closesForSight) {
+        closeTo = std::max(desired, 0.5f * std::sqrt(distance2));
     }
     // The attacker first moves, in the attack's action group and by the usual
     // range and pathfinding rules, until the target is within its use range
