@@ -132,7 +132,7 @@ bool ListBox::handleKeyDown(input::KeyCode key) {
         _onItemDoubleClick(_items[_selectedItemIndex].tag);
         return true;
     }
-    
+
     return false;
 }
 
@@ -550,8 +550,9 @@ void ListBox::setItemOffset(int offset) {
 }
 
 void ListBox::selectNextItem() {
-    if (_items.empty()) 
+    if (_items.empty()) {
         return;
+    }
 
     _selectedItemIndex = (_selectedItemIndex == getItemCount() - 1) ? 0 : (_selectedItemIndex + 1);
     _onItemClick(_items[_selectedItemIndex].tag);
@@ -559,8 +560,9 @@ void ListBox::selectNextItem() {
 }
 
 void ListBox::selectPreviousItem() {
-    if (_items.empty()) 
+    if (_items.empty()) {
         return;
+    }
 
     _selectedItemIndex = (_selectedItemIndex == 0) ? (getItemCount() - 1) : (_selectedItemIndex - 1);
     _onItemClick(_items[_selectedItemIndex].tag);

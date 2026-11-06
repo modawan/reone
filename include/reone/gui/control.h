@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "reone/input/event.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
+#include "reone/input/event.h"
 
 #include "reone/resource/parser/gff/gui.h"
 #include "controlrender.h"
