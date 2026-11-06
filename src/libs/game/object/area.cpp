@@ -2814,10 +2814,9 @@ bool Area::findCreatureCollision(
 }
 
 // The line of sight runs from the subject's eye to the height the object is
-// looked at. The walls and floors
-// of every room stop it, whatever their material, and so does every closed
-// door but the one looked at, however far away. Open doors, placeables and
-// creatures do not.
+// looked at. The walls and floors of every room stop it, whatever their
+// material, and so does the posed model of every closed door but the one
+// looked at. Open doors, placeables and creatures do not.
 bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
     const auto *creature = dyn_cast<Creature>(&object);
     if (creature && creature->isInvisibleTo(subject)) {
@@ -2840,13 +2839,12 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
         }
     }
     for (const auto &candidate : _objectsByType.at(ObjectType::Door)) {
-        const auto &walkmesh = static_cast<const Door &>(*candidate).walkmeshClosed();
-        if (candidate.get() == &object || !walkmesh || !walkmesh->isEnabled()) {
+        const auto &door = static_cast<const Door &>(*candidate);
+        auto model = std::dynamic_pointer_cast<ModelSceneNode>(door.sceneNode());
+        if (candidate.get() == &object || door.state() != DoorState::Closed || !model) {
             continue;
         }
-        const glm::vec3 originLocal {walkmesh->absoluteTransformInverse() * glm::vec4(origin, 1.0f)};
-        const glm::vec3 dirLocal {walkmesh->absoluteTransformInverse() * glm::vec4(dir, 0.0f)};
-        if (!walkmesh->walkmesh().raycast(kEverySurface, originLocal, dirLocal, length, /*ignoreBackface=*/false).fail) {
+        if (model->intersectSegment(origin, dest)) {
             return false;
         }
     }

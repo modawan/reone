@@ -110,6 +110,12 @@ static std::shared_ptr<ModelSceneNode> modelOf(const Object &object) {
     return node && node->type() == SceneNodeType::Model ? std::static_pointer_cast<ModelSceneNode>(node) : nullptr;
 }
 
+// Where the object's model stands, which a shot frames from.
+static glm::vec3 bodyPosition(const Object &object) {
+    auto model = modelOf(object);
+    return model ? glm::vec3(model->absoluteTransform()[3]) : object.position();
+}
+
 void DialogCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
@@ -135,6 +141,8 @@ void DialogCamera::setShot(const std::shared_ptr<Object> &speaker, const std::sh
         return;
     }
     _obstructed = false;
+    // Each shot takes back the field of view a script or an effect set.
+    setViewAngle(kShotViewAngle);
     // Only a creature, placeable or door with a model is framed.
     auto framed = [](const std::shared_ptr<Object> &object) {
         return object && (isa<Creature>(*object) || isa<Placeable>(*object) || isa<Door>(*object)) && modelOf(*object);
@@ -160,9 +168,9 @@ void DialogCamera::setShot(const std::shared_ptr<Object> &speaker, const std::sh
     glm::vec3 listenerPoint;
     View view;
     if (_modelPoints) {
-        speakerPoint = speaker->position() + lift;
-        listenerPoint = listener->position() + lift;
-        view = frame(shot.angle, side, speaker->position(), listener->position(), glm::vec3(0.0f));
+        speakerPoint = bodyPosition(*speaker) + lift;
+        listenerPoint = bodyPosition(*listener) + lift;
+        view = frame(shot.angle, side, bodyPosition(*speaker), bodyPosition(*listener), glm::vec3(0.0f));
     } else {
         speakerPoint = framedPoint(*speaker, _speakerHeight);
         listenerPoint = framedPoint(*listener, _listenerHeight);
@@ -209,7 +217,7 @@ void DialogCamera::followShot() {
         return;
     }
     if (_modelPoints) {
-        applyView(frame(_angle, side, speaker->position(), listener->position(), _placedPosition));
+        applyView(frame(_angle, side, bodyPosition(*speaker), bodyPosition(*listener), _placedPosition));
     } else {
         applyView(frame(_angle, side, framedPoint(*speaker, _speakerHeight), framedPoint(*listener, _listenerHeight), _placedPosition));
     }
@@ -252,8 +260,8 @@ int DialogCamera::unobstructedSide(const Object &speaker, const Object &listener
     glm::vec3 listenerPoint;
     if (_modelPoints) {
         const glm::vec3 lift {0.0f, 0.0f, kPointLift};
-        speakerPoint = speaker.position() + lift;
-        listenerPoint = listener.position() + lift;
+        speakerPoint = bodyPosition(speaker) + lift;
+        listenerPoint = bodyPosition(listener) + lift;
     } else {
         speakerPoint = framedPoint(speaker, _speakerHeight);
         listenerPoint = framedPoint(listener, _listenerHeight);
@@ -340,12 +348,12 @@ glm::vec3 DialogCamera::framedPoint(const Object &object, float height) const {
             return glm::vec3(hook->absoluteTransform()[3]);
         }
     }
-    return object.position() + glm::vec3(0.0f, 0.0f, kPointLift + height);
+    return bodyPosition(object) + glm::vec3(0.0f, 0.0f, kPointLift + height);
 }
 
 glm::vec3 DialogCamera::pairMidpoint(const Object &speaker, const Object &listener) const {
     const glm::vec3 lift {0.0f, 0.0f, kPointLift};
-    glm::vec3 midpoint {0.5f * (speaker.position() + listener.position()) + lift};
+    glm::vec3 midpoint {0.5f * (bodyPosition(speaker) + bodyPosition(listener)) + lift};
     midpoint.z += 0.5f * (_speakerHeight - _listenerHeight) + _speakerHeight;
     return midpoint;
 }
@@ -354,15 +362,13 @@ int DialogCamera::blocked(const glm::vec3 &from, const glm::vec3 &to) const {
     return blockedAt(from, to) ? 1 : 0;
 }
 
+// The rooms and the models of everyone and everything but the pair hide them.
 std::optional<glm::vec3> DialogCamera::blockedAt(const glm::vec3 &from, const glm::vec3 &to) const {
     Collision collision;
     auto &scene = _services.scene.graphs.get(_sceneName);
-    if (!scene.testLineOfSight(from, to, collision)) {
-        return std::nullopt;
-    }
     auto speaker = _speaker.resolve();
     auto listener = _listener.resolve();
-    if (collision.user && ((speaker && collision.user == speaker.get()) || (listener && collision.user == listener.get()))) {
+    if (!scene.testSceneHit(from, to, {speaker.get(), listener.get()}, collision)) {
         return std::nullopt;
     }
     return collision.intersection;

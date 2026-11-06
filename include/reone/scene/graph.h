@@ -122,6 +122,12 @@ public:
     virtual float textureTime() const = 0;
 
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
+    /**
+     * Where the line first meets a room walkmesh face that stops sight, or the
+     * posed model of a creature, placeable or door whose user is not one of
+     * \p excluded.
+     */
+    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
     /**
      * The first room walkmesh, in layout order, with a walk-check face on the
@@ -345,6 +351,7 @@ public:
     // Collision detection and object picking
 
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
+    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
     std::shared_ptr<WalkmeshSceneNode> findRoomWalkmesh(const glm::vec3 &position) const override;
     std::optional<RoomFace> findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const override;

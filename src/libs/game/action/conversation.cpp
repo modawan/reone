@@ -221,6 +221,14 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         complete();
         return;
     }
+    // Nor does a dead speaker, nor one whose partner is dead or can't be
+    // commanded, unless a companion handed it over.
+    if (actor.isDead() ||
+        (!_transferredFrom && _objectToConverse && (!_objectToConverse->isCommandable() || _objectToConverse->isDead()))) {
+        cancel(self, actor);
+        complete();
+        return;
+    }
     if (!_game.globalFade().isCurrentDialog(_fadeDialog)) {
         complete();
         return;

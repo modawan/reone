@@ -195,6 +195,44 @@ ModelNodeSceneNode *ModelSceneNode::getNodeByName(const std::string &name) {
     return it != _nodeByName.end() ? it->second : nullptr;
 }
 
+std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const {
+    std::optional<float> nearest;
+    for (const auto &[number, node] : _nodeByNumber) {
+        if (node->type() != SceneNodeType::Mesh) {
+            continue;
+        }
+        auto mesh = node->modelNode().mesh();
+        if (!mesh || !mesh->mesh || mesh->skin || mesh->saber) {
+            continue;
+        }
+        const glm::vec3 localFrom {node->absoluteTransformInverse() * glm::vec4(from, 1.0f)};
+        const glm::vec3 localTo {node->absoluteTransformInverse() * glm::vec4(to, 1.0f)};
+        const float length = glm::length(localTo - localFrom);
+        if (length == 0.0f) {
+            continue;
+        }
+        const glm::vec3 dir {(localTo - localFrom) / length};
+        float boxDistance = 0.0f;
+        if (!mesh->mesh->aabb().raycast(localFrom, 1.0f / dir, length, boxDistance)) {
+            continue;
+        }
+        const auto &vertices = mesh->mesh->vertices();
+        for (const auto &face : mesh->mesh->faces()) {
+            glm::vec2 barycentric {0.0f};
+            float distance = 0.0f;
+            if (glm::intersectRayTriangle(localFrom, dir,
+                                          vertices[face.vertices[0]].position,
+                                          vertices[face.vertices[1]].position,
+                                          vertices[face.vertices[2]].position,
+                                          barycentric, distance) &&
+                distance >= 0.0f && distance <= length && (!nearest || distance / length < *nearest)) {
+                nearest = distance / length;
+            }
+        }
+    }
+    return nearest;
+}
+
 void ModelSceneNode::setFadeAlpha(float alpha) {
     _fadeAlpha = alpha;
     for (auto &[name, attachment] : _attachments) {

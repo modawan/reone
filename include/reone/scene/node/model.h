@@ -146,6 +146,14 @@ public:
     ModelNodeSceneNode *getNodeByNumber(uint16_t number);
     ModelNodeSceneNode *getNodeByName(const std::string &name);
 
+    /**
+     * Where the segment from \p from to \p to first meets a triangle of the
+     * model's own meshes as they are posed, as a share of its length; none
+     * when it meets none. Skinned meshes, lightsaber blades and attached
+     * models are not tested.
+     */
+    std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const;
+
     const graphics::Model &model() const { return *_model; }
     ModelUsage usage() const { return _usage; }
     float drawDistance() const { return _drawDistance; }

@@ -857,6 +857,47 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
     return minDistance != std::numeric_limits<float>::max();
 }
 
+bool SceneGraph::testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const {
+    const auto originToDest = dest - origin;
+    const float maxDistance = glm::length(originToDest);
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    const auto dir = originToDest / maxDistance;
+    float minDistance = std::numeric_limits<float>::max();
+    for (auto &root : _walkmeshRoots) {
+        if (!root->isEnabled() || !root->walkmesh().isAreaWalkmesh()) {
+            continue;
+        }
+        auto raycast = root->walkmesh().raycast(_lineOfSightSurfaces, origin, dir, maxDistance, /*ignoreBackface=*/false);
+        if (raycast.fail || raycast.distance > minDistance) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + raycast.distance * dir;
+        outCollision.normal = root->walkmesh().normals[raycast.face];
+        outCollision.material = root->walkmesh().materials[raycast.face];
+        minDistance = raycast.distance;
+    }
+    for (auto &root : _modelRoots) {
+        const auto usage = root->usage();
+        if (!root->isEnabled() || (usage != ModelUsage::Creature && usage != ModelUsage::Placeable && usage != ModelUsage::Door) ||
+            std::find(excluded.begin(), excluded.end(), root->user()) != excluded.end()) {
+            continue;
+        }
+        auto share = root->intersectSegment(origin, dest);
+        if (!share || *share * maxDistance > minDistance) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + *share * originToDest;
+        outCollision.normal = -dir;
+        outCollision.material = -1;
+        minDistance = *share * maxDistance;
+    }
+    return minDistance != std::numeric_limits<float>::max();
+}
+
 bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const {
     glm::vec3 originToDest(dest - origin);
     glm::vec3 dir(glm::normalize(originToDest));

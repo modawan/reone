@@ -10050,6 +10050,11 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
     _captureHUDPresentation = false;
     auto resRef = args[1];
     if (resRef) {
+        // No conversation replaces one under way, as none started otherwise does.
+        if (_dialogUnderWay) {
+            _console.printLine("startconversation: a conversation is under way");
+            return;
+        }
         startDialog(leader, std::string(resRef.value()), {}, _party.player());
         return;
     }
