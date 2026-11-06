@@ -525,6 +525,8 @@ public:
     void openInGameMenu(InGameMenuTab tab);
     /** The roster index whose inventory the menu shows, or -1 when it is closed. */
     int inventoryMenuCharacter() const;
+    /** The SUBSCREEN_ID_* of the open in-game menu tab; 0 when the menu is closed. */
+    int subScreenId() const;
     /** Script cost multipliers per base item; they last for the process and are not saved. */
     float baseItemCostMultiplier(int baseItem) const;
     void setBaseItemCostMultiplier(int baseItem, float multiplier) { _baseItemCostMultipliers[baseItem] = multiplier; }

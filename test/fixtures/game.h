@@ -67,6 +67,7 @@ class Game;
 class Item;
 class Module;
 class SaveLoad;
+class Sound;
 class MainMenu;
 class Conversation;
 class DialogGUI;
@@ -434,6 +435,7 @@ public:
     static std::shared_ptr<const resource::SaveWorkingState>
     prepareCurrentModuleWorkingState(Game &game);
     static void setSnapshotModuleName(Game &game, std::string name);
+    static void setSoundPitchVariation(Sound &sound, float pitchVariation);
     static bool hasPendingSave(const Game &game);
     static void setRuntimeSessionPlayable(Game &game, bool playable);
     static MainMenu &installMainMenu(Game &game);
