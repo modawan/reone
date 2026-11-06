@@ -121,28 +121,23 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
     if (keybinds.moveForward.check(event.code)) {
         _moveForward = true;
         return true;
-    }
-    else if (keybinds.moveLeft.check(event.code)) {
+    } else if (keybinds.moveLeft.check(event.code)) {
         _moveLeft = true;
         return true;
-    }
-    else if (keybinds.moveBackward.check(event.code)) {
+    } else if (keybinds.moveBackward.check(event.code)) {
         _moveBackward = true;
         return true;
-    }
-    else if (keybinds.moveRight.check(event.code)) {
+    } else if (keybinds.moveRight.check(event.code)) {
         _moveRight = true;
         return true;
-    }
-    else if (keybinds.flourish.check(event.code)) {
+    } else if (keybinds.flourish.check(event.code)) {
         // The flourish answers the press only; holding the key repeats nothing.
         if (!event.repeat) {
             std::shared_ptr<Creature> partyLeader(_party.getLeader());
             partyLeader->flourishWeapons(true);
         }
         return true;
-    }
-    else if (keybinds.walk.check(event.code)) {
+    } else if (keybinds.walk.check(event.code)) {
         _walk = true;
         return true;
     }
@@ -156,20 +151,16 @@ bool Player::handleKeyUp(const input::KeyEvent &event) {
     if (keybinds.moveForward.check(event.code)) {
         _moveForward = false;
         return true;
-    }
-    else if (keybinds.moveLeft.check(event.code)) {
+    } else if (keybinds.moveLeft.check(event.code)) {
         _moveLeft = false;
         return true;
-    }
-    else if (keybinds.moveBackward.check(event.code)) {
+    } else if (keybinds.moveBackward.check(event.code)) {
         _moveBackward = false;
         return true;
-    }
-    else if (keybinds.moveRight.check(event.code)) {
+    } else if (keybinds.moveRight.check(event.code)) {
         _moveRight = false;
         return true;
-    }
-    else if (keybinds.walk.check(event.code)) {
+    } else if (keybinds.walk.check(event.code)) {
         _walk = false;
         return true;
     }

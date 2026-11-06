@@ -134,16 +134,14 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
             _rotationSpeed = kMinRotationSpeed;
             return true;
         }
-    }
-    else if (keybinds.cameraRotateRight.check(event.code)) {
+    } else if (keybinds.cameraRotateRight.check(event.code)) {
         if (!event.repeat) {
             _rotateCCW = false;
             _rotateCW = true;
             _rotationSpeed = kMinRotationSpeed;
             return true;
         }
-    }
-    else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
+    } else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
         _mouseLookHeld = true;
         return true;
     }
@@ -157,12 +155,10 @@ bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
     if (keybinds.cameraRotateLeft.check(event.code)) {
         _rotateCCW = false;
         return true;
-    }
-    else if (keybinds.cameraRotateRight.check(event.code)) {
+    } else if (keybinds.cameraRotateRight.check(event.code)) {
         _rotateCW = false;
         return true;
-    }
-    else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
+    } else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
         _mouseLookHeld = false;
         return true;
     }

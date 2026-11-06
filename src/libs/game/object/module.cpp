@@ -1559,26 +1559,22 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
             _game.pressPauseKey();
         }
         return true;
-    }
-    else if (keybinds.toggleStealth.check(event.code)) {
+    } else if (keybinds.toggleStealth.check(event.code)) {
         if (!event.repeat) {
             _game.requestStealth();
         }
         return true;
-    }
-    else if (keybinds.clearOneAction.check(event.code)) {
+    } else if (keybinds.clearOneAction.check(event.code)) {
         if (!event.repeat) {
             _game.clearOneAction();
         }
         return true;
-    }
-    else if (keybinds.cancelCombat.check(event.code)) {
+    } else if (keybinds.cancelCombat.check(event.code)) {
         if (!event.repeat) {
             _game.cancelCombat();
         }
         return true;
-    }
-    else if (keybinds.defaultAction.check(event.code)) {
+    } else if (keybinds.defaultAction.check(event.code)) {
         if (event.repeat) {
             return true;
         }
@@ -1586,8 +1582,7 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
             onObjectClick(selected, false);
         }
         return true;
-    }
-    else if (keybinds.cycleTargetLeft.check(event.code) || keybinds.cycleTargetRight.check(event.code)) {
+    } else if (keybinds.cycleTargetLeft.check(event.code) || keybinds.cycleTargetRight.check(event.code)) {
         // Either key ends the choice of a party member to use an item on.
         _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {

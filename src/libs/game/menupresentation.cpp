@@ -125,7 +125,7 @@ public:
         return result;
     }
 
-    bool exists(const std::string& section) const {
+    bool exists(const std::string &section) const {
         for (const auto &line : _lines) {
             if (auto header = sectionHeader(line)) {
                 if (header == section)
@@ -162,14 +162,13 @@ public:
         return value ? std::optional<bool>(*value != 0) : std::nullopt;
     }
 
-    std::optional<Keybind> keybind(const std::string& section, const std::string& keyPrefix) const {
+    std::optional<Keybind> keybind(const std::string &section, const std::string &keyPrefix) const {
         auto value = Keybind();
-        
+
         if (exists(section)) {
             value.keyCode = static_cast<input::KeyCode>(number(section, str(boost::format("%sKeyCode") % keyPrefix)).value_or(0));
             value.keyCodeAlt = static_cast<input::KeyCode>(number(section, str(boost::format("%sKeyCodeAlt") % keyPrefix)).value_or(0));
-        }
-        else {
+        } else {
             return std::nullopt;
         }
 
