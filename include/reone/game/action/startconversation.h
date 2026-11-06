@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/resource/types.h"
 
 #include "../action.h"
@@ -97,6 +99,14 @@ private:
     std::shared_ptr<Creature> _transferredFrom;
     /** Whether the speaker has set off toward the partner. */
     bool _approaching {false};
+    /**
+     * The point of the walk under way, halfway from where the speaker set out
+     * to the partner's use point. Not saved: a restored approach sets out
+     * afresh unless the partner is within ten metres.
+     */
+    std::optional<glm::vec3> _walkPoint;
+    /** The range the walk under way closes to: the partner's use range and a metre. */
+    float _walkRange {0.0f};
 
     /** Brings the speaker close enough to its partner; true once it is. */
     bool approach(Creature &speaker, float dt);

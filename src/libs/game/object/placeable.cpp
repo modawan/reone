@@ -95,6 +95,7 @@ void Placeable::deserialize(
         }
     }
     deserializeAll(gff, identityContext);
+    applyHardness(_hardness);
     loadAppearance();
     if (_animation == kDeadAnimationId) {
         enterDestroyedState();
@@ -246,6 +247,11 @@ void Placeable::damage(
         return;
     }
 
+    // Breaking it ends whatever the attacking creature had queued.
+    if (auto *attacker = damager ? dyn_cast<Creature>(damager.get()) : nullptr) {
+        attacker->clearAllActions(true);
+    }
+
     if (!_hasInventory) {
         // Non-container lethal damage uses the Death effect's signal and
         // delayed destruction. Do not also invoke its death script here.
@@ -296,8 +302,7 @@ void Placeable::onFailToOpen(uint32_t openerId) {
     }
     _game.scriptRunner().run(
         _onFailToOpen,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(openerId)}});
+        {{script::ArgKind::Caller, Variable::ofObject(_id)}});
 }
 
 void Placeable::onLocked() {
@@ -429,6 +434,7 @@ void Placeable::updateTransform() {
 
 void Placeable::applyDamageEffect(
     int amount,
+    int,
     const std::shared_ptr<Object> &damager,
     std::optional<DamageReaction>) {
     if (amount == 0) {
@@ -438,6 +444,22 @@ void Placeable::applyDamageEffect(
     }
 
     damage(amount, damager);
+}
+
+// An appearance with a light colour in placeables.2da has a light.
+static bool hasLight(ITwoDAs &twoDas, int appearance) {
+    auto placeables = twoDas.get("placeables");
+    return placeables && placeables->getIntOpt(appearance, "lightcolor").has_value();
+}
+
+int Placeable::lightState() const {
+    return hasLight(_services.resource.twoDas, _appearance) ? _lightState : 0;
+}
+
+void Placeable::setLightState(int state) {
+    if (_lightState != state && hasLight(_services.resource.twoDas, _appearance)) {
+        _lightState = static_cast<uint8_t>(state);
+    }
 }
 
 int Placeable::savingThrow(SavingThrow save) const {
@@ -551,6 +573,7 @@ void Placeable::loadBodyBag(int appearance) {
     _portrait = kBodyBagPortrait;
     _description = LocString(kBodyBagDescriptionStrRef, "", strings);
     _animation = kDefaultAnimationId;
+    applyHardness(_hardness);
     loadAppearance();
 }
 
@@ -671,7 +694,8 @@ void Placeable::openInventory(Object &opener) {
     if (_open || !_hasInventory) {
         return;
     }
-    if (&opener != _game.party().getLeader().get()) {
+    // A conversation under way, like an opener other than the leader, keeps it shut.
+    if (_game.isDialogUnderWay() || &opener != _game.party().getLeader().get()) {
         setStateAnimation(kCloseAnimationId);
         return;
     }
@@ -694,7 +718,7 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
         return;
     }
     _usable = false;
-    _game.postObjectDestruction(*this, *this, 0.0f, false);
+    _game.postObjectDestruction(*this, _id, 0.0f, false);
 }
 
 // The clip an animation ID shows on a placeable: the one its row names, else

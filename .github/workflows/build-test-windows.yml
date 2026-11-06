@@ -13,3 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-windows
+
+  delete-superseded-ccache:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    concurrency: delete-superseded-ccache-windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/delete-superseded-ccache
+        with:
+          key: ccache-windows-

@@ -318,6 +318,10 @@ void Spells::init(resource::GameID gameId) {
         spell->exclusion = static_cast<uint32_t>(spells->getInt(row, "exclusion"));
         spell->type = type;
         spell->name = std::move(name);
+        const int altMessage = spells->getInt(row, "altmessage", 0);
+        if (altMessage != 0) {
+            spell->altMessage = altMessage;
+        }
         spell->description = std::move(description);
         spell->icon = std::move(icon);
         spell->pips = pips;

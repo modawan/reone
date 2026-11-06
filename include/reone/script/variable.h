@@ -128,7 +128,6 @@ enum class ArgKind {
     ScriptParam4,
     ScriptParam5,
     ScriptStringParam,
-    LastDisarmed,
 };
 
 struct Argument {

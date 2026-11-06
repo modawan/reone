@@ -17,6 +17,8 @@
 
 #include "reone/scene/node/mesh.h"
 
+#include <cmath>
+
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/lumautil.h"
@@ -95,7 +97,6 @@ void MeshSceneNode::update(float dt) {
     std::shared_ptr<ModelNode::TriangleMesh> mesh(_modelNode.mesh());
     if (mesh) {
         updateUVAnimation(dt, *mesh);
-        updateBumpmapAnimation(dt, *mesh);
         if (mesh->danglymesh) {
             updateDanglyAnimation(dt, *mesh->danglymesh);
         }
@@ -112,20 +113,16 @@ void MeshSceneNode::updateUVAnimation(float dt, const ModelNode::TriangleMesh &m
     }
 }
 
-void MeshSceneNode::updateBumpmapAnimation(float dt, const ModelNode::TriangleMesh &mesh) {
-    if (!_nodeTextures.bumpmap) {
-        return;
+// A cycling bump map shows its frames in turn on the scene's texture clock,
+// which a pause doesn't stop.
+static int bumpmapCycleFrame(const Texture &bumpmap, float time) {
+    const Texture::Features &features = bumpmap.features();
+    if (features.procedureType != Texture::ProcedureType::Cycle) {
+        return 0;
     }
-    const Texture::Features &features = _nodeTextures.bumpmap->features();
-    if (features.procedureType == Texture::ProcedureType::Cycle) {
-        int frameCount = features.numX * features.numY;
-        float length = frameCount / static_cast<float>(features.fps);
-        _bumpmapCycleTime = glm::min(_bumpmapCycleTime + dt, length);
-        _bumpmapCycleFrame = static_cast<int>(glm::round((frameCount - 1) * (_bumpmapCycleTime / length)));
-        if (_bumpmapCycleTime == length) {
-            _bumpmapCycleTime = 0.0f;
-        }
-    }
+    int frameCount = features.numX * features.numY;
+    float length = frameCount / static_cast<float>(features.fps);
+    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
 }
 
 static std::string vectorToString(const glm::vec3 &vec) {
@@ -424,7 +421,7 @@ void MeshSceneNode::render(IRenderPass &pass) {
     if (_nodeTextures.bumpmap) {
         if (_nodeTextures.bumpmap->isGrayscale()) {
             material.textures.insert({TextureUnits::bumpMapArray, *_nodeTextures.bumpmap});
-            material.bumpMapFrame = _bumpmapCycleFrame;
+            material.bumpMapFrame = bumpmapCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
         } else {
             material.textures.insert({TextureUnits::normalMap, *_nodeTextures.bumpmap});
         }

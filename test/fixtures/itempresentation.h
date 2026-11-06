@@ -55,6 +55,8 @@ public:
     std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getQuestNewNotify() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return nullptr; }

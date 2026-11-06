@@ -276,6 +276,22 @@ bool GUI::handle(const input::Event &event) {
 }
 
 bool GUI::handleKeyDown(input::KeyCode key) {
+    std::stack<std::reference_wrapper<Control>> controls;
+    controls.push(*_rootControl);
+    while (!controls.empty()) {
+        auto &control = controls.top().get();
+        controls.pop();
+        bool handled = false;
+        if (control.isVisible() && !control.isDisabled()) {
+            handled = control.handleKeyDown(key);
+        }
+        if (handled) {
+            return true;
+        }
+        for (auto &child : control.children()) {
+            controls.push(child);
+        }
+    }
     return false;
 }
 

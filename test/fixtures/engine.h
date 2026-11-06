@@ -85,7 +85,7 @@ public:
         for (const char *table : {"ranges", "traps", "skills", "animations", "dialoganimations", "tutorial",
                                   "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups", "influence",
                                   "appearancesndset", "placeableobjsnds", "videoeffects", "stringtokens",
-                                  "feedbacktext", "aiscripts"}) {
+                                  "feedbacktext", "aiscripts", "plot"}) {
             ON_CALL(_resourceModule->twoDas(), get(std::string(table))).WillByDefault(testing::Return(empty));
         }
         // The races the game reads at start; every adjustment is blank.

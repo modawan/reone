@@ -136,6 +136,7 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
     }
 
     border->dimension = gui.DIMENSION;
+    border->innerOffset = gui.INNEROFFSET;
     border->color = gui.COLOR;
     border->pulseFrame = (gui.PULSING & kPulsingFrameFlag) != 0;
     border->pulseFill = (gui.PULSING & kPulsingFillFlag) != 0;
@@ -175,6 +176,14 @@ void Control::loadHilight(const resource::generated::GUI_BORDER &gui) {
 void Control::updateTransform() {
     _transform = glm::translate(glm::mat4(1.0f), glm::vec3(_extent.left, _extent.top, 0.0f));
     _transform = glm::scale(_transform, glm::vec3(_extent.width, _extent.height, 1.0f));
+}
+
+bool Control::handleKeyDown(const input::KeyCode key) {
+    return false;
+}
+
+bool Control::handleKeyUp(const input::KeyCode key) {
+    return false;
 }
 
 bool Control::handleMouseMotion(int x, int y) {

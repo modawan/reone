@@ -33,8 +33,6 @@
 #include "reone/game/party.h"
 #include "reone/game/runtimeref.h"
 #include "reone/game/twodautil.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/provider/2das.h"
 
 using namespace reone::resource;
 namespace reone::game {
@@ -154,131 +152,95 @@ static bool isInventoryListedEquipmentSlot(int slot) {
     }
 }
 
-struct BaseItemFilterInfo {
-    std::optional<int> itemType;
-    std::optional<int> storePanelSort;
-    std::optional<int> weaponType;
-};
-
-static BaseItemFilterInfo getBaseItemFilterInfo(ServicesView &services, const Item &item) {
-    BaseItemFilterInfo info;
-    auto baseItems = services.resource.twoDas.get("baseitems");
-    if (!baseItems) {
-        return info;
-    }
-
-    int baseItemType = item.baseItemType();
-    info.itemType = baseItems->getIntOpt(baseItemType, "itemtype");
-    info.storePanelSort = baseItems->getIntOpt(baseItemType, "storepanelsort");
-    info.weaponType = baseItems->getIntOpt(baseItemType, "weapontype");
-    return info;
+static bool isDatapad(const Item &item) {
+    return item.itemType() == 24 || item.itemClass() == "i_datapad";
 }
 
-static bool isDatapad(const Item &item, const BaseItemFilterInfo &baseItem) {
-    return baseItem.itemType == 24 || item.itemClass() == "i_datapad";
-}
-
-static bool isWeapon(const Item &item, const BaseItemFilterInfo &baseItem) {
+static bool isWeapon(const Item &item) {
     if (item.weaponType() != WeaponType::None) {
         return true;
     }
-    if (baseItem.weaponType && *baseItem.weaponType != static_cast<int>(WeaponType::None)) {
+    switch (item.itemType()) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 39:
+    case 40:
+    case 41:
         return true;
+    default:
+        break;
     }
-    if (baseItem.itemType) {
-        switch (*baseItem.itemType) {
-        case 0:
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 39:
-        case 40:
-        case 41:
-            return true;
-        default:
-            break;
-        }
-    }
-    if (baseItem.storePanelSort) {
-        switch (*baseItem.storePanelSort) {
-        case 20:
-        case 25:
-        case 30:
-        case 35:
-        case 40:
-        case 45:
-            return true;
-        default:
-            break;
-        }
+    switch (item.storePanelSort()) {
+    case 20:
+    case 25:
+    case 30:
+    case 35:
+    case 40:
+    case 45:
+        return true;
+    default:
+        break;
     }
     return false;
 }
 
-static bool isArmor(const Item &item, const BaseItemFilterInfo &baseItem) {
-    return item.isEquippable() && !isWeapon(item, baseItem);
+static bool isArmor(const Item &item) {
+    return item.isEquippable() && !isWeapon(item);
 }
 
-static bool isUseable(const Item &item, const BaseItemFilterInfo &baseItem) {
+static bool isUseable(const Item &item) {
     if (item.activateSpell()) {
         return true;
     }
-    if (!baseItem.storePanelSort) {
-        return false;
-    }
-
-    switch (*baseItem.storePanelSort) {
+    switch (item.storePanelSort()) {
     case 1:
     case 50:
         return true;
     case 80:
-        return !isDatapad(item, baseItem);
+        return !isDatapad(item);
     default:
         return false;
     }
 }
 
-static bool isUtility(const Item &item, const BaseItemFilterInfo &baseItem) {
-    if (item.plotFlag() || isWeapon(item, baseItem) || isArmor(item, baseItem) || isUseable(item, baseItem)) {
+static bool isUtility(const Item &item) {
+    if (item.plotFlag() || isWeapon(item) || isArmor(item) || isUseable(item)) {
         return false;
     }
-    if (isDatapad(item, baseItem)) {
+    if (isDatapad(item)) {
         return true;
     }
-    if (baseItem.storePanelSort) {
-        switch (*baseItem.storePanelSort) {
-        case 2:
-        case 85:
-        case 90:
-        case 95:
-            return true;
-        default:
-            break;
-        }
+    switch (item.storePanelSort()) {
+    case 2:
+    case 85:
+    case 90:
+    case 95:
+        return true;
+    default:
+        break;
     }
-    if (baseItem.itemType) {
-        switch (*baseItem.itemType) {
-        case 27:
-        case 28:
-        case 29:
-        case 30:
-        case 42:
-        case 43:
-        case 46:
-        case 50:
-        case 51:
-            return true;
-        default:
-            break;
-        }
+    switch (item.itemType()) {
+    case 27:
+    case 28:
+    case 29:
+    case 30:
+    case 42:
+    case 43:
+    case 46:
+    case 50:
+    case 51:
+        return true;
+    default:
+        break;
     }
     return false;
 }
 
-static bool itemMatchesFilter(ServicesView &services, const Item &item, InventoryFilter filter) {
-    BaseItemFilterInfo baseItem(getBaseItemFilterInfo(services, item));
+static bool itemMatchesFilter(const Item &item, InventoryFilter filter) {
     switch (filter) {
     case InventoryFilter::All:
         return true;
@@ -290,21 +252,21 @@ static bool itemMatchesFilter(ServicesView &services, const Item &item, Inventor
     case InventoryFilter::Equippable:
         return item.isEquippable();
     case InventoryFilter::Utility:
-        return isUtility(item, baseItem);
+        return isUtility(item);
     case InventoryFilter::Useable:
-        return isUseable(item, baseItem);
+        return isUseable(item);
     case InventoryFilter::Datapad:
-        return isDatapad(item, baseItem);
+        return isDatapad(item);
     case InventoryFilter::Weapon:
-        return isWeapon(item, baseItem);
+        return isWeapon(item);
     case InventoryFilter::Armor:
-        return isArmor(item, baseItem);
+        return isArmor(item);
     case InventoryFilter::Misc:
         return !item.plotFlag() &&
-               !isDatapad(item, baseItem) &&
-               !isWeapon(item, baseItem) &&
-               !isArmor(item, baseItem) &&
-               !isUseable(item, baseItem);
+               !isDatapad(item) &&
+               !isWeapon(item) &&
+               !isArmor(item) &&
+               !isUseable(item);
     default:
         return true;
     }
@@ -423,14 +385,14 @@ public:
         if (subject) {
             view.itemUseCoolingDown = subject->isItemUseCoolingDown();
             for (const auto &[slot, item] : subject->equipment()) {
-                if (isInventoryListedEquipmentSlot(slot) && listable(item) && itemMatchesFilter(_services, *item, filter)) {
+                if (isInventoryListedEquipmentSlot(slot) && listable(item) && itemMatchesFilter(*item, filter)) {
                     view.items.push_back(describeForUse(item, true));
                     listed.push_back(item);
                 }
             }
         }
         for (const auto &item : owner->items()) {
-            if (listable(item) && std::find(listed.begin(), listed.end(), item) == listed.end() && itemMatchesFilter(_services, *item, filter)) {
+            if (listable(item) && std::find(listed.begin(), listed.end(), item) == listed.end() && itemMatchesFilter(*item, filter)) {
                 view.items.push_back(describeForUse(item, false));
             }
         }
@@ -474,13 +436,14 @@ public:
         // weapon, and stays blank without either. The attack is that of the
         // equipped hand for the shown weapon's kind. A value counts as raised
         // when the item and effect modifiers lift a damage bound, or when the
-        // attack exceeds the base attack bonus.
+        // attack exceeds the base attack bonus. A hand whose damage
+        // minimum is 0 shows no damage.
         auto describeHand = [&subject](const std::shared_ptr<Item> &weapon, bool offHand, std::string &damage, bool &damageRaised,
                                        std::string &attack, bool &attackRaised) {
             int minimum, maximum, baseMinimum, baseMaximum;
             subject->getDamageRange(weapon, offHand, true, minimum, maximum);
             subject->getDamageRange(weapon, offHand, false, baseMinimum, baseMaximum);
-            damage = str(boost::format("%d-%d") % minimum % maximum);
+            damage = minimum != 0 ? str(boost::format("%d-%d") % minimum % maximum) : "";
             damageRaised = minimum > baseMinimum || maximum > baseMaximum;
             const auto breakdown = subject->getHandAttackBonusBreakdown(
                 weapon && weapon->isRanged(), offHand,

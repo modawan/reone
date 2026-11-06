@@ -49,16 +49,9 @@ namespace reone {
 
 namespace scene {
 
-static constexpr float kTransitionLength = 0.25f;
-
 // The length of a channel: that of its lip animation, if any.
 static float channelLength(const ModelSceneNode::AnimationChannel &channel) {
     return channel.lipAnim ? channel.lipAnim->length() : channel.anim->length();
-}
-
-// How long a channel has played, whichever way it runs.
-static float playedTime(const ModelSceneNode::AnimationChannel &channel) {
-    return channel.properties.speed < 0.0f ? channelLength(channel) - channel.time : channel.time;
 }
 
 void ModelSceneNode::init() {
@@ -114,7 +107,7 @@ void ModelSceneNode::buildNodeTree(ModelNode &node, SceneNode &parent) {
 }
 
 void ModelSceneNode::update(float dt) {
-    // Optimization: skip invisible models
+    // A model outside the scene is not animated.
     if (!_enabled) {
         return;
     }
@@ -200,6 +193,44 @@ ModelNodeSceneNode *ModelSceneNode::getNodeByNumber(uint16_t number) {
 ModelNodeSceneNode *ModelSceneNode::getNodeByName(const std::string &name) {
     auto it = _nodeByName.find(name);
     return it != _nodeByName.end() ? it->second : nullptr;
+}
+
+std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const {
+    std::optional<float> nearest;
+    for (const auto &[number, node] : _nodeByNumber) {
+        if (node->type() != SceneNodeType::Mesh) {
+            continue;
+        }
+        auto mesh = node->modelNode().mesh();
+        if (!mesh || !mesh->mesh || mesh->skin || mesh->saber) {
+            continue;
+        }
+        const glm::vec3 localFrom {node->absoluteTransformInverse() * glm::vec4(from, 1.0f)};
+        const glm::vec3 localTo {node->absoluteTransformInverse() * glm::vec4(to, 1.0f)};
+        const float length = glm::length(localTo - localFrom);
+        if (length == 0.0f) {
+            continue;
+        }
+        const glm::vec3 dir {(localTo - localFrom) / length};
+        float boxDistance = 0.0f;
+        if (!mesh->mesh->aabb().raycast(localFrom, 1.0f / dir, length, boxDistance)) {
+            continue;
+        }
+        const auto &vertices = mesh->mesh->vertices();
+        for (const auto &face : mesh->mesh->faces()) {
+            glm::vec2 barycentric {0.0f};
+            float distance = 0.0f;
+            if (glm::intersectRayTriangle(localFrom, dir,
+                                          vertices[face.vertices[0]].position,
+                                          vertices[face.vertices[1]].position,
+                                          vertices[face.vertices[2]].position,
+                                          barycentric, distance) &&
+                distance >= 0.0f && distance <= length && (!nearest || distance / length < *nearest)) {
+                nearest = distance / length;
+            }
+        }
+    }
+    return nearest;
 }
 
 void ModelSceneNode::setFadeAlpha(float alpha) {
@@ -369,21 +400,18 @@ void ModelSceneNode::playBase(Animation &anim, std::shared_ptr<LipAnimation> lip
         break;
 
     case AnimationBlendMode::Blend: {
-        // In Blend mode, if there is an animation on top, initiate
-        // transition between old and new animations
+        // The new animation plays from its start time and blends in over its
+        // transition time from the last pose of the one it replaces.
         bool transition = false;
         if (!_animChannels.empty()) {
             _animChannels[0].freeze = true;
             _animChannels[0].transition = false;
             transition = true;
         }
-        // Add animation on top
         _animChannels.push_front(AnimationChannel(anim, lipAnim, properties));
         if (transition) {
-            AnimationChannel &channel = _animChannels[0];
-            channel.transition = true;
-            float start = glm::max(0.0f, channel.anim->transitionTime() - kTransitionLength);
-            channel.time = channel.properties.speed < 0.0f ? channelLength(channel) - start : start;
+            _animChannels[0].transition = true;
+            _animChannels[0].weight = 0.0f;
         }
         while (_animChannels.size() > 2ll) {
             _animChannels.pop_back();
@@ -641,9 +669,11 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     float oldTime = channel.time;
     channel.time = glm::clamp(channel.time + channel.properties.speed * dt, 0.0f, length);
 
-    // Clear transition flag if past transition time
-    if (channel.transition && playedTime(channel) >= channel.anim->transitionTime()) {
-        channel.transition = false;
+    // A channel blending in reaches full weight over its transition time.
+    if (channel.transition) {
+        float transitionTime = channel.anim->transitionTime();
+        channel.weight = transitionTime > 0.0f ? glm::min(1.0f, channel.weight + dt / transitionTime) : 1.0f;
+        channel.transition = channel.weight < 1.0f;
     }
 
     // Signal events between previous and current time
@@ -657,10 +687,8 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
 
     // Compute animation states only when this model is not culled
     if (!_culled) {
-        float transitionTime = backwards ? length - channel.anim->transitionTime() : channel.anim->transitionTime();
-        float time = channel.transition ? transitionTime : channel.time;
         channel.stateByNodeNumber.clear();
-        computeAnimationStates(channel, time, *_model->rootNode());
+        computeAnimationStates(channel, channel.time, *_model->rootNode());
     }
 
     bool lastFrame = channel.time == (backwards ? 0.0f : length);
@@ -825,10 +853,12 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
                 if (state2Iter != channel2.stateByNodeNumber.end()) {
                     state2 = state2Iter->second;
                 }
+                // A channel blending in pulls each node it animates from where
+                // the node is toward its own pose by its weight, so the node
+                // closes most of the way well before the weight is full.
                 if (state1.flags & AnimationStateFlags::transform && state2.flags & AnimationStateFlags::transform) {
-                    float factor = glm::min(1.0f, playedTime(channel1) / channel1.anim->transitionTime());
                     combined.flags |= AnimationStateFlags::transform;
-                    combined.transform = blendTransforms(state2.transform, state1.transform, factor);
+                    combined.transform = blendTransforms(sceneNode->localTransform(), state1.transform, channel1.weight);
                 } else if (state1.flags & AnimationStateFlags::transform) {
                     combined.flags |= AnimationStateFlags::transform;
                     combined.transform = state1.transform;
@@ -890,6 +920,26 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
             break;
         default:
             break;
+        }
+
+        // The model's root is placed by the newest base clip, or in an overlay
+        // by any base clip, that moves it, as a clip of another model placed
+        // on it does (see computeAnimationStates); otherwise it stands at rest,
+        // not where the last such clip left it.
+        if (!modelNode.parent()) {
+            bool moved = false;
+            for (size_t i = layers; i < _animChannels.size() && !moved; ++i) {
+                if (i > layers && _animBlendMode != AnimationBlendMode::Overlay) {
+                    break;
+                }
+                const auto &states = _animChannels[i].stateByNodeNumber;
+                auto state = states.find(modelNode.number());
+                moved = state != states.end() && (state->second.flags & AnimationStateFlags::transform);
+            }
+            if (!moved) {
+                combined.flags |= AnimationStateFlags::transform;
+                combined.transform = glm::translate(modelNode.restPosition()) * glm::mat4_cast(modelNode.restOrientation());
+            }
         }
 
         // Layers go over the base from the oldest to the newest. Each pulls

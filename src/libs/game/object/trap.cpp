@@ -210,17 +210,22 @@ void Trap::springOnStrike(Object &owner, Faction faction, uint32_t attackerId) {
     }
 }
 
-void Trap::disarm(Object &owner, const Object &caller) {
+void Trap::disarm(Object &owner, uint32_t disarmerId) {
     if (_armed) {
         _armed = false;
-        runDisarmScript(owner, caller);
+        runDisarmScript(owner, disarmerId);
     }
     _detection.detectedBy.clear();
 }
 
-void Trap::runDisarmScript(Object &owner, const Object &caller) {
-    owner.game().scriptRunner().run(_disarmScript, {{script::ArgKind::Caller, script::Variable::ofObject(owner.id())},
-                                                    {script::ArgKind::LastDisarmed, script::Variable::ofObject(caller.id())}});
+void Trap::disarmOnSignal(Object &owner, uint32_t disarmerId) {
+    _disarmedOnSignal = _disarmedOnSignal || _armed;
+    disarm(owner, disarmerId);
+}
+
+void Trap::runDisarmScript(Object &owner, uint32_t disarmerId) {
+    _disarmer = disarmerId;
+    owner.game().scriptRunner().run(_disarmScript, owner.id());
 }
 
 void Trap::armMine(

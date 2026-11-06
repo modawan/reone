@@ -23,6 +23,7 @@
 #include <iterator>
 
 #include "reone/game/animations.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/heal.h"
 #include "reone/game/effect/visual.h"
@@ -70,7 +71,7 @@ static constexpr int kSkillXPPerLevel = 10;
 static constexpr int kHardSkillXPPerLevel = 15;
 static constexpr int kHardSkillDCMargin = 20;
 static constexpr int kTreatInjuryNameStrRef = 330;
-// Client animation rows for the mine work.
+// Animation rows for the mine work.
 static constexpr int kGetFromGroundAnimation = 40;
 static constexpr int kGetFromTableAnimation = 41;
 static constexpr int kUnlockDoorAnimation = 47;
@@ -122,9 +123,9 @@ static bool isTrapKit(const Item &item) {
     return property && property->get().type() == ItemProperty::Trap;
 }
 
-static bool canUseDemolitions(const Creature &creature) {
-    // Demolitions cannot be used untrained.
-    return creature.attributes().hasSkill(SkillType::Demolitions);
+// Demolitions is used as the skills table allows.
+static bool canUseDemolitions(const Creature &creature, bool tsl) {
+    return canUseSkill(creature.services().game.skills, SkillType::Demolitions, creature.attributes(), tsl);
 }
 
 // Mines set by the actor, or by a party member or PC while the actor is one, are its own.
@@ -185,7 +186,7 @@ uint32_t UseSkillAction::serializedActionId() const {
 void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
     auto area = _game.module()->area();
     const bool setMine = setsMine();
-    if ((!setMine && !_target) || !canUseDemolitions(actor)) {
+    if ((!setMine && !_target) || !canUseDemolitions(actor, _game.isTSL())) {
         complete();
         return;
     }
@@ -225,7 +226,10 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
             } else if (mineWork(_subSkill) == MineWork::Disarm || mineWork(_subSkill) == MineWork::Recover) {
                 extra = kMineUseRangeExtra;
             }
-            if (!actor.navigateToUse(*_target, extra, dt, true, false, false)) {
+            // Setting a mine walks toward its object as the walk's goal, to
+            // its use range, and takes the extra reach only in the check; the
+            // other mine work walks the extra reach too, with no goal.
+            if (!actor.navigateToUse(*_target, extra, dt, true, false, false, setMine, setMine ? 0.0f : extra)) {
                 return;
             }
             actor.turnToward(*_target);
@@ -334,7 +338,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
     switch (work) {
     case MineWork::Disarm: {
         if (trigger && isOwnMine(_game, actor, *trigger, false)) {
-            trigger->disarmTrap(actor);
+            trigger->disarmTrap(actor.id());
             area->destroyObject(*trigger);
             // The award compares against an unset DC; it takes the lower rate.
             awardXP(0);
@@ -349,12 +353,12 @@ void UseSkillAction::resolveMine(Creature &actor) {
                                                             : SkillFailure;
         if (success) {
             if (trigger) {
-                trigger->disarmTrap(actor);
+                trigger->disarmTrap(actor.id());
                 area->destroyObject(*trigger);
             } else if (door) {
-                door->disarmTrap(actor);
+                door->disarmTrap(actor.id());
             } else {
-                placeable->disarmTrap(actor);
+                placeable->disarmTrap(actor.id());
             }
             awardXP(dc);
         }
@@ -389,9 +393,9 @@ void UseSkillAction::resolveMine(Creature &actor) {
             if (trigger) {
                 area->destroyObject(*trigger);
             } else if (door) {
-                door->disarmTrap(actor);
+                door->disarmTrap(actor.id());
             } else {
-                placeable->disarmTrap(actor);
+                placeable->disarmTrap(actor.id());
             }
             recoverItem();
             awardXP(dc);
@@ -536,7 +540,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
 // Treat Injury
 
 static constexpr float kTreatInjuryWorkTime = 2.0f;
-// Client animation row of the work: the looping cast.
+// Animation row of the work: the looping cast.
 static constexpr int kCastLoopAnimation = 63;
 static constexpr int kHealingVisual = 1001;
 

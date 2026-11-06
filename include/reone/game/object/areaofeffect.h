@@ -100,6 +100,8 @@ public:
     /** Radius of the circle, or of the circle around the rectangle. */
     float boundingRadius() const { return _radius; }
     bool contains(const glm::vec3 &point) const;
+    /** Whether the step from \p from to \p to crosses the edge of the shape. */
+    bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     /**
      * Fix a rectangle's corners where it is placed, its length along the
      * facing and centred on the position; they stay there when it later jumps.
@@ -108,8 +110,14 @@ public:
 
     /** Test the creatures of the area against the shape, signalling each entry and exit when announce is set. */
     void scanOccupants(bool announce = true);
-    /** Note where a creature now stands, signalling an entry or exit when announce is set. */
-    void updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce);
+    /**
+     * Note where a creature now stands, signalling an entry or exit when
+     * announce is set. A step from \p from that crosses the edge and ends on
+     * the side it began on signals an entry and an exit: an exit first for a
+     * creature inside.
+     */
+    void updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce,
+                         std::optional<glm::vec3> from = std::nullopt);
     /** Forget a creature leaving the world, without running OnExit. */
     void forgetOccupant(uint32_t objectId) { _occupants.erase(objectId); }
     /** The carrier jumped: occupants leave, the shape moves to it, and the creatures there enter. */

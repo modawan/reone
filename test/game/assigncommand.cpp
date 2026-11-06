@@ -102,11 +102,13 @@ void assignCommand(
 
 } // namespace
 
-TEST(AssignCommand, should_run_the_assigned_command_in_place) {
+TEST(AssignCommand, should_run_the_assigned_command_once_its_event_is_delivered) {
     // given
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The command reaches its subject through the module's event queue.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     Routines routines(resource::GameID::KotOR, &game, &engine.services());
     routines.init();
 
@@ -123,6 +125,8 @@ TEST(AssignCommand, should_run_the_assigned_command_in_place) {
     assignCommand(routines, subject->id(), std::move(command));
 
     // then
+    // The event due at once runs the command.
+    game.module()->dispatchDueSavedEvents();
     EXPECT_TRUE(subject->actions().empty());
 }
 
@@ -131,6 +135,8 @@ TEST(AssignCommand, should_queue_action_routines_the_command_contains) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The command reaches its subject through the module's event queue.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     Routines routines(resource::GameID::KotOR, &game, &engine.services());
     routines.init();
 
@@ -141,9 +147,10 @@ TEST(AssignCommand, should_queue_action_routines_the_command_contains) {
 
     // when
     assignCommand(routines, subject->id(), std::move(command));
+    game.module()->dispatchDueSavedEvents();
 
     // then
-    // Running in place does not stop an Action routine inside the command from
+    // Running as an event does not stop an Action routine inside the command from
     // queueing: what lands is the walk the command asked for, and not the
     // command itself.
     ASSERT_EQ(1u, subject->actions().size());
@@ -155,6 +162,8 @@ TEST(AssignCommand, should_run_the_command_as_the_subject_not_the_saving_caller)
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The command reaches its subject through the module's event queue.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     Routines routines(resource::GameID::KotOR, &game, &engine.services());
     routines.init();
 
@@ -169,6 +178,7 @@ TEST(AssignCommand, should_run_the_command_as_the_subject_not_the_saving_caller)
 
     // when
     assignCommand(routines, subject->id(), std::move(command));
+    game.module()->dispatchDueSavedEvents();
 
     // then
     EXPECT_TRUE(subject->actions().empty());
@@ -180,6 +190,8 @@ TEST(AssignCommand, should_keep_the_order_of_commands_assigned_in_sequence) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The command reaches its subject through the module's event queue.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     Routines routines(resource::GameID::KotOR, &game, &engine.services());
     routines.init();
 
@@ -192,10 +204,12 @@ TEST(AssignCommand, should_keep_the_order_of_commands_assigned_in_sequence) {
     // behind a walk takes the walk off the queue.
     assignCommand(routines, subject->id(), newCommandCallingWithFloat(routines, "ActionWait", 0.5f));
     assignCommand(routines, subject->id(), newCommandCalling(routines, "ActionRandomWalk"));
+    game.module()->dispatchDueSavedEvents();
 
     // then
-    // Running in place has to leave the sequence as written. Dispatching onto
-    // the front of the queue instead would hand these back reversed.
+    // Events due at the same time run in the order they were posted, which
+    // leaves the sequence as written. Dispatching onto the front of the queue
+    // instead would hand these back reversed.
     ASSERT_EQ(2u, subject->actions().size());
     EXPECT_EQ(ActionType::Wait, subject->actions()[0]->type());
     EXPECT_EQ(ActionType::RandomWalk, subject->actions()[1]->type());
@@ -206,6 +220,8 @@ TEST(AssignCommand, should_not_leak_the_rewritten_caller_into_the_saved_command)
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The command reaches its subject through the module's event queue.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     Routines routines(resource::GameID::KotOR, &game, &engine.services());
     routines.init();
 
@@ -223,6 +239,7 @@ TEST(AssignCommand, should_not_leak_the_rewritten_caller_into_the_saved_command)
     // The same saved command, assigned twice to different subjects.
     assignCommand(routines, first->id(), command);
     assignCommand(routines, second->id(), command);
+    game.module()->dispatchDueSavedEvents();
 
     // then
     // Each run rewrites the Caller on its own copy. Rewriting the saved command

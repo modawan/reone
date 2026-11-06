@@ -72,6 +72,7 @@ CreditsGUI::~CreditsGUI() {
     if (_music) {
         _music->stop();
     }
+    _game.areaMusic().fadeDialogAmbientTrack();
 }
 
 void CreditsGUI::onGUILoaded() {

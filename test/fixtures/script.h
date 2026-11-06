@@ -60,7 +60,11 @@ private:
 
 class MockRoutines : public IRoutines, boost::noncopyable {
 public:
+    MockRoutines();
+    ~MockRoutines() override;
+
     MOCK_METHOD(Routine &, get, (int index), (override));
+    MOCK_METHOD(bool, contains, (int index), (const override));
     MOCK_METHOD(int, getNumRoutines, (), (const override));
     MOCK_METHOD(int, getIndexByName, (const std::string &name), (const override));
 };

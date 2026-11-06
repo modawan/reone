@@ -64,12 +64,18 @@ public:
 
 class MockGffs : public IGffs, boost::noncopyable {
 public:
+    MockGffs();
+    ~MockGffs() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<Gff>, get, (const std::string &resRef, ResType type), (override));
 };
 
 class MockResources : public IResources, boost::noncopyable {
 public:
+    MockResources();
+    ~MockResources() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(void, clearOwner, (ResourceOwner owner), (override));
     MOCK_METHOD(ResourceMountToken, mountToken, (), (const, override));
@@ -92,6 +98,9 @@ public:
 
 class MockResourceReplacements : public IResourceReplacements, boost::noncopyable {
 public:
+    MockResourceReplacements();
+    ~MockResourceReplacements() override;
+
     MOCK_METHOD(void, replaceResource, (ResourceId id, ByteBuffer data), (override));
     MOCK_METHOD(void, removeResourceReplacement, (const ResourceId &id), (override));
     MOCK_METHOD(void, clearResourceReplacements, (), (override));
@@ -101,31 +110,47 @@ public:
 
 class MockStrings : public IStrings, boost::noncopyable {
 public:
+    MockStrings();
+    ~MockStrings() override;
+
     MOCK_METHOD(std::string, getText, (int strRef), (override));
     MOCK_METHOD(std::string, getSound, (int strRef), (override));
+    MOCK_METHOD(float, getSoundDuration, (int strRef), (override));
     MOCK_METHOD(int, languageId, (), (const override));
 };
 
 class MockTwoDAs : public ITwoDAs, boost::noncopyable {
 public:
+    MockTwoDAs();
+    ~MockTwoDAs() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<TwoDA>, get, (const std::string &key), (override));
 };
 
 class MockScripts : public IScripts, boost::noncopyable {
 public:
+    MockScripts();
+    ~MockScripts() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<script::ScriptProgram>, get, (const std::string &key), (override));
 };
 
 class MockMovies : public IMovies, boost::noncopyable {
 public:
+    MockMovies();
+    ~MockMovies() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<movie::IMovie>, get, (const std::string &name), (override));
 };
 
 class MockAudioClips : public IAudioClips, boost::noncopyable {
 public:
+    MockAudioClips();
+    ~MockAudioClips() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, get, (const std::string &key), (override));
     MOCK_METHOD(bool, hasMp3, (const std::string &resRef), (override));
@@ -133,28 +158,43 @@ public:
 
 class MockCursors : public ICursors, boost::noncopyable {
 public:
+    MockCursors();
+    ~MockCursors() override;
+
     MOCK_METHOD(std::shared_ptr<graphics::Cursor>, get, (resource::CursorType type), (override));
 };
 
 class MockFonts : public IFonts, boost::noncopyable {
 public:
+    MockFonts();
+    ~MockFonts() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<graphics::Font>, get, (const std::string &key), (override));
 };
 
 class MockLips : public ILips, boost::noncopyable {
 public:
+    MockLips();
+    ~MockLips() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<graphics::LipAnimation>, get, (const std::string &key), (override));
 };
 
 class MockModels : public IModels, boost::noncopyable {
 public:
+    MockModels();
+    ~MockModels() override;
+
     MOCK_METHOD(std::shared_ptr<graphics::Model>, get, (const std::string &resRef), (override));
 };
 
 class MockTextures : public ITextures, boost::noncopyable {
 public:
+    MockTextures();
+    ~MockTextures() override;
+
     MOCK_METHOD(void, clear, (), (override));
 
     MOCK_METHOD(std::shared_ptr<graphics::Texture>, get, (const std::string &resRef, graphics::TextureUsage usage), (override));
@@ -162,42 +202,63 @@ public:
 
 class MockWalkmeshes : public IWalkmeshes, boost::noncopyable {
 public:
+    MockWalkmeshes();
+    ~MockWalkmeshes() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<graphics::Walkmesh>, get, (const std::string &resRef, ResType type), (override));
 };
 
 class MockDialogs : public IDialogs, boost::noncopyable {
 public:
+    MockDialogs();
+    ~MockDialogs() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<Dialog>, get, (const std::string &key), (override));
 };
 
 class MockLayouts : public ILayouts, boost::noncopyable {
 public:
+    MockLayouts();
+    ~MockLayouts() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<Layout>, get, (const std::string &key), (override));
 };
 
 class MockPaths : public IPaths, boost::noncopyable {
 public:
+    MockPaths();
+    ~MockPaths() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<Path>, get, (const std::string &key), (override));
 };
 
 class MockSoundSets : public ISoundSets, boost::noncopyable {
 public:
+    MockSoundSets();
+    ~MockSoundSets() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<SoundSet>, get, (const std::string &key), (override));
 };
 
 class MockVisiblities : public IVisibilities, boost::noncopyable {
 public:
+    MockVisiblities();
+    ~MockVisiblities() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<Visibility>, get, (const std::string &key), (override));
 };
 
 class MockLtrs : public ILtrs, boost::noncopyable {
 public:
+    MockLtrs();
+    ~MockLtrs() override;
+
     MOCK_METHOD(std::shared_ptr<Ltr>, get, (const ResRef &resRef), (override));
 };
 
@@ -206,6 +267,9 @@ class MockShaders : public IShaders, boost::noncopyable {
 
 class MockResourceDirector : public IResourceDirector, boost::noncopyable {
 public:
+    MockResourceDirector();
+    ~MockResourceDirector() override;
+
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(void, onModuleLoad, (const std::string &name), (override));
     MOCK_METHOD(void, onNewGame, (), (override));

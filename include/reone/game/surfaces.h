@@ -62,6 +62,7 @@ public:
         _twoDas(twoDas) {
     }
 
+    /** Read the surface materials (surfacemat.2da). */
     void init();
 
     bool isWalkable(int index) const override;

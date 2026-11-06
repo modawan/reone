@@ -28,6 +28,9 @@ namespace movie {
 
 class MockMovie : public IMovie, boost::noncopyable {
 public:
+    MockMovie();
+    ~MockMovie() override;
+
     MOCK_METHOD(void, update, (float dt), (override));
     MOCK_METHOD(void, render, (), (override));
     MOCK_METHOD(void, finish, (), (override));

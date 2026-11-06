@@ -76,6 +76,15 @@ constexpr int getAbilityEffectIncreaseCap(bool tsl) {
 constexpr int getAbilityEffectDecreaseCap(bool tsl) {
     return tsl ? 90 : 30;
 }
+/**
+ * How many sources, items, spells and effects of neither, the increases of
+ * one kind on a creature count: the miscellaneous attack, save, ability,
+ * skill and miscellaneous damage increases, and likewise the decreases. A
+ * source past that many counts for nothing.
+ */
+constexpr int getEffectSourceCapacity(bool tsl) {
+    return tsl ? 108 : 36;
+}
 
 /**
  * Whether a newly applied ability effect takes hold: never on a dead or
@@ -197,7 +206,6 @@ struct SavedEffectTypes {
     static constexpr uint16_t forcePush = 60;
     static constexpr uint16_t damageShield = 61;
     static constexpr uint16_t disguise = 62;
-    static constexpr uint16_t sanctuary = 63;
     static constexpr uint16_t timeStop = 64;
     static constexpr uint16_t spellLevelAbsorption = 65;
     static constexpr uint16_t icon = 67;

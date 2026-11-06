@@ -121,7 +121,10 @@ public:
         return _musicPlaysThroughMovies ? _music : nullptr;
     }
     /** Advance the music's fade, as it goes on while a movie plays. */
-    void updateMusicFade() { isMusicPlaying(); }
+    void updateMusicFade() {
+        isMusicPlaying();
+        isDialogAmbientPlaying();
+    }
     /** The area set its battle track; previousTrack is the row it replaced. */
     void battleMusicTrackChanged(const Area &area, int previousTrack);
 
@@ -133,6 +136,17 @@ public:
     void ambientNightTrackChanged(const Area &area);
     /** The area set its ambient day volume. */
     void ambientDayVolumeChanged(const Area &area);
+
+    /**
+     * A conversation shows its first entry: the track a conversation started
+     * before stops at once, and the conversation's own plays through once, on
+     * after it ends.
+     *
+     * @param resRef the conversation's track; empty for none
+     */
+    void playDialogAmbientTrack(const std::string &resRef);
+    /** The conversation's track fades out. */
+    void fadeDialogAmbientTrack();
 
     /** The gain of streamed music, menu music included: its priority group's volume as a share of the loudest. */
     float musicGroupGain() const { return _musicGroupGain; }
@@ -168,6 +182,10 @@ private:
 
     /** The area being played, from its load until it is unloaded. */
     std::shared_ptr<const Area> _area;
+    /** The track the last conversation started, which outlives it. */
+    std::shared_ptr<audio::AudioSource> _dialogAmbient;
+    /** When the conversation's fading track ends. */
+    std::optional<uint32_t> _dialogAmbientFadeEnd;
     /** The area has been arrived in, and its music and ambient loop play. */
     bool _started {false};
     /** The background music plays on through a movie that lets music play; set by the last track change. */
@@ -220,6 +238,8 @@ private:
     bool isMusicPlaying();
     /** Whether the ambient loop sounds, a fading loop until its fade ends. */
     bool isAmbientPlaying();
+    /** Whether the conversation's track sounds, a fading one until its fade ends. */
+    bool isDialogAmbientPlaying();
     /**
      * Plays the music track \p resRef; false when it does not play.
      * @param takeLoadMusic whether the playing load-screen music of the same

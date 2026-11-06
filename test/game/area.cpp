@@ -31,7 +31,7 @@ using namespace testing;
 
 namespace {
 
-TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
+TEST(Area, get_object_by_tag_should_keep_insertion_order) {
     TestEngine engine;
     engine.init();
     // Dying reads the effects death keeps and the body's destroy delay.
@@ -80,8 +80,8 @@ TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
     dead3->damage(1, nullptr);
 
     EXPECT_EQ(alive0, area->getObjectByTag(tag, 0));
-    EXPECT_EQ(alive2, area->getObjectByTag(tag, 1));
-    EXPECT_EQ(dead1, area->getObjectByTag(tag, 2));
+    EXPECT_EQ(dead1, area->getObjectByTag(tag, 1));
+    EXPECT_EQ(alive2, area->getObjectByTag(tag, 2));
     EXPECT_EQ(dead3, area->getObjectByTag(tag, 3));
 }
 

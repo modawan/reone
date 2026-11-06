@@ -207,16 +207,14 @@ void validateDescriptor(const SaveSlotDescriptor &target) {
         throw std::invalid_argument("Save target must be one direct child directory");
     }
     auto parent = normalizedDirectory.parent_path();
-    if (!std::filesystem::is_directory(parent) ||
-        std::filesystem::is_symlink(parent)) {
+    if (!std::filesystem::is_directory(parent)) {
         throw std::invalid_argument(
-            "Save target parent must be an existing non-symlink directory");
+            "Save target parent must be a directory");
     }
     if (std::filesystem::exists(normalizedDirectory) &&
-        (!std::filesystem::is_directory(normalizedDirectory) ||
-         std::filesystem::is_symlink(normalizedDirectory))) {
+        (!std::filesystem::is_directory(normalizedDirectory))) {
         throw std::invalid_argument(
-            "Save target must be absent or an existing non-symlink directory");
+            "Save target must be absent or an existing directory");
     }
 }
 
@@ -820,6 +818,10 @@ ValidatedSlot validateSlot(
         if (!ordinaryIds.empty() && nextId <= *ordinaryIds.rbegin()) {
             throw std::runtime_error(
                 "Published Mod_NextObjId0 does not advance beyond ordinary object IDs");
+        }
+        if (!reservedPartyIds.empty() && ifo->getUint("Mod_NextCharId0") >= *reservedPartyIds.begin()) {
+            throw std::runtime_error(
+                "Published Mod_NextCharId0 does not descend below reserved party IDs");
         }
         auto screenshot = std::filesystem::exists(directory / kScreenshotName);
         if (screenshot != expected->screenshotPresent) {

@@ -36,6 +36,9 @@ namespace graphics {
 
 class MockContext : public IContext, boost::noncopyable {
 public:
+    MockContext();
+    ~MockContext() override;
+
     MOCK_METHOD(void, clearColor, (glm::vec4 color), (override));
     MOCK_METHOD(void, clearDepth, (), (override));
     MOCK_METHOD(void, clearColorDepth, (glm::vec4 color), (override));
@@ -87,11 +90,17 @@ public:
 
 class MockMeshRegistry : public IMeshRegistry, boost::noncopyable {
 public:
+    MockMeshRegistry();
+    ~MockMeshRegistry() override;
+
     MOCK_METHOD(Mesh &, get, (const std::string &), (override));
 };
 
 class MockPBRTextures : public IPBRTextures, boost::noncopyable {
 public:
+    MockPBRTextures();
+    ~MockPBRTextures() override;
+
     MOCK_METHOD(void, refresh, (), (override));
     MOCK_METHOD(void, requestEnvMapDerived, (EnvMapDerivedRequest), (override));
     MOCK_METHOD(Texture &, brdf, (), (override));
@@ -100,11 +109,17 @@ public:
 
 class MockShaderRegistry : public IShaderRegistry, boost::noncopyable {
 public:
+    MockShaderRegistry();
+    ~MockShaderRegistry() override;
+
     MOCK_METHOD(ShaderProgram &, get, (const std::string &), (override));
 };
 
 class MockStatistic : public IStatistic, boost::noncopyable {
 public:
+    MockStatistic();
+    ~MockStatistic() override;
+
     MOCK_METHOD(void, resetDrawCalls, (), (override));
     MOCK_METHOD(void, incrementDrawCalls, (), (override));
     MOCK_METHOD(int, numDrawCalls, (), (const override));
@@ -113,11 +128,17 @@ public:
 class MockTextureRegistry : public ITextureRegistry,
                             boost::noncopyable {
 public:
+    MockTextureRegistry();
+    ~MockTextureRegistry() override;
+
     MOCK_METHOD(Texture &, get, (const std::string &), (override));
 };
 
 class MockUniforms : public IUniforms, boost::noncopyable {
 public:
+    MockUniforms();
+    ~MockUniforms() override;
+
     MOCK_METHOD(void, setGlobals, (const std::function<void(GlobalUniforms &)> &), (override));
     MOCK_METHOD(void, setLocals, (const std::function<void(LocalUniforms &)> &), (override));
     MOCK_METHOD(void, setBones, (const std::function<void(BoneUniforms &)> &), (override));

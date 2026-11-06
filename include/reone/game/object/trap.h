@@ -128,11 +128,17 @@ public:
     /** An armed trap goes off on the attacker who strikes it from close by. */
     void springOnStrike(Object &owner, Faction faction, uint32_t attackerId);
 
-    /** An armed trap is disarmed by the caller and its script runs; either way it is lost from sight. */
-    void disarm(Object &owner, const Object &caller);
+    /** An armed trap is disarmed by \p disarmerId and its script runs; either way it is lost from sight. */
+    void disarm(Object &owner, uint32_t disarmerId);
 
-    /** Run the disarm script with the caller as the one who disarmed the trap. */
-    void runDisarmScript(Object &owner, const Object &caller);
+    /**
+     * A disarm signal disarms the trap of a door or placeable as disarm()
+     * does, but an armed trap it disarms still counts among the area's traps.
+     */
+    void disarmOnSignal(Object &owner, uint32_t disarmerId);
+
+    /** Record \p disarmerId as the one who disarmed the trap and run the disarm script. */
+    void runDisarmScript(Object &owner, uint32_t disarmerId);
 
     /**
      * Arm a mine set on a door or placeable. A TSL mine stands for the linked
@@ -175,6 +181,13 @@ public:
     bool isOneShot() const { return _oneShot; }
     int type() const { return _type; }
     int ownerDemolitionsSkill() const { return _ownerDemolitionsSkill; }
+    /** The one who last disarmed the trap; kept after the disarm. */
+    uint32_t disarmer() const { return _disarmer; }
+    /**
+     * Whether the trap counts among the area's traps: while armed, and after a
+     * disarm signal disarmed it, until the area is loaded again.
+     */
+    bool countsAsAreaTrap() const { return _armed || _disarmedOnSignal; }
     const std::string &triggeredScript() const { return _triggeredScript; }
     const std::string &disarmScript() const { return _disarmScript; }
     TrapDetection &detection() { return _detection; }
@@ -220,6 +233,9 @@ private:
     // END Serializable
 
     TrapDetection _detection;
+    uint32_t _disarmer {script::kObjectInvalid};
+    /** Whether a disarm signal disarmed the armed trap. */
+    bool _disarmedOnSignal {false};
 
     // Mine
 

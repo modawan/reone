@@ -96,8 +96,6 @@ public:
         float maxDistance,
         bool ignoreBackface) const;
 
-    bool contains(const glm::vec2 &point) const;
-
     /**
      * Whether a face of one of the given materials lies within radius of the
      * level segment between two points while spanning part of the height

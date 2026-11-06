@@ -57,57 +57,41 @@ private:
 };
 
 /**
- * Stance command. Total Defense holds its target and completes 1.5 seconds
- * after it last started the creature's round; Meditative holds until another
- * command is queued behind it.
+ * The Meditative stance command, which holds until another command is queued
+ * behind it.
  */
 class CombatStanceAction : public Action {
 public:
-    CombatStanceAction(Game &game, ServicesView &services,
-                       CombatStance stance, std::shared_ptr<Object> target = nullptr) :
-        Action(game, services, ActionType::CombatStance),
-        _stance(stance), _target(std::move(target)) {
-        if (_target) {
-            requireRuntimeObject(_target);
-        }
+    CombatStanceAction(Game &game, ServicesView &services) :
+        Action(game, services, ActionType::CombatStance) {
     }
     static bool classof(Action *action) { return action->type() == ActionType::CombatStance; }
-    uint32_t serializedActionId() const override {
-        return static_cast<uint32_t>(_stance == CombatStance::TotalDefense ? SavedActionType::TotalDefense
-                                                                           : SavedActionType::Meditate);
-    }
+    uint32_t serializedActionId() const override { return static_cast<uint32_t>(SavedActionType::Meditate); }
     void execute(std::shared_ptr<Action>, Object &, float) override;
     bool cancel(std::shared_ptr<Action>, Object &) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
-    /** A saved TotalDefense or Meditate command; none once the Total Defense target is gone. */
+    /** A saved Meditate command. */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
-
-    CombatStance stance() const { return _stance; }
-    const std::shared_ptr<Object> &target() const { return _target; }
-
-private:
-    CombatStance _stance;
-    std::shared_ptr<Object> _target;
-
-    void executeTotalDefense(Creature &actor);
-    void executeMeditative(Creature &actor);
 };
 
 /**
  * Combat round consists of either one or two actions. Second action is only
  * present when both combatants are creatures. Each creature keeps its own
- * round in its action: its clock, length and pause, which nothing done to
- * the other creature moves.
+ * round in its action: its clock, length and pause. A round's clock stands
+ * still while it is paused. A swing pauses its own creature's round and
+ * shortens it by the swing, and a reaction the swing commits its target to
+ * shortens the target's round likewise. The pauses the two creatures of an
+ * engaged pair put on each other keep them from swinging at once.
  */
 struct CombatRound {
     /** The length of a round, in seconds, until something rescales it. */
     static constexpr float kDuration = 3.0f;
 
+    /** Saves hold these values; earlier saves also hold 2, a round's second action. */
     enum State {
-        Pending,
-        FirstAction,
-        SecondAction,
-        Finished
+        Pending = 0,
+        Running = 1,
+        Finished = 3
     };
 
     /** A creature's command in the round, with the creature's own round. */
@@ -131,7 +115,7 @@ struct CombatRound {
          */
         bool joined {false};
         int slot {0};
-        /** How far the creature's round has got; Finished once it has ended. */
+        /** How far the creature's round has got: not begun, running, or Finished once it has ended. */
         State state {Pending};
         /** The seconds of the creature's round gone by. */
         float time {0.0f};
@@ -139,18 +123,28 @@ struct CombatRound {
         float duration {kDuration};
         /** The creature's round stands still for this many seconds, held by its pause owner. */
         float pauseRemaining {0.0f};
+        /**
+         * The pause has no end of its own: the round stands still until the
+         * pause of its owner, the creature that masters the pair, ends. The
+         * round ends once its owner is gone.
+         */
+        bool pauseOpenEnded {false};
         RuntimeObjectRef<Object> pauseOwner;
         /** The round, restored without its command, is a spell round. */
         bool spellRound {false};
 
-        /** The attacker and the target of the command are still the objects it was given. */
+        /**
+         * The attacker and the target of the command are still the objects it
+         * was given; a command that joined a running round answers for its
+         * attacker alone.
+         */
         bool participantBindingsLive() const;
         /** The command is still in its creature's queue, if it was put there. */
         bool remainsInActorQueue() const;
         /** The command takes part in the round and the creature's round has not ended. */
         bool running() const { return !retired && state != Finished; }
-        /** \p dt scaled from the length of the creature's round to a round of the usual length. */
-        float actionDelta(float dt) const { return duration > 0.0f ? dt * kDuration / duration : kDuration; }
+        /** The creature's round is paused. */
+        bool paused() const { return pauseOpenEnded || pauseRemaining > 0.0f; }
     };
 
     SmallVector<RoundAction, 2> actions;
@@ -175,12 +169,8 @@ struct CombatRound {
      * by another or by no one, or its creature is down.
      */
     bool suspends(const Action &action) const;
-    /** \p dt scaled from the length of the round of \p action's creature to a round of the usual length. */
-    float actionDelta(const Action &action, float dt) const;
-    /** The round of \p action's creature has ended. */
-    bool hasEnded(const Action &action) const;
 
-    /** \p action may take its turn in the round now. */
+    /** \p action may take its turn in the round now: its creature's round is running and nothing holds it. */
     bool canExecute(Action &action) const;
 };
 
@@ -198,12 +188,14 @@ class Combat {
 public:
     /**
      * The hold of a creature owning no round that the engagement of an attack
-     * or cast put on it: its remaining seconds and who holds it. The hold of
+     * or cast put on it: its remaining seconds, who holds it, and whether it
+     * lasts until the pause of the creature holding it ends. The hold of
      * damage on a creature owning no round is not kept in a save.
      */
     struct OwnerHold {
         float remaining {0.0f};
         std::shared_ptr<Object> pausedBy;
+        bool openEnded {false};
     };
 
     /** A round entry of a creature not yet taken up. */
@@ -259,7 +251,7 @@ public:
         _scheduled.clear();
         _equipmentTime.clear();
         _ownerPauses.clear();
-        _settleRequests.clear();
+        _handedOn.clear();
         _nextRoundId = 1;
     }
 
@@ -268,9 +260,10 @@ public:
     /**
      * Adds an action to an existing combat round, or starts a new round, based
      * on attacker and target. A cast or item use takes its turn in a round its
-     * creature's earlier, finished command began, as does a command aimed at
-     * the creature that masters that round; any other command gives such a
-     * round up, without its end, and starts afresh.
+     * creature's earlier, finished command began, as does an attack by a
+     * creature engaged by a target that masters their exchange, unless it is
+     * an instant cast's attack; any other command gives such a round up,
+     * without its end, and starts afresh.
      */
     const CombatRound &addAction(const std::shared_ptr<Action> &action, Object &actor);
     /**
@@ -281,13 +274,18 @@ public:
      */
     void beginCast(const std::shared_ptr<Action> &action, Creature &caster, float seconds, bool itemUse, bool fake);
     /**
-     * An instant cast starts its caster's round afresh. Aimed at a creature,
-     * door or container it makes an unengaged Power Attack, which needs no
-     * approach, takes no action of the round and ends with its pause.
+     * An instant cast starts its caster's round afresh, as no master,
+     * whatever round the caster was in. Aimed at a creature, door or container it makes an
+     * unengaged Power Attack, which needs no approach, takes no action of the
+     * round, rolls at once, before the cast goes on, and is over with its
+     * swing.
      */
     void beginInstantCast(const std::shared_ptr<Action> &action, Creature &caster, const std::shared_ptr<Object> &target);
-    /** The creature masters an engaged exchange in a round that has not ended. */
-    bool isRoundMaster(const Creature &creature) const;
+    /**
+     * An attacker engaged by \p target, a partner that masters the exchange,
+     * waits for the partner's swing to start its side: it owns no round yet.
+     */
+    bool awaitsMaster(const Creature &attacker, const Object &target) const;
     /** The action waits: its creature's scheduled entry holds it, or its round is suspended. */
     bool isActionPaused(const Action &action) const;
     /**
@@ -300,14 +298,31 @@ public:
     bool isEngagedBy(const Creature &attacker, const Creature &target) const;
     /**
      * Start a physical attack's exchange with its target and tell whether it
-     * is engaged. An attacker that masters the exchange restarts its partner's
-     * round: a round the partner began, or one of its own, ends. A round the
-     * two share starts again from the beginning for both; a partner whose
-     * round was its own gets a side, with no command yet, in the attacker's
-     * round, held for the attack's pause and free to act as soon as that hold
-     * ends. An engaged partner owning no round is held for the attack's pause.
+     * is engaged. An attack that engages no one starts its round as no
+     * master. An attacker that masters the exchange starts its round as the
+     * master, and its partner's as no master, and restarts its partner's
+     * round: a round the partner has acted in, or one of its own, ends, and
+     * the partner, whether or not it had a round, gets a side, with no
+     * command yet, in the attacker's round; a side of the round the two share
+     * whose command is still to act starts again, as does the attacker's own.
+     * The partner is then held until the attacker's pause ends, and is free
+     * to act as soon as it does. A partner the attacker does not master has
+     * its round, or the hold it has while owning none, held for
+     * \p pauseMilliseconds more.
      */
     bool engagePhysicalTarget(const Creature &attacker, Object &target, int pauseMilliseconds);
+    /**
+     * A swing holds its creature's round for \p pauseMilliseconds more. The
+     * round's clock stands still meanwhile, but the creature's own commands
+     * are not kept waiting by it.
+     */
+    void pauseForSwing(const Creature &attacker, int pauseMilliseconds);
+    /**
+     * Shortens each running round of \p creature by \p milliseconds, as a
+     * swing does its own creature's round and a reaction it commits the
+     * target's. A pause the round has is left as it is.
+     */
+    void shortenRounds(const Creature &creature, int milliseconds);
     /** The round the action runs in is engaged. */
     bool isRoundEngaged(const Action &action) const;
     /**
@@ -317,26 +332,20 @@ public:
      * paused, and while it is held without owning a round. \p self is left out.
      */
     bool awaitsRoundEnd(const Creature &actor, std::optional<std::reference_wrapper<const Action>> self) const;
+    /**
+     * An attack by the creature waits while the creature is held without
+     * owning a round, or while a round of the creature's other than the
+     * attack's own is paused. \p self is left out.
+     */
+    bool awaitsRoundPause(const Creature &actor, const Action &self) const;
     /** Whether the creature has a command in a round that has not ended. */
     bool ownsRound(const Creature &actor) const;
-    /** The action carries out its creature's side of a round that has not ended. */
-    bool runsRound(const Action &action) const;
     /** The creature owns a round that no action still waiting in its queue belongs to. */
     bool ownsDetachedRound(const Creature &actor) const;
     /** The creature takes part in an engaged (paired) round. */
     bool isEngaged(const Creature &creature) const;
     /** The creature's round leaves room for a reaction to an attack by \p attacker. */
     bool hasReactionRoom(const Creature &creature, const Creature &attacker) const;
-    /**
-     * Ask to settle the round of an attack whose pause has just ended. The
-     * request is taken as soon as the attack has finished executing, still
-     * inside its creature's update: when nothing holds the attacker's round
-     * and it has expired or its target is down, it ends then, before the
-     * events its last hits posted are delivered.
-     */
-    void requestSettle(const std::shared_ptr<Action> &action) { _settleRequests.push_back(action); }
-    /** Settles the rounds requestSettle asked for. */
-    void settleRequested();
     /**
      * Ends the creature's round: its commands leave their rounds, and, unless
      * \p runEndRound is zero, it runs its end-of-round script and fights on.
@@ -347,6 +356,8 @@ public:
      * rounds. The rounds run on to their end, and their pairs stay.
      */
     void cancelActions(Object &actor);
+    /** A clear of the creature's actions drops the hits of its swings that have yet to land. */
+    void discardSwingHits(const Creature &actor);
     /**
      * Damage other than a weapon hit, just taken. Electrical or dark side
      * damage holds the victim's round for the reaction time and plays its
@@ -378,8 +389,6 @@ public:
      * when the command goes to the queue as usual.
      */
     bool scheduleEquipment(Object &actor, const OrdinaryActionQueue::Node &node);
-    /** Schedule a Total Defense stance on \p target on the creature's round. */
-    bool scheduleStance(Creature &actor, const std::shared_ptr<Object> &target);
     /** Schedule a weapon swap on the creature's round, behind the commands already queued. */
     bool scheduleSwitchWeapons(Creature &actor);
     /**
@@ -441,14 +450,23 @@ public:
     /** Fills \p entries with the creature's round entries not yet taken up, in order. */
     void pendingScheduled(const Object &actor, ISmallVector<PendingEntry> &entries) const;
     /**
-     * The creature's round action under way: the scheduled entry holding its
-     * round for its pause, or else the command its running round carries
-     * out, of the kind of round entry it stands for: a cast, an item use, a
-     * feat attack, Total Defense or an attack. None while nothing is under
-     * way, and none for a round with no command of its own: a duel partner's
-     * side, or a round restored from a save.
+     * The round entry the creature's dispatcher last handed on, with its
+     * command: an attack, a feat attack, an equip or unequip, a pause, a
+     * stance or a weapon swap. It is kept until the dispatcher next runs
+     * while nothing holds the creature's round. A cast, an item use and a
+     * cutscene move are let go as they are handed on, and a save keeps none.
      */
     std::optional<PendingEntry> currentRoundAction(const Creature &actor) const;
+    /**
+     * The creature's round action is under way: it owns a round that has not
+     * ended, and no pause of its round has ended since the action was taken up.
+     */
+    bool isRoundActionUnderWay(const Creature &actor) const { return ownsRound(actor) && actor.roundActionKind() != 0; }
+    /**
+     * The creature's dispatcher runs: unless the creature's round is held, it
+     * lets go of the entry it last handed on.
+     */
+    void releaseHandedOn(const Creature &actor);
     /** Installs the round dispatcher: in front of the queue, or behind it when toFront is false. */
     void ensureDispatcher(Creature &actor, bool toFront = true);
     /** Hands the creature's pending equipment entries on to its queue. */
@@ -467,12 +485,17 @@ public:
     /**
      * The creature's rounds that no command waiting in its queue carries: a
      * round still running after its command was cleared or finished, and a
-     * side that has ended while its partner's runs on.
+     * side that has ended while its partner's runs on. A swung attack whose
+     * hits have not all landed is kept with its round.
      */
     std::vector<SavedCreatureRound> saveRounds(const Object &actor) const;
     /** Restores the round of a queued command; the two sides of a shared round meet again. */
     void restoreRound(const std::shared_ptr<Action> &action, const std::shared_ptr<Creature> &actor, const SavedRoundClock &saved);
-    /** Restores a round of the creature that no queued command carries; it comes back with no target. */
+    /**
+     * Restores a round of the creature that no queued command carries; it
+     * comes back with no target, and with the swung attack kept with it, its
+     * hits still to land.
+     */
     void restoreRound(const std::shared_ptr<Creature> &actor, const SavedCreatureRound &saved);
     std::vector<SavedScheduledAction> saveScheduled(const Object &actor) const;
     /** The time on the creature's schedule, in seconds. */
@@ -485,6 +508,7 @@ public:
                           const std::vector<SavedScheduledAction> &records,
                           const std::vector<bool> &bound, float time);
     std::optional<OwnerHold> savedOwnerHold(const Object &actor) const;
+    /** Restores a saved hold: it ends once its \p remaining seconds have passed. */
     void restoreOwnerHold(const std::shared_ptr<Creature> &actor, float remaining,
                           const std::shared_ptr<Object> &pausedBy);
 
@@ -498,9 +522,14 @@ private:
         /** The entry left the schedule: handed on to its creature's queue, or used up. */
         Left,
         /** The entry holds its creature for its pause before it leaves. */
-        Paused,
-        /** The entry waits at the head until its creature may act. */
-        Waiting
+        Paused
+    };
+
+    /** The round entry a creature's dispatcher handed on: its kind and its command. */
+    struct HandedOn {
+        RuntimeObjectRef<Creature> actor;
+        int type {0};
+        std::shared_ptr<Action> command;
     };
 
     /** A scheduled round entry, with the command it runs once taken up. */
@@ -525,8 +554,16 @@ private:
         RuntimeObjectRef<Creature> actor;
         RuntimeObjectRef<Object> pausedBy;
         float remaining {0.0f};
+        /**
+         * The hold lasts until the pause of the creature holding it ends.
+         * Once that creature is gone, the held creature's round ends.
+         */
+        bool openEnded {false};
         /** The engagement of an attack or cast began the hold, which a save keeps. */
         bool engaged {false};
+
+        /** The hold still holds the creature: it has no end of its own, or time left. */
+        bool paused() const { return openEnded || remaining > 0.0f; }
     };
 
     Game &_game;
@@ -538,7 +575,8 @@ private:
     /** The seconds each creature's scheduled entries took this frame. */
     std::map<uint32_t, float> _equipmentTime;
     std::map<uint32_t, OwnerPause> _ownerPauses;
-    std::vector<std::weak_ptr<Action>> _settleRequests;
+    /** The entry each creature's dispatcher last handed on, until it lets go of it. */
+    std::map<uint32_t, HandedOn> _handedOn;
 
     /** The rounds a frame walks, kept from frame to frame. */
     std::vector<std::shared_ptr<CombatRound>> _roundsBuffer;
@@ -584,6 +622,17 @@ private:
     /** The attack entry of a physical attack on \p target, or nothing when the target cannot be attacked. */
     std::shared_ptr<ScheduledEntry> makeAttackEntry(const std::shared_ptr<Object> &target, FeatType feat,
                                                     const std::optional<CutsceneAttack> &cutscene) const;
+    /** The dispatcher has handed \p entry on to \p actor, and keeps it until it lets go of it. */
+    void handOn(Creature &actor, const ScheduledEntry &entry);
+    /**
+     * The creature's round is held: by a pause on a round it owns, by the
+     * hold it has while owning none, or by the pause of a scheduled entry
+     * under way.
+     */
+    bool isRoundPaused(const Creature &actor) const;
+    /** A running entry of the creature other than \p self passes \p test. */
+    bool anyOtherRunningEntry(const Creature &actor, std::optional<std::reference_wrapper<const Action>> self,
+                              const std::function<bool(const CombatRound::RoundAction &)> &test) const;
     /** Hands a combat stance or weapon switch entry to \p actor as its round action. */
     void dispatchScheduled(Creature &actor, const ScheduledEntry &entry);
     /** Puts the move of a cutscene move entry at the front of \p actor's queue. */
@@ -602,6 +651,42 @@ private:
      */
     void rescaleRound(CombatRound::RoundAction &round, int milliseconds, bool force);
     /**
+     * Holds \p round for \p milliseconds more, on top of a pause it has, by
+     * \p owner; a hold with no end gives way to it. With \p rescale the round
+     * is first rescaled to what is left after the hold.
+     */
+    void holdRound(CombatRound::RoundAction &round, int milliseconds, const std::shared_ptr<Object> &owner, bool rescale);
+    /**
+     * Holds each running round of \p creature for \p milliseconds by
+     * \p owner: on top of any pause it has, or, when \p openEnded, until the
+     * pause of \p owner ends. Returns whether the creature has a running round.
+     */
+    bool holdRounds(const Creature &creature, int milliseconds, const std::shared_ptr<Object> &owner, bool openEnded);
+    /**
+     * Holds \p creature as holdRounds does, or, owning no running round, puts
+     * the hold on it that it has while owning none, likewise on top of any it
+     * has or until the pause of \p owner ends.
+     */
+    void holdCreature(const Creature &creature, int milliseconds, const std::shared_ptr<Object> &owner, bool openEnded);
+    /**
+     * Ends whatever holds \p creature: the pause of each running round of its,
+     * whoever set it, and the hold it has while owning no round. Each of those
+     * rounds is credited with \p credit seconds. Returns whether one of them
+     * is a cutscene round.
+     */
+    bool clearPauses(const Creature &creature, float credit);
+    /** The partners of the pairs \p actor masters. */
+    std::vector<std::shared_ptr<Creature>> partnersOf(const Creature &actor) const;
+    /**
+     * The pause of \p actor's round has ended: each partner of a pair it
+     * masters loses its pause, whoever set it, and its round is credited with
+     * \p overshoot, the time left over; so does the hold of a partner owning
+     * no round. Each partner not yet in \p released is added to it, with
+     * whether its round is a cutscene round.
+     */
+    void endPartnerPauses(const Creature &actor, float overshoot,
+                          std::vector<std::pair<std::shared_ptr<Creature>, bool>> &released);
+    /**
      * The end of \p actor's round undoes the pairs it masters: each partner's
      * round loses its pause, whoever set it, and so does the hold of a partner
      * owning no round.
@@ -614,12 +699,21 @@ private:
      */
     void finishOwner(Creature &actor, int runEndRound, bool suppressScript);
     /**
+     * Closes \p actor's round: the round finishes as finishOwner says; then,
+     * with \p runEndRound, the controlled creature fights on as continueOwner
+     * says with each of the \p ended entries, paired with whether it was a
+     * cutscene round. Only then is the round recorded as the last one, so the
+     * end-of-round script still reads the round before it.
+     */
+    void closeRound(Creature &actor, const std::vector<std::pair<CombatRound::RoundAction, bool>> &ended,
+                    int runEndRound, bool suppressScript, bool ranOut);
+    /**
      * The controlled creature fights on into the next round with the command
      * of \p entry. A round that \p ranOut does so even when that command was
      * cleared.
      */
     void continueOwner(const CombatRound::RoundAction &entry, bool cutsceneRound, bool ranOut);
-    /** Schedules the leader's next attack on \p target as an entry on its round. */
+    /** Schedules the leader's next attack on \p target as an entry on its round, for its dispatcher to hand on. */
     void scheduleContinuation(Creature &actor, const std::shared_ptr<Object> &target);
 
     /** The saved clock of \p entry, \p round's side of its creature. */
@@ -634,7 +728,19 @@ private:
                       const std::shared_ptr<Object> &target, const SavedRoundClock &saved, bool queued,
                       bool spellRound);
 
-    /** Makes the round of a cast a pair when the caster and its target are engaged. */
+    /**
+     * Whether \p attacker masters an engaged exchange with \p partner: it is
+     * in the party, or the partner is attempting to attack no one, or to
+     * attack it while the partner's round was not last started as a master.
+     */
+    bool mastersExchange(const Creature &attacker, const Creature &partner) const;
+    /** \p attacker is engaged by \p target, a creature that masters their exchange. */
+    bool answersMaster(const Creature &attacker, const Object &target) const;
+    /**
+     * Makes the round of a cast a pair when the caster and its target are
+     * engaged; the caster's round starts as the master of the exchange or as
+     * no master.
+     */
     void configureSpellPair(CombatRound &round, const std::shared_ptr<Action> &action, Creature &caster);
     /**
      * Advances the round of each creature of \p round by \p dt seconds, less
@@ -645,10 +751,11 @@ private:
     /**
      * Advances the round of the creature of entry \p index by \p dt seconds
      * and ends it when it has run out. A knocked-down creature's round stands
-     * still. A round whose target is down also ends as a pause on it runs out,
-     * or, with \p settling, as its attack's pause ends.
+     * still. The hits of the creature's swing land while the round's pause
+     * runs, and the rest as it runs out. A round whose target is down also
+     * ends as a pause on it runs out.
      */
-    void updateEntry(CombatRound &round, size_t index, float dt, bool settling);
+    void updateEntry(CombatRound &round, size_t index, float dt);
     /** Ends the round of the creature of entry \p index: its end-of-round script runs and it fights on. */
     void finishEntry(CombatRound &round, size_t index);
     /** Retires the round entries whose command or participants are gone, and drops empty rounds. */

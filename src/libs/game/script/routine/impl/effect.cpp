@@ -96,6 +96,7 @@
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/script/routines.h"
+#include "reone/game/visualeffects.h"
 #include "reone/script/routine/exception/notimplemented.h"
 #include "reone/script/variable.h"
 
@@ -434,10 +435,9 @@ static Variable EffectVisualEffect(const std::vector<Variable> &args, const Rout
 
     // Transform
     bool missEffect = static_cast<bool>(nMissEffect);
-    // In TSL the distortion visual is shown as the stealth field, as with
-    // frame-buffer effects off; the effect then carries the stealth field's id.
+    // TSL shows its distortion visual as the stealth field, and the effect
+    // carries the stealth field's id.
     static constexpr int kDistortionVisual = 8000;
-    static constexpr int kStealthFieldVisual = 8002;
     if (ctx.game.isTSL() && nVisualEffectId == kDistortionVisual) {
         nVisualEffectId = kStealthFieldVisual;
     }
@@ -470,7 +470,10 @@ static Variable EffectBeam(const std::vector<Variable> &args, const RoutineConte
     auto bodyPart = static_cast<BodyNode>(nBodyPart);
     bool missEffect = static_cast<bool>(bMissEffect);
 
-    // Execute
+    // Execute: a visual that is not a beam makes an effect of no type.
+    if (!isBeamVisual(ctx.game.isTSL(), nBeamVisualEffect)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
     auto effect = ctx.game.newEffect<BeamEffect>(nBeamVisualEffect, std::move(oEffector), bodyPart, missEffect);
     return Variable::ofEffect(std::move(effect));
 }
@@ -538,8 +541,9 @@ static Variable EffectImmunity(const std::vector<Variable> &args, const RoutineC
     // Load
     auto nImmunityType = getInt(args, 0);
 
-    // Transform
-    auto immunityType = static_cast<ImmunityType>(nImmunityType);
+    // Transform: a negative type is All, and a type past the title's last
+    // is held one past it.
+    auto immunityType = static_cast<ImmunityType>(std::clamp(nImmunityType, 0, immunityTypeCount(ctx.game.isTSL())));
 
     // Execute
     auto effect = ctx.game.newEffect<ImmunityEffect>(immunityType);
@@ -931,7 +935,10 @@ static Variable EffectForceDrain(const std::vector<Variable> &args, const Routin
 
     // Transform
 
-    // Execute
+    // Execute: an amount below 1 makes an effect of no type.
+    if (nDamage < 1) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
     auto effect = ctx.game.newEffect<ForceDrainEffect>(nDamage);
     return Variable::ofEffect(std::move(effect));
 }

@@ -45,8 +45,9 @@ public:
     }
 
     /**
-     * An attack that has ended no longer holds its round, which runs out; the
-     * round's one attack is then spent. While the attack runs, it is the round.
+     * An attack holds its round until it has swung; it is then over, and its
+     * round lands its hits over the swing's pause and runs on to its end with
+     * its one attack spent.
      */
     bool holdsCombatRound() const override { return _schedule.holdsCombatRound() && !isCompleted(); }
     bool tookRoundAction() const override { return _schedule.started() && isCompleted() && !_instantCastAttack; }
@@ -59,6 +60,10 @@ public:
     int currentCombatAttackType() const override { return _attacks.currentCombatAttackType(); }
     AttackResultType currentCombatAttackResult() const override { return _attacks.currentRangedResult(); }
     std::optional<std::reference_wrapper<AttackBuffer>> combatAttacks() override { return std::ref(_attacks); }
+    void releaseSwingHits(Creature &attacker, int pauseLeftMilliseconds, bool flush) override {
+        releasePhysicalHits(_schedule, _attacks, _game, _services, attacker, _target.resolve(), pauseLeftMilliseconds, flush);
+    }
+    int pauseLeftAtLoadMilliseconds() const override { return _schedule.pauseLeftAtLoadMilliseconds(); }
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** Takes up the progress of an attack loaded from a save. */
     void restorePhysicalState(const SavedPhysicalAction &state);
@@ -71,7 +76,7 @@ public:
 
     /**
      * Make this the attack an instant cast makes: it needs no approach,
-     * engages no one, takes no action of its round and ends with its pause.
+     * engages no one, takes no action of its round and is over with its swing.
      */
     void markInstantCastAttack() {
         _instantCastAttack = true;

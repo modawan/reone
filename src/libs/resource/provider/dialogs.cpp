@@ -53,6 +53,7 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
 
     dialog->skippable = dlg.Skippable;
     dialog->cameraModel = dlg.CameraModel;
+    dialog->ambientTrack = dlg.AmbientTrack;
     dialog->endScript = dlg.EndConversation;
     dialog->abortScript = dlg.EndConverAbort;
     dialog->animatedCutscene = dlg.AnimatedCut;
@@ -163,9 +164,6 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.tarHeightOffset = dlg.TarHeightOffset;
     entry.camVidEffect = dlg.CamVidEffect;
 
-    boost::to_lower(entry.speaker);
-    boost::to_lower(entry.listener);
-
     for (auto &link : dlg.RepliesList) {
         entry.replies.push_back(getEntryReplyLink(link));
     }
@@ -200,14 +198,14 @@ std::string Dialogs::getAlienSpeech(const resource::generated::DLG_EntryReplyLis
 
 Dialog::Stunt Dialogs::getStunt(const resource::generated::DLG_StuntList &dlg) const {
     Dialog::Stunt stunt;
-    stunt.participant = boost::to_lower_copy(dlg.Participant);
+    stunt.participant = dlg.Participant;
     stunt.stuntModel = boost::to_lower_copy(dlg.StuntModel);
     return stunt;
 }
 
 Dialog::ParticipantAnimation Dialogs::getParticipantAnimation(const resource::generated::DLG_EntryReplyList_AnimList &dlg) const {
     Dialog::ParticipantAnimation anim;
-    anim.participant = boost::to_lower_copy(dlg.Participant);
+    anim.participant = dlg.Participant;
     anim.animation = dlg.Animation;
     return anim;
 }

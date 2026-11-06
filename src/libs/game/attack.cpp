@@ -71,9 +71,8 @@ static constexpr float kPowerAttackKnockdownDuration = 0.1f;
 // Standard physical attack actions request a 1500-ms pause.
 static constexpr int kPhysicalAttackPauseMilliseconds = 1500;
 // A Force jump needs the target ten metres away or more, and the attacker's
-// eye line to it clear from a metre and a half above each of them.
+// eye line to it clear from the eye height above each of them.
 static constexpr float kForceJumpMinimumDistance2 = 100.0f;
-static constexpr float kAttackEyeHeight = 1.5f;
 static constexpr float kAttackEyeOffset = 0.01f;
 static constexpr int kNoAttackSightStrRef = 1516;
 // Reach is measured with a tenth of a metre to spare in TSL.
@@ -260,8 +259,9 @@ static AttackResolution computeAttack(
     auto rightHand = attacker.getEquippedItem(InventorySlots::rightWeapon);
     bool rightHandLightsaber = rightHand && rightHand->isLightsaber();
 
-    // Critical threat. K2 applies Soresu/Ataru to the final threshold,
-    // after weapon threat, Keen, and special-attack threat have been combined.
+    // Critical threat. In TSL, Soresu and Ataru move the final threshold,
+    // after the weapon's threat, Keen and the special attack's threat are
+    // combined.
     resolution.criticalThreatThreshold = getCriticalThreatThreshold(
         attacker.game().isTSL(),
         rightHandLightsaber,
@@ -372,9 +372,8 @@ static void computeWeaponDamage(
         weapon, result == AttackResultType::CriticalHit);
     amount += massiveCriticalDamage;
 
-    breakdown.strengthModifier = weapon->isRanged()
-                                     ? 0
-                                     : multiplier * physicalBonus.strengthModifier;
+    breakdown.strengthModifier =
+        multiplier * physicalBonus.damageAbilityModifier;
     breakdown.weaponSpecialization =
         multiplier * physicalBonus.weaponSpecialization;
     breakdown.combatFeatDamage = multiplier * physicalBonus.combatFeatDamage;
@@ -415,9 +414,18 @@ static void computeWeaponDamage(
           LogChannel::Combat);
 }
 
+/**
+ * Whether \p attacker is a party member striking during a conversation. Such
+ * a hit deals no damage, applies no item on-hit property, shows no hit visual
+ * and makes no call-out.
+ */
+static bool isPartyHitInConversation(const Creature &attacker) {
+    return attacker.game().isConversationActive() && attacker.isPartyMember();
+}
+
 static void computeUnarmedDamage(
     const Creature &attacker, const Object &target, PhysicalAttackKind kind, std::optional<AttackBonus> handType,
-    AttackResultType result, bool criticalConfirmed, int criticalMultiplier,
+    int damageFlags, const std::shared_ptr<Item> &unarmedGloves, AttackResultType result, bool criticalConfirmed, int criticalMultiplier,
     int damageBonus, int sneakDice, DamagePacket &damage, DamageBreakdown &breakdown) {
 
     int multiplier = result == AttackResultType::CriticalHit
@@ -425,7 +433,8 @@ static void computeUnarmedDamage(
                          : 1;
     PhysicalDamageBonus physicalBonus = attacker.getPhysicalDamageBonus(
         nullptr,
-        false);
+        false,
+        unarmedGloves);
     // The unarmed feat dice belong to unarmed attacks only, not to an empty
     // left creature slot.
     if (kind != PhysicalAttackKind::Unarmed && kind != PhysicalAttackKind::ExtraUnarmed) {
@@ -455,7 +464,7 @@ static void computeUnarmedDamage(
     amount += massiveCriticalDamage;
 
     breakdown.strengthModifier =
-        multiplier * physicalBonus.strengthModifier;
+        multiplier * physicalBonus.damageAbilityModifier;
     breakdown.weaponSpecialization =
         multiplier * physicalBonus.weaponSpecialization;
     breakdown.combatFeatDamage = multiplier * physicalBonus.combatFeatDamage;
@@ -468,11 +477,12 @@ static void computeUnarmedDamage(
                                        ? criticalMultiplier
                                        : 0;
 
+    const DamageType type = getPrimaryDamageType(damageFlags);
     if (baseDamage > 0) {
-        breakdown.addRawDamage(baseDamage, DamageType::Bludgeoning);
+        breakdown.addRawDamage(baseDamage, type);
     }
-    damage.addPhysicalBase(amount, DamageType::Bludgeoning);
-    damage.setDamageFlags(static_cast<int>(DamageType::Bludgeoning));
+    damage.addPhysicalBase(amount, type);
+    damage.setDamageFlags(damageFlags);
     damage.setBaseDamageAmounts(breakdown.rawDamageSlots);
     const auto targetCreature = Creature::asCreature(target);
     attacker.addPhysicalDamageModifiers(
@@ -1179,6 +1189,10 @@ bool AttackBuffer::addPhysicalAttack(
     const auto handWeapon = creatureWeapon ? std::shared_ptr<Item>() : weapon;
     const auto gloves = handWeapon ? std::shared_ptr<Item>() : attacker.getEquippedItem(InventorySlots::hands);
     const auto criticalWeapon = handWeapon ? handWeapon : gloves;
+    // An unarmed attack takes its Weapon Focus and Specialization from the gloves.
+    const auto unarmedGloves = kind == PhysicalAttackKind::Unarmed || kind == PhysicalAttackKind::ExtraUnarmed
+                                   ? gloves
+                                   : std::shared_ptr<Item>();
     // With only the right or bite creature slot filled, no item attacks.
     const auto attackItem = kind == PhysicalAttackKind::None ? std::shared_ptr<Item>() : weapon ? weapon
                                                                                                 : gloves;
@@ -1186,7 +1200,7 @@ bool AttackBuffer::addPhysicalAttack(
     const auto handType = kind == PhysicalAttackKind::ExtraMainHand  ? std::optional<AttackBonus>(AttackBonus::ExtraOnhand)
                           : kind == PhysicalAttackKind::ExtraUnarmed ? std::optional<AttackBonus>(AttackBonus::ExtraUnarmed)
                                                                      : std::nullopt;
-    AttackBonusBreakdown bonus = attacker.getAttackBonusBreakdown(targetCreature, weapon, offHand, handType);
+    AttackBonusBreakdown bonus = attacker.getAttackBonusBreakdown(targetCreature, weapon, offHand, handType, unarmedGloves);
     attacker.addPartyLeadershipTerms(bonus, targetCreature);
     // The feat's attack bonus, which the attacking item's Rapid Shot and
     // Sniper Shot properties change.
@@ -1196,7 +1210,8 @@ bool AttackBuffer::addPhysicalAttack(
                                                       criticalWeapon && criticalWeapon->sniperBonus());
     const int attackRollBonus = bonus.total();
     const int threat = getCriticalThreat(criticalWeapon, getSpecialAttackThreatBonus(feat, criticalWeapon));
-    const int damageFlags = weapon ? weapon->damageFlags() : static_cast<int>(DamageType::Bludgeoning);
+    // An unarmed hit is of the gloves' damage type; with no item, bludgeoning.
+    const int damageFlags = attackItem ? attackItem->damageFlags() : static_cast<int>(DamageType::Bludgeoning);
     const auto forcedResult = _cutscene
                                   ? std::optional<AttackResultType>(static_cast<AttackResultType>(_cutscene->result))
                                   : std::nullopt;
@@ -1276,14 +1291,13 @@ bool AttackBuffer::addPhysicalAttack(
         // The forced damage is dealt as it is, in the attacking item's damage
         // slot, by a hit (and by a returned bolt).
         if (isAttackSuccessful(attack.result) || (ranged && attack.result == AttackResultType::Deflected)) {
-            setCutsceneDamage(attack.damage, _cutscene->damage,
-                              attackItem ? attackItem->damageFlags() : static_cast<int>(DamageType::Bludgeoning));
+            setCutsceneDamage(attack.damage, _cutscene->damage, damageFlags);
             if (attack.result != AttackResultType::Deflected) {
                 attack.damage.resolveUnmitigated();
             }
         }
     } else if ((isAttackSuccessful(attack.result) || attack.result == AttackResultType::Deflected) &&
-               !(attacker.game().isConversationActive() && attacker.isPartyMember())) {
+               !isPartyHitInConversation(attacker)) {
         const int sneakDice = recordSneakAttack(attack) ? attacker.sneakAttackDice() : 0;
         if (weapon) {
             // A critical multiplies the hand-specific damage dice by the
@@ -1296,7 +1310,7 @@ bool AttackBuffer::addPhysicalAttack(
                                 resolution.criticalConfirmed, attack.criticalThreat.multiplier, handDiceMultiplier,
                                 damageBonus, sneakDice, attack.damage, attack.damageBreakdown);
         } else {
-            computeUnarmedDamage(attacker, target, kind, handType, attack.result, resolution.criticalConfirmed,
+            computeUnarmedDamage(attacker, target, kind, handType, damageFlags, unarmedGloves, attack.result, resolution.criticalConfirmed,
                                  attack.criticalThreat.multiplier, damageBonus, sneakDice, attack.damage, attack.damageBreakdown);
         }
     }
@@ -1312,7 +1326,7 @@ bool AttackBuffer::addPhysicalAttack(
     // A confirmed critical hit makes the attacker call out. A cutscene hit, a
     // hit on a plot target and a party member's hit during a conversation do not.
     if (!_cutscene && attack.result == AttackResultType::CriticalHit && !target.plotFlag() &&
-        !(attacker.game().isConversationActive() && attacker.isPartyMember()) && attacker.isHeardByLeader())
+        !isPartyHitInConversation(attacker) && attacker.isHeardByLeader())
         attacker.playSound(resource::SoundSetEntry::CriticalHit);
     // A ranged hit that deals no damage tells the attacker, once a round, that
     // its weapon cannot hurt the target.
@@ -1366,7 +1380,7 @@ static glm::vec3 projectileMissLocation(const Object &shooter, const Object &tar
     const float falloff = glm::dot(offset, offset) * 1.5f / 100.0f;
     const float wobble = static_cast<float>(randomInt(0, 999)) / 1000.0f * falloff * 0.75f;
     aim.z += 1.5f - falloff / 1.5f + wobble;
-    const glm::vec3 origin = shooter.position() + glm::vec3(0.0f, 0.0f, 1.5f);
+    const glm::vec3 origin = shooter.position() + glm::vec3(0.0f, 0.0f, Object::kEyeHeight);
     const glm::vec3 toAim = aim - origin;
     const float aimLength = glm::length(toAim);
     const glm::vec3 end = origin + (aimLength > 0.0f ? toAim / aimLength : glm::vec3(0.0f)) * 1000.0f;
@@ -1473,7 +1487,9 @@ void AttackBuffer::saveContinuation(SavedPhysicalAction &saved, const Game &game
     saved.histories.clear();
     for (const auto &a : _attacks) {
         std::vector<std::shared_ptr<G>> values, slots;
-        const int fields[] = {static_cast<int>(a.source), static_cast<int>(a.ranged), static_cast<int>(a.result), static_cast<int>(a.roll), static_cast<int>(a.naturalTwenty), static_cast<int>(a.naturalOne), static_cast<int>(a.coupDeGrace), static_cast<int>(a.criticalThreat.threshold), static_cast<int>(a.criticalThreat.threatened), static_cast<int>(a.criticalThreat.confirmationRoll), static_cast<int>(a.criticalThreat.confirmationBonus), static_cast<int>(a.criticalThreat.confirmed), static_cast<int>(a.criticalThreat.multiplier), static_cast<int>(a.impactTimeMilliseconds), static_cast<int>(a.signaled), static_cast<int>(a.onHitResolved), static_cast<int>(a.attackBonusBreakdown.baseAttackBonus), static_cast<int>(a.attackBonusBreakdown.strengthModifier), static_cast<int>(a.attackBonusBreakdown.dexterityModifier), static_cast<int>(a.attackBonusBreakdown.dualWieldPenalty), static_cast<int>(a.attackBonusBreakdown.smallOffhandBonus), static_cast<int>(a.attackBonusBreakdown.featBonus), static_cast<int>(a.attackBonusBreakdown.duelingFeat), static_cast<int>(a.attackBonusBreakdown.duelingBonus), static_cast<int>(a.attackBonusBreakdown.closeProximityRangedBonus), static_cast<int>(a.attackBonusBreakdown.meleeOnRangedBonus), static_cast<int>(a.attackBonusBreakdown.weaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.targetingBonus), static_cast<int>(a.attackBonusBreakdown.superiorWeaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.formBonus), static_cast<int>(a.attackBonusBreakdown.dualStrikeBonus), static_cast<int>(a.attackBonusBreakdown.effectBonus), static_cast<int>(a.defenseBreakdown.total), static_cast<int>(a.defenseBreakdown.armor), static_cast<int>(a.defenseBreakdown.dexterity), static_cast<int>(a.defenseBreakdown.classDefense), static_cast<int>(a.defenseBreakdown.natural), static_cast<int>(a.defenseBreakdown.dodgeAndDeflection), static_cast<int>(a.defenseBreakdown.feat), static_cast<int>(a.defenseBreakdown.stance), static_cast<int>(a.defenseBreakdown.form), static_cast<int>(a.defenseBreakdown.debilitationPenalty), static_cast<int>(a.damageBreakdown.strengthModifier), static_cast<int>(a.damageBreakdown.otherSpecialBonus), static_cast<int>(a.damageBreakdown.sneakAttack), static_cast<int>(a.damageBreakdown.weaponSpecialization), static_cast<int>(a.damageBreakdown.combatFeatDamage), static_cast<int>(a.damageBreakdown.preciseShotDamage), static_cast<int>(a.damageBreakdown.formDamage), static_cast<int>(a.damageBreakdown.unarmedFeatDamage209), static_cast<int>(a.damageBreakdown.unarmedFeatDamage212), static_cast<int>(a.damageBreakdown.criticalMultiplier), static_cast<int>(a.attackBonusBreakdown.inspireFollowersBonus), static_cast<int>(a.attackBonusBreakdown.leaderCharismaBonus), static_cast<int>(a.attackBonusBreakdown.crushOppositionPenalty), a.effectsAfterOnHit == std::numeric_limits<size_t>::max() ? -1 : static_cast<int>(a.effectsAfterOnHit), static_cast<int>(a.reportsEffectOutcome), a.effectCode, a.saveRecord.saveType, a.saveRecord.saveRoll, a.saveRecord.modifierTotal, a.saveRecord.baseSave, a.saveRecord.finalTotal, a.saveRecord.difficultyClass, a.saveRecord.outcome};
+        // Value 39, once a stance's defense, stays at 0 so that every later
+        // value keeps its place in saves.
+        const int fields[] = {static_cast<int>(a.source), static_cast<int>(a.ranged), static_cast<int>(a.result), static_cast<int>(a.roll), static_cast<int>(a.naturalTwenty), static_cast<int>(a.naturalOne), static_cast<int>(a.coupDeGrace), static_cast<int>(a.criticalThreat.threshold), static_cast<int>(a.criticalThreat.threatened), static_cast<int>(a.criticalThreat.confirmationRoll), static_cast<int>(a.criticalThreat.confirmationBonus), static_cast<int>(a.criticalThreat.confirmed), static_cast<int>(a.criticalThreat.multiplier), static_cast<int>(a.impactTimeMilliseconds), static_cast<int>(a.signaled), static_cast<int>(a.onHitResolved), static_cast<int>(a.attackBonusBreakdown.baseAttackBonus), static_cast<int>(a.attackBonusBreakdown.strengthModifier), static_cast<int>(a.attackBonusBreakdown.dexterityModifier), static_cast<int>(a.attackBonusBreakdown.dualWieldPenalty), static_cast<int>(a.attackBonusBreakdown.smallOffhandBonus), static_cast<int>(a.attackBonusBreakdown.featBonus), static_cast<int>(a.attackBonusBreakdown.duelingFeat), static_cast<int>(a.attackBonusBreakdown.duelingBonus), static_cast<int>(a.attackBonusBreakdown.closeProximityRangedBonus), static_cast<int>(a.attackBonusBreakdown.meleeOnRangedBonus), static_cast<int>(a.attackBonusBreakdown.weaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.targetingBonus), static_cast<int>(a.attackBonusBreakdown.superiorWeaponFocusBonus), static_cast<int>(a.attackBonusBreakdown.formBonus), static_cast<int>(a.attackBonusBreakdown.dualStrikeBonus), static_cast<int>(a.attackBonusBreakdown.effectBonus), static_cast<int>(a.defenseBreakdown.total), static_cast<int>(a.defenseBreakdown.armor), static_cast<int>(a.defenseBreakdown.dexterity), static_cast<int>(a.defenseBreakdown.classDefense), static_cast<int>(a.defenseBreakdown.natural), static_cast<int>(a.defenseBreakdown.dodgeAndDeflection), static_cast<int>(a.defenseBreakdown.feat), 0, static_cast<int>(a.defenseBreakdown.form), static_cast<int>(a.defenseBreakdown.debilitationPenalty), static_cast<int>(a.damageBreakdown.strengthModifier), static_cast<int>(a.damageBreakdown.otherSpecialBonus), static_cast<int>(a.damageBreakdown.sneakAttack), static_cast<int>(a.damageBreakdown.weaponSpecialization), static_cast<int>(a.damageBreakdown.combatFeatDamage), static_cast<int>(a.damageBreakdown.preciseShotDamage), static_cast<int>(a.damageBreakdown.formDamage), static_cast<int>(a.damageBreakdown.unarmedFeatDamage209), static_cast<int>(a.damageBreakdown.unarmedFeatDamage212), static_cast<int>(a.damageBreakdown.criticalMultiplier), static_cast<int>(a.attackBonusBreakdown.inspireFollowersBonus), static_cast<int>(a.attackBonusBreakdown.leaderCharismaBonus), static_cast<int>(a.attackBonusBreakdown.crushOppositionPenalty), a.effectsAfterOnHit == std::numeric_limits<size_t>::max() ? -1 : static_cast<int>(a.effectsAfterOnHit), static_cast<int>(a.reportsEffectOutcome), a.effectCode, a.saveRecord.saveType, a.saveRecord.saveRoll, a.saveRecord.modifierTotal, a.saveRecord.baseSave, a.saveRecord.finalTotal, a.saveRecord.difficultyClass, a.saveRecord.outcome};
         for (int value : fields) {
             values.push_back(G::Builder().type(0).field(F::newInt("Value", value)).build());
         }
@@ -1588,7 +1604,6 @@ void AttackBuffer::restoreContinuation(const SavedPhysicalAction &saved) {
         a.defenseBreakdown.natural = static_cast<decltype(a.defenseBreakdown.natural)>(value(36));
         a.defenseBreakdown.dodgeAndDeflection = static_cast<decltype(a.defenseBreakdown.dodgeAndDeflection)>(value(37));
         a.defenseBreakdown.feat = static_cast<decltype(a.defenseBreakdown.feat)>(value(38));
-        a.defenseBreakdown.stance = static_cast<decltype(a.defenseBreakdown.stance)>(value(39));
         a.defenseBreakdown.form = static_cast<decltype(a.defenseBreakdown.form)>(value(40));
         a.defenseBreakdown.debilitationPenalty = static_cast<decltype(a.defenseBreakdown.debilitationPenalty)>(value(41));
         a.damageBreakdown.strengthModifier = static_cast<decltype(a.damageBreakdown.strengthModifier)>(value(42));
@@ -1643,27 +1658,34 @@ void AttackBuffer::restoreContinuation(const SavedPhysicalAction &saved) {
 void AttackSchedule::saveContinuation(resource::Gff &g) const {
     using F = resource::Gff::Field;
     g.fields().push_back(F::newInt("Phase", _state));
-    g.fields().push_back(F::newFloat("Time", _time));
     g.fields().push_back(F::newByte("Melee", _melee));
     g.fields().push_back(F::newByte("Ranged", _ranged));
-    g.fields().push_back(F::newInt("MeleeElapsed", _elapsedMilliseconds));
-    g.fields().push_back(F::newInt("MeleeEnd", _completionMilliseconds));
-    g.fields().push_back(F::newFloat("MeleeRemainder", _elapsedRemainderMilliseconds));
 }
 void AttackSchedule::restoreContinuation(const resource::Gff &g) {
-    _state = static_cast<State>(g.getInt("Phase"));
-    _time = g.getFloat("Time");
+    static constexpr int kDamageDonePhase = 4;
+    const int phase = g.getInt("Phase");
+    if (phase == WaitAttack) {
+        _state = WaitAttack;
+    } else if (phase >= kDamageDonePhase) {
+        _state = Finish;
+    } else {
+        _state = Attack;
+    }
     _melee = g.getBool("Melee");
     _ranged = g.getBool("Ranged");
-    _elapsedMilliseconds = g.getInt("MeleeElapsed");
-    _completionMilliseconds = g.getInt("MeleeEnd");
-    _elapsedRemainderMilliseconds = g.getFloat("MeleeRemainder");
-    // Entry states have already executed before the snapshot was taken.
-    if (_state == Attack) {
-        _state = WaitDamage;
-    } else if (_state == Damage) {
-        _state = clocked() && _elapsedMilliseconds < _completionMilliseconds ? WaitDamage : WaitFinish;
+    // Earlier saves keep the swing's clock beside its phase.
+    _swingElapsedAtLoadMilliseconds.reset();
+    if (int32_t elapsed = 0; g.readInt(elapsed, "MeleeElapsed")) {
+        _swingElapsedAtLoadMilliseconds = elapsed;
     }
+}
+
+int AttackSchedule::pauseLeftAtLoadMilliseconds() const {
+    if (!_swingElapsedAtLoadMilliseconds || !releasing()) {
+        return 0;
+    }
+    // A swing whose pause had run still lands what it has left.
+    return std::max(1, kPhysicalAttackPauseMilliseconds - *_swingElapsedAtLoadMilliseconds);
 }
 
 static bool producesItemOnHitEffects(AttackResultType result) {
@@ -1681,9 +1703,7 @@ void AttackBuffer::resolveItemOnHitProperties(
     }
     attack.onHitResolved = true;
     const auto sourceItem = attack.sourceItem.resolve();
-    if (!sourceItem ||
-        !producesItemOnHitEffects(attack.result) ||
-        target.plotFlag()) {
+    if (!sourceItem || !producesItemOnHitEffects(attack.result)) {
         return;
     }
 
@@ -1790,12 +1810,15 @@ bool AttackBuffer::resolveDamage(
     Attack &attack) {
 
     const auto generation = _signalGeneration;
-    // A cutscene attack's damage carries no item on-hit properties.
+    // A cutscene hit, a hit on a plot target and a party member's hit during
+    // a conversation apply no item on-hit property and show no hit or
+    // deflection visual.
+    const bool takesEffect = !_cutscene && !target.plotFlag() && !isPartyHitInConversation(attacker);
     if (attack.result == AttackResultType::Deflected) {
         // A returned shot does not consume the defender's finite pools. Its
         // item on-hit properties still resolve against the defender.
         attack.effectsAfterOnHit = attack.targetEffects.size();
-        if (!_cutscene) {
+        if (takesEffect) {
             resolveItemOnHitProperties(attacker, target, attack);
             appendHitVisuals(attacker, attack);
         }
@@ -1815,7 +1838,7 @@ bool AttackBuffer::resolveDamage(
     // Item on-hit effects take effect before the hit visuals and the death
     // that follow them.
     attack.effectsAfterOnHit = attack.targetEffects.size();
-    if (!_cutscene) {
+    if (takesEffect) {
         resolveItemOnHitProperties(attacker, target, attack);
         appendHitVisuals(attacker, attack);
     }
@@ -1952,7 +1975,8 @@ void AttackBuffer::resolve(Creature &attacker, Object &target) {
 }
 
 std::optional<AttackReaction> AttackBuffer::resolveReaction(const Creature &target, bool engaged, bool targetEngaged,
-                                                            bool targetHasRoom, bool forced) {
+                                                            bool targetHasRoom, bool forced, bool &committed) {
+    committed = false;
     const bool ranged = _roundFields && _roundFields->ranged;
     if (!ranged && _attacks.empty()) {
         return std::nullopt;
@@ -1960,7 +1984,6 @@ std::optional<AttackReaction> AttackBuffer::resolveReaction(const Creature &targ
     const bool anyHit = std::any_of(_attacks.begin(), _attacks.end(),
                                     [](const Attack &attack) { return attack.rolledHitLike; });
     const auto result = recordResult();
-    bool committed = false;
     const auto reaction = resolveAttackReaction(target, ranged, result, anyHit, engaged,
                                                 targetEngaged, targetHasRoom, forced, committed);
     const int length = committed ? kPhysicalAttackPauseMilliseconds : 0;
@@ -2354,27 +2377,26 @@ void AttackBuffer::signalDischarge(
 }
 
 size_t AttackBuffer::signalReadyRanged(
-    int elapsedMilliseconds,
+    uint32_t run,
+    bool flush,
     Game &game,
     ServicesView &services,
     Creature &attacker,
     Object &target) {
 
-    // One discharge per update while the attack pause runs; the pause end
-    // releases the rest.
-    const bool pauseEnded = elapsedMilliseconds >= kPhysicalAttackPauseMilliseconds;
+    // One discharge an update once due; the pause's end releases the rest.
     const auto generation = _signalGeneration;
     size_t signaled = 0;
     while (generation == _signalGeneration && hasPendingDischarges()) {
         const Discharge discharge = _discharges[_nextDischarge];
-        if (!pauseEnded && discharge.timeMilliseconds >= elapsedMilliseconds) {
+        if (!flush && static_cast<uint32_t>(discharge.timeMilliseconds) >= run) {
             break;
         }
         // Consume the discharge before releasing it, which may cancel the round.
         ++_nextDischarge;
         ++signaled;
         signalDischarge(discharge, game, services, attacker, target);
-        if (!pauseEnded) {
+        if (!flush) {
             break;
         }
     }
@@ -2408,7 +2430,8 @@ void AttackBuffer::prepareMeleeSequence(
 }
 
 size_t AttackBuffer::signalReadyMelee(
-    int elapsedMilliseconds,
+    uint32_t run,
+    bool flush,
     Game &game,
     ServicesView &services,
     Creature &attacker,
@@ -2416,10 +2439,9 @@ size_t AttackBuffer::signalReadyMelee(
 
     assert(_meleeSequencePrepared &&
            "melee attack sequence is not prepared");
-    // Hits are released in attack order, one per update while the attack
-    // pause runs, each once its impact time has passed; the pause end
-    // releases the rest.
-    const bool pauseEnded = elapsedMilliseconds >= kPhysicalAttackPauseMilliseconds;
+    // Hits are released in attack order, one hit an update once due: once
+    // the swing has run past its impact time. The pause's end releases the
+    // rest.
     const auto generation = _signalGeneration;
     size_t signaled = 0;
     for (size_t index = 0; index < _attacks.size(); ++index) {
@@ -2430,7 +2452,7 @@ size_t AttackBuffer::signalReadyMelee(
         if (attack.signaled) {
             continue;
         }
-        if (!pauseEnded && attack.impactTimeMilliseconds >= elapsedMilliseconds) {
+        if (!flush && static_cast<uint32_t>(attack.impactTimeMilliseconds) >= run) {
             break;
         }
         // Consume the pending hit before releasing it, which may cancel the
@@ -2439,7 +2461,7 @@ size_t AttackBuffer::signalReadyMelee(
         ++signaled;
         signalAttack(attack, game, services, attacker, target);
         // The release may have retired the round; touch nothing of it.
-        if (!pauseEnded) {
+        if (!flush) {
             break;
         }
     }
@@ -2559,7 +2581,6 @@ static constexpr int kStrRefImprovedToughnessDamage = 42433;
 static constexpr int kStrRefWookieeEnduranceDamage = 42434;
 static constexpr int kStrRefDeflectionBreakdown = 42417;
 static constexpr int kStrRefDeflectionBaseAttackBonus = 42419;
-static constexpr int kStrRefDeflectionDexterity = 42420;
 static constexpr int kStrRefDeflectionEffects = 42620;
 static constexpr int kStrRefDualStrikeBonus = 48201;
 static constexpr int kStrRefPcCharismaBonus = 126694;
@@ -2673,14 +2694,17 @@ static std::string getDamageBreakdown(
             kStrRefWeaponSpecializationDamage,
             values.weaponSpecialization);
     }
-    if (values.otherSpecialBonus > 0) {
+    const int otherDamageBonus = values.otherSpecialBonus + values.combatFeatDamage +
+                                 values.preciseShotDamage + values.formDamage +
+                                 values.unarmedFeatDamage209 + values.unarmedFeatDamage212;
+    if (otherDamageBonus > 0) {
         appendDamageModifier(
             game,
             services,
             breakdown,
             " + ",
             kStrRefOtherDamageBonus,
-            values.otherSpecialBonus);
+            otherDamageBonus);
     }
     if (values.sneakAttack > 0) {
         appendDamageModifier(
@@ -2818,13 +2842,13 @@ static std::string getDefenseFeedback(
         defenseBreakdown,
         kStrRefDefenseNatural,
         defenseValues.natural);
-    // The effects line also carries Total Defense and the lightsaber form.
+    // The effects line also carries the lightsaber form.
     appendDefenseComponent(
         game,
         services,
         defenseBreakdown,
         kStrRefDefenseEffects,
-        defenseValues.dodgeAndDeflection + defenseValues.stance + defenseValues.form);
+        defenseValues.dodgeAndDeflection + defenseValues.form);
     appendDefenseComponent(
         game,
         services,
@@ -3161,7 +3185,6 @@ void AttackBuffer::addDeflectionFeedback(
         appendNamedPart(spellName(static_cast<SpellType>(record.form)), record.formBonus);
     }
     appendPart(kStrRefDeflectionBaseAttackBonus, record.baseAttackBonus);
-    appendPart(kStrRefDeflectionDexterity, getUnsignedDeflectionNumber(record.dexterity));
     appendPart(kStrRefDeflectionEffects, effects);
 
     addCombatFeedbackLine(game, MessageLog::Style::Normal,
@@ -3203,84 +3226,25 @@ AttackResultType AttackBuffer::result() const {
     return sortedByScore[bestIndex];
 }
 
-AttackSchedule::State AttackSchedule::update(
-    const CombatRound &round, Action &action, float dt) {
-
-    if (round.suspends(action)) {
-        return _state;
+AttackSchedule::State AttackSchedule::update(const CombatRound &round, Action &action) {
+    if (_state == AttackSchedule::WaitAttack && round.canExecute(action)) {
+        _state = AttackSchedule::Attack;
     }
-    dt = round.actionDelta(action, dt);
-    _time += dt;
-    if (clocked() && _state != AttackSchedule::WaitAttack) {
-        float elapsedMilliseconds =
-            dt * 1000.0f + _elapsedRemainderMilliseconds;
-        int wholeMilliseconds = static_cast<int>(elapsedMilliseconds);
-        _elapsedRemainderMilliseconds =
-            elapsedMilliseconds - wholeMilliseconds;
-        _elapsedMilliseconds += wholeMilliseconds;
-    }
-
-    switch (_state) {
-    case AttackSchedule::WaitAttack: {
-        if (round.canExecute(action)) {
-            _state = AttackSchedule::Attack;
-        }
-        break;
-    }
-    case AttackSchedule::Attack: {
-        if (clocked() &&
-            _elapsedMilliseconds >= _completionMilliseconds) {
-            _state = AttackSchedule::Damage;
-        } else {
-            _state = AttackSchedule::WaitDamage;
-        }
-        break;
-    }
-    case AttackSchedule::WaitDamage: {
-        if ((clocked() &&
-             _elapsedMilliseconds >= _completionMilliseconds) ||
-            (!clocked() && _time >= kAttackDamageDelay)) {
-            _state = AttackSchedule::Damage;
-        }
-        break;
-    }
-    case AttackSchedule::Damage: {
-        _state = AttackSchedule::WaitFinish;
-        break;
-    }
-    case AttackSchedule::WaitFinish: {
-        if (round.hasEnded(action)) {
-            _state = AttackSchedule::Finish;
-        }
-        break;
-    }
-    case AttackSchedule::Finish: {
-        break;
-    }
-    }
-
     return _state;
 }
 
-void AttackSchedule::startClock(int completionMilliseconds) {
+void AttackSchedule::startMelee() {
     assert(_state == AttackSchedule::Attack &&
            "physical attack schedule has not started");
-
-    _elapsedMilliseconds = 0;
-    _completionMilliseconds = completionMilliseconds;
-    _elapsedRemainderMilliseconds = 0.0f;
-}
-
-void AttackSchedule::startMelee() {
-    // Hits are released on the attack pause clock; its end releases the rest.
+    // Hits are released as the round's pause runs; its end releases the rest.
     _melee = true;
-    startClock(kPhysicalAttackPauseMilliseconds);
 }
 
 void AttackSchedule::startRanged() {
-    // Discharges are released on the attack pause clock.
+    assert(_state == AttackSchedule::Attack &&
+           "physical attack schedule has not started");
+    // Discharges are released as the round's pause runs.
     _ranged = true;
-    startClock(kPhysicalAttackPauseMilliseconds);
 }
 
 static bool isChoreographedExchange(const Creature &attacker, const Creature &target);
@@ -3302,8 +3266,8 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     const glm::vec3 &targetPosition = target.position();
     const glm::vec3 targetPoint = usedObject ? attacker.useRange(target).point : targetPosition;
 
-    const glm::vec3 eye {attacker.position() + glm::vec3(0.0f, 0.0f, kAttackEyeHeight + kAttackEyeOffset)};
-    const glm::vec3 targetEye {targetPoint + glm::vec3(0.0f, 0.0f, kAttackEyeHeight - kAttackEyeOffset)};
+    const glm::vec3 eye {attacker.position() + glm::vec3(0.0f, 0.0f, Object::kEyeHeight + kAttackEyeOffset)};
+    const glm::vec3 targetEye {targetPoint + glm::vec3(0.0f, 0.0f, Object::kEyeHeight - kAttackEyeOffset)};
     // A ranged attacker sees through a see-through door.
     const auto rightHand = attacker.getEquippedItem(InventorySlots::rightWeapon);
     const bool sight = area.isEyeLineClear(eye, targetEye, attacker, target, rightHand && rightHand->isRanged());
@@ -3421,31 +3385,45 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
         attacker.navigateTo(standOff, doorStandOff && standOffDistance2 > kDoorStandOffRunDistance2, 0.0f, dt);
         return AttackApproachStep::Approaching;
     }
+    // The walk of the attack's range check heads for the target with an
+    // offset. In KotOR such a walk to a creature ends within the desired
+    // distance of it and three tenths of a metre more; a door's use range is
+    // the desired distance beyond the attacker's personal space.
+    std::optional<float> pathOffset;
+    if (targetCreature) {
+        pathOffset = desired - targetCreature->creaturePersonalSpace();
+    } else if (door) {
+        pathOffset = attacker.desiredAttackRange(target);
+    }
     // A ranged attacker closes to its reach, a melee one to the desired
-    // distance; one already that near turns toward the target and waits for
-    // sight where it stands. A door
+    // distance; one already that near with a clear line turns toward the
+    // target. With the line blocked it walks on, closing in all the way, but
+    // the walk ends within its use range of the target whatever the line, and
+    // the attacker then stands there while the line stays blocked. A door
     // or placeable is closed on to the attacker's use range for it at its use
-    // point, which for a door, the target of the attacker's own path, is the
-    // desired distance and the attacker's personal space.
+    // point. A walk to a door ends within three times the attacker's personal
+    // space of its use point.
     auto weapon = attacker.getEquippedItem(InventorySlots::rightWeapon);
     const bool ranged = weapon && weapon->isRanged();
     float closeTo = ranged ? maxRange : desired;
     if (door) {
-        closeTo = attacker.desiredAttackRange(target) + attacker.personalSpace();
+        closeTo = attacker.useRange(target, false, pathOffset).range;
     } else if (usedObject) {
         closeTo = attacker.useRange(target).range;
     }
-    if (distance2 <= closeTo * closeTo) {
+    if (sight && distance2 <= closeTo * closeTo) {
         attacker.setDesiredFacingToward(targetPosition);
         return AttackApproachStep::Approaching;
     }
-    // The attacker first moves, in the attack's action group and by the usual
-    // range and pathfinding rules, until the target is within its use range
-    // for it lengthened to its reach, in a clear line.
+    // The attacker first runs the attack's range check, queued in front of
+    // the attack in its action group: it moves by the usual range and
+    // pathfinding rules until the target is within its use range for it
+    // lengthened to its reach, in a clear line. Its flags note whether the
+    // attacker holds a ranged weapon.
     if (auto targetObject = game.getObjectById(target.id())) {
         auto move = game.newAction<MoveToObjectAction>(
-            std::move(targetObject), true, closeTo, false, -1.0f,
-            !ranged, maxRange);
+            std::move(targetObject), /*run=*/true, closeTo, /*force=*/false, /*timeout=*/-1.0f, /*pointPath=*/false,
+            /*checkRange=*/maxRange, MoveToObjectAction::ApproachFlags::forAttack(ranged), pathOffset);
         attacker.addActionBefore(parent, std::move(move));
     }
     return AttackApproachStep::Approaching;
@@ -3679,13 +3657,36 @@ static int meleeAttackRow(const Creature &attacker, const Object &target, bool e
     }
 }
 
+void releasePhysicalHits(AttackSchedule &schedule, AttackBuffer &attacks, Game &game, ServicesView &services,
+                         Creature &attacker, const std::shared_ptr<Object> &target, int pauseLeftMilliseconds, bool flush) {
+    if (!schedule.releasing()) {
+        return;
+    }
+    if (flush) {
+        schedule.finishRelease();
+    }
+    if (!target) {
+        return;
+    }
+    // A hit comes due by the swing's length less the pause left. A pause
+    // lengthened beyond the swing's leaves every hit due.
+    const auto run = static_cast<uint32_t>(kPhysicalAttackPauseMilliseconds - pauseLeftMilliseconds);
+    if (schedule.isMelee()) {
+        attacks.signalReadyMelee(run, flush, game, services, attacker, *target);
+    } else {
+        attacks.signalReadyRanged(run, flush, game, services, attacker, *target);
+    }
+}
+
 std::optional<PhysicalAttackSwing> beginPhysicalAttack(
     Creature &attacker, Object &target,
     const IAnimations &animations, AttackBuffer &attacks, FeatType feat, bool engages, bool swings) {
 
-    // The exchange is engaged, and its partner held, before the round is rolled.
-    const bool engaged = engages && attacker.game().combat().engagePhysicalTarget(
-                                        attacker, target, kPhysicalAttackPauseMilliseconds);
+    // The exchange is engaged, and its partner held, before the round is
+    // rolled; then the swing holds its own creature's round for its pause.
+    auto &combat = attacker.game().combat();
+    const bool engaged = engages && combat.engagePhysicalTarget(attacker, target, kPhysicalAttackPauseMilliseconds);
+    combat.pauseForSwing(attacker, kPhysicalAttackPauseMilliseconds);
     PhysicalAttackSwing swing;
     swing.engaged = engaged;
     // An attack taken up without a swing rolls nothing.
@@ -3695,6 +3696,9 @@ std::optional<PhysicalAttackSwing> beginPhysicalAttack(
     if (!attacks.addPhysicalAttacks(attacker, target, feat)) {
         return std::nullopt;
     }
+    // A swing that rolls its attacks shortens its own creature's round by its
+    // length; an attack taken up without a swing does not.
+    combat.shortenRounds(attacker, kPhysicalAttackPauseMilliseconds);
     // A ranged main-hand weapon makes the swing ranged, whatever the off hand holds.
     const auto main = attacker.getEquippedItem(InventorySlots::rightWeapon);
     swing.ranged = main && main->isRanged();
@@ -4005,12 +4009,18 @@ void presentPhysicalAttack(
     auto *targetCreature = dyn_cast<Creature>(&target);
     auto &combat = attacker.game().combat();
     // A partner engaged by this attack takes part in an engaged exchange.
-    // Only a creature reacts.
+    // Only a creature reacts. A reaction that takes the target's time
+    // shortens the target's round by the swing's length.
+    bool committed = false;
     const auto reaction = targetCreature
                               ? attacks.resolveReaction(*targetCreature, swing.engaged,
                                                         swing.engaged || combat.isEngaged(*targetCreature),
-                                                        combat.hasReactionRoom(*targetCreature, attacker), attacks.cutscene().has_value())
+                                                        combat.hasReactionRoom(*targetCreature, attacker), attacks.cutscene().has_value(),
+                                                        committed)
                               : std::nullopt;
+    if (committed) {
+        combat.shortenRounds(*targetCreature, kPhysicalAttackPauseMilliseconds);
+    }
     if (swing.animations.empty()) {
         return;
     }

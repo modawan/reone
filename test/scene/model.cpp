@@ -861,16 +861,16 @@ TEST(ModelSceneNode, hould_transition_between_two_animations) {
     // then
     auto &channels = modelSceneNode->animationChannels();
     EXPECT_EQ(2ll, channels.size());
-    EXPECT_NEAR(1.5f, channels[0].time, 1e-5);
+    EXPECT_NEAR(1.25f, channels[0].time, 1e-5);
     EXPECT_NEAR(0.0f, channels[1].time, 1e-5);
     EXPECT_TRUE(!channels[0].finished);
     EXPECT_TRUE(!channels[1].finished);
     auto rootSceneNode = modelSceneNode->getNodeByName("root_node");
     EXPECT_TRUE(static_cast<bool>(rootSceneNode));
     auto &rootPosition = rootSceneNode->localTransform()[3];
-    EXPECT_NEAR(3.0f, rootPosition.x, 1e-5);
-    EXPECT_NEAR(3.75f, rootPosition.y, 1e-5);
-    EXPECT_NEAR(4.5f, rootPosition.z, 1e-5);
+    EXPECT_NEAR(2.5f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(3.125f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(3.75f, rootPosition.z, 1e-5);
 }
 
 TEST(ModelSceneNode, pick_model_at) {

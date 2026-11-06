@@ -50,6 +50,11 @@ namespace game {
 /** The script a new leader runs when the lead changes hands. */
 static constexpr char kLeaderChangedScript[] = "k_hen_leadchng";
 
+/** The script a traveller runs when the party is not ready to travel. */
+static constexpr char kTravelRefusedScript[] = "k_trg_transfail";
+/** KotOR: how far a member may stand from the leader for the party to travel, squared. */
+static constexpr float kTravelGatherRange2 = 30.0f * 30.0f;
+
 static constexpr int kPlayerPerceptionRangeRow = 12;
 static constexpr int kPartyPerceptionRangeRow = 11;
 
@@ -688,6 +693,7 @@ void Party::reset() {
     _gold = 0;
     _xp = 0;
     _galaxyMap.clear();
+    setReturn(true, kDefaultReturnStrRef, kDefaultReturnQueryStrRef);
     _pazaakDataValid = false;
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);
@@ -1138,28 +1144,34 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
         leader->takePerception(*previous);
         area.perceiveNow(previous);
     }
-    // A new leader starts the trail over where it stands.
-    if (leader && leader != previous) {
-        resetFollowPath(area, leader->position(), leader->getFacing(), true);
-        _game.scriptRunner().run(kLeaderChangedScript, leader->id());
+    // A new leader starts the trail over where it stands. Its script may
+    // change the party: when it hands the lead on, or leaves no one, this
+    // change goes no further.
+    const auto newLeader = leader;
+    if (newLeader && newLeader != previous) {
+        resetFollowPath(area, newLeader->position(), newLeader->getFacing(), true);
+        _game.scriptRunner().run(kLeaderChangedScript, newLeader->id());
+        if (_members.empty() || _members[0].creature != newLeader) {
+            return;
+        }
     }
 
     // A dead or downed leader makes no select sound, and nor does a place
     // that names no one.
-    if (sound && leader && !leader->isDead() && !leader->isTemporarilyDead()) {
+    if (sound && newLeader && !newLeader->isDead() && !newLeader->isTemporarilyDead()) {
         playLeaderSelectSound();
     }
     auto lastTarget = _members[0].lastTarget.resolve();
     _game.setLastTarget(lastTarget ? lastTarget->id() : script::kObjectInvalid);
     // A new leader in combat mode shows its own last combat-mode line again.
     const auto &combatMessage = _members[0].combatMessage;
-    if (leader && leader->clientCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
+    if (newLeader && newLeader->partyCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
         _game.presentCombatMessage(*combatMessage);
     }
 
     // The new leader stops following; everyone else carries on.
-    if (leader) {
-        leader->removeActionsOfType(ActionType::FollowLeader);
+    if (newLeader) {
+        newLeader->removeActionsOfType(ActionType::FollowLeader);
     }
 
     area.onPartyLeaderMoved(true);
@@ -1325,6 +1337,40 @@ bool Party::movesBetweenModules(const Object &object) const {
     return &object == actualPlayer().get() || &object == getLeader().get();
 }
 
+// Member slots with no creature are skipped.
+bool Party::isReadyToTravel() const {
+    if (_game.isTSL()) {
+        if (!_player || _player->currentHitPoints() < 1) {
+            return false;
+        }
+        return std::none_of(_members.begin(), _members.end(), [](const Member &member) {
+            return member.creature && member.creature->currentHitPoints() < 1;
+        });
+    }
+    auto leader = getLeader();
+    if (!leader) {
+        return false;
+    }
+    return std::none_of(_members.begin(), _members.end(), [&leader](const Member &member) {
+        return member.creature && leader->getSquareDistanceTo(*member.creature) > kTravelGatherRange2;
+    });
+}
+
+bool Party::isInCombat() const {
+    return std::any_of(_members.begin(), _members.end(), [](const Member &member) {
+        return member.creature && member.creature->isInCombat() &&
+               member.creature->combatActivationType() == CombatActivation::Direct;
+    });
+}
+
+bool Party::admitTraveller(const Object &traveller) {
+    if (isReadyToTravel()) {
+        return true;
+    }
+    _game.scriptRunner().run(kTravelRefusedScript, traveller.id());
+    return false;
+}
+
 bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {
     if (_player.get() == &creature || _actualPlayer.get() == &creature) {
         return true;
@@ -1342,11 +1388,10 @@ bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {
 }
 
 std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const {
-    auto inventoryOwner = actualPlayer();
-    // A party member's non-equipped items belong to the shared party inventory
-    // (the actual player creature). Non-party receivers keep their own inventory.
-    if (receiver && inventoryOwner && isMember(*receiver)) {
-        return inventoryOwner;
+    // A creature that draws on the party's items receives into them.
+    const auto creature = Creature::asCreature(receiver);
+    if (creature && &creature->get().itemRepositoryOwner() != &creature->get()) {
+        return actualPlayer();
     }
     return receiver;
 }
@@ -1385,7 +1430,7 @@ bool Party::setPartyLeader(int npc) {
         return false;
     }
     if (memberIdx > 0) {
-        setPartyLeaderByIndex(memberIdx);
+        setPartyLeaderByIndex(memberIdx, false);
     }
     return true;
 }
@@ -1395,14 +1440,14 @@ void Party::leadWithPlayerCharacter() {
         const auto &creature = _members[i].creature;
         if (creature && creature->isPC()) {
             if (i > 0) {
-                setPartyLeaderByIndex(i);
+                setPartyLeaderByIndex(i, false);
             }
             return;
         }
     }
 }
 
-void Party::setPartyLeaderByIndex(int index) {
+void Party::setPartyLeaderByIndex(int index, bool sound) {
     if (index < 1 || index >= _members.size())
         return;
 
@@ -1412,7 +1457,7 @@ void Party::setPartyLeaderByIndex(int index) {
     const auto previous = _members[0].creature;
     std::rotate(_members.begin(), _members.begin() + index, _members.end());
 
-    onLeaderChanged(previous);
+    onLeaderChanged(previous, sound);
 }
 
 void Party::setPlayer(const std::shared_ptr<Creature> &player) {
@@ -1470,7 +1515,7 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
     _persistedState.controlledNpc = npc;
 }
 
-bool Party::removeMember(int npc) {
+bool Party::removeMember(int npc, bool handOverLead) {
     const RosterIdentity identity {RosterKind::Npc, npc};
     // Removal needs a follower in the party and an available roster slot;
     // KotOR refuses it while another actor stands in for the player character.
@@ -1495,14 +1540,25 @@ bool Party::removeMember(int npc) {
     if (npc == _persistedState.controlledNpc) {
         return false;
     }
-    auto maybeMember = std::find_if(_members.begin(), _members.end(), [&npc](auto &member) { return member.npc == npc; });
+    auto isRemoved = [&npc](const Member &member) { return member.npc == npc; };
+    auto maybeMember = std::find_if(_members.begin(), _members.end(), isRemoved);
     if (maybeMember == _members.end()) {
         return false;
     }
-    const auto removed = maybeMember->creature;
-    _members.erase(maybeMember);
-    if (removed) {
-        removed->refreshDeath();
+    // A member that leads may hand the lead to the player character before it
+    // leaves. The change of leader runs its script at once, and that script
+    // may already have taken the member out of the party; the companion has
+    // left all the same.
+    if (handOverLead && maybeMember == _members.begin()) {
+        leadWithPlayerCharacter();
+        maybeMember = std::find_if(_members.begin(), _members.end(), isRemoved);
+    }
+    if (maybeMember != _members.end()) {
+        const auto removed = maybeMember->creature;
+        _members.erase(maybeMember);
+        if (removed) {
+            removed->refreshDeath();
+        }
     }
     // Solo mode ends with the last companion.
     if (companionCount() == 0) {
@@ -1552,6 +1608,13 @@ static constexpr float kResetPlacementRadius = 5.0f;
 
 static const glm::vec3 kFirstFollowerFormation {1.5f, -0.7f, 0.0f};
 static const glm::vec3 kSecondFollowerFormation {-1.5f, 0.8f, 0.0f};
+// The spacing of the formation, by which an ordered follow sends a member
+// further back than its formation offset.
+static constexpr float kFormationSpacing = 1.5f;
+// The follow anchor stands half this spacing behind the leader.
+static constexpr float kFollowAnchorSpacing = 1.0f;
+// The follow anchor moves only to a point at least this far away (squared metres).
+static constexpr float kFollowAnchorMove2 = 100.0f;
 
 static glm::vec3 forwardOf(float facing) {
     return glm::angleAxis(facing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(0.0f, 1.0f, 0.0f);
@@ -1663,7 +1726,34 @@ void Party::resetFollowPath(Area &area, const glm::vec3 &position, float facing,
     }
 }
 
+void Party::updateFollowAnchor() {
+    const auto leader = getLeader();
+    if (!leader) {
+        return;
+    }
+    const glm::vec3 point {leader->position() - 0.5f * kFollowAnchorSpacing * forwardOf(leader->getFacing())};
+    const glm::vec3 offset {point - _followAnchor};
+    if (glm::dot(offset, offset) >= kFollowAnchorMove2) {
+        _followAnchor = point;
+        _followAnchorFacing = leader->getFacing();
+    }
+}
+
+std::optional<glm::vec2> Party::forceFollowOffset(const Creature &member) const {
+    for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
+        if (getMember(slot).get() == &member) {
+            return glm::vec2(_followSlots[slot].formationOffset) + glm::vec2(0.0f, -kFormationSpacing);
+        }
+    }
+    return std::nullopt;
+}
+
+glm::vec3 Party::followAnchorPoint(const glm::vec2 &offset) const {
+    return _followAnchor + glm::angleAxis(_followAnchorFacing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(offset, 0.0f);
+}
+
 void Party::updateFollowPath() {
+    updateFollowAnchor();
     // Nobody follows while no one leads.
     if (!getLeader()) {
         return;

@@ -100,6 +100,8 @@ public:
      * script runs nothing.
      */
     static constexpr char kFallbackConversationScript[] = "k_hen_dialogue01";
+    /** Sight and reach lines run between points this far above the objects' positions. */
+    static constexpr float kEyeHeight = 1.5f;
 
     enum class RuntimeState {
         Constructing,
@@ -129,9 +131,13 @@ public:
     virtual void damage(
         int amount,
         const std::shared_ptr<Object> &damager);
-    /** \p reaction is set for damage other than a weapon hit. */
+    /**
+     * \p dealt is the damage before the difficulty weighs it, \p amount
+     * after. \p reaction is set for damage other than a weapon hit.
+     */
     virtual void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction);
 
@@ -239,9 +245,15 @@ public:
     Room *room() const { return _room; }
     const glm::vec3 &position() const { return _position; }
     const glm::mat4 &transform() const { return _transform; }
+    /**
+     * Whether the object's model renders. A script can turn it off, and a TSL
+     * creature can start with it off; sight and selection do not read it.
+     */
     bool visible() const { return _visible; }
+    /** How far above the object's position a creature's look at it aims. */
+    virtual float canSeeHeight() const { return kEyeHeight; }
     /** Whether the player's side knows of this object, so it is drawn and can be picked. */
-    bool isClientPresent() const { return _clientPresent; }
+    bool isPresent() const { return _present; }
     std::shared_ptr<scene::SceneNode> sceneNode() const { return _sceneNode; }
 
     void setTag(std::string tag) { _tag = std::move(tag); }
@@ -256,7 +268,7 @@ public:
     /** Faces the object at once. */
     virtual void setFacing(float facing);
     void setVisible(bool visible);
-    void setClientPresent(bool present);
+    virtual void setPresent(bool present);
 
     // Animation
 
@@ -426,6 +438,8 @@ public:
     void addActionOnTop(std::shared_ptr<Action> action, std::optional<int> group = std::nullopt);
     /** Queues \p action just before \p parent, in its group; returns false when \p parent is not queued. */
     bool addActionBefore(const Action &parent, std::shared_ptr<Action> action);
+    /** The group of \p action's node, the one running it first; none when it is not queued. */
+    std::optional<int> actionGroup(const Action &action) const;
     /** Drops the actions queued directly behind one, while they match. */
     void removeActionsBehind(const Action &action, const std::function<bool(const Action &)> &matches);
     /**
@@ -593,10 +607,14 @@ public:
     struct ConversationEvent {
         /** The one who spoke. */
         uint32_t speaker {script::kObjectInvalid};
-        /** The number of the pattern that matched; 0 for a request to talk. */
+        /** The number of the pattern that matched; -1 for a request to talk. */
         int32_t patternNumber {0};
         /** The pieces of the match, after the whole string. */
         std::vector<std::string> matchedPieces;
+        /** The dialog a request to talk names. */
+        std::string conversation;
+        /** A request to talk asks for a private conversation. */
+        bool privateConversation {false};
     };
 
     /** A pattern the object listens for and the number it answers with. */
@@ -627,16 +645,29 @@ public:
     uint32_t lastSpeaker() const { return _lastSpeaker; }
     int32_t listenPatternNumber() const { return _listenPatternNumber; }
     const std::vector<std::string> &matchedSubstrings() const { return _matchedSubstrings; }
+    /** The dialog the last conversation event named. */
+    const std::string &lastConversation() const { return _lastConversation; }
+    /** Whether the last conversation event asked for a private conversation. */
+    bool isPrivateConversation() const { return _privateConversation; }
     /**
      * A conversation event: a shout the object heard, or a request to talk.
-     * The speaker becomes the last speaker, and the event's pattern number
-     * and pieces the object's own; then its conversation script runs.
+     * The speaker becomes the last speaker, the event's pattern number,
+     * pieces, dialog and privacy the object's own, and its dialog the game's
+     * last conversation; the next conversation begun may start even while
+     * one is under way. Then its conversation script runs.
      */
     void receiveConversationEvent(ConversationEvent event);
 
     // END Listening
 
 protected:
+    /**
+     * Gives a door or placeable its hardness: a resistance to every kind of
+     * damage by that much, unseen by scripts and not saved, as each load
+     * gives it again.
+     */
+    void applyHardness(int hardness);
+
     friend class Game;
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
@@ -724,7 +755,7 @@ protected:
     RuntimeObjectRef<Object> _dialogOwner;
     glm::mat4 _transform {1.0f};
     bool _visible {true};
-    bool _clientPresent {true};
+    bool _present {true};
     /** Non-owning; Area detachment/destruction clears this before releasing ownership. */
     Area *_spatialArea {nullptr};
     Room *_room {nullptr};
@@ -799,7 +830,11 @@ protected:
     std::vector<SavedScheduledAction> _savedScheduledActions;
     std::vector<bool> _savedScheduledReferencesBound;
     float _savedScheduledTime {0.0f};
-    /** The round hold of a creature owning no round, in seconds, and who holds it. */
+    /**
+     * The round hold of a creature owning no round, in seconds, and who holds
+     * it. A hold comes back from a save with an end of its own: the seconds
+     * it had left.
+     */
     float _savedOwnerHold {0.0f};
     SavedObjectReference _savedOwnerHoldBy;
     /** The creature's saved rounds that no queued command carries. */
@@ -824,6 +859,8 @@ protected:
     uint32_t _lastSpeaker {script::kObjectInvalid};
     int32_t _listenPatternNumber {0};
     std::vector<std::string> _matchedSubstrings;
+    std::string _lastConversation;
+    bool _privateConversation {false};
 
     /** Runs the object's conversation script, as a conversation event does. */
     virtual void runConversationScript() {}
@@ -834,6 +871,11 @@ protected:
            Game &game, ServicesView &services);
 
     virtual void updateTransform();
+    /**
+     * Keeps the model in the scene, animated, while the object is present, and
+     * draws it only while the object renders.
+     */
+    void updateSceneNodeEnabled();
     /** The orientation the scene node shows. */
     virtual glm::quat presentedOrientation() const { return _orientation; }
     virtual bool canExecuteActions() const { return true; }
@@ -867,6 +909,8 @@ protected:
      * record it was restored from, else a new group.
      */
     int chooseActionGroup(const Action &action, std::optional<int> group);
+    /** The node holding \p action, the one running it first. */
+    OrdinaryActionQueue::Nodes::const_iterator findActionNode(const Action &action) const;
     /**
      * Any action queued takes a queued random walk off the queue, with the
      * moves and pauses the walk queued in its group. \p incoming is the action

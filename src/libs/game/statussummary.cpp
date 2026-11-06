@@ -59,8 +59,7 @@ bool StatusSummaryAccumulator::submit(
     std::vector<std::string> items) {
 
     // A suppressed report is swallowed whole.
-    if (_suppressed > 0) {
-        --_suppressed;
+    if (swallowedBySuppression()) {
         return false;
     }
     auto &entry = _pending.entries.at(categoryIndex(category));
@@ -128,20 +127,42 @@ bool StatusSummaryAccumulator::submit(
 
 bool StatusSummaryAccumulator::submitLevelUpSound() {
     // A suppression swallows the chime like any other report.
-    if (_suppressed > 0) {
-        --_suppressed;
+    if (swallowedBySuppression()) {
         return false;
     }
     _pending.levelUpSound = true;
     return true;
 }
 
-bool StatusSummaryAccumulator::takeLevelUpSound() {
-    if (_displayed || _pending.requested || !_pending.levelUpSound) {
+bool StatusSummaryAccumulator::submitQuestSound(bool complete) {
+    // A suppression swallows the notice like any other report.
+    if (swallowedBySuppression()) {
         return false;
     }
-    _pending.levelUpSound = false;
+    if (complete) {
+        _pending.questCompleteSound = true;
+    } else {
+        _pending.questNewSound = true;
+    }
     return true;
+}
+
+bool StatusSummaryAccumulator::swallowedBySuppression() {
+    if (_suppressed <= 0) {
+        return false;
+    }
+    --_suppressed;
+    return true;
+}
+
+std::optional<StatusSummaryBatch> StatusSummaryAccumulator::takeSoundBatch() {
+    if (_displayed || _pending.requested ||
+        !(_pending.levelUpSound || _pending.questNewSound || _pending.questCompleteSound)) {
+        return std::nullopt;
+    }
+    auto batch = std::move(_pending);
+    _pending = StatusSummaryBatch();
+    return batch;
 }
 
 void StatusSummaryAccumulator::suppress(int count) {
@@ -176,21 +197,28 @@ void StatusSummaryAccumulator::reset() {
 void StatusSummaryIndicator::activate() {
     _timer.reset(kStatusSummaryIndicatorDuration);
     _visible = true;
+    _starting = true;
 }
 
-void StatusSummaryIndicator::update(float dt) {
+bool StatusSummaryIndicator::update(float dt) {
     if (!_visible) {
-        return;
+        return false;
+    }
+    const bool started = _starting && dt > 0.0f;
+    if (started) {
+        _starting = false;
     }
     _timer.update(dt);
     if (_timer.elapsed()) {
         _visible = false;
     }
+    return started;
 }
 
 void StatusSummaryIndicator::reset() {
     _timer.reset(0.0f);
     _visible = false;
+    _starting = false;
 }
 
 } // namespace game

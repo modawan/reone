@@ -20,6 +20,7 @@
 #include <array>
 #include <functional>
 #include <optional>
+#include <set>
 
 #include "reone/resource/format/gffreader.h"
 #include "reone/scene/node/walkmesh.h"
@@ -76,6 +77,12 @@ public:
     void open(std::optional<std::reference_wrapper<const Object>> opener = std::nullopt);
     /** Swings the door shut, and the door it is linked to with it. */
     void close();
+    /**
+     * Shuts the door alone: it blocks the doorway at once, moving no one out
+     * of it, while its leaf swings shut. A door whose type shows no model is
+     * destroyed instead.
+     */
+    void shutAtOnce();
     /** Runs the script for being closed, with the closer as the last to close the door. */
     void onClosed(uint32_t closerId);
 
@@ -124,13 +131,13 @@ public:
      */
     void onFailToOpen(uint32_t openerId, bool quiet);
     /**
-     * A creature walked up to the door: it becomes the entering object. A door
-     * linked to another module takes the party there when the clicker moves
-     * the party between modules and is neither dead nor a downed member; any
-     * other door runs its click script with the clicker as the clicking
-     * object.
+     * The door is clicked: the clicker becomes the entering object. A door
+     * linked to another module passes the party as Area::passTransition()
+     * says, hearing the click again with the transition's number
+     * (\p transition). Any other door runs its click script with the clicker
+     * as the clicking object.
      */
-    void receiveClick(const std::shared_ptr<Object> &clicker);
+    void receiveClick(const std::shared_ptr<Object> &clicker, std::optional<int> transition = std::nullopt);
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
@@ -148,6 +155,8 @@ public:
     // Traps
 
     bool isTrapped() const { return _trap.isArmed(); }
+    /** Whether the object counts among the area's traps; see Trap::countsAsAreaTrap(). */
+    bool countsAsAreaTrap() const { return _trap.countsAsAreaTrap(); }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
@@ -165,8 +174,10 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** An armed trap goes off on the caller; forced firing skips the standing test. */
     void triggerTrap(const std::shared_ptr<Creature> &caller, bool force);
-    /** The trap is disarmed by the caller. */
-    void disarmTrap(const Object &caller) { _trap.disarm(*this, caller); }
+    /** The trap is disarmed by \p disarmerId. */
+    void disarmTrap(uint32_t disarmerId) { _trap.disarm(*this, disarmerId); }
+    /** A disarm signal from \p disarmerId disarms the trap; it still counts among the area's traps. */
+    void disarmTrapOnSignal(uint32_t disarmerId) { _trap.disarmOnSignal(*this, disarmerId); }
     /** Arm a set mine; the linked mine trigger marks the trap in the world (TSL). */
     void armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                  const std::shared_ptr<Trigger> &linkedMine,
@@ -184,9 +195,23 @@ public:
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
     uint8_t linkedToFlags() const { return _linkedToFlags; }
+    /** The door leads to another door or to a waypoint. */
+    bool isLinked() const;
     const std::string &transitionDestin() const { return _transitionDestin.str(); }
     const resource::LocString &transitionDestination() const { return _transitionDestin; }
-    const std::vector<glm::vec3> &linkedTransitionGeometry() const { return _linkedTransitionGeometry; }
+    /** The bounds of the door's closed walkmesh across the ground, as four points in its own frame; none without one. */
+    const std::vector<glm::vec3> &outline() const { return _outline; }
+    /** Whether \p point stands within the door's outline, the bounds of its closed walkmesh, across the ground. */
+    bool isInOutline(const glm::vec3 &point) const;
+    /**
+     * Notes whether \p creature stands within the door's outline. When
+     * \p announce is set, the leader stepping into it clicks the door and
+     * another party member is not counted in it until it leads; otherwise
+     * the creature is only counted.
+     */
+    void updateOutlineOccupancy(const Creature &creature, bool announce);
+    /** Forget a creature leaving the world, clicking nothing. */
+    void forgetOutlineOccupant(uint32_t objectId) { _outlineOccupants.erase(objectId); }
 
     /** The door takes its destroyed pose. */
     void enterDestroyedState();
@@ -247,6 +272,7 @@ public:
 
     void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
 
@@ -309,7 +335,9 @@ private:
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen1;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen2;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshClosed;
-    std::vector<glm::vec3> _linkedTransitionGeometry;
+    std::vector<glm::vec3> _outline;
+    /** The creatures counted as standing within the outline. */
+    std::set<uint32_t> _outlineOccupants;
 
     // END Walkmeshes
 
@@ -341,7 +369,6 @@ private:
     RuntimeObjectRef<Door> _linkedDoor;
 
     void runDamagedScript();
-    void runDeathScript();
     /** Count down to a set mine's blast at the lock and to the door swinging open after it. */
     void updateMineBlast(float dt);
 
@@ -382,7 +409,7 @@ private:
     static DoorState transitionTarget(DoorTransition transition);
     /** The two use points of a resting state in the world; none for a destroyed door. */
     std::optional<std::array<glm::vec3, 2>> actionPoints(DoorState state) const;
-    void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);
+    void loadOutline(const graphics::Walkmesh &walkmesh);
     void updateTransform() override;
 };
 

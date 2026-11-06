@@ -19,6 +19,7 @@
 
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
+#include "reone/input/event.h"
 
 #include "reone/resource/parser/gff/gui.h"
 #include "controlrender.h"
@@ -99,6 +100,8 @@ public:
         /** The opacity every piece of the border is drawn with. */
         float alpha {1.0f};
         int dimension {0};
+        /** How far the inner area sits inside the frame, as authored. */
+        int innerOffset {0};
         FillTransform fillTransform {FillTransform::None};
         /** While set, the corners and edges are drawn at the GUI's pulsing alpha instead of alpha. */
         bool pulseFrame {false};
@@ -237,6 +240,8 @@ public:
 
     // User input
 
+    virtual bool handleKeyDown(const input::KeyCode key);
+    virtual bool handleKeyUp(const input::KeyCode key);
     virtual bool handleMouseMotion(int x, int y);
     virtual bool handleMouseWheel(int x, int y);
     virtual bool handleClick(int x, int y, int clicks = 1);

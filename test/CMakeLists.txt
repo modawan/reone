@@ -46,7 +46,15 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/extract/finder.cpp
     ${TESTS_SOURCE_DIR}/extract/installation.cpp
     ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/audio.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/game.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/graphics.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/gui.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/movie.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/resource.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/scene.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/script.cpp
     ${TESTS_SOURCE_DIR}/game/action.cpp
     ${TESTS_SOURCE_DIR}/game/actionactor.cpp
     ${TESTS_SOURCE_DIR}/game/area.cpp
@@ -60,6 +68,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/itempossession.cpp
+    ${TESTS_SOURCE_DIR}/game/inventorydisturbed.cpp
     ${TESTS_SOURCE_DIR}/game/equipmentoperation.cpp
     ${TESTS_SOURCE_DIR}/game/equipmentweaponsetlabels.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp
@@ -100,6 +109,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/spitempresentation.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
     ${TESTS_SOURCE_DIR}/game/stringroutines.cpp
+    ${TESTS_SOURCE_DIR}/game/swooprace.cpp
     ${TESTS_SOURCE_DIR}/game/timingepoch.cpp
     ${TESTS_SOURCE_DIR}/game/transitioncandidate.cpp
     ${TESTS_SOURCE_DIR}/game/turret.cpp
@@ -189,7 +199,19 @@ add_executable(tests ${TESTS_HEADERS} ${TESTS_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin)
 target_include_directories(tests PRIVATE ${GTEST_INCLUDE_DIRS})
 
-target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
+# Clang keeps template instantiations in the PCH. GCC does not, and builds
+# slower with the larger one.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_precompile_headers(tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/pch.h
+        <gtest/gtest.h>
+        <gmock/gmock.h>
+        ${REONE_INCLUDE_DIR}/reone/game/game.h
+        ${TESTS_SOURCE_DIR}/fixtures/engine.h
+        ${TESTS_SOURCE_DIR}/fixtures/game.h)
+else()
+    target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
+endif()
 target_link_libraries(tests PRIVATE tools json GTest::gmock_main)
 
 if(MSVC)

@@ -106,10 +106,11 @@ public:
 
     /**
      * Adds the feats a character is granted with its newest level, which is
-     * in the last of its classes. At the first character level the race's
-     * first-level feats are granted as well.
+     * in the last of its classes. A character at its first level with no
+     * experience is granted the race's first-level feats as well.
      *
      * @param race the character's race
+     * @param experience the character's experience
      * @param tag the character's tag; TSL's companions have feats of their own
      * @param tsl true in TSL, whose companion, Unarmed Specialist and new
      *        character rules KotOR does not have
@@ -119,7 +120,7 @@ public:
      *         held before or not, except the class's grants of the feats no
      *         TSL character chooses, and War Veteran when it was held
      */
-    virtual std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter) const = 0;
+    virtual std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter) const = 0;
 };
 
 class Feats : public IFeats, boost::noncopyable {
@@ -144,7 +145,7 @@ public:
     std::vector<FeatType> getChoosableFeats(const FeatChoice &choice) const override;
     bool hasPrerequisites(FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen) const override;
     std::vector<FeatDisplayEntry> getLevelUpDisplayEntries(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
-    std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter) const override;
+    std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter) const override;
 
 private:
     std::unordered_map<FeatType, std::shared_ptr<Feat>> _feats;
@@ -173,12 +174,6 @@ private:
      *         feats and the skill it must be able to use
      */
     bool meetsRequirements(const Feat &feat, const FeatChoice &choice) const;
-
-    /**
-     * @return whether the character can use the skill: one it has ranks in,
-     *         or, for a skill used untrained, one any of its classes can use
-     */
-    bool canUseSkill(SkillType skill, const CreatureAttributes &attributes, bool tsl) const;
 };
 
 } // namespace game

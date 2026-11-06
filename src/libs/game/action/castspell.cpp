@@ -22,7 +22,11 @@
 
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
+#include "reone/game/action/changefacing.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/combat.h"
+#include "reone/game/combatfeedback.h"
+#include "reone/game/d20/class.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -34,6 +38,7 @@
 #include "reone/game/party.h"
 #include "reone/game/projectiles.h"
 #include "reone/system/logutil.h"
+#include "reone/system/randomutil.h"
 
 namespace reone {
 
@@ -130,6 +135,19 @@ glm::vec3 CastSpellAction::aimPosition() const {
     return _target ? _target->position() : _location;
 }
 
+bool CastSpellAction::thrownAtPoint() const {
+    return _game.isTSL() && _itemType == Item::kGrenadeItemType && isHandThrownGrenadeSpell(_spell->type);
+}
+
+uint64_t CastSpellAction::beginProjectile(Object &actor) {
+    if (thrownAtPoint()) {
+        return _services.game.projectiles.beginSpell(actor, std::nullopt, _location, *_spell,
+                                                     _projectilePathType, _game, _services);
+    }
+    return _services.game.projectiles.beginSpell(actor, targetObject(), aimPosition(), *_spell,
+                                                 _projectilePathType, _game, _services);
+}
+
 std::optional<std::reference_wrapper<const Object>> CastSpellAction::targetObject() const {
     if (!_target) {
         return std::nullopt;
@@ -203,24 +221,22 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             _presenter.restore(*creature, *_spell, _schedule);
         }
     }
-    // A cast that can no longer be cleared runs on through the states that
-    // stop actions. A cast fails once its target creature is lost, and a power
-    // once its caster's equipment no longer allows it. A failed item use
-    // leaves its user posed. A released use that plays on without its item no
-    // longer depends on it, nor on its target.
+    // A cast fails, as every action does, once its caster is dead or down;
+    // it also fails once its target creature is lost, and a power
+    // once its caster's equipment no longer allows it; an item use that has
+    // not started tests its target only once its user has walked up and
+    // turned to it. A failed item use leaves its user posed. A released use
+    // that plays on without its item no longer depends on it, nor on its
+    // target.
     const bool playsOn = _item && _dispatched && !itemUseEndsWithItem(*_itemType);
+    const bool testsTarget = !_item || _started;
     if (actor.isDead() ||
-        (!playsOn && (!runtimeDependenciesLive() || (_target && spellTargetLost(actor, *_target)))) ||
-        (creature && (((!_started || isClearable()) && !creature->canCastSpells()) ||
-                      (!_item && !equipmentAllowsSpell(*creature, *_spell))))) {
+        (!playsOn && (!runtimeDependenciesLive() || (testsTarget && _target && spellTargetLost(actor, *_target)))) ||
+        (creature && !_item && !equipmentAllowsSpell(*creature, *_spell))) {
         finish(actor);
         if (_item) {
             presentFailedItemUse(_game, actor);
         }
-        return;
-    }
-    // A caster that already acted in a round that has not ended waits for its end.
-    if (!_started && creature && _game.combat().awaitsRoundEnd(*creature, *self)) {
         return;
     }
     // A caster keeps turning toward the object its spell is aimed at; using an
@@ -235,8 +251,7 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
     // A placeable casts in full on its first update, whatever the distance:
     // it neither approaches, conjures nor waits for its cast time.
     if (!creature) {
-        _presentationId = _services.game.projectiles.beginSpell(actor, targetObject(), aimPosition(), *_spell,
-                                                                _projectilePathType, _game, _services);
+        _presentationId = beginProjectile(actor);
         if (commit(actor)) {
             release(actor);
         }
@@ -254,13 +269,12 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             return;
         }
         _admitted = true;
-        _approaching = !_skipsApproach && !withinSpellRange(actor, *_spell, aimPosition(), targetObject());
-        // A cast at an object checks its line to the object before it starts
-        // when it was given that check (an item use taken up, the player's
-        // order), when its caster has to approach, or when the caster is in
-        // combat; a cast within range otherwise starts at once. A cast loaded
-        // from a save checks when it was saved checking.
-        _checksUseLine = !_skipsApproach && _target && (_checksUseLine || _approaching || creature->isInCombat());
+        _dispatchedOutOfRange = !_skipsApproach && !withinSpellRange(actor, *_spell, aimPosition(), targetObject());
+        _approaching = _dispatchedOutOfRange;
+        // A cast at an object that does not skip its approach checks its line
+        // to the object before it starts, wherever its caster stands and
+        // whoever ordered it.
+        _checksUseLine = !_skipsApproach && _target;
     }
     if (!_started) {
         if (!itemAvailable()) {
@@ -269,34 +283,31 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         }
         actor.spellScriptContext().setActiveTarget(activeSpellTarget(actor));
         _ownsSpellTarget = true;
+        // A cast at a location walks on toward it, however often its walk
+        // fails or its caster cannot move, until it is within range; a walk
+        // toward an object also ends within use range of it, or within range
+        // of its use point in a clear line.
         if (_approaching) {
-            if (!creature->canMove()) {
-                finish(actor);
-                return;
-            }
-            if (creature->navigateTo(aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt, targetObject())) {
+            if (creature->walkToward(targetObject(), aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt, targetObject(), true)) {
                 _approaching = false;
-            } else if (creature->navigationFailed()) {
-                // A target no path reaches fails the cast.
-                finish(actor);
+            } else if (_target && (creature->navigationFailed() || !creature->canMove())) {
+                // A cast at an object whose walk fails checks its use line
+                // from where its caster stands.
+                _approaching = false;
             }
             return;
         }
         // Such a check passes once the caster is within the spell's range of
-        // the object's use point, or its use range, with a clear line to it;
-        // until then the caster walks on toward that point.
+        // the object's use point, or its use range, with a clear line to it.
+        // It is taken before the caster walks toward that point and again once
+        // the walk has ended, however often its walk fails or its caster cannot
+        // move; a walk under way runs to its own end, within use range of the
+        // object or, in a clear line, within range of the point.
         if (_checksUseLine) {
             const float range = spellRange(actor, *_spell, targetObject());
-            const Creature::UseRange use = creature->useRange(*_target);
-            if (!creature->isInUseRange(*_target, std::max(0.0f, range - use.range))) {
-                if (!creature->canMove()) {
-                    finish(actor);
-                    return;
-                }
-                creature->navigateTo(use.point, true, range, dt, targetObject());
-                if (creature->navigationFailed()) {
-                    finish(actor);
-                }
+            const float useRange = creature->useRange(*_target).range;
+            if (!creature->navigateToUse(*_target, std::max(0.0f, range - useRange), dt, true, false, true, true,
+                                         range - useRange, true)) {
                 return;
             }
             _checksUseLine = false;
@@ -315,14 +326,29 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             creature->turnToward(_location);
         }
     }
+    if (!testsTarget && _target && spellTargetLost(actor, *_target)) {
+        finish(actor);
+        presentFailedItemUse(_game, actor);
+        return;
+    }
+    // A cast breaks off the caster's activities on every frame it runs once
+    // its approach is over, its waits for the round included; a fake cast
+    // interrupts nothing.
+    if (creature && !_fake) {
+        creature->interruptForSpell(static_cast<int>(_spell->type), _item.has_value(), _spell->hostile);
+    }
+    // A caster that already acted in a round that has not ended waits for its
+    // end once it has walked up.
+    if (!_started && creature && _game.combat().awaitsRoundEnd(*creature, *self)) {
+        return;
+    }
     if (_instantSpell) {
         if (creature) {
-            creature->beginSpellActivity(static_cast<int>(_spell->type), _item.has_value(), _spell->hostile);
+            creature->beginSpellActivity(static_cast<int>(_spell->type), _item.has_value());
             _game.combat().beginInstantCast(self, *creature, _target);
         }
         // An instant cast shows its release as any cast does.
-        _presentationId = _services.game.projectiles.beginSpell(actor, targetObject(), aimPosition(), *_spell,
-                                                                _projectilePathType, _game, _services);
+        _presentationId = beginProjectile(actor);
         if (commit(actor)) {
             release(actor);
         }
@@ -342,8 +368,10 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         targetCreature = static_cast<Creature &>(*_target);
     }
     // What the cast shows this frame; the conjure waits until the caster stands.
+    // An item use is shown as used at the location its command carries, not
+    // where its target now stands.
     if (creature && state != SpellSchedule::Conjure) {
-        _presenter.update(*creature, *_spell, _itemType, targetCreature, aimPosition(), _schedule, state);
+        _presenter.update(*creature, *_spell, _itemType, targetCreature, _location, _schedule, state);
     }
     if (creature && !_item && _committed && isClearable() && state > SpellSchedule::Cast &&
         !continuePaidCast(*creature, *self)) {
@@ -361,11 +389,11 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         }
         debug(str(boost::format("Spell started: actor=%u spell=%d") % actor.id() % static_cast<int>(_spell->type)), LogChannel::Combat);
         if (creature) {
-            creature->beginSpellActivity(static_cast<int>(_spell->type), _item.has_value(), _spell->hostile, !_fake);
+            creature->beginSpellActivity(static_cast<int>(_spell->type), _item.has_value());
             float pause = _spell->conjTime + _spell->castTime + _spell->catchTime;
             if (_item) {
                 // An item use takes effect and ends at its item type's times.
-                const auto &use = _presenter.itemUse(*creature, *_spell, *_itemType, Creature::asCreature(_target), aimPosition());
+                const auto &use = _presenter.itemUse(*creature, *_spell, *_itemType, Creature::asCreature(_target), _location);
                 _schedule.setDurations(use.impact, std::max(0.0f, use.end - use.impact), 0.0f);
                 pause = use.end;
             }
@@ -378,13 +406,12 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         }
         // An item use started over lets go of the projectile it was holding.
         _services.game.projectiles.cancelSpell(_presentationId);
-        _presentationId = _services.game.projectiles.beginSpell(actor, targetObject(), aimPosition(), *_spell,
-                                                                _projectilePathType, _game, _services);
+        _presentationId = beginProjectile(actor);
         if (creature) {
             if (!_item) {
                 creature->spellCastVisuals().showConjure(*creature, *_spell);
             }
-            _presenter.update(*creature, *_spell, _itemType, targetCreature, aimPosition(), _schedule, state);
+            _presenter.update(*creature, *_spell, _itemType, targetCreature, _location, _schedule, state);
         }
         return;
     }
@@ -500,21 +527,27 @@ void CastSpellAction::release(Object &actor) {
     // the caster's last measured flight.
     if (!_instantSpell)
         actor.setLastSpellProjectileMilliseconds(spellProjectileTimeMilliseconds(
-            *_spell, actor.position(), aimPosition(), _projectilePathType, _game.isTSL()));
+            *_spell, actor.position(), aimPosition(), _projectilePathType));
     const uint32_t projectileMilliseconds = actor.lastSpellProjectileMilliseconds();
     _projectileTime = projectileMilliseconds / 1000.0f;
     // An instant cast lands at the origin, which its target object's position
-    // replaces when the impact is delivered.
-    const glm::vec3 impactPosition = _instantSpell ? glm::vec3(0.0f) : _location;
+    // replaces when the impact is delivered. An item use, instant or not,
+    // lands at the location its command carries.
+    const glm::vec3 impactPosition = _instantSpell && !_item ? glm::vec3(0.0f) : _location;
     // A fake cast shows the projectile and has no impact.
-    _dispatched = _fake || queueSpellImpact(_game, *_spell, actor, _target, impactPosition, _castContext,
-                                            _item ? *_item : nullptr, projectileMilliseconds);
+    // A grenade thrown by hand lands at its point, with no target object.
+    _dispatched = _fake || queueSpellImpact(_game, *_spell, actor, thrownAtPoint() ? nullptr : _target, impactPosition,
+                                            _castContext, _item ? *_item : nullptr, projectileMilliseconds);
     if (!_dispatched) {
         finish(actor);
         return;
     }
     _services.game.projectiles.releaseSpell(_presentationId, _projectileTime, _game, _services);
     presentSpellRelease(actor, *_spell);
+    // A creature's cast or item use is announced; a fake cast is not.
+    if (auto *creature = dyn_cast<Creature>(&actor); creature && !_fake) {
+        addPowerUseFeedback(_game, *creature, *_spell, _item ? *_item : nullptr);
+    }
     if (_item && !_cheat && !_itemConsumed) {
         _itemConsumed = true;
         auto item = *_item;
@@ -522,7 +555,7 @@ void CastSpellAction::release(Object &actor) {
             // The event owns the released impact; retiring its item must not
             // retract that event. The use itself ends once the item is gone.
             releaseItemDependency();
-            _game.postObjectDestruction(*item, 0.0f);
+            _game.postObjectDestruction(*item, actor.id(), 0.0f);
         }
     }
 }
@@ -537,8 +570,10 @@ void CastSpellAction::releaseItemDependency() {
 
 bool CastSpellAction::cancel(std::shared_ptr<Action>, Object &actor) {
     auto *creature = dyn_cast<Creature>(&actor);
+    // A cleared cast or item use leaves its caster attempting no spell.
     if (creature) {
         _game.combat().transferEquipment(*creature);
+        creature->setAttemptedSpellTarget(script::kObjectInvalid);
     }
     _services.game.projectiles.cancelSpell(_presentationId);
     finish(actor);
@@ -549,25 +584,67 @@ bool CastSpellAction::cancel(std::shared_ptr<Action>, Object &actor) {
     return true;
 }
 
-void CastSpellAction::dropPresentation() {
+// A power's level is the one it has for its casting class, and its innate level
+// when it is cast from no class or as a special ability.
+static int castPowerLevel(const Creature &caster, const Spell &spell, int castingClass) {
+    const auto &classes = caster.attributes().classLevels();
+    const auto index = static_cast<size_t>(castingClass);
+    if (index < classes.size()) {
+        return spell.getLevelForClass(classes[index].first->type());
+    }
+    return spell.innateLevel;
+}
+
+bool CastSpellAction::breaksConcentration(const Creature &caster, int damage) const {
+    if (_game.isTSL() || !conjuring() || _spell->castAnimation == SpellCastAnimation::Throw) {
+        return false;
+    }
+    const int level = castPowerLevel(caster, *_spell, caster.spellCastContext().castingClass);
+    return randomInt(1, 20) < damage + level + 10;
+}
+
+void CastSpellAction::drop(Object &caster) {
     _services.game.projectiles.cancelSpell(_presentationId);
+    releaseMovementRestriction(caster);
+    if (_ownsSpellTarget) {
+        caster.spellScriptContext().clearActiveTarget();
+        _ownsSpellTarget = false;
+    }
+    // Only a cast that has begun holds its caster's pose and visuals.
+    auto *creature = dyn_cast<Creature>(&caster);
+    if (creature && _started) {
+        creature->releaseCastAnimation();
+        if (!_dispatched && !_item) {
+            creature->spellCastVisuals().clear();
+        }
+    }
+}
+
+void CastSpellAction::releaseMovementRestriction(Object &caster) {
+    if (!_ownsMovementRestriction) {
+        return;
+    }
+    if (auto *creature = dyn_cast<Creature>(&caster)) {
+        creature->setMovementRestricted(false);
+    }
+    _ownsMovementRestriction = false;
 }
 
 void CastSpellAction::finish(Object &caster, bool keepCastHold) {
     if (!isCompleted()) {
         debug(str(boost::format("Spell finished: actor=%u spell=%d committed=%d released=%d") % caster.id() % static_cast<int>(_spell->type) % _committed % _dispatched), LogChannel::Combat);
     }
-    if (_ownsSpellTarget) {
+    auto *creature = dyn_cast<Creature>(&caster);
+    // The cast lets go of the spell target it set; a finished item use also
+    // leaves its user attempting no spell and aiming at nothing.
+    if (_ownsSpellTarget || (creature && _item)) {
         caster.spellScriptContext().clearActiveTarget();
         _ownsSpellTarget = false;
     }
-    auto *creature = dyn_cast<Creature>(&caster);
-    if (_ownsMovementRestriction) {
-        if (creature) {
-            creature->setMovementRestricted(false);
-        }
-        _ownsMovementRestriction = false;
+    if (creature && _item) {
+        creature->setAttemptedSpellTarget(script::kObjectInvalid);
     }
+    releaseMovementRestriction(caster);
     _services.game.projectiles.cancelSpell(_presentationId);
     if (creature && !keepCastHold) {
         creature->releaseCastAnimation();
@@ -643,9 +720,12 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     state.cheat = _cheat;
     state.hasSelection = _selection.has_value();
     state.admitted = _admitted;
-    state.approaching = _approaching;
+    // A range check saved in front of the cast leaves the cast saved as
+    // having passed it.
+    const bool rangeCheckSaved = savesRangeCheck();
+    state.approaching = _approaching && !rangeCheckSaved;
     state.skipsApproach = _skipsApproach;
-    state.checksUseLine = _checksUseLine;
+    state.checksUseLine = _checksUseLine && !rangeCheckSaved;
     state.started = _started;
     state.commitAttempted = _commitAttempted;
     state.committed = _committed;
@@ -656,10 +736,49 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     return record;
 }
 
+// The walk runs to the object's position, ending at the spell's range in a
+// clear line; the range check runs to the spell's range and is checked
+// against it, and its walk may end in a clear line. A turn toward the
+// object, or the location, follows them, and stands alone in front of a cast
+// not yet dispatched.
+std::vector<SavedActionRecord> CastSpellAction::rangeCheckCommands(const Object &actor) const {
+    std::vector<SavedActionRecord> result;
+    if (_placeableCaster || _started) {
+        return result;
+    }
+    if (savesRangeCheck()) {
+        const float range = spellRange(actor, *_spell, targetObject());
+        if (_approaching) {
+            SavedMoveCommand walk;
+            walk.destination = aimPosition();
+            walk.area = SavedObjectReference::fromRuntimeId(actor.spatialArea()->get().id());
+            walk.target = SavedObjectReference::fromRuntimeId(_target->id());
+            walk.run = true;
+            walk.carried.clearLine = true;
+            walk.range = range;
+            walk.toAction(result.emplace_back());
+        }
+        result.push_back(MoveToObjectAction::savedCommand(*_target, /*run=*/true, range, range,
+                                                          MoveToObjectAction::ApproachFlags::forCast(queuedBehind())));
+    } else if (_admitted) {
+        return result;
+    }
+    result.push_back(_target ? ChangeFacingAction::savedCommand(*_target) : ChangeFacingAction::savedCommand(aimPosition()));
+    return result;
+}
+
+bool CastSpellAction::savesRangeCheck() const {
+    return _target && !_placeableCaster && !_skipsApproach && !_started && (_approaching || _checksUseLine) &&
+           (!queuedBehind() || _dispatchedOutOfRange);
+}
+
+bool CastSpellAction::queuedBehind() const {
+    return !_item && !isScheduledCommand();
+}
+
 void CastSpellAction::restartItemUse(const SavedCastAction &state) {
     assert(_item);
     _presentationId = state.presentationId;
-    _checksUseLine = state.checksUseLine;
 }
 
 void CastSpellAction::restoreCastState(const SavedCastAction &state) {

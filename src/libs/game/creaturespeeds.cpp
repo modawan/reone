@@ -24,7 +24,6 @@
 
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
-#include "reone/system/exception/validation.h"
 
 namespace reone {
 
@@ -42,8 +41,10 @@ void CreatureSpeeds::init() {
 }
 
 const CreatureSpeed &CreatureSpeeds::get(int row) const {
+    // A row outside the table neither walks nor runs.
+    static const CreatureSpeed outsideTable;
     if (row < 0 || row >= static_cast<int>(_rows.size())) {
-        throw ValidationException("Movement rate outside creaturespeed: " + std::to_string(row));
+        return outsideTable;
     }
     return _rows[row].speed;
 }
@@ -52,7 +53,7 @@ int CreatureSpeeds::find(const std::string &name) const {
     const auto lowerName = boost::to_lower_copy(name);
     const auto row = std::find_if(_rows.begin(), _rows.end(), [&lowerName](const Row &entry) { return entry.name == lowerName; });
     if (row == _rows.end()) {
-        throw ValidationException("Movement rate not in creaturespeed: " + name);
+        return 0;
     }
     return static_cast<int>(std::distance(_rows.begin(), row));
 }

@@ -85,6 +85,10 @@ public:
         _twoDas(twoDas) {
     }
 
+    /**
+     * Read the base factions and standings (repute.2da), which every base and
+     * saved state is built on, and take the base state.
+     */
     void init();
 
     State baseState() const override;
@@ -103,19 +107,19 @@ public:
 
 private:
     resource::ITwoDAs &_twoDas;
+    /** The base factions' labels, lower case, in table order. */
+    std::vector<std::string> _baseLabels;
+    /**
+     * The base standings: row r holds faction r's standing toward each
+     * faction c. A standing the table does not give is 100.
+     */
+    std::vector<std::vector<int>> _baseStandings;
     std::vector<FactionDefinition> _factions;
     std::vector<std::string> _factionLabels;
     std::vector<std::vector<int>> _factionValues;
 
-    /**
-     * Fill the standings of \p factionCount factions from repute.2da: row r
-     * is faction r, and column c after the label column is the standing
-     * toward faction c. Standings the table does not give are 100.
-     */
-    void loadBase(
-        const resource::TwoDA &repute,
-        size_t factionCount,
-        std::vector<std::vector<int>> &values) const;
+    /** The standings of \p factionCount factions: the base ones, and 100 where there are none. */
+    std::vector<std::vector<int>> baseValues(size_t factionCount) const;
 };
 
 /**

@@ -42,6 +42,14 @@ class ListBox;
 
 namespace game {
 
+/**
+ * \p speaker voices the first start entry of dialog \p resRef that names no
+ * speaker, whose condition holds with the speaker as caller and that has no
+ * replies, showing no text, then runs the entry's first script as the
+ * speaker. False when no entry qualifies.
+ */
+bool speakOneLiner(Game &game, ServicesView &services, Object &speaker, const std::string &resRef);
+
 class Conversation : public GameGUI {
     friend class TestConversation;
 
@@ -66,6 +74,13 @@ public:
     bool isRunning() const { return _dialog && _fadeDialog; }
 
     CameraType getCamera(int &cameraId) const;
+    /**
+     * A script shows placed camera \p cameraId until the next entry or reply
+     * takes its own shot; the entry under way keeps it over its own shot. A
+     * computer conversation shows the camera's feed in the security-camera
+     * look, and a cinematic one only a camera its area places.
+     */
+    void showPlacedCamera(int cameraId);
 
     void pause();
 
@@ -88,8 +103,36 @@ public:
     /** The conversation's dialog is an animated cutscene. */
     bool isAnimatedCutscene() const { return _dialog && _dialog->isAnimatedCutscene(); }
 
+    /**
+     * The time a line of \p text takes to speak, in seconds: a second, and a
+     * little more for each character.
+     */
+    static float spokenLineSeconds(const std::string &text);
+
 protected:
+    /** The video effect values a shot can carry besides a videoeffects.2da row. */
+    static constexpr int kNoShotVideoEffect = -1;
+    static constexpr int kKeepShotVideoEffect = -2;
+
     std::shared_ptr<Object> owner() const { return _owner.resolve(); }
+    /** Where a participant's name is read, which decides the names that stand for someone. */
+    enum class ParticipantSite {
+        /** An entry's or a reply's speaker or listener: OWNER, and in KotOR PLAYER, whatever their case. */
+        Speaker,
+        /** An animation's participant: PLAYER, OWNER, NPC1 and NPC2, as written. */
+        Animation,
+        /** A stunt's participant: PLAYER, and OWNER or nothing, as written. */
+        Stunt
+    };
+    /**
+     * The object a participant name names at \p site: one the site's names
+     * stand for (the owner, the player, the party's second or third member),
+     * or else the object with the tag nearest the owner, the owner itself
+     * first, dead or alive. Tags match whatever their case.
+     */
+    std::shared_ptr<Object> resolveParticipantObject(const std::string &participant, ParticipantSite site) const;
+    /** The current entry's speaker: the participant its speaker tag names, or else the owner. */
+    std::shared_ptr<Object> currentEntrySpeaker() const;
     std::shared_ptr<resource::Dialog> _dialog;
     RuntimeObjectRef<Object> _owner;
     /** The object that started the conversation with the owner. */
@@ -117,8 +160,16 @@ protected:
     void takeCameraShot(const resource::Dialog::EntryReply &shot, int angle);
     /** The dialog camera shows the shot, as for a placed camera the area lacks. */
     void showShotOnDialogCamera() { _shotCamera = CameraType::Dialog; }
+    /**
+     * The view takes placed camera \p cameraId at a script's request.
+     *
+     * @return false when there is no such camera to show
+     */
+    virtual bool takePlacedCameraView(int cameraId);
     /** The camera shot of \p shot, an entry or a reply, keeps the previous speaker pair. */
     static bool keepsPreviousSpeakerPair(const resource::Dialog::EntryReply &shot);
+    /** Set or clear the video effect for the cinematic camera shot of \p shot, an entry or a reply. */
+    void applyCinematicShotVideoEffect(const resource::Dialog::EntryReply &shot);
 
     /** The current entry's sole reply is taken when the entry ends, rather than its replies listed. */
     bool autoPicksFirstReply() const { return _autoPickFirstReply; }

@@ -76,9 +76,11 @@ EffectConstructorStamp getEffectConstructorStamp(const std::string &name) {
 }
 
 // Whether an effect constructor stamps an effect of no type it yields: a
-// creator-only constructor, EffectConcealment and EffectMissChance do not.
+// creator-only constructor, EffectBeam, EffectConcealment and
+// EffectMissChance do not.
 bool stampsTypelessEffect(const std::string &name, EffectConstructorStamp stamp) {
-    return stamp != EffectConstructorStamp::CreatorOnly && name != "EffectConcealment" && name != "EffectMissChance";
+    return stamp != EffectConstructorStamp::CreatorOnly && name != "EffectBeam" && name != "EffectConcealment" &&
+           name != "EffectMissChance";
 }
 
 } // namespace

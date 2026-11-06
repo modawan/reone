@@ -296,9 +296,6 @@ struct ItemOnHitApplication {
 void applyItemOnHitApplications(std::vector<ItemOnHitApplication> applications,
                                 Object &target, Game &game, ServicesView &services);
 
-/** Seconds from the start of an unclocked attack until its damage. */
-static constexpr float kAttackDamageDelay = 1.0f;
-
 /**
  * A scripted attack's forced values: the swing (an animations row; for a
  * ranged attacker the weapondischarge row), the result of every attack of the
@@ -388,7 +385,6 @@ struct DefenseBreakdown {
     int natural {0};
     int dodgeAndDeflection {0};
     int feat {0};
-    int stance {0};
     int form {0};
     int debilitationPenalty {0};
 };
@@ -396,8 +392,8 @@ struct DefenseBreakdown {
 /**
  * The parts of the last deflection roll made against the round's shots, as
  * the combat log reports them. A roll writes its d20, totals, base attack
- * bonus, Dexterity and effects; each feat, power or form part only when it
- * applies, so a part from an earlier roll of the round stays.
+ * bonus and effects; each feat, power or form part only when it applies, so
+ * a part from an earlier roll of the round stays.
  */
 struct DeflectionBreakdown {
     int roll {0};
@@ -406,7 +402,6 @@ struct DeflectionBreakdown {
     /** The deflection roll's total. */
     int total {0};
     int baseAttackBonus {0};
-    int dexterity {0};
     int effects {0};
     /** The defender's Jedi Defense feat, and the bonus it gives. */
     FeatType jediDefenseFeat {FeatType::Invalid};
@@ -426,7 +421,6 @@ struct DeflectionBreakdown {
 /** The bonuses a physical attack adds to its damage. */
 struct PhysicalDamageBonus {
     int damageAbilityModifier {0};
-    int strengthModifier {0};
     int weaponSpecialization {0};
     int combatFeatDamage {0};
     int preciseShotDamage {0};
@@ -504,11 +498,12 @@ public:
 
     /**
      * Settle \p target's reaction to this round on its attack records.
+     * \p committed tells whether the reaction takes the target's time.
      *
      * @return the reaction, or none
      */
     std::optional<AttackReaction> resolveReaction(const Creature &target, bool engaged, bool targetEngaged,
-                                                  bool targetHasRoom, bool forced);
+                                                  bool targetHasRoom, bool forced, bool &committed);
 
     /** Save the round's unreleased attacks, discharges and records into \p state. */
     void saveContinuation(SavedPhysicalAction &state, const Game &game) const;
@@ -525,28 +520,29 @@ public:
         const std::vector<std::string> &attackAnimations);
 
     /**
-     * Release the pending melee hits whose impact time precedes
-     * \p elapsedMilliseconds of the attack animation, in attack order and at
-     * most one per call. At the end of the physical attack pause, release all
-     * remaining ones.
+     * Release the pending melee hits whose impact time precedes \p run, the
+     * time the swing has run, in attack order: one hit an update once due;
+     * with \p flush, the pause's end, all remaining ones.
      *
      * @return the number of hits released
      */
     size_t signalReadyMelee(
-        int elapsedMilliseconds,
+        uint32_t run,
+        bool flush,
         Game &game,
         ServicesView &services,
         Creature &attacker,
         Object &target);
     /**
-     * Release the ranged discharges of this round whose time precedes
-     * \p elapsedMilliseconds of the attack animation, at most one per call.
-     * At the end of the physical attack pause, release all remaining ones.
+     * Release the ranged discharges of this round whose time precedes \p run,
+     * the time the swing has run: one discharge an update once due; with
+     * \p flush, the pause's end, all remaining ones.
      *
      * @return the number of discharges released
      */
     size_t signalReadyRanged(
-        int elapsedMilliseconds,
+        uint32_t run,
+        bool flush,
         Game &game,
         ServicesView &services,
         Creature &attacker,
@@ -625,6 +621,9 @@ public:
         }
         return _recordRoll + _recordModifier;
     }
+
+    /** The round's record is a ranged attack. */
+    bool recordRanged() const { return _roundFields && _roundFields->ranged; }
 
     /** The record's weapon attack type: 1 for the right hand, 2 for the left. */
     int recordWeaponAttackType() const { return _roundFields ? _roundFields->weaponAttackType : 0; }
@@ -965,58 +964,55 @@ private:
 
 class AttackSchedule {
 public:
+    /**
+     * Saves hold these values; earlier saves also hold 2 and 3, an attack
+     * whose damage was still to come, and 4, one whose damage was done.
+     */
     enum State {
-        WaitAttack,
-        Attack,
-        WaitDamage,
-        Damage,
-        WaitFinish,
-        Finish,
+        WaitAttack = 0,
+        Attack = 1,
+        Finish = 5,
     };
 
-    /**
-     * Advance the schedule by \p dt of the round's time. A clocked attack
-     * reaches its damage when the attack pause has run; an unclocked one
-     * after kAttackDamageDelay.
-     */
-    State update(const CombatRound &round, Action &action, float dt);
+    /** The attack is taken up once \p round lets \p action take its turn. */
+    State update(const CombatRound &round, Action &action);
 
-    /** Start the attack pause clock for a melee round. */
+    /** The attack has swung a melee round. */
     void startMelee();
 
-    /** Start the attack pause clock for a ranged round. */
+    /** The attack has swung a ranged round. */
     void startRanged();
 
-    /** Go straight to waiting for the round to finish, without attacking. */
-    void skipAttacks() { _state = WaitFinish; }
+    /** The swing's pause has run out; its hits are all out. */
+    void finishRelease() { _state = Finish; }
 
-    /** Save the schedule's phase and clock into \p state. */
+    /** Save the schedule's phase into \p state. */
     void saveContinuation(resource::Gff &state) const;
 
-    /**
-     * Restore the schedule saveContinuation() saved. A phase whose entry has
-     * already run resumes waiting.
-     */
+    /** Restore the schedule saveContinuation() saved. */
     void restoreContinuation(const resource::Gff &state);
 
-    /** The attack holds its round until its pause ends and its hits are out. */
-    bool holdsCombatRound() const { return _state < Damage; }
+    /** The attack holds its round until it has swung. */
+    bool holdsCombatRound() const { return _state < Finish; }
     bool started() const { return _state != WaitAttack; }
     bool isMelee() const { return _melee; }
     bool isRanged() const { return _ranged; }
-    int elapsedMilliseconds() const { return _elapsedMilliseconds; }
+    /** The attack has swung and its pause has not yet run out. */
+    bool releasing() const { return clocked() && _state != Finish; }
+    /**
+     * For an attack an earlier save took past its swing, with hits still to
+     * land, the swing's pause it had left; 0 for any other attack.
+     */
+    int pauseLeftAtLoadMilliseconds() const;
 
 private:
-    void startClock(int completionMilliseconds);
     bool clocked() const { return _melee || _ranged; }
 
     State _state {WaitAttack};
-    float _time {0.0f};
     bool _melee {false};
     bool _ranged {false};
-    int _elapsedMilliseconds {0};
-    int _completionMilliseconds {0};
-    float _elapsedRemainderMilliseconds {0.0f};
+    /** How far an earlier save had taken the swing; none for a save that keeps no swing clock. */
+    std::optional<int> _swingElapsedAtLoadMilliseconds;
 };
 
 /** How far an attack has come in closing on its target. */
@@ -1168,6 +1164,15 @@ std::optional<PhysicalAttackSwing> beginPhysicalAttack(
     Creature &attacker, Object &target,
     const IAnimations &animations, AttackBuffer &attacks,
     FeatType feat = FeatType::Invalid, bool engages = true, bool swings = true);
+
+/**
+ * Release the hits and discharges of a swung attack that have come due with
+ * \p pauseLeftMilliseconds of its round's pause left, at most one at a time,
+ * and, with \p flush, all that remain as the pause ends. Nothing is released
+ * once \p target is gone.
+ */
+void releasePhysicalHits(AttackSchedule &schedule, AttackBuffer &attacks, Game &game, ServicesView &services,
+                         Creature &attacker, const std::shared_ptr<Object> &target, int pauseLeftMilliseconds, bool flush);
 
 /**
  * Settle the target's reaction to a resolved round, then queue the attacker's

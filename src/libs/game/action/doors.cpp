@@ -208,12 +208,12 @@ void lockObject(Object &target, Object &actor) {
     actor.game().queueScriptEvent(target, actor, Event(kLockedEvent));
 }
 
-void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
+bool jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float facing, float trailFacing,
                           float radius, bool clearLine, Game &game) {
     auto area = game.module()->area();
     auto spot = area->computeSafeLocation(position, radius, creature, clearLine);
     if (!spot) {
-        return;
+        return false;
     }
 
     // The position changes at once; the creature's model turns to the new facing.
@@ -236,6 +236,7 @@ void jumpToPositionFacing(Creature &creature, const glm::vec3 &position, float f
         area->jumpCarriedAreaEffects(*live);
         area->updateSubAreaOccupancy(live);
     }
+    return true;
 }
 
 // After walking up to a locked door it steps right up to, a creature waits
@@ -256,7 +257,12 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
             return;
         }
         auto &creature = static_cast<Creature &>(actor);
-        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false)) {
+        if (!creature.navigateToUse(*_door, 0.0f, dt, true, false, false, false)) {
+            if (creature.navigationFailed()) {
+                // No path reaches the door: give up.
+                complete();
+                return;
+            }
             _waitAfterApproach = _door->isPreciseUse() && _door->isLocked();
             return;
         }
@@ -306,7 +312,12 @@ std::shared_ptr<Action> OpenDoorAction::restore(const SavedActionRecord &record,
 void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
 
-    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false);
+    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt, true, false, false, false);
+    if (!reached && creatureActor->navigationFailed()) {
+        // No path reaches the door: give up.
+        complete();
+        return;
+    }
     if (reached) {
         _door->close();
         _door->onClosed(actor.id());
@@ -337,6 +348,10 @@ void LockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, floa
         return;
     }
     if (!workAtLock(*this, *_target, actor, _working, dt)) {
+        // No path reaches the lock: give up, still locked or unlocked.
+        if (auto *creature = dyn_cast<Creature>(&actor); creature && !_working && creature->navigationFailed()) {
+            complete();
+        }
         return;
     }
     lockObject(*_target, actor);
@@ -367,6 +382,10 @@ void UnlockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         return;
     }
     if (!workAtLock(*this, *_target, actor, _working, dt)) {
+        // No path reaches the lock: give up, still locked or unlocked.
+        if (auto *creature = dyn_cast<Creature>(&actor); creature && !_working && creature->navigationFailed()) {
+            complete();
+        }
         return;
     }
     if (springTrapOnUse(*_target, actor)) {
@@ -428,6 +447,10 @@ void DoorSaberAction::execute(std::shared_ptr<Action> self, Object &actor, float
     creature.setLightsabersPowered(true, true);
     creature.setCombatState(true, CombatActivation::Indirect, false);
     if (!creature.navigateToUse(*_door, 0.0f, dt, true, true)) {
+        if (creature.navigationFailed()) {
+            // No path reaches the door: give up.
+            complete();
+        }
         return;
     }
     if (!_approached) {
@@ -522,6 +545,11 @@ void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, f
 
     auto &creatureActor = cast<Creature>(actor);
     if (!creatureActor.navigateToUse(*_object, 0.0f, dt)) {
+        if (creatureActor.navigationFailed()) {
+            // No path reaches the object: give up.
+            complete();
+            return;
+        }
         _approached = true;
         return;
     }

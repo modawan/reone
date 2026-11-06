@@ -28,6 +28,9 @@ namespace gui {
 
 class MockGUI : public IGUI, boost::noncopyable {
 public:
+    MockGUI();
+    ~MockGUI() override;
+
     MOCK_METHOD(void, load, (const resource::Gff &), (override));
 
     MOCK_METHOD(bool, handle, (const input::Event &), (override));
@@ -73,6 +76,9 @@ public:
 
 class MockGUIs : public IGUIs, boost::noncopyable {
 public:
+    MockGUIs();
+    ~MockGUIs() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(void, updatePulsingAlpha, (float), (override));

@@ -80,12 +80,18 @@ struct SaveResult;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
+    MockCameraStyles();
+    ~MockCameraStyles() override;
+
     MOCK_METHOD(std::shared_ptr<CameraStyle>, get, (int index), (const override));
     MOCK_METHOD(std::shared_ptr<CameraStyle>, get, (const std::string &name), (const override));
 };
 
 class MockClasses : public IClasses, boost::noncopyable {
 public:
+    MockClasses();
+    ~MockClasses() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<CreatureClass>, get, (ClassType key), (override));
 };
@@ -114,6 +120,10 @@ public:
         return static_cast<int>(_options.size());
     }
 
+    bool keepsPlayerCharacterAtOneHitPoint() const override {
+        return false;
+    }
+
 private:
     std::vector<DifficultyOption> _options {
         {-1, "Easy", 0.5f},
@@ -125,29 +135,40 @@ private:
 
 class MockFeats : public IFeats, boost::noncopyable {
 public:
+    MockFeats();
+    ~MockFeats() override;
+
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(std::shared_ptr<Feat>, get, (FeatType type), (const override));
     MOCK_METHOD(int, getLevelUpChoiceCount, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
     MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
     MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, const std::string &tag, bool tsl, bool newCharacter), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {
 public:
+    MockFootstepSounds();
+    ~MockFootstepSounds() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<FootstepTypeSounds>, get, (uint32_t key), (override));
 };
 
 class MockGUISounds : public IGUISounds, boost::noncopyable {
 public:
+    MockGUISounds();
+    ~MockGUISounds() override;
+
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnClick, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnEnter, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionAccepted, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionUnavailable, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionMenuScroll, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestNewNotify, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestCompleteNotify, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
@@ -156,6 +177,9 @@ public:
 
 class MockPortraits : public IPortraits, boost::noncopyable {
 public:
+    MockPortraits();
+    ~MockPortraits() override;
+
     MOCK_METHOD(std::shared_ptr<graphics::Texture>, getTextureByIndex, (int index), (const override));
     MOCK_METHOD(std::shared_ptr<graphics::Texture>, getTextureByAppearance, (int appearance), (const override));
     MOCK_METHOD(const std::vector<Portrait> &, portraits, (), (const override));
@@ -163,6 +187,9 @@ public:
 
 class MockReputes : public IReputes, boost::noncopyable {
 public:
+    MockReputes();
+    ~MockReputes() override;
+
     MOCK_METHOD(State, baseState, (), (const override));
     MOCK_METHOD(State, state, (), (const override));
     MOCK_METHOD(std::optional<State>, parse, (const resource::Gff &gff), (const override));
@@ -176,16 +203,17 @@ public:
 
 class MockSkills : public ISkills, boost::noncopyable {
 public:
+    MockSkills();
+    ~MockSkills() override;
+
     MOCK_METHOD(std::shared_ptr<Skill>, get, (SkillType type), (const override));
 };
 
 class MockSpells : public ISpells, boost::noncopyable {
 public:
     /** Every range reads as blank, as from an empty ranges table. */
-    MockSpells() {
-        ON_CALL(*this, range(testing::_)).WillByDefault(testing::ReturnRef(_blankRange));
-        ON_CALL(*this, findRange(testing::_)).WillByDefault(testing::Return(std::nullopt));
-    }
+    MockSpells();
+    ~MockSpells() override;
 
     MOCK_METHOD(std::shared_ptr<Spell>, get, (SpellType type), (const override));
     MOCK_METHOD(const RangeRow &, range, (int row), (const override));
@@ -201,6 +229,9 @@ private:
 
 class MockSurfaces : public ISurfaces, boost::noncopyable {
 public:
+    MockSurfaces();
+    ~MockSurfaces() override;
+
     MOCK_METHOD(bool, isWalkable, (int index), (const override));
     MOCK_METHOD(const Surface &, getSurface, (int index), (const override));
 
@@ -212,6 +243,9 @@ public:
 
 class MockProjectiles : public IProjectiles, boost::noncopyable {
 public:
+    MockProjectiles();
+    ~MockProjectiles() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(void, launchLightsaberThrow,
                 (Creature &, const EffectInstance &, Game &, ServicesView &),
@@ -234,6 +268,9 @@ public:
 
 class MockAnimations : public IAnimations, boost::noncopyable {
 public:
+    MockAnimations();
+    ~MockAnimations() override;
+
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
     MOCK_METHOD(std::string, getReactionAnimation, (const std::string &attackAnim, CreatureWieldType targetWield, AttackReaction reaction), (const override));
@@ -249,6 +286,9 @@ public:
 
 class MockVisualEffects : public IVisualEffects, boost::noncopyable {
 public:
+    MockVisualEffects();
+    ~MockVisualEffects();
+
     MOCK_METHOD(std::optional<std::reference_wrapper<const VisualEffectDesc>>, get, (uint32_t id), (const override));
     MOCK_METHOD(int, hitVisual, (int damageSlot, bool ranged), (const override));
 };
@@ -385,7 +425,6 @@ public:
     static void setSnapshotDoorState(Door &door, DoorState state);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
-    static void markSnapshotLinkedDoorHelper(Trigger &trigger);
     static void configureSnapshotCamera(
         StaticCamera &camera, int cameraId, glm::vec3 position,
         glm::quat orientation, float pitch, float height,

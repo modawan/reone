@@ -45,6 +45,8 @@ static constexpr char kComputerSpikeTag[] = "k_computer_spike";
 static constexpr char kRepairPartTag[] = "k_repair_part";
 static constexpr float kStaticBandAlpha = 0.4f;
 static constexpr char kComputerTypesResRef[] = "comptypes";
+// The videoeffects.2da row of the security camera look without its label.
+static constexpr int kUnlabelledSecurityCameraVideoEffect = 10;
 
 void ComputerGUI::init() {
     Conversation::init();
@@ -90,8 +92,46 @@ void ComputerGUI::onLoadEntry() {
     int cameraId = 0;
     setPresentation(getCamera(cameraId) == CameraType::Static ? Presentation::Camera : Presentation::Normal);
     if (_presentation == Presentation::Camera) {
+        if (placesCameras()) {
+            aimPlacedCamera(cameraId);
+        }
         _cameraGUI.clearSelection();
+        const int effect = _currentEntry->camVidEffect;
+        // TSL: a shot carrying -2, which shows no effect there, or the
+        // security camera look without its label hides the return label.
+        const bool returnless = effect == kKeepShotVideoEffect || effect == kUnlabelledSecurityCameraVideoEffect;
+        _cameraGUI.setReturnLabelVisible(!(_game.isTSL() && returnless));
     }
+}
+
+bool ComputerGUI::placesCameras() const {
+    auto module = _game.module();
+    return module && !module->area()->getObjectsByType(ObjectType::Camera).empty();
+}
+
+// In place of a camera the area doesn't place, the dialog camera shows its
+// unturned view from the world origin.
+void ComputerGUI::aimPlacedCamera(int cameraId) {
+    auto area = _game.module()->area();
+    area->setStaticCamera(cameraId);
+    const Camera *placed = area->getCamera(CameraType::Static);
+    if (!placed || placed->cameraId() != cameraId) {
+        showShotOnDialogCamera();
+        area->getCamera<DialogCamera>(CameraType::Dialog)->takePlacedShot(glm::vec3(0.0f));
+    }
+}
+
+// An area that places no camera leaves the view as it is.
+bool ComputerGUI::takePlacedCameraView(int cameraId) {
+    if (!placesCameras()) {
+        return false;
+    }
+    Conversation::takePlacedCameraView(cameraId);
+    aimPlacedCamera(cameraId);
+    setPresentation(Presentation::Camera);
+    _cameraGUI.clearSelection();
+    _cameraGUI.setReturnLabelVisible(true);
+    return true;
 }
 
 void ComputerGUI::onEntryEnded() {

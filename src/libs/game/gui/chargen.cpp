@@ -278,7 +278,7 @@ void CharacterGeneration::startQuick() {
     _type = Type::Quick;
     showLevelUpTitle(false);
     // A quick character is given its class's feats as it is made.
-    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, kObjectTagPlayer, _game.isTSL(), true);
+    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, _game.isTSL(), true);
     updateAttributes();
     _quick->setStep(0);
     openSteps();
@@ -306,7 +306,7 @@ void CharacterGeneration::startLevelUp() {
     // While the character is debilitated, the armour's limit is not counted.
     _levelUpBase.reflexDexterityLimit = partyLeader->isDebilitated(true)
                                             ? 0
-                                            : partyLeader->defenseDexterityModifier() - _levelUpBase.dexterityModifier;
+                                            : partyLeader->getDexterityModifier(true) - _levelUpBase.dexterityModifier;
     _levelUpBase.abilitiesAccepted = false;
     setCharacter(std::move(character));
 
@@ -403,7 +403,8 @@ void CharacterGeneration::openFeatsScreen(bool bonus) {
     std::vector<FeatType> grantedFeats;
     if (_type == Type::LevelUp) {
         originalFeats = _character.attributes.feats();
-        // The game grants none of the level's feats on a bonus-only level; reone grants them as the normal screen does.
+        // On a level that offers only bonus feats, reone grants the level's
+        // feats when the bonus screen opens, as the normal screen does.
         const auto levelled = levelledAttributes();
         const auto &[clazz, classLevel] = levelled.classLevels().back();
         if (!bonus || clazz->getFeatGain(classLevel) == 0) {
@@ -471,7 +472,7 @@ std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacte
     for (auto feat : held) {
         _character.attributes.removeFeat(feat);
     }
-    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, kObjectTagPlayer, _game.isTSL(), newCharacter);
+    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, _game.isTSL(), newCharacter);
 }
 
 void CharacterGeneration::acceptAbilities() {
@@ -705,7 +706,7 @@ CreatureAttributes CharacterGeneration::levelledAttributes() const {
 std::vector<FeatType> CharacterGeneration::addLevelFeats() {
     auto levelled = levelledAttributes();
     auto partyLeader = _game.party().getLeader();
-    auto granted = _services.game.feats.addGrantedFeats(levelled, partyLeader->racialType(), partyLeader->tag(), _game.isTSL(), false);
+    auto granted = _services.game.feats.addGrantedFeats(levelled, partyLeader->racialType(), partyLeader->xp(), partyLeader->tag(), _game.isTSL(), false);
     for (auto feat : levelled.featOrder()) {
         _character.attributes.addFeat(feat);
     }

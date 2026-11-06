@@ -158,6 +158,7 @@ void OptionsMenu::clearSelection() {
     _game.saveFeedbackOptions();
     _game.saveDifficultyLevel();
     _game.saveMouseOptions();
+    _game.saveKeybindOptions();
 }
 
 void OptionsMenu::loadFeedbackPanel() {
@@ -317,7 +318,7 @@ void OptionsMenu::loadGameplayPanel() {
     });
     // The defaults are the normal difficulty and mouse look off.
     controls.BTN_DEFAULT->setOnClick([this]() {
-        _game.setClientDifficulty(kDefaultDifficultyLevel);
+        _game.setDifficultyLevel(kDefaultDifficultyLevel);
         _game.setMouseLook(false);
         showDifficulty();
         _gameplayControls.CB_INVERTCAM->setOn(false);
@@ -345,26 +346,26 @@ static int highestPickableDifficulty(const IDifficultyOptions &options) {
 }
 
 void OptionsMenu::lowerDifficulty() {
-    const int level = _game.clientDifficulty();
+    const int level = _game.difficultyLevel();
     if (level <= 0) {
         return;
     }
-    _game.setClientDifficulty(level - 1);
+    _game.setDifficultyLevel(level - 1);
     showDifficulty();
 }
 
 void OptionsMenu::raiseDifficulty() {
-    const int level = _game.clientDifficulty();
+    const int level = _game.difficultyLevel();
     if (level >= highestPickableDifficulty(_services.game.difficultyOptions)) {
         return;
     }
-    _game.setClientDifficulty(level + 1);
+    _game.setDifficultyLevel(level + 1);
     showDifficulty();
 }
 
 void OptionsMenu::showDifficulty() {
     const auto &controls = _gameplayControls;
-    const int level = _game.clientDifficulty();
+    const int level = _game.difficultyLevel();
     // A level whose name cell is blank leaves the button's text as it was.
     const int nameStrRef = _services.game.difficultyOptions.get(level).nameStrRef;
     if (nameStrRef != -1) {

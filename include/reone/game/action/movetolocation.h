@@ -82,8 +82,19 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
-    /** A saved MoveToPoint command: a walk to a point, or to an object along a point path; none unless its area is loaded, or once the object is gone. */
+    /**
+     * A saved MoveToPoint command: a walk to a point, or to an object along a
+     * point path; a walk to a point reckoned from an object at an offset
+     * comes back as a walk to the point. None unless its area is loaded, or
+     * once the object is gone.
+     */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
+    /**
+     * A saved range check in front of an action aimed at a point: a walk to
+     * the point that ends at once when the walker is already within range of
+     * it. None unless its area is loaded, or when it names an object.
+     */
+    static std::shared_ptr<Action> restoreRangeCheck(const SavedActionRecord &record, Game &game);
 
     bool isRun() const { return _run; }
     const std::shared_ptr<Location> &destination() const { return _destination; }
@@ -103,6 +114,13 @@ private:
     float _closeRange;
     bool _straight;
     ForcedState _forcedState;
+    /** A range check not yet made: the walk ends at once when the walker is within range across the ground. */
+    bool _checksRange {false};
+    /** What the walk keeps of the command it was restored from. */
+    SavedMoveCommand::Carried _carried;
+    /** The object the point was reckoned from, and where the point lies from it. */
+    uint32_t _offsetFromId {script::kObjectInvalid};
+    glm::vec2 _offset {0.0f};
 };
 
 } // namespace game

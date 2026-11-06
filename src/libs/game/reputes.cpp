@@ -28,6 +28,7 @@
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
+#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/provider/2das.h"
@@ -45,30 +46,45 @@ static constexpr int kMinRepute = 0;
 static constexpr int kHighestEnemyRepute = 10;
 static constexpr int kLowestFriendRepute = 90;
 
+// Row r holds faction r's standings and column c, after the label column, the
+// standing toward faction c. A blank label ends the table, as does a blank
+// standing, which is read as 0.
+static std::vector<std::vector<int>> readBaseStandings(const TwoDA &repute) {
+    std::vector<std::vector<int>> standings;
+    const int columnCount = static_cast<int>(repute.columns().size());
+    for (int row = 0; row < repute.getRowCount(); ++row) {
+        if (repute.getString(row, 0).empty()) {
+            break;
+        }
+        auto &faction = standings.emplace_back(columnCount, IReputes::kMaxReputation);
+        for (int column = 1; column < columnCount; ++column) {
+            const auto reputation = repute.getIntOpt(row, column);
+            faction[column] = std::clamp(reputation.value_or(0), kMinRepute, IReputes::kMaxReputation);
+            if (!reputation) {
+                return standings;
+            }
+        }
+    }
+    return standings;
+}
+
 void Reputes::init() {
+    auto repute = getRequiredTwoDA(_twoDas, "repute");
+    _baseLabels.clear();
+    for (int row = 0; row < repute->getRowCount(); ++row) {
+        _baseLabels.push_back(boost::to_lower_copy(repute->getString(row, "label")));
+    }
+    _baseStandings = readBaseStandings(*repute);
     replace(baseState());
 }
 
 IReputes::State Reputes::baseState() const {
-    std::shared_ptr<TwoDA> repute(_twoDas.get("repute"));
-    if (!repute) {
-        return State();
-    }
-
     std::vector<FactionDefinition> factions;
-    std::vector<std::string> labels;
-    factions.reserve(repute->getRowCount());
-    labels.reserve(repute->getRowCount());
-    for (int row = 0; row < repute->getRowCount(); ++row) {
-        std::string label = boost::to_lower_copy(repute->getString(row, "label"));
+    factions.reserve(_baseLabels.size());
+    for (const auto &label : _baseLabels) {
         factions.push_back({label});
-        labels.push_back(std::move(label));
     }
-
-    std::vector<std::vector<int>> values;
-    loadBase(*repute, factions.size(), values);
-
-    return {std::move(factions), std::move(labels), std::move(values)};
+    return {std::move(factions), _baseLabels, baseValues(_baseLabels.size())};
 }
 
 IReputes::State Reputes::state() const {
@@ -76,11 +92,6 @@ IReputes::State Reputes::state() const {
 }
 
 std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
-    std::shared_ptr<TwoDA> repute(_twoDas.get("repute"));
-    if (!repute) {
-        return std::nullopt;
-    }
-
     auto hasList = [&gff](std::string_view label) {
         return std::any_of(gff.fields().begin(), gff.fields().end(), [label](const Gff::Field &field) {
             return field.type == Gff::FieldType::List && boost::iequals(field.label, label);
@@ -97,8 +108,8 @@ std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
 
     std::vector<FactionDefinition> factions;
     std::vector<std::string> labels;
-    factions.reserve(std::max<size_t>(factionList.size(), repute->getRowCount()));
-    labels.reserve(std::max<size_t>(factionList.size(), repute->getRowCount()));
+    factions.reserve(std::max(factionList.size(), _baseLabels.size()));
+    labels.reserve(std::max(factionList.size(), _baseLabels.size()));
 
     for (const auto &saved : factionList) {
         std::string name;
@@ -113,16 +124,14 @@ std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
         labels.push_back(boost::to_lower_copy(name));
     }
 
-    // The game preserves saved faction IDs by list order, then appends only the
-    // base-table rows beyond the saved list's length.
-    for (int row = static_cast<int>(factions.size()); row < repute->getRowCount(); ++row) {
-        std::string label = boost::to_lower_copy(repute->getString(row, "label"));
-        factions.push_back({label});
-        labels.push_back(std::move(label));
+    // Saved factions keep their IDs in list order; only the base rows beyond
+    // the saved list's length are appended.
+    for (size_t row = factions.size(); row < _baseLabels.size(); ++row) {
+        factions.push_back({_baseLabels[row]});
+        labels.push_back(_baseLabels[row]);
     }
 
-    std::vector<std::vector<int>> values;
-    loadBase(*repute, factions.size(), values);
+    auto values = baseValues(factions.size());
 
     for (const auto &saved : repList) {
         uint32_t source = 0;
@@ -155,33 +164,14 @@ void Reputes::replace(State state) {
     _factionValues = std::move(state.values);
 }
 
-void Reputes::loadBase(
-    const TwoDA &repute,
-    size_t factionCount,
-    std::vector<std::vector<int>> &values) const {
-
-    values.assign(factionCount, std::vector<int>(factionCount, kMaxReputation));
-    // Row r holds faction r's standings and column c, after the label column,
-    // the standing toward faction c. A blank cell is read as 0 and ends the
-    // loading; cells beyond the factions are ignored.
-    const size_t columnCount = repute.columns().size();
-    for (int row = 0; row < repute.getRowCount(); ++row) {
-        for (size_t column = 0; column < columnCount; ++column) {
-            if (column == 0) {
-                if (repute.getString(row, static_cast<int>(column)).empty()) {
-                    return;
-                }
-                continue;
-            }
-            const auto reputation = repute.getIntOpt(row, static_cast<int>(column));
-            if (static_cast<size_t>(row) < factionCount && column < factionCount) {
-                values[row][column] = std::clamp(reputation.value_or(0), kMinRepute, kMaxReputation);
-            }
-            if (!reputation) {
-                return;
-            }
-        }
+// Standings beyond the factions are ignored.
+std::vector<std::vector<int>> Reputes::baseValues(size_t factionCount) const {
+    std::vector<std::vector<int>> values(factionCount, std::vector<int>(factionCount, kMaxReputation));
+    for (size_t row = 0; row < std::min(factionCount, _baseStandings.size()); ++row) {
+        const auto &standings = _baseStandings[row];
+        std::copy_n(standings.begin(), std::min(factionCount, standings.size()), values[row].begin());
     }
+    return values;
 }
 
 int Reputes::getReputation(Faction sourceFaction, Faction targetFaction) const {

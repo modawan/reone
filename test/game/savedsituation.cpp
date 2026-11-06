@@ -103,6 +103,7 @@ public:
     }
 
     Routine &get(int index) override { return *_routines.at(static_cast<size_t>(index)); }
+    bool contains(int index) const override { return index >= 0 && index < static_cast<int>(_routines.size()); }
     int getNumRoutines() const override { return static_cast<int>(_routines.size()); }
     int getIndexByName(const std::string &name) const override {
         return name == "CallerEcho" ? 0 : -1;
