@@ -40,6 +40,12 @@ static constexpr int kMapNoteSize = 14;
 static constexpr int kSelectedMapNoteSize = 20;
 
 /**
+ * The height the minimap shows an area's map at, at the layout's scale. It is
+ * the height map images are drawn at, whatever an image's own resolution.
+ */
+static constexpr float kMinimapMapHeight = 256.0f;
+
+/**
  * The fog blot is drawn several cells wide so that neighbouring blots overlap
  * into continuous cover rather than a grid of dots.
  */
@@ -68,8 +74,7 @@ void Map::retireRuntimeSession() {
 }
 
 void Map::loadTextures(const std::string &area) {
-    std::string resRef("lbl_map" + area);
-    _areaTexture = _services.resource.textures.get(resRef, TextureUsage::GUI);
+    _areaTexture = _services.resource.textures.get(AreaMapState::imageResRef(area), TextureUsage::GUI);
 
     if (!_arrowTexture) {
         _arrowTexture = _services.resource.textures.get(_arrowResRef, TextureUsage::GUI);
@@ -125,10 +130,10 @@ glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
         // The map screen lays the area's map over its map control.
         return bounds;
     }
-    // The minimap shows the map at the image's own size, at the layout's
-    // scale, and keeps the party leader under the centre of its frame.
+    // The minimap shows the map at a fixed size, at the layout's scale, and
+    // keeps the party leader under the centre of its frame.
     auto state = mapState();
-    const float height = _areaTexture->height() * scale;
+    const float height = kMinimapMapHeight * scale;
     const float width = height * state->canvasWidth() / state->canvasHeight();
 
     glm::vec2 mapPos(0.0f);

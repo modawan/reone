@@ -34,9 +34,34 @@ namespace game {
  * An area's map: the conversion between world space and the area map, and
  * which parts of the map the party has explored.
  *
- * The authored map points are fractions of the map canvas each game lays its
- * map screen out at, so the canvas sets both the pixel space positions are
- * measured in and the aspect the exploration grid takes.
+ * An area carries a map when it has both of these:
+ *
+ * - The image `lbl_map<area>`, named after the area, not the module, so
+ *   modules that share an area share its map. The image is twice as wide as
+ *   it is tall, at any resolution. KotOR shows the left 440/512 of its width.
+ *   TSL shows all of it. Without the image the area carries no map, whatever
+ *   its map settings.
+ * - The `Map` struct of the area file:
+ *   - `MapResX` is the exploration grid's width in cells. It is capped at
+ *     kMaxGridWidth, and 0 means the area carries no map. The grid's height
+ *     follows the canvas's proportions. A grid one cell wide is fully
+ *     explored as soon as the party arrives.
+ *   - `MapPt1X/Y` and `MapPt2X/Y` are two reference points on the map, as
+ *     fractions of the canvas measured from its top left. The canvas is the
+ *     part of the image the game shows.
+ *   - `WorldPt1X/Y` and `WorldPt2X/Y` are the world positions of those two
+ *     points. The two points must differ along both axes, both on the map and
+ *     in the world. Points that share a row or column leave that axis with no
+ *     scale, and the area carries no map.
+ *   - `NorthAxis` sets which world axis runs across the map: world x for 0
+ *     and 1, world y for 2 and 3. The reference points set each axis's scale
+ *     and direction. Within each pair, only the party leader's arrow differs,
+ *     by half a turn.
+ *   - `MapZoom` is 1 in every area the games ship, and the map does not use
+ *     it.
+ *
+ * Map notes are waypoints with `HasMapNote` set. Each shows its `MapNote`
+ * once `MapNoteEnabled` is on and its place is explored.
  */
 class AreaMapState {
 public:
@@ -52,12 +77,19 @@ public:
         int y {0};
     };
 
+    /** The image that carries the map of the area named \p area. */
+    static std::string imageResRef(const std::string &area);
+
     /**
-     * Takes on \p map, sizing the exploration grid and leaving it unexplored.
-     * An area whose map asks for no grid carries no map at all: it has no
-     * position on the map, nothing to explore, and nothing to save.
+     * Takes on \p map for the area named \p area, sizing the exploration grid
+     * and leaving it unexplored. An area whose map asks for no grid, or whose
+     * reference points share a row or column, carries no map at all: it has
+     * no position on the map, nothing to explore, and nothing to save.
      */
-    void load(resource::GameID gameId, const resource::generated::ARE_Map &map);
+    void load(
+        resource::GameID gameId,
+        const std::string &area,
+        const resource::generated::ARE_Map &map);
 
     bool isLoaded() const { return !_explored.empty(); }
 
