@@ -508,6 +508,9 @@ void Conversation::loadEntry(int index, bool start) {
     auto generation = _generation;
     auto dialog = _dialog; // retain nodes across callbacks, including conditions
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
+    if (start) {
+        _game.areaMusic().playDialogAmbientTrack(_dialog->ambientTrack);
+    }
     _currentEntry = &_dialog->getEntry(index);
     // An entry keeps the camera angle it is given while the conversation lasts.
     const int drawnAngle = drawCameraAngle();

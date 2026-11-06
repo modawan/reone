@@ -53,6 +53,7 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
 
     dialog->skippable = dlg.Skippable;
     dialog->cameraModel = dlg.CameraModel;
+    dialog->ambientTrack = dlg.AmbientTrack;
     dialog->endScript = dlg.EndConversation;
     dialog->abortScript = dlg.EndConverAbort;
     dialog->animatedCutscene = dlg.AnimatedCut;

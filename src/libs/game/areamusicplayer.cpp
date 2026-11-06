@@ -49,6 +49,7 @@ static constexpr uint32_t kMusicRetryMilliseconds = 10000;
 // Setting a track restarts the background music on the next update.
 static constexpr uint32_t kTrackChangeRestartMilliseconds = 1;
 static constexpr uint32_t kAmbientFadeMilliseconds = 6000;
+static constexpr uint32_t kDialogAmbientFadeMilliseconds = 500;
 static constexpr int kStingerPriorityGroup = 1;
 static constexpr int kMusicPriorityGroup = 2;
 static constexpr int kAreaWideAmbientPriorityGroup = 4;
@@ -137,6 +138,38 @@ bool AreaMusicPlayer::isAmbientPlaying() {
         }
     }
     return _ambient && _ambient->isPlaying();
+}
+
+// A fading conversation track sounds until its fade ends.
+bool AreaMusicPlayer::isDialogAmbientPlaying() {
+    if (_dialogAmbientFadeEnd) {
+        uint32_t now = _services.system.clock.millis();
+        if (now >= *_dialogAmbientFadeEnd) {
+            _dialogAmbient->stop();
+            _dialogAmbientFadeEnd.reset();
+        } else {
+            _dialogAmbient->setGainScale(static_cast<float>(*_dialogAmbientFadeEnd - now) / kDialogAmbientFadeMilliseconds);
+        }
+    }
+    return _dialogAmbient && _dialogAmbient->isPlaying();
+}
+
+// The track plays as a sound effect in the area-wide ambient priority group.
+void AreaMusicPlayer::playDialogAmbientTrack(const std::string &resRef) {
+    if (_dialogAmbient) {
+        _dialogAmbient->stop();
+        _dialogAmbient.reset();
+    }
+    _dialogAmbientFadeEnd.reset();
+    if (!resRef.empty()) {
+        _dialogAmbient = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Sound, _ambientGroupGain);
+    }
+}
+
+void AreaMusicPlayer::fadeDialogAmbientTrack() {
+    if (isDialogAmbientPlaying() && !_dialogAmbientFadeEnd) {
+        _dialogAmbientFadeEnd = _services.system.clock.millis() + kDialogAmbientFadeMilliseconds;
+    }
 }
 
 bool AreaMusicPlayer::playTrack(const std::string &resRef, bool takeLoadMusic) {
@@ -235,9 +268,10 @@ void AreaMusicPlayer::stopSoundsForMovie() {
 }
 
 // Nothing is on once the area is left, so nothing restarts until the next one
-// is loaded; a fading track still fades out.
+// is loaded; a fading track still fades out, the conversation's too.
 void AreaMusicPlayer::unload() {
     stopSounds();
+    fadeDialogAmbientTrack();
     _started = false;
     _musicOn = false;
     _battleOn = false;
@@ -415,6 +449,7 @@ void AreaMusicPlayer::ambientDayVolumeChanged(const Area &area) {
 // the music delay for background music. Music is on only while an area is
 // loaded.
 void AreaMusicPlayer::update() {
+    isDialogAmbientPlaying();
     // An ambient loop that is on but has ended, after a fade or a track
     // change, starts again.
     if (_started && _ambientOn && !_ambientFailed && !isAmbientPlaying()) {
