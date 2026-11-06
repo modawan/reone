@@ -74,7 +74,7 @@ void Map::retireRuntimeSession() {
 }
 
 void Map::loadTextures(const std::string &area) {
-    _areaTexture = _services.resource.textures.get(AreaMapState::imageResRef(area), TextureUsage::GUI);
+    _areaTexture = _services.resource.textures.get(AreaMapState::imageResRef(area), TextureUsage::AreaMap);
 
     if (!_arrowTexture) {
         _arrowTexture = _services.resource.textures.get(_arrowResRef, TextureUsage::GUI);

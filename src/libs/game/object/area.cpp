@@ -345,7 +345,7 @@ void Area::loadMap(const resource::generated::ARE &are) {
     // An area carries a map only when its map image exists. Without one its
     // map settings go unread.
     const std::string image(AreaMapState::imageResRef(_name));
-    if (_services.resource.textures.get(image, TextureUsage::GUI)) {
+    if (_services.resource.textures.get(image, TextureUsage::AreaMap)) {
         _mapState.load(_game.gameId(), _name, are.Map);
     } else if (are.Map.MapResX != 0) {
         warn(str(boost::format("Area %s carries no map: its map image %s is missing") % _name % image));
