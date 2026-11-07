@@ -623,6 +623,14 @@ private:
     };
     std::vector<PendingAnimationEvent> _pendingAnimationEvents;
 
+    // A model playing an animation once, with its ready loop to go back to.
+    struct ReadyReturn {
+        std::weak_ptr<scene::ModelSceneNode> model;
+        std::string animation;
+        std::string ready;
+    };
+    std::vector<ReadyReturn> _readyReturns;
+
     // Culled bullet models, kept for reuse: the scene graph owns every node it
     // creates until the graph is cleared, so a node per shot would accumulate
     // for the whole minigame.
@@ -709,6 +717,10 @@ private:
     void runAnimationEvents();
     void onAnimationEvent(Actor &actor, const std::string &modelName, const std::string &event);
     void playSound(const std::string &resRef, std::optional<glm::vec3> position = std::nullopt);
+    void playThenReady(const std::shared_ptr<scene::ModelSceneNode> &model,
+                       const std::string &animation,
+                       const std::string &ready);
+    void updateReadyReturns();
     void applyCameraProjection();
 
     // Hide the authored canopy glass shells for this session's cockpit only.

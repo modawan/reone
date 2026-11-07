@@ -864,6 +864,7 @@ void Turret::detachAll() {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
 
     _pendingAnimationEvents.clear();
+    _readyReturns.clear();
 
     for (auto &bullet : _bullets) {
         releaseBulletNode(bullet);
@@ -982,6 +983,7 @@ void Turret::update(float dt) {
     _elapsed += dt;
 
     runAnimationEvents();
+    updateReadyReturns();
     if (_player) {
         checkTrackLoop(*_player);
     }
@@ -1178,7 +1180,7 @@ void Turret::fire() {
             } else {
                 muzzle = bank.modelNode->absoluteTransform();
             }
-            bank.modelNode->playAnimation("fire");
+            playThenReady(bank.modelNode, "fire", "ready");
         }
         // The muzzle decides where the bolt appears and, in KotOR, where it
         // goes. The gun banks are not aligned with the hull they are mounted
@@ -1413,7 +1415,7 @@ void Turret::onDamage(Follower &follower, bool apply) {
         return;
     }
     for (auto &model : follower.models) {
-        model->playAnimation("damage");
+        playThenReady(model, "damage", "ready_01");
     }
 }
 
@@ -1637,6 +1639,46 @@ void Turret::suppressCanopyGlass() {
             continue;
         }
         node->setEnabled(false);
+    }
+}
+
+// A hit and a shot play once with the model's ready loop queued behind them:
+// once the animation has played, the model goes back to that loop. Played
+// again before then, it starts over. Another animation played over it in the
+// meantime drops the return.
+void Turret::playThenReady(const std::shared_ptr<ModelSceneNode> &model,
+                           const std::string &animation,
+                           const std::string &ready) {
+    if (!model || !model->model().getAnimation(animation)) {
+        return;
+    }
+    auto base = model->baseAnimationChannel();
+    if (base && boost::iequals(base->get().anim->name(), animation)) {
+        model->restartAnimation(animation);
+    } else {
+        model->playAnimation(animation);
+    }
+    _readyReturns.erase(std::remove_if(_readyReturns.begin(), _readyReturns.end(), [&model](const auto &pending) {
+                            return pending.model.lock() == model;
+                        }),
+                        _readyReturns.end());
+    _readyReturns.push_back({model, animation, ready});
+}
+
+void Turret::updateReadyReturns() {
+    for (auto it = _readyReturns.begin(); it != _readyReturns.end();) {
+        auto model = it->model.lock();
+        auto base = model ? model->baseAnimationChannel() : std::nullopt;
+        if (!base || !boost::iequals(base->get().anim->name(), it->animation)) {
+            it = _readyReturns.erase(it);
+            continue;
+        }
+        if (!base->get().finished) {
+            ++it;
+            continue;
+        }
+        model->playAnimation(it->ready, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+        it = _readyReturns.erase(it);
     }
 }
 
