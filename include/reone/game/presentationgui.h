@@ -19,6 +19,7 @@
 
 #include "reone/audio/source.h"
 #include "reone/graphics/options.h"
+#include "reone/gui/control/listbox.h"
 #include "reone/gui/gui.h"
 #include "reone/input/event.h"
 #include "reone/resource/types.h"
@@ -139,6 +140,12 @@ protected:
      * selected, whatever colours the list's prototype is authored in.
      */
     void useK1ListEntryColors(gui::Control &protoItem);
+    /**
+     * KotOR draws a list entry the player has not looked at yet in its new
+     * colour, selected or not, with its frames at half opacity while
+     * unselected.
+     */
+    void useK1NewEntryStyle(gui::ListBox::Item &entry) const;
     void enableK2ButtonBodyFill(gui::Control &control);
     void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);

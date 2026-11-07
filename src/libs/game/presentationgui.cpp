@@ -263,6 +263,15 @@ void PresentationGUI::useK1ListEntryColors(Control &protoItem) {
     protoItem.setHilightColor(_hilightColor);
 }
 
+void PresentationGUI::useK1NewEntryStyle(ListBox::Item &entry) const {
+    static constexpr float kNewEntryFrameAlpha = 0.5f;
+    if (isTSL()) {
+        return;
+    }
+    entry.frameColor = kGUIColorNew;
+    entry.frameAlpha = kNewEntryFrameAlpha;
+}
+
 void PresentationGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {
     auto &root = _gui->rootControl();
     auto authored = root.authoredExtent();

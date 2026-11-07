@@ -56,8 +56,13 @@ public:
     void render() override;
 
     void openEquipment();
-    /** End the equipment screen's session and forget the character it browsed. */
-    void closeEquipment();
+    /**
+     * The menu leaves its tab for \p next (None when the menu closes): the
+     * equipment screen ends its session, and what the inventory and the
+     * journal showed as new and the player looked at is no longer new. A tab
+     * opened again is not left.
+     */
+    void leaveTab(InGameMenuTab next);
     /** The roster index of the companion the equipment screen browses; -1 for the player or when it browses none. */
     int inventoryCharacter() const;
     /** The character the equipment screen shows: the browsed roster member, or else the leader. */
@@ -80,6 +85,9 @@ public:
     InGameMenuTab activeTab() const;
 
 private:
+    /** End the equipment screen's session and forget the character it browsed. */
+    void closeEquipment();
+
     std::unique_ptr<InGameMenuHost> _host;
     /** The equipment screen's session is open. */
     bool _equipmentOpen {false};

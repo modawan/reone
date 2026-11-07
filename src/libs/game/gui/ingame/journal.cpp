@@ -90,12 +90,38 @@ void JournalMenu::refresh() {
         ListBox::Item item;
         item.tag = quest.plotId;
         item.text = std::move(name);
+        if (quest.unread) {
+            useK1NewEntryStyle(item);
+        }
         _controls.LB_ITEMS->addItem(std::move(item));
     }
+    _shownQuest.clear();
+}
+
+// A new quest read in the journal shows as new until another is read, and
+// stops being new once the journal is left.
+void JournalMenu::markReadQuestsSeen() {
+    Journal &journal = _game.journal();
+    for (const auto &plotId : _readQuests) {
+        journal.markRead(plotId);
+    }
+    _readQuests.clear();
 }
 
 void JournalMenu::refreshEntryText(const std::string &plotId) {
     _controls.LBL_ITEM_DESCRIPTION->clearItems();
+
+    if (!_shownQuest.empty() && _shownQuest != plotId) {
+        for (int i = 0; i < _controls.LB_ITEMS->getItemCount(); ++i) {
+            if (_controls.LB_ITEMS->getItemAt(i).tag == _shownQuest) {
+                _controls.LB_ITEMS->clearItemFrameStyle(i);
+            }
+        }
+    }
+    _shownQuest = plotId;
+    if (std::find(_readQuests.begin(), _readQuests.end(), plotId) == _readQuests.end()) {
+        _readQuests.push_back(plotId);
+    }
 
     Journal &journal = _game.journal();
     std::string text(journal.getEntryText(plotId, journal.getEntryState(plotId)));

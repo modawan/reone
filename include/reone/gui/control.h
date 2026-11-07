@@ -220,6 +220,8 @@ public:
     int textPaddingLeft() const;
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
+    bool usesBorderColorOverride() const { return _useBorderColorOverride; }
+    const glm::vec3 &borderColorOverride() const { return _borderColorOverride; }
     void setVisible(bool visible);
 
     void setTextLines(std::vector<std::string> lines) {

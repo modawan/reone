@@ -674,6 +674,7 @@ ItemTransfer transferItemTo(
         if (!releaseAreaOwnedItem(game, item)) {
             return {};
         }
+        game.party().noteItemReceived(*item, receiver, nullptr);
         return {true, receiver.addItem(item)};
     }
 
@@ -689,6 +690,7 @@ ItemTransfer transferItemTo(
         return {};
     }
 
+    game.party().noteItemReceived(*item, receiver, owner.get());
     return {true, receiver.addItem(item)};
 }
 

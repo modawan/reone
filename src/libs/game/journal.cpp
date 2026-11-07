@@ -122,7 +122,7 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
 
     Quest *quest = findQuest(plotId);
     if (!quest) {
-        _quests.push_back({plotId, state, 0, 0});
+        _quests.push_back({plotId, state, 0, 0, true});
         notifyQuestChanged(category, entry);
         return true;
     }
@@ -133,8 +133,15 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
         return false;
     }
     quest->state = state;
+    quest->unread = true;
     notifyQuestChanged(category, entry);
     return true;
+}
+
+void Journal::markRead(const std::string &plotId) {
+    if (Quest *quest = findQuest(plotId)) {
+        quest->unread = false;
+    }
 }
 
 void Journal::notifyQuestChanged(const JRL::Category *category, const JRL::Entry *entry) {

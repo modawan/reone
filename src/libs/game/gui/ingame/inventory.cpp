@@ -51,6 +51,8 @@ static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::
 static InventoryFilter nextK1Filter(InventoryFilter filter) {
     switch (filter) {
     case InventoryFilter::All:
+        return InventoryFilter::New;
+    case InventoryFilter::New:
         return InventoryFilter::Quest;
     case InventoryFilter::Quest:
         return InventoryFilter::Equippable;
@@ -344,6 +346,7 @@ void InventoryMenu::refreshItems(int selectedRow) {
         row.iconTexture = item.icon;
         row.iconFrame = itemFrameTexture(item.stackSize);
         if (item.stackSize > 1) row.iconText = std::to_string(item.stackSize);
+        if (item.newlyAcquired) useK1NewEntryStyle(row);
         _controls.LB_ITEMS->addItem(std::move(row));
     }
     if (!_listedItems.empty()) {
@@ -375,9 +378,19 @@ void InventoryMenu::updateItemDescription() {
         _controls.LB_DESCRIPTION->clearItems();
     }
 
-    if (selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size()) && _controls.LB_DESCRIPTION)
-        _controls.LB_DESCRIPTION->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
+    if (selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size())) {
+        if (_controls.LB_DESCRIPTION) {
+            _controls.LB_DESCRIPTION->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
+        }
+        _backing->noteItemViewed(_listedItems[selectedItemIdx].handle);
+    }
     updateUseItemButton();
+}
+
+void InventoryMenu::markViewedItemsSeen() {
+    if (_backing) {
+        _backing->markViewedItemsSeen();
+    }
 }
 
 // An entry either uses its item at once, shows why it cannot, or does nothing.
