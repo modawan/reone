@@ -256,6 +256,23 @@ void Texture::refresh2D() {
 
 void Texture::refresh2DArray() {
     int numLayers = static_cast<int>(_layers.size());
+    if (isCompressed(_pixelFormat)) {
+        ByteBuffer pixels;
+        for (const auto &layer : _layers) {
+            if (!layer.pixels) {
+                throw std::logic_error("Compressed texture array has a layer without pixels: " + _name);
+            }
+            pixels.insert(pixels.end(), layer.pixels->begin(), layer.pixels->end());
+        }
+        glCompressedTexImage3D(
+            GL_TEXTURE_2D_ARRAY,
+            0,
+            getInternalPixelFormatGL(_pixelFormat),
+            _width, _height, numLayers,
+            0,
+            static_cast<GLsizei>(pixels.size()), pixels.data());
+        return;
+    }
     glTexImage3D(
         GL_TEXTURE_2D_ARRAY,
         0,

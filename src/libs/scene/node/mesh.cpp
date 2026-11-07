@@ -113,18 +113,6 @@ void MeshSceneNode::updateUVAnimation(float dt, const ModelNode::TriangleMesh &m
     }
 }
 
-// A cycling bump map shows its frames in turn on the scene's texture clock,
-// which a pause doesn't stop.
-static int bumpmapCycleFrame(const Texture &bumpmap, float time) {
-    const Texture::Features &features = bumpmap.features();
-    if (features.procedureType != Texture::ProcedureType::Cycle) {
-        return 0;
-    }
-    int frameCount = features.numX * features.numY;
-    float length = frameCount / static_cast<float>(features.fps);
-    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
-}
-
 static std::string vectorToString(const glm::vec3 &vec) {
     return str(boost::format("[%.04f, %.04f, %.04f]") % vec.x % vec.y % vec.z);
 }
@@ -393,6 +381,17 @@ void MeshSceneNode::renderProjectedBeam(IRenderPass &pass) {
     pass.drawProjectedBeam(*beam.mesh, _absTransform, _absTransformInv, kProjectedBeamColor);
 }
 
+// A main texture of frames is drawn one frame at a time, on the scene's
+// texture clock.
+void MeshSceneNode::addMainTexture(Material &material, Texture &texture) const {
+    if (texture.is2DArray()) {
+        material.textures.insert({TextureUnits::mainTexArray, texture});
+        material.mainTexFrame = getCycleFrame(texture, _sceneGraph.textureTime());
+    } else {
+        material.textures.insert({TextureUnits::mainTex, texture});
+    }
+}
+
 void MeshSceneNode::render(IRenderPass &pass) {
     if (_projectedBeam) {
         renderProjectedBeam(pass);
@@ -407,7 +406,7 @@ void MeshSceneNode::render(IRenderPass &pass) {
     material.type = isTransparent()
                         ? MaterialType::TransparentModel
                         : MaterialType::OpaqueModel;
-    material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
+    addMainTexture(material, *_nodeTextures.diffuse);
     if (_nodeTextures.lightmap) {
         material.textures.insert({TextureUnits::lightmap, *_nodeTextures.lightmap});
     }
@@ -421,7 +420,9 @@ void MeshSceneNode::render(IRenderPass &pass) {
     if (_nodeTextures.bumpmap) {
         if (_nodeTextures.bumpmap->isGrayscale()) {
             material.textures.insert({TextureUnits::bumpMapArray, *_nodeTextures.bumpmap});
-            material.bumpMapFrame = bumpmapCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
+            // A cycling bump map runs on the scene's texture clock, which a
+            // pause doesn't stop.
+            material.bumpMapFrame = getCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
         } else {
             material.textures.insert({TextureUnits::normalMap, *_nodeTextures.bumpmap});
         }
@@ -476,7 +477,7 @@ void MeshSceneNode::applyForceSight(Material &material) const {
 void MeshSceneNode::renderBumpedOutShell(IRenderPass &pass, Texture &texture, float offset) {
     Material material;
     material.type = MaterialType::TransparentModel;
-    material.textures.insert({TextureUnits::mainTex, texture});
+    addMainTexture(material, texture);
     material.color = glm::vec4(1.0f);
     material.ambientColor = glm::vec3(1.0f);
     material.diffuseColor = glm::vec3(1.0f);

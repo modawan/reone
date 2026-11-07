@@ -90,8 +90,8 @@ void RetroRenderPass::withMaterialAppliedToContext(const Material &material, std
 int RetroRenderPass::materialFeatureMask(const Material &material) const {
     int mask = 0;
     const auto &textures = material.textures;
-    if (textures.count(TextureUnits::mainTex) > 0) {
-        const auto &mainTex = textures.at(TextureUnits::mainTex).get();
+    if (auto mainTexture = material.mainTexture()) {
+        const auto &mainTex = mainTexture->get();
         switch (mainTex.features().blending) {
         case Texture::Blending::PunchThrough:
             mask |= UniformsFeatureFlags::hashedalphatest;
@@ -108,6 +108,9 @@ int RetroRenderPass::materialFeatureMask(const Material &material) const {
         if (mainTex.features().waterAlpha != -1.0f) {
             mask |= UniformsFeatureFlags::water;
         }
+    }
+    if (textures.count(TextureUnits::mainTexArray) > 0) {
+        mask |= UniformsFeatureFlags::maintexarray;
     }
     if (textures.count(TextureUnits::lightmap) > 0) {
         mask |= UniformsFeatureFlags::lightmap;
@@ -321,12 +324,13 @@ void RetroRenderPass::applyMaterialToLocals(const Material &material,
     locals.selfIllumColor = glm::vec4(material.selfIllumColor, 1.0f);
     locals.forceSightColor = material.forceSightColor;
     locals.shellOffset = material.shellOffset;
-    if (material.textures.count(TextureUnits::mainTex) > 0) {
-        const auto &mainTex = material.textures.at(TextureUnits::mainTex).get();
+    if (auto mainTexture = material.mainTexture()) {
+        const auto &mainTex = mainTexture->get();
         if (mainTex.features().waterAlpha != -1.0f) {
             locals.waterAlpha = mainTex.features().waterAlpha;
         }
     }
+    locals.mainTexFrame = material.mainTexFrame;
     if (material.textures.count(TextureUnits::bumpMapArray) > 0) {
         const auto &bumpmap = material.textures.at(TextureUnits::bumpMapArray).get();
         locals.bumpMapFrame = material.bumpMapFrame;

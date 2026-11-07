@@ -36,8 +36,8 @@ void TpcReader::load() {
     _encoding = static_cast<EncodingType>(_tpc.readByte());
     _numMipMaps = _tpc.readByte();
 
-    bool cubemap = height / width == kNumCubeFaces;
-    if (cubemap) {
+    _cubeMap = height / width == kNumCubeFaces;
+    if (_cubeMap) {
         _width = width;
         _height = width;
         _numLayers = kNumCubeFaces;
@@ -58,6 +58,7 @@ void TpcReader::load() {
 
     loadLayers();
     loadFeatures();
+    splitCycleFrames();
     loadTexture();
 }
 
@@ -95,11 +96,55 @@ void TpcReader::loadFeatures() {
     _features = reader.features();
 }
 
+// A TPC that cycles through frames stores them one after another, each
+// (width / numx) x (height / numy) with its own mip chain, not as a grid of
+// frames in one image. Its header claims one mip map and a data size that
+// spans every frame, so the whole run is read as the first layer; it becomes
+// one layer per frame, each frame's top mip map.
+void TpcReader::splitCycleFrames() {
+    if (_features.procedureType != Texture::ProcedureType::Cycle ||
+        !_compressed ||
+        _cubeMap) {
+        return;
+    }
+    int numFrames = _features.numX * _features.numY;
+    if (numFrames <= 1) {
+        return;
+    }
+    int frameWidth = _width / _features.numX;
+    int frameHeight = _height / _features.numY;
+    if (frameWidth == 0 || frameHeight == 0) {
+        return;
+    }
+    const ByteBuffer &data = *_layers.front().pixels;
+    size_t frameChainSize = getMipMapChainDataSize(frameWidth, frameHeight);
+    if (data.size() != numFrames * frameChainSize) {
+        return;
+    }
+    size_t frameSize = getMipMapDataSize(frameWidth, frameHeight);
+    std::vector<Texture::Layer> frames;
+    frames.reserve(numFrames);
+    for (int i = 0; i < numFrames; ++i) {
+        auto frameBegin = data.begin() + i * frameChainSize;
+        auto pixels = std::make_shared<ByteBuffer>(frameBegin, frameBegin + frameSize);
+        frames.push_back(Texture::Layer {std::move(pixels)});
+    }
+    _width = frameWidth;
+    _height = frameHeight;
+    _numLayers = numFrames;
+    _layers = std::move(frames);
+}
+
 void TpcReader::loadTexture() {
-    _texture = std::make_shared<Texture>(
-        _resRef,
-        _numLayers == kNumCubeFaces ? TextureType::CubeMap : TextureType::TwoDim,
-        getTextureProperties(_usage));
+    TextureType type;
+    if (_cubeMap) {
+        type = TextureType::CubeMap;
+    } else if (_numLayers > 1) {
+        type = TextureType::TwoDimArray;
+    } else {
+        type = TextureType::TwoDim;
+    }
+    _texture = std::make_shared<Texture>(_resRef, type, getTextureProperties(_usage));
     _texture->setPixels(_width, _height, getPixelFormat(), _layers);
     _texture->setFeatures(_features);
 }
@@ -131,6 +176,19 @@ int TpcReader::getMipMapDataSize(int width, int height) const {
     }
 
     throw std::logic_error("Unable to compute TPC mip map size");
+}
+
+size_t TpcReader::getMipMapChainDataSize(int width, int height) const {
+    size_t size = 0;
+    while (true) {
+        size += getMipMapDataSize(width, height);
+        if (width == 1 && height == 1) {
+            break;
+        }
+        width = glm::max(1, width / 2);
+        height = glm::max(1, height / 2);
+    }
+    return size;
 }
 
 PixelFormat TpcReader::getPixelFormat() const {

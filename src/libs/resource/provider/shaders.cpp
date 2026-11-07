@@ -272,6 +272,7 @@ std::shared_ptr<ShaderProgram> Shaders::initShaderProgram(std::vector<std::share
     program->setUniform("sBRDFLUT", TextureUnits::brdfLUT);
     program->setUniform("sIrradianceMapArray", TextureUnits::irradianceMapArray);
     program->setUniform("sPrefilteredEnvMapArray", TextureUnits::prefilteredEnvMapArray);
+    program->setUniform("sMainTexArray", TextureUnits::mainTexArray);
 
     // Uniform Blocks
     program->bindUniformBlock("Globals", UniformBlockBindingPoints::globals);
