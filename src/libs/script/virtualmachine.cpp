@@ -429,9 +429,12 @@ void VirtualMachine::executeACTION(const Instruction &ins) {
         break;
     }
     case VariableType::Vector: {
-        _stack.push_back(Variable::ofFloat(retValue.vecValue.z));
-        _stack.push_back(Variable::ofFloat(retValue.vecValue.y));
+        // A vector lies on the stack with x deepest and z on top, as vector
+        // arguments are read and as vector arithmetic pushes its results, so
+        // a vector one routine returns reaches the next unchanged.
         _stack.push_back(Variable::ofFloat(retValue.vecValue.x));
+        _stack.push_back(Variable::ofFloat(retValue.vecValue.y));
+        _stack.push_back(Variable::ofFloat(retValue.vecValue.z));
         logResults(3);
         break;
     }
