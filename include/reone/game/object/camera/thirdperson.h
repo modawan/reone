@@ -48,6 +48,11 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void stopMovement() override;
+    /**
+     * Whether the mouse turns the camera: while the right button or a Ctrl key
+     * holds mouse look, or, with the Mouse Look option, while neither does.
+     */
+    bool isMouseLookMode() const override;
 
     void setTargetPosition(glm::vec3 position);
     /** The point the camera follows: the leader's camera hook. */
@@ -92,6 +97,21 @@ public:
     void startDeathOrbit(const std::shared_ptr<Object> &target, const glm::mat4 &view);
     bool isDeathOrbit() const { return _deathOrbit; }
 
+    /**
+     * Play moves the limits the view tilts within. Under mouse look without
+     * the left button, while the mouse moves vertically or the tilt-up limit
+     * is above zero, they widen to the style's free-look limits; otherwise
+     * each above the style's tilt limit comes down toward it at 180 degrees a
+     * second. Then mouse look with the left button held, unless the keys
+     * steer back, brings each above zero down toward zero at the same rate,
+     * centring the view. A style sets the limits to its own tilt limits.
+     *
+     * @param leftButtonHeld whether the left button is held
+     * @param steersBack whether the movement keys steer the leader back
+     * @param dt the seconds since the last update
+     */
+    void updateTiltLimits(bool leftButtonHeld, bool steersBack, float dt);
+
 private:
     CameraStyle _style;
 
@@ -105,13 +125,11 @@ private:
     float _turnInput {0.0f};    /**< turn input of the previous frame */
     float _mouseTurn {0.0f};    /**< mouse travel this frame while looking */
     float _mouseRise {0.0f};    /**< vertical mouse travel this frame */
-    float _mouseTilt {0.0f};    /**< TSL: the tilt the last mouse look asked for */
-    /**
-     * The tilt the view keeps, in degrees: TSL's offset from level, KotOR's
-     * pitch the view eases to.
-     */
+    /** The view's tilt from tiltCentre, in degrees, toward the tilt-down limit taken positive. */
     float _tiltOffset {0.0f};
     float _viewPitch {0.0f}; /**< the view's pitch, in degrees from straight down */
+    float _lookUp {0.0f};    /**< how far the view may tilt up, in degrees (see updateTiltLimits) */
+    float _lookDown {0.0f};  /**< how far the view may tilt down, in degrees (see updateTiltLimits) */
     glm::vec3 _eyePosition {0.0f};
 
     // Look-at swing
@@ -144,12 +162,18 @@ private:
     void updateSceneNode();
     /** Places the combat camera behind the target, pulled in where the view is obstructed. */
     void updateCombatSceneNode();
-    /** Turns the camera outside combat by the mouse look's travel this frame. */
-    void updateMouseTurn();
+    /** Turns the camera outside combat by the mouse look's travel over \p dt seconds. */
+    void updateMouseTurn(float dt);
     /** Tilts the view outside combat by the mouse's vertical travel over \p dt seconds. */
     void updateTilt(float dt);
-    /** Starts the tilt when the camera is built: at the style pitch, held within the style's limits in TSL. */
+    /** Starts the tilt when the camera is built: at the style's pitch, held within its limits. */
     void resetTilt();
+    /** The pitch the tilt is measured from, as the title's camera styles measure it. */
+    float tiltCentre() const;
+    /** 1 when a greater tilt offset raises the pitch, -1 when it lowers it, as the title's camera styles measure it. */
+    float tiltSign() const;
+    /** Holds the tilt within the tilt limits and sets the view's pitch from it. */
+    void clampTilt();
     /** Turns the combat camera by \p dt seconds of the turn keys or the mouse look. */
     void updateCombatTurn(float dt);
     /** The degrees the combat camera turns over \p dt seconds under the turn \p input. */

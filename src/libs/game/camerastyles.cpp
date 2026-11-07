@@ -48,11 +48,12 @@ void CameraStyles::init() {
         style->height = twoDa->getFloat(row, "height");
         style->tiltUp = twoDa->getFloat(row, "tiltup");
         style->tiltDown = twoDa->getFloat(row, "tiltdown");
-        style->tiltSpeed = twoDa->getFloat(row, "tiltspeed");
         style->freeLookTiltSpeed = twoDa->getFloat(row, tiltSpeedColumn);
         style->freeLookRotateSpeed = twoDa->getFloat(row, rotateSpeedColumn);
         style->freeLookUp = twoDa->getFloat(row, "fl_lookup");
         style->freeLookDown = twoDa->getFloat(row, "fl_lookdown");
+        style->minTurnRate = twoDa->getFloat(row, "minturnrate");
+        style->maxTurnRate = twoDa->getFloat(row, "maxturnrate");
         _styles.push_back(std::move(style));
     }
 }

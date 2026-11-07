@@ -116,6 +116,8 @@ public:
     virtual void setVideoEffect(std::optional<VideoEffect> effect) = 0;
     /** Whether the video effect turns the scene to Force Sight. */
     virtual bool isForceSightEnabled() const = 0;
+    /** Turns off the Force Sight look of the video effect, keeping its other parts. */
+    virtual void clearForceSight() = 0;
     /** The Force Sight glow's pulse, between 0.5 and 1. */
     virtual float forceSightPulse() const = 0;
     /** Seconds the scene has been shown for, a pause included: texture procedures run on it. */
@@ -283,6 +285,11 @@ public:
     bool isSpeedBlurEnabled() const override { return _frameEffects.speedBlur; }
     void setVideoEffect(std::optional<VideoEffect> effect) override { _frameEffects.videoEffect = std::move(effect); }
     bool isForceSightEnabled() const override { return _frameEffects.videoEffect && _frameEffects.videoEffect->forceSight; }
+    void clearForceSight() override {
+        if (_frameEffects.videoEffect) {
+            _frameEffects.videoEffect->forceSight = false;
+        }
+    }
     float forceSightPulse() const override;
     float textureTime() const override { return _textureTime; }
 

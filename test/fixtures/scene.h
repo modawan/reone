@@ -43,6 +43,7 @@ public:
     MOCK_METHOD(bool, isSpeedBlurEnabled, (), (const override));
     MOCK_METHOD(void, setVideoEffect, (std::optional<VideoEffect>), (override));
     MOCK_METHOD(bool, isForceSightEnabled, (), (const override));
+    MOCK_METHOD(void, clearForceSight, (), (override));
     MOCK_METHOD(float, forceSightPulse, (), (const override));
     MOCK_METHOD(float, textureTime, (), (const override));
 

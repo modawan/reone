@@ -1089,6 +1089,19 @@ bool Game::handle(const input::Event &event) {
         event.type != input::EventType::MouseButtonUp) {
         return true;
     }
+    // The left button's state follows its every press and release, before any
+    // screen takes them.
+    if ((event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+        event.button.button == input::MouseButton::Left) {
+        _leftButtonHeld = event.type == input::EventType::MouseButtonDown;
+    }
+    // In KotOR the right button's every press and release starts and ends the
+    // mouse-look hold, whatever screen takes them.
+    if (!isTSL() &&
+        (event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+        event.button.button == input::MouseButton::Right) {
+        _mouseLookHeld = event.type == input::EventType::MouseButtonDown;
+    }
     if (isCoolingDown(event)) {
         return true;
     }
@@ -1981,6 +1994,9 @@ bool Game::loadPreparedModule(
                 _dialogUnderWay = false;
                 dropConversationRequest();
                 _conversationRequestAdmitted = false;
+                if (isTSL()) {
+                    _mouseLookHeld = false;
+                }
 
                 const auto &ifo = prepared.ifo;
                 ModuleLoadContext context = prepared.context;
@@ -3579,10 +3595,17 @@ bool Game::handleFreeLookKey(const input::KeyEvent &event) {
     if (!_freeLook) {
         return false;
     }
+    // The turn keys only leave free-look; TSL's also end the party-target mode.
+    auto &keybinds = _options.game.activeKeybinds();
+    if (keybinds.cameraRotateLeft.check(event.code) || keybinds.cameraRotateRight.check(event.code)) {
+        if (isTSL()) {
+            cancelPartyItemTarget();
+        }
+        exitFreeLook();
+        return true;
+    }
     switch (event.code) {
     // Selection, the solo query and the menu keys only leave free-look.
-    case input::KeyCode::Q:
-    case input::KeyCode::E:
     case input::KeyCode::V:
     case input::KeyCode::Escape:
     case input::KeyCode::Return:
@@ -4657,6 +4680,16 @@ void Game::enableVideoEffect(int row) {
     _services.scene.graphs.get(kSceneMain).setVideoEffect(std::move(effect));
 }
 
+// TSL's dialog mode turns off the Force Sight look until a video effect is
+// next shown.
+static constexpr int kDialogCameraMode = 4;
+
+void Game::setCameraMode(int mode) {
+    if (isTSL() && mode == kDialogCameraMode) {
+        _services.scene.graphs.get(kSceneMain).clearForceSight();
+    }
+}
+
 void Game::disableVideoEffect() {
     if (_videoEffectType == kNoVideoEffect) {
         return;
@@ -5172,6 +5205,11 @@ void Game::updateMusic(float frameTime) {
     _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, kMusicSoundGroup);
 }
 
+void Game::releaseInputOnModuleEntry() {
+    _leftButtonHeld = false;
+    _alternateActionsHeld = false;
+}
+
 void Game::loadNextModule() {
     std::string target(_nextModule);
 
@@ -5191,6 +5229,7 @@ void Game::loadNextModule() {
     }
     bool wasLifecycleActive = _swoopLifecycle.active || _turretLifecycle.active;
 
+    releaseInputOnModuleEntry();
     bool loaded = loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
@@ -5285,6 +5324,12 @@ void Game::stopMovement() {
         camera->stopMovement();
     }
     _module->player().stopMovement();
+}
+
+void Game::resetDriveAcceleration() {
+    if (_module) {
+        _module->resetPlayerDrive();
+    }
 }
 
 void Game::scheduleModuleTransition(const std::string &moduleName, const std::string &entry) {
@@ -5397,6 +5442,14 @@ void Game::updateCamera(float dt) {
     }
     Camera *camera = getActiveCamera();
     if (camera) {
+        // Play moves the view's tilt limits each frame, while the leader is not
+        // down for the moment.
+        if (_screen == Screen::InGame) {
+            auto leader = _party.getLeader();
+            if (leader && !leader->isTemporarilyDead()) {
+                thirdPerson.updateTiltLimits(_leftButtonHeld, _module->player().steersBack(), dt);
+            }
+        }
         // An animated camera's shot stands still while the world is held, the
         // player's pause included.
         camera->update(_cameraType == CameraType::Animated && holdsWorld() ? 0.0f : dt);
@@ -7100,12 +7153,19 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
     return cone;
 }
 
-// Direct movement out of combat mode lets go of the target after half a second.
+// Driving out of combat mode lets go of the target after half a second of
+// world time.
 void Game::releaseTargetOnMove(float frameTime) {
-    // A deferred autopause holds the target too.
-    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
-        _module->isPlayerMoving()) {
-        _targetMoveTime += frameTime;
+    // While the leader is down for the moment, the count stands as it is.
+    auto leader = _party.getLeader();
+    if (leader && leader->isTemporarilyDead()) {
+        return;
+    }
+    // A deferred autopause holds the target too. World time stands still while
+    // paused and in a time stop.
+    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() &&
+        _module->player().driveSpeed() >= Player::kMovingDriveSpeed) {
+        _targetMoveTime += _paused || _timeStopped ? 0.0f : frameTime * _gameSpeed * _deathTimeScale;
         if (_targetMoveTime >= kTargetMoveSpeedTime) {
             _targetMoveTime = 0.0f;
             _lastTarget.reset();
@@ -7888,8 +7948,10 @@ void Game::finishSwoopLifecycle(bool success) {
     closeSwoopRace();
 
     // Return to the originating module using its race-end waypoint when known.
-    // Otherwise restore the saved pre-race position.
+    // Otherwise restore the saved pre-race position. Like any module entry,
+    // the return lets go of the held input.
     const auto returnWaypoint = swoopReturnWaypoint(raceModule);
+    releaseInputOnModuleEntry();
     if (!returnWaypoint.empty()) {
         debug(str(boost::format("swoop: return waypoint=%s") % returnWaypoint));
         loadModule(session.originModule, returnWaypoint);
@@ -8114,6 +8176,7 @@ void Game::returnToLifecycleOrigin(const std::string &module,
     if (module.empty()) {
         return;
     }
+    releaseInputOnModuleEntry();
     loadModule(module);
     if (!haveOrigin) {
         return;

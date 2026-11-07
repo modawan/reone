@@ -5518,13 +5518,15 @@ static Variable CutsceneAttack(const std::vector<Variable> &args, const RoutineC
 
 static Variable SetCameraMode(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlayer = getObject(args, 0, ctx);
+    auto oPlayer = getObjectOrNull(args, 0, ctx);
     auto nCameraMode = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetCameraMode");
+    // The mode reaches the player only when the object is the controlled one.
+    if (oPlayer && oPlayer == ctx.game.party().getLeader()) {
+        ctx.game.setCameraMode(nCameraMode);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetLockOrientationInDialog(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6957,6 +6959,7 @@ static Variable PlayMovie(const std::vector<Variable> &args, const RoutineContex
     auto movie = boost::to_lower_copy(sMovie);
 
     // Execute
+    ctx.game.resetDriveAcceleration();
     ctx.game.playVideo(movie, nStreamingMusic != 0);
     return Variable::ofNull();
 }

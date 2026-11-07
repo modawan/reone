@@ -597,6 +597,9 @@ bool DriveAction::runs(const Creature &creature) const {
 }
 
 float DriveAction::speed(const Creature &creature) const {
+    if (_speed) {
+        return *_speed;
+    }
     return runs(creature) ? creature.runSpeed() : creature.walkSpeed();
 }
 
@@ -609,7 +612,7 @@ void DriveAction::execute(std::shared_ptr<Action> self, Object &actor, float dt)
     }
     const bool run = runs(*creature);
     // Driving releases the creature's orientation lock and ends its engaged
-    // exchange, and the creature turns at once toward where it is steered.
+    // exchange, and the creature faces where it is steered.
     creature->dropOrientationLock();
     creature->setEngagedExchange(false);
     creature->setFacing(-glm::atan(_direction.x, _direction.y));
