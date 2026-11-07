@@ -79,6 +79,7 @@ void ContainerGUI::configureItemsListBox() {
     text.align = Control::TextAlign::LeftCenter;
 
     protoItem.setText(text);
+    useK1ItemEntryColors(protoItem);
 
     _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &tag) {
         onItemDoubleClick(tag);
