@@ -1480,7 +1480,9 @@ void Turret::destroyObstacle(Obstacle &obstacle) {
 }
 
 // A follower plays an animation on each of its models, an obstacle on its
-// model. No name would stop every animation, which is not supported.
+// model. No name would stop every animation, which is not supported. An
+// overlay goes over whatever plays and stays over the animations played after
+// it, as the radar's lost contacts stay over the health gauge.
 void Turret::playAnimation(Actor &actor, const std::string &name, bool looping, bool overlay) {
     if (name.empty()) {
         return;
@@ -1490,7 +1492,7 @@ void Turret::playAnimation(Actor &actor, const std::string &name, bool looping, 
         flags |= AnimationFlags::loop;
     }
     if (overlay) {
-        flags |= AnimationFlags::overlay;
+        flags |= AnimationFlags::layer;
     }
     for (auto &model : actor.models) {
         model->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
