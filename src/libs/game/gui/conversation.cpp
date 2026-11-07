@@ -317,9 +317,13 @@ void Conversation::unequipNodeAnimationParticipants(const Dialog::EntryReply &no
     }
 }
 
-// Only a creature holds items to put away.
+// Only a creature holds items to put away, and a participant who is not
+// there holds none.
 void Conversation::unequipNodeParticipant(const std::shared_ptr<Object> &object) {
-    auto creature = std::dynamic_pointer_cast<Creature>(object);
+    if (!object) {
+        return;
+    }
+    auto creature = dyn_cast<Creature>(object);
     if (!creature) {
         return;
     }
