@@ -146,6 +146,10 @@ struct Dialog {
     /** Shots frame the participants' models where they stand, rather than their camera hooks. */
     bool oldHitCheck {false};
     std::vector<Stunt> stunts;
+    /** The conversation puts away the items in its participants' hands while it lasts. */
+    bool unequipItems {false};
+    /** The conversation puts away the items on its participants' heads while it lasts. */
+    bool unequipHeadItem {false};
     ConversationType conversationType {ConversationType::Cinematic};
     ComputerType computerType {ComputerType::Normal};
 

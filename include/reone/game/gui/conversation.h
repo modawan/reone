@@ -263,6 +263,8 @@ private:
     uint64_t _generation {0};
     /** The objects this conversation has made its participants. */
     std::vector<RuntimeObjectRef<Object>> _dialogParticipants;
+    /** The creatures this conversation has put items away for. */
+    std::vector<RuntimeObjectRef<Creature>> _unequippedCreatures;
 
     /**
      * A walk through a cycle of values, which starts where the dialog's name
@@ -316,8 +318,20 @@ private:
 
     /** Make \p object a participant of this conversation, unless another conversation still holds it. */
     void attachDialogParticipant(const std::shared_ptr<Object> &object);
-    /** Release the participants that \p owner's conversation still holds. */
+    /**
+     * Release the participants that \p owner's conversation still holds, and
+     * give back the items it put away.
+     */
     void releaseDialogParticipants(const std::shared_ptr<Object> &owner);
+    /**
+     * A dialog that unequips puts away the items of the creatures a node
+     * shows: an entry's speaker and listener, the player character, and the
+     * creatures it animates; a reply's listener and the creatures it animates.
+     */
+    void unequipEntryParticipants();
+    void unequipReplyParticipants();
+    void unequipNodeParticipant(const std::shared_ptr<Object> &object);
+    void unequipNodeAnimationParticipants(const resource::Dialog::EntryReply &node);
     /** Run the end-dialogue scripts of the creatures and placeables in \p owner's area. */
     void runAreaEndDialogScripts(const Object &owner);
 
