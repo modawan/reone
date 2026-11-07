@@ -169,6 +169,10 @@ public:
     /** Applies independent frame and text layout scales without changing the control's rectangle. */
     virtual void setPresentationScale(float frameLayoutScale, float textLayoutScale);
     const Extent &extent() const { return _extent; }
+    /** The area the borders are drawn over: the whole extent, unless the control lays them out apart from its text. */
+    virtual Extent borderExtent() const { return _extent; }
+    /** The area the text is laid out in: the whole extent, unless the control lays it out apart from its borders. */
+    virtual Extent textExtent() const { return _extent; }
     const Border &hilight() const { return *_hilight; }
     const std::string &borderFillResRef() const { return _borderFillResRef; }
     const std::string &hilightFillResRef() const { return _hilightFillResRef; }

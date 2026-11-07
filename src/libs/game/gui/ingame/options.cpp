@@ -39,6 +39,18 @@ namespace game {
 // The description of the first autopause option, shown when the panel opens.
 static constexpr int kStrRefEndOfRoundDescription = 42445;
 
+void OptionsMenu::showCheckBoxes(IGUI &panel) {
+    for (auto &child : panel.rootControl().children()) {
+        showCheckBox(child.get());
+    }
+}
+
+void OptionsMenu::showCheckBox(Control &control) {
+    if (auto toggle = dynamic_cast<ToggleButton *>(&control)) {
+        toggle->showAsCheckBox(_baseColor, _hilightColor);
+    }
+}
+
 void OptionsMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
@@ -172,6 +184,7 @@ void OptionsMenu::loadFeedbackPanel() {
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.LB_OPTIONS = std::static_pointer_cast<ListBox>(find("LB_OPTIONS"));
+    showCheckBox(controls.LB_OPTIONS->protoItem());
 
     const bool tsl = _game.isTSL();
     if (tsl) {
@@ -276,6 +289,7 @@ void OptionsMenu::loadGameplayPanel() {
     controls.CB_INVERTCAM = std::static_pointer_cast<ToggleButton>(find("CB_INVERTCAM"));
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
+    showCheckBoxes(*_gameplayGUI);
 
     if (_game.isTSL()) {
         useK2ShellTitle(controls.LBL_TITLE);
@@ -388,6 +402,7 @@ void OptionsMenu::loadAutoPausePanel() {
     controls.CB_PARTYKILLED = std::static_pointer_cast<ToggleButton>(find("CB_PARTYKILLED"));
     controls.CB_TRIGGERS = std::static_pointer_cast<ToggleButton>(find("CB_TRIGGERS"));
     controls.LB_DETAILS = std::static_pointer_cast<ListBox>(find("LB_DETAILS"));
+    showCheckBoxes(*_autoPauseGUI);
 
     if (_game.isTSL()) {
         enableK2ButtonBodyFill(controls.BTN_BACK);

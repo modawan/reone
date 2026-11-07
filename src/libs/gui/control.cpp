@@ -163,7 +163,7 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
 void Control::updateTextLines() {
     _textLines.clear();
     if (_text.font && !_text.text.empty()) {
-        _textLines = breakText(_text.text, *_text.font, _extent.width, _scale);
+        _textLines = breakText(_text.text, *_text.font, textExtent().width, _scale);
     }
 }
 
@@ -221,7 +221,12 @@ void Control::render(const glm::ivec2 &screenSize,
     if (!_visible) {
         return;
     }
-    glm::ivec2 size(_extent.width, _extent.height);
+    const Extent borderArea = borderExtent();
+    const glm::ivec2 borderOffset(offset.x + borderArea.left - _extent.left, offset.y + borderArea.top - _extent.top);
+    const glm::ivec2 borderSize(borderArea.width, borderArea.height);
+    const Extent textArea = textExtent();
+    const glm::ivec2 textOffset(offset.x + textArea.left - _extent.left, offset.y + textArea.top - _extent.top);
+    const glm::ivec2 textSize(textArea.width, textArea.height);
 
     // The borders this control is currently showing, in the order they stack:
     // its own border, its HILIGHT border, or - where the hilight is authored to
@@ -239,15 +244,15 @@ void Control::render(const glm::ivec2 &screenSize,
     renderControlLayers(
         ArrayRef<const Border *>(borderStorage.data(), borderCount),
         !_sceneName.empty() && _gui.sceneRenderEnabled(),
-        [this, &offset, &size, &pass](const Border &border, BorderRenderPart part) {
-            renderBorder(border, offset, size, pass, part);
+        [this, &borderOffset, &borderSize, &pass](const Border &border, BorderRenderPart part) {
+            renderBorder(border, borderOffset, borderSize, pass, part);
         },
         [this, &screenSize, &offset, &pass]() {
             renderScene(screenSize, offset, pass);
         },
-        [this, &offset, &size, &pass]() {
+        [this, &textOffset, &textSize, &pass]() {
             if (!_textLines.empty()) {
-                renderText(_textLines, offset, size, pass);
+                renderText(_textLines, textOffset, textSize, pass);
             }
         });
 }
