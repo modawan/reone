@@ -48,8 +48,6 @@ namespace game {
 
 static constexpr int kPartySelectionTutorial = 41;
 
-static constexpr int kMaxFollowerCount = 2;
-
 static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
 static constexpr int kStrRefCannotChangeHere = 108426;
@@ -111,17 +109,24 @@ void PartySelection::bindEventHandlers() {
         onAcceptButtonClick();
     });
     _controls.BTN_DONE->setOnClick([this]() {
-        std::vector<int> selectedNpcs;
-        for (int npc = 0; npc < npcCount(); ++npc) {
-            if (_added[npc]) {
-                selectedNpcs.push_back(npc);
-            }
-        }
         std::array<bool, kMaxNpcCount> wasMember {};
         for (int npc = 0; npc < npcCount(); ++npc) {
             wasMember[npc] = _game.party().isMember(npc);
         }
-        _game.reconcilePartySelection(selectedNpcs);
+        // A selection the party cannot take leaves it as it was, and the exit
+        // script still runs: it may be what moves the story on.
+        auto composition = [this]() {
+            std::vector<std::pair<int, const Creature *>> result;
+            for (const auto &member : _game.party().members()) {
+                result.emplace_back(member.npc, member.creature.get());
+            }
+            return result;
+        };
+        const auto before = composition();
+        if (!_game.reconcilePartySelection(_selection.request())) {
+            warn(before == composition() ? "Party selection: party left unchanged"
+                                         : "Party selection: party changed but does not match the selection");
+        }
         // A companion that left the party goes with the screen.
         for (int npc = 0; npc < npcCount(); ++npc) {
             if (wasMember[npc] && !_game.party().isMember(npc)) {
@@ -135,6 +140,9 @@ void PartySelection::bindEventHandlers() {
         }
     });
     _controls.BTN_BACK->setOnClick([this]() {
+        if (_cancelLocked) {
+            return;
+        }
         releaseMaterialized();
         _game.openInGame();
         if (!_context.exitScript.empty()) {
@@ -192,29 +200,10 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     _game.requestTutorialWindow(kPartySelectionTutorial);
 
     _context = ctx;
-    _availableCount = kMaxFollowerCount;
     _selectedNpc = -1;
-
-    for (int i = 0; i < kMaxNpcCount; ++i) {
-        _added[i] = false;
-    }
-    for (int i = 0; i < npcCount(); ++i) {
-        getNpcButton(i).setUseBorderColorOverride(false);
-    }
     refreshNpcButtons();
 
     Party &party = _game.party();
-    for (auto &member : party.members()) {
-        if (member.npc != kNpcPlayer && member.creature) {
-            addNpc(member.npc);
-        }
-    }
-    if (ctx.forceNpc1 >= 0) {
-        addNpc(ctx.forceNpc1);
-    }
-    if (ctx.forceNpc2 >= 0) {
-        addNpc(ctx.forceNpc2);
-    }
     std::vector<Label *> charLabels {
         _controls.LBL_CHAR0.get(),
         _controls.LBL_CHAR1.get(),
@@ -245,6 +234,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         naLabels.push_back(_controls.LBL_NA11.get());
     }
 
+    std::vector<bool> usable(npcCount(), false);
     for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &BTN_NPC = getNpcButton(i);
         Label &LBL_CHAR = *charLabels[i];
@@ -255,6 +245,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         const bool existed = static_cast<bool>(party.getAvailableMember(i));
         auto member = party.getAvailableMember(i, true);
         _materialized[i] = !existed && member;
+        usable[i] = static_cast<bool>(member);
         if (member) {
             auto portrait = member->portrait();
             BTN_NPC.setDisabled(false);
@@ -287,18 +278,21 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
             getNpcButton(slot.second).setVisible(secondAvailable);
         }
     }
+
+    _selection.openOn(party, std::move(usable), ctx.forceNpc1, ctx.forceNpc2);
+    // KotOR's call has no say over cancelling, so leaving without confirming
+    // is held back while it would lose a forced companion. TSL's call has a
+    // cancel argument, not read here, and Cancel there stays as it was.
+    _cancelLocked = !_game.isTSL() && _selection.forcesNewcomer();
+    _controls.BTN_BACK->setDisabled(_cancelLocked);
+    refreshSelectionBorders();
     refreshAvailableCount();
 }
 
-void PartySelection::addNpc(int npc) {
-    if (!isSupportedNpc(npc) || _added[npc]) {
-        return;
+void PartySelection::refreshSelectionBorders() {
+    for (int npc = 0; npc < npcCount(); ++npc) {
+        getNpcButton(npc).setUseBorderColorOverride(_selection.isSelected(npc));
     }
-
-    --_availableCount;
-    _added[npc] = true;
-    getNpcButton(npc).setUseBorderColorOverride(true);
-    refreshAvailableCount();
 }
 
 ToggleButton &PartySelection::getNpcButton(int npc) {
@@ -352,13 +346,13 @@ void PartySelection::onAcceptButtonClick() {
     if (_selectedNpc == -1)
         return;
 
-    bool added = _added[_selectedNpc];
-    if (added && _context.forceNpc1 != _selectedNpc && _context.forceNpc2 != _selectedNpc) {
-        removeNpc(_selectedNpc);
-        refreshAcceptButton();
-
-    } else if (!added && _availableCount > 0) {
-        addNpc(_selectedNpc);
+    // A forced companion stays, and a full selection takes no one else.
+    const bool changed = _selection.isSelected(_selectedNpc)
+                             ? _selection.remove(_selectedNpc)
+                             : _selection.add(_selectedNpc);
+    if (changed) {
+        refreshSelectionBorders();
+        refreshAvailableCount();
         refreshAcceptButton();
     }
 }
@@ -380,19 +374,12 @@ void PartySelection::releaseMaterialized() {
 }
 
 void PartySelection::refreshAvailableCount() {
-    _controls.LBL_COUNT->setTextMessage(std::to_string(_availableCount));
+    _controls.LBL_COUNT->setTextMessage(std::to_string(_selection.availableSlots()));
 }
 
 void PartySelection::refreshAcceptButton() {
-    std::string text(_services.resource.strings.getText(_added[_selectedNpc] ? g_strRefRemove : g_strRefAdd));
+    std::string text(_services.resource.strings.getText(_selection.isSelected(_selectedNpc) ? g_strRefRemove : g_strRefAdd));
     _controls.BTN_ACCEPT->setTextMessage(text);
-}
-
-void PartySelection::removeNpc(int npc) {
-    ++_availableCount;
-    _added[npc] = false;
-    getNpcButton(npc).setUseBorderColorOverride(false);
-    refreshAvailableCount();
 }
 
 void PartySelection::onNpcButtonClick(int npc) {

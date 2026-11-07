@@ -216,6 +216,7 @@ public:
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
+    bool usesBorderColorOverride() const { return _useBorderColorOverride; }
     void setVisible(bool visible);
 
     void setTextLines(std::vector<std::string> lines) {

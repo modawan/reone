@@ -107,6 +107,8 @@ public:
     static constexpr size_t kK2NpcCount = 12;
     static constexpr size_t kMaxNpcCount = kK2NpcCount;
     static constexpr size_t kMaxPuppetCount = 3;
+    /** Companions travelling with the player character, besides any controlled one. */
+    static constexpr int kMaxCompanionCount = 2;
     static constexpr size_t kGalaxyPlanetCount = 16;
     /** PT_TUT_WND_SHOWN holds one bit per tutorial window: six bytes in KotOR, 33 in TSL. */
     static constexpr size_t kK1TutorialShownBytes = 6;
@@ -338,6 +340,13 @@ public:
      * @return whether the companion was a follower and has left
      */
     bool removeMember(int npc, bool handOverLead = false);
+
+    /**
+     * Whether removeMember would take the companion out of the party: it is a
+     * follower in an available roster slot, not standing in for the player
+     * character, and in KotOR no one else stands in for the player character.
+     */
+    bool canRemoveMember(int npc) const;
 
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
@@ -696,6 +705,9 @@ public:
     // END Follow path
 
 private:
+    /** The checks removeMember makes before it changes anything. */
+    bool isRemovalAllowed(int npc) const;
+
     /** The leader's trail keeps this many steps. */
     static constexpr int kFollowSteps = 100;
 

@@ -20,12 +20,15 @@
 
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
+#include "../fixtures/gui.h"
 
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/partyselect.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/effect.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/modulesnapshot.h"
@@ -33,6 +36,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
+#include "reone/game/partyselectionstate.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/format/gffreader.h"
@@ -40,6 +44,7 @@
 #include "reone/resource/gff.h"
 #include "reone/resource/saveworkingstate.h"
 #include "reone/script/executioncontext.h"
+#include "reone/script/program.h"
 #include "reone/script/variable.h"
 #include "reone/system/stream/memoryinput.h"
 
@@ -377,6 +382,608 @@ TEST(PartySelectionRuntimeTSL, changed_selection_uses_normal_reconciliation) {
     EXPECT_TRUE(harness.area->isObjectResident(*replacement));
     EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*oldMember));
     EXPECT_EQ(1u, harness.partyOccurrences(1));
+}
+
+namespace {
+
+using MemberSnapshot = std::vector<std::pair<int, Creature *>>;
+
+MemberSnapshot partyMembers(const Party &party) {
+    MemberSnapshot result;
+    for (const auto &member : party.members()) {
+        result.emplace_back(member.npc, member.creature.get());
+    }
+    return result;
+}
+
+void applyLastingEffect(Game &game, Creature &creature) {
+    ASSERT_TRUE(creature.applyEffect(
+        game.newEffect<SpellImmunityEffect>(SpellType::All),
+        DurationType::Temporary,
+        30.0f));
+    ASSERT_EQ(1u, creature.effects().size());
+}
+
+// Available for selection, with no creature brought into being yet.
+void makeAvailableUnbound(PartySelectionRuntimeHarness &harness, int npc) {
+    auto creature = harness.roster.creature("unbound" + std::to_string(npc));
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(npc, creature));
+    ASSERT_TRUE(harness.roster.game.party().clearRosterCreature(
+        {RosterKind::Npc, npc}, creature.get()));
+}
+
+// A companion whose record cannot be found cannot be brought into being.
+void withholdRecord(int npc) {
+    EXPECT_CALL(
+        testEngine().resourceModule().director(),
+        findSaveWorking(ResourceId(
+            "availnpc" + std::to_string(npc), ResType::Utc)))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::nullopt));
+}
+
+// A record that can be read as often as asked for.
+void serveRecord(int npc, std::string tag) {
+    auto bytes = encodeUtc(*creatureRecord(std::move(tag)));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(),
+        findSaveWorking(ResourceId(
+            "availnpc" + std::to_string(npc), ResType::Utc)))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(Resource {bytes}));
+}
+
+// The leader-changed script, run on demand: unarmed it is missing, armed it
+// runs \p program. The scripts mock is process-global and outlives the test.
+struct LeaderChangedScript {
+    static std::shared_ptr<script::ScriptProgram> &armed() {
+        static std::shared_ptr<script::ScriptProgram> program;
+        return program;
+    }
+    static void install() {
+        armed().reset();
+        EXPECT_CALL(testEngine().resourceModule().scripts(), get("k_hen_leadchng"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([](const std::string &) { return armed(); }));
+    }
+};
+
+} // namespace
+
+TEST(PartySelectionRuntimeK1, too_many_companions_leave_the_party_untouched) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    applyLastingEffect(harness.roster.game, *t3m4);
+    auto canderous = harness.roster.creature("cand");
+    auto jolee = harness.roster.creature("jolee");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(4, jolee));
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({2, 1, 4}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(1u, t3m4->effects().size());
+    EXPECT_FALSE(harness.area->isObjectResident(*canderous));
+    EXPECT_FALSE(harness.area->isObjectResident(*jolee));
+}
+
+// Done on the Davik's estate screen as it used to open: Canderous on top of
+// Carth and T3-M4, with no creature for him yet.
+TEST(PartySelectionRuntimeK1, forced_companion_on_top_of_a_full_party_brings_no_one_in) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    harness.addSelected(2, "carth");
+    harness.addSelected(7, "t3m4");
+    makeAvailableUnbound(harness, 1);
+    serveRecord(1, "cand");
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1, 2, 7}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_FALSE(harness.roster.game.party().rosterCreature({RosterKind::Npc, 1}));
+}
+
+TEST(PartySelectionRuntimeK1, swap_keeps_the_remaining_companion_in_its_place) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    auto canderous = harness.roster.creature("cand");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({1, 7}));
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {7, t3m4.get()}, {1, canderous.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+    EXPECT_TRUE(harness.area->isObjectResident(*carth));
+    EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*carth));
+    EXPECT_TRUE(harness.area->isObjectResident(*canderous));
+}
+
+TEST(PartySelectionRuntimeK1, unobtainable_companion_keeps_the_deselected_one) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    applyLastingEffect(harness.roster.game, *carth);
+    makeAvailableUnbound(harness, 1);
+    withholdRecord(1);
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(1u, carth->effects().size());
+    EXPECT_FALSE(harness.roster.game.party().rosterCreature({RosterKind::Npc, 1}));
+}
+
+TEST(PartySelectionRuntimeK1, companion_brought_in_goes_again_when_another_cannot_join) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    makeAvailableUnbound(harness, 1);
+    makeAvailableUnbound(harness, 4);
+    harness.serveDetached(1, "cand");
+    withholdRecord(4);
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1, 4}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_FALSE(harness.roster.game.party().rosterCreature({RosterKind::Npc, 1}));
+    EXPECT_FALSE(harness.roster.game.party().rosterCreature({RosterKind::Npc, 4}));
+}
+
+TEST(PartySelectionRuntimeK1, destroyed_follower_still_counts_against_the_limit) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto bastila = harness.addSelected(0, "bastila");
+    harness.roster.game.party().vacateMemberEntries(*bastila);
+    auto canderous = harness.roster.creature("cand");
+    auto carth = harness.roster.creature("carth");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(2, carth));
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1, 2}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_FALSE(harness.area->isObjectResident(*canderous));
+    EXPECT_FALSE(harness.area->isObjectResident(*carth));
+}
+
+TEST(PartySelectionRuntimeTSL, failed_selection_keeps_the_companion_leading) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    TestGameModule::initSnapshotLocalServices(harness.roster.game);
+    LeaderChangedScript::install();
+    auto atton = harness.addSelected(0, "atton");
+    harness.roster.game.party().setPartyLeaderByIndex(1, false);
+    ASSERT_EQ(atton, harness.roster.game.party().getLeader());
+    makeAvailableUnbound(harness, 1);
+    withholdRecord(1);
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(atton, harness.roster.game.party().getLeader());
+}
+
+// The screen's selection, confirmed: Trask forced into a party of one on the
+// Endar Spire, then read back as the exit script does.
+TEST(PartySelectionRuntimeK1, forced_companion_is_in_the_party_once_confirmed) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto trask = harness.roster.creature("end_trask");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(0, trask));
+    PartySelectionState selection;
+    selection.open(std::vector<bool>(9, true), {}, 0, -1);
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection(selection.selection()));
+
+    EXPECT_EQ(trask, harness.roster.game.party().getMember(1));
+}
+
+TEST(PartySelectionRuntimeK1, davik_estate_selection_takes_canderous_and_drops_one) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    auto canderous = harness.roster.creature("cand");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    PartySelectionState selection;
+    selection.open(std::vector<bool>(9, true), {2, 7}, 1, -1);
+    ASSERT_TRUE(selection.remove(2));
+    ASSERT_TRUE(selection.add(7));
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection(selection.selection()));
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {7, t3m4.get()}, {1, canderous.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+}
+
+TEST(PartySelectionRuntimeK1, two_forced_companions_join_alongside_the_kept_one) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    auto mission = harness.roster.creature("mission");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(6, mission));
+    PartySelectionState selection;
+    selection.open(std::vector<bool>(9, true), {2}, 6, 2);
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection(selection.selection()));
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {2, carth.get()}, {6, mission.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+}
+
+// A companion that cannot leave keeps its place, and counts.
+TEST(PartySelectionRuntimeK1, companion_that_cannot_leave_holds_its_place) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    applyLastingEffect(harness.roster.game, *carth);
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    ASSERT_TRUE(harness.roster.game.party().removeAvailableMember(7));
+    auto canderous = harness.roster.creature("cand");
+    auto mission = harness.roster.creature("mission");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(6, mission));
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1, 6}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(1u, carth->effects().size());
+    EXPECT_FALSE(harness.area->isObjectResident(*canderous));
+    EXPECT_FALSE(harness.area->isObjectResident(*mission));
+}
+
+TEST(PartySelectionRuntimeK1, selection_fitting_beside_a_companion_that_cannot_leave_applies) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    ASSERT_TRUE(harness.roster.game.party().removeAvailableMember(7));
+    auto canderous = harness.roster.creature("cand");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({1}));
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {7, t3m4.get()}, {1, canderous.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+}
+
+// Carth's creature was destroyed but his place stays; Canderous, forced in,
+// takes the one left.
+TEST(PartySelectionRuntimeK1, destroyed_follower_leaves_room_for_one) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    harness.roster.game.party().vacateMemberEntries(*carth);
+    auto canderous = harness.roster.creature("cand");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    PartySelectionState selection;
+    selection.openOn(harness.roster.game.party(), std::vector<bool>(9, true), 1, -1);
+    ASSERT_THAT(selection.selection(), ElementsAre(1));
+    EXPECT_EQ(0, selection.availableSlots());
+    EXPECT_FALSE(selection.add(2));
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection(selection.selection()));
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {2, nullptr}, {1, canderous.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+}
+
+TEST(PartySelectionRuntimeK1, destroyed_follower_cannot_be_selected_back) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    harness.roster.game.party().vacateMemberEntries(*carth);
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({2}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+}
+
+// Playing as a companion: the screen and the party both leave the one standing
+// in for the player character out of the companions.
+TEST(PartySelectionRuntimeTSL, controlled_companion_is_not_one_of_the_selection) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    TestGameModule::initSnapshotLocalServices(harness.roster.game);
+    LeaderChangedScript::install();
+    auto atton = harness.addSelected(0, "atton");
+    auto mira = harness.roster.creature("mira");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(7, mira));
+    harness.area->add(mira);
+    harness.roster.game.party().setControlledMember(7, mira);
+    ASSERT_EQ(7, harness.roster.game.party().controlledNpc());
+    auto baodur = harness.roster.creature("baodur");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, baodur));
+
+    PartySelectionState selection;
+    selection.openOn(harness.roster.game.party(), std::vector<bool>(12, true), -1, -2);
+    EXPECT_THAT(selection.selection(), ElementsAre(0));
+    EXPECT_EQ(1, selection.availableSlots());
+    EXPECT_FALSE(selection.add(7));
+    ASSERT_TRUE(selection.remove(0));
+    ASSERT_TRUE(selection.add(1));
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection(selection.selection()));
+
+    EXPECT_EQ(7, harness.roster.game.party().controlledNpc());
+    EXPECT_EQ(mira, harness.roster.game.party().getMemberByNPC(7));
+    EXPECT_FALSE(harness.roster.game.party().isMember(0));
+    EXPECT_EQ(baodur, harness.roster.game.party().getMemberByNPC(1));
+}
+
+// The lead goes back to the player character before anyone leaves. Its
+// script here takes Bao-Dur off the roster, so nobody leaves or joins; the
+// change of leader itself stands.
+TEST(PartySelectionRuntimeTSL, lead_script_changing_the_party_stops_the_selection_after_the_lead_change) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    TestGameModule::initSnapshotLocalServices(harness.roster.game);
+    LeaderChangedScript::install();
+    auto atton = harness.addSelected(0, "atton");
+    applyLastingEffect(harness.roster.game, *atton);
+    harness.roster.game.party().setPartyLeaderByIndex(1, false);
+    ASSERT_EQ(atton, harness.roster.game.party().getLeader());
+    auto baodur = harness.roster.creature("baodur");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, baodur));
+    auto program = std::make_shared<script::ScriptProgram>("k_hen_leadchng");
+    program->add(script::Instruction::newCONSTI(1));
+    program->add(script::Instruction::newACTION(
+        harness.roster.routines.getIndexByName("RemoveAvailableNPC"), 1));
+    program->add(script::Instruction(script::InstructionType::RETN));
+    LeaderChangedScript::armed() = program;
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({1}));
+    LeaderChangedScript::armed().reset();
+
+    const MemberSnapshot expected {{kNpcPlayer, harness.player.get()}, {0, atton.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(harness.player, harness.roster.game.party().getLeader());
+    EXPECT_EQ(1u, atton->effects().size());
+    EXPECT_FALSE(harness.roster.game.party().isMemberAvailable(1));
+}
+
+// A companion pending destruction keeps its entry and binding when its
+// replacement cannot be had.
+TEST(PartySelectionRuntimeTSL, failed_selection_keeps_an_obsolete_companion_entry) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    auto obsolete = harness.addSelected(0, "atton");
+    harness.area->destroyObject(*obsolete);
+    ASSERT_TRUE(harness.area->isObjectPendingDestruction(*obsolete));
+    withholdRecord(0);
+    const auto before = partyMembers(harness.roster.game.party());
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({0}));
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(obsolete, harness.roster.game.party().rosterCreature({RosterKind::Npc, 0}));
+}
+
+TEST(PartySelectionRuntimeK1, screen_opens_on_companions_that_cannot_leave) {
+    PartySelectionRuntimeHarness harness(GameID::KotOR);
+    harness.addSelected(2, "carth");
+    harness.addSelected(7, "t3m4");
+    ASSERT_TRUE(harness.roster.game.party().removeAvailableMember(7));
+    auto usable = std::vector<bool>(9, true);
+    usable[7] = false;
+
+    PartySelectionState selection;
+    selection.openOn(harness.roster.game.party(), usable, 1, -1);
+
+    EXPECT_THAT(selection.selection(), ElementsAre(1, 7));
+    EXPECT_FALSE(selection.remove(7));
+    EXPECT_FALSE(selection.isSelected(2));
+    EXPECT_EQ(0, selection.availableSlots());
+}
+
+
+namespace reone::game {
+
+PartySelection &TestGameModule::installPartySelection(Game &game) {
+    game._partySelect = std::make_unique<PartySelection>(game, game._services);
+    return *game._partySelect;
+}
+
+/** Builds the screen's controls a loaded layout would otherwise provide. */
+class PartySelectionTestAccess {
+public:
+    static void bind(PartySelection &screen, std::shared_ptr<gui::IGUI> gui) {
+        auto &engine = testEngine();
+        auto button = [&]() {
+            return std::make_shared<gui::Button>(*gui, engine.sceneModule().graphs(),
+                                                 engine.graphicsModule().services(), engine.resourceModule().services());
+        };
+        auto toggle = [&]() {
+            return std::make_shared<gui::ToggleButton>(*gui, engine.sceneModule().graphs(),
+                                                       engine.graphicsModule().services(), engine.resourceModule().services());
+        };
+        auto label = [&]() {
+            return std::make_shared<gui::Label>(*gui, engine.sceneModule().graphs(),
+                                                engine.graphicsModule().services(), engine.resourceModule().services());
+        };
+        auto &c = screen._controls;
+        c.BTN_ACCEPT = button();
+        c.BTN_BACK = button();
+        c.BTN_DONE = button();
+        for (auto *npc : {&c.BTN_NPC0, &c.BTN_NPC1, &c.BTN_NPC2, &c.BTN_NPC3, &c.BTN_NPC4, &c.BTN_NPC5,
+                          &c.BTN_NPC6, &c.BTN_NPC7, &c.BTN_NPC8, &c.BTN_NPC9, &c.BTN_NPC10, &c.BTN_NPC11}) {
+            *npc = toggle();
+        }
+        for (auto *lbl : {&c.LBL_3D, &c.LBL_BAR1, &c.LBL_BAR2, &c.LBL_BAR3, &c.LBL_BAR4, &c.LBL_BAR5,
+                          &c.LBL_AVAILABLE, &c.LBL_BEVEL_L, &c.LBL_BEVEL_M, &c.LBL_BEVEL_R,
+                          &c.LBL_CHAR0, &c.LBL_CHAR1, &c.LBL_CHAR2, &c.LBL_CHAR3, &c.LBL_CHAR4, &c.LBL_CHAR5,
+                          &c.LBL_CHAR6, &c.LBL_CHAR7, &c.LBL_CHAR8, &c.LBL_CHAR9, &c.LBL_CHAR10, &c.LBL_CHAR11,
+                          &c.LBL_COUNT,
+                          &c.LBL_NA0, &c.LBL_NA1, &c.LBL_NA2, &c.LBL_NA3, &c.LBL_NA4, &c.LBL_NA5,
+                          &c.LBL_NA6, &c.LBL_NA7, &c.LBL_NA8, &c.LBL_NA9, &c.LBL_NA10, &c.LBL_NA11,
+                          &c.LBL_NAMEBACK, &c.LBL_NPC_LEVEL, &c.LBL_NPC_NAME, &c.LBL_TITLE}) {
+            *lbl = label();
+        }
+        screen._gui = std::move(gui);
+    }
+
+    static std::string count(PartySelection &screen) { return screen._controls.LBL_COUNT->text().text; }
+    // Those the screen shows as picked.
+    static std::vector<int> selection(PartySelection &screen) {
+        std::vector<int> result;
+        for (int npc = 0; npc < screen.npcCount(); ++npc) {
+            if (screen.getNpcButton(npc).usesBorderColorOverride()) {
+                result.push_back(npc);
+            }
+        }
+        return result;
+    }
+    static bool backDisabled(PartySelection &screen) { return screen._controls.BTN_BACK->isDisabled(); }
+
+    static void pick(PartySelection &screen, int npc) {
+        screen.getNpcButton(npc).handleClick(0, 0);
+        screen._controls.BTN_ACCEPT->handleClick(0, 0);
+    }
+    static void done(PartySelection &screen) { screen._controls.BTN_DONE->handleClick(0, 0); }
+    static void back(PartySelection &screen) { screen._controls.BTN_BACK->handleClick(0, 0); }
+};
+
+} // namespace reone::game
+
+namespace {
+
+class PartySelectionScreenHarness : public PartySelectionRuntimeHarness {
+public:
+    explicit PartySelectionScreenHarness(GameID gameId) :
+        PartySelectionRuntimeHarness(gameId),
+        screen(TestGameModule::installPartySelection(roster.game)) {
+        TestGameModule::initSnapshotLocalServices(roster.game);
+        LeaderChangedScript::install();
+        PartySelectionTestAccess::bind(screen, std::make_shared<NiceMock<gui::MockGUI>>());
+    }
+
+    // The exit script: records the party each time it is asked for.
+    void expectExitScript(const std::string &resRef, int times) {
+        EXPECT_CALL(testEngine().resourceModule().scripts(), get(resRef))
+            .Times(times)
+            .WillRepeatedly(Invoke([this](const std::string &) {
+                partiesAtExit.push_back(partyMembers(roster.game.party()));
+                return std::shared_ptr<script::ScriptProgram>();
+            }));
+    }
+
+    void open(int force1, int force2, const std::string &exitScript) {
+        PartySelectionContext ctx;
+        ctx.exitScript = exitScript;
+        ctx.forceNpc1 = force1;
+        ctx.forceNpc2 = force2;
+        ctx.openedByScript = true;
+        screen.prepare(ctx);
+    }
+
+    PartySelection &screen;
+    std::vector<MemberSnapshot> partiesAtExit;
+};
+
+} // namespace
+
+// Davik's estate with Carth and T3-M4 along: Canderous is forced in.
+TEST(PartySelectionScreenK1, forced_companion_on_a_full_party_is_swapped_in_and_joins) {
+    PartySelectionScreenHarness harness(GameID::KotOR);
+    harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    auto canderous = harness.roster.creature("cand");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    harness.expectExitScript("k_ptar_godaviks", 1);
+
+    harness.open(1, -1, "k_ptar_godaviks");
+    EXPECT_THAT(PartySelectionTestAccess::selection(harness.screen), ElementsAre(1, 2));
+    EXPECT_EQ("0", PartySelectionTestAccess::count(harness.screen));
+
+    PartySelectionTestAccess::pick(harness.screen, 1);
+    EXPECT_THAT(PartySelectionTestAccess::selection(harness.screen), ElementsAre(1, 2));
+    PartySelectionTestAccess::pick(harness.screen, 7);
+    EXPECT_THAT(PartySelectionTestAccess::selection(harness.screen), ElementsAre(1, 2));
+    PartySelectionTestAccess::pick(harness.screen, 2);
+    EXPECT_EQ("1", PartySelectionTestAccess::count(harness.screen));
+    PartySelectionTestAccess::pick(harness.screen, 7);
+    EXPECT_EQ("0", PartySelectionTestAccess::count(harness.screen));
+    PartySelectionTestAccess::done(harness.screen);
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {7, t3m4.get()}, {1, canderous.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+    ASSERT_EQ(1u, harness.partiesAtExit.size());
+    EXPECT_EQ(expected, harness.partiesAtExit.front());
+}
+
+// T3-M4 is off the roster but still travelling, so he cannot leave: Canderous,
+// forced in, takes Carth's place.
+TEST(PartySelectionScreenK1, forced_companion_joins_beside_one_that_cannot_leave) {
+    PartySelectionScreenHarness harness(GameID::KotOR);
+    harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    ASSERT_TRUE(harness.roster.game.party().removeAvailableMember(7));
+    auto canderous = harness.roster.creature("cand");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    harness.expectExitScript("k_ptar_godaviks", 1);
+
+    harness.open(1, -1, "k_ptar_godaviks");
+    EXPECT_THAT(PartySelectionTestAccess::selection(harness.screen), ElementsAre(1, 7));
+    EXPECT_EQ("0", PartySelectionTestAccess::count(harness.screen));
+    PartySelectionTestAccess::done(harness.screen);
+
+    const MemberSnapshot expected {
+        {kNpcPlayer, harness.player.get()}, {7, t3m4.get()}, {1, canderous.get()}};
+    EXPECT_EQ(expected, partyMembers(harness.roster.game.party()));
+    ASSERT_EQ(1u, harness.partiesAtExit.size());
+    EXPECT_EQ(expected, harness.partiesAtExit.front());
+}
+
+// Trask on the Endar Spire: Cancel would lose him, so it is held back.
+TEST(PartySelectionScreenK1, cancel_is_held_back_while_it_would_lose_a_forced_newcomer) {
+    PartySelectionScreenHarness harness(GameID::KotOR);
+    auto trask = harness.roster.creature("end_trask");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(0, trask));
+    harness.expectExitScript("k_pend_reset", 1);
+
+    harness.open(0, -1, "k_pend_reset");
+    EXPECT_EQ("1", PartySelectionTestAccess::count(harness.screen));
+    EXPECT_TRUE(PartySelectionTestAccess::backDisabled(harness.screen));
+    PartySelectionTestAccess::back(harness.screen);
+    EXPECT_TRUE(harness.partiesAtExit.empty());
+    PartySelectionTestAccess::done(harness.screen);
+
+    EXPECT_EQ(trask, harness.roster.game.party().getMember(1));
+    ASSERT_EQ(1u, harness.partiesAtExit.size());
+}
+
+TEST(PartySelectionScreenK1, unforced_screen_opens_on_the_party_and_cancels) {
+    PartySelectionScreenHarness harness(GameID::KotOR);
+    harness.addSelected(2, "carth");
+    harness.addSelected(7, "t3m4");
+    const auto before = partyMembers(harness.roster.game.party());
+    harness.expectExitScript("k_ptar_partydone", 1);
+
+    harness.open(-1, -1, "k_ptar_partydone");
+    EXPECT_THAT(PartySelectionTestAccess::selection(harness.screen), ElementsAre(2, 7));
+    EXPECT_EQ("0", PartySelectionTestAccess::count(harness.screen));
+    EXPECT_FALSE(PartySelectionTestAccess::backDisabled(harness.screen));
+    PartySelectionTestAccess::back(harness.screen);
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(1u, harness.partiesAtExit.size());
+}
+
+// A selection the party cannot take still closes the screen and runs the exit
+// script, with the party as it was.
+TEST(PartySelectionScreenK1, refused_selection_still_runs_the_exit_script) {
+    PartySelectionScreenHarness harness(GameID::KotOR);
+    auto carth = harness.addSelected(2, "carth");
+    harness.expectExitScript("k_ptar_partydone", 1);
+    harness.open(-1, -1, "k_ptar_partydone");
+    // Carth's creature goes after the screen opened on him.
+    harness.roster.game.party().vacateMemberEntries(*carth);
+    const auto before = partyMembers(harness.roster.game.party());
+
+    PartySelectionTestAccess::done(harness.screen);
+
+    EXPECT_EQ(before, partyMembers(harness.roster.game.party()));
+    EXPECT_EQ(1u, harness.partiesAtExit.size());
 }
 
 INSTANTIATE_TEST_SUITE_P(

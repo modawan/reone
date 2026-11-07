@@ -609,7 +609,7 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
                        member.npc != _persistedState.controlledNpc;
             });
         if (!isRosterAvailable({RosterKind::Npc, npc}) ||
-            (npc != _persistedState.controlledNpc && activeCompanions >= 2) ||
+            (npc != _persistedState.controlledNpc && activeCompanions >= kMaxCompanionCount) ||
             !bindRosterCreature({RosterKind::Npc, npc}, creature)) {
             return false;
         }
@@ -1515,12 +1515,21 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
     _persistedState.controlledNpc = npc;
 }
 
-bool Party::removeMember(int npc, bool handOverLead) {
-    const RosterIdentity identity {RosterKind::Npc, npc};
+bool Party::isRemovalAllowed(int npc) const {
     // Removal needs a follower in the party and an available roster slot;
     // KotOR refuses it while another actor stands in for the player character.
-    if (npc == kNpcPlayer || companionCount() == 0 || !isRosterAvailable(identity) ||
-        (!_game.isTSL() && _persistedState.controlledNpc != kNpcPlayer)) {
+    return npc != kNpcPlayer && companionCount() > 0 && isRosterAvailable({RosterKind::Npc, npc}) &&
+           (_game.isTSL() || _persistedState.controlledNpc == kNpcPlayer);
+}
+
+bool Party::canRemoveMember(int npc) const {
+    return isRemovalAllowed(npc) && npc != _persistedState.controlledNpc &&
+           std::any_of(_members.begin(), _members.end(), [npc](const Member &member) { return member.npc == npc; });
+}
+
+bool Party::removeMember(int npc, bool handOverLead) {
+    const RosterIdentity identity {RosterKind::Npc, npc};
+    if (!isRemovalAllowed(npc)) {
         return false;
     }
     // The slot's live creature has its effects cleared, gives up its assigned

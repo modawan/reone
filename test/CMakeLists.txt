@@ -77,6 +77,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/galaxymap.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp
+    ${TESTS_SOURCE_DIR}/game/partyselectionstate.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
     ${TESTS_SOURCE_DIR}/game/inventoryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/worldtime.cpp
