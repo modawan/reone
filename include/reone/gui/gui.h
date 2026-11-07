@@ -162,6 +162,9 @@ public:
     virtual void addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) = 0;
 
     virtual std::shared_ptr<Control> findControl(const std::string &tag) const = 0;
+
+    /** Whether a visible, enabled control that takes clicks lies under the screen point. */
+    virtual bool hasSelectableControlAt(int x, int y) const = 0;
 };
 
 class GUI : public IGUI, boost::noncopyable {
@@ -298,6 +301,8 @@ public:
     void addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) override;
 
     std::shared_ptr<Control> findControl(const std::string &tag) const override;
+
+    bool hasSelectableControlAt(int x, int y) const override;
 
 private:
     graphics::GraphicsOptions &_options;
