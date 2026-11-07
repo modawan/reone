@@ -617,6 +617,9 @@ private:
 
     FirstPersonCamera *_camera {nullptr};
 
+    // The minigame's music, looping while it runs.
+    std::shared_ptr<audio::AudioSource> _music;
+
     std::unique_ptr<Follower> _player;
     std::vector<std::unique_ptr<Follower>> _enemies;
     std::vector<std::unique_ptr<Obstacle>> _obstacles;

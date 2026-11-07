@@ -897,6 +897,12 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
 
     suppressCanopyGlass();
     applyCameraProjection();
+    // The minigame's own music loops from the start, over the area's.
+    if (!_spec.music.empty()) {
+        if (auto clip = _services.resource.audioClips.get(_spec.music)) {
+            _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, 1.0f, true);
+        }
+    }
     go(*_player);
     for (auto it = _enemies.rbegin(); it != _enemies.rend(); ++it) {
         go(**it);
@@ -919,6 +925,10 @@ void Turret::stop() {
             cameraAspect(),
             kDefaultClipPlaneNear,
             kDefaultClipPlaneFar);
+    }
+    if (_music) {
+        _music->stop();
+        _music.reset();
     }
     _active = false;
     _trackPlaying = false;
