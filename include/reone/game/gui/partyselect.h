@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <functional>
 #include <optional>
+#include <vector>
 
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
@@ -43,6 +45,16 @@ public:
      * character, quietly.
      */
     void prepare(const PartySelectionContext &ctx);
+
+    /**
+     * The companions the screen opens with selected, of the \p npcCount it
+     * shows. With \p forceNpc1 or \p forceNpc2 naming one of them, only the
+     * forced companions \p isAvailable admits are, so they always fit;
+     * otherwise \p companions, the party's current companions, are.
+     */
+    static std::vector<int> initialSelection(const std::vector<int> &companions,
+                                             int forceNpc1, int forceNpc2, int npcCount,
+                                             const std::function<bool(int)> &isAvailable);
 
     /** Called whenever the screen is left, however it is left. */
     void clearSelection() override;

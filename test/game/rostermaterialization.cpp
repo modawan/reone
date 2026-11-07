@@ -24,6 +24,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/partyselect.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/effect.h"
 #include "reone/game/d20/class.h"
@@ -377,6 +378,86 @@ TEST(PartySelectionRuntimeTSL, changed_selection_uses_normal_reconciliation) {
     EXPECT_TRUE(harness.area->isObjectResident(*replacement));
     EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*oldMember));
     EXPECT_EQ(1u, harness.partyOccurrences(1));
+}
+
+// Davik's estate on Taris: k_ptar_davikest calls ShowPartySelectionGUI with
+// Canderous (1) forced in while Carth (2) and T3-M4 (7) travel with the
+// player. The original opens on Canderous alone, with one slot left.
+TEST(PartySelectionScreen, forced_companion_opens_selected_alone) {
+    auto all = [](int) { return true; };
+    EXPECT_EQ(std::vector<int>({1}), PartySelection::initialSelection({2, 7}, 1, -1, kKotorNpcCount, all));
+    // PartySelectionContext's own default for the second slot is -2.
+    EXPECT_EQ(std::vector<int>({1}), PartySelection::initialSelection({2, 7}, 1, -2, kKotorNpcCount, all));
+    EXPECT_EQ(std::vector<int>({1, 4}), PartySelection::initialSelection({2, 7}, 1, 4, kKotorNpcCount, all));
+    EXPECT_EQ(std::vector<int>({2}), PartySelection::initialSelection({2, 7}, 2, 2, kKotorNpcCount, all));
+}
+
+TEST(PartySelectionScreen, unavailable_forced_companion_still_leaves_the_party_deselected) {
+    auto onlyCurrent = [](int npc) { return npc == 2 || npc == 7; };
+    EXPECT_EQ(std::vector<int>(), PartySelection::initialSelection({2, 7}, 1, -1, kKotorNpcCount, onlyCurrent));
+    EXPECT_EQ(std::vector<int>({7}), PartySelection::initialSelection({2, 7}, 1, 7, kKotorNpcCount, onlyCurrent));
+}
+
+TEST(PartySelectionScreen, unforced_selection_opens_on_the_current_companions) {
+    auto all = [](int) { return true; };
+    EXPECT_EQ(std::vector<int>({2, 7}), PartySelection::initialSelection({2, 7}, -1, -1, kKotorNpcCount, all));
+    EXPECT_EQ(std::vector<int>(), PartySelection::initialSelection({}, -1, -2, kKotorNpcCount, all));
+    // A slot past the screen's companions forces nothing in.
+    EXPECT_EQ(std::vector<int>({2, 7}), PartySelection::initialSelection({2, 7}, kKotorNpcCount, -1, kKotorNpcCount, all));
+}
+
+TEST_P(PartySelectionRuntime, forced_companion_joins_a_full_party_in_place_of_one_left_out) {
+    PartySelectionRuntimeHarness harness(GetParam());
+    auto carth = harness.addSelected(2, "carth");
+    harness.addSelected(7, "t3m4");
+    auto canderous = harness.roster.creature("canderous");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+
+    auto &party = harness.roster.game.party();
+    auto selection = PartySelection::initialSelection(
+        {2, 7}, 1, -1, kKotorNpcCount, [&party](int npc) { return party.isMemberAvailable(npc); });
+    ASSERT_EQ(std::vector<int>({1}), selection);
+    selection.push_back(2);
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection(selection));
+
+    EXPECT_EQ(canderous, harness.roster.game.party().getMemberByNPC(1));
+    EXPECT_EQ(carth, harness.roster.game.party().getMemberByNPC(2));
+    EXPECT_FALSE(harness.roster.game.party().isMember(7));
+    EXPECT_TRUE(harness.area->isObjectResident(*canderous));
+    EXPECT_TRUE(harness.roster.game.isPartySelectionRealized({1, 2}));
+}
+
+TEST_P(PartySelectionRuntime, over_capacity_selection_leaves_the_party_untouched) {
+    PartySelectionRuntimeHarness harness(GetParam());
+    auto carth = harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    auto canderous = harness.roster.creature("canderous");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, canderous));
+    canderous->addAction(harness.roster.game.newAction<WaitAction>(3.0f));
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({2, 7, 1}));
+
+    EXPECT_EQ(carth, harness.roster.game.party().getMemberByNPC(2));
+    EXPECT_EQ(t3m4, harness.roster.game.party().getMemberByNPC(7));
+    EXPECT_FALSE(harness.roster.game.party().isMember(1));
+    // A companion that does not join keeps what it was doing.
+    EXPECT_EQ(1u, canderous->actions().size());
+}
+
+TEST_P(PartySelectionRuntime, over_capacity_selection_does_not_drop_a_companion_first) {
+    PartySelectionRuntimeHarness harness(GetParam());
+    auto carth = harness.addSelected(2, "carth");
+    auto t3m4 = harness.addSelected(7, "t3m4");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, harness.roster.creature("canderous")));
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(4, harness.roster.creature("juhani")));
+
+    EXPECT_FALSE(harness.roster.game.reconcilePartySelection({2, 1, 4}));
+
+    EXPECT_EQ(carth, harness.roster.game.party().getMemberByNPC(2));
+    EXPECT_EQ(t3m4, harness.roster.game.party().getMemberByNPC(7));
+    EXPECT_FALSE(harness.roster.game.party().isMember(1));
+    EXPECT_FALSE(harness.roster.game.party().isMember(4));
 }
 
 INSTANTIATE_TEST_SUITE_P(

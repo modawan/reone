@@ -8091,6 +8091,9 @@ bool Game::isPartySelectionRealized(
     return realized == requested;
 }
 
+// Companions a party holds besides the player character, as Party::addMember allows.
+static constexpr int kMaxPartyCompanionCount = 2;
+
 bool Game::reconcilePartySelection(
     const std::vector<int> &selectedNpcs) {
     if (!_module || !_module->area()) {
@@ -8113,6 +8116,33 @@ bool Game::reconcilePartySelection(
         return true;
     }
 
+    // Refuse a selection the party cannot hold before changing anything, so
+    // a refusal leaves the party as it was. Like Party::addMember, this counts
+    // each companion besides the one in control: those staying and those
+    // joining.
+    int companions = 0;
+    for (const auto &member : _party.members()) {
+        if (member.npc == kNpcPlayer || member.npc == _party.controlledNpc()) {
+            continue;
+        }
+        const bool deselected = member.npc < 0 ||
+                                member.npc >= static_cast<int>(requested.size()) ||
+                                !requested[member.npc];
+        if (!member.creature || !deselected) {
+            ++companions;
+        }
+    }
+    for (int npc : selectedNpcs) {
+        if (npc != _party.controlledNpc() && !_party.isMember(npc) && !_party.isFollower(npc)) {
+            ++companions;
+        }
+    }
+    if (companions > kMaxPartyCompanionCount) {
+        warn("Party selection: more companions selected than the party holds: " +
+             std::to_string(companions));
+        return false;
+    }
+
     auto area = _module->area();
 
     // A queued representation remains live and Area-resident until the next
@@ -8127,6 +8157,21 @@ bool Game::reconcilePartySelection(
             (!isRuntimeObjectLive(*bound) ||
              area->isObjectPendingDestruction(*bound))) {
             _party.clearRosterCreature(identity, bound.get());
+        }
+    }
+
+    // Each joining companion is brought into being before anyone leaves, so
+    // one that cannot be does not leave the party half changed.
+    std::array<std::shared_ptr<Creature>, Party::kMaxNpcCount> joining {};
+    for (int npc : selectedNpcs) {
+        if (_party.isMember(npc) || _party.isFollower(npc)) {
+            continue;
+        }
+        joining[npc] = _party.getAvailableMember(npc, true);
+        if (!joining[npc]) {
+            warn("Party selection: could not realize NPC: " +
+                 std::to_string(npc));
+            return false;
         }
     }
 
@@ -8161,7 +8206,7 @@ bool Game::reconcilePartySelection(
         if (_party.isMember(npc) || _party.isFollower(npc)) {
             continue;
         }
-        auto member = _party.getAvailableMember(npc, true);
+        auto member = joining[npc];
         if (member) {
             _party.spawnIntoPlayerFaction(*member);
             // A companion newly brought in drops its actions, commandable or not.

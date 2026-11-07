@@ -17,6 +17,7 @@
 
 #include "reone/game/gui/partyselect.h"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -52,6 +53,8 @@ static constexpr int kMaxFollowerCount = 2;
 
 static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
+// K1: "This character must be a member of your party at this time."
+static constexpr int kStrRefMustBeInParty = 42406;
 static constexpr int kStrRefCannotChangeHere = 108426;
 static constexpr int kStrRefCannotChangeInCombat = 126692;
 static constexpr int kStrRefCannotChangeWhileUnconscious = 126693;
@@ -204,16 +207,15 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     refreshNpcButtons();
 
     Party &party = _game.party();
+    std::vector<int> companions;
     for (auto &member : party.members()) {
         if (member.npc != kNpcPlayer && member.creature) {
-            addNpc(member.npc);
+            companions.push_back(member.npc);
         }
     }
-    if (ctx.forceNpc1 >= 0) {
-        addNpc(ctx.forceNpc1);
-    }
-    if (ctx.forceNpc2 >= 0) {
-        addNpc(ctx.forceNpc2);
+    auto isAvailable = [&party](int npc) { return party.isMemberAvailable(npc); };
+    for (int npc : initialSelection(companions, ctx.forceNpc1, ctx.forceNpc2, npcCount(), isAvailable)) {
+        addNpc(npc);
     }
     std::vector<Label *> charLabels {
         _controls.LBL_CHAR0.get(),
@@ -290,6 +292,26 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     refreshAvailableCount();
 }
 
+// The original (CSWGuiPartySelection, swkotor.exe 1.03 0x6beeb0) opens a
+// selection with a companion forced in on the forced companions alone, the
+// selection count starting from zero, so a full party never spills over.
+std::vector<int> PartySelection::initialSelection(const std::vector<int> &companions,
+                                                  int forceNpc1, int forceNpc2, int npcCount,
+                                                  const std::function<bool(int)> &isAvailable) {
+    bool forcing = false;
+    std::vector<int> forced;
+    for (int npc : {forceNpc1, forceNpc2}) {
+        if (npc < 0 || npc >= npcCount) {
+            continue;
+        }
+        forcing = true;
+        if (isAvailable(npc) && std::find(forced.begin(), forced.end(), npc) == forced.end()) {
+            forced.push_back(npc);
+        }
+    }
+    return forcing ? forced : companions;
+}
+
 void PartySelection::addNpc(int npc) {
     if (!isSupportedNpc(npc) || _added[npc]) {
         return;
@@ -353,7 +375,11 @@ void PartySelection::onAcceptButtonClick() {
         return;
 
     bool added = _added[_selectedNpc];
-    if (added && _context.forceNpc1 != _selectedNpc && _context.forceNpc2 != _selectedNpc) {
+    if (added && (_context.forceNpc1 == _selectedNpc || _context.forceNpc2 == _selectedNpc)) {
+        if (!_game.isTSL()) {
+            _game.showMessagePopup(_services.resource.strings.getText(kStrRefMustBeInParty));
+        }
+    } else if (added) {
         removeNpc(_selectedNpc);
         refreshAcceptButton();
 
