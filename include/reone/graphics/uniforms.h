@@ -55,6 +55,7 @@ struct UniformsFeatureFlags {
     static constexpr int staticobj = 1 << 14;
     static constexpr int shell = 1 << 15;
     static constexpr int forceglow = 1 << 16;
+    static constexpr int maintexarray = 1 << 17;
 };
 
 struct alignas(16) GlobalUniformsLight {
@@ -123,6 +124,7 @@ struct LocalUniforms {
     float waterAlpha;
     float billboardSize;
     float shellOffset;
+    int mainTexFrame; /**< the frame of a main texture that cycles through frames */
 
     LocalUniforms() {
         reset();
@@ -143,6 +145,7 @@ struct LocalUniforms {
         waterAlpha = 0.0f;
         billboardSize = 1.0f;
         shellOffset = 0.0f;
+        mainTexFrame = 0;
     }
 };
 

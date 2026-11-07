@@ -98,7 +98,9 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
     }
 
     if (texture) {
-        if (features &&
+        // A TPC reader already splits its frames; a TGA is a grid of them.
+        if (!texture->is2DArray() &&
+            features &&
             features->procedureType != Texture::ProcedureType::Invalid &&
             (features->numX > 1 || features->numY > 1)) {
             convertGridTextureToArray(*texture, features->numX, features->numY);

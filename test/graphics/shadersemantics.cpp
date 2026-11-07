@@ -44,3 +44,20 @@ TEST(OITModelShader, transparent_material_keeps_authored_alpha_and_lighting) {
     // which made a blue additive texture visible even under zero light.
     EXPECT_EQ(std::string::npos, shader.find("diffuseAlpha = rgbToLuma(mainTexSample.rgb);"));
 }
+
+// A model's main texture that cycles through frames is a texture array bound
+// to its own unit; every model shader samples it at the current frame.
+TEST(ModelShaders, sample_main_texture_array_at_its_frame) {
+    for (auto name : {"f_pbr_opaqmodel.glsl", "f_rtr_opaqmodel.glsl", "f_oit_model.glsl"}) {
+        auto shader = readShader(name);
+        ASSERT_FALSE(shader.empty()) << name;
+        EXPECT_NE(std::string::npos, shader.find("uniform sampler2DArray sMainTexArray;")) << name;
+        auto arraySample = shader.find("isFeatureEnabled(FEATURE_MAINTEXARRAY)\n"
+                                       "                             ? texture(sMainTexArray, vec3(uv, uMainTexFrame))\n"
+                                       "                             : texture(sMainTex, uv);");
+        EXPECT_NE(std::string::npos, arraySample) << name;
+    }
+    auto locals = readShader("u_locals.glsl");
+    EXPECT_NE(std::string::npos, locals.find("const int FEATURE_MAINTEXARRAY = 1 << 17;"));
+    EXPECT_NE(std::string::npos, locals.find("    float uShellOffset;\n    int uMainTexFrame;\n};"));
+}

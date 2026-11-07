@@ -18,6 +18,8 @@
 #include <gtest/gtest.h>
 
 #include "reone/graphics/animation.h"
+#include "reone/graphics/material.h"
+#include "reone/graphics/mesh.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/options.h"
@@ -25,6 +27,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node/mesh.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/render/pass.h"
 
 #include "../fixtures/audio.h"
 #include "../fixtures/graphics.h"
@@ -190,4 +193,95 @@ TEST(MeshSceneNode, should_propagate_runtime_texture_to_every_mesh_of_a_model) {
     // then
     EXPECT_TRUE(fixture.meshNode("torso_g").shouldRender());
     EXPECT_TRUE(fixture.meshNode("head_g").shouldRender());
+}
+
+namespace {
+
+// Records the material of every mesh drawn.
+class MaterialRecordingRenderPass : public IRenderPass {
+public:
+    struct MeshDraw {
+        Material::TextureUnitToTexture textures;
+        int mainTexFrame {0};
+    };
+
+    void draw(Mesh &, Material &material, const glm::mat4 &, const glm::mat4 &) override {
+        meshDraws.push_back({material.textures, material.mainTexFrame});
+    }
+
+    void drawSkinned(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const std::vector<glm::mat4> &) override {}
+    void drawDangly(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const std::vector<glm::vec4> &) override {}
+    void drawSaber(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const glm::vec4 &) override {}
+    void drawBillboard(Texture &, const glm::vec4 &, const glm::mat4 &, const glm::mat4 &, std::optional<float>) override {}
+    void drawParticles(Texture &, FaceCullMode, bool, const glm::ivec2 &, const std::vector<ParticleInstance> &) override {}
+    void drawProjectedBeam(Mesh &, const glm::mat4 &, const glm::mat4 &, const glm::vec4 &) override {}
+    void drawGrass(float, float, Texture &, std::optional<std::reference_wrapper<Texture>> &, const std::vector<GrassInstance> &) override {}
+    void drawAABB(const std::vector<glm::vec4> &) override {}
+    void drawImage(Texture &, const glm::ivec2 &, const glm::ivec2 &, glm::vec4, glm::mat3x4, ImageAlphaMode) override {}
+
+    std::vector<MeshDraw> meshDraws;
+};
+
+std::shared_ptr<Mesh> triangleMesh() {
+    std::vector<Mesh::Vertex> vertices {
+        Mesh::VertexBuilder().position(glm::vec3(0.0f, 0.0f, 0.0f)).build(),
+        Mesh::VertexBuilder().position(glm::vec3(1.0f, 0.0f, 0.0f)).build(),
+        Mesh::VertexBuilder().position(glm::vec3(0.0f, 1.0f, 0.0f)).build()};
+    Mesh::VertexLayout layout;
+    layout.stride = 3 * sizeof(float);
+    layout.offPosition = 0;
+    std::vector<Mesh::Face> faces {Mesh::Face(std::array<uint16_t, 3> {0, 1, 2})};
+    return std::make_shared<Mesh>(std::move(vertices), std::move(layout), std::move(faces));
+}
+
+} // namespace
+
+TEST(MeshSceneNode, should_draw_cycling_diffuse_texture_from_texture_array_at_its_current_frame) {
+    // given: door_field, the Endar Spire force field, 2x2 frames at 16 fps
+    MeshFixture fixture;
+    fixture.texture->setType(TextureType::TwoDimArray);
+    Texture::Features features;
+    features.blending = Texture::Blending::Additive;
+    features.procedureType = Texture::ProcedureType::Cycle;
+    features.numX = 2;
+    features.numY = 2;
+    features.fps = 16;
+    features.decal = true;
+    fixture.texture->setFeatures(features);
+    fixture.addMesh(1, "plane_g", "door_field")->mesh = triangleMesh();
+    fixture.build();
+    // 0.1875 s into its 0.25 s cycle of four frames
+    fixture.scene->update(0.1875f);
+    MaterialRecordingRenderPass pass;
+
+    // when
+    fixture.meshNode("plane_g").render(pass);
+
+    // then
+    ASSERT_EQ(1ll, pass.meshDraws.size());
+    const auto &draw = pass.meshDraws.front();
+    EXPECT_EQ(0ll, draw.textures.count(TextureUnits::mainTex));
+    ASSERT_EQ(1ll, draw.textures.count(TextureUnits::mainTexArray));
+    EXPECT_EQ(fixture.texture.get(), &draw.textures.at(TextureUnits::mainTexArray).get());
+    EXPECT_EQ(2, draw.mainTexFrame);
+}
+
+TEST(MeshSceneNode, should_draw_single_image_diffuse_texture_from_main_texture_unit) {
+    // given
+    MeshFixture fixture;
+    fixture.addMesh(1, "plane_g", "some_texture")->mesh = triangleMesh();
+    fixture.build();
+    fixture.scene->update(0.1875f);
+    MaterialRecordingRenderPass pass;
+
+    // when
+    fixture.meshNode("plane_g").render(pass);
+
+    // then
+    ASSERT_EQ(1ll, pass.meshDraws.size());
+    const auto &draw = pass.meshDraws.front();
+    EXPECT_EQ(0ll, draw.textures.count(TextureUnits::mainTexArray));
+    ASSERT_EQ(1ll, draw.textures.count(TextureUnits::mainTex));
+    EXPECT_EQ(fixture.texture.get(), &draw.textures.at(TextureUnits::mainTex).get());
+    EXPECT_EQ(0, draw.mainTexFrame);
 }

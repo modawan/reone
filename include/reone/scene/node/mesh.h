@@ -144,6 +144,8 @@ private:
     std::vector<glm::mat4> buildSkinBoneTransforms() const;
     /** Draws the mesh, skinned or dangling as it is, with \p material. */
     void drawWithMaterial(IRenderPass &pass, graphics::Material &material);
+    /** Adds \p texture to \p material as its main texture, at its current frame if it has frames. */
+    void addMainTexture(graphics::Material &material, graphics::Texture &texture) const;
     /** Sets the Force Sight look of the model on \p material. */
     void applyForceSight(graphics::Material &material) const;
     /** Rebuilds the beam geometry for where the target is now and draws it. */

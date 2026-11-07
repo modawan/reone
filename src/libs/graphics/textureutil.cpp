@@ -116,6 +116,16 @@ void convertGridTextureToArray(Texture &texture, int numX, int numY) {
         std::move(frameLayers));
 }
 
+int getCycleFrame(const Texture &texture, float time) {
+    const Texture::Features &features = texture.features();
+    if (features.procedureType != Texture::ProcedureType::Cycle) {
+        return 0;
+    }
+    int frameCount = features.numX * features.numY;
+    float length = frameCount / static_cast<float>(features.fps);
+    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
+}
+
 Texture::Properties getTextureProperties(TextureUsage usage) {
     Texture::Properties properties;
 

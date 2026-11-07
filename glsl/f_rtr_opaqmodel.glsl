@@ -13,6 +13,7 @@
 #include "i_shadowmap.glsl"
 
 uniform sampler2D sMainTex;
+uniform sampler2DArray sMainTexArray;
 uniform sampler2D sNormalMap;
 uniform sampler2D sLightmap;
 uniform sampler2D sEnvMap;
@@ -32,7 +33,9 @@ layout(location = 1) out vec4 fragHilights;
 
 void main() {
     vec2 uv = vec2(uUV * vec3(fragUV1, 1.0));
-    vec4 mainTexSample = texture(sMainTex, uv);
+    vec4 mainTexSample = isFeatureEnabled(FEATURE_MAINTEXARRAY)
+                             ? texture(sMainTexArray, vec3(uv, uMainTexFrame))
+                             : texture(sMainTex, uv);
     if (!isFeatureEnabled(FEATURE_ENVMAP)) {
         if (isFeatureEnabled(FEATURE_HASHEDALPHATEST)) {
             hashedAlphaTest(mainTexSample.a, fragPosWorld.xyz);

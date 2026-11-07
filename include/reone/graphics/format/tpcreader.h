@@ -55,6 +55,7 @@ private:
     uint16_t _height {0};
     EncodingType _encoding {EncodingType::Grayscale};
     bool _compressed {false};
+    bool _cubeMap {false};
     int _numLayers {0};
     uint8_t _numMipMaps {0};
 
@@ -66,11 +67,13 @@ private:
 
     void loadLayers();
     void loadFeatures();
+    void splitCycleFrames();
 
     void loadTexture();
 
     void getMipMapSize(int index, int &width, int &height) const;
     int getMipMapDataSize(int width, int height) const;
+    size_t getMipMapChainDataSize(int width, int height) const;
 
     PixelFormat getPixelFormat() const;
 };
