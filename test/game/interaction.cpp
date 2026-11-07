@@ -176,8 +176,8 @@ TEST_F(CreatureInteractionTest, clicking_a_non_hostile_creature_without_a_conver
     EXPECT_TRUE(_leader->actions().empty());
 }
 
-// A placeable with a dialog is talked to only when it has no used script; one
-// with a used script is used, and the script starts whichever dialog it means.
+// A placeable with a dialog is used, not talked to; its used script starts
+// whichever dialog it means.
 TEST_F(CreatureInteractionTest, placeable_with_a_used_script_is_used_not_talked_to) {
     auto placeable = _game->newPlaceable();
     placeable->setConversation("tar05_ff_dlg");
@@ -189,12 +189,12 @@ TEST_F(CreatureInteractionTest, placeable_with_a_used_script_is_used_not_talked_
     EXPECT_EQ(ActionType::OpenContainer, _leader->actions().front()->type());
 }
 
-TEST_F(CreatureInteractionTest, placeable_with_only_a_dialog_is_talked_to) {
+TEST_F(CreatureInteractionTest, placeable_with_only_a_dialog_is_used_not_talked_to) {
     auto placeable = _game->newPlaceable();
     placeable->setConversation("tar05_ff_dlg");
 
     TestGameModule::clickPlaceable(*_module, placeable);
 
     ASSERT_EQ(1ll, _leader->actions().size());
-    EXPECT_EQ(ActionType::StartConversation, _leader->actions().front()->type());
+    EXPECT_EQ(ActionType::OpenContainer, _leader->actions().front()->type());
 }

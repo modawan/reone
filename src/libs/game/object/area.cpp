@@ -27,6 +27,7 @@
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
+#include "reone/game/animations.h"
 #include "reone/game/camerastyles.h"
 #include "reone/game/combattables.h"
 #include "reone/game/d20/class.h"
@@ -58,6 +59,7 @@
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/layouts.h"
 #include "reone/resource/provider/models.h"
@@ -97,13 +99,12 @@ static constexpr float kDefaultFieldOfView = 75.0f;
 // second, other creatures every four seconds.
 static constexpr float kLeaderPerceptionPass = 0.2f;
 static constexpr float kPerceptionPass = 4.0f;
-static constexpr float kPerceptionEyeHeight = 1.5f;
 // Squared thickness of a door or other object both sounds run into.
 static constexpr float kSharedObstacleThickness2 = 0.16f;
-// Listen penalties: for a way around the walls, and for each whole metre of wall.
+// Listen penalties: for any obstacle where the area routes sound around obstacles,
+// and for each whole metre of obstacle elsewhere.
 static constexpr int kSoundDetourPenalty = 2;
 static constexpr int kSoundWallPenaltyPerMetre = 5;
-static constexpr float kLineOfSightHeight = 1.7f;        // TODO: make it appearance-based
 // Every surface material, for lines that any face stops.
 static const std::set<uint32_t> kEverySurface = [] {
     std::set<uint32_t> materials;
@@ -250,10 +251,19 @@ void Area::load(
 
     _unescapable = areParsed.Unescapable != 0;
     _transitDisabled = areParsed.DisableTransit != 0;
-    _playerRestrictMode = are.getBool("RestrictMode");
+    // The area file's restrict mode goes through the setter, so a change ends
+    // the party's stealth.
+    setPlayerRestrictMode(are.getUint("RestrictMode"));
     _transitionPending = are.getBool("TransPending");
     _transitionPendingNextId = are.getUint("TransPendNextID");
     _transitionPendingCurrentId = are.getUint("TransPendCurrID");
+    // An area file gives the stealth experience pool; one that leaves its
+    // current amount out starts it full.
+    std::optional<uint32_t> currentStealthXP;
+    if (are.has("StealthXPCurrent")) {
+        currentStealthXP = are.getUint("StealthXPCurrent");
+    }
+    loadStealthXP(areParsed.StealthXPMax, currentStealthXP, areParsed.StealthXPLoss, areParsed.StealthXPEnabled);
     loadARE(areParsed);
     loadLYT();
     loadGIT(git, identityContext);
@@ -284,7 +294,6 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadAmbientColor(are);
     loadScripts(are);
     loadMap(are);
-    loadStealthXP(are);
     loadHearing(are);
     loadGrass(are);
     loadFog(are);
@@ -335,9 +344,9 @@ void Area::loadMap(const resource::generated::ARE &are) {
     _game.map().load(_name, _map);
 }
 
-void Area::setPlayerRestrictMode(bool value) {
-    if (value && !_playerRestrictMode) {
-        _game.party().endStealth();
+void Area::setPlayerRestrictMode(int value) {
+    if (value != 0 && value != _playerRestrictMode) {
+        _game.party().endStealth(true);
     }
     _playerRestrictMode = value;
 }
@@ -396,10 +405,14 @@ void Area::loadHearing(const resource::generated::ARE &are) {
     _modListenCheck = are.ModListenCheck;
 }
 
-void Area::loadStealthXP(const resource::generated::ARE &are) {
-    _stealthXPEnabled = are.StealthXPEnabled;
-    _stealthXPDecrement = are.StealthXPLoss; // TODO: loss = decrement?
-    _maxStealthXP = are.StealthXPMax;
+void Area::loadStealthXP(std::optional<uint32_t> max, std::optional<uint32_t> current,
+                         std::optional<uint32_t> decrement, std::optional<uint32_t> enabled) {
+    setMaxStealthXP(max.value_or(_maxStealthXP));
+    setCurrentStealthXP(current.value_or(_maxStealthXP));
+    _stealthXPDecrement = decrement.value_or(_stealthXPDecrement);
+    if (enabled) {
+        _stealthXPEnabled = static_cast<int>(*enabled);
+    }
 }
 
 void Area::loadGrass(const resource::generated::ARE &are) {
@@ -480,6 +493,13 @@ void Area::loadProperties(const resource::Gff &git) {
     if (!properties) {
         return;
     }
+    auto field = [&properties](const std::string &name) -> std::optional<uint32_t> {
+        if (!properties->has(name)) {
+            return std::nullopt;
+        }
+        return properties->getUint(name);
+    };
+    loadStealthXP(field("StealthXPMax"), field("StealthXPCurrent"), field("StealthXPLoss"), field("StealthXPEnabled"));
     properties->readBool(_unescapable, "Unescapable");
     properties->readBool(_transitionPending, "TransPending");
     properties->readByte(_transitionPendingNextId, "TransPendNextID");
@@ -794,9 +814,12 @@ Area::~Area() {
     }
     // Corpses, fading bodies and released effect models go with the area.
     if (_fadingBodies.empty() && _corpses.empty() && _corpseBagBodies.empty() && _releasedEffectModels.empty() &&
-        _presentedVisuals.empty() && _hitSparks.empty())
+        _presentedVisuals.empty() && _hitSparks.empty() && _removedMines.empty())
         return;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    for (auto &mine : _removedMines) {
+        sceneGraph.removeRoot(*mine.model);
+    }
     for (auto &body : _fadingBodies) {
         sceneGraph.removeRoot(*body.model);
     }
@@ -1416,6 +1439,9 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     }
     // Only a body standing in the area stays behind it.
     const bool resident = isObjectResident(*object);
+    if (auto trigger = dyn_cast<Trigger>(object); trigger && destroyRuntimeObject && trigger->isTrap()) {
+        presentMineRemoval(*trigger);
+    }
     detachObjectRuntime(object);
     if (destroyRuntimeObject) {
         // A live creature destroyed where it stood leaves the area.
@@ -1585,9 +1611,44 @@ void Area::presentHitSpark(const Creature &target, int visualEffectId, const glm
     _hitSparks.push_back(std::move(spark));
 }
 
+// The clips a mine's model plays as it goes with its explosion or disarmed.
+static constexpr int kMineActivateAnimation = 348;
+static constexpr int kMineDeactivateAnimation = 349;
+// A removed mine's model stays this long after its clip.
+static constexpr float kRemovedMineHold = 0.5f;
+
+void Area::presentMineRemoval(Trigger &mine) {
+    const MineRemoval removal = mine.mineRemoval();
+    if (removal == MineRemoval::Plain) {
+        return;
+    }
+    // Only a mine whose model is present, one within the player's view, is
+    // shown going.
+    if (!mine.trapModel()) {
+        return;
+    }
+    const bool explosion = removal == MineRemoval::Explosion;
+    // A trap type with a blank explosion sound goes off silently.
+    if (explosion && !mine.trapExplosionSound().empty()) {
+        _services.audio.mixer.play(_services.resource.audioClips.get(mine.trapExplosionSound()),
+                                   audio::AudioType::Sound, 1.0f, false, mine.trapModelPosition());
+    }
+    auto model = mine.releaseTrapModel();
+    model->setPickable(false);
+    const std::string name =
+        _services.game.animations.getNameById(explosion ? kMineActivateAnimation : kMineDeactivateAnimation);
+    // A model without the clip holds still for the time it stays.
+    float clipLength = 0.0f;
+    if (auto animation = model->model().getAnimation(name)) {
+        model->playAnimation(name);
+        clipLength = animation->length();
+    }
+    _removedMines.push_back({std::move(model), clipLength + kRemovedMineHold});
+}
+
 void Area::updateReleasedPresentation(float dt) {
     if (_fadingBodies.empty() && _corpses.empty() && _corpseBagBodies.empty() && _releasedEffectModels.empty() &&
-        _presentedVisuals.empty() && _hitSparks.empty())
+        _presentedVisuals.empty() && _hitSparks.empty() && _removedMines.empty())
         return;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     for (auto it = _fadingBodies.begin(); it != _fadingBodies.end();) {
@@ -1611,6 +1672,15 @@ void Area::updateReleasedPresentation(float dt) {
         } else {
             sceneGraph.removeRoot(**it);
             it = _releasedEffectModels.erase(it);
+        }
+    }
+    for (auto it = _removedMines.begin(); it != _removedMines.end();) {
+        it->remaining -= dt;
+        if (it->remaining <= 0.0f) {
+            sceneGraph.removeRoot(*it->model);
+            it = _removedMines.erase(it);
+        } else {
+            ++it;
         }
     }
     for (auto it = _presentedVisuals.begin(); it != _presentedVisuals.end();) {
@@ -2663,6 +2733,12 @@ void Area::runObjectActions() {
         return;
     }
     runSpawnScripts();
+    if (held()) {
+        return;
+    }
+    // Perception goes on under a pause: creatures outside the party
+    // still check the party, and new ones see what is around them.
+    updatePerception(0.0f);
     // Actions can create new objects, so iterate with indices. Objects held
     // by a time stop stand still.
     for (size_t i = 0; i < _objects.size() && !held(); ++i) {
@@ -3144,20 +3220,36 @@ void Area::setThirdPersonCombat(bool combat) {
     update3rdPersonCameraTarget();
 }
 
-void Area::setStealthXPEnabled(bool value) {
+void Area::setStealthXPEnabled(int value) {
     _stealthXPEnabled = value;
 }
 
-void Area::setMaxStealthXP(int value) {
+void Area::setMaxStealthXP(uint32_t value) {
+    _currentStealthXP = std::min(_currentStealthXP, value);
     _maxStealthXP = value;
 }
 
-void Area::setCurrentStealthXP(int value) {
-    _currentStealthXP = value;
+void Area::setCurrentStealthXP(uint32_t value) {
+    _currentStealthXP = std::min(value, _maxStealthXP);
 }
 
-void Area::setStealthXPDecrement(int value) {
+void Area::setStealthXPDecrement(uint32_t value) {
     _stealthXPDecrement = value;
+}
+
+void Area::loseStealthXP() {
+    setCurrentStealthXP(_currentStealthXP < _stealthXPDecrement ? 0 : _currentStealthXP - _stealthXPDecrement);
+}
+
+void Area::awardStealthXP() {
+    if (!isStealthXPEnabled() || _currentStealthXP == 0) {
+        return;
+    }
+    const auto pool = static_cast<int>(_currentStealthXP);
+    _game.party().awardXP(pool, XPSource::Stealth);
+    _game.submitStatusSummary(StatusSummaryCategory::StealthXP, pool);
+    setCurrentStealthXP(0);
+    setStealthXPEnabled(0);
 }
 
 void Area::setUnescapable(bool value) {
@@ -3632,9 +3724,17 @@ void Area::updatePerceptionPass(const std::shared_ptr<Creature> &observer, bool 
     observer->resolvePerceptionRanges();
     const bool inParty = party.isMember(*observer);
     const float range = std::max(observer->spotRange(), observer->listenRange());
-    auto inRange = [&](const Creature &target) {
+    // In TSL a creature that is always updated counts as in range: anywhere
+    // for the party check, and within the range across for the full pass.
+    auto inRange = [&](const Creature &target, bool anywhere) {
         const glm::vec3 offset {target.position() - observer->position()};
-        return glm::dot(offset, offset) <= range * range || (_game.isTSL() && target.forceAlwaysUpdate());
+        if (glm::dot(offset, offset) <= range * range) {
+            return true;
+        }
+        if (!_game.isTSL() || !target.forceAlwaysUpdate()) {
+            return false;
+        }
+        return anywhere || std::abs(offset.x) <= range;
     };
     if (partyTargets) {
         for (const auto &member : party.members()) {
@@ -3642,7 +3742,7 @@ void Area::updatePerceptionPass(const std::shared_ptr<Creature> &observer, bool 
             if (!target || target == observer) {
                 continue;
             }
-            if (observer->perception().has(target->id()) || inRange(*target)) {
+            if (observer->perception().has(target->id()) || inRange(*target, true)) {
                 updatePerceptionPair(observer, target);
             }
         }
@@ -3678,7 +3778,7 @@ void Area::updatePerceptionPass(const std::shared_ptr<Creature> &observer, bool 
         if (!inParty && party.isMember(*target)) {
             return;
         }
-        if (inRange(*target)) {
+        if (inRange(*target, false)) {
             updatePerceptionPair(observer, target);
         }
     });
@@ -3768,12 +3868,13 @@ bool Area::isEyeLineClear(const glm::vec3 &from, const glm::vec3 &to,
 }
 
 // Sound is cast both ways between the eyes. A door or other object hit both
-// ways is thin; otherwise the gap between the two hits is the thickness of
-// what lies between. Where the area routes sound around walls, a way around
-// costs 2 and no way around blocks the sound; elsewhere each whole metre of
-// wall costs 5.
-std::optional<int> Area::soundOcclusion(const Creature &listener, const Creature &source,
-                                        const glm::vec3 &listenerEye, const glm::vec3 &sourceEye) const {
+// ways is thin. Otherwise the thickness of what lies between runs from the
+// object the sound first met, or the point it met, to where it met something
+// coming back: that object again when the way back met an object; a way that
+// met nothing counts from the world's origin. Where the area routes sound
+// around obstacles, any obstacle costs 2; elsewhere each whole metre costs 5.
+int Area::soundOcclusion(const Creature &listener, const Creature &source, const glm::vec3 &listenerEye,
+                         const glm::vec3 &sourceEye) const {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     Collision forward, backward;
     const bool forwardHit = sceneGraph.testLineOfSight(listenerEye, sourceEye, forward);
@@ -3787,25 +3888,20 @@ std::optional<int> Area::soundOcclusion(const Creature &listener, const Creature
     float thickness2 = 0.0f;
     if (forwardObject && forwardObject == backwardObject) {
         thickness2 = kSharedObstacleThickness2;
-    } else if (forwardHit || backwardHit) {
-        const glm::vec3 forwardPoint = forwardObject ? forwardObject->position()
-                                       : forwardHit  ? forward.intersection
-                                                     : sourceEye;
-        const glm::vec3 backwardPoint = backwardObject ? backwardObject->position()
-                                        : backwardHit  ? backward.intersection
-                                                       : listenerEye;
+    } else {
+        const glm::vec3 forwardHitPoint = forwardHit ? forward.intersection : glm::vec3(0.0f);
+        const glm::vec3 backwardHitPoint = backwardHit ? backward.intersection : glm::vec3(0.0f);
+        const glm::vec3 forwardPoint = forwardObject ? forwardObject->position() : forwardHitPoint;
+        const glm::vec3 backwardPoint = backwardObject && forwardObject ? forwardObject->position() : backwardHitPoint;
         thickness2 = glm::distance2(forwardPoint, backwardPoint);
     }
     if (thickness2 <= 0.0f) {
         return 0;
     }
     if (_interior || _underground) {
-        if (!pathExists(_pathfinder, listener.position(), source.position())) {
-            return std::nullopt;
-        }
         return -kSoundDetourPenalty;
     }
-    return -kSoundWallPenaltyPerMetre * static_cast<int>(std::sqrt(thickness2));
+    return -kSoundWallPenaltyPerMetre * static_cast<int>(std::sqrt(static_cast<double>(thickness2)));
 }
 
 void Area::notifyPerception(const std::shared_ptr<Creature> &observer, const std::shared_ptr<Object> &target,
@@ -3829,7 +3925,7 @@ void Area::dispatchPerceptionNotices() {
 }
 
 // Other creatures exist for the player only while the controlled creature
-// sees or hears them.
+// sees or hears them, or, in TSL, while they are always updated.
 void Area::updatePresence() {
     auto leader = _game.party().getLeader();
     if (!leader || !isObjectResident(*leader)) {
@@ -3839,7 +3935,7 @@ void Area::updatePresence() {
     for (const auto &object : getObjectsByType(ObjectType::Creature)) {
         const bool present = object == leader || _game.party().isMember(*object) ||
                              perception.sees(object->id()) || perception.hears(object->id()) ||
-                             object->forceAlwaysUpdate();
+                             (_game.isTSL() && object->forceAlwaysUpdate());
         object->setPresent(present);
     }
 }
@@ -3937,7 +4033,8 @@ void Area::updatePerceptionPair(
         newly = seen || heard;
     }
 
-    if (_game.party().isMember(*observer) && _game.party().isMember(*target)) {
+    const bool partyPair = _game.party().isMember(*observer) && _game.party().isMember(*target);
+    if (partyPair) {
         seen = true;
         heard = true;
         invisible = false;
@@ -3962,10 +4059,13 @@ void Area::updatePerceptionPair(
     if (!newly) {
         return;
     }
+    // A new sighting starts the observer's stealth experience timer, a party
+    // member's too.
     if (present) {
         if (seen && !observer->perception().sees(id)) {
             observer->setObjectSeen(target, true);
             notifyPerception(observer, target, PerceptionEvent::Seen);
+            observer->startStealthXPTimer(*target);
         }
         if (heard && !observer->perception().hears(id)) {
             observer->setObjectHeard(target, true);
@@ -3980,6 +4080,7 @@ void Area::updatePerceptionPair(
         }
         if (seen) {
             notifyPerception(observer, target, PerceptionEvent::Seen);
+            observer->startStealthXPTimer(*target);
         }
     }
 }
@@ -4110,12 +4211,10 @@ std::vector<TransitionPortal> Area::transitionPresentationPortals() const {
             }
         }
     }
-    if (auto doors = _objectsByType.find(ObjectType::Door); doors != _objectsByType.end()) {
-        for (auto &object : doors->second) {
-            const auto &door = static_cast<const Door &>(*object);
-            if (door.isLinked() && !door.linkedToModule().empty() && door.isOpen()) {
-                addPortal(door, door.transitionDestin(), door.outline());
-            }
+    for (auto &object : _objectsByType.at(ObjectType::Door)) {
+        const auto &door = static_cast<const Door &>(*object);
+        if (door.isLinked() && !door.linkedToModule().empty() && door.isOpen()) {
+            addPortal(door, door.transitionDestin(), door.outline());
         }
     }
     return portals;

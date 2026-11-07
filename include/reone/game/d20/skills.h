@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "../types.h"
 
 #include "skill.h"
@@ -47,6 +49,24 @@ public:
  *         or, for a skill used untrained, one any of its classes can use
  */
 bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttributes &attributes, bool tsl);
+
+/**
+ * Whether a creature can use the skill by the rule its own skill use and its
+ * automatic level-up's feat requirements follow: a Demolitions sub-skill
+ * (100 to 102) as Demolitions, which it must have ranks in; in TSL, Stealth
+ * also with the personal cloaking shield feat from an effect; otherwise as
+ * canUseSkill.
+ *
+ * @param skill a skill or a Demolitions sub-skill
+ * @param hasFeat whether the creature has the feat, its effects' feats
+ *        included
+ */
+bool canCreatureUseSkill(
+    const ISkills &skills,
+    int skill,
+    const CreatureAttributes &attributes,
+    const std::function<bool(FeatType)> &hasFeat,
+    bool tsl);
 
 class Skills : public ISkills, boost::noncopyable {
 public:

@@ -25,6 +25,7 @@
 #include <glm/geometric.hpp>
 
 #include "reone/audio/mixer.h"
+#include "reone/game/animationutil.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/spell.h"
@@ -71,7 +72,6 @@ static constexpr int kWristLaunchAnimationId = 10417;
 static constexpr int kNearThrowAnimationId = 10130;
 static constexpr int kThrowAnimationId = 10129;
 static constexpr int kInjectAnimationId = 10070;
-static constexpr int kActivateAnimationId = 10136;
 static constexpr int kDroidUtilityAnimationId = 11001;
 
 // A grenade thrown at a target nearer than this takes the near throw.
@@ -513,7 +513,7 @@ static ItemUsePresentation itemUsePresentation(const Creature &user, int itemTyp
             break;
         }
         look.clip = "activate";
-        look.clipId = kActivateAnimationId;
+        look.clipId = kCreatureActivateAnimationId;
         break;
     case Item::kForearmBandsItemType:
         look.impact = 0.6f;
@@ -523,7 +523,7 @@ static ItemUsePresentation itemUsePresentation(const Creature &user, int itemTyp
             break;
         }
         look.clip = "activate";
-        look.clipId = kActivateAnimationId;
+        look.clipId = kCreatureActivateAnimationId;
         break;
     case Item::kDroidUtilityItemType: {
         // Its conjure, then its loop; it takes effect as the loop starts.

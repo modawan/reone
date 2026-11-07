@@ -584,9 +584,10 @@ public:
         }
         return _transitionPendingNextId;
     }
-    bool playerRestrictMode() const { return _playerRestrictMode; }
-    /** Turning restrict mode on ends the party's stealth. */
-    void setPlayerRestrictMode(bool value);
+    /** The restrict mode as set, 0 for off; any other value restricts. */
+    int playerRestrictMode() const { return _playerRestrictMode; }
+    /** Setting restrict mode on, or to another value, ends the party's stealth. */
+    void setPlayerRestrictMode(int value);
     const ObjectList &objects() const { return _objects; }
     const std::string &localizedName() const { return _localizedName; }
     const RoomMap &rooms() const { return _rooms; }
@@ -651,12 +652,9 @@ public:
 
     bool isObjectSeen(const Creature &subject, const Object &object) const;
     void refreshPerceptionFor(Creature &creature);
-    /**
-     * Listen penalty for what lies between two creatures' eyes, or none when
-     * no sound reaches from one to the other.
-     */
-    std::optional<int> soundOcclusion(const Creature &listener, const Creature &source,
-                                      const glm::vec3 &listenerEye, const glm::vec3 &sourceEye) const;
+    /** Listen penalty for what lies between two creatures' eyes; sound always gets through. */
+    int soundOcclusion(const Creature &listener, const Creature &source, const glm::vec3 &listenerEye,
+                       const glm::vec3 &sourceEye) const;
     int modListenCheck() const { return _modListenCheck; }
     /** Have a creature look around at once, as when it stops leading the party. */
     void perceiveNow(const std::shared_ptr<Creature> &observer);
@@ -774,16 +772,35 @@ public:
 
     // Stealth
 
-    bool isStealthXPEnabled() const { return _stealthXPEnabled; }
+    /** Whether the area pays stealth experience: any value but 0. */
+    bool isStealthXPEnabled() const { return _stealthXPEnabled != 0; }
+    /** Whether the area pays stealth experience, as the value a script gave. */
+    int stealthXPEnabled() const { return _stealthXPEnabled; }
 
-    int maxStealthXP() const { return _maxStealthXP; }
-    int currentStealthXP() const { return _currentStealthXP; }
-    int stealthXPDecrement() const { return _stealthXPDecrement; }
+    /**
+     * The area's stealth experience: the most the pool holds, the pool, and
+     * what a sighting takes from it. The amounts are unsigned: a negative
+     * amount a script gives reads as a very large one.
+     */
+    uint32_t maxStealthXP() const { return _maxStealthXP; }
+    uint32_t currentStealthXP() const { return _currentStealthXP; }
+    uint32_t stealthXPDecrement() const { return _stealthXPDecrement; }
 
-    void setStealthXPEnabled(bool value);
-    void setMaxStealthXP(int value);
-    void setCurrentStealthXP(int value);
-    void setStealthXPDecrement(int value);
+    void setStealthXPEnabled(int value);
+    /** A lower maximum lowers the pool to it. */
+    void setMaxStealthXP(uint32_t value);
+    /** The pool holds at most the maximum. */
+    void setCurrentStealthXP(uint32_t value);
+    void setStealthXPDecrement(uint32_t value);
+    /** A sighting of the player's creature takes the decrement from the pool, down to nothing. */
+    void loseStealthXP();
+    /**
+     * Pays out the pool once, when the area pays stealth experience and the
+     * pool is not empty: the party gains it as experience, the status summary
+     * shows the pool even when too large to pay, and the area then has no
+     * pool and pays no stealth experience.
+     */
+    void awardStealthXP();
 
     // END Stealth
 
@@ -879,7 +896,7 @@ private:
     CameraStyle _camStyleDefault;
     CameraStyle _camStyleCombat;
     AmbientAudio _ambientAudio;
-    bool _playerRestrictMode {false};
+    int _playerRestrictMode {0};
     uint32_t _lastEnteredId {script::kObjectInvalid};
     uint32_t _lastLeftId {script::kObjectInvalid};
     bool _transitionPending {false};
@@ -980,9 +997,27 @@ private:
         std::shared_ptr<scene::ModelSceneNode> model;
     };
     std::vector<HitSpark> _hitSparks;
+    /** A removed mine's model, kept while it is shown leaving. */
+    struct RemovedMine {
+        /** The mine's model, no longer pickable. */
+        std::shared_ptr<scene::ModelSceneNode> model;
+        /** Seconds until the model goes. */
+        float remaining {0.0f};
+    };
+    /** Removed mines still shown leaving. */
+    std::vector<RemovedMine> _removedMines;
 
     /** Keep the body of a destroyed object in the scene, as a fading body, a kept corpse or a corpse bag's body. */
     void releaseDestroyedBody(const std::shared_ptr<Object> &object);
+    /**
+     * A mine removed with its explosion plays its explosion sound where its
+     * model is drawn, in the one-shot positional sound group, and its
+     * activate clip; a disarmed one plays its deactivate clip. Its model
+     * stays, unpickable, for the clip and half a second more. A mine removed
+     * any other way, or without a model because it is beyond the controlled
+     * creature's perception range, leaves at once.
+     */
+    void presentMineRemoval(Trigger &mine);
     /** Fade and remove released bodies and effect models, and show kept ones. */
     void updateReleasedPresentation(float dt);
 
@@ -990,10 +1025,11 @@ private:
 
     // Stealth
 
-    bool _stealthXPEnabled {false};
-    int _maxStealthXP {0};
-    int _currentStealthXP {0};
-    int _stealthXPDecrement {0};
+    /** Whether stealth experience is paid, as the value a script gave. */
+    int _stealthXPEnabled {0};
+    uint32_t _maxStealthXP {0};
+    uint32_t _currentStealthXP {0};
+    uint32_t _stealthXPDecrement {0};
 
     // END Stealth
 
@@ -1137,7 +1173,14 @@ private:
     void loadAmbientColor(const resource::generated::ARE &are);
     void loadScripts(const resource::generated::ARE &are);
     void loadMap(const resource::generated::ARE &are);
-    void loadStealthXP(const resource::generated::ARE &are);
+    /**
+     * Stealth experience as the area file or the saved area properties give
+     * it: the maximum, then the pool, which starts full unless given and
+     * holds at most the maximum, the decrement and whether it is paid. A
+     * field left out keeps its value.
+     */
+    void loadStealthXP(std::optional<uint32_t> max, std::optional<uint32_t> current,
+                       std::optional<uint32_t> decrement, std::optional<uint32_t> enabled);
     void loadHearing(const resource::generated::ARE &are);
     void loadGrass(const resource::generated::ARE &are);
     void loadFog(const resource::generated::ARE &are);
@@ -1151,6 +1194,11 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
 
+    /**
+     * Take the GIT's area properties (stealth experience, restrict mode,
+     * pending transition, fog colour, music and ambient sound) over the area
+     * file's; a field left out keeps its value.
+     */
     void loadProperties(const resource::Gff &git);
     void loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
     void loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext);

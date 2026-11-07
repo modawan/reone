@@ -239,7 +239,8 @@ TEST(ActionActor, a_creature_actor_completes_a_move_it_has_arrived_at) {
                            script::Variable::ofFloat(1.0f)});
     fixture.tick(walker);
 
-    EXPECT_TRUE(walker->actions().front()->isCompleted());
+    // A move that ends at once leaves the queue in the same update.
+    EXPECT_TRUE(walker->actions().empty());
 }
 
 TEST(ActionActor, a_creature_actor_keeps_moving_to_a_location) {

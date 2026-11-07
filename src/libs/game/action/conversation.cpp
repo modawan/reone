@@ -59,27 +59,37 @@ static bool isPartyInteract(const Object &object) {
     return false;
 }
 
+static bool isWithinStartDistance(const Object &speaker, const Object &partner) {
+    const glm::vec3 offset {partner.position() - speaker.position()};
+    return glm::dot(offset, offset) <= kConversationStartDistance * kConversationStartDistance;
+}
+
 // The speaker first looks for the partner within use range, a metre further.
-// Out of it, the speaker runs to the partner's use point until that close, or
-// to a door's or placeable's use range, and then starts the conversation if
-// the partner is within ten metres, or sets off again.
+// Out of it, the speaker runs toward the point halfway between itself and the
+// partner's use point, closing on that point to the use range and a metre;
+// the walk also ends within use range of the partner. Once the walk ends, or
+// finds no way on, the speaker starts the conversation if the partner is
+// within ten metres, or sets off again from where it stands.
 bool StartConversationAction::approach(Creature &speaker, float dt) {
-    if (!_approaching) {
-        if (speaker.isInUseRange(*_objectToConverse, kConversationUseRangeExtra)) {
+    if (!_walkPoint) {
+        if (!_approaching) {
+            if (speaker.isInUseRange(*_objectToConverse, kConversationUseRangeExtra)) {
+                return true;
+            }
+            _approaching = true;
+        } else if (isWithinStartDistance(speaker, *_objectToConverse)) {
             return true;
         }
-        _approaching = true;
+        const Creature::UseRange use = speaker.useRange(*_objectToConverse);
+        _walkPoint = 0.5f * (use.point + speaker.position());
+        _walkRange = use.range + kConversationUseRangeExtra;
     }
-    const Creature::UseRange use = speaker.useRange(*_objectToConverse);
-    const ObjectType partnerType = _objectToConverse->type();
-    const float range = partnerType == ObjectType::Door || partnerType == ObjectType::Placeable
-                            ? use.range
-                            : use.range + kConversationUseRangeExtra;
-    if (!speaker.navigateTo(use.point, true, range, dt, *_objectToConverse)) {
+    if (!speaker.walkToward(*_objectToConverse, *_walkPoint, true, _walkRange, dt, *_objectToConverse, false) &&
+        !speaker.navigationFailed()) {
         return false;
     }
-    const glm::vec3 offset {_objectToConverse->position() - speaker.position()};
-    return glm::dot(offset, offset) <= kConversationStartDistance * kConversationStartDistance;
+    _walkPoint.reset();
+    return isWithinStartDistance(speaker, *_objectToConverse);
 }
 
 // A companion that reaches someone with a conversation of their own hands

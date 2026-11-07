@@ -280,6 +280,7 @@ inline ArmorClassParts armorClassParts(const ArmorClassCache &cache,
 }
 
 struct PowerMenuStatus;
+enum class PowerUnavailableReason;
 struct ContextAction;
 
 class CreatureClass;
@@ -307,11 +308,13 @@ struct SavingThrowBreakdown {
 
 /**
  * Where the clip a creature shows came from: its animation ID, -1 when
- * unknown, and whether it is a dialog animation.
+ * unknown, whether it is a dialog animation, and whether it is only shown, the
+ * creature carrying on with what it does under it.
  */
 struct AnimationSource {
     int id {-1};
     bool dialog {false};
+    bool shownOnly {false};
 };
 
 /**
@@ -1187,22 +1190,64 @@ public:
     void setPuppet(bool puppet) { _puppet = puppet; }
     void setCurrentForm(CombatForm form) { _currentForm = form; }
     bool isStealthed() const { return _stealthMode; }
-    /** Enters or leaves stealth, with its presentation. */
-    void setStealthMode(bool enabled);
+    /**
+     * Enters or leaves stealth, with its presentation. In KotOR the creature
+     * also plays its activate clip, unless \p quiet: stealth ended by
+     * restrict mode or the start of a conversation, or a loaded creature.
+     */
+    void setStealthMode(bool enabled, bool quiet = false);
+    /**
+     * Newly seeing \p seen: when it is the player character or the controlled
+     * creature, the area loses stealth experience in six seconds.
+     */
+    void startStealthXPTimer(const Creature &seen);
+    /**
+     * Attacking \p victim: when it is the player character or the controlled
+     * creature, a running stealth experience loss comes on the next update.
+     */
+    void hastenStealthXPTimer(const Creature &victim);
     /**
      * The latest of the creature's own shells, the stealth exit's flash or
      * else the stealth field, with the effect application order current when
      * it began; null without one.
      */
     std::shared_ptr<graphics::Texture> latestOwnShell(uint64_t &order) const;
-    /** Whether the creature may use its Stealth skill at all. */
-    bool canUseStealthSkill() const;
+    /**
+     * @param skill a skill, or a Demolitions sub-skill (100-102)
+     * @return whether the creature may use the skill, by
+     *         game::canCreatureUseSkill: a sub-skill as Demolitions, never
+     *         untrained; in TSL, Stealth also with the stealth feat from an
+     *         effect
+     */
+    bool canUseSkill(int skill) const;
+    /** Whether the creature may use \p skill; see canUseSkill(int). */
+    bool canUseSkill(SkillType skill) const { return canUseSkill(static_cast<int>(skill)); }
+    /** Whether the creature may use the skill; the controlled creature is told when it may not. */
+    bool admitSkillUse(SkillType skill) const;
+    /**
+     * Whether the creature may use the skill on \p target: not one it cannot
+     * use, nor a hostile skill on a creature that regards it as a friend. The
+     * controlled creature is told why it may not.
+     */
+    bool admitSkillUse(SkillType skill, const Object &target) const;
     /** Whether the player can put this creature into stealth. */
     bool isStealthCapable() const;
     /** The stealth skill: leave stealth, or enter it out of combat and conversation. */
     void toggleStealth();
-    /** Using the Stealth skill: a creature without it is told so, others toggle stealth. */
-    void useStealthSkill();
+    /**
+     * Use a skill on \p target, as a script, a target menu or a talent asks.
+     * The use is first admitted (admitSkillUse(SkillType, const Object &)):
+     * a creature that cannot use the skill is told so, and a hostile skill is
+     * refused against a friendly target. Stealth toggles at once; Security gives
+     * the unlock, with a spike when \p item is given; Demolitions and Treat
+     * Injury give the action that does the work; the other skills do nothing.
+     * Security first clears the actions of the creature the player controls
+     * unless it is busy, and so does mine work when that creature can be
+     * commanded.
+     *
+     * @return the action to queue, or null when there is none
+     */
+    std::shared_ptr<Action> useSkill(SkillType skill, std::shared_ptr<Object> target, int subSkill = 0, std::shared_ptr<Item> item = nullptr);
     /** Stealth holds the creature to a sneaking walk, unless TSL's Stealth Run frees it. */
     bool movesStealthily() const;
     /**
@@ -1652,6 +1697,8 @@ public:
     void setObjectHeard(const std::shared_ptr<Object> &object, bool heard);
     /** Records whether \p object is invisible to the creature. */
     void setObjectInvisible(const std::shared_ptr<Object> &object, bool invisible);
+    /** Sees and hears \p object at once, unless the creature already perceives it. */
+    void perceiveAtOnce(const std::shared_ptr<Object> &object);
     /** Forgets having seen, heard or noticed the invisible \p id. */
     void forgetPerceived(uint32_t id);
     /** Record a perception change as the last one and run the notice script. */
@@ -1977,6 +2024,13 @@ public:
     int getEffectiveAbilityModifier(Ability ability) const;
     /** The race's adjustment to \p ability. */
     int racialAbilityAdjustment(Ability ability) const;
+    /**
+     * @param armourCapped whether the body armour's maximum Dexterity bonus
+     *        limits the modifier, as it does for defence
+     * @return the Dexterity modifier the rules use: a debilitated creature's
+     *         positive modifier counts as 0
+     */
+    int getDexterityModifier(bool armourCapped) const;
     bool hasEffectiveFeat(FeatType feat) const;
     /** The feats the creature's live bonus feat effects give it. */
     std::set<FeatType> effectFeats() const;
@@ -1987,11 +2041,6 @@ public:
      * without an attacker; \p touch for a touch attack.
      */
     DefenseBreakdown getDefenseBreakdown(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags, bool touch = false) const;
-    /**
-     * The effective Dexterity modifier, at most 0 while debilitated and
-     * otherwise limited by worn body armour when \p armorLimited.
-     */
-    int getDexterityModifier(bool armorLimited) const;
     int getDefense(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags) const;
     int getDefense() const;
     /** Ordinary ranged defense consumes the same permission as active saber throws. */
@@ -2659,7 +2708,17 @@ private:
     float _presentationFacing {0.0f};
     float _desiredFacing {0.0f};
     float _movementFacing {0.0f};
+    /**
+     * The time this update covers on the creature's own clock, in
+     * milliseconds; 0 while the clock stands still.
+     */
     int _frameMilliseconds {0};
+    /**
+     * Milliseconds until a sighting of the player's creature costs the area
+     * stealth experience, 0 once the loss is due on the next update; none
+     * when the timer is not running. Not saved.
+     */
+    std::optional<int> _stealthXPTimer;
 
     // Current path that the creature is following, its velocity and position at
     // the previous frame.
@@ -3031,11 +3090,22 @@ private:
     // Stealth
 
     void presentStealth(bool enabled, bool announce);
+    /**
+     * Shows the stealth state changing: the stealth sound, field and cue, and
+     * in KotOR, unless the change is quiet, the activate clip.
+     */
+    void presentStealthChange(bool enabled, bool quiet);
     void presentStealthField(bool enabled, bool announce);
     /** TSL's stealth feat or one of its Force Camouflage powers. */
     bool hasTSLStealthTalent() const;
     /** TSL Dampen Sound on an equipped item. */
     bool hasSilentMove() const;
+    /**
+     * Runs the stealth experience timer in an area paying stealth
+     * experience, by the frame time, and stops it elsewhere; when it runs
+     * out the area loses its decrement.
+     */
+    void updateStealthXPTimer();
 
     // END Stealth
 
@@ -3223,6 +3293,11 @@ private:
     /** The skill rank, \p versus a creature or unopposed. */
     int skillRank(SkillType skill, bool baseOnly,
                   const std::optional<std::reference_wrapper<const Creature>> &versus) const;
+    /**
+     * Whether the creature counts as still for stealth detection: it shows no
+     * moving animation, or, under a clip that is only shown, it neither walks
+     * nor runs.
+     */
     bool isStationaryForDetection() const;
     void reportStealthDetection(const Creature &target, int spotRoll, int hideRoll, int aware, int rank,
                                 int observerStill, int targetStill, int distance, int facing, int run, int combat) const;
