@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <stack>
 
 #include "glm/gtx/intersect.hpp"
@@ -214,13 +215,8 @@ void intersectMeshes(const SceneNode &node,
 // plus the negative and positive tunnel deltas.
 float keepAxisInTunnel(float offset, float origin, float positive, float negative, bool infinite) {
     if (infinite) {
-        if (offset < 0.0f) {
-            return offset + 360.0f;
-        }
-        if (offset > 359.0f) {
-            return offset - 360.0f;
-        }
-        return offset;
+        const float wrapped = std::fmod(offset, 360.0f);
+        return wrapped < 0.0f ? wrapped + 360.0f : wrapped;
     }
     if (offset > origin + positive) {
         return origin + positive;
@@ -2089,16 +2085,19 @@ bool Turret::handleMouseMotion(const input::MouseMotionEvent &event) {
     if (_game.isPaused()) {
         return true;
     }
-    float yaw = -event.xrel * kMouseAimRadiansPerPixel;
-    float pitch = -event.yrel * kMouseAimRadiansPerPixel;
-    if (_spec.mouse.flipAxisX) {
-        yaw = -yaw;
-    }
-    if (_spec.mouse.flipAxisY) {
-        pitch = -pitch;
-    }
-    _aim.addYaw(yaw);
-    _aim.addPitch(pitch);
+    // The area binds each mouse axis to an axis of the aim, 1 the pitch, 2 the
+    // roll and 3 the yaw, flipped if it asks. A mouse axis bound to none turns
+    // nothing.
+    glm::vec3 turn(0.0f);
+    auto bind = [&turn](uint32_t axis, bool flip, float degrees) {
+        if (axis >= 1 && axis <= 3) {
+            turn[axis - 1] += flip ? -degrees : degrees;
+        }
+    };
+    const float degreesPerPixel = glm::degrees(kMouseAimRadiansPerPixel);
+    bind(_spec.mouse.axisX, _spec.mouse.flipAxisX, -event.xrel * degreesPerPixel);
+    bind(_spec.mouse.axisY, _spec.mouse.flipAxisY, -event.yrel * degreesPerPixel);
+    _aim.turn(turn);
     return true;
 }
 
