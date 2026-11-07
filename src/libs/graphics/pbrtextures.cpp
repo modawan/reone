@@ -176,10 +176,12 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
     auto &shader = _shaderRegistry.get(ShaderProgramId::pbrPrefilter);
     _context.useProgram(shader);
     _context.bindTexture(request.texture, TextureUnits::envMapCube);
-    _uniforms.setLocals([](auto &locals) {
-        locals.reset();
-    });
     for (int mip = 0; mip < kNumPrefilteredMipMaps; ++mip) {
+        float roughness = mip / static_cast<float>(kNumPrefilteredMipMaps - 1);
+        _uniforms.setLocals([&roughness](auto &locals) {
+            locals.reset();
+            locals.roughness = roughness;
+        });
         int w = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
         int h = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
         _context.withViewport(glm::ivec4 {0, 0, w, h}, [this, &request, &layer, &mip]() {
