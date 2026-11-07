@@ -28,7 +28,12 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/camera/firstperson.h"
+#include "reone/game/event.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/minigameobject.h"
+#include "reone/game/object/module.h"
+#include "reone/game/party.h"
+#include "reone/game/savedruntime.h"
 #include "reone/game/script/runner.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/mesh.h"
@@ -39,6 +44,7 @@
 #include "reone/resource/provider/layouts.h"
 #include "reone/resource/provider/models.h"
 #include "reone/scene/di/services.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/model.h"
@@ -1506,6 +1512,10 @@ void Turret::checkBulletHits() {
             }
         }
         if (!target) {
+            if (hitAreaObjects(bullet)) {
+                releaseBulletNode(_bullets[i]);
+                _bullets.erase(_bullets.begin() + static_cast<std::ptrdiff_t>(i));
+            }
             continue;
         }
         Bullet spent = std::move(_bullets[i]);
@@ -1524,6 +1534,59 @@ void Turret::checkBulletHits() {
             return;
         }
     }
+}
+
+// In TSL's Peragus turret, a bullet that hits nothing of the minigame stops
+// where it crosses a wall of the area, and hits the first of the area's
+// creatures outside the party and its placeables whose bounds it crosses,
+// which is signalled a user-defined event numbered by the bullet's damage.
+bool Turret::hitAreaObjects(const Bullet &bullet) {
+    if (!_game.isTSL() || !boost::iequals(_areaName, "107per")) {
+        return false;
+    }
+    const glm::vec3 from = bullet.sim.previousPosition;
+    const glm::vec3 to = bullet.sim.position;
+    const float length = glm::length(to - from);
+    if (length <= 0.0f) {
+        return false;
+    }
+    Collision wall;
+    if (_services.scene.graphs.get(kSceneMain).testLineOfSight(from, to, wall)) {
+        return true;
+    }
+    auto module = _game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area) {
+        return false;
+    }
+    const glm::vec3 direction = (to - from) / length;
+    for (const auto &object : area->objects()) {
+        if (!object) {
+            continue;
+        }
+        const bool creature = object->type() == ObjectType::Creature;
+        if (!creature && object->type() != ObjectType::Placeable) {
+            continue;
+        }
+        if (creature && _game.party().isMember(*object)) {
+            continue;
+        }
+        auto model = std::dynamic_pointer_cast<ModelSceneNode>(object->sceneNode());
+        if (!model) {
+            continue;
+        }
+        const auto bounds = model->model().aabb() * model->absoluteTransform();
+        float distance = 0.0f;
+        if (!bounds.raycast(from, 1.0f / direction, length, distance)) {
+            continue;
+        }
+        auto event = _game.newEvent(static_cast<int>(SavedSignalEventType::UserDefined),
+                                    std::vector<int32_t> {bullet.info.damage}, std::vector<float> {},
+                                    std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {});
+        _game.queueScriptEvent(*object, *object, *event);
+        return true;
+    }
+    return false;
 }
 
 // The bolt plays its explosion where it hit, turned to the surface, and goes

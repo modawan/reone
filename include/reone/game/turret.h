@@ -723,6 +723,8 @@ private:
     void updateBullets(float dt);
     void checkBulletHits();
     std::optional<BulletHit> bulletHits(const Bullet &bullet, const Actor &target) const;
+    /** Whether a bullet that hit nothing of the minigame stops on the area's walls or hits an area object. */
+    bool hitAreaObjects(const Bullet &bullet);
     /** Plays the bullet's explosion where it hit, or takes it away when it has none. */
     void explodeBullet(Bullet &bullet, const BulletHit &hit);
     void updateExplosions();
