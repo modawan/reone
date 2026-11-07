@@ -429,6 +429,8 @@ public:
         FollowerScripts scripts;
         std::shared_ptr<scene::ModelSceneNode> trackNode;
         std::string trackAnimation;
+        /** Where the track's animation was at the last update, to tell when it goes round. */
+        std::optional<float> lastTrackTime;
         std::vector<GunBank> gunBanks;
         std::string deathSound;
         std::array<SoundSettings, 2> sounds;
@@ -691,6 +693,7 @@ private:
     void updatePlayerTransforms();
     void updateCamera();
     void updateFollower(Follower &follower, float dt);
+    void checkTrackLoop(Follower &follower);
     void updateEnemyFire(Follower &enemy, float dt);
     void updateDeath(Follower &follower, float dt);
     void updateBullets(float dt);

@@ -982,6 +982,14 @@ void Turret::update(float dt) {
     _elapsed += dt;
 
     runAnimationEvents();
+    if (_player) {
+        checkTrackLoop(*_player);
+    }
+    for (size_t i = _enemies.size(); i-- > 0;) {
+        if (i < _enemies.size()) {
+            checkTrackLoop(*_enemies[i]);
+        }
+    }
 
     _aim.turn(glm::vec3(_pitchRate.advance(dt), 0.0f, _yawRate.advance(dt)));
 
@@ -1056,6 +1064,29 @@ void Turret::updateFollower(Follower &follower, float dt) {
     }
     runScript(follower.scripts.onHeartbeat, follower);
     follower.invincibilityTimer = glm::max(0.0f, follower.invincibilityTimer - dt);
+}
+
+// A track that loops raises a loop event each time it goes round. The scene
+// raises none, so a track whose animation is further back than at the last
+// update has gone round. A dying follower's track no longer counts.
+void Turret::checkTrackLoop(Follower &follower) {
+    auto channel = follower.trackNode && !follower.dying
+                       ? follower.trackNode->baseAnimationChannel()
+                       : std::nullopt;
+    if (!channel || !boost::iequals(channel->get().anim->name(), follower.trackAnimation)) {
+        follower.lastTrackTime.reset();
+        return;
+    }
+    const auto &track = channel->get();
+    const bool looping = (track.properties.flags & AnimationFlags::loop) != 0;
+    const float speed = track.properties.speed;
+    const bool wentRound = looping && follower.lastTrackTime &&
+                           ((speed > 0.0f && track.time < *follower.lastTrackTime) ||
+                            (speed < 0.0f && track.time > *follower.lastTrackTime));
+    follower.lastTrackTime = track.time;
+    if (wentRound) {
+        onAnimationEvent(follower, follower.trackNode->model().name(), "loop" + follower.trackAnimation);
+    }
 }
 
 void Turret::updateAnchor() {
@@ -1574,8 +1605,14 @@ void Turret::onAnimationEvent(Actor &actor, const std::string &modelName, const 
     }
     if (boost::istarts_with(event, "loop")) {
         if (auto follower = dynamic_cast<Follower *>(&actor)) {
+            // A counted track goes round one time fewer, and on its last time
+            // round plays once and stops.
             if (follower->numLoops != -1) {
                 setNumLoops(*follower, follower->numLoops - 1);
+                if (follower->numLoops == 1 && !follower->dying) {
+                    go(*follower);
+                    follower->lastTrackTime.reset();
+                }
             }
             runScript(follower->scripts.onTrackLoop, actor);
         }
