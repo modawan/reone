@@ -766,6 +766,27 @@ void SelectionOverlay::renderActionArrow(int index, bool previous) {
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
+std::optional<std::pair<glm::ivec2, ActionType>> SelectionOverlay::actionClickPoint(int index) const {
+    if (index < 0 || index >= static_cast<int>(_actionSlots.size())) {
+        return std::nullopt;
+    }
+    const ActionSlot &slot = _actionSlots[index];
+    if (slot.actions.empty() || slot.indexSelected >= slot.actions.size()) {
+        return std::nullopt;
+    }
+    float x, y;
+    if (!getActionScreenCoords(index, x, y)) {
+        return std::nullopt;
+    }
+    // The middle of the icon, between the slot's two arrows: the band a
+    // click uses rather than scrolls.
+    float scale = layoutScale();
+    glm::ivec2 point(
+        static_cast<int>(x + kActionWidth * scale / 2.0f),
+        static_cast<int>(y + (kActionArrowHeight + kActionWidth / 2.0f) * scale));
+    return std::make_pair(point, slot.actions[slot.indexSelected].type);
+}
+
 bool SelectionOverlay::getActionScreenCoords(int index, float &x, float &y) const {
     if (!_selectedObject)
         return false;

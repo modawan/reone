@@ -339,6 +339,7 @@ TEST_F(SaveFixture, first_unsaved_manual_save_is_deferred_and_adopted_without_re
 
 TEST_F(SaveFixture, developer_request_reports_one_deferred_completion) {
     TestGameModule::initConsole(*game);
+    TestGameModule::setCurrentScreen(*game, static_cast<int>(Game::Screen::InGame));
 
     console.execute("savegame", {"44", "Developer", "Result"});
     ASSERT_EQ(1, console.lines.size());
@@ -350,6 +351,20 @@ TEST_F(SaveFixture, developer_request_reports_one_deferred_completion) {
     EXPECT_THAT(console.lines[1], HasSubstr("slot 44 \"Developer Result\""));
     ASSERT_EQ(1, terminalResults.size());
     EXPECT_EQ(SaveStatus::DurableSuccess, terminalResults[0].status);
+}
+
+// A developer save in a conversation would drop the conversation, and with
+// it the scripts on its remaining nodes, so the console refuses it as F4 does.
+TEST_F(SaveFixture, developer_request_in_a_conversation_is_refused_and_queues_nothing) {
+    TestGameModule::initConsole(*game);
+    TestGameModule::setCurrentScreen(*game, static_cast<int>(Game::Screen::Conversation));
+
+    EXPECT_THROW(console.execute("savegame", {"46", "Mid", "Cutscene"}), std::runtime_error);
+    TestGameModule::processPendingSave(*game);
+
+    EXPECT_TRUE(packageTargets.empty());
+    EXPECT_TRUE(terminalResults.empty());
+    ASSERT_EQ(SaveStatus::Accepted, game->requestManualSave(47, "After").status);
 }
 
 TEST_F(SaveFixture, non_console_request_keeps_structured_result_without_console_output) {
@@ -376,6 +391,7 @@ TEST_F(SaveFixture, successful_cheat_command_is_reflected_in_live_metadata) {
 
 TEST_F(SaveFixture, one_pending_request_is_enforced_and_console_only_enqueues) {
     TestGameModule::initConsole(*game);
+    TestGameModule::setCurrentScreen(*game, static_cast<int>(Game::Screen::InGame));
     ASSERT_TRUE(console.hasCommand("savegame"));
 
     console.execute("savegame", {"77", "Console", "Name"});

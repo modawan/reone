@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <optional>
 
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/options.h"
@@ -162,6 +163,18 @@ public:
     virtual void addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) = 0;
 
     virtual std::shared_ptr<Control> findControl(const std::string &tag) const = 0;
+
+    /**
+     * Where to click to click the named control: the centre of its extent in
+     * screen coordinates, or, with \p row 0 or more, the middle of that row
+     * of a list. Empty when no control has the tag, the row is not a shown
+     * row of a list, or a click there would not reach the control because
+     * the hit test picks something else: the control is hidden, disabled or
+     * not selectable, or another control covers it.
+     */
+    virtual std::optional<glm::ivec2> clickPoint(const std::string &tag, int row) const {
+        return std::nullopt;
+    }
 };
 
 class GUI : public IGUI, boost::noncopyable {
@@ -298,6 +311,7 @@ public:
     void addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) override;
 
     std::shared_ptr<Control> findControl(const std::string &tag) const override;
+    std::optional<glm::ivec2> clickPoint(const std::string &tag, int row) const override;
 
 private:
     graphics::GraphicsOptions &_options;

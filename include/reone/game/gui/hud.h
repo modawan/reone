@@ -53,6 +53,7 @@ public:
     }
 
     bool handle(const input::Event &event) override;
+    std::optional<glm::ivec2> clickPoint(const std::string &tag, int row) const override;
     void update(float dt) override;
     void render() override;
     void renderModal();
@@ -60,6 +61,7 @@ public:
     void onClick(const std::string &control) override;
 
     BarkBubble &barkBubble() const { return *_barkBubble; }
+    const SelectionOverlay &selectionOverlay() const { return _select; }
 
     /**
      * Flash a status row's indicator on the main interface for four seconds.

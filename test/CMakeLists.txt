@@ -67,6 +67,10 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
+    ${TESTS_SOURCE_DIR}/game/movieskip.cpp
+    ${TESTS_SOURCE_DIR}/game/screenpoint.cpp
+    ${TESTS_SOURCE_DIR}/game/screenname.cpp
+    ${TESTS_SOURCE_DIR}/game/steering.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/itempossession.cpp
     ${TESTS_SOURCE_DIR}/game/inventorydisturbed.cpp
@@ -129,6 +133,8 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
+    ${TESTS_SOURCE_DIR}/gui/clickpoint.cpp
+    ${TESTS_SOURCE_DIR}/input/keyname.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/extractresources.cpp

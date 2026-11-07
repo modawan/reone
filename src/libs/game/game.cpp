@@ -66,6 +66,8 @@
 #include "reone/game/room.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/savewidesnapshot.h"
+#include "reone/game/screenpoint.h"
+#include "reone/game/steering.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
 #include "reone/game/twodautil.h"
@@ -82,6 +84,7 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
 #include "reone/gui/guis.h"
+#include "reone/input/keyname.h"
 #include "reone/movie/format/bikreader.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -776,6 +779,17 @@ void Game::initConsole() {
     registerConsoleCommand("openmenu", "open the main menu or an in-game menu tab", &Game::consoleOpenMenu);
     registerConsoleCommand("openchargen", "open a character-generation screen", &Game::consoleOpenCharacterGeneration);
     registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
+    registerConsoleCommand("click", "click a control of the current screen by tag, as the mouse would", &Game::consoleClick);
+    registerConsoleCommand("clickat", "click a window point: x y in pixels", &Game::consoleClickAt);
+    registerConsoleCommand("key", "press and release a key: a character or a name such as escape, return, space, up, f1", &Game::consoleKey);
+    registerConsoleCommand("clickobject", "click an object in the world by tag, as the mouse would", &Game::consoleClickObject);
+    registerConsoleCommand("clickaction", "click an action icon (slot 0-2) above the selected object", &Game::consoleClickAction);
+    registerConsoleCommand("listactions", "log the action type showing in each slot above the selected object", &Game::consoleListActions);
+    registerConsoleCommand("listcreatures", "log every creature in the area: id, tag, position, hit points, faction, action", &Game::consoleListCreatures);
+    registerConsoleCommand("unpause", "press Space if, and only if, the game is paused", &Game::consoleUnpause);
+    registerConsoleCommand("canwalk", "log whether the walkmesh joins the leader to a point: canwalk x y", &Game::consoleCanWalk);
+    registerConsoleCommand("keydown", "press a key and hold it until keyup", &Game::consoleKeyDownOrUp);
+    registerConsoleCommand("keyup", "release a key held by keydown", &Game::consoleKeyDownOrUp);
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
@@ -796,7 +810,7 @@ void Game::initConsole() {
     registerConsoleCommand("spawncompanion", "spawn a companion", &Game::consoleSpawnCompanion);
     registerConsoleCommand("addavailablenpc", "add an NPC to the party selection roster", &Game::consoleAddAvailableNpc);
     registerConsoleCommand("selectobjectbyid", "select an object by id", &Game::consoleSelectObjectById);
-    registerConsoleCommand("selectobjectbytag", "select an object by tag", &Game::consoleSelectObjectByTag);
+    registerConsoleCommand("selectobjectbytag", "select an object by tag, the nth (from 0) of those sharing it", &Game::consoleSelectObjectByTag);
     registerConsoleCommand("selectleader", "select the party leader", &Game::consoleSelectLeader);
     registerConsoleCommand("setfaction", "change faction of a creature", &Game::consoleSetFaction);
     registerConsoleCommand("setposition", "change position of a creature", &Game::consoleSetPosition);
@@ -1003,6 +1017,7 @@ std::optional<glm::ivec2> Game::consumePointerWarp() {
 
 void Game::update(float frameTime) {
     updateMouseLookPointer();
+    updateScriptedWalk();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
@@ -1274,6 +1289,12 @@ void Game::render() {
 bool Game::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;
+
+    // Escape skips a movie, as a left click does.
+    if (_movie && event.code == input::KeyCode::Escape) {
+        _movie->finish();
+        return true;
+    }
 
     if (_screen == Screen::InGame && handleFreeLookKey(event)) {
         return true;
@@ -9037,6 +9058,35 @@ void Game::changeScreen(Screen screen) {
     _screen = screen;
 }
 
+std::optional<Game::Screen> Game::screenFromName(std::string_view name) {
+    // In Screen order, as kScreenNames lists them.
+    static constexpr std::array<std::pair<std::string_view, Screen>, 17> kScreens {{
+        {"none", Screen::None},
+        {"mainmenu", Screen::MainMenu},
+        {"loading", Screen::Loading},
+        {"chargen", Screen::CharacterGeneration},
+        {"ingame", Screen::InGame},
+        {"ingamemenu", Screen::InGameMenu},
+        {"conversation", Screen::Conversation},
+        {"container", Screen::Container},
+        {"partyselection", Screen::PartySelection},
+        {"saveload", Screen::SaveLoad},
+        {"galaxymap", Screen::GalaxyMap},
+        {"swooprace", Screen::SwoopRace},
+        {"pazaakwager", Screen::PazaakWager},
+        {"pazaaksetup", Screen::PazaakSetup},
+        {"pazaakboard", Screen::PazaakBoard},
+        {"turret", Screen::Turret},
+        {"death", Screen::Death},
+    }};
+    for (const auto &[screenName, screen] : kScreens) {
+        if (boost::iequals(screenName, name)) {
+            return screen;
+        }
+    }
+    return std::nullopt;
+}
+
 GameGUI *Game::getScreenGUI() const {
     switch (_screen) {
     case Screen::Death:
@@ -9077,6 +9127,10 @@ GameGUI *Game::getScreenGUI() const {
 }
 
 void Game::setBarkBubbleText(std::string text, float duration) {
+    // Before the HUD exists there is nowhere to show a bark.
+    if (!_hud) {
+        return;
+    }
     _hud->barkBubble().setBarkText(text, duration);
 }
 
@@ -9255,16 +9309,51 @@ void Game::consoleInfo(const ConsoleArgs &args) {
        << " "
        << "tpl=\"" << object->blueprintResRef() << "\""
        << " "
-       << "pos=[" << position.x << ", " << position.y << ", " << position.z << "]";
+       << "pos=[" << position.x << ", " << position.y << ", " << position.z << "]" << " facing=" << object->getFacing();
 
     if (auto creature = dyn_cast<Creature>(object)) {
         ss << " "
            << "app=" << creature->appearance()
            << " "
-           << "fac=" << static_cast<int>(creature->faction());
+           << "fac=" << static_cast<int>(creature->faction())
+           << " "
+           << "hp=" << creature->currentHitPoints() << "/" << creature->maxHitPoints()
+           << " "
+           << "dead=" << (creature->isDead() ? 1 : 0)
+           << " "
+           << "follow=";
+        int slot = -1;
+        for (int i = 1; i < kPartyFollowSlots; ++i) {
+            if (_party.getMember(i) == creature) {
+                slot = i;
+            }
+        }
+        ss << slot;
+        if (slot != -1) {
+            auto point = _party.followPoint(slot);
+            ss << " followpoint=[" << point.x << ", " << point.y << "]";
+        }
+        ss << " "
+           << "commandable=" << (creature->isCommandable() ? 1 : 0)
+           << " "
+           << "action=";
+        if (auto action = creature->getCurrentAction()) {
+            ss << static_cast<int>(action->type());
+        } else {
+            ss << "none";
+        }
     } else if (auto placeable = dyn_cast<Placeable>(object)) {
         ss << " "
            << "app=" << placeable->appearance();
+    } else if (auto door = dyn_cast<Door>(object)) {
+        ss << " "
+           << "state=" << static_cast<int>(door->state())
+           << " "
+           << "locked=" << (door->isLocked() ? 1 : 0)
+           << " "
+           << "keyrequired=" << (door->isKeyRequired() ? 1 : 0)
+           << " "
+           << "plot=" << (door->plotFlag() ? 1 : 0);
     }
 
     _console.printLine(ss.str());
@@ -9570,6 +9659,426 @@ void Game::consoleShowBark(const ConsoleArgs &args) {
 void Game::consoleSkipMovie(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
     _movie.reset();
+}
+
+void Game::consoleClick(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 2, "control_tag [list_row]");
+    std::string tag(args[1].value());
+    int row = args.size() > 2 ? args.get<int>(2).value_or(-1) : -1;
+    if (args.size() > 2 && row < 0) {
+        throw std::runtime_error("click: a list row is 0 or more");
+    }
+    // Whatever takes a real click before the screen's GUI would take this
+    // one; say so rather than report a click that went elsewhere.
+    if (_movie) {
+        throw std::runtime_error("click: a movie is playing; a click would skip it");
+    }
+    if (_credits) {
+        throw std::runtime_error("click: the credits take the input");
+    }
+    if (_playerInputBlocked) {
+        throw std::runtime_error("click: player input is blocked");
+    }
+    // A visible confirmation popup takes every click before the screen does,
+    // as in handle(); its buttons are what a click can reach.
+    PresentationGUI *gui = (_confirmPopup && _confirmPopup->isVisible())
+                               ? static_cast<PresentationGUI *>(_confirmPopup.get())
+                               : getScreenGUI();
+    if (!gui) {
+        throw std::runtime_error("click: the current screen has no GUI");
+    }
+    auto at = gui->clickPoint(tag, row);
+    if (!at) {
+        throw std::runtime_error(row < 0
+                                     ? "click: no clickable control tagged " + tag + " on the current screen"
+                                     : "click: no shown, clickable row " + std::to_string(row) + " of a list tagged " + tag + " on the current screen");
+    }
+    // A real click, not a call to the handler: the pointer moves there and
+    // the press and release go through the same input path as the mouse's.
+    handle(input::Event::newMouseMotion({at->x, at->y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at->x, at->y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at->x, at->y}));
+    info(str(boost::format("click %s at %d,%d") % tag % at->x % at->y));
+}
+
+// A click at a window point, for controls a tag cannot name, such as one
+// icon of the feat chain in character generation. Nothing checks what is
+// under the point, so a script captures the screen to choose it.
+void Game::consoleClickAt(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "x y");
+    auto x = args.get<int>(1);
+    auto y = args.get<int>(2);
+    if (!x || !y || *x < 0 || *y < 0) {
+        throw std::runtime_error("clickat: x and y are window pixels, 0 or more");
+    }
+    if (_movie) {
+        throw std::runtime_error("clickat: a movie is playing; a click would skip it");
+    }
+    if (_credits) {
+        throw std::runtime_error("clickat: the credits take the input");
+    }
+    if (_playerInputBlocked) {
+        throw std::runtime_error("clickat: player input is blocked");
+    }
+    handle(input::Event::newMouseMotion({*x, *y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, *x, *y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, *x, *y}));
+    info(str(boost::format("clickat %d,%d") % *x % *y));
+}
+
+void Game::consoleKey(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "key_name");
+    auto code = input::keyCodeFromName(args[1].value());
+    if (!code) {
+        throw std::runtime_error("key: unknown key " + std::string(args[1].value()));
+    }
+    handle(input::Event::newKeyDown({true, *code, 0, false}));
+    handle(input::Event::newKeyUp({false, *code, 0, false}));
+}
+
+// A held key, such as A or D turning the camera, spans frames: keydown, then
+// pause, then keyup.
+void Game::consoleKeyDownOrUp(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "key_name");
+    auto code = input::keyCodeFromName(args[1].value());
+    if (!code) {
+        throw std::runtime_error(std::string(args[0].value()) + ": unknown key " + std::string(args[1].value()));
+    }
+    if (args[0].value() == "keydown") {
+        handle(input::Event::newKeyDown({true, *code, 0, false}));
+    } else {
+        handle(input::Event::newKeyUp({false, *code, 0, false}));
+    }
+}
+
+// A leader that has not moved this far in this many frames, while running,
+// is blocked: by a wall, a door, or someone in the way.
+static constexpr float kScriptedWalkStillDistance = 0.05f;
+static constexpr int kScriptedWalkStillFrames = 300;
+
+// The walk presses the keys the player has bound, so it steers under any
+// keybinds. A positive turn rotates the camera left.
+static input::KeyCode scriptedWalkTurnKey(const KeybindOptions &keybinds, int turn) {
+    return turn > 0 ? keybinds.cameraRotateLeft.keyCode : keybinds.cameraRotateRight.keyCode;
+}
+
+void Game::startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly) {
+    if (_scriptedWalk) {
+        endScriptedWalk("replaced by a new walk", false);
+    }
+    ScriptedWalk walk;
+    walk.target = target;
+    walk.framesLeft = maxFrames;
+    walk.faceOnly = faceOnly;
+    walk.areaId = _module && _module->area() ? _module->area()->id() : 0;
+    if (faceOnly) {
+        _scriptedWalk = walk;
+        return;
+    }
+    if (auto leader = _party.getLeader()) {
+        walk.lastPosition = glm::vec2(leader->position());
+        // Round walls and debris along the walkmesh, as a player steering by
+        // eye would; with no path, straight at the target.
+        if (_module && _module->area()) {
+            auto &pathfinder = _module->area()->pathfinder();
+            const float z = walkmeshHeightAt(pathfinder, target, leader->position().z).value_or(leader->position().z);
+            glm::vec3 to(target, z);
+            walk.path = createPath(pathfinder, leader->position(), to);
+        }
+        // Say which: a point off the walkmesh has no route, and a straight
+        // walk at it meets the first wall.
+        info(str(boost::format("walkto %.1f,%.1f from %.1f,%.1f %s") % target.x % target.y %
+                 leader->position().x % leader->position().y %
+                 (walk.path ? "along a walkmesh route" : "straight: no walkmesh route to it")));
+    }
+    _scriptedWalk = walk;
+}
+
+void Game::endScriptedWalk(const std::string &outcome, bool failed) {
+    if (!_scriptedWalk) {
+        return;
+    }
+    auto walk = *_scriptedWalk;
+    _scriptedWalk.reset();
+    if (walk.path && _module && _module->area()) {
+        releasePath(_module->area()->pathfinder(), *walk.path);
+    }
+    // Let go of whatever is held, as a player taking their hands off would.
+    if (walk.turn != 0) {
+        handle(input::Event::newKeyUp({false, scriptedWalkTurnKey(_options.game.activeKeybinds(), walk.turn), 0, false}));
+    }
+    if (walk.forward) {
+        handle(input::Event::newKeyUp({false, _options.game.activeKeybinds().moveForward.keyCode, 0, false}));
+    }
+    auto leader = _party.getLeader();
+    auto at = leader ? glm::vec2(leader->position()) : glm::vec2(0.0f);
+    auto message = str(boost::format("walkto %.1f,%.1f %s at %.1f,%.1f") % walk.target.x % walk.target.y % outcome % at.x % at.y);
+    if (failed) {
+        error(message);
+    } else {
+        info(message);
+    }
+}
+
+void Game::updateScriptedWalk() {
+    if (!_scriptedWalk) {
+        return;
+    }
+    auto &walk = *_scriptedWalk;
+    // A conversation, a menu or a load takes the keys; the script decides
+    // what to do next.
+    if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson) {
+        endScriptedWalk("interrupted", false);
+        return;
+    }
+    // A door or a script can change the area within a frame. The path was
+    // made by the old area's pathfinder, which went with it, so it is dropped
+    // rather than released, and the walk ends there.
+    if (!_module || !_module->area() || _module->area()->id() != walk.areaId) {
+        walk.path.reset();
+        endScriptedWalk("interrupted by an area change", false);
+        return;
+    }
+    // The game pauses itself when an enemy is sighted; the walk stops there
+    // rather than count the paused leader as blocked.
+    if (isPaused()) {
+        endScriptedWalk("paused", false);
+        return;
+    }
+    auto leader = _party.getLeader();
+    auto camera = getActiveCamera();
+    if (!leader || !camera) {
+        endScriptedWalk("has no leader or camera", true);
+        return;
+    }
+    glm::vec2 position(leader->position());
+    if (walk.faceOnly) {
+        // Turn until the camera faces the point, then let go.
+        auto keys = steerToward(position, walk.target, camera->facing(), 0.0f, 0.05f);
+        if (keys.turn == 0) {
+            endScriptedWalk("faced (face)", false);
+            return;
+        }
+        if (--walk.framesLeft <= 0) {
+            endScriptedWalk("timed out", true);
+            return;
+        }
+        if (keys.turn != walk.turn) {
+            if (walk.turn != 0) {
+                handle(input::Event::newKeyUp({false, scriptedWalkTurnKey(_options.game.activeKeybinds(), walk.turn), 0, false}));
+            }
+            handle(input::Event::newKeyDown({true, scriptedWalkTurnKey(_options.game.activeKeybinds(), keys.turn), 0, false}));
+            walk.turn = keys.turn;
+        }
+        return;
+    }
+    if (glm::length(walk.target - position) < 1.0f) {
+        endScriptedWalk("arrived", false);
+        return;
+    }
+    // Steer at the path's next point; within reach of a point, the path
+    // moves on to the one after.
+    glm::vec2 heading = walk.target;
+    if (walk.path) {
+        auto &pathfinder = _module->area()->pathfinder();
+        // Off the path it replans, as a creature's does; with no way left it
+        // is dropped and the walk goes straight on.
+        if (updatePath(pathfinder, *walk.path, leader->position())) {
+            heading = glm::vec2(getNextPathPoint(pathfinder, *walk.path));
+        } else {
+            releasePath(pathfinder, *walk.path);
+            walk.path.reset();
+        }
+    }
+    auto keys = steerToward(position, heading, camera->facing(), 0.3f);
+    if (keys.arrived) {
+        keys.forward = true;
+        keys.turn = 0;
+    }
+    if (--walk.framesLeft <= 0) {
+        endScriptedWalk("timed out", true);
+        return;
+    }
+    if (walk.forward && glm::length(position - walk.lastPosition) < kScriptedWalkStillDistance) {
+        if (++walk.stillFrames >= kScriptedWalkStillFrames) {
+            endScriptedWalk("is blocked", true);
+            return;
+        }
+    } else {
+        walk.stillFrames = 0;
+        walk.lastPosition = position;
+    }
+    // Only changes are sent, as keys are pressed and released.
+    if (keys.turn != walk.turn) {
+        if (walk.turn != 0) {
+            handle(input::Event::newKeyUp({false, scriptedWalkTurnKey(_options.game.activeKeybinds(), walk.turn), 0, false}));
+        }
+        if (keys.turn != 0) {
+            handle(input::Event::newKeyDown({true, scriptedWalkTurnKey(_options.game.activeKeybinds(), keys.turn), 0, false}));
+        }
+        walk.turn = keys.turn;
+    }
+    if (keys.forward != walk.forward) {
+        handle(keys.forward ? input::Event::newKeyDown({true, _options.game.activeKeybinds().moveForward.keyCode, 0, false})
+                            : input::Event::newKeyUp({false, _options.game.activeKeybinds().moveForward.keyCode, 0, false}));
+        walk.forward = keys.forward;
+    }
+}
+
+void Game::consoleCanWalk(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "x y");
+    auto x = args.get<float>(1);
+    auto y = args.get<float>(2);
+    auto leader = _party.getLeader();
+    if (!x || !y || !leader || !_module || !_module->area()) {
+        throw std::runtime_error("canwalk: needs x, y and a leader in an area");
+    }
+    const auto &pathfinder = _module->area()->pathfinder();
+    const float z = walkmeshHeightAt(pathfinder, {*x, *y}, leader->position().z).value_or(leader->position().z);
+    glm::vec3 to(*x, *y, z);
+    bool joined = pathExists(pathfinder, leader->position(), to);
+    info(str(boost::format("canwalk %.1f,%.1f from %.1f,%.1f: %s") % *x % *y % leader->position().x %
+             leader->position().y % (joined ? "yes" : "no")));
+}
+
+// Space toggles the pause; a script that does not know whether the game
+// auto-paused presses it only when it did.
+void Game::consoleUnpause(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!isPaused()) {
+        info("unpause: not paused");
+        return;
+    }
+    handle(input::Event::newKeyDown({true, input::KeyCode::Space, 0, false}));
+    handle(input::Event::newKeyUp({false, input::KeyCode::Space, 0, false}));
+    info(std::string("unpause: ") + (isPaused() ? "still paused" : "resumed"));
+}
+
+void Game::consoleListCreatures(const ConsoleArgs &args) {
+    if (!_module || !_module->area()) {
+        throw std::runtime_error("listcreatures: no area");
+    }
+    for (const auto &object : _module->area()->getObjectsByType(ObjectType::Creature)) {
+        auto creature = dyn_cast<Creature>(object);
+        if (!creature) {
+            continue;
+        }
+        const glm::vec3 position {creature->position()};
+        std::stringstream ss;
+        ss << std::setprecision(2) << std::fixed
+           << "creature id=" << creature->id()
+           << " tag=\"" << creature->tag() << "\""
+           << " pos=[" << position.x << ", " << position.y << "]"
+           << " hp=" << creature->currentHitPoints() << "/" << creature->maxHitPoints()
+           << " dead=" << (creature->isDead() ? 1 : 0)
+           << " fac=" << static_cast<int>(creature->faction())
+           << " party=" << (_party.isMember(*creature) ? 1 : 0)
+           << " action=";
+        if (auto action = creature->getCurrentAction()) {
+            ss << static_cast<int>(action->type());
+        } else {
+            ss << "none";
+        }
+        _console.printLine(ss.str());
+    }
+}
+
+void Game::consoleListActions(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!_hud) {
+        throw std::runtime_error("listactions: no HUD");
+    }
+    std::string line = "listactions:";
+    for (int slot = 0; slot < 3; ++slot) {
+        auto action = _hud->selectionOverlay().actionClickPoint(slot);
+        line += action ? str(boost::format(" %d=%d") % slot % static_cast<int>(action->second))
+                       : str(boost::format(" %d=none") % slot);
+    }
+    info(line);
+}
+
+void Game::consoleClickAction(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "slot");
+    int slot = args.get<int>(1).value_or(-1);
+    if (_screen != Screen::InGame || !_hud || _cameraType != CameraType::ThirdPerson) {
+        throw std::runtime_error("clickaction: not in the game world");
+    }
+    if (_movie || _credits || (_confirmPopup && _confirmPopup->isVisible()) || _playerInputBlocked) {
+        throw std::runtime_error("clickaction: a movie, the credits, a popup or blocked input would take the click");
+    }
+    auto action = _hud->selectionOverlay().actionClickPoint(slot);
+    if (!action) {
+        throw std::runtime_error("clickaction: no selected object with an action in slot " + std::to_string(slot));
+    }
+    auto [at, type] = *action;
+    handle(input::Event::newMouseMotion({at.x, at.y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at.x, at.y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at.x, at.y}));
+    info(str(boost::format("clickaction %d (action type %d) at %d,%d") % slot % static_cast<int>(type) % at.x % at.y));
+}
+
+void Game::consoleClickObject(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 2, "tag [nth]");
+    std::string tag(args[1].value());
+    int nth = args.size() > 2 ? args.get<int>(2).value() : 0;
+    if (_screen != Screen::InGame || !_module || !_module->area()) {
+        throw std::runtime_error("clickobject: not in the game world");
+    }
+    if (_movie || _credits || (_confirmPopup && _confirmPopup->isVisible()) || _playerInputBlocked) {
+        throw std::runtime_error("clickobject: a movie, the credits, a popup or blocked input would take the click");
+    }
+    auto area = _module->area();
+    auto object = area->getObjectByTag(tag, nth);
+    if (!object || !object->sceneNode()) {
+        throw std::runtime_error("clickobject: no object with a model tagged " + tag + " in the area");
+    }
+    auto camera = getActiveCamera();
+    auto cameraNode = camera ? camera->cameraSceneNode() : nullptr;
+    auto graphicsCamera = cameraNode ? cameraNode->camera() : nullptr;
+    if (!graphicsCamera) {
+        throw std::runtime_error("clickobject: no active camera");
+    }
+    // The centre of its bounds first, then points over the rest of it, as a
+    // player clicks around someone standing in front of a door.
+    std::vector<glm::ivec2> candidates;
+    if (auto center = worldToWindowPoint(
+            object->sceneNode()->getWorldCenterOfAABB(),
+            graphicsCamera->view(),
+            graphicsCamera->projection(),
+            _options.graphics.width,
+            _options.graphics.height)) {
+        candidates.push_back(*center);
+    }
+    const auto &bounds = object->sceneNode()->aabb();
+    auto spread = boxWindowPoints(
+        bounds.min(),
+        bounds.max(),
+        object->sceneNode()->absoluteTransform(),
+        graphicsCamera->view(),
+        graphicsCamera->projection(),
+        _options.graphics.width,
+        _options.graphics.height);
+    candidates.insert(candidates.end(), spread.begin(), spread.end());
+    if (candidates.empty()) {
+        throw std::runtime_error("clickobject: " + tag + " is not on screen");
+    }
+    // The click goes to whatever the game picks under the pointer; it has to
+    // be this object, not something in front of it.
+    std::optional<glm::ivec2> at;
+    for (const auto &point : candidates) {
+        auto picked = area->getObjectAt(point.x, point.y);
+        if (picked && &picked->get() == object.get()) {
+            at = point;
+            break;
+        }
+    }
+    if (!at) {
+        throw std::runtime_error("clickobject: no point of " + tag + " on screen has it under the pointer; something covers it");
+    }
+    handle(input::Event::newMouseMotion({at->x, at->y, 0.0f, 0.0f}));
+    handle(input::Event::newMouseButtonDown({input::MouseButton::Left, true, 1, at->x, at->y}));
+    handle(input::Event::newMouseButtonUp({input::MouseButton::Left, false, 1, at->x, at->y}));
+    info(str(boost::format("clickobject %s at %d,%d") % tag % at->x % at->y));
 }
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {
@@ -9892,12 +10401,15 @@ void Game::consoleSelectObjectById(const ConsoleArgs &args) {
 }
 
 void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "tag");
+    consoleCheckUsage(args, 1, 2, "tag [nth]");
     std::string_view tag = args[1].value();
+    // Several objects can share a tag; nth (from 0) picks one of them in the
+    // area's order, as clickobject's does.
+    int nth = args.get<int>(2).value_or(0);
 
     auto area = getConsoleArea();
     for (auto &object : area->objects()) {
-        if (object->tag() == tag) {
+        if (object->tag() == tag && nth-- == 0) {
             area->selectObject(object, /*force=*/true);
             return;
         }
@@ -10285,6 +10797,10 @@ void Game::consoleSaveGame(const ConsoleArgs &args) {
             name += " ";
         }
         name += std::string(*args[i]);
+    }
+    if (!isDeveloperSaveAllowedOn(_screen)) {
+        throw std::runtime_error("savegame: not on this screen; save from the in-game screen, as F4 does. "
+                                 "A save taken in a conversation loads without it, and its remaining scripts never run");
     }
     auto result = requestSave(
         {SaveKind::Developer, *slot, std::move(name), true});

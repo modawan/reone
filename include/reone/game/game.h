@@ -59,6 +59,7 @@
 #include "gui/mainmenu.h"
 #include "gui/map.h"
 #include "gui/partyselect.h"
+#include "pathfinder.h"
 #include "gui/pazaak.h"
 #include "gui/saveload.h"
 #include "journal.h"
@@ -217,6 +218,21 @@ public:
         Turret,
         Death
     };
+
+    /** The screen names a script can wait for, in Screen order. */
+    static constexpr char kScreenNames[] =
+        "none, mainmenu, loading, chargen, ingame, ingamemenu, conversation, container, partyselection, "
+        "saveload, galaxymap, swooprace, pazaakwager, pazaaksetup, pazaakboard, turret, death";
+
+    /** The screen \p name names, ignoring case; empty for any other name. */
+    static std::optional<Screen> screenFromName(std::string_view name);
+    /**
+     * Whether the developer `savegame` command may save on a screen. Only on
+     * the in-game screen, where F4 quicksaves: a save taken during a
+     * conversation loads without it, so the scripts on its remaining nodes
+     * never run.
+     */
+    static bool isDeveloperSaveAllowedOn(Screen screen) { return screen == Screen::InGame; }
 
     Game(
         resource::GameID gameId,
@@ -694,6 +710,26 @@ public:
 
     /** Award an authored DLG/JRL fraction, where 0.2 means twenty percent. */
     void awardPlotXPByIndex(int plotIndex, float fraction);
+
+    /**
+     * Walks the party leader to \p target for a scripted run, by holding the
+     * keys a player would: A or D to turn the camera, W to run. It ends on
+     * arrival, after \p maxFrames, when the leader stops making progress, or
+     * when the game leaves the world screen; the keys are let go each time.
+     */
+    void startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly = false);
+    bool isScriptedWalkActive() const { return _scriptedWalk.has_value(); }
+
+    /**
+     * The entry the conversation on show is at, once that entry has finished
+     * and its replies are listed; none otherwise.
+     */
+    std::optional<int> finishedConversationEntry() const {
+        if (_screen != Screen::Conversation || !_conversation || !_conversation->isEntryEnded()) {
+            return std::nullopt;
+        }
+        return _conversation->currentEntryIndex();
+    }
 
     Screen currentScreen() const {
         return _screen;
@@ -2006,6 +2042,25 @@ private:
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
+
+    struct ScriptedWalk {
+        glm::vec2 target {0.0f};
+        int framesLeft {0};
+        /** Only turn the camera to face the target; never run. */
+        bool faceOnly {false};
+        int turn {0};
+        bool forward {false};
+        glm::vec2 lastPosition {0.0f};
+        int stillFrames {0};
+        /** The walkmesh path the keys steer along; straight at the target without one. */
+        std::optional<Path> path;
+        /** The id of the area the walk started in; its path belongs to that area's pathfinder. */
+        uint32_t areaId {0};
+    };
+    std::optional<ScriptedWalk> _scriptedWalk;
+
+    void updateScriptedWalk();
+    void endScriptedWalk(const std::string &outcome, bool failed);
     std::unique_ptr<ConfirmPopup> _deathMessage;
     std::unique_ptr<DeathDisplay> _deathDisplay;
     /** The closing credits, while they are up. */
@@ -2414,6 +2469,16 @@ private:
     void consoleOpenMenu(const ConsoleArgs &tokens);
     void consoleOpenCharacterGeneration(const ConsoleArgs &tokens);
     void consoleSkipMovie(const ConsoleArgs &tokens);
+    void consoleClick(const ConsoleArgs &tokens);
+    void consoleKey(const ConsoleArgs &tokens);
+    void consoleClickObject(const ConsoleArgs &tokens);
+    void consoleClickAction(const ConsoleArgs &tokens);
+    void consoleListActions(const ConsoleArgs &tokens);
+    void consoleListCreatures(const ConsoleArgs &tokens);
+    void consoleClickAt(const ConsoleArgs &tokens);
+    void consoleUnpause(const ConsoleArgs &tokens);
+    void consoleCanWalk(const ConsoleArgs &tokens);
+    void consoleKeyDownOrUp(const ConsoleArgs &tokens);
     void consoleShowBark(const ConsoleArgs &tokens);
     void consoleShowPopup(const ConsoleArgs &tokens);
     void consoleShowGalleryMode(const ConsoleArgs &tokens);

@@ -25,6 +25,7 @@
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/system/checkutil.h"
+#include "reone/system/logutil.h"
 #include "reone/system/stringutil.h"
 
 using namespace reone::graphics;
@@ -85,6 +86,9 @@ void Console::setPrompt() {
 }
 
 void Console::printLine(const std::string &text) {
+    if (_echoToLog) {
+        info("console: " + text);
+    }
     _buffer.write(text);
     _buffer.write('\n');
     _scrollOffset = 0;
@@ -250,6 +254,7 @@ void Console::execute(std::string_view command) {
 
     auto commandByName = _nameToCommand.find(tokens[0]);
     if (commandByName == _nameToCommand.end()) {
+        error("Unrecognized command: " + tokens[0]);
         printLine("Unrecognized command: " + tokens[0]);
         return;
     }
@@ -257,6 +262,8 @@ void Console::execute(std::string_view command) {
     try {
         handler(std::move(tokens));
     } catch (const std::exception &ex) {
+        // Logged as well: a scripted, headless run has no console to read.
+        error("Command failed: " + std::string(command) + ": " + ex.what());
         printLine("Command failed: " + std::string(ex.what()));
     }
 }

@@ -223,6 +223,16 @@ private:
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;
+
+public:
+    /**
+     * The y, in the list's coordinates, of the middle of row \p index as it is
+     * laid out now: the inverse of the row hit test. Empty for a row that is
+     * scrolled out of view, past the list's end, or below its viewport.
+     */
+    std::optional<int> itemCenterY(int index) const;
+
+private:
     bool shouldRenderItemIconsForButtonProto() const;
     void renderItemWithButtonProtoIcon(
         const glm::ivec2 &screenSize,

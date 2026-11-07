@@ -81,6 +81,15 @@ public:
      */
     void clickControl(const std::string &tag);
 
+    /**
+     * Where a real click reaches the named control (see gui::IGUI::clickPoint).
+     * A screen that hands input to a panel in front looks there first, in the
+     * order its handle() does.
+     */
+    virtual std::optional<glm::ivec2> clickPoint(const std::string &tag, int row) const {
+        return _gui ? _gui->clickPoint(tag, row) : std::nullopt;
+    }
+
     std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
 
 protected:

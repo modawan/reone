@@ -59,6 +59,9 @@ static constexpr int kProfilerUpdateTimeIndex = 1;
 static constexpr int kProfilerRenderGraphicsTimeIndex = 2;
 static constexpr int kProfilerRenderAudioTimeIndex = 3;
 
+/** How long waitscreen waits by default: about a minute of headless frames. */
+static constexpr int kDefaultScriptWaitFrames = 30000;
+
 static void imguiInit() {
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -332,6 +335,46 @@ void Engine::initAutomationCommands() {
         }
         _scriptPauseFrames = *frames;
     });
+    // Waits for the game, not for a number of frames: a scripted run cannot
+    // know how long a walk or a load takes.
+    _console->registerCommand("waitscreen", "pause command-file execution until the game shows a screen", [this](const auto &args) {
+        auto name = args[1];
+        auto screen = name ? game::Game::screenFromName(*name) : std::nullopt;
+        auto frames = args.template get<int>(2).value_or(kDefaultScriptWaitFrames);
+        if (!screen || frames < 1) {
+            throw std::invalid_argument("usage: waitscreen <screen> [max frames], where screen is one of " +
+                                        std::string(game::Game::kScreenNames));
+        }
+        _scriptWaitScreen = *screen;
+        _scriptWaitScreenName = std::string(*name);
+        _scriptWaitFrames = frames;
+    });
+    _console->registerCommand("waitentry", "pause command-file execution until the conversation's entry n has finished and lists its replies", [this](const auto &args) {
+        auto entry = args.template get<int>(1);
+        auto frames = args.template get<int>(2).value_or(kDefaultScriptWaitFrames);
+        if (!entry || *entry < 0 || frames < 1) {
+            throw std::invalid_argument("usage: waitentry <entry index> [max frames]");
+        }
+        _scriptWaitEntry = *entry;
+        _scriptWaitFrames = frames;
+    });
+    _console->registerCommand("walkto", "walk the party leader to a point with the movement keys; the script waits", [this](const auto &args) {
+        auto x = args.template get<float>(1);
+        auto y = args.template get<float>(2);
+        auto frames = args.template get<int>(3).value_or(kDefaultScriptWaitFrames);
+        if (!x || !y || frames < 1) {
+            throw std::invalid_argument("usage: walkto <x> <y> [max frames]");
+        }
+        _game->startScriptedWalk(glm::vec2(*x, *y), frames);
+    });
+    _console->registerCommand("face", "turn the camera to face a point with A/D; the script waits", [this](const auto &args) {
+        auto x = args.template get<float>(1);
+        auto y = args.template get<float>(2);
+        if (!x || !y) {
+            throw std::invalid_argument("usage: face <x> <y>");
+        }
+        _game->startScriptedWalk(glm::vec2(*x, *y), kDefaultScriptWaitFrames, true);
+    });
     _console->registerCommand("capture", "capture one or more rendered frames", [this](const auto &args) {
         auto path = args[1];
         auto count = args.template get<int>(2).value_or(1);
@@ -347,6 +390,9 @@ void Engine::initAutomationCommands() {
     if (_options.commandsFile.empty()) {
         return;
     }
+    // A scripted run has no one reading the console: what commands print,
+    // such as info, goes to the log as well.
+    _console->setEchoToLog(true);
     std::ifstream file(_options.commandsFile);
     if (!file.good()) {
         throw std::runtime_error("Failed to open commands file: " + _options.commandsFile);
@@ -373,20 +419,43 @@ void Engine::processScriptedCommands(bool &quit) {
             return;
         }
     }
+    if (_game->isScriptedWalkActive()) {
+        return;
+    }
+    if (_scriptWaitEntry) {
+        if (_game->finishedConversationEntry() != *_scriptWaitEntry) {
+            if (--_scriptWaitFrames > 0) {
+                return;
+            }
+            error("waitentry " + std::to_string(*_scriptWaitEntry) + " timed out");
+        }
+        _scriptWaitEntry.reset();
+    }
+    if (_scriptWaitScreen) {
+        if (_game->currentScreen() != *_scriptWaitScreen) {
+            if (--_scriptWaitFrames > 0) {
+                return;
+            }
+            // Logged, not fatal: the commands after it say what happens next.
+            error("waitscreen " + _scriptWaitScreenName + " timed out");
+        }
+        _scriptWaitScreen.reset();
+    }
 
     while (!_scriptedCommands.empty()) {
         std::string command(std::move(_scriptedCommands.front()));
         _scriptedCommands.pop_front();
         _console->execute(command);
 
-        if (_scriptQuitRequested) {
+        // A scripted click can quit the game, as a real one can.
+        if (_scriptQuitRequested || _game->isQuitRequested()) {
             quit = true;
             return;
         }
         if (_captureRequest) {
             return;
         }
-        if (_scriptPauseFrames > 0) {
+        if (_scriptPauseFrames > 0 || _scriptWaitScreen || _scriptWaitEntry || _game->isScriptedWalkActive()) {
             return;
         }
     }
