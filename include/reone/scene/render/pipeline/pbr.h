@@ -27,20 +27,18 @@ class PBRRenderPipeline : public RenderPipelineBase {
 public:
     PBRRenderPipeline(glm::ivec2 targetSize,
                       graphics::GraphicsOptions &options,
-                      graphics::Context &context,
-                      graphics::MeshRegistry &meshRegistry,
-                      graphics::PBRTextures &pbrTextures,
-                      graphics::ShaderRegistry &shaderRegistry,
-                      graphics::IStatistic &statistic,
-                      graphics::TextureRegistry &textureRegistry,
-                      graphics::Uniforms &uniforms) :
+                      graphics::IContext &context,
+                      graphics::IMeshRegistry &meshRegistry,
+                      graphics::IPBRTextures &pbrTextures,
+                      graphics::IShaderRegistry &shaderRegistry,
+                      graphics::ITextureRegistry &textureRegistry,
+                      graphics::IUniforms &uniforms) :
         RenderPipelineBase(
             std::move(targetSize),
             options,
             context,
             meshRegistry,
             shaderRegistry,
-            statistic,
             textureRegistry,
             uniforms),
         _pbrTextures(pbrTextures) {
@@ -89,7 +87,7 @@ private:
         std::shared_ptr<graphics::Framebuffer> fbOutput;
     };
 
-    graphics::PBRTextures &_pbrTextures;
+    graphics::IPBRTextures &_pbrTextures;
 
     RenderTargets _targets;
 

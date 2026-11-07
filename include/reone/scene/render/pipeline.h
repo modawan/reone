@@ -39,14 +39,12 @@ namespace reone {
 
 namespace graphics {
 
-class IStatistic;
-
-class Context;
-class MeshRegistry;
-class PBRTextures;
-class ShaderRegistry;
-class TextureRegistry;
-class Uniforms;
+class IContext;
+class IMeshRegistry;
+class IPBRTextures;
+class IShaderRegistry;
+class ITextureRegistry;
+class IUniforms;
 
 struct GraphicsOptions;
 
@@ -128,12 +126,11 @@ protected:
 
     glm::ivec2 _targetSize;
     graphics::GraphicsOptions &_options;
-    graphics::Context &_context;
-    graphics::MeshRegistry &_meshRegistry;
-    graphics::ShaderRegistry &_shaderRegistry;
-    graphics::IStatistic &_statistic;
-    graphics::TextureRegistry &_textureRegistry;
-    graphics::Uniforms &_uniforms;
+    graphics::IContext &_context;
+    graphics::IMeshRegistry &_meshRegistry;
+    graphics::IShaderRegistry &_shaderRegistry;
+    graphics::ITextureRegistry &_textureRegistry;
+    graphics::IUniforms &_uniforms;
 
     bool _inited {false};
 
@@ -149,18 +146,16 @@ protected:
 
     RenderPipelineBase(glm::ivec2 targetSize,
                        graphics::GraphicsOptions &options,
-                       graphics::Context &context,
-                       graphics::MeshRegistry &meshRegistry,
-                       graphics::ShaderRegistry &shaderRegistry,
-                       graphics::IStatistic &statistic,
-                       graphics::TextureRegistry &textureRegistry,
-                       graphics::Uniforms &uniforms) :
+                       graphics::IContext &context,
+                       graphics::IMeshRegistry &meshRegistry,
+                       graphics::IShaderRegistry &shaderRegistry,
+                       graphics::ITextureRegistry &textureRegistry,
+                       graphics::IUniforms &uniforms) :
         _targetSize(std::move(targetSize)),
         _options(options),
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
-        _statistic(statistic),
         _textureRegistry(textureRegistry),
         _uniforms(uniforms) {
     }
@@ -192,19 +187,17 @@ protected:
 class RenderPipelineFactory : public IRenderPipelineFactory, boost::noncopyable {
 public:
     RenderPipelineFactory(graphics::GraphicsOptions &options,
-                          graphics::Context &context,
-                          graphics::MeshRegistry &meshRegistry,
-                          graphics::PBRTextures &pbrTextures,
-                          graphics::ShaderRegistry &shaderRegistry,
-                          graphics::IStatistic &statistic,
-                          graphics::TextureRegistry &textureRegistry,
-                          graphics::Uniforms &uniforms) :
+                          graphics::IContext &context,
+                          graphics::IMeshRegistry &meshRegistry,
+                          graphics::IPBRTextures &pbrTextures,
+                          graphics::IShaderRegistry &shaderRegistry,
+                          graphics::ITextureRegistry &textureRegistry,
+                          graphics::IUniforms &uniforms) :
         _options(options),
         _context(context),
         _meshRegistry(meshRegistry),
         _pbrTextures(pbrTextures),
         _shaderRegistry(shaderRegistry),
-        _statistic(statistic),
         _textureRegistry(textureRegistry),
         _uniforms(uniforms) {
     }
@@ -213,13 +206,12 @@ public:
 
 private:
     graphics::GraphicsOptions &_options;
-    graphics::Context &_context;
-    graphics::MeshRegistry &_meshRegistry;
-    graphics::PBRTextures &_pbrTextures;
-    graphics::ShaderRegistry &_shaderRegistry;
-    graphics::IStatistic &_statistic;
-    graphics::TextureRegistry &_textureRegistry;
-    graphics::Uniforms &_uniforms;
+    graphics::IContext &_context;
+    graphics::IMeshRegistry &_meshRegistry;
+    graphics::IPBRTextures &_pbrTextures;
+    graphics::IShaderRegistry &_shaderRegistry;
+    graphics::ITextureRegistry &_textureRegistry;
+    graphics::IUniforms &_uniforms;
 };
 
 } // namespace scene

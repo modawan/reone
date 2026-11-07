@@ -604,7 +604,7 @@ void SelectionOverlay::renderReticle(Texture &texture, const glm::vec3 &screenCo
         locals.color.a = alpha;
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
 }
 
 void SelectionOverlay::renderTitleBar() {
@@ -651,7 +651,7 @@ void SelectionOverlay::renderTitleBar() {
             locals.color.a = 0.5f;
         });
         _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-        _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+        _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
     }
     {
         float x = opts.width * _selectedScreenCoords.x;
@@ -687,7 +687,7 @@ void SelectionOverlay::renderHealthBar() {
         locals.color = glm::vec4(getColorFromSelectedObject(), 1.0f);
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
 }
 
 void SelectionOverlay::renderActionBar(bool leaderDown) {
@@ -725,7 +725,7 @@ void SelectionOverlay::renderActionFrame(int index) {
         locals.model = std::move(transform);
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
 }
 
 void SelectionOverlay::renderActionArrows(int index) {
@@ -763,7 +763,7 @@ void SelectionOverlay::renderActionArrow(int index, bool previous) {
         }
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
 }
 
 bool SelectionOverlay::getActionScreenCoords(int index, float &x, float &y) const {

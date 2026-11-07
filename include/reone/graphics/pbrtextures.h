@@ -52,7 +52,6 @@ namespace graphics {
 class IContext;
 class IMeshRegistry;
 class IShaderRegistry;
-class IStatistic;
 class IUniforms;
 
 class IPBRTextures {
@@ -64,6 +63,8 @@ public:
     virtual std::optional<int> findEnvMapDerivedLayer(const std::string &name) = 0;
 
     virtual Texture &brdf() = 0;
+    virtual Texture &irradianceMapArray() = 0;
+    virtual Texture &prefilteredEnvMapArray() = 0;
 };
 
 class PBRTextures : public IPBRTextures, boost::noncopyable {
@@ -71,12 +72,10 @@ public:
     PBRTextures(IContext &context,
                 IMeshRegistry &meshRegistry,
                 IShaderRegistry &shaderRegistry,
-                IStatistic &statistic,
                 IUniforms &uniforms) :
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
-        _statistic(statistic),
         _uniforms(uniforms) {
     }
 
@@ -110,7 +109,6 @@ private:
     IContext &_context;
     IMeshRegistry &_meshRegistry;
     IShaderRegistry &_shaderRegistry;
-    IStatistic &_statistic;
     IUniforms &_uniforms;
 
     std::shared_ptr<Texture> _brdfLUT;

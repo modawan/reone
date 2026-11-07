@@ -126,7 +126,7 @@ void Movie::render() {
         width,
         height};
     _graphicsSvc.context.withViewport(movieViewport, [this]() {
-        _graphicsSvc.meshRegistry.get(MeshName::quadNDC).draw(_graphicsSvc.statistic);
+        _graphicsSvc.context.drawMesh(_graphicsSvc.meshRegistry.get(MeshName::quadNDC));
     });
 }
 

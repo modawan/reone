@@ -188,7 +188,7 @@ static void renderLine(const Line &line, const DrawContext &ctx, IRenderPass &pa
         locals.color = line.color;
     });
 
-    ctx.billboard.draw(ctx.services.statistic);
+    ctx.services.context.drawMesh(ctx.billboard);
 }
 
 static void renderTriangle(const Triangle &tri, const DrawContext &ctx, IRenderPass &pass) {
@@ -206,7 +206,7 @@ static void renderTriangle(const Triangle &tri, const DrawContext &ctx, IRenderP
         locals.color = tri.color;
     });
 
-    ctx.billboard.draw(ctx.services.statistic);
+    ctx.services.context.drawMesh(ctx.billboard);
 }
 
 static void renderText(const Text &text, const std::string &str, const DrawContext &ctx, IRenderPass &pass) {
@@ -237,7 +237,7 @@ static void renderPoint(const Point &point, const DrawContext &ctx, IRenderPass 
         locals.model = glm::scale(locals.model, glm::vec3(point.scale * 0.15f));
     });
 
-    ctx.billboard.draw(ctx.services.statistic);
+    ctx.services.context.drawMesh(ctx.billboard);
 }
 
 static void renderBox(const Box &box, const DrawContext &ctx, IRenderPass &pass) {
@@ -264,7 +264,7 @@ static void renderBox(const Box &box, const DrawContext &ctx, IRenderPass &pass)
     });
 
     ctx.services.context.pushPolygonMode(PolygonMode::Line);
-    ctx.aabb.draw(ctx.services.statistic);
+    ctx.services.context.drawMesh(ctx.aabb);
     ctx.services.context.popPolygonMode();
 }
 

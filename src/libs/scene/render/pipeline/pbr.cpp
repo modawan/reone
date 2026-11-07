@@ -290,7 +290,6 @@ Texture &PBRRenderPipeline::render(const FrameEffects &effects) {
     auto pass = PBRRenderPass {_options,
                                _context,
                                _shaderRegistry,
-                               _statistic,
                                _meshRegistry,
                                _pbrTextures,
                                _textureRegistry,
@@ -454,7 +453,7 @@ void PBRRenderPipeline::renderSSAO(float sampleRadius, float bias) {
     _context.bindTexture(_textureRegistry.get(TextureName::noiseRg), TextureUnits::noise);
     _context.withViewport(glm::ivec4(0, 0, size.x, size.y), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -475,7 +474,7 @@ void PBRRenderPipeline::renderSSR(float bias, float pixelStride, float maxSteps)
     _context.bindTexture(*_targets.cbGBufEyeNormal, TextureUnits::gBufEyeNormal);
     _context.withViewport(glm::ivec4(0, 0, size.x, size.y), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -499,7 +498,7 @@ void PBRRenderPipeline::combineOpaqueGeometry() {
         _context.bindTexture(*_targets.cbSSR, TextureUnits::ssr);
     }
     _context.clearColorDepth();
-    _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
 }
 
 void PBRRenderPipeline::beginTransparentGeometryPass() {
@@ -522,7 +521,7 @@ void PBRRenderPipeline::blendTransparentGeometry() {
     _context.bindTexture(*_targets.cbTransparentGeometry1, TextureUnits::oitAccum);
     _context.bindTexture(*_targets.cbTransparentGeometry2, TextureUnits::oitRevealage);
     _context.clearColorDepth();
-    _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
 }
 
 void PBRRenderPipeline::beginPostProcessingPass() {

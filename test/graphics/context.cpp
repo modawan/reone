@@ -11,6 +11,8 @@
 
 #include "reone/graphics/context.h"
 #include "reone/graphics/framebuffer.h"
+#include "reone/graphics/mesh.h"
+#include "reone/graphics/statistic.h"
 
 using namespace reone::graphics;
 
@@ -42,7 +44,8 @@ TEST(GraphicsContext, readback_invalidates_read_framebuffer_binding) {
     glad_glReadPixels = [](GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *) {};
 
     GraphicsOptions options;
-    Context context(options);
+    Statistic statistic;
+    Context context(options, statistic);
     Framebuffer scene;
     context.bindReadFramebuffer(scene, 0);
     EXPECT_EQ(1, bindings);
@@ -52,5 +55,106 @@ TEST(GraphicsContext, readback_invalidates_read_framebuffer_binding) {
     // the cache still claims that source was left bound before the screenshot.
     context.bindReadFramebuffer(scene, 0);
     EXPECT_EQ(3, bindings);
+}
+
+struct DrawGL {
+    decltype(glad_glBindVertexArray) bindVao {glad_glBindVertexArray};
+    decltype(glad_glDrawElements) elements {glad_glDrawElements};
+    decltype(glad_glDrawElementsInstanced) instanced {glad_glDrawElementsInstanced};
+    ~DrawGL() {
+        glad_glBindVertexArray = bindVao;
+        glad_glDrawElements = elements;
+        glad_glDrawElementsInstanced = instanced;
+    }
+};
+
+struct DrawCalls {
+    int vaoBinds {0};
+    int elements {0};
+    int instanced {0};
+    GLsizei count {0};
+    GLsizei instances {0};
+};
+
+DrawCalls g_drawCalls;
+
+Mesh makeTriangle() {
+    return Mesh(
+        std::vector<Mesh::Vertex> {
+            Mesh::VertexBuilder().position({0.0f, 0.0f, 0.0f}).build(),
+            Mesh::VertexBuilder().position({1.0f, 0.0f, 0.0f}).build(),
+            Mesh::VertexBuilder().position({0.0f, 1.0f, 0.0f}).build()},
+        Mesh::VertexLayoutBuilder().stride(3 * sizeof(float)).offPosition(0).build(),
+        std::vector<Mesh::Face> {Mesh::Face({0, 1, 2})});
+}
+
+void stubDrawGL() {
+    g_drawCalls = DrawCalls();
+    glad_glBindVertexArray = [](GLuint) { ++g_drawCalls.vaoBinds; };
+    glad_glDrawElements = [](GLenum mode, GLsizei count, GLenum type, const void *) {
+        EXPECT_EQ(GL_TRIANGLES, mode);
+        EXPECT_EQ(GL_UNSIGNED_SHORT, type);
+        ++g_drawCalls.elements;
+        g_drawCalls.count = count;
+    };
+    glad_glDrawElementsInstanced = [](GLenum mode, GLsizei count, GLenum type, const void *, GLsizei instances) {
+        EXPECT_EQ(GL_TRIANGLES, mode);
+        EXPECT_EQ(GL_UNSIGNED_SHORT, type);
+        ++g_drawCalls.instanced;
+        g_drawCalls.count = count;
+        g_drawCalls.instances = instances;
+    };
+}
+
+TEST(GraphicsContext, draw_mesh_once_issues_one_plain_draw_and_counts_it) {
+    DrawGL restore;
+    stubDrawGL();
+    GraphicsOptions options;
+    Statistic statistic;
+    Context context(options, statistic);
+    auto mesh = makeTriangle();
+
+    context.drawMesh(mesh);
+
+    EXPECT_EQ(1, g_drawCalls.vaoBinds);
+    EXPECT_EQ(1, g_drawCalls.elements);
+    EXPECT_EQ(0, g_drawCalls.instanced);
+    EXPECT_EQ(3, g_drawCalls.count);
+    EXPECT_EQ(1, statistic.numDrawCalls());
+}
+
+TEST(GraphicsContext, draw_mesh_instanced_issues_one_instanced_draw_and_counts_it_once) {
+    DrawGL restore;
+    stubDrawGL();
+    GraphicsOptions options;
+    Statistic statistic;
+    Context context(options, statistic);
+    auto mesh = makeTriangle();
+
+    context.drawMesh(mesh, 3);
+
+    EXPECT_EQ(1, g_drawCalls.vaoBinds);
+    EXPECT_EQ(0, g_drawCalls.elements);
+    EXPECT_EQ(1, g_drawCalls.instanced);
+    EXPECT_EQ(3, g_drawCalls.count);
+    EXPECT_EQ(3, g_drawCalls.instances);
+    // An instanced submission counts as one draw call, not one per instance.
+    EXPECT_EQ(1, statistic.numDrawCalls());
+}
+TEST(GraphicsContext, draw_mesh_with_no_instances_draws_nothing) {
+    DrawGL restore;
+    stubDrawGL();
+    GraphicsOptions options;
+    Statistic statistic;
+    Context context(options, statistic);
+    auto mesh = makeTriangle();
+
+    context.drawMesh(mesh, 0);
+
+    // Only an instanced draw of zero instances renders nothing; a plain
+    // draw would put the mesh on screen once.
+    EXPECT_EQ(0, g_drawCalls.elements);
+    EXPECT_EQ(1, g_drawCalls.instanced);
+    EXPECT_EQ(0, g_drawCalls.instances);
 }
 } // namespace

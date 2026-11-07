@@ -57,6 +57,8 @@ public:
     MOCK_METHOD(void, bindUniformBuffer, (UniformBuffer &, int), (override));
     MOCK_METHOD(void, bindTexture, (Texture &, int), (override));
 
+    MOCK_METHOD(void, drawMesh, (Mesh &, int), (override));
+
     MOCK_METHOD(const glm::ivec4 &, viewport, (), (const override));
     MOCK_METHOD(DepthTestMode, depthTestMode, (), (const override));
     MOCK_METHOD(bool, depthMask, (), (const override));
@@ -104,6 +106,8 @@ public:
     MOCK_METHOD(void, refresh, (), (override));
     MOCK_METHOD(void, requestEnvMapDerived, (EnvMapDerivedRequest), (override));
     MOCK_METHOD(Texture &, brdf, (), (override));
+    MOCK_METHOD(Texture &, irradianceMapArray, (), (override));
+    MOCK_METHOD(Texture &, prefilteredEnvMapArray, (), (override));
     MOCK_METHOD(std::optional<int>, findEnvMapDerivedLayer, (const std::string &), (override));
 };
 

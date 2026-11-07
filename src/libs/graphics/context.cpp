@@ -17,7 +17,9 @@
 
 #include "reone/graphics/context.h"
 #include "reone/graphics/framebuffer.h"
+#include "reone/graphics/mesh.h"
 #include "reone/graphics/shaderprogram.h"
+#include "reone/graphics/statistic.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/uniformbuffer.h"
 #include "reone/system/logutil.h"
@@ -236,6 +238,11 @@ void Context::bindTexture(Texture &texture, int unit) {
         _activeTexUnit = unit;
     }
     texture.bind();
+}
+
+void Context::drawMesh(Mesh &mesh, int instanceCount) {
+    mesh.drawGL(instanceCount);
+    _statistic.incrementDrawCalls();
 }
 
 void Context::pushViewport(glm::ivec4 viewport) {

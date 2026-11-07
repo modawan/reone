@@ -27,19 +27,17 @@ class RetroRenderPipeline : public RenderPipelineBase {
 public:
     RetroRenderPipeline(glm::ivec2 targetSize,
                         graphics::GraphicsOptions &options,
-                        graphics::Context &context,
-                        graphics::MeshRegistry &meshRegistry,
-                        graphics::ShaderRegistry &shaderRegistry,
-                        graphics::IStatistic &statistic,
-                        graphics::TextureRegistry &textureRegistry,
-                        graphics::Uniforms &uniforms) :
+                        graphics::IContext &context,
+                        graphics::IMeshRegistry &meshRegistry,
+                        graphics::IShaderRegistry &shaderRegistry,
+                        graphics::ITextureRegistry &textureRegistry,
+                        graphics::IUniforms &uniforms) :
         RenderPipelineBase(
             std::move(targetSize),
             options,
             context,
             meshRegistry,
             shaderRegistry,
-            statistic,
             textureRegistry,
             uniforms) {
     }

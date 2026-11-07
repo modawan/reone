@@ -195,8 +195,8 @@ protected:
     scene::TestSceneModule scene;
     audio::TestAudioModule audio;
     SilentSounds sounds;
-    Context fontContext {options};
     Statistic statistic;
+    Context fontContext {options, statistic};
     MeshRegistry meshes {statistic};
     ShaderRegistry shaders;
     Uniforms uniforms {fontContext};
@@ -217,7 +217,7 @@ protected:
         features.upperLeftCoords.assign(256, glm::vec3(0, 1, 0));
         features.lowerRightCoords.assign(256, glm::vec3(0.5f, 0, 0));
         texture->setFeatures(std::move(features));
-        font = std::make_shared<Font>(fontContext, meshes, shaders, statistic, uniforms);
+        font = std::make_shared<Font>(fontContext, meshes, shaders, uniforms);
         font->load(texture);
         EXPECT_CALL(resources.textures(), get(_, _)).Times(AnyNumber()).WillRepeatedly(Return(texture));
         EXPECT_CALL(static_cast<MockFonts &>(resources.services().fonts), get(_))

@@ -32,7 +32,6 @@ void SceneModule::init() {
         _graphics.meshRegistry(),
         _graphics.pbrTextures(),
         _graphics.shaderRegistry(),
-        _graphics.statistic(),
         _graphics.textureRegistry(),
         _graphics.uniforms());
     _graphs = std::make_unique<SceneGraphs>(
