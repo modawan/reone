@@ -1275,6 +1275,11 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;
 
+    if (_movie && event.code == input::KeyCode::Escape) {
+        skipMovie();
+        return true;
+    }
+
     if (_screen == Screen::InGame && handleFreeLookKey(event)) {
         return true;
     }
@@ -1390,7 +1395,7 @@ bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     }
     _pointer->setPressed(true);
     if (_movie) {
-        _movie->finish();
+        skipMovie();
         return true;
     }
     return false;
@@ -1508,6 +1513,8 @@ bool Game::loadModule(
         error("Failed preparing module '" + name + "': " + e.what());
         return false;
     }
+    // Movies queued and never played do not follow the player to the next module.
+    _queuedMovies.clear();
     return loadPreparedModule(
         std::move(prepared),
         std::move(entry),
@@ -2029,6 +2036,9 @@ void Game::retireRuntimeSession() {
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
     }
+    _queuedMovies.clear();
+    _playingQueuedMovies.clear();
+    _currentQueuedMovie.reset();
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
@@ -2957,11 +2967,52 @@ void Game::setCursorType(CursorType type) {
     _pointer->setType(type);
 }
 
+void Game::queueMovie(std::string name, bool skippable) {
+    _queuedMovies.push_back(QueuedMovie {std::move(name), skippable});
+}
+
+void Game::playMovieQueue(bool allowSeparateSkips) {
+    if (_queuedMovies.empty()) {
+        return;
+    }
+    const int batch = _nextMovieBatch++;
+    for (auto &movie : _queuedMovies) {
+        _playingQueuedMovies.push_back(PlayingQueuedMovie {std::move(movie), allowSeparateSkips, batch});
+    }
+    _queuedMovies.clear();
+    if (!_movie) {
+        playNextQueuedMovie();
+    }
+}
+
+void Game::skipMovie() {
+    if (!_movie || (_currentQueuedMovie && !_currentQueuedMovie->movie.skippable)) {
+        return;
+    }
+    dropQueueSkippedWithCurrentMovie();
+    _movie->finish();
+}
+
+void Game::dropQueueSkippedWithCurrentMovie() {
+    if (!_currentQueuedMovie || _currentQueuedMovie->separateSkips) {
+        return;
+    }
+    while (!_playingQueuedMovies.empty() && _playingQueuedMovies.front().batch == _currentQueuedMovie->batch) {
+        _playingQueuedMovies.pop_front();
+    }
+}
+
 void Game::playVideo(const std::string &name, bool streamingMusic) {
+    // A queued movie the script's movie takes the place of plays after it.
+    if (_movie && _currentQueuedMovie) {
+        _playingQueuedMovies.push_front(std::move(*_currentQueuedMovie));
+    }
     _moduleTransitionMovies = std::queue<std::string>();
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
-    startVideo(name, streamingMusic);
+    if (!startVideo(name, streamingMusic)) {
+        playNextQueuedMovie();
+    }
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -5097,6 +5148,7 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
 
 bool Game::startVideo(const std::string &name, bool streamingMusic) {
     _movie = _services.resource.movies.get(name);
+    _currentQueuedMovie.reset();
     _timingDiscontinuity = true;
     if (!_movie) {
         return false;
@@ -5128,13 +5180,35 @@ bool Game::playNextModuleTransitionMovie() {
     return false;
 }
 
+bool Game::playNextQueuedMovie() {
+    while (!_playingQueuedMovies.empty()) {
+        auto next = std::move(_playingQueuedMovies.front());
+        _playingQueuedMovies.pop_front();
+
+        if (startVideo(next.movie.name, false)) {
+            _currentQueuedMovie = std::move(next);
+            return true;
+        }
+    }
+    return false;
+}
+
+void Game::endMovie() {
+    _movie.reset();
+    _currentQueuedMovie.reset();
+    _timingDiscontinuity = true;
+    // The transition movies belong to the module change under way and play
+    // through before any queue a script played after they began.
+    if (!playNextModuleTransitionMovie()) {
+        playNextQueuedMovie();
+    }
+}
+
 void Game::updateMovie(float dt) {
     _movie->update(dt);
 
     if (_movie->isFinished()) {
-        _movie.reset();
-        _timingDiscontinuity = true;
-        playNextModuleTransitionMovie();
+        endMovie();
     }
 }
 
@@ -9587,7 +9661,10 @@ void Game::consoleShowBark(const ConsoleArgs &args) {
 
 void Game::consoleSkipMovie(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
-    _movie.reset();
+    if (_movie) {
+        dropQueueSkippedWithCurrentMovie();
+        endMovie();
+    }
 }
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {

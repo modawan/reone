@@ -196,6 +196,28 @@ TEST_P(LoadFromSaveGameFixture, a_later_restore_still_gets_its_window) {
     EXPECT_FALSE(routineSaysLoading());
 }
 
+// Movies a script queued and never played do not follow it to the module it
+// goes to.
+TEST_P(LoadFromSaveGameFixture, movies_queued_and_never_played_are_dropped_by_a_module_load) {
+    std::optional<size_t> queuedDuringLoad;
+    SaveOrchestrationSeams seams;
+    seams.captureModule = [&queuedDuringLoad](const Game &loading, const std::string &) {
+        queuedDuringLoad = loading.queuedMovies().size();
+        ModuleSnapshotResult result;
+        result.error = ModuleSnapshotError::EncodingFailure;
+        result.message = "injected snapshot failure";
+        return result;
+    };
+    TestGameModule::configureSaveOrchestration(*game, std::move(seams));
+    game->queueMovie("a", true);
+    ASSERT_EQ(1u, game->queuedMovies().size());
+
+    game->loadModule("module_b");
+
+    ASSERT_TRUE(queuedDuringLoad) << "the load never reached the sampling point";
+    EXPECT_EQ(0u, *queuedDuringLoad);
+}
+
 TEST_P(LoadFromSaveGameFixture, routine_is_registered_with_the_retail_signature) {
     int index = routines->getIndexByName("GetLoadFromSaveGame");
     EXPECT_EQ(index, 251);

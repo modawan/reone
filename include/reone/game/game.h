@@ -19,6 +19,7 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -278,6 +279,28 @@ public:
      *        plays on while it runs
      */
     void playVideo(const std::string &name, bool streamingMusic = false);
+
+    /** A movie a script queued for playMovieQueue. */
+    struct QueuedMovie {
+        std::string name;
+        bool skippable {true};
+    };
+
+    /** Add a movie to the end of the queue playMovieQueue plays; nothing plays yet. */
+    void queueMovie(std::string name, bool skippable);
+    /**
+     * Play the queued movies in order, one straight after another, and empty
+     * the queue; while a movie plays, they follow it. A movie that does not
+     * exist is passed over.
+     *
+     * @param allowSeparateSkips whether skipping a movie leaves the rest of
+     *        its queue to play, rather than ending them all
+     */
+    void playMovieQueue(bool allowSeparateSkips);
+    /** The movies queued and not yet given to playMovieQueue, first first. */
+    const std::vector<QueuedMovie> &queuedMovies() const { return _queuedMovies; }
+    /** The player asks to skip the playing movie, which a queued movie allows only when skippable. */
+    void skipMovie();
 
     bool isPaused() const { return _paused; }
     /**
@@ -1785,6 +1808,17 @@ private:
 
     std::shared_ptr<movie::IMovie> _movie;
     std::queue<std::string> _moduleTransitionMovies;
+    struct PlayingQueuedMovie {
+        QueuedMovie movie;
+        bool separateSkips {true};
+        int batch {0};
+    };
+    std::vector<QueuedMovie> _queuedMovies;
+    /** Movies given to playMovieQueue that wait to follow the current one. */
+    std::deque<PlayingQueuedMovie> _playingQueuedMovies;
+    int _nextMovieBatch {0};
+    /** The current movie, when it came from playMovieQueue. */
+    std::optional<PlayingQueuedMovie> _currentQueuedMovie;
     std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
@@ -2298,6 +2332,11 @@ private:
     /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
     bool startVideo(const std::string &name, bool streamingMusic);
     bool playNextModuleTransitionMovie();
+    bool playNextQueuedMovie();
+    /** A skip of a queued movie without separate skips ends the rest of its queue too. */
+    void dropQueueSkippedWithCurrentMovie();
+    /** The current movie is over: the next transition movie starts, or else the next queued one. */
+    void endMovie();
     void updateMovie(float dt);
     void updateMusic();
     void updatePassiveSelection(float frameTime);
