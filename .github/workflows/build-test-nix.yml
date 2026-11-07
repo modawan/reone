@@ -1,27 +1,54 @@
-name: Build and run tests with Nix
+name: Check the Nix flake
+# Runs only when the flake or this workflow changes. The C++ build and its
+# tests are already covered by the Linux and Windows workflows, so a pull
+# request gets the fast check: every flake output evaluates and the run
+# wrapper's tests pass. The full package build (every application, the unit
+# tests and the install check, about 25 minutes with no binary cache) runs
+# when started by hand with "full". A CMake change that breaks only the Nix
+# package is therefore caught by that manual run, not on its pull request.
 on:
   push:
     branches: [master]
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/build-test-nix.yml
   pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/build-test-nix.yml
   workflow_dispatch:
+    inputs:
+      full:
+        description: Build the whole package and run its tests (slow)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# A new push to a pull request cancels its earlier run, which would
-# otherwise go on for a full build. Runs on master are never cancelled.
+# A new push to a pull request cancels its earlier run. Runs on master are
+# never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
-      # Builds every application, runs the unit tests, the install check and
-      # the run-wrapper tests. No binary cache, so each run is a full build.
-      - name: nix flake check
+      - name: Evaluate every flake output
+        if: ${{ !inputs.full }}
+        run: nix flake check --no-build -L
+      - name: Run the wrapper tests
+        if: ${{ !inputs.full }}
+        run: nix build -L .#checks.x86_64-linux.reone-run
+      - name: Build the package and run all checks
+        if: ${{ inputs.full }}
         run: nix flake check -L
