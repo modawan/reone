@@ -8691,18 +8691,36 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakOriginScreen = Screen::None;
 }
 
-void Game::openLevelUp() {
-    if (!_charGen) {
-        _charGen = tryLoadGUI<CharacterGeneration>();
-    }
-    if (!_charGen) {
-        return;
+bool Game::openLevelUp() {
+    if (_levelUpGuiLoadOverride) {
+        if (!_levelUpGuiLoadOverride()) {
+            return false;
+        }
+    } else {
+        if (!_charGen) {
+            _charGen = tryLoadGUI<CharacterGeneration>();
+        }
+        if (!_charGen) {
+            return false;
+        }
     }
 
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
-    _charGen->startLevelUp();
+    if (_charGen) {
+        _charGen->startLevelUp();
+    }
     changeScreen(Screen::CharacterGeneration);
+    return true;
+}
+
+bool Game::isLevelUpOpen() const {
+    if (_screen != Screen::CharacterGeneration) {
+        return false;
+    }
+    // Without its GUI resources, a level-up screen opened through the load
+    // override is the only one character generation can show.
+    return _charGen ? _charGen->isLevelUp() : static_cast<bool>(_levelUpGuiLoadOverride);
 }
 
 static constexpr int kLevelUpAvailableStrRef = 1438;

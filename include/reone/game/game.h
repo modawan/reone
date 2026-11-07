@@ -538,7 +538,14 @@ public:
      * once round the party, until that member leads.
      */
     void finishPostDialogCharacterSwitch();
-    void openLevelUp();
+    /**
+     * Opens the level-up screen for the party leader.
+     *
+     * @return whether the screen is up
+     */
+    bool openLevelUp();
+    /** The level-up screen is the current screen. */
+    bool isLevelUpOpen() const;
     /**
      * A party member has enough experience to level up; newly when this
      * award brought it there. The level-up chime is the main interface's.
@@ -2053,6 +2060,7 @@ private:
     PazaakSession::FirstParticipantSelector _pazaakFirstParticipantSelector;
     bool _pazaakPaceAutomaticDraws {true};
     std::function<bool()> _pazaakGuiLoadOverride;
+    std::function<bool()> _levelUpGuiLoadOverride;
     std::function<void(const std::string &, uint32_t)> _pazaakContinuationOverride;
     RuntimeObjectRef<Object> _pazaakDevelopmentSelectedObjectOverride;
     std::optional<pazaak::SideDeck> _pazaakOpponentDeckOverride;

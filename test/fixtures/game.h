@@ -310,6 +310,11 @@ public:
     static void raiseTimingDiscontinuity(Game &game);
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
+    /**
+     * The level-up screen loads, or fails to, without its GUI resources;
+     * \p loads counts the loads asked for.
+     */
+    static void setLevelUpGuiLoads(Game &game, bool loads, int *loadCount = nullptr);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
     static void prepareFadeArrival(Game &game);
     static void cacheActiveModule(Game &game, std::string name);

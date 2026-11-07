@@ -3293,8 +3293,16 @@ static Variable GetAreaOfEffectCreator(const std::vector<Variable> &args, const 
 }
 
 static Variable ShowLevelUpGUI(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("ShowLevelUpGUI");
+    // Execute: the screen levels the party leader, and only one with the
+    // experience for its next level.
+    auto leader = ctx.game.party().getLeader();
+    if (!leader || !ctx.game.module() || !leader->isLevelUpPending()) {
+        return Variable::ofInt(0);
+    }
+    if (ctx.game.isLevelUpOpen()) {
+        return Variable::ofInt(1);
+    }
+    return Variable::ofInt(ctx.game.openLevelUp() ? 1 : 0);
 }
 
 static Variable SetItemNonEquippable(const std::vector<Variable> &args, const RoutineContext &ctx) {

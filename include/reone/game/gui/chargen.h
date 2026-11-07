@@ -111,6 +111,7 @@ public:
     void openCustom();
     void openSteps();
     void openLevelUp();
+    bool isLevelUp() const { return _type == Type::LevelUp; }
 
     void goToNextStep();
 
