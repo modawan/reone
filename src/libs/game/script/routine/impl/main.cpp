@@ -3653,12 +3653,13 @@ static Variable GetCreatureTalentBest(const std::vector<Variable> &args, const R
 
 static Variable GetGoldPieceValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    auto oItem = getObjectOrNull(args, 0, ctx);
 
     // Transform
+    auto item = oItem ? dyn_cast<Item>(oItem) : nullptr;
 
-    // Execute
-    throw RoutineNotImplementedException("GetGoldPieceValue");
+    // Execute: what the item is worth, the price a store starts from.
+    return Variable::ofInt(item ? item->cost(ctx.game.baseItemCostMultiplier(item->baseItemType())) : 0);
 }
 
 static Variable GetIsPlayableRacialType(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -24,7 +24,9 @@
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/store.h"
 #include "reone/game/object/waypoint.h"
+#include "reone/game/saveprovenance.h"
 #include "reone/game/script/routines.h"
+#include "reone/resource/gff.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/variable.h"
 
@@ -84,4 +86,48 @@ TEST(InventoryRoutines, has_inventory_not_for_plain_items_placeables_or_waypoint
     EXPECT_EQ(0, routines.callInt("GetHasInventory", {Variable::ofObject(placeable->id())}));
     EXPECT_EQ(0, routines.callInt("GetHasInventory", {Variable::ofObject(waypoint->id())}));
     EXPECT_EQ(0, routines.callInt("GetHasInventory", {Variable::ofObject(kObjectInvalid)}));
+}
+
+namespace {
+
+std::shared_ptr<Item> makePricedItem(Game &game, int baseItem, uint32_t addCost) {
+    auto gff = Gff::Builder()
+                   .field(Gff::Field::newInt("BaseItem", baseItem))
+                   .field(Gff::Field::newDword("AddCost", addCost))
+                   .build();
+    auto item = game.newItem();
+    item->deserialize(*gff, SerializedIdentityContext::templateResource());
+    return item;
+}
+
+} // namespace
+
+// 311: the item's value, its cost scaled by the base item's script multiplier.
+TEST(InventoryRoutines, gold_piece_value_is_the_item_cost) {
+    InventoryRoutines routines;
+    auto item = makePricedItem(routines.game(), 8, 250);
+
+    EXPECT_EQ(250, routines.callInt("GetGoldPieceValue", {Variable::ofObject(item->id())}));
+
+    routines.game().setBaseItemCostMultiplier(8, 1.5f);
+    EXPECT_EQ(375, routines.callInt("GetGoldPieceValue", {Variable::ofObject(item->id())}));
+}
+
+// A plot item is worth nothing, and any other item at least one credit.
+TEST(InventoryRoutines, gold_piece_value_of_plot_and_free_items) {
+    InventoryRoutines routines;
+    auto plot = makePricedItem(routines.game(), 8, 250);
+    plot->setPlotFlag(true);
+    auto free = makePricedItem(routines.game(), 8, 0);
+
+    EXPECT_EQ(0, routines.callInt("GetGoldPieceValue", {Variable::ofObject(plot->id())}));
+    EXPECT_EQ(1, routines.callInt("GetGoldPieceValue", {Variable::ofObject(free->id())}));
+}
+
+TEST(InventoryRoutines, gold_piece_value_of_what_is_not_an_item_is_zero) {
+    InventoryRoutines routines;
+    auto creature = routines.game().newCreature();
+
+    EXPECT_EQ(0, routines.callInt("GetGoldPieceValue", {Variable::ofObject(creature->id())}));
+    EXPECT_EQ(0, routines.callInt("GetGoldPieceValue", {Variable::ofObject(kObjectInvalid)}));
 }
