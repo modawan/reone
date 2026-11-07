@@ -93,6 +93,16 @@ public:
             Rotate180
         };
 
+        /** How the fill covers the area inside the frame, as FILLSTYLE authors it. */
+        enum class FillStyle {
+            /** Whole copies of the image, each stretched by a share of what is left over. */
+            Tile,
+            /** The image at its own size in the middle, squeezed only along an axis it overflows. */
+            Center,
+            /** The image stretched over the whole area. */
+            Stretch
+        };
+
         std::shared_ptr<graphics::Texture> corner;
         std::shared_ptr<graphics::Texture> edge;
         std::shared_ptr<graphics::Texture> fill;
@@ -103,6 +113,7 @@ public:
         /** How far the inner area sits inside the frame, as authored. */
         int innerOffset {0};
         FillTransform fillTransform {FillTransform::None};
+        FillStyle fillStyle {FillStyle::Stretch};
         /** While set, the corners and edges are drawn at the GUI's pulsing alpha instead of alpha. */
         bool pulseFrame {false};
         /** While set, the fill is drawn at the GUI's pulsing alpha instead of alpha. */
@@ -267,6 +278,8 @@ protected:
     Extent _authoredExtent;
     int _authoredBorderDimension {0};
     int _authoredHilightDimension {0};
+    /** How many screen pixels each authored pixel of the frame and fill covers. */
+    float _frameLayoutScale {1.0f};
     float _scale {1.0f};
     Extent _extent;
     std::shared_ptr<Border> _border;

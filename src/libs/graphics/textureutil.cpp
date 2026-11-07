@@ -126,6 +126,14 @@ int getCycleFrame(const Texture &texture, float time) {
     return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
 }
 
+glm::ivec2 getImageSize(const Texture &texture) {
+    if (!texture.is2DArray()) {
+        return {texture.width(), texture.height()};
+    }
+    const Texture::Features &features = texture.features();
+    return {texture.width() * features.numX, texture.height() * features.numY};
+}
+
 Texture::Properties getTextureProperties(TextureUsage usage) {
     Texture::Properties properties;
 

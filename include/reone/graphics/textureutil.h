@@ -32,6 +32,12 @@ void convertGridTextureToArray(Texture &texture, int numX, int numY);
  */
 int getCycleFrame(const Texture &texture, float time);
 
+/**
+ * The size of the image \p texture was loaded from. A grid of frames is kept
+ * as one frame per layer, but its image is the whole grid.
+ */
+glm::ivec2 getImageSize(const Texture &texture);
+
 Texture::Properties getTextureProperties(TextureUsage usage);
 
 inline bool isCompressed(PixelFormat format) {
