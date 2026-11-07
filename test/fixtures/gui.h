@@ -72,6 +72,7 @@ public:
     MOCK_METHOD(void, addControlToBack, (std::shared_ptr<Control>, ControlCoordinates), (override));
 
     MOCK_METHOD(std::shared_ptr<Control>, findControl, (const std::string &), (const override));
+    MOCK_METHOD(bool, hasSelectableControlAt, (int, int), (const override));
 };
 
 class MockGUIs : public IGUIs, boost::noncopyable {

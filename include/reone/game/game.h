@@ -1315,6 +1315,8 @@ public:
     bool hasModalPanel() const;
     /** The mouse turns the third-person camera in play, with no popup taking the input. */
     bool isMouseLooking() const;
+    /** In play, the HUD holds the pointer at the screen point, over the world behind it. */
+    bool isPointerOnHUD(int x, int y) const;
     /** End the game on the next frame, returning to the main menu. */
     void requestEndGame() {
         _endGamePending = true;

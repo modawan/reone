@@ -249,6 +249,9 @@ bool GUI::handle(const input::Event &event) {
     case input::EventType::MouseButtonDown:
         if (event.button.button == input::MouseButton::Left) {
             _leftMouseDown = true;
+            // A press on a control is the GUI's: whatever lies behind it, such
+            // as an object in the world, takes no click.
+            return hasSelectableControlAt(event.button.x, event.button.y);
         }
         break;
     case input::EventType::MouseButtonUp:
@@ -316,6 +319,10 @@ void GUI::updateSelection(int screenX, int screenY) {
         control->get().setSelected(true);
         onSelectionChanged(control->get().tag(), true);
     }
+}
+
+bool GUI::hasSelectableControlAt(int x, int y) const {
+    return findControlAt(x, y, [](const auto &control) { return control.isSelectable(); }).has_value();
 }
 
 std::optional<std::reference_wrapper<Control>> GUI::findControlAt(int x, int y,

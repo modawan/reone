@@ -5860,6 +5860,10 @@ bool Game::isMouseLooking() const {
     return camera && camera->isMouseLookMode();
 }
 
+bool Game::isPointerOnHUD(int x, int y) const {
+    return _hud && getScreenGUI() == _hud.get() && _hud->holdsPointer(x, y);
+}
+
 void Game::updateMouseLookPointer() {
     const bool looking = isMouseLooking();
     if (looking && !_mouseLookPointer) {

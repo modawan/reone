@@ -844,10 +844,41 @@ bool HUD::handle(const input::Event &event) {
             return true;
         }
     }
+    // The HUD's controls come before the target menu floating over the world.
+    switch (event.type) {
+    case input::EventType::MouseMotion:
+        if (holdsPointer(event.motion.x, event.motion.y)) {
+            _select.clearHover();
+            return _gui->handle(event);
+        }
+        break;
+    case input::EventType::MouseButtonDown:
+        if (holdsPointer(event.button.x, event.button.y)) {
+            return _gui->handle(event);
+        }
+        // A press while the mouse turns the camera moves the leader; the
+        // hidden pointer clicks no HUD control.
+        if (event.button.button == input::MouseButton::Left && _game.isMouseLooking()) {
+            return _select.handle(event);
+        }
+        break;
+    default:
+        break;
+    }
     if (_select.handle(event)) {
         return true;
     }
     return _gui->handle(event);
+}
+
+bool HUD::holdsPointer(int x, int y) const {
+    if (_game.isMouseLooking()) {
+        return false;
+    }
+    if (isPausePanelShown() && _pauseLayoutReason && _pauseGUI && _pauseGUI->hasSelectableControlAt(x, y)) {
+        return true;
+    }
+    return _gui && _gui->hasSelectableControlAt(x, y);
 }
 
 void HUD::update(float dt) {

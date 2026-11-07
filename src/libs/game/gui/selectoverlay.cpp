@@ -195,9 +195,13 @@ bool SelectionOverlay::handle(const input::Event &event) {
     }
 }
 
-bool SelectionOverlay::handleMouseMotion(const input::MouseMotionEvent &event) {
+void SelectionOverlay::clearHover() {
     _selectedActionSlot = -1;
     _hilightedActionBand = ActionBand::None;
+}
+
+bool SelectionOverlay::handleMouseMotion(const input::MouseMotionEvent &event) {
+    clearHover();
 
     if (!_selectedObject)
         return false;

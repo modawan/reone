@@ -57,6 +57,10 @@ namespace scene {
 class SceneNode;
 }
 
+namespace gui {
+class IGUI;
+}
+
 namespace game {
 
 class Area;
@@ -72,6 +76,7 @@ class Sound;
 class MainMenu;
 class Conversation;
 class DialogGUI;
+class HUD;
 class Object;
 class StaticCamera;
 class Trigger;
@@ -332,6 +337,14 @@ public:
     static bool hasConversation(const Game &game);
     static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);
     static bool hasHUDSelection(const Game &game);
+    /** Installs a HUD drawn by \p gui as the game's, unloaded otherwise. */
+    static HUD &installHUD(Game &game, std::shared_ptr<gui::IGUI> gui);
+    /** Shows the target menu over \p target, one entry in each column. */
+    static void showHUDTargetMenu(HUD &hud, std::shared_ptr<Object> target);
+    /** The screen point at the top left of a target menu column. */
+    static glm::ivec2 hudTargetMenuColumn(const HUD &hud, int column);
+    /** The target menu column under the pointer, or -1. */
+    static int hudTargetMenuHover(const HUD &hud);
     // Game::stopMovement is private and its public callers need in-game
     // menus that only exist once a module has been loaded.
     static void stopMovement(Game &game);
