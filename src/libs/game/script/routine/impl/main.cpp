@@ -4721,9 +4721,12 @@ static Variable SoundObjectSetVolume(const std::vector<Variable> &args, const Ro
     auto nVolume = getInt(args, 1);
 
     // Transform
+    auto sound = checkSound(oSound);
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectSetVolume");
+    // 415: "nVolume: 0-127"; a value outside that is clamped to it.
+    sound->setVolume(nVolume);
+    return Variable::ofNull();
 }
 
 static Variable SoundObjectSetPosition(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7002,9 +7005,12 @@ static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const 
     auto fSeconds = getFloat(args, 1);
 
     // Transform
+    auto sound = checkSound(oSound);
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectFadeAndStop");
+    // 745: "Fades a sound object for 'fSeconds' and then stops it."
+    sound->fadeAndStop(fSeconds);
+    return Variable::ofNull();
 }
 
 static Variable SetAreaFogColor(const std::vector<Variable> &args, const RoutineContext &ctx) {

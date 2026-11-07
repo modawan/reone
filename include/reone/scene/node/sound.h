@@ -49,6 +49,8 @@ public:
     bool isSoundPlaying() const;
     /** Stops and releases the sound, if one is playing. */
     void stopSound();
+    /** Scales the playing sound's gain from the gain it started with. */
+    void setGainScale(float scale);
 
     int priority() const { return _priority; }
     float maxDistance() const { return _maxDistance; }
