@@ -303,6 +303,12 @@ float SwoopRace::cameraAspect() const {
 
 bool SwoopRace::handle(const input::Event &event) {
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton);
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion);
     case input::EventType::KeyDown:
         return handleKeyDown(event.key);
     case input::EventType::KeyUp:
@@ -312,48 +318,101 @@ bool SwoopRace::handle(const input::Event &event) {
     }
 }
 
-bool SwoopRace::handleKeyDown(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::Left:
-    case input::KeyCode::A:
+bool SwoopRace::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveLeft.check(event.button)) {
         _steerDir = -1;
         return true;
-    case input::KeyCode::Right:
-    case input::KeyCode::D:
+    } else if (keybinds.mgMoveRight.check(event.button)) {
         _steerDir = 1;
         return true;
-    case input::KeyCode::Space:
+    } else if (keybinds.mgAction.check(event.button)) {
         // Jump is stubbed for the skeleton: accepted but has no gameplay effect.
         return true;
-    case input::KeyCode::Escape:
-    case input::KeyCode::Pause:
+    } else if (keybinds.mgPause.check(event.button)) {
+        // Escape pauses the race; it does not leave it.
+        _game.pressPauseKey();
+        return true;
+    }
+
+    return false;
+}
+
+bool SwoopRace::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveLeft.check(event.button)) {
+        if (_steerDir == -1) {
+            _steerDir = 0;
+        }
+        return true;
+    } else if (keybinds.mgMoveRight.check(event.button)) {
+        if (_steerDir == 1) {
+            _steerDir = 0;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool SwoopRace::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveLeft.check(event.axis)) {
+        if (event.value < 0) {
+            _steerDir = -1;
+        } else if (event.value > 0) {
+            _steerDir = 1;
+        } else {
+            _steerDir = 0;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool SwoopRace::handleKeyDown(const input::KeyEvent &event) {
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveLeft.check(event.code)) {
+        _steerDir = -1;
+        return true;
+    } else if (keybinds.mgMoveRight.check(event.code)) {
+        _steerDir = 1;
+        return true;
+    } else if (keybinds.mgAction.check(event.code)) {
+        // Jump is stubbed for the skeleton: accepted but has no gameplay effect.
+        return true;
+    } else if (keybinds.mgPause.check(event.code)) {
         // Escape pauses the race; it does not leave it.
         if (!event.repeat) {
             _game.pressPauseKey();
         }
         return true;
-    default:
-        return false;
     }
+
+    return false;
 }
 
 bool SwoopRace::handleKeyUp(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::Left:
-    case input::KeyCode::A:
+    auto &keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveLeft.check(event.code)) {
         if (_steerDir == -1) {
             _steerDir = 0;
         }
         return true;
-    case input::KeyCode::Right:
-    case input::KeyCode::D:
+    } else if (keybinds.mgMoveRight.check(event.code)) {
         if (_steerDir == 1) {
             _steerDir = 0;
         }
         return true;
-    default:
-        return false;
     }
+
+    return false;
 }
 
 } // namespace game

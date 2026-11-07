@@ -179,6 +179,9 @@ private:
     std::shared_ptr<scene::ModelSceneNode> _bikeRoot;
     std::vector<std::shared_ptr<scene::ModelSceneNode>> _bikeChildNodes;
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
+    bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
+    bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
 

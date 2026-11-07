@@ -95,10 +95,10 @@ struct KeybindOptions {
     Keybind guiPreviousMenu         {input::KeyCode::Q,         input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::Invalid};
     Keybind mgMoveFoward            {input::KeyCode::W,         input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::LeftY};
     Keybind mgMoveBackward          {input::KeyCode::S,         input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::LeftY};
-    Keybind mgMoveLeft              {input::KeyCode::A,         input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::LeftX};
-    Keybind mgMoveRight             {input::KeyCode::D,         input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::LeftX};
-    Keybind mgAction                {input::KeyCode::Space,     input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::Invalid};
-    Keybind mgPause                 {input::KeyCode::Escape,    input::KeyCode::Unknown,    input::GamepadButton::Invalid,      input::GamepadAxis::Invalid};
+    Keybind mgMoveLeft              {input::KeyCode::A,         input::KeyCode::Left,       input::GamepadButton::Invalid,      input::GamepadAxis::LeftX};
+    Keybind mgMoveRight             {input::KeyCode::D,         input::KeyCode::Right,      input::GamepadButton::Invalid,      input::GamepadAxis::LeftX};
+    Keybind mgAction                {input::KeyCode::Space,     input::KeyCode::Unknown,    input::GamepadButton::South,        input::GamepadAxis::Invalid};
+    Keybind mgPause                 {input::KeyCode::Escape,    input::KeyCode::Unknown,    input::GamepadButton::LeftShoulder, input::GamepadAxis::Invalid};
 
     static KeybindOptions load(const std::filesystem::path &path, const int index);
     void save(const std::filesystem::path &path, const int index) const;
