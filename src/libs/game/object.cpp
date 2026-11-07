@@ -1160,6 +1160,14 @@ void Object::addActionOnTop(std::shared_ptr<Action> action, std::optional<int> g
     action->onQueued(*this);
 }
 
+void Object::addGroupOnTop(std::vector<std::shared_ptr<Action>> actions) {
+    std::optional<int> group;
+    for (auto action = actions.rbegin(); action != actions.rend(); ++action) {
+        addActionOnTop(std::move(*action), group);
+        group = _actions.lastGroup();
+    }
+}
+
 bool Object::addActionBefore(const Action &parent, std::shared_ptr<Action> action) {
     if (!isRuntimeLive() || !action) {
         return false;

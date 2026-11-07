@@ -666,8 +666,9 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     if (!_game.party().getLeader()->isCommandable()) {
         return;
     }
-    // The click opens a closed door; travel through a linked one follows
-    // only as the leader steps into its outline.
+    // The click opens a closed door; travel through a linked one follows as
+    // the leader steps into its outline or a walk to it comes within use
+    // range.
     if (!door->isOpen()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         partyLeader->addAction(_game.newAction<OpenDoorAction>(door));
@@ -1148,16 +1149,6 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else if (placeable->isUsable()) {
             placeable->runOnUsed(savedEvent.caller.boundObject());
         }
-    } else if (type == Signal::Disarmed && (isa<Trigger>(target.get()) || doorOrPlaceable)) {
-        // A trigger, door or placeable is disarmed by the caller; a door or
-        // placeable still counts among the area's traps.
-        if (auto trigger = dyn_cast<Trigger>(target)) {
-            trigger->disarmTrap(callerId());
-        } else if (auto door = dyn_cast<Door>(target)) {
-            door->disarmTrapOnSignal(callerId());
-        } else {
-            placeable->disarmTrapOnSignal(callerId());
-        }
     } else if (auto lock = target->findLock(); lock && (type == Signal::Locked || type == Signal::Unlocked)) {
         // A door or placeable that was locked or unlocked remembers who did
         // it and runs its script for that.
@@ -1166,6 +1157,9 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else {
             lock->get().onUnlocked(*target, callerId());
         }
+    } else if (auto trap = target->findTrap(); trap && type == Signal::Disarmed) {
+        // A trap told it was disarmed remembers who did it and runs its disarm script.
+        trap->get().receiveDisarmSignal(*target, callerId());
     } else if (type == Signal::FailToOpen && doorOrPlaceable) {
         // A door, or in TSL a placeable, that failed to open for its caller
         // runs its script for that; the first integer quiets a door's locked

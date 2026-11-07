@@ -160,6 +160,8 @@ public:
     bool isTrapped() const { return _trap.isArmed(); }
     /** Whether the object counts among the area's traps; see Trap::countsAsAreaTrap(). */
     bool countsAsAreaTrap() const { return _trap.countsAsAreaTrap(); }
+    /** The trap flag as it is kept; see Trap::trapFlag. */
+    uint8_t trapFlag() const { return _trap.trapFlag(); }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
@@ -177,10 +179,6 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** An armed trap goes off on the caller; forced firing skips the standing test. */
     void triggerTrap(const std::shared_ptr<Creature> &caller, bool force);
-    /** The trap is disarmed by \p disarmerId. */
-    void disarmTrap(uint32_t disarmerId) { _trap.disarm(*this, disarmerId); }
-    /** A disarm signal from \p disarmerId disarms the trap; it still counts among the area's traps. */
-    void disarmTrapOnSignal(uint32_t disarmerId) { _trap.disarmOnSignal(*this, disarmerId); }
     /** Arm a set mine; the linked mine trigger marks the trap in the world (TSL). */
     void armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                  const std::shared_ptr<Trigger> &linkedMine,

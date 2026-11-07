@@ -22,11 +22,14 @@
 #include <cstdlib>
 #include <iterator>
 
+#include "reone/game/action/playanimation.h"
 #include "reone/game/animations.h"
+#include "reone/game/animationutil.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/heal.h"
 #include "reone/game/effect/visual.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -67,13 +70,6 @@ static constexpr int kSkillXPPerLevel = 10;
 static constexpr int kHardSkillXPPerLevel = 15;
 static constexpr int kHardSkillDCMargin = 20;
 static constexpr int kTreatInjuryNameStrRef = 330;
-// Animation rows for the mine work.
-static constexpr int kGetFromGroundAnimation = 40;
-static constexpr int kGetFromTableAnimation = 41;
-static constexpr int kUnlockDoorAnimation = 47;
-static constexpr int kUnlockContainerAnimation = 48;
-static constexpr int kDisableMineAnimation = 51;
-static constexpr int kSetMineAnimation = 52;
 // Set-mine blast bonus by trap type, starting at type 4.
 static constexpr int kMineBlastBonus[] = {3, 9, 0, 3, 9, 0, 0, 0, 0, 0, 0, 3, 9, 0, 0, 9, 12, 9, 12, 0, 0, 9, 12};
 
@@ -199,10 +195,10 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
                 refused = trigger->isTrap() && !trigger->trapDisarmable();
             }
             if (auto *door = dyn_cast<Door>(_target.get())) {
-                refused = door->isTrapped() && !door->trapDisarmable();
+                refused = door->trapFlag() == 1 && !door->trapDisarmable();
             }
             if (auto *placeable = dyn_cast<Placeable>(_target.get())) {
-                refused = placeable->isTrapped() && !placeable->trapDisarmable();
+                refused = placeable->trapFlag() == 1 && !placeable->trapDisarmable();
             }
             if (refused) {
                 complete();
@@ -229,37 +225,31 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
             }
             actor.turnToward(*_target);
         }
-        // Work at it for a while.
-        int animation = kSetMineAnimation;
+        // Work at it for a while: the work clip goes before the action.
+        const bool trigger = _target && _target->type() == ObjectType::Trigger;
+        const bool door = _target && _target->type() == ObjectType::Door;
+        const bool onObject = door || (_target && _target->type() == ObjectType::Placeable);
+        // KotOR sets a mine on a door or placeable with the get-from-table clip.
+        auto clip = !_game.isTSL() && onObject ? WorkAnimation::GetFromTable : WorkAnimation::SetMine;
         if (!setMine) {
-            const MineWork work = mineWork(_subSkill);
-            const bool trigger = _target->type() == ObjectType::Trigger;
-            const bool door = _target->type() == ObjectType::Door;
-            switch (work) {
+            switch (mineWork(_subSkill)) {
             case MineWork::Disarm:
-                animation = trigger ? kDisableMineAnimation : door ? kUnlockDoorAnimation
-                                                                   : kUnlockContainerAnimation;
+                clip = trigger ? WorkAnimation::DisarmTrigger : door ? WorkAnimation::DisarmDoor
+                                                                     : WorkAnimation::DisarmContainer;
                 break;
             case MineWork::Recover:
-                animation = trigger ? kDisableMineAnimation : kGetFromTableAnimation;
+                clip = trigger ? WorkAnimation::RecoverTrigger : WorkAnimation::GetFromTable;
                 break;
             default:
-                animation = trigger ? kGetFromGroundAnimation : kGetFromTableAnimation;
+                clip = trigger ? WorkAnimation::GetFromGround : WorkAnimation::GetFromTable;
                 break;
             }
         }
-        actor.playAnimation(
-            _services.game.animations.getNameById(animation),
-            scene::AnimationProperties::fromFlags(scene::AnimationFlags::loop));
-        _workTime = setMine ? kSetMineWorkTime : kMineWorkTime;
+        actor.addActionBefore(*this, _game.newAction<PlayAnimationAction>(
+                                         static_cast<int>(clip), 1.0f, setMine ? kSetMineWorkTime : kMineWorkTime));
         _phase = 1;
         return;
     }
-    _workTime -= dt;
-    if (_workTime > 0.0f) {
-        return;
-    }
-    actor.resumeStateDrivenAnimation();
     if (setMine) {
         resolveSetMine(actor);
     } else {
@@ -350,13 +340,29 @@ void UseSkillAction::reportSkill(Creature &actor, const std::shared_ptr<Object> 
                    roll, rank, dc, result);
 }
 
+void UseSkillAction::signalDisarmed(Object &trap, Creature &actor) {
+    _game.queueScriptEvent(trap, actor, Event(static_cast<int>(SavedSignalEventType::Disarmed)));
+}
+
+// A door or placeable disarmed or recovered by skill leaves the area's traps at
+// once; the disarm signal that follows leaves that as it is.
+void UseSkillAction::leaveAreaTraps() {
+    if (auto trap = _target->findTrap()) {
+        trap->get().leaveAreaTraps();
+    }
+}
+
+void UseSkillAction::removeDisarmedMine(Trigger &mine, Creature &actor) {
+    mine.setMineRemoval(MineRemoval::Disarmed);
+    _game.postObjectDestruction(mine, actor.id(), 0.0f, true);
+}
+
 void UseSkillAction::resolveMine(Creature &actor) {
     const MineWork work = mineWork(_subSkill);
     const int rank = actor.getUnopposedSkillRank(SkillType::Demolitions);
     const bool take20 = !actor.isInCombat();
     const int roll = take20 ? 20 : randomInt(1, 20);
     const int total = roll + rank;
-    auto area = _game.module()->area();
     auto actorPtr = std::dynamic_pointer_cast<Creature>(_game.getObjectById(actor.id()));
     auto *trigger = dyn_cast<Trigger>(_target.get());
     auto *door = dyn_cast<Door>(_target.get());
@@ -376,7 +382,8 @@ void UseSkillAction::resolveMine(Creature &actor) {
         if (!_game.isTSL() || !_game.party().isMember(actor)) {
             return;
         }
-        const int level = _game.party().player()->attributes().getAggregateLevel();
+        // The level is the controlled creature's.
+        const int level = _game.party().getLeader()->attributes().getAggregateLevel();
         _game.party().awardXP(level * (dc >= level + kHardSkillDCMargin ? kHardSkillXPPerLevel : kSkillXPPerLevel), XPSource::Skill);
     };
     auto recoverItem = [&]() {
@@ -393,8 +400,8 @@ void UseSkillAction::resolveMine(Creature &actor) {
     switch (work) {
     case MineWork::Disarm: {
         if (trigger && isOwnMine(_game, actor, *trigger, false)) {
-            trigger->disarmTrap(actor.id());
-            area->destroyObject(*trigger);
+            signalDisarmed(*trigger, actor);
+            removeDisarmedMine(*trigger, actor);
             // The award compares against an unset DC; it takes the lower rate.
             awardXP(0);
             reportSkill(actor, _target, kDisarmActionStrRef, roll, rank, disarmDC, SkillResult::OwnMine);
@@ -407,13 +414,11 @@ void UseSkillAction::resolveMine(Creature &actor) {
                                                           : total < dc - 10 ? SkillResult::CriticalFailure
                                                                             : SkillResult::Failure;
         if (success) {
+            signalDisarmed(*_target, actor);
             if (trigger) {
-                trigger->disarmTrap(actor.id());
-                area->destroyObject(*trigger);
-            } else if (door) {
-                door->disarmTrap(actor.id());
+                removeDisarmedMine(*trigger, actor);
             } else {
-                placeable->disarmTrap(actor.id());
+                leaveAreaTraps();
             }
             awardXP(dc);
         }
@@ -434,7 +439,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
     }
     case MineWork::Recover: {
         if (trigger && isOwnMine(_game, actor, *trigger, false)) {
-            area->destroyObject(*trigger);
+            removeDisarmedMine(*trigger, actor);
             recoverItem();
             reportSkill(actor, _target, kRecoverActionStrRef, roll, rank, disarmDC + 10, SkillResult::OwnMine);
             return;
@@ -445,12 +450,12 @@ void UseSkillAction::resolveMine(Creature &actor) {
                                                           : total < dc - 10 ? SkillResult::CriticalFailure
                                                                             : SkillResult::Failure;
         if (success) {
+            // A recovered mine goes untold; a door or placeable is told it was disarmed.
             if (trigger) {
-                area->destroyObject(*trigger);
-            } else if (door) {
-                door->disarmTrap(actor.id());
+                removeDisarmedMine(*trigger, actor);
             } else {
-                placeable->disarmTrap(actor.id());
+                signalDisarmed(*_target, actor);
+                leaveAreaTraps();
             }
             recoverItem();
             awardXP(dc);

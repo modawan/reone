@@ -1426,7 +1426,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
     put(*result, Gff::Field::newShort("CurrentHP", door._currentHitPoints));
     put(*result, Gff::Field::newByte("Dead", door.isDead()));
-    put(*result, Gff::Field::newByte("TrapFlag", door.isTrapped()));
+    put(*result, Gff::Field::newByte("TrapFlag", door.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", door.trapBaseType()));
     put(*result, Gff::Field::newByte("TrapDisarmable", door.trapDisarmable()));
     put(*result, Gff::Field::newByte("TrapDetectable", door.trapDetectable()));
@@ -1466,8 +1466,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newShort("CurrentHP", placeable._currentHitPoints));
     put(*result, Gff::Field::newByte("Dead", placeable.isDead()));
     put(*result, Gff::Field::newByte("Useable", placeable._usable));
+    put(*result, Gff::Field::newByte("Static", placeable._static));
     put(*result, Gff::Field::newByte("HasInventory", placeable._hasInventory));
-    put(*result, Gff::Field::newByte("TrapFlag", placeable.isTrapped()));
+    put(*result, Gff::Field::newByte("TrapFlag", placeable.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", placeable.trapBaseType()));
     put(*result, Gff::Field::newByte("TrapDisarmable", placeable.trapDisarmable()));
     put(*result, Gff::Field::newByte("TrapDetectable", placeable.trapDetectable()));
@@ -1497,7 +1498,6 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
         put(*result, Gff::Field::newByte("Fort", placeable._fort));
         put(*result, Gff::Field::newByte("Will", placeable._will));
         put(*result, Gff::Field::newByte("Ref", placeable._ref));
-        put(*result, Gff::Field::newByte("Static", placeable._static));
         put(*result, Gff::Field::newByte("PartyInteract", placeable._partyInteract));
         put(*result, Gff::Field::newByte("BodyBag", placeable._bodyBagId));
         put(*result, Gff::Field::newByte("DieWhenEmpty", placeable._dieWhenEmpty));

@@ -17,6 +17,8 @@
 
 #include "reone/game/object/trigger.h"
 
+#include <utility>
+
 #include "reone/game/animations.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
@@ -215,7 +217,6 @@ void Trigger::loadTrapModel() {
     if (!_isTrap || _trapModel) {
         return;
     }
-    // Every trap type names its model.
     const std::string &modelName = _game.trapType(_trap.type()).model;
     auto model = _services.resource.models.get(modelName);
     if (!model) {
@@ -223,13 +224,17 @@ void Trigger::loadTrapModel() {
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     _trapModel = sceneGraph.newModel(*model, ModelUsage::Placeable);
-    _trapModel->setLocalTransform(glm::translate(_position));
+    _trapModel->setLocalTransform(glm::translate(trapModelPosition()));
     _trapModel->setDrawDistance(_game.options().graphics.drawDistance);
     _trapShown = false;
     _trapModel->playAnimation(
         _services.game.animations.getNameById(kTrapHiddenAnimation),
         nullptr,
         AnimationProperties::fromFlags(AnimationFlags::loop));
+}
+
+const std::string &Trigger::trapExplosionSound() const {
+    return _game.trapType(_trap.type()).explosionSound;
 }
 
 glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
@@ -363,6 +368,12 @@ void Trigger::enterMine(const std::shared_ptr<Creature> &creature, bool force) {
 }
 
 void Trigger::fireMine(bool force) {
+    stepOnMine(force);
+    // Set after the trap's scripts, so it holds over any removal they gave.
+    _mineRemoval = MineRemoval::Explosion;
+}
+
+void Trigger::stepOnMine(bool force) {
     auto creature = _game.getObjectById<Creature>(_lastEnteredId);
     if (!creature || !canFireMineOn(*creature, force)) {
         return;
@@ -397,7 +408,7 @@ void Trigger::fireMine(bool force) {
                 }
             }
         }
-        disarmTrap(creature->id());
+        _trap.receiveDisarmSignal(*this, creature->id());
         area->destroyObject(*this);
         return;
     }
@@ -412,11 +423,59 @@ void Trigger::fireMine(bool force) {
     }
 }
 
+static constexpr uint32_t kFadeExplosion = 1;
+static constexpr uint32_t kFadeDisarmed = 2;
+
+void Trigger::setMineRemovalFromFade(uint32_t fadeMilliseconds) {
+    switch (fadeMilliseconds) {
+    case kFadeExplosion:
+        _mineRemoval = MineRemoval::Explosion;
+        break;
+    case kFadeDisarmed:
+        _mineRemoval = MineRemoval::Disarmed;
+        break;
+    default:
+        _mineRemoval = MineRemoval::Plain;
+        break;
+    }
+}
+
+std::shared_ptr<ModelSceneNode> Trigger::releaseTrapModel() {
+    return std::exchange(_trapModel, nullptr);
+}
+
+void Trigger::lowerTrapModel(float depth) {
+    _trapModelDepth = depth;
+    if (_trapModel) {
+        _trapModel->setLocalTransform(glm::translate(trapModelPosition()));
+    }
+}
+
+glm::vec3 Trigger::trapModelPosition() const {
+    return _position - glm::vec3 {0.0f, 0.0f, _trapModelDepth};
+}
+
+// A trap's model exists only while the trap is within the farther of the
+// controlled creature's spot and listen ranges, measured across the ground,
+// or in TSL while the trap is always updated. It leaves the scene when the
+// trap goes beyond them and comes back, hidden until shown, when it returns.
 void Trigger::updateTrapPresentation() {
-    if (!_isTrap || !_trapModel) {
+    if (!_isTrap) {
         return;
     }
+    // The trap's model exists while the trigger exists for the player.
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    if (!_present && _trapModel) {
+        sceneGraph.removeRoot(*_trapModel);
+        _trapModel.reset();
+    } else if (_present && !_trapModel) {
+        loadTrapModel();
+        sceneGraph.addRoot(_trapModel);
+    }
     auto viewer = _game.party().getLeader();
+    if (!_trapModel) {
+        return;
+    }
     const auto &detection = _trap.detection();
     const bool shown = detection.flagged ||
                        (viewer && (!isTrapHostileTo(*viewer) || detection.isDetectedBy(viewer->id())));

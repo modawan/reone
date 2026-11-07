@@ -280,6 +280,7 @@ inline ArmorClassParts armorClassParts(const ArmorClassCache &cache,
 }
 
 struct PowerMenuStatus;
+enum class PowerUnavailableReason;
 struct ContextAction;
 
 class CreatureClass;

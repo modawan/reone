@@ -118,7 +118,7 @@ enum class SavedSignalEventType : uint16_t {
     EncounterExhausted = 21,
     InventoryOpened = 22,
     InventoryClosed = 23,
-    /** A trap disarmed by the caller. */
+    /** A trap was disarmed; the caller is the one who disarmed it. */
     Disarmed = 24,
     Used = 25,
     Locked = 28,

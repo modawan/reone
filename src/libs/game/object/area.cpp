@@ -27,6 +27,7 @@
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
+#include "reone/game/animations.h"
 #include "reone/game/camerastyles.h"
 #include "reone/game/combattables.h"
 #include "reone/game/d20/class.h"
@@ -58,6 +59,7 @@
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/layouts.h"
 #include "reone/resource/provider/models.h"
@@ -794,9 +796,12 @@ Area::~Area() {
     }
     // Corpses, fading bodies and released effect models go with the area.
     if (_fadingBodies.empty() && _corpses.empty() && _corpseBagBodies.empty() && _releasedEffectModels.empty() &&
-        _presentedVisuals.empty() && _hitSparks.empty())
+        _presentedVisuals.empty() && _hitSparks.empty() && _removedMines.empty())
         return;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    for (auto &mine : _removedMines) {
+        sceneGraph.removeRoot(*mine.model);
+    }
     for (auto &body : _fadingBodies) {
         sceneGraph.removeRoot(*body.model);
     }
@@ -1416,6 +1421,9 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     }
     // Only a body standing in the area stays behind it.
     const bool resident = isObjectResident(*object);
+    if (auto trigger = dyn_cast<Trigger>(object); trigger && destroyRuntimeObject && trigger->isTrap()) {
+        presentMineRemoval(*trigger);
+    }
     detachObjectRuntime(object);
     if (destroyRuntimeObject) {
         // A live creature destroyed where it stood leaves the area.
@@ -1585,9 +1593,44 @@ void Area::presentHitSpark(const Creature &target, int visualEffectId, const glm
     _hitSparks.push_back(std::move(spark));
 }
 
+// The clips a mine's model plays as it goes with its explosion or disarmed.
+static constexpr int kMineActivateAnimation = 348;
+static constexpr int kMineDeactivateAnimation = 349;
+// A removed mine's model stays this long after its clip.
+static constexpr float kRemovedMineHold = 0.5f;
+
+void Area::presentMineRemoval(Trigger &mine) {
+    const MineRemoval removal = mine.mineRemoval();
+    if (removal == MineRemoval::Plain) {
+        return;
+    }
+    // Only a mine whose model is present, one within the player's view, is
+    // shown going.
+    if (!mine.trapModel()) {
+        return;
+    }
+    const bool explosion = removal == MineRemoval::Explosion;
+    // A trap type with a blank explosion sound goes off silently.
+    if (explosion && !mine.trapExplosionSound().empty()) {
+        _services.audio.mixer.play(_services.resource.audioClips.get(mine.trapExplosionSound()),
+                                   audio::AudioType::Sound, 1.0f, false, mine.trapModelPosition());
+    }
+    auto model = mine.releaseTrapModel();
+    model->setPickable(false);
+    const std::string name =
+        _services.game.animations.getNameById(explosion ? kMineActivateAnimation : kMineDeactivateAnimation);
+    // A model without the clip holds still for the time it stays.
+    float clipLength = 0.0f;
+    if (auto animation = model->model().getAnimation(name)) {
+        model->playAnimation(name);
+        clipLength = animation->length();
+    }
+    _removedMines.push_back({std::move(model), clipLength + kRemovedMineHold});
+}
+
 void Area::updateReleasedPresentation(float dt) {
     if (_fadingBodies.empty() && _corpses.empty() && _corpseBagBodies.empty() && _releasedEffectModels.empty() &&
-        _presentedVisuals.empty() && _hitSparks.empty())
+        _presentedVisuals.empty() && _hitSparks.empty() && _removedMines.empty())
         return;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     for (auto it = _fadingBodies.begin(); it != _fadingBodies.end();) {
@@ -1611,6 +1654,15 @@ void Area::updateReleasedPresentation(float dt) {
         } else {
             sceneGraph.removeRoot(**it);
             it = _releasedEffectModels.erase(it);
+        }
+    }
+    for (auto it = _removedMines.begin(); it != _removedMines.end();) {
+        it->remaining -= dt;
+        if (it->remaining <= 0.0f) {
+            sceneGraph.removeRoot(*it->model);
+            it = _removedMines.erase(it);
+        } else {
+            ++it;
         }
     }
     for (auto it = _presentedVisuals.begin(); it != _presentedVisuals.end();) {
@@ -4110,12 +4162,10 @@ std::vector<TransitionPortal> Area::transitionPresentationPortals() const {
             }
         }
     }
-    if (auto doors = _objectsByType.find(ObjectType::Door); doors != _objectsByType.end()) {
-        for (auto &object : doors->second) {
-            const auto &door = static_cast<const Door &>(*object);
-            if (door.isLinked() && !door.linkedToModule().empty() && door.isOpen()) {
-                addPortal(door, door.transitionDestin(), door.outline());
-            }
+    for (auto &object : _objectsByType.at(ObjectType::Door)) {
+        const auto &door = static_cast<const Door &>(*object);
+        if (door.isLinked() && !door.linkedToModule().empty() && door.isOpen()) {
+            addPortal(door, door.transitionDestin(), door.outline());
         }
     }
     return portals;

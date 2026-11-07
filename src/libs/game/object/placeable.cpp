@@ -18,6 +18,7 @@
 #include "reone/game/object/placeable.h"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 
 #include "reone/audio/clip.h"
@@ -65,8 +66,13 @@ namespace game {
 
 static constexpr int kDefaultAnimationId = 10000;
 static constexpr int kDeadAnimationId = 10072;
+static constexpr int kActivateAnimationId = 10073;
+static constexpr int kDeactivateAnimationId = 10074;
 static constexpr int kOpenAnimationId = 10075;
 static constexpr int kCloseAnimationId = 10076;
+// The clips a record's animation state names, by state.
+static constexpr std::array<int, 6> kAnimationStateClips {
+    kDefaultAnimationId, kOpenAnimationId, kCloseAnimationId, kDeadAnimationId, kActivateAnimationId, kDeactivateAnimationId};
 // The animations.2da row of a destroyed placeable's pose.
 static constexpr int kDestroyedAnimation = 307;
 static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Damaged);
@@ -87,18 +93,36 @@ void Placeable::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     std::string templateRes;
+    std::shared_ptr<Gff> utp;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
-        if (auto utp = _services.resource.gffs.get(templateRes, ResType::Utp)) {
+        utp = _services.resource.gffs.get(templateRes, ResType::Utp);
+        if (utp) {
             deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes));
             captureAuthoredRecord(*utp, gff);
         }
     }
     deserializeAll(gff, identityContext);
+    // The Static byte is the record's or, when the record has none, set
+    // unless its Useable byte is 1. A placeable whose entry carries no object
+    // id is never static, and only a Static byte of 1 makes it plot.
+    if (!gff.readByte(_static, "Static") && !(utp && utp->readByte(_static, "Static"))) {
+        _static = _usable != 1 ? 1 : 0;
+    }
+    if (gff.getUint("ObjectId", kSavedRuntimeInvalidObjectId) == kSavedRuntimeInvalidObjectId) {
+        _static = 0;
+    }
+    if (_static == 1) {
+        _plot = true;
+    }
     applyHardness(_hardness);
     loadAppearance();
+    // A placeable loaded destroyed shows its pose, and in any other state that
+    // state's loop.
     if (_animation == kDeadAnimationId) {
         enterDestroyedState();
+    } else {
+        showAnimationLoop(_animation);
     }
     updateTransform();
 }
@@ -120,8 +144,7 @@ void Placeable::deserializeAll(
     _trap.deserialize(gff);
     // A placeable keeps the DCs its record stores, saved or placed.
     _trap.deserializeArming(gff, _game, false);
-    gff.readBool(_usable, "Useable");
-    gff.readBool(_static, "Static");
+    gff.readByte(_usable, "Useable");
     gff.readBool(_notBlastable, "NotBlastable");
     gff.readBool(_groundPile, "GroundPile");
     gff.readDword(_appearance, "Appearance");
@@ -160,7 +183,14 @@ void Placeable::deserializeAll(
     gff.readResRef(_onUserDefined, "OnUserDefined");
     gff.readResRef(_onDialog, "OnDialog");
     gff.readResRef(_onEndDialogue, "OnEndDialogue");
-    gff.readInt(_animation, "Animation");
+    // An open placeable shows its open state; any other its record's
+    // animation or, when the record names none, the clip of its animation
+    // state. A state past those shows none.
+    if (_open) {
+        _animation = kOpenAnimationId;
+    } else if (uint8_t state = 0; !gff.readInt(_animation, "Animation") && gff.readByte(state, "AnimationState")) {
+        _animation = state < kAnimationStateClips.size() ? kAnimationStateClips[state] : kDefaultAnimationId;
+    }
     {
         float bearing;
         if (gff.readFloat(bearing, "Bearing")) {
@@ -468,6 +498,8 @@ int Placeable::savingThrow(SavingThrow save) const {
 // The setter's Demolitions rank counts at a twentieth in a mine's blast at a
 // placeable.
 static constexpr int kMineBlastRankDivisor = 20;
+// A fragmentation mine's blast at a placeable goes off this far below it.
+static constexpr float kFragmentationMineDrop = 2.0f;
 
 void Placeable::triggerTrap(const std::shared_ptr<Creature> &caller, bool force) {
     if (caller) {
@@ -489,6 +521,15 @@ void Placeable::updateMineBlast(float dt) {
     auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _lock.unlockDC(_game));
     if (!blast) {
         return;
+    }
+    // A minor, average or deadly fragmentation mine marked by a TSL mine
+    // trigger goes off below the placeable.
+    if (auto mine = _trap.linkedMine()) {
+        const int type = mine->trapBaseType();
+        if (type >= static_cast<int>(TrapBaseType::FragmentationMineMinor) &&
+            type <= static_cast<int>(TrapBaseType::FragmentationMineDeadly)) {
+            mine->lowerTrapModel(kFragmentationMineDrop);
+        }
     }
     if (blast->opens) {
         _lock.setLocked(false);
@@ -561,7 +602,7 @@ void Placeable::loadBodyBag(int appearance) {
     _currentHitPoints = kBodyBagHitPoints;
     _hardness = _appearance == kRancorCorpseAppearance ? kRancorCorpseHardness : kBodyBagHardness;
     _fort = kBodyBagFortitude;
-    _usable = true;
+    _usable = 1;
     _hasInventory = true;
     _portrait = kBodyBagPortrait;
     _description = LocString(kBodyBagDescriptionStrRef, "", strings);
@@ -710,7 +751,7 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
     if (!_hasInventory || !_dieWhenEmpty || !_items.empty()) {
         return;
     }
-    _usable = false;
+    _usable = 0;
     _game.postObjectDestruction(*this, _id, 0.0f, false);
 }
 
@@ -762,6 +803,10 @@ float Placeable::animationLength(int id) const {
 bool Placeable::playsAnimationOnce(int id) const {
     const int row = placeableAnimationRow(id);
     return isFireForgetCutClip(id) || (row >= 0 && _services.game.animations.isFireForgetById(static_cast<uint32_t>(row)));
+}
+
+bool Placeable::isClosed() const {
+    return _animation == kCloseAnimationId;
 }
 
 // The loop that follows a one-shot stands where the placeable does.

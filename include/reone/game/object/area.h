@@ -980,9 +980,27 @@ private:
         std::shared_ptr<scene::ModelSceneNode> model;
     };
     std::vector<HitSpark> _hitSparks;
+    /** A removed mine's model, kept while it is shown leaving. */
+    struct RemovedMine {
+        /** The mine's model, no longer pickable. */
+        std::shared_ptr<scene::ModelSceneNode> model;
+        /** Seconds until the model goes. */
+        float remaining {0.0f};
+    };
+    /** Removed mines still shown leaving. */
+    std::vector<RemovedMine> _removedMines;
 
     /** Keep the body of a destroyed object in the scene, as a fading body, a kept corpse or a corpse bag's body. */
     void releaseDestroyedBody(const std::shared_ptr<Object> &object);
+    /**
+     * A mine removed with its explosion plays its explosion sound where its
+     * model is drawn, in the one-shot positional sound group, and its
+     * activate clip; a disarmed one plays its deactivate clip. Its model
+     * stays, unpickable, for the clip and half a second more. A mine removed
+     * any other way, or without a model because it is beyond the controlled
+     * creature's perception range, leaves at once.
+     */
+    void presentMineRemoval(Trigger &mine);
     /** Fade and remove released bodies and effect models, and show kept ones. */
     void updateReleasedPresentation(float dt);
 

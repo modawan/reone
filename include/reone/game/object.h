@@ -448,6 +448,8 @@ public:
     void addAction(std::shared_ptr<Action> action, std::optional<int> group = std::nullopt);
     /** Queues \p action at the front, choosing its group as addAction() does. */
     void addActionOnTop(std::shared_ptr<Action> action, std::optional<int> group = std::nullopt);
+    /** Queues \p actions at the front as one new group, the first of them first. */
+    void addGroupOnTop(std::vector<std::shared_ptr<Action>> actions);
     /** Queues \p action just before \p parent, in its group; returns false when \p parent is not queued. */
     bool addActionBefore(const Action &parent, std::shared_ptr<Action> action);
     /** The group of \p action's node, the one running it first; none when it is not queued. */

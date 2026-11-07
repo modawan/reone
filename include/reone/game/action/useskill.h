@@ -26,6 +26,7 @@ namespace game {
 
 enum class SkillResult;
 class Creature;
+class Trigger;
 
 /**
  * Use of a skill on a target: Demolitions sets a mine from a kit, or
@@ -83,13 +84,22 @@ private:
     int _subSkill;
     std::shared_ptr<Item> _itemUsed;
 
-    /** Demolitions and Treat Injury: approach, then work for a while, then resolve. */
+    /**
+     * Demolitions: approach, then the queued work clip, then resolve.
+     * Treat Injury: approach, then work for a while, then resolve.
+     */
     int _phase {0};
     float _workTime {0.0f};
 
     void executeDemolitions(Creature &actor, float dt);
     bool setsMine() const;
     void resolveMine(Creature &actor);
+    /** The trap is told the actor disarmed it (script event 24). */
+    void signalDisarmed(Object &trap, Creature &actor);
+    /** The target door or placeable leaves the area's traps. */
+    void leaveAreaTraps();
+    /** A disarmed or recovered mine goes with its disarm, once anything queued for it before has run. */
+    void removeDisarmedMine(Trigger &mine, Creature &actor);
     void resolveSetMine(Creature &actor);
     void executeTreatInjury(Creature &actor, float dt);
     void resolveHeal(Creature &actor, Creature &target);

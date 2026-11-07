@@ -738,6 +738,13 @@ static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineC
         creature->useStealthSkill();
         return Variable::ofNull();
     }
+    // A subskill passed as the skill queues nothing, though a creature that
+    // cannot use Demolitions is told so.
+    const bool subSkillId = nSkill >= static_cast<int>(SubSkill::FlagTrap) && nSkill <= static_cast<int>(SubSkill::ExamineTrap);
+    if (subSkillId) {
+        creature->admitSkillUse(SkillType::Demolitions);
+        return Variable::ofNull();
+    }
     if (!creature->admitSkillUse(skill, *oTarget)) {
         return Variable::ofNull();
     }
@@ -757,8 +764,18 @@ static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineC
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
     }
-    auto action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
-    getCaller(ctx)->addAction(std::move(action));
+    // Mine work goes by the subskill and never sets a mine; on the creature
+    // the player controls it first clears its actions unless it is busy.
+    std::shared_ptr<Action> action;
+    if (skill == SkillType::Demolitions) {
+        action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill);
+        if (leader) {
+            creature->clearOrdersUnlessBusy();
+        }
+    } else {
+        action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
+    }
+    creature->addAction(std::move(action));
     return Variable::ofNull();
 }
 

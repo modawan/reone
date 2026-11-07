@@ -76,9 +76,12 @@ public:
     bool dieWhenEmpty() const { return _dieWhenEmpty; }
     /** Whether the placeable's look is searched for its contents (placeables.2da UseSearch). */
     bool useSearch() const { return _useSearch; }
-    bool isSelectable() const override { return _usable; }
+    bool isSelectable() const override { return _usable != 0; }
     glm::vec3 getSelectablePosition() const override;
-    bool isUsable() const { return _usable; }
+    /** Looks at the placeable aim at its appearance's height (placeables.2da CanSeeHeight). */
+    float canSeeHeight() const override { return _canSeeHeight; }
+    /** Whether the placeable can be used: its Useable byte is not 0. */
+    bool isUsable() const { return _usable != 0; }
     /** Whether the placeable has an OnUsed script. */
     bool hasOnUsedScript() const { return !_onUsed.empty(); }
     void setOnUsedScript(std::string script) { _onUsed = std::move(script); }
@@ -87,6 +90,10 @@ public:
     /** Destruction animation and pending deletion do not change the HP predicate. */
     bool isDead() const override { return !_plot && currentHitPoints() <= 0; }
     bool isLocked() const { return _lock.isLocked(); }
+    /** Whether nothing can be done with the placeable by a script's object action: its Static byte is not 0. */
+    bool isStatic() const { return _static != 0; }
+    /** Whether the placeable shows its closed state. */
+    bool isClosed() const;
     bool isNotBlastable() const { return _notBlastable; }
 
     /** The placeable's lock; its locked sound plays where the placeable stands. */
@@ -124,6 +131,8 @@ public:
     bool isTrapped() const { return _trap.isArmed(); }
     /** Whether the object counts among the area's traps; see Trap::countsAsAreaTrap(). */
     bool countsAsAreaTrap() const { return _trap.countsAsAreaTrap(); }
+    /** The trap flag as it is kept; see Trap::trapFlag. */
+    uint8_t trapFlag() const { return _trap.trapFlag(); }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
@@ -141,10 +150,6 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** An armed trap goes off on the caller; forced firing skips the standing test. */
     void triggerTrap(const std::shared_ptr<Creature> &caller, bool force);
-    /** The trap is disarmed by \p disarmerId. */
-    void disarmTrap(uint32_t disarmerId) { _trap.disarm(*this, disarmerId); }
-    /** A disarm signal from \p disarmerId disarms the trap; it still counts among the area's traps. */
-    void disarmTrapOnSignal(uint32_t disarmerId) { _trap.disarmOnSignal(*this, disarmerId); }
     /** Arm a set mine; the linked mine trigger marks the trap in the world (TSL). */
     void armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                  const std::shared_ptr<Trigger> &linkedMine,
@@ -299,15 +304,17 @@ private:
     resource::LocString _locName;
     Faction _faction {Faction::Invalid};
     Trap _trap {Trap::Carrier::Placeable};
-    bool _usable {false};
     Lock _lock {LockDifficulty::None};
+    /** The Useable byte as read; any value but 0 makes the placeable usable. */
+    uint8_t _usable {0};
     bool _hostileAppearance {false};
     bool _preciseUse {false};
     /** The armour type of the appearance's sound type; a blank sound type sounds as the first. */
     std::string _soundArmorType;
     /** The sound the placeable plays when it opens; none for a blank sound type. */
     std::string _openedSound;
-    bool _static {false};
+    /** The Static byte as read; any value but 0 makes the placeable static, and only 1 makes it plot. */
+    uint8_t _static {0};
     bool _notBlastable {false};
     bool _groundPile {false};
     uint32_t _appearance {0};
@@ -340,7 +347,8 @@ private:
     std::string _onDialog;
     std::string _onEndDialogue;
 
-    int32_t _animation {-1};
+    /** The placeable's state clip (animations.2da), 10000 showing none. */
+    int _animation {10000};
     bool _isBodyBag {false};
     bool _isBodyBagVisible {true};
     bool _isCorpse {false};

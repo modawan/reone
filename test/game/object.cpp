@@ -4917,6 +4917,10 @@ TEST(BlockingDoorRoutines, unlocked_door_is_openable_and_door_action_open_opens_
         {script::Variable::ofObject(fixture.door->id()),
          script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
         execution);
+    ASSERT_EQ(ActionType::OpenDoor, npc->actions().front()->type());
+    npc->setPosition(fixture.door->position());
+    auto open = npc->actions().front();
+    open->execute(open, *npc, 0.0f);
 
     // Opened, and the OnOpen event fired, exactly as for any other open.
     EXPECT_TRUE(fixture.door->isOpen());
@@ -4935,6 +4939,9 @@ TEST(BlockingDoorRoutines, door_action_open_leaves_the_same_state_as_open_door_a
         {script::Variable::ofObject(routineFixture.door->id()),
          script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
         execution);
+    routineNpc->setPosition(routineFixture.door->position());
+    auto routineOpen = routineNpc->actions().front();
+    routineOpen->execute(routineOpen, *routineNpc, 0.0f);
 
     BlockedDoorFixture actionFixture;
     auto actionNpc = actionFixture.addCreature("k_def_blocked01");
@@ -5003,7 +5010,8 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
     EXPECT_EQ(0, bashPossible());
     fixture.door->setPlotFlag(false);
 
-    // The movement the creature was blocked on stays queued behind the bash.
+    // The bash is an attack on the creature's round; in KotOR its dispatcher
+    // goes behind the movement the creature was blocked on, which stays.
     auto movement = fixture.game.newAction<MoveToPointAction>(kFarDestination);
     npc->addAction(movement);
 
@@ -5012,12 +5020,13 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
          script::Variable::ofInt(static_cast<int>(DoorAction::Bash))},
         execution);
 
+    EXPECT_TRUE(fixture.game.combat().hasScheduled(*npc));
     ASSERT_EQ(2, npc->actions().size());
-    EXPECT_EQ(ActionType::AttackObject, npc->actions().front()->type());
-    EXPECT_EQ(movement, npc->actions().back());
+    EXPECT_EQ(movement, npc->actions().front());
+    EXPECT_EQ(ActionType::CombatDispatch, npc->actions().back()->type());
 }
 
-TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothing) {
+TEST(BlockingDoorRoutines, door_actions_without_their_requirements_report_impossible) {
     BlockedDoorFixture fixture(true);
     auto npc = fixture.addCreature("k_def_blocked01");
     Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
@@ -5030,7 +5039,7 @@ TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothin
             {script::Variable::ofObject(fixture.door->id()),
              script::Variable::ofInt(static_cast<int>(action))},
             execution);
-        EXPECT_EQ(0, possible.intValue);
+        EXPECT_EQ(action == DoorAction::Ignore ? 1 : 0, possible.intValue);
 
         routines.get(338).invoke(
             {script::Variable::ofObject(fixture.door->id()),
@@ -5040,7 +5049,8 @@ TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothin
 
     EXPECT_FALSE(fixture.door->isOpen());
     EXPECT_TRUE(fixture.door->isLocked());
-    EXPECT_TRUE(npc->actions().empty());
+    ASSERT_EQ(2u, npc->actions().size());
+    EXPECT_EQ(ActionType::OpenLock, npc->actions().front()->type());
 }
 
 TEST(BlockingDoorRoutines, are_registered_for_both_kotor_and_tsl) {

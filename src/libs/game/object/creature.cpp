@@ -11591,8 +11591,8 @@ int Creature::adjustedSpellForcePointCost(const Spell &spell, bool partyModifier
 }
 
 PowerMenuStatus Creature::powerMenuStatus(const Spell &spell, std::optional<std::reference_wrapper<const Object>> target) const {
-    // This is the menu's read-only status, not casting admission or
-    // payment. Menus count the party cost modifiers for every subject.
+    // The power menu only reports a power's status; it neither admits nor
+    // pays for a cast. Menus count the party cost modifiers for every subject.
     PowerMenuStatus status;
     // A power offered against a mine reads Force points alone, counts a
     // missing Force Body as its first level, and skips the range and

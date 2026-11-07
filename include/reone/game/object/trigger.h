@@ -33,7 +33,16 @@ namespace game {
 
 class Area;
 class Creature;
-class Door;
+
+/** How a mine trigger is shown leaving when it is removed. */
+enum class MineRemoval {
+    /** It leaves at once. */
+    Plain,
+    /** It goes with its explosion: its type's explosion sound and its activate clip. */
+    Explosion,
+    /** It goes disarmed: its deactivate clip. */
+    Disarmed
+};
 
 class Trigger : public Object {
 public:
@@ -139,6 +148,8 @@ public:
     bool isTrapped() const { return _isTrap; }
     /** A trap trigger counts among the area's traps for as long as it stands. */
     bool countsAsAreaTrap() const { return _isTrap; }
+    /** The trap flag: 1 while the trigger is a trap, else 0. */
+    uint8_t trapFlag() const { return _isTrap ? 1 : 0; }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
@@ -157,7 +168,10 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** Point of this trigger nearest to a position: the trap radius, or the polygon outline. */
     glm::vec3 nearestPoint(const glm::vec3 &from) const;
+    /** The trap's model; none while the trap is beyond the controlled creature's perception range. */
     std::shared_ptr<scene::ModelSceneNode> trapModel() const { return _trapModel; }
+    /** The sound of the mine going off as it is removed (its trap type's); empty when blank. */
+    const std::string &trapExplosionSound() const;
     glm::vec3 getSelectablePosition() const override;
 
     /** The creature that set this trap, or none. */
@@ -186,7 +200,8 @@ public:
     void hideLinkedMine() { _trap.hide(); }
     /**
      * A creature enters the mine: it becomes the entering object, and the
-     * mine goes off on it. Forced firing skips the standing test.
+     * mine goes off on it. Forced firing skips the standing test. Whatever
+     * happens, a mine entered goes with its explosion when it is removed.
      */
     void enterMine(const std::shared_ptr<Creature> &creature, bool force);
     /**
@@ -197,8 +212,25 @@ public:
      * over it.
      */
     bool canFireMineOn(const Creature &creature, bool force) const;
-    /** The trap is disarmed by \p disarmerId: its disarm script runs. */
-    void disarmTrap(uint32_t disarmerId) { _trap.runDisarmScript(*this, disarmerId); }
+    /** How the mine is shown leaving when it is removed. */
+    MineRemoval mineRemoval() const { return _mineRemoval; }
+    /** Sets how the mine is shown leaving when it is removed. */
+    void setMineRemoval(MineRemoval removal) { _mineRemoval = removal; }
+    /**
+     * A script destroying the mine with a fade shows it leaving by that fade,
+     * in milliseconds: 1 shows its explosion, 2 its disarm, and any other has
+     * it leave at once.
+     */
+    void setMineRemovalFromFade(uint32_t fadeMilliseconds);
+    /**
+     * The trap's model leaves the trigger to play out its removal; the
+     * trigger keeps none.
+     */
+    std::shared_ptr<scene::ModelSceneNode> releaseTrapModel();
+    /** The trap's model is drawn this far below the trigger. */
+    void lowerTrapModel(float depth);
+    /** Where the trap's model is drawn: the trigger's position, less any lowering. */
+    glm::vec3 trapModelPosition() const;
 
     // END Traps
 
@@ -236,11 +268,13 @@ private:
     bool _isTrap {false};
     SavedObjectReference _creator;
     std::shared_ptr<scene::ModelSceneNode> _trapModel;
+    /** How far below the trigger the trap's model is drawn. */
+    float _trapModelDepth {0.0f};
     bool _trapShown {false};
+    /** How the mine is shown leaving when it is removed; it leaves at once unless told otherwise. */
+    MineRemoval _mineRemoval {MineRemoval::Plain};
 
     std::set<std::shared_ptr<Object>> _tenants;
-    RuntimeObjectRef<Door> _linkedDoor;
-    bool _linkedDoorTransition {false};
     float _debugTestAge {0.0f};
     float _debugInsideAge {0.0f};
     float _debugEnterAge {0.0f};
@@ -248,13 +282,24 @@ private:
     void deserializeAll(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /** The entering creature steps on the trap: its key disarms it, or the trap goes off. */
+    void stepOnMine(bool force);
     void loadAppearance();
+    /** Builds the trap's model at its place, showing the hidden loop. */
     void loadTrapModel();
+    /**
+     * Builds or drops the trap's model as the trigger comes to exist or
+     * stops existing for the player (within the controlled creature's
+     * perception range), and has it show the shown or hidden loop.
+     */
     void updateTrapPresentation();
     void setTrapCreator(const std::shared_ptr<Object> &creator);
     /** The reach of a trap around its position: ranges.2da's trap row, or a metre without one. */
     float trapRadius() const;
-    /** Set the mine off on the entering creature, when there is one. */
+    /**
+     * Set the mine off on the entering creature, when there is one. Whatever
+     * happens, the mine then goes with its explosion when it is removed.
+     */
     void fireMine(bool force);
 
     void syncDebugVisual();
