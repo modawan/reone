@@ -2028,6 +2028,8 @@ void Game::retireRuntimeSession() {
     }
 
     _services.audio.mixer.stopAll();
+    // A script's music volume lasts the session.
+    _services.audio.mixer.setMusicVolumeScale(1.0f);
     _music.reset();
     _loadMusic.reset();
     _loadComesWithMovies = false;

@@ -27,4 +27,18 @@ bool isMainThread();
 void setThreadName(std::string name);
 const std::string &threadName();
 
+/**
+ * Marks the calling thread as the main thread while it lives, then puts back
+ * the main thread and the calling thread's name as they were. For tests.
+ */
+class ScopedMainThread : boost::noncopyable {
+public:
+    ScopedMainThread();
+    ~ScopedMainThread();
+
+private:
+    std::thread::id _previousMainThread;
+    std::optional<std::string> _previousName;
+};
+
 } // namespace reone

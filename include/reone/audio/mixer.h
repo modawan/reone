@@ -45,6 +45,12 @@ public:
      *        begins; none for a movie that holds every sound
      */
     virtual void setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) = 0;
+    /**
+     * Scales every music source, those playing and those started later, on
+     * top of the music volume option: 1 plays music as the option sets it,
+     * 0 silences it.
+     */
+    virtual void setMusicVolumeScale(float scale) = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -64,6 +70,7 @@ public:
     void stop(AudioType type) override;
     void stopAll() override;
     void setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) override;
+    void setMusicVolumeScale(float scale) override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -82,6 +89,7 @@ private:
 
     std::vector<ActiveSource> _sources;
     bool _soundsHeldForMovie {false};
+    float _musicVolumeScale {1.0f};
 
     float gainByType(AudioType type, float gain) const;
 };

@@ -40,6 +40,29 @@ bool isMainThread() {
     return std::this_thread::get_id() == g_mainThreadId;
 }
 
+ScopedMainThread::ScopedMainThread() :
+    _previousMainThread(g_mainThreadId) {
+
+    {
+        std::lock_guard<std::mutex> lock {g_threadNamesMutex};
+        auto name = g_threadNames.find(std::this_thread::get_id());
+        if (name != g_threadNames.end()) {
+            _previousName = name->second;
+        }
+    }
+    markMainThread();
+}
+
+ScopedMainThread::~ScopedMainThread() {
+    g_mainThreadId = _previousMainThread;
+    std::lock_guard<std::mutex> lock {g_threadNamesMutex};
+    if (_previousName) {
+        g_threadNames.insert_or_assign(std::this_thread::get_id(), *_previousName);
+    } else {
+        g_threadNames.erase(std::this_thread::get_id());
+    }
+}
+
 void setThreadName(std::string name) {
     std::lock_guard<std::mutex> lock {g_threadNamesMutex};
     g_threadNames.insert_or_assign(std::this_thread::get_id(), std::move(name));

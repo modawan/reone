@@ -26,6 +26,16 @@ namespace audio {
 
 static constexpr int kMaxBufferCount = 8;
 
+static void setOpenALGain(uint32_t source, float gain) {
+    alSourcef(source, AL_GAIN, gain);
+}
+
+static DeviceGainSetter g_setDeviceGain = &setOpenALGain;
+
+void setDeviceGainSetter(DeviceGainSetter setter) {
+    g_setDeviceGain = setter ? setter : &setOpenALGain;
+}
+
 static int getALFormat(AudioFormat format) {
     switch (format) {
     case AudioFormat::Mono8:
@@ -100,7 +110,7 @@ void AudioSource::init() {
             _buffers.assign(1, whole);
             _streaming = false;
             alGenSources(1, &_source);
-            alSourcef(_source, AL_GAIN, _gain);
+            g_setDeviceGain(_source, gain());
             if (_position) {
                 alSource3f(_source, AL_POSITION, _position->x, _position->y, _position->z);
             } else {
@@ -120,7 +130,7 @@ void AudioSource::init() {
 
     alGenBuffers(bufferCount, &_buffers[0]);
     alGenSources(1, &_source);
-    alSourcef(_source, AL_GAIN, _gain);
+    g_setDeviceGain(_source, gain());
 
     if (_position) {
         alSource3f(_source, AL_POSITION, _position->x, _position->y, _position->z);
@@ -270,7 +280,19 @@ void AudioSource::setLooping(bool loop) {
 }
 
 void AudioSource::setGainScale(float scale) {
-    alSourcef(_source, AL_GAIN, _gain * scale);
+    _gainScale = scale;
+    applyGain();
+}
+
+void AudioSource::setVolumeScale(float scale) {
+    _volumeScale = scale;
+    applyGain();
+}
+
+void AudioSource::applyGain() {
+    if (_inited) {
+        g_setDeviceGain(_source, gain());
+    }
 }
 
 void AudioSource::setPitch(float pitch) {

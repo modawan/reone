@@ -70,6 +70,15 @@ void AudioMixer::setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSou
     }
 }
 
+void AudioMixer::setMusicVolumeScale(float scale) {
+    _musicVolumeScale = scale;
+    for (auto &active : _sources) {
+        if (active.type == AudioType::Music) {
+            active.source->setVolumeScale(scale);
+        }
+    }
+}
+
 std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
                                               AudioType type,
                                               float gain,
@@ -85,6 +94,9 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
         loop,
         std::move(position));
     source->init();
+    if (type == AudioType::Music) {
+        source->setVolumeScale(_musicVolumeScale);
+    }
     if (_soundsHeldForMovie && type != AudioType::Movie) {
         source->startPaused();
     } else {

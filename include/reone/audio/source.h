@@ -23,6 +23,12 @@ namespace audio {
 
 class AudioClip;
 
+/** Sets the gain of an OpenAL source on the device. */
+using DeviceGainSetter = void (*)(uint32_t source, float gain);
+
+/** Routes every source's device gain through \p setter; none restores OpenAL's. For tests. */
+void setDeviceGainSetter(DeviceGainSetter setter);
+
 class AudioSource : boost::noncopyable {
 public:
     AudioSource(std::shared_ptr<AudioClip> clip,
@@ -67,16 +73,22 @@ public:
     void setLooping(bool loop);
     /** Scales the gain the source was created with; used to fade it out. */
     void setGainScale(float scale);
+    /** Scales the gain the source was created with on top of its fade, as a volume control. */
+    void setVolumeScale(float scale);
     /** Plays the source at \p pitch times its own rate, which raises or lowers its pitch. */
     void setPitch(float pitch);
 
     bool isPlaying() const { return _playing; }
+    /** The gain the source plays at: its own, faded and scaled by volume. */
+    float gain() const { return _gain * _gainScale * _volumeScale; }
 
     float duration() const;
 
 private:
     std::shared_ptr<AudioClip> _stream;
     float _gain;
+    float _gainScale {1.0f};
+    float _volumeScale {1.0f};
     bool _loop;
     std::optional<glm::vec3> _position;
 
@@ -95,6 +107,8 @@ private:
     bool _positionDirty {false};
 
     void deinit();
+    /** Gives the device the gain the source plays at, once it has a device source. */
+    void applyGain();
 };
 
 } // namespace audio

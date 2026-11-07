@@ -68,6 +68,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/goldpiecevalue.cpp
     ${TESTS_SOURCE_DIR}/game/levelupgui.cpp
     ${TESTS_SOURCE_DIR}/game/moviequeue.cpp
+    ${TESTS_SOURCE_DIR}/game/musicvolume.cpp
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp

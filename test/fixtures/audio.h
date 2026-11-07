@@ -61,6 +61,7 @@ public:
     MOCK_METHOD(void, stop, (AudioType), (override));
     MOCK_METHOD(void, stopAll, (), (override));
     MOCK_METHOD(void, setSoundsHeldForMovie, (bool, const std::shared_ptr<AudioSource> &), (override));
+    MOCK_METHOD(void, setMusicVolumeScale, (float), (override));
     MOCK_METHOD(std::shared_ptr<AudioSource>, play, (std::shared_ptr<AudioClip>, AudioType, float, bool, std::optional<glm::vec3>), (override));
 };
 
