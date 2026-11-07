@@ -680,6 +680,9 @@ private:
 
     // Input
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
+    bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
+    bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
