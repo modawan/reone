@@ -8158,10 +8158,10 @@ static Variable DisableMap(const std::vector<Variable> &args, const RoutineConte
     // Load
     auto nFlag = getIntOrElse(args, 0, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("DisableMap");
+    // Any flag but 0 disables the party's map.
+    ctx.game.party().setMapDisabled(nFlag != 0);
+    return Variable::ofNull();
 }
 
 static Variable DetonateMine(const std::vector<Variable> &args, const RoutineContext &ctx) {

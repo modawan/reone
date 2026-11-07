@@ -237,6 +237,10 @@ public:
     /** The party-wide AI style scripts set and read. */
     int aiStyle() const { return _persistedState.aiState; }
     void setAIStyle(int style) { _persistedState.aiState = style; }
+    /** Whether the party's map is disabled (TSL). */
+    bool isMapDisabled() const { return _persistedState.mapDisabled; }
+    /** Disables or enables the party's map (TSL). */
+    void setMapDisabled(bool disabled) { _persistedState.mapDisabled = disabled; }
     bool isHealthRegenerationDisabled() const { return _persistedState.regenerationDisabled; }
     void setHealthRegenerationDisabled(bool disabled) { _persistedState.regenerationDisabled = disabled; }
     bool isTutorialShown(int id) const { return _persistedState.tutorialsShown.count(id) != 0; }
