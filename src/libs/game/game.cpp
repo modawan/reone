@@ -339,6 +339,12 @@ static const char *screenName(Game::Screen screen) {
         return "PazaakSetup";
     case Game::Screen::PazaakBoard:
         return "PazaakBoard";
+    case Game::Screen::UpgradeSelection:
+        return "UpgradeSelection";
+    case Game::Screen::UpgradeItems:
+        return "UpgradeItems";
+    case Game::Screen::Upgrade:
+        return "Upgrade";
     default:
         return "Unknown";
     }
@@ -357,6 +363,9 @@ static bool pausesWorld(Game::Screen screen) {
     case Game::Screen::PartySelection:
     case Game::Screen::SaveLoad:
     case Game::Screen::GalaxyMap:
+    case Game::Screen::UpgradeSelection:
+    case Game::Screen::UpgradeItems:
+    case Game::Screen::Upgrade:
         return true;
     default:
         return false;
@@ -3203,6 +3212,9 @@ bool Game::hasModalPanel() const {
     case Screen::PazaakBoard:
     case Screen::Death:
     case Screen::MainMenu:
+    case Screen::UpgradeSelection:
+    case Screen::UpgradeItems:
+    case Screen::Upgrade:
         return true;
     default:
         return false;
@@ -8270,6 +8282,66 @@ void Game::openGalaxyMap(int initialPlanet) {
     changeScreen(Screen::GalaxyMap);
 }
 
+bool Game::canOpenUpgradeScreenFrom(Screen screen) {
+    // The same screens the galaxy map may come up over: the others own the
+    // whole display and have somewhere of their own to return to.
+    return canOpenGalaxyMapFrom(screen);
+}
+
+bool Game::loadUpgradeScreens() {
+    if (!_upgradeSelection) {
+        _upgradeSelection = tryLoadGUI<UpgradeSelectionGUI>();
+    }
+    if (!_upgradeItems) {
+        _upgradeItems = tryLoadGUI<UpgradeItemsGUI>();
+    }
+    if (!_upgrade) {
+        _upgrade = tryLoadGUI<UpgradeGUI>();
+    }
+    return _upgradeSelection && _upgradeItems && _upgrade;
+}
+
+void Game::openUpgradeScreen(const std::shared_ptr<Item> &item) {
+    if (!canOpenUpgradeScreenFrom(_screen) || !loadUpgradeScreens()) {
+        // A bench that will not load must not take the screen away from
+        // whatever is on it.
+        return;
+    }
+    stopMovement();
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    // Chosen: an item without a slot opens the bench as if none were given.
+    if (item && UpgradeBench(*this, _services).isUpgradeable(*item)) {
+        openItemUpgrade(item, false);
+    } else {
+        openUpgradeSelection();
+    }
+}
+
+void Game::openUpgradeSelection() {
+    if (!loadUpgradeScreens()) {
+        return;
+    }
+    _upgradeSelection->prepare();
+    changeScreen(Screen::UpgradeSelection);
+}
+
+void Game::openUpgradeItems(std::optional<UpgradeCategory> category) {
+    if (!loadUpgradeScreens()) {
+        return;
+    }
+    _upgradeItems->prepare(category);
+    changeScreen(Screen::UpgradeItems);
+}
+
+void Game::openItemUpgrade(const std::shared_ptr<Item> &item, bool backToList) {
+    if (!loadUpgradeScreens() || !item) {
+        return;
+    }
+    _upgrade->prepare(item, backToList);
+    changeScreen(Screen::Upgrade);
+}
+
 void Game::serializePazaakPartyTable(resource::Gff &ptGff) const {
     auto replaceField = [&ptGff](resource::Gff::Field replacement) {
         auto &fields = ptGff.fields();
@@ -9061,6 +9133,12 @@ GameGUI *Game::getScreenGUI() const {
         return _saveLoad.get();
     case Screen::GalaxyMap:
         return _galaxyMap.get();
+    case Screen::UpgradeSelection:
+        return _upgradeSelection.get();
+    case Screen::UpgradeItems:
+        return _upgradeItems.get();
+    case Screen::Upgrade:
+        return _upgrade.get();
     case Screen::SwoopRace:
         return nullptr; // race skeleton has no HUD yet
     case Screen::PazaakWager:

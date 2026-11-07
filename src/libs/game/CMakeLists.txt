@@ -300,6 +300,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/selectoverlay.h
     ${GAME_INCLUDE_DIR}/gui/sounds.h
     ${GAME_INCLUDE_DIR}/gui/statussummary.h
+    ${GAME_INCLUDE_DIR}/gui/upgradescreens.h
     ${GAME_INCLUDE_DIR}/journal.h
     ${GAME_INCLUDE_DIR}/statussummary.h
     ${GAME_INCLUDE_DIR}/location.h
@@ -360,6 +361,8 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/turret.h
     ${GAME_INCLUDE_DIR}/twodautil.h
     ${GAME_INCLUDE_DIR}/types.h
+    ${GAME_INCLUDE_DIR}/upgradebench.h
+    ${GAME_INCLUDE_DIR}/upgraderules.h
     ${GAME_INCLUDE_DIR}/visualeffects.h)
 
 set(GAME_SOURCES
@@ -463,6 +466,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/selectoverlay.cpp
     ${GAME_SOURCE_DIR}/gui/sounds.cpp
     ${GAME_SOURCE_DIR}/gui/statussummary.cpp
+    ${GAME_SOURCE_DIR}/gui/upgradescreens.cpp
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
     ${GAME_SOURCE_DIR}/listenpattern.cpp
@@ -518,6 +522,8 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/transitioncandidate.cpp
     ${GAME_SOURCE_DIR}/turret.cpp
     ${GAME_SOURCE_DIR}/twodautil.cpp
+    ${GAME_SOURCE_DIR}/upgradebench.cpp
+    ${GAME_SOURCE_DIR}/upgraderules.cpp
     ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
 add_library(game STATIC ${GAME_HEADERS} ${GAME_SOURCES} ${CLANG_FORMAT_PATH})

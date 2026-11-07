@@ -4126,9 +4126,15 @@ static Variable ShowUpgradeScreen(const std::vector<Variable> &args, const Routi
     auto sOverride2DA = getStringOrElse(args, 4, "");
 
     // Transform
+    auto item = oItem ? dyn_cast<Item>(oItem) : nullptr;
 
     // Execute
-    throw RoutineNotImplementedException("ShowUpgradeScreen");
+    // The second title's bench has other screens, slots and tables.
+    if (ctx.game.isTSL()) {
+        throw RoutineNotImplementedException("ShowUpgradeScreen");
+    }
+    ctx.game.openUpgradeScreen(item);
+    return {};
 }
 
 static Variable VersusAlignmentEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {

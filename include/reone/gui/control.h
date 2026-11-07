@@ -153,6 +153,8 @@ public:
     int id() const { return _id; }
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
+    /** Whether the control has a border, which border() needs. */
+    bool hasBorder() const { return _border != nullptr; }
     const Extent &authoredExtent() const { return _authoredExtent; }
     void setAuthoredExtent(Extent extent) { _authoredExtent = std::move(extent); }
 

@@ -61,6 +61,7 @@
 #include "gui/partyselect.h"
 #include "gui/pazaak.h"
 #include "gui/saveload.h"
+#include "gui/upgradescreens.h"
 #include "journal.h"
 #include "location.h"
 #include "messagelog.h"
@@ -215,7 +216,10 @@ public:
         PazaakSetup,
         PazaakBoard,
         Turret,
-        Death
+        Death,
+        UpgradeSelection,
+        UpgradeItems,
+        Upgrade
     };
 
     Game(
@@ -576,6 +580,23 @@ public:
     void returnToBase();
     /** Whether the galaxy map may take the screen over from the given one. */
     static bool canOpenGalaxyMapFrom(Screen screen);
+
+    // Upgrade bench
+
+    /**
+     * ShowUpgradeScreen: the bench's first screen, or straight to the upgrade
+     * screen of \p item when it has a slot. The bench returns to the game.
+     */
+    void openUpgradeScreen(const std::shared_ptr<Item> &item);
+    void openUpgradeSelection();
+    /** The party's items of \p category, or the upgrade items carried without one. */
+    void openUpgradeItems(std::optional<UpgradeCategory> category);
+    /** The upgrade screen of \p item; with \p backToList, leaving returns to its list. */
+    void openItemUpgrade(const std::shared_ptr<Item> &item, bool backToList);
+    /** Whether the upgrade bench may take the screen over from the given one. */
+    static bool canOpenUpgradeScreenFrom(Screen screen);
+
+    // END Upgrade bench
 
     // KotOR I Pazaak lifecycle
 
@@ -1635,6 +1656,7 @@ private:
     friend class Area;
     friend class Object;
     friend class TestGameModule;
+    friend class UpgradeScreensTestAccess;
     friend class ModuleSnapshotBuilder;
     friend class SaveWideSnapshotBuilder;
     friend struct SerializedScriptSituation;
@@ -2032,6 +2054,9 @@ private:
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;
     bool _runningReturnScript {false};
+    std::unique_ptr<UpgradeSelectionGUI> _upgradeSelection;
+    std::unique_ptr<UpgradeItemsGUI> _upgradeItems;
+    std::unique_ptr<UpgradeGUI> _upgrade;
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
@@ -2337,6 +2362,8 @@ private:
     // GUI
 
     void loadInGameMenus();
+    /** Load the three upgrade bench screens once; false while any will not load. */
+    bool loadUpgradeScreens();
     bool loadPazaakGUIs();
     bool startPazaakFlow(
         PazaakSessionParams params,
