@@ -431,6 +431,8 @@ private:
 
     std::vector<MeshSceneNode *> _opaqueMeshes;
     std::vector<MeshSceneNode *> _transparentMeshes;
+    /** The transparent meshes that write their depth before they are blended. */
+    std::vector<MeshSceneNode *> _blendedDepthMeshes;
     std::vector<MeshSceneNode *> _shellMeshes;
     std::vector<MeshSceneNode *> _shadowMeshes;
     std::vector<LightSceneNode *> _lights;

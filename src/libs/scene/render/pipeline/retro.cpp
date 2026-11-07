@@ -234,6 +234,12 @@ Texture &RetroRenderPipeline::render(const FrameEffects &effects) {
                 screenRect, screenRect,
                 0, 0,
                 FramebufferBlitFlags::depth);
+            // Blended model meshes write their depth first, so that what
+            // they cover stays hidden when they are blended
+            if (_passCallbacks.count(RenderPassName::BlendedGeometryDepth) > 0) {
+                _context.bindDrawFramebuffer(*_targets.transparent, {});
+                _passCallbacks.at(RenderPassName::BlendedGeometryDepth)(pass);
+            }
             _context.bindDrawFramebuffer(*_targets.transparent, {0, 1});
             _context.clearColor({0.0f, 0.0f, 0.0f, 1.0f});
             _context.withBlendMode(BlendMode::OIT_Transparent, [this, &pass]() {

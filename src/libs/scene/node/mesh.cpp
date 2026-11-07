@@ -243,6 +243,16 @@ bool MeshSceneNode::isTransparent() const {
     return hasAlphaChannel(_nodeTextures.diffuse->pixelFormat());
 }
 
+bool MeshSceneNode::writesBlendedDepth() const {
+    if (_projectedBeam || !_nodeTextures.diffuse) {
+        return false;
+    }
+    if (_sceneGraph.isForceSightEnabled() && _model.forceSightStyle() != ModelSceneNode::ForceSightStyle::Grey) {
+        return false;
+    }
+    return isTransparent() && _nodeTextures.diffuse->features().blending != Texture::Blending::Additive;
+}
+
 static bool isLightingEnabledByUsage(ModelUsage usage) {
     return usage != ModelUsage::Projectile;
 }
@@ -525,6 +535,23 @@ std::vector<glm::mat4> MeshSceneNode::buildSkinBoneTransforms() const {
         bones[i] *= skin.boneMatrices[skin.boneSerial[i]]; // extract changes to the bone transform in this model node space
     }
     return bones;
+}
+
+void MeshSceneNode::renderBlendedDepth(IRenderPass &pass) {
+    auto mesh = _modelNode.mesh();
+    if (!mesh) {
+        return;
+    }
+    Material material;
+    material.type = MaterialType::BlendedModelDepth;
+    material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
+    material.uv = glm::mat3x4(
+        glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        glm::vec4(_uvOffset.x, _uvOffset.y, 0.0f, 0.0f));
+    material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha * _model.fadeAlpha());
+    material.faceCulling = _nodeTextures.diffuse->features().decal ? FaceCullMode::None : FaceCullMode::Back;
+    drawWithMaterial(pass, material);
 }
 
 void MeshSceneNode::renderShadow(IRenderPass &pass) {

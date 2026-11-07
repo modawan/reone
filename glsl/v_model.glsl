@@ -21,6 +21,10 @@ out vec2 fragUV1;
 out vec2 fragUV2;
 out mat3 fragTBN;
 
+// A blended mesh's depth, written before the mesh is blended, must match
+// the depth it is blended at.
+invariant gl_Position;
+
 void main() {
     vec4 P = vec4(aPosition, 1.0);
     vec4 N = vec4(aNormal, 0.0);

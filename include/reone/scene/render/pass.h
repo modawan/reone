@@ -46,6 +46,8 @@ enum class RenderPassName {
     DirLightShadowsPass,
     PointLightShadows,
     OpaqueGeometry,
+    /** The blended model meshes write their depth, so what they cover stays hidden. */
+    BlendedGeometryDepth,
     TransparentGeometry,
     PostProcessing,
     Debug

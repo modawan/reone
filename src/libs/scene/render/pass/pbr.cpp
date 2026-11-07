@@ -54,6 +54,7 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
         {MaterialType::PointLightShadow, ShaderProgramId::pointLightShadows}, //
         {MaterialType::OpaqueModel, ShaderProgramId::pbrOpaqueModel},         //
         {MaterialType::TransparentModel, ShaderProgramId::oitModel},          //
+        {MaterialType::BlendedModelDepth, ShaderProgramId::blendedModelDepth}, //
         {MaterialType::Walkmesh, ShaderProgramId::pbrWalkmesh}                //
     };
     if (kMatTypeToProgramId.count(material.type) == 0) {
