@@ -671,7 +671,8 @@ static Variable SWMG_SetGunBankTarget(const std::vector<Variable> &args, const R
     auto nTarget = getInt(args, 2);
 
     // Execute
-    if (bank && (nTarget & 0x11111110) == 0) {
+    // A target type is made of the player's bit, 1, and the enemies', 2.
+    if (bank && (nTarget & ~3) == 0) {
         bank->spec.bullet.targetType = static_cast<uint32_t>(nTarget);
     }
     return Variable::ofNull();
@@ -820,11 +821,9 @@ static Variable SWMG_SetPlayerOrigin(const std::vector<Variable> &args, const Ro
     auto vOrigin = getVector(args, 0);
 
     // Execute
-    // The origin also becomes the infinite axes.
     if (activePlayer(ctx)) {
         auto turret = activeTurret(ctx);
         turret->aim().setOrigin(vOrigin, turret->trackPlaying());
-        turret->aim().setTunnelInfinite(vOrigin);
     }
     return Variable::ofNull();
 }

@@ -1323,7 +1323,7 @@ bool Turret::bulletHits(const Bullet &bullet, const Actor &target) const {
 // Each bullet, last to first, is checked against the player, then the listed
 // enemies and obstacles, each last to first; the first it hits takes it. The
 // target keeps the hit, then its bullet hit hook runs. A bullet that hits an
-// obstacle in TSL runs the obstacle's hook again and takes the obstacle away.
+// obstacle in TSL takes the obstacle away.
 void Turret::checkBulletHits() {
     for (size_t i = _bullets.size(); i-- > 0;) {
         if (i >= _bullets.size()) {
@@ -1365,7 +1365,6 @@ void Turret::checkBulletHits() {
         target->lastBulletHitPosition = bullet.sim.position;
         onBulletHit(*target, false);
         if (hitObstacle && _game.isTSL()) {
-            onBulletHit(*hitObstacle, false);
             destroyObstacle(*hitObstacle);
         }
         if (!_active) {
