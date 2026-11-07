@@ -53,6 +53,12 @@ public:
     }
 
     bool handle(const input::Event &event) override;
+    /**
+     * Whether a HUD control that takes clicks lies under the screen point, so
+     * that the HUD, not the world behind it, holds the pointer there. Never
+     * while the mouse turns the camera, which hides the pointer.
+     */
+    bool holdsPointer(int x, int y) const;
     void update(float dt) override;
     void render() override;
     void renderModal();
