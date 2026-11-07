@@ -18,7 +18,6 @@
 #include "reone/game/object.h"
 
 #include <algorithm>
-#include <chrono>
 #include <exception>
 #include <sstream>
 #include <typeinfo>
@@ -361,11 +360,10 @@ void Object::runActions() {
 
 // Actions run in turn for as long as each ends at once. An action still under
 // way ends the run, as does a walk to a point or a jump, a move made by the
-// action, or a millisecond's work.
+// action, or a run of 64 actions.
 void Object::executeActionsIfAble(float dt) {
-    static constexpr auto kActionTimeSlice = std::chrono::milliseconds(1);
-    const auto start = std::chrono::steady_clock::now();
-    while (true) {
+    static constexpr int kMaxActionsPerUpdate = 64;
+    for (int run = 1;; ++run) {
         // An action that can no longer be cleared runs on whatever holds the object.
         const auto current = getCurrentAction();
         if (isDead() || !(takesUpActions() || (current && !current->isClearable()))) {
@@ -375,7 +373,7 @@ void Object::executeActionsIfAble(float dt) {
             return;
         }
         removeCompletedActions();
-        if (_actions.nodes.empty() || std::chrono::steady_clock::now() - start > kActionTimeSlice) {
+        if (_actions.nodes.empty() || run == kMaxActionsPerUpdate) {
             return;
         }
     }
