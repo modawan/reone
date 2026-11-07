@@ -433,7 +433,8 @@ void MeshSceneNode::render(IRenderPass &pass) {
     material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha * _model.fadeAlpha());
     material.ambientColor = mesh->ambient;
     material.diffuseColor = mesh->diffuse;
-    material.selfIllumColor = _selfIllumColor;
+    // Decal textures are fully self-illuminated.
+    material.selfIllumColor = _nodeTextures.diffuse->features().decal ? glm::vec3(1.0f) : _selfIllumColor;
     if (const auto &hilite = _model.hiliteColor()) {
         material.diffuseColor *= *hilite;
         material.selfIllumColor += *hilite;
