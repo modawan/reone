@@ -48,6 +48,18 @@ public:
 
     void reset(bool newGame);
 
+    /**
+     * Sets the scores the class recommends: a new character's to the class's
+     * scores, and a level-up's point on the class's primary ability.
+     */
+    void recommend();
+
+    /** Accepts the scores, once every point is spent, and goes on to the next step. */
+    void accept();
+
+    /** @return the points still to spend */
+    int remainingPoints() const { return _points; }
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
@@ -102,6 +114,10 @@ private:
     CharacterGeneration &_charGen;
     CreatureAttributes _attributes;
     int _points {0};
+    /** The scores and points the screen opened with. */
+    CreatureAttributes _startAttributes;
+    int _startPoints {0};
+    bool _newGame {true};
 
     void onGUILoaded() override;
 

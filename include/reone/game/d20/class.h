@@ -142,6 +142,23 @@ public:
      */
     bool isPCGrantedFeat(FeatType feat) const { return _pcGrantedFeats.count(feat) > 0; }
 
+    /**
+     * @return the skill's place in the order the class recommends spending
+     *         skill points in, 1 first (the skills table's recommendation
+     *         column); none for a skill the class never recommends
+     */
+    std::optional<int> getSkillRecommendation(SkillType skill) const;
+
+    /**
+     * @return the feat's place in the order the class recommends choosing
+     *         feats in, 1 first (the feat table's recommendation column);
+     *         none for a feat the class never recommends
+     */
+    std::optional<int> getFeatRecommendation(FeatType feat) const;
+
+    /** @return the class's primary ability; none when the class names none */
+    std::optional<Ability> primaryAbility() const { return _primaryAbility; }
+
 private:
     ClassType _type;
     std::string _name;
@@ -152,6 +169,9 @@ private:
     CreatureAttributes _defaultAttributes;
     int _skillPointBase {0};
     std::unordered_set<SkillType> _classSkills;
+    std::unordered_map<SkillType, int> _skillRecommendations;
+    std::unordered_map<FeatType, int> _featRecommendations;
+    std::optional<Ability> _primaryAbility;
     bool _hasSkills {false};
     std::unordered_map<FeatType, int> _featListValues;
     std::unordered_map<FeatType, int> _featGrantedLevels;

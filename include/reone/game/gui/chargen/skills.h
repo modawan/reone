@@ -51,6 +51,12 @@ public:
 
     void reset(bool newGame);
 
+    /** Spends the screen's points as the class recommends, taking back the changes made on it. */
+    void recommend();
+
+    /** Accepts the ranks and goes on to the next step. */
+    void accept();
+
     void selectFirstEntryForCapture();
 
 private:
@@ -108,6 +114,9 @@ private:
     CharacterGeneration &_charGen;
     CreatureAttributes _attributes;
     int _points {0};
+    /** The ranks and points the screen opened with. */
+    CreatureAttributes _startAttributes;
+    int _startPoints {0};
     int _allocationLevel {1};
 
     void onGUILoaded() override;

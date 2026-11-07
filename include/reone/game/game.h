@@ -540,6 +540,14 @@ public:
     void finishPostDialogCharacterSwitch();
     void openLevelUp();
     /**
+     * Levels the party leader up by one level with every step's
+     * recommendation, opening no screen.
+     *
+     * @return whether the level was applied; nothing happens unless the
+     *         leader has a level pending
+     */
+    bool autoLevelUp();
+    /**
      * A party member has enough experience to level up; newly when this
      * award brought it there. The level-up chime is the main interface's.
      */

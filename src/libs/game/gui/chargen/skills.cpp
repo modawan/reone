@@ -20,6 +20,7 @@
 #include "reone/game/gui/chargen/iconselection.h"
 
 #include "reone/game/d20/classes.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
@@ -93,13 +94,13 @@ void CharGenSkills::onGUILoaded() {
     _controls.SECURITY_POINTS_BTN->setDisabled(true);
     _controls.TREAT_INJURY_POINTS_BTN->setDisabled(true);
 
-    _controls.BTN_RECOMMENDED->setDisabled(true);
     _controls.COST_POINTS_LBL->setTextMessage("");
 
+    _controls.BTN_RECOMMENDED->setOnClick([this]() {
+        recommend();
+    });
     _controls.BTN_ACCEPT->setOnClick([this]() {
-        updateCharacter();
-        _charGen.goToNextStep();
-        _charGen.openSteps();
+        accept();
     });
     _controls.BTN_BACK->setOnClick([this]() {
         _charGen.openSteps();
@@ -202,8 +203,25 @@ void CharGenSkills::reset(bool newGame) {
     } else {
         _attributes = attributes;
     }
+    _startAttributes = _attributes;
+    _startPoints = _points;
 
     refreshControls();
+}
+
+void CharGenSkills::recommend() {
+    // The recommendation starts over from the screen's opening ranks.
+    _attributes = _startAttributes;
+    _points = _startPoints;
+    const ClassType clazz = _charGen.character().attributes.getEffectiveClass();
+    recommendSkills(*_services.game.classes.get(clazz), _allocationLevel, _attributes, _points);
+    refreshControls();
+}
+
+void CharGenSkills::accept() {
+    updateCharacter();
+    _charGen.goToNextStep();
+    _charGen.openSteps();
 }
 
 void CharGenSkills::refreshControls() {

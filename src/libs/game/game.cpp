@@ -8705,6 +8705,20 @@ void Game::openLevelUp() {
     changeScreen(Screen::CharacterGeneration);
 }
 
+bool Game::autoLevelUp() {
+    auto leader = _party.getLeader();
+    if (!leader || !leader->isLevelUpPending()) {
+        return false;
+    }
+    if (!_charGen) {
+        _charGen = tryLoadGUI<CharacterGeneration>();
+    }
+    if (!_charGen) {
+        return false;
+    }
+    return _charGen->autoLevelUp();
+}
+
 static constexpr int kLevelUpAvailableStrRef = 1438;
 static constexpr char kLevelUpDialogFiredGlobal[] = "000_Level_Dlg_Fired";
 static constexpr char kLevelUpDialogScript[] = "k_level_dlg";

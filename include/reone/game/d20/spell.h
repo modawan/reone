@@ -83,6 +83,13 @@ struct Spell {
     /** The power's side (spells.2da GoodEvil): 'G' light, 'E' dark, 'N' neither. */
     char alignment {'N'};
     std::unordered_map<ClassType, int> classLevelRequirements;
+    /**
+     * The power's places in the orders recommended to light side and to
+     * dark side characters, 1 first (spells.2da light_recom and dark_recom);
+     * none for a side the power is never recommended to.
+     */
+    std::optional<int> lightRecommendation;
+    std::optional<int> darkRecommendation;
     /** The talent category: four four-bit fields. */
     uint32_t category {0};
     /** The challenge rating that ranks the spell as a talent. */

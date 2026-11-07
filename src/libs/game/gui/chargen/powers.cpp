@@ -20,8 +20,11 @@
 #include "reone/game/gui/chargen/iconselection.h"
 
 #include "reone/game/d20/classes.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/party.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/iconchain.h"
 #include "reone/gui/control/listbox.h"
@@ -137,8 +140,9 @@ void CharGenPowers::onGUILoaded() {
         activateFocusedPower();
     });
     _controls.SELECT_BTN->setVisible(true);
-    _controls.RECOMMENDED_BTN->setDisabled(true);
-    _controls.RECOMMENDED_BTN->setVisible(false);
+    _controls.RECOMMENDED_BTN->setOnClick([this]() {
+        recommend();
+    });
     _controls.ACCEPT_BTN->setOnClick([this]() {
         accept();
     });
@@ -181,8 +185,28 @@ void CharGenPowers::refreshSelectionControls() {
     _controls.REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(remaining));
 }
 
+void CharGenPowers::recommend(bool fillWithUnranked) {
+    _selectedPowers.clear();
+    const CreatureAttributes &attributes = _charGen.character().attributes;
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+    if (clazz) {
+        // A new character starts balanced.
+        const Alignment alignment = _charGen.isLevelUp() ? _game.party().getLeader()->alignment() : Alignment::Neutral;
+        for (auto power : recommendPowers(_services.game.spells, attributes, *clazz, _powerGain, alignment, fillWithUnranked)) {
+            _selectedPowers.insert(power);
+        }
+    }
+    loadDisplayEntries();
+    refreshSelectionControls();
+    refreshIconChainSelection();
+}
+
 // Accepting is refused with a message only while powers remain to be chosen
 // and one can still be chosen; otherwise the chosen powers are learned.
+int CharGenPowers::remainingPicks() const {
+    return _powerGain - static_cast<int>(_selectedPowers.size());
+}
+
 void CharGenPowers::accept() {
     const bool powersLeft = _selectedPowers.size() < static_cast<size_t>(_powerGain);
     const bool choosable = std::any_of(_displayEntries.begin(), _displayEntries.end(), [](const SpellDisplayEntry &entry) {
