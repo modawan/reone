@@ -42,6 +42,14 @@ Every other console command (`warp`, `startconversation`, `selectobjectbytag`,
 `Unrecognized command: <name>`, so a scripted run leaves a trace in
 `engine.log`. A click that quits the game ends the run.
 
+`walkto <x> <y> [max frames]` walks the party leader to a point of the area
+with the keys a player would hold: A or D to turn the camera and W to run,
+steering along the walkmesh pathfinder's route round walls and debris. The
+script waits until the walk ends, and the log says how it ended:
+`walkto x,y arrived at ...`, `interrupted` (a conversation or a menu took the
+screen, as walking into a trigger often does), `is blocked` or `timed out`.
+Coordinates come from the module's own data, such as its waypoints.
+
 `pause N` waits N rendered frames, not seconds. Headless with `--vsync 0`
 renders hundreds of frames a second, so allow generous counts.
 

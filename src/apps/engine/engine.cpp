@@ -349,6 +349,15 @@ void Engine::initAutomationCommands() {
         _scriptWaitScreenName = std::string(*name);
         _scriptWaitFrames = frames;
     });
+    _console->registerCommand("walkto", "walk the party leader to a point with the movement keys; the script waits", [this](const auto &args) {
+        auto x = args.template get<float>(1);
+        auto y = args.template get<float>(2);
+        auto frames = args.template get<int>(3).value_or(kDefaultScriptWaitFrames);
+        if (!x || !y || frames < 1) {
+            throw std::invalid_argument("usage: walkto <x> <y> [max frames]");
+        }
+        _game->startScriptedWalk(glm::vec2(*x, *y), frames);
+    });
     _console->registerCommand("capture", "capture one or more rendered frames", [this](const auto &args) {
         auto path = args[1];
         auto count = args.template get<int>(2).value_or(1);
@@ -390,6 +399,9 @@ void Engine::processScriptedCommands(bool &quit) {
             return;
         }
     }
+    if (_game->isScriptedWalkActive()) {
+        return;
+    }
     if (_scriptWaitScreen) {
         if (_game->currentScreen() != *_scriptWaitScreen) {
             if (--_scriptWaitFrames > 0) {
@@ -414,7 +426,7 @@ void Engine::processScriptedCommands(bool &quit) {
         if (_captureRequest) {
             return;
         }
-        if (_scriptPauseFrames > 0 || _scriptWaitScreen) {
+        if (_scriptPauseFrames > 0 || _scriptWaitScreen || _game->isScriptedWalkActive()) {
             return;
         }
     }

@@ -59,6 +59,7 @@
 #include "gui/mainmenu.h"
 #include "gui/map.h"
 #include "gui/partyselect.h"
+#include "pathfinder.h"
 #include "gui/pazaak.h"
 #include "gui/saveload.h"
 #include "journal.h"
@@ -702,6 +703,15 @@ public:
 
     /** Award an authored DLG/JRL fraction, where 0.2 means twenty percent. */
     void awardPlotXPByIndex(int plotIndex, float fraction);
+
+    /**
+     * Walks the party leader to \p target for a scripted run, by holding the
+     * keys a player would: A or D to turn the camera, W to run. It ends on
+     * arrival, after \p maxFrames, when the leader stops making progress, or
+     * when the game leaves the world screen; the keys are let go each time.
+     */
+    void startScriptedWalk(glm::vec2 target, int maxFrames);
+    bool isScriptedWalkActive() const { return _scriptedWalk.has_value(); }
 
     Screen currentScreen() const {
         return _screen;
@@ -2014,6 +2024,21 @@ private:
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
+
+    struct ScriptedWalk {
+        glm::vec2 target {0.0f};
+        int framesLeft {0};
+        int turn {0};
+        bool forward {false};
+        glm::vec2 lastPosition {0.0f};
+        int stillFrames {0};
+        /** The walkmesh path the keys steer along; straight at the target without one. */
+        std::optional<Path> path;
+    };
+    std::optional<ScriptedWalk> _scriptedWalk;
+
+    void updateScriptedWalk();
+    void endScriptedWalk(const std::string &outcome, bool failed);
     std::unique_ptr<ConfirmPopup> _deathMessage;
     std::unique_ptr<DeathDisplay> _deathDisplay;
     /** The closing credits, while they are up. */

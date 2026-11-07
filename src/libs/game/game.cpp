@@ -67,6 +67,7 @@
 #include "reone/game/savedruntime.h"
 #include "reone/game/savewidesnapshot.h"
 #include "reone/game/screenpoint.h"
+#include "reone/game/steering.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
 #include "reone/game/twodautil.h"
@@ -1010,6 +1011,7 @@ std::optional<glm::ivec2> Game::consumePointerWarp() {
 
 void Game::update(float frameTime) {
     updateMouseLookPointer();
+    updateScriptedWalk();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
@@ -9680,6 +9682,133 @@ void Game::consoleKeyDownOrUp(const ConsoleArgs &args) {
         handle(input::Event::newKeyDown({true, *code, 0, false}));
     } else {
         handle(input::Event::newKeyUp({false, *code, 0, false}));
+    }
+}
+
+// A leader that has not moved this far in this many frames, while running,
+// is blocked: by a wall, a door, or someone in the way.
+static constexpr float kScriptedWalkStillDistance = 0.05f;
+static constexpr int kScriptedWalkStillFrames = 300;
+
+// The walk presses the keys the player has bound, so it steers under any
+// keybinds. A positive turn rotates the camera left.
+static input::KeyCode scriptedWalkTurnKey(const KeybindOptions &keybinds, int turn) {
+    return turn > 0 ? keybinds.cameraRotateLeft.keyCode : keybinds.cameraRotateRight.keyCode;
+}
+
+void Game::startScriptedWalk(glm::vec2 target, int maxFrames) {
+    if (_scriptedWalk) {
+        endScriptedWalk("replaced by a new walk", false);
+    }
+    ScriptedWalk walk;
+    walk.target = target;
+    walk.framesLeft = maxFrames;
+    if (auto leader = _party.getLeader()) {
+        walk.lastPosition = glm::vec2(leader->position());
+        // Round walls and debris along the walkmesh, as a player steering by
+        // eye would; with no path, straight at the target.
+        if (_module && _module->area()) {
+            glm::vec3 to(target, leader->position().z);
+            walk.path = createPath(_module->area()->pathfinder(), leader->position(), to);
+        }
+    }
+    _scriptedWalk = walk;
+}
+
+void Game::endScriptedWalk(const std::string &outcome, bool failed) {
+    if (!_scriptedWalk) {
+        return;
+    }
+    auto walk = *_scriptedWalk;
+    _scriptedWalk.reset();
+    if (walk.path && _module && _module->area()) {
+        releasePath(_module->area()->pathfinder(), *walk.path);
+    }
+    // Let go of whatever is held, as a player taking their hands off would.
+    if (walk.turn != 0) {
+        handle(input::Event::newKeyUp({false, scriptedWalkTurnKey(_options.game.activeKeybinds(), walk.turn), 0, false}));
+    }
+    if (walk.forward) {
+        handle(input::Event::newKeyUp({false, _options.game.activeKeybinds().moveForward.keyCode, 0, false}));
+    }
+    auto leader = _party.getLeader();
+    auto at = leader ? glm::vec2(leader->position()) : glm::vec2(0.0f);
+    auto message = str(boost::format("walkto %.1f,%.1f %s at %.1f,%.1f") % walk.target.x % walk.target.y % outcome % at.x % at.y);
+    if (failed) {
+        error(message);
+    } else {
+        info(message);
+    }
+}
+
+void Game::updateScriptedWalk() {
+    if (!_scriptedWalk) {
+        return;
+    }
+    auto &walk = *_scriptedWalk;
+    // A conversation, a menu or a load takes the keys; the script decides
+    // what to do next.
+    if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson) {
+        endScriptedWalk("interrupted", false);
+        return;
+    }
+    auto leader = _party.getLeader();
+    auto camera = getActiveCamera();
+    if (!leader || !camera) {
+        endScriptedWalk("has no leader or camera", true);
+        return;
+    }
+    glm::vec2 position(leader->position());
+    if (glm::length(walk.target - position) < 1.0f) {
+        endScriptedWalk("arrived", false);
+        return;
+    }
+    // Steer at the path's next point; within reach of a point, the path
+    // moves on to the one after.
+    glm::vec2 heading = walk.target;
+    if (walk.path) {
+        auto &pathfinder = _module->area()->pathfinder();
+        // Off the path it replans, as a creature's does; with no way left it
+        // is dropped and the walk goes straight on.
+        if (updatePath(pathfinder, *walk.path, leader->position())) {
+            heading = glm::vec2(getNextPathPoint(pathfinder, *walk.path));
+        } else {
+            releasePath(pathfinder, *walk.path);
+            walk.path.reset();
+        }
+    }
+    auto keys = steerToward(position, heading, camera->facing(), 0.3f);
+    if (keys.arrived) {
+        keys.forward = true;
+        keys.turn = 0;
+    }
+    if (--walk.framesLeft <= 0) {
+        endScriptedWalk("timed out", true);
+        return;
+    }
+    if (walk.forward && glm::length(position - walk.lastPosition) < kScriptedWalkStillDistance) {
+        if (++walk.stillFrames >= kScriptedWalkStillFrames) {
+            endScriptedWalk("is blocked", true);
+            return;
+        }
+    } else {
+        walk.stillFrames = 0;
+        walk.lastPosition = position;
+    }
+    // Only changes are sent, as keys are pressed and released.
+    if (keys.turn != walk.turn) {
+        if (walk.turn != 0) {
+            handle(input::Event::newKeyUp({false, scriptedWalkTurnKey(_options.game.activeKeybinds(), walk.turn), 0, false}));
+        }
+        if (keys.turn != 0) {
+            handle(input::Event::newKeyDown({true, scriptedWalkTurnKey(_options.game.activeKeybinds(), keys.turn), 0, false}));
+        }
+        walk.turn = keys.turn;
+    }
+    if (keys.forward != walk.forward) {
+        handle(keys.forward ? input::Event::newKeyDown({true, _options.game.activeKeybinds().moveForward.keyCode, 0, false})
+                            : input::Event::newKeyUp({false, _options.game.activeKeybinds().moveForward.keyCode, 0, false}));
+        walk.forward = keys.forward;
     }
 }
 
