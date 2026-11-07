@@ -358,6 +358,14 @@ void Engine::initAutomationCommands() {
         }
         _game->startScriptedWalk(glm::vec2(*x, *y), frames);
     });
+    _console->registerCommand("face", "turn the camera to face a point with A/D; the script waits", [this](const auto &args) {
+        auto x = args.template get<float>(1);
+        auto y = args.template get<float>(2);
+        if (!x || !y) {
+            throw std::invalid_argument("usage: face <x> <y>");
+        }
+        _game->startScriptedWalk(glm::vec2(*x, *y), kDefaultScriptWaitFrames, true);
+    });
     _console->registerCommand("capture", "capture one or more rendered frames", [this](const auto &args) {
         auto path = args[1];
         auto count = args.template get<int>(2).value_or(1);

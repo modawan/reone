@@ -59,7 +59,11 @@ Coordinates come from the module's own data, such as its waypoints. The walk
 logs at its start whether it follows a walkmesh route or, having none, goes
 straight; a closed door is no route, so a point beyond one goes straight
 into a wall. `canwalk <x> <y>` logs whether the walkmesh joins the leader to
-a point at all, to find the way before walking it. A sighting that pauses
+a point at all, to find the way before walking it. Doors are not part of
+the walkmesh, so canwalk answers as if every door were open. `face <x> <y>`
+turns the camera with A/D until it faces a point, without moving, so an
+object behind the camera can be clicked; `info` on a door logs its
+state, locked, keyrequired and plot flags. A sighting that pauses
 the game ends a walk as `paused`; `unpause` then presses Space if, and only
 if, the game is paused, since Space toggles the pause.
 

@@ -710,7 +710,7 @@ public:
      * arrival, after \p maxFrames, when the leader stops making progress, or
      * when the game leaves the world screen; the keys are let go each time.
      */
-    void startScriptedWalk(glm::vec2 target, int maxFrames);
+    void startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly = false);
     bool isScriptedWalkActive() const { return _scriptedWalk.has_value(); }
 
     Screen currentScreen() const {
@@ -2028,6 +2028,8 @@ private:
     struct ScriptedWalk {
         glm::vec2 target {0.0f};
         int framesLeft {0};
+        /** Only turn the camera to face the target; never run. */
+        bool faceOnly {false};
         int turn {0};
         bool forward {false};
         glm::vec2 lastPosition {0.0f};

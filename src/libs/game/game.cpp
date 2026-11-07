@@ -9321,6 +9321,15 @@ void Game::consoleInfo(const ConsoleArgs &args) {
     } else if (auto placeable = dyn_cast<Placeable>(object)) {
         ss << " "
            << "app=" << placeable->appearance();
+    } else if (auto door = dyn_cast<Door>(object)) {
+        ss << " "
+           << "state=" << static_cast<int>(door->state())
+           << " "
+           << "locked=" << (door->isLocked() ? 1 : 0)
+           << " "
+           << "keyrequired=" << (door->isKeyRequired() ? 1 : 0)
+           << " "
+           << "plot=" << (door->plotFlag() ? 1 : 0);
     }
 
     _console.printLine(ss.str());
@@ -9704,13 +9713,18 @@ static input::KeyCode scriptedWalkTurnKey(const KeybindOptions &keybinds, int tu
     return turn > 0 ? keybinds.cameraRotateLeft.keyCode : keybinds.cameraRotateRight.keyCode;
 }
 
-void Game::startScriptedWalk(glm::vec2 target, int maxFrames) {
+void Game::startScriptedWalk(glm::vec2 target, int maxFrames, bool faceOnly) {
     if (_scriptedWalk) {
         endScriptedWalk("replaced by a new walk", false);
     }
     ScriptedWalk walk;
     walk.target = target;
     walk.framesLeft = maxFrames;
+    walk.faceOnly = faceOnly;
+    if (faceOnly) {
+        _scriptedWalk = walk;
+        return;
+    }
     if (auto leader = _party.getLeader()) {
         walk.lastPosition = glm::vec2(leader->position());
         // Round walls and debris along the walkmesh, as a player steering by
@@ -9778,6 +9792,26 @@ void Game::updateScriptedWalk() {
         return;
     }
     glm::vec2 position(leader->position());
+    if (walk.faceOnly) {
+        // Turn until the camera faces the point, then let go.
+        auto keys = steerToward(position, walk.target, camera->facing(), 0.0f, 0.05f);
+        if (keys.turn == 0) {
+            endScriptedWalk("faced (face)", false);
+            return;
+        }
+        if (--walk.framesLeft <= 0) {
+            endScriptedWalk("timed out", true);
+            return;
+        }
+        if (keys.turn != walk.turn) {
+            if (walk.turn != 0) {
+                handle(input::Event::newKeyUp({false, scriptedWalkTurnKey(_options.game.activeKeybinds(), walk.turn), 0, false}));
+            }
+            handle(input::Event::newKeyDown({true, scriptedWalkTurnKey(_options.game.activeKeybinds(), keys.turn), 0, false}));
+            walk.turn = keys.turn;
+        }
+        return;
+    }
     if (glm::length(walk.target - position) < 1.0f) {
         endScriptedWalk("arrived", false);
         return;
