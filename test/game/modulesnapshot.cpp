@@ -848,6 +848,30 @@ TEST_F(SnapshotFixture, writes_creature_vitality_on_the_retail_base_axis) {
     EXPECT_EQ(26, record->getInt("CurrentHitPoints"));
 }
 
+// Current hit points are a Short in the save. Damage can take them far below
+// what a Short holds; saved as they are, -99975 would read back as 31097 and
+// a dead creature or door would come back alive.
+TEST_F(SnapshotFixture, hit_points_far_below_a_short_save_as_the_lowest_short) {
+    auto creature = game.newCreature();
+    creature->setPC(false);
+    creature->setMaxHitPoints(25);
+    creature->setCurrentHitPoints(-99975);
+    TestGameModule::addSnapshotObject(*area, creature);
+    auto door = game.newDoor();
+    door->setCurrentHitPoints(-99990);
+    TestGameModule::addSnapshotObject(*area, door);
+
+    auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto creatureRecord = recordById(*saved.snapshot->git, "Creature List", creature->id());
+    ASSERT_TRUE(creatureRecord);
+    EXPECT_EQ(-32768, creatureRecord->getInt("CurrentHitPoints"));
+    auto doorRecord = recordById(*saved.snapshot->git, "Door List", door->id());
+    ASSERT_TRUE(doorRecord);
+    EXPECT_EQ(-32768, doorRecord->getInt("CurrentHP"));
+}
+
 TEST_F(SnapshotFixture, linked_doors_keep_their_link_beside_saved_triggers) {
     auto door = game.newDoor();
     door->setTag("linked_door");
