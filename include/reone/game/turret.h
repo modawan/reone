@@ -361,7 +361,7 @@ public:
 
     struct Actor;
 
-    /** Forwards one model's animation events to the turret. */
+    /** Passes one model's animation events to the turret, which runs them in its next update. */
     class ModelEvents : public scene::IAnimationEventListener {
     public:
         ModelEvents(Turret &turret, Actor &actor, std::string modelName) :
@@ -613,6 +613,14 @@ private:
 
     std::vector<Bullet> _bullets;
 
+    // An animation event, waiting for the turret's update.
+    struct PendingAnimationEvent {
+        uint32_t actorId {script::kObjectInvalid};
+        std::string modelName;
+        std::string event;
+    };
+    std::vector<PendingAnimationEvent> _pendingAnimationEvents;
+
     // Culled bullet models, kept for reuse: the scene graph owns every node it
     // creates until the graph is cleared, so a node per shot would accumulate
     // for the whole minigame.
@@ -694,6 +702,8 @@ private:
                      const glm::quat &orientation,
                      Follower &shooter);
     void die(Follower &follower);
+    void queueAnimationEvent(const Actor &actor, const std::string &modelName, const std::string &event);
+    void runAnimationEvents();
     void onAnimationEvent(Actor &actor, const std::string &modelName, const std::string &event);
     void playSound(const std::string &resRef, std::optional<glm::vec3> position = std::nullopt);
     void applyCameraProjection();

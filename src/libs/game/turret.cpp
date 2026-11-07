@@ -411,7 +411,7 @@ uint32_t Turret::Actor::id() const {
 }
 
 void Turret::ModelEvents::onEventSignalled(const std::string &name) {
-    _turret.onAnimationEvent(_actor, _modelName, name);
+    _turret.queueAnimationEvent(_actor, _modelName, name);
 }
 
 std::shared_ptr<ModelSceneNode> Turret::loadModel(const std::string &resRef) {
@@ -863,6 +863,8 @@ void Turret::releaseFollowerNodes(Follower &follower) {
 void Turret::detachAll() {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
 
+    _pendingAnimationEvents.clear();
+
     for (auto &bullet : _bullets) {
         releaseBulletNode(bullet);
     }
@@ -978,6 +980,8 @@ void Turret::update(float dt) {
         return;
     }
     _elapsed += dt;
+
+    runAnimationEvents();
 
     _aim.turn(glm::vec3(_pitchRate.advance(dt), 0.0f, _yawRate.advance(dt)));
 
@@ -1536,6 +1540,24 @@ void Turret::setGunModel(Follower &follower, GunBank &gunBank, const std::string
     clearHook(follower.models.front(), hook);
     mount.attach(hook, *model);
     gunBank.modelNode = std::move(model);
+}
+
+// The scene raises animation events while it steps the animations, where a
+// script playing an animation on the same model would change the animations
+// being stepped. They wait for the turret's next update and run in the order
+// they came, each on the actor it came from if that is still there.
+void Turret::queueAnimationEvent(const Actor &actor, const std::string &modelName, const std::string &event) {
+    _pendingAnimationEvents.push_back({actor.id(), modelName, event});
+}
+
+void Turret::runAnimationEvents() {
+    auto events = std::move(_pendingAnimationEvents);
+    _pendingAnimationEvents.clear();
+    for (const auto &pending : events) {
+        if (auto target = actor(pending.actorId)) {
+            onAnimationEvent(*target, pending.modelName, pending.event);
+        }
+    }
 }
 
 // A custom event keeps its tag and the model that raised it, then runs the
