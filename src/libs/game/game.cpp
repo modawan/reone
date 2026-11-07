@@ -1275,6 +1275,9 @@ void Game::update(float frameTime) {
     if (gui) {
         gui->update(dt);
     }
+    if ((_screen == Screen::Turret || _screen == Screen::SwoopRace) && _hud) {
+        _hud->updateMinigamePause(dt);
+    }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
     }
@@ -4629,6 +4632,9 @@ void Game::renderGUI() {
     } else if (gameplayHUD) {
         if (auto gui = getScreenGUI()) {
             gui->render();
+        }
+        if (_hud) {
+            _hud->renderMinigamePause();
         }
     }
     renderGlobalFade();
