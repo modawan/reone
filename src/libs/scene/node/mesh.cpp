@@ -113,18 +113,6 @@ void MeshSceneNode::updateUVAnimation(float dt, const ModelNode::TriangleMesh &m
     }
 }
 
-// A cycling bump map shows its frames in turn on the scene's texture clock,
-// which a pause doesn't stop.
-static int bumpmapCycleFrame(const Texture &bumpmap, float time) {
-    const Texture::Features &features = bumpmap.features();
-    if (features.procedureType != Texture::ProcedureType::Cycle) {
-        return 0;
-    }
-    int frameCount = features.numX * features.numY;
-    float length = frameCount / static_cast<float>(features.fps);
-    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
-}
-
 static std::string vectorToString(const glm::vec3 &vec) {
     return str(boost::format("[%.04f, %.04f, %.04f]") % vec.x % vec.y % vec.z);
 }
@@ -421,7 +409,9 @@ void MeshSceneNode::render(IRenderPass &pass) {
     if (_nodeTextures.bumpmap) {
         if (_nodeTextures.bumpmap->isGrayscale()) {
             material.textures.insert({TextureUnits::bumpMapArray, *_nodeTextures.bumpmap});
-            material.bumpMapFrame = bumpmapCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
+            // A cycling bump map runs on the scene's texture clock, which a
+            // pause doesn't stop.
+            material.bumpMapFrame = getCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
         } else {
             material.textures.insert({TextureUnits::normalMap, *_nodeTextures.bumpmap});
         }

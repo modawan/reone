@@ -123,6 +123,7 @@ struct LocalUniforms {
     float waterAlpha;
     float billboardSize;
     float shellOffset;
+    int mainTexFrame; /**< the frame of a main texture that cycles through frames */
 
     LocalUniforms() {
         reset();
@@ -143,6 +144,7 @@ struct LocalUniforms {
         waterAlpha = 0.0f;
         billboardSize = 1.0f;
         shellOffset = 0.0f;
+        mainTexFrame = 0;
     }
 };
 

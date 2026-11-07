@@ -80,6 +80,7 @@ static const std::string kFragPostVideoEffect = "f_pp_videofx";
 static const std::string kFragPostDistortionOverlay = "f_pp_distortion";
 static const std::string kFragText = "f_text";
 static const std::string kFragTexture = "f_texture";
+static const std::string kFragTextureArray = "f_texarray";
 static const std::string kFragTextureNoPerspective = "f_texnoper";
 static const std::string kFragPBRIrradiance = "f_pbr_irradiance";
 static const std::string kFragPBRBRDF = "f_pbr_brdf";
@@ -139,6 +140,7 @@ void Shaders::init() {
     auto fragPostDistortionOverlay = initShader(ShaderType::Fragment, kFragPostDistortionOverlay);
     auto fragText = initShader(ShaderType::Fragment, kFragText);
     auto fragTexture = initShader(ShaderType::Fragment, kFragTexture);
+    auto fragTextureArray = initShader(ShaderType::Fragment, kFragTextureArray);
     auto fragTextureNoPerspective = initShader(ShaderType::Fragment, kFragTextureNoPerspective);
     auto fragIrradiance = initShader(ShaderType::Fragment, kFragPBRIrradiance);
     auto fragPBRBRDF = initShader(ShaderType::Fragment, kFragPBRBRDF);
@@ -163,6 +165,7 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
     _shaderRegistry.add(ShaderProgramId::mvpIcon, initShaderProgram({vertMVP, fragIcon}));
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
+    _shaderRegistry.add(ShaderProgramId::mvpTextureArray, initShaderProgram({vertMVP, fragTextureArray}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
     _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
@@ -272,6 +275,7 @@ std::shared_ptr<ShaderProgram> Shaders::initShaderProgram(std::vector<std::share
     program->setUniform("sBRDFLUT", TextureUnits::brdfLUT);
     program->setUniform("sIrradianceMapArray", TextureUnits::irradianceMapArray);
     program->setUniform("sPrefilteredEnvMapArray", TextureUnits::prefilteredEnvMapArray);
+    program->setUniform("sMainTexArray", TextureUnits::mainTexArray);
 
     // Uniform Blocks
     program->bindUniformBlock("Globals", UniformBlockBindingPoints::globals);

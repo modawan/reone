@@ -31,6 +31,7 @@ layout(std140) uniform Locals {
     float uWaterAlpha;
     float uBillboardSize;
     float uShellOffset;
+    int uMainTexFrame;
 };
 
 uniform int uEnvMapDerivedLayer;

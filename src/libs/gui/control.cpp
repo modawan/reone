@@ -22,6 +22,7 @@
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/textureutil.h"
 #include "reone/graphics/textutil.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/resource/gff.h"
@@ -208,6 +209,7 @@ void Control::update(float dt) {
     if (!_visible) {
         return;
     }
+    _textureTime += dt;
     for (auto &child : _children) {
         child.get().update(dt);
     }
@@ -317,7 +319,8 @@ void Control::renderBorder(const Border &border,
                 fillSize,
                 glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), fillAlpha),
                 uv,
-                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
+                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default,
+                getCycleFrame(*border.fill, _textureTime));
         });
     }
 
