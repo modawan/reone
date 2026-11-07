@@ -1366,6 +1366,19 @@ public:
     std::shared_ptr<Creature> materializeRosterCreature(
         const RosterIdentity &identity);
 
+    /**
+     * Bring a slot's creature into being from AVAILNPC/AVAILPUP without
+     * binding it, whatever the slot is bound to now. Destroying it undoes
+     * this. None when there is no record.
+     */
+    std::shared_ptr<Creature> loadRosterCreature(
+        const RosterIdentity &identity);
+
+    /** Bind and publish a creature loadRosterCreature brought into being. */
+    void adoptRosterCreature(
+        const RosterIdentity &identity,
+        const std::shared_ptr<Creature> &creature);
+
     /** End a bound roster representation without changing availability. */
     bool killRosterCreature(const RosterIdentity &identity);
 

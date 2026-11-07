@@ -2742,14 +2742,25 @@ void Game::saveRosterState(
     _services.resource.director.adoptSaveWorkingState(candidate.freeze());
 }
 
+static std::string rosterRecordName(const RosterIdentity &identity) {
+    return (identity.kind == RosterKind::Npc ? "availnpc" : "availpup") +
+           std::to_string(identity.slot);
+}
+
 std::shared_ptr<Creature> Game::materializeRosterCreature(
     const RosterIdentity &identity) {
     if (!_party.isRosterAvailable(identity)) return nullptr;
     if (auto existing = _party.rosterCreature(identity)) return existing;
+    auto creature = loadRosterCreature(identity);
+    if (creature) {
+        adoptRosterCreature(identity, creature);
+    }
+    return creature;
+}
 
-    const std::string prefix =
-        identity.kind == RosterKind::Npc ? "availnpc" : "availpup";
-    const std::string name = prefix + std::to_string(identity.slot);
+std::shared_ptr<Creature> Game::loadRosterCreature(
+    const RosterIdentity &identity) {
+    const std::string name = rosterRecordName(identity);
     std::shared_ptr<Gff> record;
     try {
         record = decodeSaveGff(
@@ -2775,6 +2786,19 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
                  ? SaveRecordOriginKind::AvailableNpc
                  : SaveRecordOriginKind::AvailablePuppet,
              std::to_string(identity.slot)});
+    } catch (...) {
+        destroyRuntimeObjectGraph(creature);
+        throw;
+    }
+    return creature;
+}
+
+void Game::adoptRosterCreature(
+    const RosterIdentity &identity,
+    const std::shared_ptr<Creature> &creature) {
+    const auto context =
+        SerializedIdentityContext::detachedRecord(rosterRecordName(identity) + ".utc");
+    try {
         if (!_party.bindRosterCreature(identity, creature)) {
             throw ValidationException("Could not bind materialized roster creature");
         }
@@ -2794,7 +2818,6 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         destroyRuntimeObjectGraph(creature);
         throw;
     }
-    return creature;
 }
 
 bool Game::killRosterCreature(const RosterIdentity &identity) {
@@ -8058,24 +8081,38 @@ bool Game::isPartySelectionRealized(
         return false;
     }
     const auto &area = *_module->area();
+    const int controlledNpc = _party.controlledNpc();
     std::array<bool, Party::kMaxNpcCount> requested {};
+    std::array<bool, Party::kMaxNpcCount> seen {};
     for (int npc : selectedNpcs) {
         const RosterIdentity identity {RosterKind::Npc, npc};
-        if (!_party.isRosterIdentityValid(identity) || requested[npc]) {
+        if (!_party.isRosterIdentityValid(identity) || seen[npc]) {
             return false;
         }
-        requested[npc] = true;
+        seen[npc] = true;
+        // The actor standing in for the player character is not a companion
+        // to select.
+        requested[npc] = npc != controlledNpc;
     }
 
     std::array<bool, Party::kMaxNpcCount> realized {};
     for (const auto &member : _party.members()) {
-        if (member.npc == kNpcPlayer) {
+        if (member.npc == kNpcPlayer || member.npc == controlledNpc) {
             continue;
         }
         const RosterIdentity identity {RosterKind::Npc, member.npc};
-        if (!_party.isRosterIdentityValid(identity) ||
-            !requested[member.npc] || realized[member.npc] ||
-            !member.creature) {
+        if (!_party.isRosterIdentityValid(identity)) {
+            return false;
+        }
+        if (!requested[member.npc]) {
+            // A follower whose creature was destroyed, and one that cannot
+            // leave, keep their places whatever the selection.
+            if (!member.creature || !_party.canRemoveMember(member.npc)) {
+                continue;
+            }
+            return false;
+        }
+        if (realized[member.npc] || !member.creature) {
             return false;
         }
         auto bound = _party.rosterCreature(identity);
@@ -8098,86 +8135,247 @@ bool Game::reconcilePartySelection(
         return false;
     }
 
-    std::array<bool, Party::kMaxNpcCount> requested {};
+    std::array<bool, Party::kMaxNpcCount> seen {};
     for (int npc : selectedNpcs) {
         const RosterIdentity identity {RosterKind::Npc, npc};
-        if (!_party.isRosterIdentityValid(identity) || requested[npc] ||
+        if (!_party.isRosterIdentityValid(identity) || seen[npc] ||
             !_party.isRosterAvailable(identity)) {
             warn("Party selection: NPC is not available: " +
                  std::to_string(npc));
             return false;
         }
-        requested[npc] = true;
+        seen[npc] = true;
     }
     if (isPartySelectionRealized(selectedNpcs)) {
         return true;
     }
 
+    // A selection is realised whole or not at all: every check, and bringing
+    // in each joining companion, comes before the party changes.
     auto area = _module->area();
 
     // A queued representation remains live and Area-resident until the next
     // update, but it cannot satisfy a selection which must survive that
-    // update. Drop only its exact roster binding so detached Party state can
-    // materialize a new incarnation. The queued destruction remains aimed at
-    // the obsolete object and cannot clear the replacement binding.
-    for (int npc : selectedNpcs) {
+    // update.
+    auto isObsolete = [this, &area](const std::shared_ptr<Creature> &creature) {
+        return creature &&
+               (!isRuntimeObjectLive(*creature) ||
+                area->isObjectPendingDestruction(*creature));
+    };
+
+    struct Plan {
+        std::vector<int> leaving;
+        std::vector<int> joining;
+        // Joining in place of an obsolete creature still bound to the slot.
+        std::vector<int> replacing;
+
+        bool operator==(const Plan &other) const {
+            return leaving == other.leaving && joining == other.joining && replacing == other.replacing;
+        }
+    };
+    auto makePlan = [&]() -> std::optional<Plan> {
+        const int controlledNpc = _party.controlledNpc();
+        std::array<bool, Party::kMaxNpcCount> requested {};
+        for (int npc : selectedNpcs) {
+            if (!_party.isRosterAvailable({RosterKind::Npc, npc})) {
+                warn("Party selection: NPC is not available: " + std::to_string(npc));
+                return std::nullopt;
+            }
+            // The actor standing in for the player character is not a
+            // companion to select, and stays.
+            requested[npc] = npc != controlledNpc;
+        }
+        Plan plan;
+        std::array<bool, Party::kMaxNpcCount> staying {};
+        int companions = 0;
+        for (const auto &member : _party.members()) {
+            if (member.npc == kNpcPlayer || member.npc == controlledNpc) {
+                continue;
+            }
+            const bool isRequested = member.npc >= 0 &&
+                                     member.npc < static_cast<int>(requested.size()) &&
+                                     requested[member.npc];
+            // A follower whose creature was destroyed keeps its place and
+            // cannot join again.
+            if (!member.creature) {
+                if (isRequested) {
+                    warn("Party selection: NPC cannot join again: " + std::to_string(member.npc));
+                    return std::nullopt;
+                }
+                ++companions;
+                continue;
+            }
+            if (!isRequested) {
+                // One that cannot leave keeps its place.
+                if (_party.canRemoveMember(member.npc)) {
+                    plan.leaving.push_back(member.npc);
+                } else {
+                    ++companions;
+                }
+                continue;
+            }
+            auto bound = _party.rosterCreature({RosterKind::Npc, member.npc});
+            if (bound != member.creature) {
+                warn("Party selection: member is not its roster slot's creature: " + std::to_string(member.npc));
+                return std::nullopt;
+            }
+            // An obsolete one gives up its entry along with its binding and
+            // joins again.
+            if (!isObsolete(bound)) {
+                staying[member.npc] = true;
+                ++companions;
+            }
+        }
+        for (int npc : selectedNpcs) {
+            if (!requested[npc] || staying[npc]) {
+                continue;
+            }
+            ++companions;
+            auto bound = _party.rosterCreature({RosterKind::Npc, npc});
+            if (isObsolete(bound)) {
+                plan.replacing.push_back(npc);
+                continue;
+            }
+            if (bound && (bound == _party.player() || bound == _party.actualPlayer() || _party.isMember(*bound))) {
+                warn("Party selection: could not realize NPC: " + std::to_string(npc));
+                return std::nullopt;
+            }
+            plan.joining.push_back(npc);
+        }
+        if (companions > Party::kMaxCompanionCount) {
+            warn("Party selection: too many companions selected");
+            return std::nullopt;
+        }
+        std::sort(plan.leaving.begin(), plan.leaving.end());
+        return plan;
+    };
+
+    auto plan = makePlan();
+    if (!plan) {
+        return false;
+    }
+
+    std::array<std::shared_ptr<Creature>, Party::kMaxNpcCount> joining {};
+    std::vector<std::shared_ptr<Creature>> broughtIn;
+    auto giveUp = [&](const std::string &reason) {
+        for (const auto &creature : broughtIn) {
+            if (!_party.isMember(*creature)) {
+                destroyRuntimeObjectGraph(creature);
+            }
+        }
+        warn("Party selection: " + reason);
+        return false;
+    };
+    for (int npc : plan->joining) {
         const RosterIdentity identity {RosterKind::Npc, npc};
-        auto bound = _party.rosterCreature(identity);
-        if (bound &&
-            (!isRuntimeObjectLive(*bound) ||
-             area->isObjectPendingDestruction(*bound))) {
-            _party.clearRosterCreature(identity, bound.get());
+        auto creature = _party.rosterCreature(identity);
+        if (!creature) {
+            try {
+                creature = materializeRosterCreature(identity);
+            } catch (const std::exception &e) {
+                warn("Party selection: " + std::string(e.what()));
+            }
+            if (creature) {
+                broughtIn.push_back(creature);
+            }
+        }
+        if (!creature) {
+            return giveUp("could not realize NPC: " + std::to_string(npc));
+        }
+        joining[npc] = creature;
+    }
+    // A replacement stays unbound until the party changes, so that until then
+    // the obsolete creature keeps its binding and its entry.
+    for (int npc : plan->replacing) {
+        std::shared_ptr<Creature> creature;
+        try {
+            creature = loadRosterCreature({RosterKind::Npc, npc});
+        } catch (const std::exception &e) {
+            warn("Party selection: " + std::string(e.what()));
+        }
+        if (!creature) {
+            return giveUp("could not realize NPC: " + std::to_string(npc));
+        }
+        broughtIn.push_back(creature);
+        joining[npc] = creature;
+    }
+
+    // In TSL the player character takes the lead back before the first
+    // deselected companion leaves, and in KotOR before a leading one does.
+    // The change of leader runs its script at once, and that script may change
+    // the party: the selection then goes ahead only if it still stands as
+    // planned.
+    if (!plan->leaving.empty()) {
+        const auto leader = _party.getLeader();
+        const bool leaderLeaves = std::any_of(plan->leaving.begin(), plan->leaving.end(), [&](int npc) {
+            return leader && _party.getMemberByNPC(npc) == leader;
+        });
+        if (isTSL() || leaderLeaves) {
+            _party.leadWithPlayerCharacter();
+            auto replanned = makePlan();
+            bool unchanged = replanned && *replanned == *plan;
+            for (int npc : plan->joining) {
+                unchanged = unchanged && _party.rosterCreature({RosterKind::Npc, npc}) == joining[npc];
+            }
+            if (!unchanged) {
+                return giveUp("party changed as the lead was handed back");
+            }
         }
     }
 
+    // From here on the party changes. Every refusal the plan could foresee is
+    // behind us, but a few failures remain possible past this point, and the
+    // companions that left by then stay out: saving a leaving companion's or
+    // its puppet's record can throw, in TSL removing the puppet can fail, and
+    // binding a replacement can throw after the others have left. Each gives
+    // up the creatures brought in for those still to join.
     const auto currentMembers = _party.members();
-    bool leadHandedBack = false;
-    for (const auto &member : currentMembers) {
-        // The actor standing in for the player character is not a follower,
-        // and a follower whose creature was destroyed is not on the screen to
-        // be deselected: it keeps its place.
-        if (member.creature && member.npc != kNpcPlayer && member.npc != _party.controlledNpc() &&
-            (member.npc < 0 ||
-             member.npc >= static_cast<int>(requested.size()) ||
-             !requested[member.npc])) {
-            // In TSL the player character takes the lead back before the
-            // first deselected companion leaves.
-            if (isTSL() && !leadHandedBack) {
-                _party.leadWithPlayerCharacter();
-                leadHandedBack = true;
-            }
+    try {
+        for (int npc : plan->leaving) {
             // A deselected companion leaves the party as any removed member
             // does: its effects are cleared, its record saved and its puppet
             // dismissed. Its creature stays where it stands.
-            _party.removeMember(member.npc, true);
+            if (!_party.removeMember(npc, true)) {
+                return giveUp("could not remove NPC: " + std::to_string(npc));
+            }
         }
-    }
+        for (int npc : plan->replacing) {
+            // Only the exact binding goes. The queued destruction remains
+            // aimed at the obsolete object and cannot clear the replacement
+            // binding.
+            const RosterIdentity identity {RosterKind::Npc, npc};
+            if (auto obsolete = _party.rosterCreature(identity)) {
+                _party.clearRosterCreature(identity, obsolete.get());
+            }
+            adoptRosterCreature(identity, joining[npc]);
+        }
 
-    // The party keeps its controlled character, or the place of one no longer
-    // there, and its remaining companions where they stand; a selected
-    // companion not travelling with it joins at the end.
-    for (int npc : selectedNpcs) {
-        // A follower whose creature was destroyed cannot join again.
-        if (_party.isMember(npc) || _party.isFollower(npc)) {
-            continue;
-        }
-        auto member = _party.getAvailableMember(npc, true);
-        if (member) {
+        // The party keeps its controlled character, or the place of one no
+        // longer there, and its remaining companions where they stand; a
+        // selected companion not travelling with it joins at the end.
+        for (int npc : selectedNpcs) {
+            auto member = joining[npc];
+            if (!member) {
+                continue;
+            }
             _party.spawnIntoPlayerFaction(*member);
-            // A companion newly brought in drops its actions, commandable or not.
-            const bool kept = std::any_of(currentMembers.begin(), currentMembers.end(),
+            // A companion newly brought in drops its actions, commandable or
+            // not; so does one replacing an obsolete creature.
+            const bool replaced = std::find(plan->replacing.begin(), plan->replacing.end(), npc) != plan->replacing.end();
+            const bool kept = !replaced &&
+                              std::any_of(currentMembers.begin(), currentMembers.end(),
                                           [npc](const Party::Member &current) { return current.npc == npc; });
             if (!kept) {
                 member->clearAllActions(true, true);
             }
+            if (!_party.addMember(npc, member)) {
+                return giveUp("could not realize NPC: " + std::to_string(npc));
+            }
+            // A companion joining takes up the alignment its influence gives.
+            member->recomputeInfluenceAlignment();
         }
-        if (!member || !_party.addMember(npc, member)) {
-            warn("Party selection: could not realize NPC: " +
-                 std::to_string(npc));
-            return false;
-        }
-        // A companion joining takes up the alignment its influence gives.
-        member->recomputeInfluenceAlignment();
+    } catch (const std::exception &e) {
+        return giveUp(std::string(e.what()));
     }
 
     area->repositionParty();
