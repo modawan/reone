@@ -75,6 +75,13 @@ Turret::GunBank *gunBankArg(const std::vector<Variable> &args, int index, const 
     return follower ? follower->gunBank(bank) : nullptr;
 }
 
+// The bank of an enemy's gun that aims, which the follower argument and the
+// bank id after it name; the player's guns do not aim.
+Turret::GunBank *aimingGunBankArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto follower = followerArg(args, index, ctx);
+    return follower && !follower->player ? follower->gunBank(getInt(args, index + 1)) : nullptr;
+}
+
 // The engine (0) or death (1) sound a follower argument and the index after it
 // name.
 Turret::SoundSettings *soundArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
@@ -829,46 +836,83 @@ static Variable SWMG_SetPlayerOrigin(const std::vector<Variable> &args, const Ro
 }
 
 static Variable SWMG_GetGunBankHorizontalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+
     // Execute
-    return Variable::ofFloat(0.0f);
+    return Variable::ofFloat(bank ? bank->spec.horizSpread : 0.0f);
 }
 
 static Variable SWMG_GetGunBankVerticalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+
     // Execute
-    return Variable::ofFloat(0.0f);
+    return Variable::ofFloat(bank ? bank->spec.vertSpread : 0.0f);
 }
 
 static Variable SWMG_GetGunBankSensingRadius(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+
     // Execute
-    return Variable::ofFloat(0.0f);
+    return Variable::ofFloat(bank ? bank->spec.sensingRadius : 0.0f);
 }
 
 static Variable SWMG_GetGunBankInaccuracy(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+
     // Execute
-    return Variable::ofFloat(0.0f);
+    return Variable::ofFloat(bank ? bank->spec.inaccuracy : 0.0f);
 }
 
+// A spread is an angle either way in degrees, or -1 for none.
 static Variable SWMG_SetGunBankHorizontalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fSpread = getFloat(args, 2);
+
     // Execute
-    // A gun keeps the aim it was made with, and nothing reads these back.
+    if (bank && (fSpread >= 0.0f || fSpread == -1.0f)) {
+        bank->spec.horizSpread = fSpread;
+    }
     return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankVerticalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fSpread = getFloat(args, 2);
+
     // Execute
-    // A gun keeps the aim it was made with, and nothing reads these back.
+    if (bank && (fSpread >= 0.0f || fSpread == -1.0f)) {
+        bank->spec.vertSpread = fSpread;
+    }
     return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankSensingRadius(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fRadius = getFloat(args, 2);
+
     // Execute
-    // A gun keeps the aim it was made with, and nothing reads these back.
+    if (bank && fRadius >= 0.0f) {
+        bank->spec.sensingRadius = fRadius;
+    }
     return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankInaccuracy(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fInaccuracy = getFloat(args, 2);
+
     // Execute
-    // A gun keeps the aim it was made with, and nothing reads these back.
+    if (bank && fInaccuracy >= 0.0f) {
+        bank->spec.inaccuracy = fInaccuracy;
+    }
     return Variable::ofNull();
 }
 

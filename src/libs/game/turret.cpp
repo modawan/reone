@@ -39,6 +39,7 @@
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/model.h"
 #include "reone/system/logutil.h"
+#include "reone/system/randomutil.h"
 
 using namespace reone::audio;
 using namespace reone::graphics;
@@ -69,9 +70,6 @@ const float kMouseAimRadiansPerPixel = glm::pi<float>() / 4000.0f;
 // exit (mirrors Area's default camera FOV).
 constexpr float kDefaultCameraFovDegrees = 75.0f;
 
-// Distance an enemy shoots from when its gun bank declares no sensing radius.
-constexpr float kFallbackSensingRadius = 200.0f;
-
 // Hook names used to assemble a minigame actor.
 const std::string kModelHookName("modelhook");
 const std::string kCameraHookName("camerahook");
@@ -99,6 +97,24 @@ glm::quat transformOrientation(const glm::mat4 &transform) {
         basis[i] = length > 0.0f ? basis[i] / length : glm::vec3(0.0f);
     }
     return glm::normalize(glm::quat_cast(basis));
+}
+
+// The yaw of a direction, in degrees, positive toward -X from +Y, and its
+// pitch, positive upward; and the orientation that turns +Y to them.
+float turretYawDegrees(const glm::vec3 &direction) {
+    if (direction.x == 0.0f && direction.y == 0.0f) {
+        return 0.0f;
+    }
+    return glm::degrees(glm::atan(-direction.x, direction.y));
+}
+
+float turretPitchDegrees(const glm::vec3 &direction) {
+    return glm::degrees(glm::atan(direction.z, glm::sqrt(direction.x * direction.x + direction.y * direction.y)));
+}
+
+glm::quat turretAimOrientation(float yawDegrees, float pitchDegrees) {
+    return glm::angleAxis(glm::radians(yawDegrees), glm::vec3(0.0f, 0.0f, 1.0f)) *
+           glm::angleAxis(glm::radians(pitchDegrees), glm::vec3(1.0f, 0.0f, 0.0f));
 }
 
 // Minigame actors idle on a looping "ready" animation (the fighters bank and
@@ -462,7 +478,22 @@ void Turret::loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
     for (const auto &spec : specs) {
         GunBank bank;
         bank.spec = spec;
-        bank.timer = TurretGunTimer(spec.bullet.rateOfFire);
+        // A value the routines that set it would refuse is not taken.
+        auto &bullet = bank.spec.bullet;
+        bullet.speed = glm::max(0.0f, bullet.speed);
+        bullet.rateOfFire = glm::max(0.0f, bullet.rateOfFire);
+        bullet.lifespan = glm::max(0.0f, bullet.lifespan);
+        if ((bullet.targetType & ~3u) != 0) {
+            bullet.targetType = 0;
+        }
+        for (float *spread : {&bank.spec.horizSpread, &bank.spec.vertSpread}) {
+            if (*spread < 0.0f && *spread != -1.0f) {
+                *spread = 0.0f;
+            }
+        }
+        bank.spec.sensingRadius = glm::max(0.0f, bank.spec.sensingRadius);
+        bank.spec.inaccuracy = glm::max(0.0f, bank.spec.inaccuracy);
+        bank.timer = TurretGunTimer(bullet.rateOfFire);
         bank.modelNode = loadModel(spec.gunModelResRef);
         if (bank.modelNode) {
             mount.attach(gunBankHookName(spec.bankId), *bank.modelNode);
@@ -1196,31 +1227,81 @@ void Turret::fire() {
     }
 }
 
-// An enemy gun fires when the player lies along the enemy's heading within the
-// bank's sensing radius and its time between shots has passed.
+// An enemy's gun turns toward the player's aim point, as far as the bank's
+// horizontal and vertical spreads allow either way, while the point lies
+// within the bank's sensing radius of the gun's mount. A gun that reaches the
+// point fires once its time between shots has passed, at the point scattered
+// sideways by the bank's inaccuracy, as a share of the player's sphere. A
+// negative spread leaves that axis free.
 void Turret::updateEnemyFire(Follower &enemy, float dt) {
+    if (enemy.models.empty()) {
+        return;
+    }
+    auto &root = *enemy.models.front();
+    const bool targetable = _player && !_player->models.empty();
+    glm::vec3 aimPoint(0.0f);
+    if (targetable) {
+        const glm::mat4 &target = _player->models.front()->absoluteTransform();
+        aimPoint = transformOrigin(target) + transformOrientation(target) * _spec.player.targetOffset;
+    }
     for (auto &bank : enemy.gunBanks) {
         bank.timer.update(dt);
-        if (!_player || !bank.timer.ready()) {
+        glm::mat4 mount = root.absoluteTransform();
+        if (auto hook = root.getNodeByName(gunBankHookName(bank.spec.bankId))) {
+            mount = hook->absoluteTransform();
+        }
+        if (!targetable) {
             continue;
         }
-        const float sensing = bank.spec.sensingRadius > 0.0f
-                                  ? bank.spec.sensingRadius
-                                  : kFallbackSensingRadius;
-        if (!rayIntersectsSphere(enemy.position, enemy.forward,
-                                 _anchorPosition, _player->sphereRadius, sensing)) {
+        const glm::vec3 mountOrigin = transformOrigin(mount);
+        const glm::quat mountOrientation = transformOrientation(mount);
+        const glm::vec3 local = glm::inverse(mountOrientation) * (aimPoint - mountOrigin);
+        if (glm::length2(local) > bank.spec.sensingRadius * bank.spec.sensingRadius) {
             continue;
         }
-        if (!bank.timer.tryFire()) {
+        float yaw = turretYawDegrees(local);
+        float pitch = turretPitchDegrees(local);
+        bool inCone = true;
+        if (bank.spec.horizSpread >= 0.0f && glm::abs(yaw) > bank.spec.horizSpread) {
+            yaw = glm::sign(yaw) * bank.spec.horizSpread;
+            inCone = false;
+        }
+        if (bank.spec.vertSpread >= 0.0f && glm::abs(pitch) > bank.spec.vertSpread) {
+            pitch = glm::sign(pitch) * bank.spec.vertSpread;
+            inCone = false;
+        }
+        if (bank.modelNode) {
+            bank.modelNode->setLocalTransform(glm::mat4_cast(turretAimOrientation(yaw, pitch)));
+        }
+        if (!inCone || !bank.timer.tryFire()) {
             continue;
         }
-        glm::vec3 muzzle = enemy.position;
+        glm::vec3 muzzle = mountOrigin;
         if (bank.modelNode) {
             if (auto hook = bank.modelNode->getNodeByName(kBulletHookName)) {
                 muzzle = transformOrigin(hook->absoluteTransform());
             }
+            playThenReady(bank.modelNode, "fire", "ready");
         }
-        spawnBullet(bank, muzzle, enemy.orientation, enemy);
+        glm::vec3 shotPoint = aimPoint;
+        const float scatter = bank.spec.inaccuracy * _player->sphereRadius;
+        if (scatter > 0.0f) {
+            glm::vec3 spread(randomFloat(-1.0f, 1.0f), randomFloat(-1.0f, 1.0f), randomFloat(-1.0f, 1.0f));
+            if (glm::length2(spread) > 0.0f) {
+                spread = glm::normalize(spread) * scatter;
+                const glm::vec3 line = aimPoint - muzzle;
+                if (glm::length2(line) > 0.0f) {
+                    const glm::vec3 direction = glm::normalize(line);
+                    spread -= direction * glm::dot(direction, spread);
+                }
+                shotPoint += spread;
+            }
+        }
+        const glm::vec3 toShot = shotPoint - muzzle;
+        const glm::quat heading = glm::length2(toShot) > 0.0f
+                                      ? turretAimOrientation(turretYawDegrees(toShot), turretPitchDegrees(toShot))
+                                      : mountOrientation;
+        spawnBullet(bank, muzzle, heading, enemy);
     }
 }
 
