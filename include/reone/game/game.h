@@ -538,7 +538,8 @@ public:
      * once round the party, until that member leads.
      */
     void finishPostDialogCharacterSwitch();
-    void openLevelUp();
+    /** Opens the level-up screen for the party leader; false when it cannot be shown. */
+    bool openLevelUp();
     /**
      * A party member has enough experience to level up; newly when this
      * award brought it there. The level-up chime is the main interface's.

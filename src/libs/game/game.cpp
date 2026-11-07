@@ -8691,18 +8691,19 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakOriginScreen = Screen::None;
 }
 
-void Game::openLevelUp() {
+bool Game::openLevelUp() {
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
     }
     if (!_charGen) {
-        return;
+        return false;
     }
 
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
     _charGen->startLevelUp();
     changeScreen(Screen::CharacterGeneration);
+    return true;
 }
 
 static constexpr int kLevelUpAvailableStrRef = 1438;
