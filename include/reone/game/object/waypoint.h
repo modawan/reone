@@ -49,6 +49,7 @@ public:
         const SerializedIdentityContext &identityContext);
 
     bool isMapNoteEnabled() const { return _mapNoteEnabled; }
+    void setMapNoteEnabled(bool enabled) { _mapNoteEnabled = enabled; }
 
     const std::string &mapNote() const { return _mapNote.str(); }
 

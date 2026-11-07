@@ -67,6 +67,7 @@ class Game;
 class Item;
 class Placeable;
 class Module;
+class Room;
 class SaveLoad;
 class Sound;
 class MainMenu;
@@ -311,6 +312,7 @@ public:
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    static void addAreaRoom(Area &area, std::shared_ptr<Room> room);
     static void prepareFadeArrival(Game &game);
     static void cacheActiveModule(Game &game, std::string name);
     static std::pair<glm::vec3, float> resolveModuleEntry(
