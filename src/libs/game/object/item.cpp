@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <limits>
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -65,8 +67,13 @@ int Item::cost(float baseCostMultiplier) const {
     if (plotFlag()) {
         return 0;
     }
-    const auto value = static_cast<int>(static_cast<float>(_addCost) * baseCostMultiplier);
-    return value < 2 ? 1 : value;
+    // The product stays in float, as the stored values were computed, and is
+    // brought into range before it becomes an int.
+    const double value = static_cast<float>(_addCost) * baseCostMultiplier;
+    if (std::isnan(value) || value < 2.0) {
+        return 1;
+    }
+    return value >= static_cast<double>(std::numeric_limits<int>::max()) ? std::numeric_limits<int>::max() : static_cast<int>(value);
 }
 
 void Item::loadFromBlueprint(const std::string &resRef) {

@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/docommand.h"
@@ -3653,12 +3654,17 @@ static Variable GetCreatureTalentBest(const std::vector<Variable> &args, const R
 
 static Variable GetGoldPieceValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
-
-    // Transform
+    auto object = getObjectOrNull(args, 0, ctx);
+    auto item = object ? dyn_cast<Item>(object) : nullptr;
 
     // Execute
-    throw RoutineNotImplementedException("GetGoldPieceValue");
+    if (!item) {
+        return Variable::ofInt(0);
+    }
+    // The value of the whole stack, as the item is valued everywhere else.
+    const int64_t value = static_cast<int64_t>(item->cost(ctx.game.baseItemCostMultiplier(item->baseItemType()))) *
+                          item->stackSize();
+    return Variable::ofInt(static_cast<int>(std::min<int64_t>(value, std::numeric_limits<int>::max())));
 }
 
 static Variable GetIsPlayableRacialType(const std::vector<Variable> &args, const RoutineContext &ctx) {

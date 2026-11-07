@@ -241,7 +241,7 @@ public:
     const std::string &description() const { return _description.str(); }
     const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
-    /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
+    /** The item's value: none for a plot item, else its added cost scaled by its base item, from 1 to the largest int. */
     int cost(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
     /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
