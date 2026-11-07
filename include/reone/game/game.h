@@ -2391,6 +2391,7 @@ private:
      * Returns the leader creature.
      */
     std::shared_ptr<Creature> getConsoleLeader();
+    void addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize);
 
     /**
      * Returns the current Area.
@@ -2406,6 +2407,10 @@ private:
     void consoleAddItem(const ConsoleArgs &tokens);
     void consoleGiveXP(const ConsoleArgs &tokens);
     void consoleGiveGold(const ConsoleArgs &tokens);
+    void consoleGiveItem(const ConsoleArgs &tokens);
+    void consoleHeal(const ConsoleArgs &tokens);
+    void consoleInvulnerability(const ConsoleArgs &tokens);
+    void consoleWhereAmI(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleCamera(const ConsoleArgs &tokens);
     void consoleCamPos(const ConsoleArgs &tokens);
