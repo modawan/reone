@@ -1400,6 +1400,14 @@ void ModuleSnapshotBuilder::writeCreaturePerception(
     put(record, Gff::Field::newList("PerceptionList", std::move(perceptions)));
 }
 
+// TSL keeps how a lock's DC to open it is counted: the kind, its modifier and
+// the PC level the object took.
+static void putLockDifficulty(Gff &record, const Lock &lock) {
+    put(record, Gff::Field::newByte("OpenLockDiff", static_cast<uint32_t>(lock.difficulty())));
+    put(record, Gff::Field::newChar("OpenLockDiffMod", lock.difficultyModifier()));
+    put(record, Gff::Field::newByte("PCLevelAtSpawn", lock.pcLevelAtSpawn()));
+}
+
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     const Door &door, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(door, ResType::Utd, 8);
@@ -1413,8 +1421,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     put(*result, Gff::Field::newByte("GenericType", door._genericType));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(door._faction)));
     put(*result, Gff::Field::newByte("OpenState", static_cast<uint8_t>(door._state)));
-    put(*result, Gff::Field::newByte("Locked", door._locked));
-    put(*result, Gff::Field::newByte("Lockable", door._lockable));
+    put(*result, Gff::Field::newByte("Locked", door.lock().isLocked()));
+    put(*result, Gff::Field::newByte("Lockable", door.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
     put(*result, Gff::Field::newShort("CurrentHP", door._currentHitPoints));
     put(*result, Gff::Field::newByte("Dead", door.isDead()));
@@ -1429,10 +1437,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     if (_game.isTSL()) {
         put(*result, Gff::Field::newInt("OwnerDemolitions", door.ownerDemolitionsSkill()));
     }
-    put(*result, Gff::Field::newByte("KeyRequired", door._keyRequired));
-    put(*result, Gff::Field::newByte("AutoRemoveKey", door._autoRemoveKey));
-    put(*result, Gff::Field::newByte("OpenLockDC", door._openLockDC));
-    put(*result, Gff::Field::newByte("CloseLockDC", door._closeLockDC));
+    put(*result, Gff::Field::newByte("KeyRequired", door.lock().isKeyRequired()));
+    put(*result, Gff::Field::newByte("AutoRemoveKey", door.lock().isAutoRemoveKey()));
+    put(*result, Gff::Field::newByte("OpenLockDC", door.lock().openDC()));
+    if (_game.isTSL()) {
+        putLockDifficulty(*result, door.lock());
+    }
+    put(*result, Gff::Field::newByte("CloseLockDC", door.lock().closeDC()));
     put(*result, Gff::Field::newByte("LinkedToFlags", door._linkedToFlags));
     put(*result, Gff::Field::newCExoString("LinkedTo", door._linkedTo));
     put(*result, Gff::Field::newResRef("LinkedToModule", door._linkedToModule));
@@ -1449,8 +1460,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newInt("Animation", placeable._animation));
     put(*result, Gff::Field::newByte("Open", placeable._open));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(placeable._faction)));
-    put(*result, Gff::Field::newByte("Locked", placeable._locked));
-    put(*result, Gff::Field::newByte("Lockable", placeable._lockable));
+    put(*result, Gff::Field::newByte("Locked", placeable.lock().isLocked()));
+    put(*result, Gff::Field::newByte("Lockable", placeable.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", placeable._hitPoints));
     put(*result, Gff::Field::newShort("CurrentHP", placeable._currentHitPoints));
     put(*result, Gff::Field::newByte("Dead", placeable.isDead()));
@@ -1466,6 +1477,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("TrapOneShot", placeable.trapOneShot()));
     if (_game.isTSL()) {
         put(*result, Gff::Field::newInt("OwnerDemolitions", placeable.ownerDemolitionsSkill()));
+        putLockDifficulty(*result, placeable.lock());
     }
     // A portrait ID naming a row is saved in place of the portrait resref.
     if (placeable._portraitId != Placeable::kNoPortraitId) {
@@ -1480,7 +1492,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
         put(*result, Gff::Field::newDword("Appearance", placeable._appearance));
         put(*result, Gff::Field::newCExoLocString("LocName", placeable._locName.id(), placeable._locName.str()));
         put(*result, Gff::Field::newCExoLocString("Description", placeable._description.id(), placeable._description.str()));
-        put(*result, Gff::Field::newByte("OpenLockDC", placeable._openLockDC));
+        put(*result, Gff::Field::newByte("OpenLockDC", placeable.lock().openDC()));
         put(*result, Gff::Field::newByte("Hardness", placeable._hardness));
         put(*result, Gff::Field::newByte("Fort", placeable._fort));
         put(*result, Gff::Field::newByte("Will", placeable._will));

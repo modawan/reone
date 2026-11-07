@@ -176,8 +176,6 @@ void showAnimation(Object &object, int animation) {
     }
 }
 
-// The clip plays for its length at the speed given, and a loop given a
-// duration plays for that long; without a clip the action takes a second.
 // From 30 seconds on, the same animation queued right behind it at the same
 // speed is dropped. A placeable or door takes the animation as its state on
 // every update while the action runs, and keeps it at the end; a creature
@@ -193,6 +191,9 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
     }
     if (_playing) {
         _timer.update(dt);
+        if (_workSoundDue) {
+            *_workSoundDue -= dt;
+        }
     } else {
         float length = 0.0f;
         bool fireForget = false;
@@ -215,6 +216,7 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         }
         _timer.reset(duration);
         _playing = true;
+        scheduleWorkSound(actor);
         _firstRun = false;
     }
     if (_durationSeconds >= kCoalescingSeconds) {
@@ -226,6 +228,7 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
             return other.animation() == _animation && other.speed() == _speed;
         });
     }
+    playDueWorkSound();
     if (!_timer.elapsed()) {
         if (placeable) {
             placeable->setStateAnimation(_animation);
@@ -241,6 +244,31 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         creature->refreshPauseAnimation();
     }
     complete();
+}
+
+// The controlled creature hears a work clip's sound its set time into the
+// clip; any other object, or an action taken up again after it had run, hears
+// it at once.
+void PlayAnimationAction::scheduleWorkSound(const Object &actor) {
+    const auto sound = workSound(_animation, _game.isTSL());
+    if (!sound) {
+        return;
+    }
+    const bool leader = _game.party().getLeader().get() == &actor;
+    _workSoundDue = _firstRun && leader ? sound->delaySeconds : 0.0f;
+}
+
+// The sound is not tied to a place, though it plays at the volume of the
+// one-shot positional sounds.
+void PlayAnimationAction::playDueWorkSound() {
+    if (!_workSoundDue || *_workSoundDue > 0.0f) {
+        return;
+    }
+    _workSoundDue.reset();
+    const auto sound = workSound(_animation, _game.isTSL());
+    if (auto clip = _services.resource.audioClips.get(sound->resRef)) {
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+    }
 }
 
 std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {

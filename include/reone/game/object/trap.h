@@ -55,6 +55,8 @@ struct TrapTypeRow {
 
 /** The blast of a mine set on a locked object, as it goes off. */
 struct MineBlast {
+    /** The creature that set the mine; none once it is gone. */
+    std::shared_ptr<Creature> setter;
     /** The setter's Demolitions rank. */
     int rank {0};
     /** The blast's check: a share of the rank, the mine's bonus and a roll of 20. */
@@ -172,8 +174,14 @@ public:
      */
     std::optional<MineBlast> updateMineBlast(float dt, int rankDivisor, int lockDC);
 
-    /** Report a mine's blast to the player. The mine is spent and its trigger goes. */
+    /** Report a mine's blast at a door to the player, its check in full. The mine is spent. */
     void reportMineBlast(Game &game, const MineBlast &blast);
+
+    /**
+     * Report a mine's blast at a placeable: the setter, when the player
+     * controls it, is told only that a trap went off. The mine is spent.
+     */
+    void reportPlaceableMineBlast(Game &game, const MineBlast &blast);
 
     bool isArmed() const { return _armed; }
     bool isDetectable() const { return _detectable; }
@@ -252,6 +260,8 @@ private:
 
     int shiftedDC(int dc, DCRule rule, const Game &game) const;
     void removeLinkedMine(Game &game);
+    /** A mine that went off is spent: disarmed, lost from sight, and its trigger goes. */
+    void spendMine(Game &game);
 };
 
 } // namespace game

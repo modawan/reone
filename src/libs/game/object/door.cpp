@@ -127,7 +127,6 @@ void Door::deserializeAll(
             }
         }
     }
-    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
     {
         float bearing;
         if (gff.readFloat(bearing, "Bearing")) {
@@ -151,12 +150,7 @@ void Door::deserializeAll(
         gff.readBool(_plot, "Plot");
     }
     gff.readBool(_minOneHP, "Min1HP");
-    if (gff.readString(_keyName, "KeyName")) {
-        boost::to_lower(_keyName);
-    }
-    gff.readBool(_keyRequired, "KeyRequired");
-    gff.readByte(_openLockDC, "OpenLockDC");
-    gff.readByte(_closeLockDC, "CloseLockDC");
+    _lock.deserialize(gff, _game.isTSL(), false);
     gff.readByte(_secretDoorDC, "SecretDoorDC");
     gff.readResRef(_conversation, "Conversation");
     gff.readWord(_portraitId, "PortraitId");
@@ -165,11 +159,9 @@ void Door::deserializeAll(
     gff.readResRef(_onDamaged, "OnDamaged");
     gff.readResRef(_onDeath, "OnDeath");
     gff.readResRef(_onHeartbeat, "OnHeartbeat");
-    gff.readResRef(_onLock, "OnLock");
     gff.readResRef(_onMeleeAttacked, "OnMeleeAttacked");
     gff.readResRef(_onOpen, "OnOpen");
     gff.readResRef(_onSpellCastAt, "OnSpellCastAt");
-    gff.readResRef(_onUnlock, "OnUnlock");
     gff.readResRef(_onUserDefined, "OnUserDefined");
     gff.readResRef(_onClick, "OnClick");
     gff.readResRef(_onFailToOpen, "OnFailToOpen");
@@ -178,8 +170,6 @@ void Door::deserializeAll(
     // A saved door without a DC keeps the current one as shifted for difficulty.
     // Placed doors take their DCs from the blueprint alone.
     _trap.deserializeArming(gff, _game, identityContext.isSerializedState());
-    gff.readBool(_locked, "Locked");
-    gff.readBool(_lockable, "Lockable");
     gff.readByte(_linkedToFlags, "LinkedToFlags");
     gff.readString(_linkedTo, "LinkedTo");
     gff.readResRef(_linkedToModule, "LinkedToModule");
@@ -214,8 +204,9 @@ void Door::loadAppearance() {
         _blocksSight = doors->getInt(_genericType, "blocksight", 1) != 0;
         soundType = doors->getInt(_genericType, "soundapptype");
     }
-    _soundArmorType = boost::to_lower_copy(
-        getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds")->getString(soundType, "armortype"));
+    auto sounds = getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds");
+    _soundArmorType = boost::to_lower_copy(sounds->getString(soundType, "armortype"));
+    _lock.setLockedSound(sounds->getString(soundType, "locked"));
 
     _outline.clear();
     auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
@@ -393,7 +384,7 @@ void Door::damage(
         return;
     }
 
-    _locked = false;
+    _lock.setLocked(false);
     if (damager) {
         open(*damager);
     } else {
@@ -778,8 +769,7 @@ void Door::onOpen(uint32_t triggererId) {
     _game.scriptRunner().run(
         _onOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)}});
+         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)}});
 }
 
 void Door::receiveClick(const std::shared_ptr<Object> &clicker, std::optional<int> transition) {
@@ -798,15 +788,7 @@ void Door::receiveClick(const std::shared_ptr<Object> &clicker, std::optional<in
     }
     _game.scriptRunner().run(
         _onClick,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(_lastEnteredId)}});
-}
-
-void Door::onLocked() {
-    if (_onLock.empty()) {
-        return;
-    }
-    _game.scriptRunner().run(_onLock, {{script::ArgKind::Caller, Variable::ofObject(_id)}});
+        {{script::ArgKind::Caller, Variable::ofObject(_id)}});
 }
 
 void Door::onFailToOpen(uint32_t openerId, bool quiet) {
@@ -814,10 +796,9 @@ void Door::onFailToOpen(uint32_t openerId, bool quiet) {
     if (!_onFailToOpen.empty()) {
         _game.scriptRunner().run(
             _onFailToOpen,
-            {{script::ArgKind::Caller, Variable::ofObject(_id)},
-             {script::ArgKind::ClickingObject, Variable::ofObject(openerId)}});
+            {{script::ArgKind::Caller, Variable::ofObject(_id)}});
     }
-    if (!_locked || quiet) {
+    if (!_lock.isLocked() || quiet) {
         return;
     }
     // A door with an order to open itself says nothing.
@@ -827,11 +808,10 @@ void Door::onFailToOpen(uint32_t openerId, bool quiet) {
             return;
         }
     }
-    // Otherwise the creature the player controls hears the door is locked.
-    static constexpr int kLockedStrRef = 1437;
+    // Otherwise the creature the player controls is told the door is locked.
     auto leader = _game.party().getLeader();
     if (leader && leader->id() == openerId) {
-        _game.addFeedbackMessage(kLockedStrRef);
+        presentLocked(_lock, kLockedSoundHeight);
     }
 }
 
@@ -879,10 +859,6 @@ void Door::receiveAttackEvent(uint32_t attackerId, std::optional<std::reference_
 void Door::receiveDeathSignal(uint32_t killerId) {
     setLastKiller(killerId);
     _game.scriptRunner().run(_onDeath, {{script::ArgKind::Caller, Variable::ofObject(_id)}});
-}
-
-void Door::setLocked(bool locked) {
-    _locked = locked;
 }
 
 bool canBashDoor(const Door &door) {
@@ -969,25 +945,30 @@ void Door::armMine(int trapType, int detectDC, int disarmDC, int ownerDemolition
 }
 
 // A blast that breaks the lock unlocks the door, which swings open a moment
-// later.
+// later. The blast's check is against the DC to open the lock. Either way the
+// mine's setter becomes the door's latest entrant.
 void Door::updateMineBlast(float dt) {
     if (_mineOpenDelay) {
         *_mineOpenDelay -= dt;
         if (*_mineOpenDelay < 0.0f) {
             _mineOpenDelay.reset();
-            _locked = false;
+            _lock.setLocked(false);
             open();
         }
     }
-    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _openLockDC);
+    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _lock.unlockDC(_game));
     if (!blast) {
         return;
     }
     if (blast->opens) {
+        // The door opens a moment later; it is told at once that its setter unlocked it.
         _mineOpenDelay = kMineOpenDelay;
-        _game.scriptRunner().run(_onUnlock, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+        _lock.signalUnlocked(*this, blast->setter);
     }
     _trap.reportMineBlast(_game, *blast);
+    if (blast->setter) {
+        _lastEnteredId = blast->setter->id();
+    }
 }
 
 // END Traps

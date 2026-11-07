@@ -17,6 +17,7 @@
 
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/action/usetalentatlocation.h"
@@ -85,9 +86,19 @@ void UseTalentOnObjectAction::dispatchToAction(Object &actor) {
         _action = std::move(cast);
         break;
     }
-    case TalentType::Skill:
-        _action = _game.newAction<UseSkillAction>(static_cast<SkillType>(_chosenTalent->value()), _target);
+    case TalentType::Skill: {
+        // Security is an unlock.
+        const auto skill = static_cast<SkillType>(_chosenTalent->value());
+        if (!creature->admitSkillUse(skill, *_target)) {
+            return;
+        }
+        if (skill != SkillType::Security) {
+            _action = _game.newAction<UseSkillAction>(skill, _target);
+        } else if (UnlockObjectAction::admits(*creature)) {
+            _action = _game.newAction<UnlockObjectAction>(_target);
+        }
         break;
+    }
     default:
         break;
     }

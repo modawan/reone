@@ -24,10 +24,13 @@ namespace reone {
 
 namespace game {
 
+enum class SkillResult;
+class Creature;
+
 /**
- * Use of a skill on a target: Security opens a lock, Demolitions sets a mine
- * from a kit, or disarms, recovers, flags or examines one, and Treat Injury
- * heals a creature with a medical item.
+ * Use of a skill on a target: Demolitions sets a mine from a kit, or
+ * disarms, recovers, flags or examines one, and Treat Injury heals a creature
+ * with a medical item. Security is an unlock (UnlockObjectAction).
  */
 class UseSkillAction : public Action {
 public:
@@ -51,13 +54,13 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
-    /** Clearing mine work part-way returns the actor to its ordinary animation. */
+    /** Clearing mine work or a heal part-way returns the actor to its ordinary animation. */
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
 
     SkillType skill() const { return _skill; }
     /**
-     * Security opens a lock; Demolitions sets, disarms, recovers, flags or
-     * examines a mine; Treat Injury heals.
+     * Demolitions sets, disarms, recovers, flags or examines a mine; Treat
+     * Injury heals.
      */
     uint32_t serializedActionId() const override;
     /**
@@ -67,7 +70,7 @@ public:
      */
     std::optional<SavedActionRecord> saveFacingState() const override;
     /**
-     * A saved skill command: a mine worked on, a mine set, an unlock or a heal.
+     * A saved skill command: a mine worked on, a mine set or a heal.
      * None for a mine set whose kit is gone.
      */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
@@ -83,8 +86,6 @@ private:
     /** Demolitions and Treat Injury: approach, then work for a while, then resolve. */
     int _phase {0};
     float _workTime {0.0f};
-    /** Security: whether the work at the lock has begun. */
-    bool _workingAtLock {false};
 
     void executeDemolitions(Creature &actor, float dt);
     bool setsMine() const;
@@ -92,8 +93,9 @@ private:
     void resolveSetMine(Creature &actor);
     void executeTreatInjury(Creature &actor, float dt);
     void resolveHeal(Creature &actor, Creature &target);
-    /** Tells the controlling player the skill's roll against \p dc and its result. */
-    void reportSkill(Creature &actor, int actionStrRef, int roll, int rank, int dc, int result) const;
+    /** Tells the controlling player the skill's roll against \p dc and its result, over \p target too for some. */
+    void reportSkill(Creature &actor, const std::shared_ptr<Object> &target, int actionStrRef, int roll, int rank, int dc,
+                     SkillResult result) const;
 };
 
 } // namespace game

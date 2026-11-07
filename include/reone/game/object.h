@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -54,6 +55,7 @@ class Action;
 class Area;
 class Game;
 class Item;
+class Lock;
 class ModuleSnapshotBuilder;
 class Room;
 class Trap;
@@ -187,12 +189,22 @@ public:
 
     uint32_t id() const { return _id; }
     virtual std::string getOnSpellCastAt() const { return {}; }
+    /** The lock the object carries: a door's or a placeable's; none for any other object. */
+    virtual std::optional<std::reference_wrapper<Lock>> findLock() { return std::nullopt; }
+    /** The lock the object carries: a door's or a placeable's; none for any other object. */
+    virtual std::optional<std::reference_wrapper<const Lock>> findLock() const { return std::nullopt; }
     /** The trap the object carries: a door's, a placeable's or a trigger's; none for any other object. */
     virtual std::optional<std::reference_wrapper<Trap>> findTrap() { return std::nullopt; }
     /** The trap the object carries: a door's, a placeable's or a trigger's; none for any other object. */
     virtual std::optional<std::reference_wrapper<const Trap>> findTrap() const { return std::nullopt; }
     /** Shows \p text over the object for \p duration seconds; no duration clears it. */
     void setFeedbackText(std::string text, float duration);
+    /**
+     * Tell the player the object is locked: the locked sound of its \p lock,
+     * \p soundHeight above it, the locked text over it for five seconds, and
+     * the line in the log.
+     */
+    void presentLocked(const Lock &lock, float soundHeight);
     const std::string &feedbackText() const { return _feedbackText; }
     Game &game() const { return _game; }
     ServicesView &services() const { return _services; }

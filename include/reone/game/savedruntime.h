@@ -122,6 +122,8 @@ enum class SavedSignalEventType : uint16_t {
     Disarmed = 24,
     Used = 25,
     Locked = 28,
+    /** A door or placeable was unlocked; the caller is the one who unlocked it. */
+    Unlocked = 29,
     /** A creature walked up to the trigger or door it was heading for. */
     Clicked = 30,
     FailToOpen = 34,

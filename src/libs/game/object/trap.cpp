@@ -280,9 +280,9 @@ std::optional<MineBlast> Trap::updateMineBlast(float dt, int rankDivisor, int lo
     if (!_armed) {
         return std::nullopt;
     }
-    auto setter = _mineSetter.resolve();
     MineBlast blast;
-    blast.rank = setter ? setter->getUnopposedSkillRank(SkillType::Demolitions) : 0;
+    blast.setter = _mineSetter.resolve();
+    blast.rank = blast.setter ? blast.setter->getUnopposedSkillRank(SkillType::Demolitions) : 0;
     blast.total = blast.rank / rankDivisor + _mineBlastBonus + kMineBlastRoll;
     blast.lockDC = lockDC;
     blast.opens = blast.total >= lockDC;
@@ -301,6 +301,17 @@ void Trap::reportMineBlast(Game &game, const MineBlast &blast) {
         MessageLog::kFeedbackMessageType,
         MessageLog::Style::Normal,
         game.getFeedbackText(kMineBlastReportStrRef));
+    spendMine(game);
+}
+
+void Trap::reportPlaceableMineBlast(Game &game, const MineBlast &blast) {
+    if (blast.setter && game.party().getLeader() == blast.setter) {
+        reportTriggered(game);
+    }
+    spendMine(game);
+}
+
+void Trap::spendMine(Game &game) {
     _armed = false;
     _detection.detectedBy.clear();
     removeLinkedMine(game);

@@ -1197,6 +1197,16 @@ public:
     std::shared_ptr<graphics::Texture> latestOwnShell(uint64_t &order) const;
     /** Whether the creature may use its Stealth skill at all. */
     bool canUseStealthSkill() const;
+    /** Whether the creature may use the skill, by the skills table's rule (game::canUseSkill). */
+    bool canUseSkill(SkillType skill) const;
+    /** Whether the creature may use the skill; the controlled creature is told when it may not. */
+    bool admitSkillUse(SkillType skill) const;
+    /**
+     * Whether the creature may use the skill on \p target: not one it cannot
+     * use, nor a hostile skill on a creature that regards it as a friend. The
+     * controlled creature is told why it may not.
+     */
+    bool admitSkillUse(SkillType skill, const Object &target) const;
     /** Whether the player can put this creature into stealth. */
     bool isStealthCapable() const;
     /** The stealth skill: leave stealth, or enter it out of combat and conversation. */

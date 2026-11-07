@@ -2296,11 +2296,49 @@ void Creature::toggleStealth() {
     }
 }
 
+bool Creature::canUseSkill(SkillType skill) const {
+    return game::canUseSkill(_services.game.skills, skill, _attributes, _game.isTSL());
+}
+
+// The controlled creature is told it cannot use a skill.
+static void tellSkillUnusable(Game &game, const Creature &creature) {
+    if (game.party().getLeader().get() == &creature) {
+        game.addFeedbackMessage(kSkillUnusableStrRef);
+    }
+}
+
+bool Creature::admitSkillUse(SkillType skill) const {
+    if (canUseSkill(skill)) {
+        return true;
+    }
+    tellSkillUnusable(_game, *this);
+    return false;
+}
+
+// A creature regards another as a friend from this reputation on.
+static constexpr int kLowestFriendReputation = 90;
+// The line the controlled creature gets for a hostile skill turned on a
+// friend: the talk table's first line.
+static constexpr int kFriendlyTargetStrRef = 0;
+
+bool Creature::admitSkillUse(SkillType skill, const Object &target) const {
+    if (!admitSkillUse(skill)) {
+        return false;
+    }
+    const auto *creature = dyn_cast<const Creature>(&target);
+    if (!_services.game.skills.get(skill)->hostile || !creature ||
+        creature->getReputationToward(*this) < kLowestFriendReputation) {
+        return true;
+    }
+    if (_game.party().getLeader().get() == this) {
+        _game.addFeedbackMessage(kFriendlyTargetStrRef);
+    }
+    return false;
+}
+
 void Creature::useStealthSkill() {
     if (!canUseStealthSkill()) {
-        if (_game.party().getLeader().get() == this) {
-            _game.addFeedbackMessage(kSkillUnusableStrRef);
-        }
+        tellSkillUnusable(_game, *this);
         return;
     }
     toggleStealth();
@@ -5125,7 +5163,7 @@ Creature::ScriptAnimation Creature::getScriptAnimation(int id) const {
         result.clip = getAnimationName(AnimationType::LoopingReady);
         result.loop = true;
     } else {
-        const int row = id < kPauseAnimationId ? id : scriptAnimationRow(id, characterModel);
+        const int row = id < kPauseAnimationId ? id : scriptAnimationRow(id, characterModel, getWieldType());
         if (row >= 0) {
             result.clip = _services.game.animations.getNameById(static_cast<uint32_t>(row));
         }
@@ -5136,7 +5174,7 @@ Creature::ScriptAnimation Creature::getScriptAnimation(int id) const {
         }
         if (result.clip.empty() && id != kNoPauseFallbackAnimationId) {
             result.clip = _services.game.animations.getNameById(
-                static_cast<uint32_t>(scriptAnimationRow(kPauseAnimationId, characterModel)));
+                static_cast<uint32_t>(scriptAnimationRow(kPauseAnimationId, characterModel, getWieldType())));
         }
         result.loop = !isFireForgetCutClip(id) &&
                       (row < 0 || !_services.game.animations.isFireForgetById(static_cast<uint32_t>(row)));

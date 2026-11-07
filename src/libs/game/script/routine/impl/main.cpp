@@ -3782,11 +3782,13 @@ static Variable SetLocked(const std::vector<Variable> &args, const RoutineContex
     auto bLocked = getInt(args, 1);
 
     // Transform
-    auto target = checkDoor(oTarget);
     bool locked = static_cast<bool>(bLocked);
 
     // Execute
-    target->setLocked(locked);
+    // Only a door or placeable takes the flag, and nothing is told of it.
+    if (auto lock = oTarget->findLock()) {
+        lock->get().setLocked(locked);
+    }
     return Variable::ofNull();
 }
 
@@ -3794,19 +3796,10 @@ static Variable GetLocked(const std::vector<Variable> &args, const RoutineContex
     // Load
     auto oTarget = getObject(args, 0, ctx);
 
-    // Transform
-    auto target = checkDoor(oTarget);
-
     // Execute
-    return Variable::ofInt(static_cast<int>(target->isLocked()));
-}
-
-static Variable GetClickingObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    if (const Variable *object = ctx.execution.findArg(ArgKind::ClickingObject)) {
-        return *object;
-    }
-    return Variable::ofObject(kObjectInvalid);
+    // Anything but a door or placeable is never locked.
+    const auto lock = oTarget->findLock();
+    return Variable::ofInt(lock && lock->get().isLocked() ? 1 : 0);
 }
 
 static Variable SetAssociateListenPatterns(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4093,12 +4086,16 @@ static Variable GetLastDisturbed(const std::vector<Variable> &args, const Routin
 
 static Variable GetLastLocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastLocked");
+    // Only a door or placeable remembers who locked it.
+    const auto lock = getCaller(ctx)->findLock();
+    return Variable::ofObject(lock ? lock->get().lastLockedBy() : kObjectInvalid);
 }
 
 static Variable GetLastUnlocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastUnlocked");
+    // Only a door or placeable remembers who unlocked it.
+    const auto lock = getCaller(ctx)->findLock();
+    return Variable::ofObject(lock ? lock->get().lastUnlockedBy() : kObjectInvalid);
 }
 
 static Variable GetInventoryDisturbType(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5741,52 +5738,49 @@ static Variable GetTrapDetectDC(const std::vector<Variable> &args, const Routine
 
 static Variable GetLockKeyRequired(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockKeyRequired");
+    // Anything but a door or placeable needs no key.
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofInt(lock && lock->get().isKeyRequired() ? 1 : 0);
 }
 
 static Variable GetLockKeyTag(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockKeyTag");
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofString(lock ? lock->get().keyName() : "");
 }
 
 static Variable GetLockLockable(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockLockable");
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofInt(lock && lock->get().isLockable() ? 1 : 0);
 }
 
 static Variable GetLockUnlockDC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oObject = getObject(args, 0, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetLockUnlockDC");
+    // Anything but a door or placeable has no DC.
+    const auto lock = oObject->findLock();
+    return Variable::ofInt(lock ? lock->get().unlockDC(ctx.game) : 0);
 }
 
 static Variable GetLockLockDC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockLockDC");
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofInt(lock ? lock->get().closeDC() : 0);
 }
 
 static Variable GetPCLevellingUp(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -8705,7 +8699,7 @@ void Routines::registerMainKotorRoutines() {
     insert(535, "GetTrapDisarmDC", R_INT, {R_OBJECT}, &GetTrapDisarmDC);
     insert(536, "GetTrapDetectDC", R_INT, {R_OBJECT}, &GetTrapDetectDC);
     insert(537, "GetLockKeyRequired", R_INT, {R_OBJECT}, &GetLockKeyRequired);
-    insert(538, "GetLockKeyTag", R_INT, {R_OBJECT}, &GetLockKeyTag);
+    insert(538, "GetLockKeyTag", R_STRING, {R_OBJECT}, &GetLockKeyTag);
     insert(539, "GetLockLockable", R_INT, {R_OBJECT}, &GetLockLockable);
     insert(540, "GetLockUnlockDC", R_INT, {R_OBJECT}, &GetLockUnlockDC);
     insert(541, "GetLockLockDC", R_INT, {R_OBJECT}, &GetLockLockDC);
@@ -9261,7 +9255,7 @@ void Routines::registerMainTslRoutines() {
     insert(535, "GetTrapDisarmDC", R_INT, {R_OBJECT}, &GetTrapDisarmDC);
     insert(536, "GetTrapDetectDC", R_INT, {R_OBJECT}, &GetTrapDetectDC);
     insert(537, "GetLockKeyRequired", R_INT, {R_OBJECT}, &GetLockKeyRequired);
-    insert(538, "GetLockKeyTag", R_INT, {R_OBJECT}, &GetLockKeyTag);
+    insert(538, "GetLockKeyTag", R_STRING, {R_OBJECT}, &GetLockKeyTag);
     insert(539, "GetLockLockable", R_INT, {R_OBJECT}, &GetLockLockable);
     insert(540, "GetLockUnlockDC", R_INT, {R_OBJECT}, &GetLockUnlockDC);
     insert(541, "GetLockLockDC", R_INT, {R_OBJECT}, &GetLockLockDC);

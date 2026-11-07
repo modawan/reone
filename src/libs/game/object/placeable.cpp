@@ -113,12 +113,10 @@ void Placeable::deserializeAll(
     if (gff.readLocString(_locName, "LocName", _services.resource.strings)) {
         _name = _locName.str();
     }
-    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
     gff.readEnum(_faction, "Faction");
     gff.readBool(_plot, "Plot");
     gff.readBool(_minOneHP, "Min1HP");
-    gff.readByte(_openLockDC, "OpenLockDC");
-    gff.readString(_keyName, "KeyName");
+    _lock.deserialize(gff, _game.isTSL(), true);
     _trap.deserialize(gff);
     // A placeable keeps the DCs its record stores, saved or placed.
     _trap.deserializeArming(gff, _game, false);
@@ -135,11 +133,7 @@ void Placeable::deserializeAll(
     gff.readByte(_fort, "Fort");
     gff.readByte(_will, "Will");
     gff.readByte(_ref, "Ref");
-    gff.readBool(_lockable, "Lockable");
-    gff.readBool(_locked, "Locked");
     gff.readBool(_hasInventory, "HasInventory");
-    gff.readBool(_keyRequired, "KeyRequired");
-    gff.readByte(_closeLockDC, "CloseLockDC");
     gff.readBool(_open, "Open");
     gff.readBool(_partyInteract, "PartyInteract");
     // The two highest portrait IDs name no row and leave the portrait to its
@@ -159,11 +153,9 @@ void Placeable::deserializeAll(
     gff.readResRef(_onHeartbeat, "OnHeartbeat");
     gff.readResRef(_onInvDisturbed, "OnInvDisturbed");
     gff.readResRef(_onFailToOpen, "OnFailToOpen");
-    gff.readResRef(_onLock, "OnLock");
     gff.readResRef(_onMeleeAttacked, "OnMeleeAttacked");
     gff.readResRef(_onOpen, "OnOpen");
     gff.readResRef(_onSpellCastAt, "OnSpellCastAt");
-    gff.readResRef(_onUnlock, "OnUnlock");
     gff.readResRef(_onUsed, "OnUsed");
     gff.readResRef(_onUserDefined, "OnUserDefined");
     gff.readResRef(_onDialog, "OnDialog");
@@ -197,11 +189,14 @@ void Placeable::loadAppearance() {
     std::string modelName(boost::to_lower_copy(placeables->getString(_appearance, "modelname")));
     _hostileAppearance = placeables->getInt(_appearance, "hostile", 0) == 1;
     _preciseUse = placeables->getInt(_appearance, "preciseuse", 0) == 1;
+    _useSearch = placeables->getInt(_appearance, "usesearch", 0) != 0;
     _appearanceNameStrRef = placeables->getInt(_appearance, "strref", -1);
+    _canSeeHeight = placeables->getFloat(_appearance, "canseeheight", kEyeHeight);
     auto sounds = getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds");
     const auto soundType = placeables->getIntOpt(_appearance, "soundapptype");
     _soundArmorType = boost::to_lower_copy(sounds->getString(soundType.value_or(0), "armortype"));
     _openedSound = soundType ? boost::to_lower_copy(sounds->getString(*soundType, "opened")) : std::string();
+    _lock.setLockedSound(soundType ? sounds->getString(*soundType, "locked") : std::string());
 
     auto model = _services.resource.models.get(modelName);
     if (!model) {
@@ -268,7 +263,7 @@ void Placeable::damage(
     // opens for the controlled creature a second later; in TSL only when that
     // creature is close by.
     _plot = true;
-    _locked = false;
+    _lock.setLocked(false);
     auto leader = _game.party().getLeader();
     if (!leader || (_game.isTSL() && glm::distance(leader->position(), _position) >= kBrokenOpenReach)) {
         return;
@@ -303,13 +298,6 @@ void Placeable::onFailToOpen(uint32_t openerId) {
     _game.scriptRunner().run(
         _onFailToOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)}});
-}
-
-void Placeable::onLocked() {
-    if (_onLock.empty()) {
-        return;
-    }
-    _game.scriptRunner().run(_onLock, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
 void Placeable::onClosed(uint32_t closerId) {
@@ -494,17 +482,22 @@ void Placeable::armMine(int trapType, int detectDC, int disarmDC, int ownerDemol
                   linkedMine, setter, blastBonus, blast);
 }
 
-// A blast that breaks the lock unlocks the placeable at once.
+// A blast that breaks the lock, checked against the DC to open it, unlocks
+// the placeable at once and tells it that its setter unlocked it. Either way
+// the setter becomes the placeable's latest entrant.
 void Placeable::updateMineBlast(float dt) {
-    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _openLockDC);
+    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _lock.unlockDC(_game));
     if (!blast) {
         return;
     }
     if (blast->opens) {
-        _locked = false;
-        _game.scriptRunner().run(_onUnlock, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+        _lock.setLocked(false);
+        _lock.signalUnlocked(*this, blast->setter);
     }
-    _trap.reportMineBlast(_game, *blast);
+    _trap.reportPlaceableMineBlast(_game, *blast);
+    if (blast->setter) {
+        _lastEnteredId = blast->setter->id();
+    }
 }
 
 // END Traps
@@ -562,7 +555,7 @@ void Placeable::loadBodyBag(int appearance) {
     _tag = "body bag";
     _faction = Faction::Hostile1;
     _trap.setDisarmDC(kBodyBagDisarmDC);
-    _openLockDC = kBodyBagOpenLockDC;
+    _lock.setOpenDC(kBodyBagOpenLockDC, LockDifficulty::Standard, 0);
     _appearance = appearance;
     _hitPoints = _maxHitPoints = kBodyBagHitPoints;
     _currentHitPoints = kBodyBagHitPoints;

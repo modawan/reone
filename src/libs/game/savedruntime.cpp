@@ -51,6 +51,7 @@
 #include "reone/game/action/switchweapons.h"
 #include "reone/game/action/takeitem.h"
 #include "reone/game/action/unequipitem.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/action/wait.h"
@@ -1241,10 +1242,10 @@ bool isWaitCommand(const SavedActionRecord &record) {
     return !record.parameters.empty() && std::holds_alternative<float>(record.parameters.front().payload);
 }
 
-// An unlock keeps the target and the item used and, until it first runs, that
-// item's property.
+// An unlock keeps what UnlockObjectAction::restore reads: the target alone,
+// the target and the item used, or those and the item's property.
 bool isUnlockCommand(const SavedActionRecord &record) {
-    return record.hasParameterTypes({Type::Object, Type::Object}) ||
+    return record.hasParameterTypes({Type::Object}) || record.hasParameterTypes({Type::Object, Type::Object}) ||
            record.hasParameterTypes({Type::Object, Type::Object, Type::Integer});
 }
 
@@ -1301,7 +1302,7 @@ const SavedActionRestorer kRestorers[] {
      &GiveItemAction::restore},
     {SavedActionType::TakeItem, &hasParameters<Type::Object, Type::Object, Type::Integer>, &TakeItemAction::restore},
     {SavedActionType::DoCommand, &hasParameters<Type::ScriptSituation>, nullptr},
-    {SavedActionType::OpenLock, &isUnlockCommand, &UseSkillAction::restore},
+    {SavedActionType::OpenLock, &isUnlockCommand, &UnlockObjectAction::restore},
     {SavedActionType::Lock, &hasParameters<Type::Object>, &LockObjectAction::restore},
     {SavedActionType::OpenContainer, &hasParameters<Type::Object>, &OpenContainerAction::restore},
     {SavedActionType::MoveAwayFromLocation,
@@ -1524,7 +1525,8 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
             Signal::UserDefined,
             Signal::Entered, Signal::Exited, Signal::ModuleLoaded, Signal::ItemActivated, Signal::ItemAcquired,
             Signal::ItemLost, Signal::EncounterExhausted, Signal::InventoryOpened, Signal::InventoryClosed,
-            Signal::Disarmed, Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
+            Signal::Disarmed, Signal::Used, Signal::Locked, Signal::Unlocked, Signal::Clicked, Signal::FailToOpen,
+            Signal::ItemEquipped};
         const auto *event = std::get_if<SavedScriptEvent>(&payload);
         if (event && delivered.count(static_cast<Signal>(event->type)) != 0) {
             return SavedExecutionSupport::Executable;

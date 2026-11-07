@@ -18,6 +18,7 @@
 #pragma once
 
 #include <optional>
+#include <string>
 
 #include "types.h"
 
@@ -41,6 +42,48 @@ bool isAnimationLooping(AnimationType animation);
  * for a character or droid model and the pause for any other.
  */
 int scriptAnimationId(int constant, bool tsl, bool characterModel);
+
+/** The work clips actions queue before themselves, by their animation IDs. */
+enum class WorkAnimation {
+    /** Reaching to the ground: mine work on a mine on the ground. */
+    GetFromGround = 10059,
+    /** Reaching to waist height: mine work on a door or placeable. */
+    GetFromTable = 10060,
+    /** Working at a door's lock. */
+    UnlockDoor = 10128,
+    /** Working at any other lock. */
+    UnlockContainer = 10131,
+    /** Disarming a mine on the ground. */
+    DisarmTrigger = 10132,
+    /** Disarming a door's mine. */
+    DisarmDoor = 10134,
+    /** Disarming a placeable's mine. */
+    DisarmContainer = 10135,
+    /** Setting a mine. */
+    SetMine = 10140,
+    /** Recovering a mine from the ground. */
+    RecoverTrigger = 10141,
+    /** Burning through a door with a lightsaber (TSL). */
+    DoorSaber = 10429
+};
+
+/**
+ * The sound of a work clip, hard-wired to its animation ID: its resref, and
+ * how far into the clip the controlled creature hears it.
+ */
+struct WorkSound {
+    /** The sound played. */
+    std::string resRef;
+    /** Seconds into the clip the controlled creature hears it; others hear it at once. */
+    float delaySeconds {0.0f};
+};
+
+/**
+ * The work sound a PlayAnimation action with animation ID \p id plays,
+ * whatever queued it: the lock and mine work clips', and in TSL the door
+ * saber's. None for any other ID.
+ */
+std::optional<WorkSound> workSound(int id, bool tsl);
 
 /**
  * The animation ID a placeable's PlayAnimation constant stands for: the
@@ -88,12 +131,14 @@ std::string placeableFallbackClip(int id);
 
 /**
  * The animations.2da row that an animation ID from 10000 a PlayAnimation
- * constant stands for shows on a character or a creature model. The ready
- * loop (10001) is not covered: it follows the creature's state.
+ * constant or a work clip stands for shows on a character or a creature
+ * model. The ready loop (10001) is not covered: it follows the creature's
+ * state. The door saber's clip is the row of the sword class \p wield
+ * names, on a character model only.
  *
  * @return the row, or -1 when the model has none for the ID
  */
-int scriptAnimationRow(int id, bool characterModel);
+int scriptAnimationRow(int id, bool characterModel, CreatureWieldType wield);
 
 /**
  * The animation ID plays as an overlay on the animation beneath, at its

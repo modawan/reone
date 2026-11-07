@@ -35,6 +35,8 @@ struct Skill {
     bool allClassesCanUse {false};
     /** The ability whose modifier the skill adds. */
     Ability keyAbility {Ability::Strength};
+    /** The skill is not turned on a creature that regards its user as a friend. */
+    bool hostile {false};
 };
 
 } // namespace game

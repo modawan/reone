@@ -32,6 +32,11 @@ constexpr int kNumClasses = 6;
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;
 
+/** The name of the Security skill, which also names its use on a lock in the log and the target menu. */
+constexpr int kSecurityStrRef = 329;
+/** The name of recovering a mine, in the log and the target menu. */
+constexpr int kRecoverActionStrRef = 1531;
+
 constexpr char kSceneMain[] = "main";
 constexpr char kSceneMainMenu[] = "mainmenu";
 constexpr char kSceneCharGen[] = "chargen";

@@ -52,6 +52,8 @@ public:
     static constexpr int kCreditsItemType = 23;
     static constexpr int kStimItemType = 25;
     static constexpr int kDroidRepairItemType = 26;
+    /** Security spikes, which add to an unlock and offer themselves on a locked object's menu. */
+    static constexpr int kSecuritySpikeItemType = 27;
     static constexpr int kTrapKitItemType = 28;
     /** Body armour of armour classes 4 to 9, the first of six item types. */
     static constexpr int kArmorClass4ItemType = 31;

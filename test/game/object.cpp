@@ -2188,12 +2188,12 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
     auto destroyedAction = game.newAction<UnlockObjectAction>(destroyed);
     auto unsupportedTarget = game.newCreature();
     auto unsupportedAction = game.newAction<UnlockObjectAction>(unsupportedTarget);
-    // A placeable works at a lock at once, so the unsupported target is
-    // reached on the first tick.
+    // A placeable works at a lock at once, so the destroyed and unsupported
+    // targets are reached on the first tick.
     auto worker = game.newPlaceable();
 
     EXPECT_NO_THROW(missingAction->execute(missingAction, *actor, 0.0f));
-    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *actor, 0.0f));
+    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *worker, 0.0f));
     EXPECT_NO_THROW(unsupportedAction->execute(unsupportedAction, *worker, 0.0f));
 
     EXPECT_TRUE(missingAction->isCompleted());

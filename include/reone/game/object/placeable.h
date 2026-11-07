@@ -25,6 +25,7 @@
 
 #include "../object.h"
 
+#include "lock.h"
 #include "trap.h"
 
 namespace reone {
@@ -73,6 +74,8 @@ public:
     bool hasInventory() const { return _hasInventory; }
     /** Whether the placeable is destroyed once its inventory is empty. */
     bool dieWhenEmpty() const { return _dieWhenEmpty; }
+    /** Whether the placeable's look is searched for its contents (placeables.2da UseSearch). */
+    bool useSearch() const { return _useSearch; }
     bool isSelectable() const override { return _usable; }
     glm::vec3 getSelectablePosition() const override;
     bool isUsable() const { return _usable; }
@@ -83,13 +86,14 @@ public:
     bool isHostileAppearance() const { return _hostileAppearance; }
     /** Destruction animation and pending deletion do not change the HP predicate. */
     bool isDead() const override { return !_plot && currentHitPoints() <= 0; }
-    bool isLocked() const { return _locked; }
-    bool isKeyRequired() const { return _keyRequired; }
+    bool isLocked() const { return _lock.isLocked(); }
     bool isNotBlastable() const { return _notBlastable; }
-    const std::string &keyName() const { return _keyName; }
-    uint8_t closeLockDC() const { return _closeLockDC; }
-    /** Run the script for being locked. */
-    void onLocked();
+
+    /** The placeable's lock; its locked sound plays where the placeable stands. */
+    Lock &lock() { return _lock; }
+    const Lock &lock() const { return _lock; }
+    std::optional<std::reference_wrapper<Lock>> findLock() override { return std::ref(_lock); }
+    std::optional<std::reference_wrapper<const Lock>> findLock() const override { return std::cref(_lock); }
 
     /**
      * Shows animation \p id for a conversation: as a loop, or once and then
@@ -125,7 +129,7 @@ public:
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
     int trapBaseType() const { return _trap.type(); }
-    const std::string &trapKeyTag() const { return _keyName; }
+    const std::string &trapKeyTag() const { return _lock.keyName(); }
     int trapDetectDC() const { return _trap.detectDC(_game); }
     int trapDisarmDC() const { return _trap.disarmDC(_game); }
     const Trap &trap() const { return _trap; }
@@ -193,7 +197,7 @@ public:
     void runEndDialogScript();
     void update(float dt) override;
 
-    void setLocked(bool locked) { _locked = locked; }
+    void setLocked(bool locked) { _lock.setLocked(locked); }
 
     // Body bags
 
@@ -293,12 +297,10 @@ private:
 
     // Serializable
     resource::LocString _locName;
-    bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
-    uint8_t _openLockDC {0};
-    std::string _keyName;
     Trap _trap {Trap::Carrier::Placeable};
     bool _usable {false};
+    Lock _lock {LockDifficulty::None};
     bool _hostileAppearance {false};
     bool _preciseUse {false};
     /** The armour type of the appearance's sound type; a blank sound type sounds as the first. */
@@ -315,12 +317,9 @@ private:
     uint8_t _fort {0};
     uint8_t _will {0};
     uint8_t _ref {0};
-    bool _lockable {false};
-    bool _locked {false};
     uint32_t _lastEnteredId {script::kObjectInvalid};
     bool _hasInventory {false};
-    bool _keyRequired {false};
-    uint8_t _closeLockDC {0};
+    bool _useSearch {false};
     bool _partyInteract {false};
     uint16_t _portraitId {kNoPortraitId};
     std::string _portrait;
@@ -334,11 +333,9 @@ private:
     std::string _onDeath;
     std::string _onInvDisturbed;
     std::string _onFailToOpen;
-    std::string _onLock;
     std::string _onMeleeAttacked;
     std::string _onOpen;
     std::string _onSpellCastAt;
-    std::string _onUnlock;
     std::string _onUsed;
     std::string _onDialog;
     std::string _onEndDialogue;

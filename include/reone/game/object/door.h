@@ -27,6 +27,7 @@
 
 #include "../object.h"
 
+#include "lock.h"
 #include "trap.h"
 
 namespace reone {
@@ -39,6 +40,9 @@ struct AttackEventFields;
 
 class Door : public Object {
 public:
+    /** How far above the door its locked sound plays. */
+    static constexpr float kLockedSoundHeight = 1.5f;
+
     Door(
         uint32_t id,
         std::string sceneName,
@@ -112,18 +116,17 @@ public:
 
     /** Destruction animation and pending deletion do not change the HP predicate. */
     bool isDead() const override { return !_plot && currentHitPoints() <= 0; }
-    bool isLocked() const { return _locked; }
+    bool isLocked() const { return _lock.isLocked(); }
     bool isStatic() const { return _static; }
-    bool isKeyRequired() const { return _keyRequired; }
-    bool isAutoRemoveKey() const { return _autoRemoveKey; }
     bool isNotBlastable() const { return _notBlastable; }
 
-    const std::string &keyName() const { return _keyName; }
-    uint8_t closeLockDC() const { return _closeLockDC; }
+    /** The door's lock; its locked sound plays a metre and a half above the door. */
+    Lock &lock() { return _lock; }
+    const Lock &lock() const { return _lock; }
+    std::optional<std::reference_wrapper<Lock>> findLock() override { return std::ref(_lock); }
+    std::optional<std::reference_wrapper<const Lock>> findLock() const override { return std::cref(_lock); }
 
     void onOpen(uint32_t triggererId);
-    /** Run the script for being locked. */
-    void onLocked();
     /**
      * The door failed to open for the opener: its script for that runs, and a
      * door still locked tells the opener so, unless quiet or the door is to
@@ -162,7 +165,7 @@ public:
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
     int trapBaseType() const { return _trap.type(); }
-    const std::string &trapKeyTag() const { return _keyName; }
+    const std::string &trapKeyTag() const { return _lock.keyName(); }
     int trapDetectDC() const { return _trap.detectDC(_game); }
     int trapDisarmDC() const { return _trap.disarmDC(_game); }
     const Trap &trap() const { return _trap; }
@@ -241,7 +244,7 @@ public:
      */
     void receiveAttackEvent(uint32_t attackerId, std::optional<std::reference_wrapper<const AttackEventFields>> fields);
 
-    void setLocked(bool locked);
+    void setLocked(bool locked) { _lock.setLocked(locked); }
 
     /** Whether a creature steps right up to the door's use point to use it while it is locked. */
     bool isPreciseUse() const { return _preciseUse; }
@@ -285,15 +288,10 @@ private:
     uint8_t _appearance {0};
     uint8_t _genericType {0};
     DoorState _state {DoorState::Closed};
-    bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
     uint8_t _fort {0};
     uint8_t _will {0};
     uint8_t _ref {0};
-    std::string _keyName;
-    bool _keyRequired {false};
-    uint8_t _openLockDC {0};
-    uint8_t _closeLockDC {0};
     uint8_t _secretDoorDC {0};
     uint16_t _portraitId {0};
     uint8_t _hardness {0};
@@ -301,19 +299,16 @@ private:
     std::string _onClosed;
     std::string _onDamaged;
     std::string _onDeath;
-    std::string _onLock;
     std::string _onMeleeAttacked;
     std::string _onOpen;
     std::string _onSpellCastAt;
-    std::string _onUnlock;
     std::string _onClick;
     std::string _onFailToOpen;
     std::string _onDialog;
 
     Trap _trap {Trap::Carrier::Door};
-    bool _locked {false};
+    Lock _lock {LockDifficulty::Standard};
     uint32_t _lastEnteredId {script::kObjectInvalid};
-    bool _lockable {false};
     uint8_t _linkedToFlags {0};
     std::string _linkedTo;
     std::string _linkedToModule;
