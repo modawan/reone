@@ -216,7 +216,7 @@ void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, b
         locals.color.a = enabled ? 1.0f : kUnavailableIconOpacity;
     });
     services.graphics.context.useProgram(services.graphics.shaderRegistry.get(graphics::ShaderProgramId::mvpIcon));
-    services.graphics.meshRegistry.get(graphics::MeshName::quad).draw(services.graphics.statistic);
+    services.graphics.context.drawMesh(services.graphics.meshRegistry.get(graphics::MeshName::quad));
 }
 
 } // namespace game

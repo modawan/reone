@@ -116,7 +116,7 @@ void ModelResourceViewModel::render3D(int w, int h) {
     _graphicsModule.context().bindTexture(output);
     _graphicsModule.context().withViewport(glm::ivec4(0, 0, w, h), [this, &output]() {
         _graphicsModule.context().clearColorDepth();
-        _graphicsModule.meshRegistry().get(MeshName::quadNDC).draw(_graphicsModule.statistic());
+        _graphicsModule.context().drawMesh(_graphicsModule.meshRegistry().get(MeshName::quadNDC));
     });
 }
 

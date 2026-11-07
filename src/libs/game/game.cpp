@@ -3065,7 +3065,7 @@ void Game::renderScene() {
     _services.graphics.uniforms.setLocals(std::bind(&LocalUniforms::reset, std::placeholders::_1));
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::ndcTexture));
     _services.graphics.context.bindTexture(output);
-    _services.graphics.meshRegistry.get(MeshName::quadNDC).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quadNDC));
 }
 
 // Temporary death
@@ -4637,7 +4637,7 @@ void Game::renderScreenFill(const glm::vec3 &color, float alpha) {
                             locals.color = glm::vec4(color, alpha);
                         });
                         context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-                        graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
+                        graphics.context.drawMesh(graphics.meshRegistry.get(MeshName::quad));
                     });
                 });
             });
@@ -4946,7 +4946,7 @@ void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 col
         locals.color = color;
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
 }
 
 void Game::updateMusic() {

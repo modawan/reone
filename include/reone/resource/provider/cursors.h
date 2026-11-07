@@ -23,14 +23,12 @@ namespace reone {
 
 namespace graphics {
 
-class IStatistic;
-
 class Cursor;
-class Context;
-class MeshRegistry;
-class ShaderRegistry;
+class IContext;
+class IMeshRegistry;
+class IShaderRegistry;
+class IUniforms;
 class Texture;
-class Uniforms;
 
 } // namespace graphics
 
@@ -49,19 +47,17 @@ public:
 class Cursors : public ICursors, boost::noncopyable {
 public:
     Cursors(
-        graphics::Context &context,
-        graphics::MeshRegistry &meshRegistry,
-        graphics::ShaderRegistry &shaderRegistry,
+        graphics::IContext &context,
+        graphics::IMeshRegistry &meshRegistry,
+        graphics::IShaderRegistry &shaderRegistry,
         resource::Textures &textures,
-        graphics::Uniforms &uniforms,
-        graphics::IStatistic &statistic,
+        graphics::IUniforms &uniforms,
         IResources &resources) :
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
         _textures(textures),
         _uniforms(uniforms),
-        _statistic(statistic),
         _resources(resources) {
     }
 
@@ -76,12 +72,11 @@ private:
 
     // Services
 
-    graphics::Context &_context;
-    graphics::MeshRegistry &_meshRegistry;
-    graphics::ShaderRegistry &_shaderRegistry;
+    graphics::IContext &_context;
+    graphics::IMeshRegistry &_meshRegistry;
+    graphics::IShaderRegistry &_shaderRegistry;
     resource::Textures &_textures;
-    graphics::Uniforms &_uniforms;
-    graphics::IStatistic &_statistic;
+    graphics::IUniforms &_uniforms;
     IResources &_resources;
 
     // END Services

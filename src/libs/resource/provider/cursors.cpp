@@ -68,8 +68,7 @@ std::shared_ptr<Cursor> Cursors::get(CursorType type) {
         _context,
         _meshRegistry,
         _shaderRegistry,
-        _uniforms,
-        _statistic);
+        _uniforms);
     _cache.insert(std::make_pair(type, cursor));
 
     return cursor;

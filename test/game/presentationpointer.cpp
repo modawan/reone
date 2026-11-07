@@ -69,8 +69,8 @@ TEST(PresentationPointer, uses_provider_and_preserves_visibility_position_presse
     options.width = 1024;
     options.height = 768;
     options.guiScale = 1.0f;
-    RecordingContext context(options);
     Statistic statistic;
+    RecordingContext context(options, statistic);
     MeshRegistry meshes(statistic);
     PointerShaders shaders;
     RecordingUniforms uniforms(context);
@@ -80,7 +80,7 @@ TEST(PresentationPointer, uses_provider_and_preserves_visibility_position_presse
     up->setPixels(32, 32, PixelFormat::RGBA8, Texture::Layer {pixels});
     down->setPixels(32, 32, PixelFormat::RGBA8, Texture::Layer {pixels});
     CursorProvider provider;
-    provider.cursor = std::make_shared<Cursor>(up, down, context, meshes, shaders, uniforms, statistic);
+    provider.cursor = std::make_shared<Cursor>(up, down, context, meshes, shaders, uniforms);
     PresentationPointer pointer(provider);
     pointer.setPosition({5, 6});
     pointer.setPressed(true);

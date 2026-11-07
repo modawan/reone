@@ -23,26 +23,22 @@ namespace reone {
 
 namespace graphics {
 
-class IStatistic;
-
-class Context;
-class MeshRegistry;
-class ShaderRegistry;
+class IContext;
+class IMeshRegistry;
+class IShaderRegistry;
+class IUniforms;
 class Texture;
-class Uniforms;
 
 class Font {
 public:
     Font(
-        Context &context,
-        MeshRegistry &meshRegistry,
-        ShaderRegistry &shaderRegistry,
-        IStatistic &statistic,
-        Uniforms &uniforms) :
+        IContext &context,
+        IMeshRegistry &meshRegistry,
+        IShaderRegistry &shaderRegistry,
+        IUniforms &uniforms) :
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
-        _statistic(statistic),
         _uniforms(uniforms) {
     }
 
@@ -88,11 +84,10 @@ private:
 
     // Services
 
-    Context &_context;
-    MeshRegistry &_meshRegistry;
-    ShaderRegistry &_shaderRegistry;
-    IStatistic &_statistic;
-    Uniforms &_uniforms;
+    IContext &_context;
+    IMeshRegistry &_meshRegistry;
+    IShaderRegistry &_shaderRegistry;
+    IUniforms &_uniforms;
 
     // END Services
 

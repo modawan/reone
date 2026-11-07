@@ -140,7 +140,7 @@ void Font::renderLine(std::string_view line, const glm::vec3 &position, glm::vec
             textOffset.x += glyphAdvance(glyph, scale);
         }
     });
-    _meshRegistry.get(MeshName::quad).drawInstanced(line.size(), _statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::quad), line.size());
 }
 
 float Font::glyphAdvance(const Glyph &glyph, float scale) const {

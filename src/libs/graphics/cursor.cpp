@@ -42,7 +42,7 @@ void Cursor::render(float scale) {
     });
     _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpIcon));
     _context.withBlendMode(BlendMode::Normal, [this]() {
-        _meshRegistry.get(MeshName::quad).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quad));
     });
 }
 

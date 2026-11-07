@@ -130,7 +130,7 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
         int height = _game.options().graphics.height;
         glm::ivec4 scissorBounds(bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
         _services.graphics.context.withScissorTest(scissorBounds, [&]() {
-            _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+            _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
         });
 
     } else {
@@ -145,7 +145,7 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
             locals.model = std::move(transform);
         });
         _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
-        _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+        _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
     }
 }
 
@@ -183,7 +183,7 @@ void Map::renderNotes(Mode mode, const glm::vec4 &bounds, float scale) {
             locals.color = glm::vec4(selected ? guiColorHilight : guiColorBase, 1.0f);
         });
         _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
-        _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+        _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
     }
 }
 
@@ -272,7 +272,7 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, flo
         locals.color.a = alpha;
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    _services.graphics.context.drawMesh(_services.graphics.meshRegistry.get(MeshName::quad));
 }
 
 } // namespace game

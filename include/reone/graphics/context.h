@@ -25,6 +25,8 @@ namespace reone {
 namespace graphics {
 
 class Framebuffer;
+class IStatistic;
+class Mesh;
 class ShaderProgram;
 class Texture;
 class UniformBuffer;
@@ -72,6 +74,9 @@ public:
     virtual void bindUniformBuffer(UniformBuffer &buffer, int index) = 0;
     virtual void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) = 0;
 
+    /** Draws the mesh's triangles with the bound program and state, counting one draw call. */
+    virtual void drawMesh(Mesh &mesh, int instanceCount = 1) = 0;
+
     virtual const glm::ivec4 &viewport() const = 0;
     virtual DepthTestMode depthTestMode() const = 0;
     virtual bool depthMask() const = 0;
@@ -105,8 +110,9 @@ public:
 
 class Context : public IContext, boost::noncopyable {
 public:
-    Context(GraphicsOptions &options) :
-        _options(options) {
+    Context(GraphicsOptions &options, IStatistic &statistic) :
+        _options(options),
+        _statistic(statistic) {
     }
 
     void init();
@@ -135,6 +141,8 @@ public:
 
     void bindUniformBuffer(UniformBuffer &buffer, int index) override;
     void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) override;
+
+    void drawMesh(Mesh &mesh, int instanceCount = 1) override;
 
     const glm::ivec4 &viewport() const override {
         return _viewports.top();
@@ -187,6 +195,7 @@ public:
 
 private:
     GraphicsOptions &_options;
+    IStatistic &_statistic;
 
     bool _inited {false};
 

@@ -23,7 +23,7 @@ namespace reone {
 
 namespace graphics {
 
-class IStatistic;
+class Context;
 
 class Mesh : boost::noncopyable {
 public:
@@ -253,9 +253,6 @@ public:
      */
     void update(const std::vector<Vertex> &vertices, const std::vector<Face> &faces);
 
-    void draw(IStatistic &statistic);
-    void drawInstanced(int count, IStatistic &statistic);
-
     std::vector<glm::vec3> vertexCoords() const;
     std::vector<glm::vec3> faceVertexCoords(const Face &face) const;
     glm::vec2 faceUV1(const Face &face, const glm::vec3 &baryPosition) const;
@@ -288,6 +285,12 @@ private:
     void computeVerticesFromVertexData();
     void computeFaceData();
     void computeAABB();
+
+    // Private so that every draw goes through IContext::drawMesh, the seam a
+    // second render backend replaces, and is counted once there.
+    friend class Context;
+
+    void drawGL(int instanceCount);
 };
 
 } // namespace graphics

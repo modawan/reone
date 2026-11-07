@@ -21,7 +21,6 @@
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/pbrtextures.h"
 #include "reone/graphics/shaderregistry.h"
-#include "reone/graphics/statistic.h"
 #include "reone/graphics/textureregistry.h"
 #include "reone/graphics/textureutil.h"
 #include "reone/graphics/uniforms.h"
@@ -40,7 +39,7 @@ void RenderPipelineBase::applyBoxBlur(Texture &srcTexture, Framebuffer &dst, con
     _context.bindTexture(srcTexture);
     _context.withViewport(glm::ivec4(0, 0, size), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -60,7 +59,7 @@ void RenderPipelineBase::applyGaussianBlur(Texture &tex,
     _context.bindTexture(tex);
     _context.withViewport(glm::ivec4(0, 0, size), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -75,7 +74,7 @@ void RenderPipelineBase::applyMedianFilter(Texture &tex,
     _context.bindTexture(tex);
     _context.withViewport(glm::ivec4(0, 0, size), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -89,7 +88,7 @@ void RenderPipelineBase::applyFXAA(Texture &tex, Framebuffer &dst, const glm::iv
     _context.bindTexture(tex);
     _context.withViewport(glm::ivec4(0, 0, size), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -107,7 +106,7 @@ void RenderPipelineBase::applySharpen(Texture &tex,
     _context.bindTexture(tex);
     _context.withViewport(glm::ivec4(0, 0, size), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
 }
 
@@ -148,7 +147,7 @@ void RenderPipelineBase::applySpeedBlur(const FrameEffects &effects, Framebuffer
         _context.bindTexture(*_speedBlurHistoryColor, TextureUnits::lightmap);
         _context.withViewport(glm::ivec4(0, 0, _targetSize), [this]() {
             _context.clearColorDepth();
-            _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+            _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
         });
         _context.blitFramebuffer(scratch, output, screenRect, screenRect);
     }
@@ -202,7 +201,7 @@ void RenderPipelineBase::drawDistortionOverlay(Texture &distortion, Texture &ove
     _context.bindTexture(overlay, TextureUnits::normalMap);
     _context.withViewport(glm::ivec4(0, 0, _targetSize), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
     _context.blitFramebuffer(scratch, output, screenRect, screenRect);
 }
@@ -228,7 +227,7 @@ void RenderPipelineBase::applyVideoEffect(const FrameEffects &effects, Framebuff
     }
     _context.withViewport(glm::ivec4(0, 0, _targetSize), [this]() {
         _context.clearColorDepth();
-        _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
+        _context.drawMesh(_meshRegistry.get(MeshName::quadNDC));
     });
     const glm::ivec4 screenRect {0, 0, _targetSize.x, _targetSize.y};
     _context.blitFramebuffer(scratch, output, screenRect, screenRect);
@@ -243,7 +242,6 @@ std::unique_ptr<IRenderPipeline> RenderPipelineFactory::create(RendererType type
             _context,
             _meshRegistry,
             _shaderRegistry,
-            _statistic,
             _textureRegistry,
             _uniforms);
     case RendererType::PBR:
@@ -254,7 +252,6 @@ std::unique_ptr<IRenderPipeline> RenderPipelineFactory::create(RendererType type
             _meshRegistry,
             _pbrTextures,
             _shaderRegistry,
-            _statistic,
             _textureRegistry,
             _uniforms);
     default:

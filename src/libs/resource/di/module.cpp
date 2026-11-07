@@ -59,7 +59,6 @@ void ResourceModule::init() {
         _graphics.context(),
         _graphics.meshRegistry(),
         _graphics.shaderRegistry(),
-        _graphics.statistic(),
         *_textures,
         _graphics.uniforms());
     _cursors = std::make_unique<Cursors>(
@@ -68,7 +67,6 @@ void ResourceModule::init() {
         _graphics.shaderRegistry(),
         *_textures,
         _graphics.uniforms(),
-        _graphics.statistic(),
         *_auxResources);
     _audioClips = std::make_unique<AudioClips>(*_resources, *_auxResources);
     _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());

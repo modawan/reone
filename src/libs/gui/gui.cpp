@@ -376,7 +376,6 @@ void GUI::withRenderPass(const std::function<void(IRenderPass &)> &block) {
             _options,
             _graphicsSvc.context,
             _graphicsSvc.shaderRegistry,
-            _graphicsSvc.statistic,
             _graphicsSvc.meshRegistry,
             _graphicsSvc.textureRegistry,
             _graphicsSvc.uniforms);
@@ -384,7 +383,6 @@ void GUI::withRenderPass(const std::function<void(IRenderPass &)> &block) {
             _options,
             _graphicsSvc.context,
             _graphicsSvc.shaderRegistry,
-            _graphicsSvc.statistic,
             _graphicsSvc.meshRegistry,
             _graphicsSvc.pbrTextures,
             _graphicsSvc.textureRegistry,

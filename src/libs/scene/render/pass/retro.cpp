@@ -43,7 +43,7 @@ void RetroRenderPass::draw(Mesh &mesh,
             locals.modelInv = transformInv;
             applyMaterialToLocals(material, locals);
         });
-        mesh.draw(_statistic);
+        _context.drawMesh(mesh);
     });
 }
 
@@ -158,7 +158,7 @@ void RetroRenderPass::drawSkinned(Mesh &mesh,
         _uniforms.setBones([&bones](auto &b) {
             std::memcpy(b.bones, &bones[0], kMaxBones * sizeof(glm::mat4));
         });
-        mesh.draw(_statistic);
+        _context.drawMesh(mesh);
     });
 }
 
@@ -179,7 +179,7 @@ void RetroRenderPass::drawDangly(Mesh &mesh,
             auto numPositions = std::min<int>(kMaxDanglyVertices, positions.size());
             std::memcpy(dangly.positions, &positions[0], numPositions * sizeof(glm::vec4));
         });
-        mesh.draw(_statistic);
+        _context.drawMesh(mesh);
     });
 }
 
@@ -197,7 +197,7 @@ void RetroRenderPass::drawSaber(Mesh &mesh,
             applyMaterialToLocals(material, locals);
         });
         program.setUniform("uSaberDisplacement", displacement);
-        mesh.draw(_statistic);
+        _context.drawMesh(mesh);
     });
 }
 
@@ -219,7 +219,7 @@ void RetroRenderPass::drawBillboard(Texture &texture,
         }
     });
     _context.pushBlendMode(BlendMode::Additive);
-    _meshRegistry.get(MeshName::billboard).draw(_statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::billboard));
     _context.popBlendMode();
 }
 
@@ -251,7 +251,7 @@ void RetroRenderPass::drawParticles(Texture &texture,
     if (faceCulling != prevFaceCulling) {
         _context.pushFaceCullMode(faceCulling);
     }
-    _meshRegistry.get(MeshName::billboard).drawInstanced(particles.size(), _statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::billboard), particles.size());
     if (faceCulling != prevFaceCulling) {
         _context.popFaceCullMode();
     }
@@ -268,7 +268,7 @@ void RetroRenderPass::drawProjectedBeam(Mesh &mesh,
         locals.modelInv = transformInv;
         locals.color = color;
     });
-    mesh.draw(_statistic);
+    _context.drawMesh(mesh);
 }
 
 void RetroRenderPass::drawGrass(float radius,
@@ -297,7 +297,7 @@ void RetroRenderPass::drawGrass(float radius,
             grass.clusters[i].lightmapUV = instance.lightmapUV;
         }
     });
-    _meshRegistry.get(MeshName::grass).drawInstanced(instances.size(), _statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::grass), instances.size());
 }
 
 void RetroRenderPass::drawAABB(const std::vector<glm::vec4> &corners) {
@@ -306,7 +306,7 @@ void RetroRenderPass::drawAABB(const std::vector<glm::vec4> &corners) {
     program.setUniform("uCorners", corners);
     _context.withDepthMask(false, [this]() {
         _context.withPolygonMode(PolygonMode::Line, [this]() {
-            _meshRegistry.get(MeshName::aabb).draw(_statistic);
+            _context.drawMesh(_meshRegistry.get(MeshName::aabb));
         });
     });
 }
@@ -352,7 +352,7 @@ void RetroRenderPass::drawImage(Texture &texture,
                                 : ShaderProgramId::mvpTexture;
     _context.useProgram(_shaderRegistry.get(programId));
     _context.bindTexture(texture, TextureUnits::mainTex);
-    _meshRegistry.get(MeshName::quad).draw(_statistic);
+    _context.drawMesh(_meshRegistry.get(MeshName::quad));
 }
 
 } // namespace scene

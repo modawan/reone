@@ -177,7 +177,7 @@ void CreditsGUI::render() {
                 locals.color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
             });
             graphics.context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-            graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
+            graphics.context.drawMesh(graphics.meshRegistry.get(MeshName::quad));
         }
         const auto region = textRegion();
         const int height = lineHeight();

@@ -21,31 +21,27 @@ namespace reone {
 
 namespace graphics {
 
-class IStatistic;
-
-class Context;
-class MeshRegistry;
-class ShaderRegistry;
+class IContext;
+class IMeshRegistry;
+class IShaderRegistry;
+class IUniforms;
 class Texture;
-class Uniforms;
 
 class Cursor : boost::noncopyable {
 public:
     Cursor(
         std::shared_ptr<Texture> up,
         std::shared_ptr<Texture> down,
-        Context &context,
-        MeshRegistry &meshRegistry,
-        ShaderRegistry &shaderRegistry,
-        Uniforms &uniforms,
-        IStatistic &statistic) :
+        IContext &context,
+        IMeshRegistry &meshRegistry,
+        IShaderRegistry &shaderRegistry,
+        IUniforms &uniforms) :
         _up(std::move(up)),
         _down(std::move(down)),
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
-        _uniforms(uniforms),
-        _statistic(statistic) {
+        _uniforms(uniforms) {
     }
 
     void render(float scale);
@@ -62,11 +58,10 @@ private:
 
     // Services
 
-    Context &_context;
-    MeshRegistry &_meshRegistry;
-    ShaderRegistry &_shaderRegistry;
-    Uniforms &_uniforms;
-    IStatistic &_statistic;
+    IContext &_context;
+    IMeshRegistry &_meshRegistry;
+    IShaderRegistry &_shaderRegistry;
+    IUniforms &_uniforms;
 
     // END Services
 };
