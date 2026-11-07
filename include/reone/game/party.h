@@ -731,6 +731,8 @@ public:
     std::optional<glm::vec2> forceFollowOffset(const Creature &member) const;
     /** The point \p offset gives from the follow anchor, turned to the anchor's facing. */
     glm::vec3 followAnchorPoint(const glm::vec2 &offset) const;
+    /** The offset from the follow anchor that gives \p point (see followAnchorPoint). */
+    glm::vec2 followAnchorOffset(const glm::vec3 &point) const;
 
     // END Follow path
 

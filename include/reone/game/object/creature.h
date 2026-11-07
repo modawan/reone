@@ -862,8 +862,10 @@ public:
      * A walk heading for \p goal ends where this creature stands: \p goal is
      * a trigger that is not a mine, or a linked door, already within use
      * range.
+     *
+     * @param pathOffset the walk's, passed to isLinkedDoorInReach()
      */
-    bool isWalkGoalInReach(const Object &goal) const;
+    bool isWalkGoalInReach(const Object &goal, std::optional<float> pathOffset = std::nullopt) const;
     /**
      * Enough experience for the next level by the experience table, below the
      * title's maximum, neither dead nor downed.
@@ -2448,6 +2450,8 @@ public:
     void clearFuryState();
     /** In TSL a running Fury adds a point of damage, up to six. */
     void incrementFuryDamageBonus();
+    /** The party follow slot, 1 or 2, or -1 outside them. */
+    int followSlot() const;
 
 protected:
     bool canExecuteActions() const override;
@@ -3105,8 +3109,10 @@ private:
      * door, ends within use range of it: the trigger or an open door hears a
      * click by the creature, and at a closed door the creature runs its
      * blocked script.
+     *
+     * @param pathOffset passed to useRange()
      */
-    bool reachesWalkGoal(const Object &goal);
+    bool reachesWalkGoal(const Object &goal, std::optional<float> pathOffset);
     /** The walk or run clip \p model shows for the creature's movement. */
     MovementClip movementClip(const scene::ModelSceneNode &model) const;
 
@@ -3126,8 +3132,6 @@ private:
     void updateExcitement();
     void updateForcedMove(float dt);
     AnimationUpdater animationUpdater() const;
-    /** The party follow slot, 1 or 2, or -1 outside them. */
-    int followSlot() const;
     void updateTurning();
     void rotateStep(float target);
     bool isHostileCombatTurn() const;

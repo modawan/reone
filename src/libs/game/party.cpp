@@ -1812,16 +1812,19 @@ void Party::updateFollowAnchor() {
 }
 
 std::optional<glm::vec2> Party::forceFollowOffset(const Creature &member) const {
-    for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
-        if (getMember(slot).get() == &member) {
-            return glm::vec2(_followSlots[slot].formationOffset) + glm::vec2(0.0f, -kFormationSpacing);
-        }
+    const int slot = getLeader().get() == &member ? 0 : member.followSlot();
+    if (slot == -1) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return glm::vec2(_followSlots[slot].formationOffset) + glm::vec2(0.0f, -kFormationSpacing);
 }
 
 glm::vec3 Party::followAnchorPoint(const glm::vec2 &offset) const {
     return _followAnchor + glm::angleAxis(_followAnchorFacing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(offset, 0.0f);
+}
+
+glm::vec2 Party::followAnchorOffset(const glm::vec3 &point) const {
+    return glm::vec2(glm::angleAxis(-_followAnchorFacing, glm::vec3(0.0f, 0.0f, 1.0f)) * (point - _followAnchor));
 }
 
 void Party::updateFollowPath() {

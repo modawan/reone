@@ -129,6 +129,8 @@ public:
     bool usesPointPath() const { return _pointPath || _force || _timeout >= 0.0f; }
     float timeout() const { return _timeout; }
     const ForcedState &forcedState() const { return _forcedState; }
+    /** The offset the walk's use range is measured with, passed to Creature::useRange(). */
+    std::optional<float> pathOffset() const { return _pathOffset; }
 
 private:
     std::shared_ptr<Object> _moveTo;
