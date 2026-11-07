@@ -34,6 +34,7 @@
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/creaturestate.h"
@@ -3458,18 +3459,11 @@ static Variable GetHasFeat(const std::vector<Variable> &args, const RoutineConte
     return Variable::ofInt(creature && creature->featRemainingUses(feat) != 0);
 }
 
+// Whether the creature can use the skill; anything else cannot.
 static Variable GetHasSkill(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto nSkill = getInt(args, 0);
-    auto oCreature = getObjectOrCaller(args, 1, ctx);
-
-    // Transform
-    auto skill = static_cast<SkillType>(nSkill);
-    auto creature = checkCreature(oCreature);
-
-    // Execute
-    bool hasSkill = creature->attributes().hasSkill(skill);
-    return Variable::ofInt(static_cast<int>(hasSkill));
+    const int skill = getInt(args, 0);
+    const auto creature = getCreatureOrNull(args, 1, ctx);
+    return Variable::ofInt(creature && creature->canUseSkill(skill));
 }
 
 // A source that is not a creature perceives nothing.
@@ -8261,16 +8255,21 @@ static Variable RemoveEffectByExactMatch(const std::vector<Variable> &args, cons
     return Variable::ofNull();
 }
 
+// Moves a creature's base skill rank by the amount; only creatures and the
+// skills of the skill table are adjusted.
 static Variable AdjustCreatureSkills(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-    auto nSkill = getInt(args, 1);
-    auto nAmount = getInt(args, 2);
-
-    // Transform
+    auto creature = getCreatureOrNull(args, 0, ctx);
+    const auto skill = static_cast<SkillType>(getInt(args, 1));
+    const int amount = getInt(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("AdjustCreatureSkills");
+    if (!creature || !ctx.services.game.skills.get(skill)) {
+        return Variable::ofNull();
+    }
+    auto &attributes = creature->attributes();
+    attributes.setSkillRank(skill, attributes.getSkillRank(skill) + amount);
+    return Variable::ofNull();
 }
 
 static Variable GetSkillRankBase(const std::vector<Variable> &args, const RoutineContext &ctx) {

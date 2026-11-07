@@ -379,9 +379,7 @@ bool isLeaderUsableItem(const Creature &leader, const Item &item, int flags) {
         if (!trap) {
             return canUseItem(leader, item, true);
         }
-        return trap->get().usable &&
-               canUseSkill(leader.services().game.skills, SkillType::Demolitions, leader.attributes(), tsl) &&
-               canUseItem(leader, item, true);
+        return trap->get().usable && leader.canUseSkill(SkillType::Demolitions) && canUseItem(leader, item, true);
     };
     const auto castSpell = firstActiveProperty(item, ItemProperty::ActivateItem);
     if (item.plotFlag()) {

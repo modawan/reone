@@ -1269,9 +1269,9 @@ void ModuleSnapshotBuilder::writeCreatureAttributes(Gff &record, const Creature 
         auto skill = static_cast<size_t>(index) < oldSkills.size()
                          ? oldSkills[static_cast<size_t>(index)]->deepCopy()
                          : emptyRecord(0);
+        // A rank is saved held within -127 to 127.
         put(*skill, Gff::Field::newByte(
-            "Rank", creature._attributes.getSkillRank(
-                        static_cast<SkillType>(index))));
+                        "Rank", static_cast<uint8_t>(std::clamp(creature._attributes.getSkillRank(static_cast<SkillType>(index)), -127, 127))));
         skills.push_back(std::move(skill));
     }
     put(record, Gff::Field::newList("SkillList", std::move(skills)));

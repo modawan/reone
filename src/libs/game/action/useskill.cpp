@@ -423,7 +423,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
             awardXP(dc);
         }
         if (!success) {
-            actor.playSound(resource::SoundSetEntry::UnlockSuccess);
+            actor.playSound(resource::SoundSetEntry::UnlockFailed);
         }
         if (!success && total < dc - 10) {
             if (trigger) {
@@ -589,7 +589,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
             }
         }
     }
-    actor.playSound(result == SkillResult::Success ? resource::SoundSetEntry::DisarmMine : resource::SoundSetEntry::UnlockSuccess);
+    actor.playSound(result == SkillResult::Success ? resource::SoundSetEntry::LayMine : resource::SoundSetEntry::UnlockFailed);
     actor.interruptActivities(true);
     actor.removeCombatInvisibilityEffects();
     // A mine set on the ground reports over no target.

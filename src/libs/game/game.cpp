@@ -3075,8 +3075,6 @@ void Game::renderScene() {
 // the leader and the party is not solo.
 static constexpr float kRecoveryPlacementRadius = 5.0f;
 static constexpr float kRegroupDistance = 40.0f;
-// A creature regarding another at this standing or less is hostile to it.
-static constexpr int kHighestHostileReputation = 10;
 // The death fade holds the view for twelve seconds before a one second fade to
 // black; hurrying it fades at once over half a second.
 static constexpr float kDeathFadeWait = 12.0f;
@@ -3137,7 +3135,7 @@ void Game::updateTemporaryDeath() {
                 if (!creature || _party.isMember(*creature)) {
                     continue;
                 }
-                if (creature->getReputationToward(*reference) > kHighestHostileReputation) {
+                if (creature->getReputationToward(*reference) > kHighestEnemyReputation) {
                     continue;
                 }
                 const bool seesMember = std::any_of(
@@ -5970,7 +5968,7 @@ void Game::requestStealth() {
         return;
     }
     if (_party.isSoloMode() || _party.getSize() == 1) {
-        leader->useStealthSkill();
+        leader->useSkill(SkillType::Stealth, leader);
     } else {
         showSoloModeQuery(true);
     }
@@ -6035,7 +6033,7 @@ void Game::showSoloModeQuery(bool forStealth) {
             _scriptRunner->run(kSoloModeScript, script::kObjectInvalid);
             if (forStealth) {
                 if (auto leader = _party.getLeader()) {
-                    leader->useStealthSkill();
+                    leader->useSkill(SkillType::Stealth, leader);
                 }
             }
             restorePause();
@@ -6667,7 +6665,7 @@ void Game::clearPlayerHostileActions() {
     const ObjectList creatures = _module->area()->getObjectsByType(ObjectType::Creature);
     for (const auto &object : creatures) {
         auto &creature = static_cast<Creature &>(*object);
-        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestHostileReputation) {
+        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestEnemyReputation) {
             continue;
         }
         creature.clearAllActions(true);

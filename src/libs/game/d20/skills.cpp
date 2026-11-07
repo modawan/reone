@@ -97,6 +97,26 @@ bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttribute
     return attributes.getSkillRank(skill) > 0;
 }
 
+bool canCreatureUseSkill(
+    const ISkills &skills,
+    int skill,
+    const CreatureAttributes &attributes,
+    const std::function<bool(FeatType)> &hasFeat,
+    bool tsl) {
+    // A Demolitions sub-skill is looked up as Demolitions, but no class's
+    // skills table lists it, so it is never used untrained.
+    if (skill >= static_cast<int>(SubSkill::FlagTrap) && skill <= static_cast<int>(SubSkill::ExamineTrap)) {
+        const auto rules = skills.get(SkillType::Demolitions);
+        return rules && !rules->untrained && attributes.getSkillRank(SkillType::Demolitions) > 0;
+    }
+    // In TSL, the stealth feat counts for Stealth also when an effect grants it.
+    if (tsl && skill == static_cast<int>(SkillType::Stealth) && skills.get(SkillType::Stealth) &&
+        hasFeat(FeatType::PersonalCloakingShield)) {
+        return true;
+    }
+    return canUseSkill(skills, static_cast<SkillType>(skill), attributes, tsl);
+}
+
 } // namespace game
 
 } // namespace reone

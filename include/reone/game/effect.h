@@ -76,6 +76,10 @@ constexpr int getAbilityEffectIncreaseCap(bool tsl) {
 constexpr int getAbilityEffectDecreaseCap(bool tsl) {
     return tsl ? 90 : 30;
 }
+/** The most the skill increases, and the skill decreases, on a creature move one skill. */
+constexpr int getSkillEffectCap(bool tsl) {
+    return tsl ? 90 : 30;
+}
 /**
  * How many sources, items, spells and effects of neither, the increases of
  * one kind on a creature count: the miscellaneous attack, save, ability,

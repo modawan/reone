@@ -733,11 +733,6 @@ static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineC
     if (!creature || !creature->spatialArea() || !oTarget) {
         return Variable::ofNull();
     }
-    // Stealth is used at once rather than queued.
-    if (skill == SkillType::Stealth) {
-        creature->useStealthSkill();
-        return Variable::ofNull();
-    }
     // A subskill passed as the skill queues nothing, though a creature that
     // cannot use Demolitions is told so.
     const bool subSkillId = nSkill >= static_cast<int>(SubSkill::FlagTrap) && nSkill <= static_cast<int>(SubSkill::ExamineTrap);
@@ -745,35 +740,13 @@ static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineC
         creature->admitSkillUse(SkillType::Demolitions);
         return Variable::ofNull();
     }
-    if (!creature->admitSkillUse(skill, *oTarget)) {
-        return Variable::ofNull();
-    }
-    const bool leader = ctx.game.party().getLeader() == creature;
-    // Security is an unlock, with a spike when an item is given. On the
-    // creature the player controls it first clears its actions unless it is
-    // busy, whether or not it then takes the unlock.
-    if (skill == SkillType::Security) {
-        if (leader) {
-            creature->clearOrdersUnlessBusy();
-        }
-        if (UnlockObjectAction::admits(*creature)) {
-            creature->addAction(ctx.game.newAction<UnlockObjectAction>(std::move(oTarget), std::move(itemUsed)));
-        }
-        return Variable::ofNull();
-    }
-    if (refusesCommand(ctx)) {
-        return Variable::ofNull();
-    }
-    // Mine work goes by the subskill and never sets a mine; on the creature
-    // the player controls it first clears its actions unless it is busy.
-    std::shared_ptr<Action> action;
+    // Mine work goes by the subskill and never sets a mine.
     if (skill == SkillType::Demolitions) {
-        action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill);
-        if (leader) {
-            creature->clearOrdersUnlessBusy();
-        }
-    } else {
-        action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
+        itemUsed.reset();
+    }
+    auto action = creature->useSkill(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
+    if (!action || refusesCommand(ctx)) {
+        return Variable::ofNull();
     }
     creature->addAction(std::move(action));
     return Variable::ofNull();

@@ -1212,10 +1212,16 @@ public:
      * it began; null without one.
      */
     std::shared_ptr<graphics::Texture> latestOwnShell(uint64_t &order) const;
-    /** Whether the creature may use its Stealth skill at all. */
-    bool canUseStealthSkill() const;
-    /** Whether the creature may use the skill, by the skills table's rule (game::canUseSkill). */
-    bool canUseSkill(SkillType skill) const;
+    /**
+     * @param skill a skill, or a Demolitions sub-skill (100-102)
+     * @return whether the creature may use the skill, by
+     *         game::canCreatureUseSkill: a sub-skill as Demolitions, never
+     *         untrained; in TSL, Stealth also with the stealth feat from an
+     *         effect
+     */
+    bool canUseSkill(int skill) const;
+    /** Whether the creature may use \p skill; see canUseSkill(int). */
+    bool canUseSkill(SkillType skill) const { return canUseSkill(static_cast<int>(skill)); }
     /** Whether the creature may use the skill; the controlled creature is told when it may not. */
     bool admitSkillUse(SkillType skill) const;
     /**
@@ -1228,8 +1234,20 @@ public:
     bool isStealthCapable() const;
     /** The stealth skill: leave stealth, or enter it out of combat and conversation. */
     void toggleStealth();
-    /** Using the Stealth skill: a creature without it is told so, others toggle stealth. */
-    void useStealthSkill();
+    /**
+     * Use a skill on \p target, as a script, a target menu or a talent asks.
+     * The use is first admitted (admitSkillUse(SkillType, const Object &)):
+     * a creature that cannot use the skill is told so, and a hostile skill is
+     * refused against a friendly target. Stealth toggles at once; Security gives
+     * the unlock, with a spike when \p item is given; Demolitions and Treat
+     * Injury give the action that does the work; the other skills do nothing.
+     * Security first clears the actions of the creature the player controls
+     * unless it is busy, and so does mine work when that creature can be
+     * commanded.
+     *
+     * @return the action to queue, or null when there is none
+     */
+    std::shared_ptr<Action> useSkill(SkillType skill, std::shared_ptr<Object> target, int subSkill = 0, std::shared_ptr<Item> item = nullptr);
     /** Stealth holds the creature to a sneaking walk, unless TSL's Stealth Run frees it. */
     bool movesStealthily() const;
     /**
@@ -2006,6 +2024,13 @@ public:
     int getEffectiveAbilityModifier(Ability ability) const;
     /** The race's adjustment to \p ability. */
     int racialAbilityAdjustment(Ability ability) const;
+    /**
+     * @param armourCapped whether the body armour's maximum Dexterity bonus
+     *        limits the modifier, as it does for defence
+     * @return the Dexterity modifier the rules use: a debilitated creature's
+     *         positive modifier counts as 0
+     */
+    int getDexterityModifier(bool armourCapped) const;
     bool hasEffectiveFeat(FeatType feat) const;
     /** The feats the creature's live bonus feat effects give it. */
     std::set<FeatType> effectFeats() const;
@@ -2016,11 +2041,6 @@ public:
      * without an attacker; \p touch for a touch attack.
      */
     DefenseBreakdown getDefenseBreakdown(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags, bool touch = false) const;
-    /**
-     * The effective Dexterity modifier, at most 0 while debilitated and
-     * otherwise limited by worn body armour when \p armorLimited.
-     */
-    int getDexterityModifier(bool armorLimited) const;
     int getDefense(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags) const;
     int getDefense() const;
     /** Ordinary ranged defense consumes the same permission as active saber throws. */

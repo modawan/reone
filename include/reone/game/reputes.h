@@ -35,6 +35,11 @@ class Creature;
 class Game;
 class Object;
 
+/** A reputation of at most this is an enemy's. */
+constexpr int kHighestEnemyReputation = 10;
+/** A reputation of at least this is a friend's; those between are neutral. */
+constexpr int kLowestFriendReputation = 90;
+
 class IReputes {
 public:
     struct FactionDefinition {

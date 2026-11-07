@@ -515,6 +515,9 @@ enum class SkillType {
     TreatInjury = 7
 };
 
+/** A skill effect on this skill applies to every skill. */
+constexpr int kAllSkills = 255;
+
 enum class FeatType {
     Invalid = 0,
     AdvancedJediDefense = 1,

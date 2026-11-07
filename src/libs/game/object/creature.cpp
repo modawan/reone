@@ -36,7 +36,9 @@
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/switchweapons.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
+#include "reone/game/action/useskill.h"
 #include "reone/game/animations.h"
 #include "reone/game/animationutil.h"
 #include "reone/game/attack.h"
@@ -564,6 +566,8 @@ static constexpr FeatType kStealthFeat = FeatType::PersonalCloakingShield;
 
 static constexpr int kStealthInCombatStrRef = 1452;
 static constexpr int kSkillUnusableStrRef = 1435;
+/** The message for a hostile skill refused against a friendly target: string 0 of the talk table. */
+static constexpr int kHostileSkillRefusedStrRef = 0;
 static constexpr int kCloakRemovalVisual = 8001;
 static constexpr char kStealthCue[] = "sdr_invisible";
 
@@ -595,11 +599,15 @@ static constexpr char kReductionCostTable[] = "iprp_soakcost";
 static constexpr char kVulnerabilityCostTable[] = "iprp_damvulcost";
 static constexpr char kDamageTypeTable[] = "iprp_damagetype";
 static constexpr char kProtectionTable[] = "iprp_protection";
+/** A creature record's skill list holds the ranks of the eight skills. */
+static constexpr int kSkillListSize = 8;
 static constexpr int kImprovedForceResistanceCostTable = 11;
 /** The iprp_costtable row of the Decreased Ability Score amounts (iprp_neg10cost). */
 static constexpr int kDecreasedAbilityCostTable = 21;
 /** The iprp_costtable row of the Improved Saving Throw amounts (iprp_bonuscost). */
 static constexpr int kImprovedSavingThrowCostTable = 1;
+/** The iprp_costtable row a decreased-skill property takes its amount from. */
+static constexpr int kDecreasedSkillCostTable = 21;
 static constexpr int kItemLightVisualEffect = 5000;
 
 /** The ability an ability property's subtype names; a subtype past Charisma names Strength. */
@@ -2278,12 +2286,11 @@ std::shared_ptr<graphics::Texture> Creature::latestOwnShell(uint64_t &order) con
     return _stealthShell;
 }
 
-// TSL grants the skill through the stealth feat and the Force Camouflage powers.
-bool Creature::canUseStealthSkill() const {
-    if (_game.isTSL() && hasTSLStealthTalent()) {
-        return true;
-    }
-    return _attributes.hasSkill(SkillType::Stealth);
+bool Creature::canUseSkill(int skill) const {
+    auto hasFeat = [this](FeatType feat) {
+        return hasEffectiveFeat(feat);
+    };
+    return canCreatureUseSkill(_services.game.skills, skill, _attributes, hasFeat, _game.isTSL());
 }
 
 bool Creature::hasTSLStealthTalent() const {
@@ -2298,7 +2305,7 @@ bool Creature::isStealthCapable() const {
     if (_game.module()->area()->playerRestrictMode()) {
         return false;
     }
-    if (!canUseStealthSkill()) {
+    if (!canUseSkill(SkillType::Stealth)) {
         return false;
     }
     for (int slot : {InventorySlots::belt, InventorySlots::cArmour}) {
@@ -2314,7 +2321,7 @@ void Creature::toggleStealth() {
     if (isDead() || (isPartyMember() && currentHitPoints() <= 0)) {
         return;
     }
-    if (!canUseStealthSkill()) {
+    if (!canUseSkill(SkillType::Stealth)) {
         return;
     }
     if (_stealthMode) {
@@ -2326,10 +2333,6 @@ void Creature::toggleStealth() {
     } else if (!isInConversation()) {
         setStealthMode(true);
     }
-}
-
-bool Creature::canUseSkill(SkillType skill) const {
-    return game::canUseSkill(_services.game.skills, skill, _attributes, _game.isTSL());
 }
 
 // The controlled creature is told it cannot use a skill.
@@ -2347,33 +2350,53 @@ bool Creature::admitSkillUse(SkillType skill) const {
     return false;
 }
 
-// A creature regards another as a friend from this reputation on.
-static constexpr int kLowestFriendReputation = 90;
-// The line the controlled creature gets for a hostile skill turned on a
-// friend: the talk table's first line.
-static constexpr int kFriendlyTargetStrRef = 0;
-
 bool Creature::admitSkillUse(SkillType skill, const Object &target) const {
     if (!admitSkillUse(skill)) {
         return false;
     }
+    // A skill with no row, as a Demolitions sub-skill, is not hostile.
+    const auto rules = _services.game.skills.get(skill);
     const auto *creature = dyn_cast<const Creature>(&target);
-    if (!_services.game.skills.get(skill)->hostile || !creature ||
+    if (!rules || !rules->hostile || !creature ||
         creature->getReputationToward(*this) < kLowestFriendReputation) {
         return true;
     }
     if (_game.party().getLeader().get() == this) {
-        _game.addFeedbackMessage(kFriendlyTargetStrRef);
+        _game.addFeedbackMessage(kHostileSkillRefusedStrRef);
     }
     return false;
 }
 
-void Creature::useStealthSkill() {
-    if (!canUseStealthSkill()) {
-        tellSkillUnusable(_game, *this);
-        return;
+std::shared_ptr<Action> Creature::useSkill(SkillType skill, std::shared_ptr<Object> target, int subSkill, std::shared_ptr<Item> item) {
+    if (!admitSkillUse(skill, *target)) {
+        return nullptr;
     }
-    toggleStealth();
+    const bool controlled = _game.party().getLeader().get() == this;
+    switch (skill) {
+    case SkillType::Stealth:
+        toggleStealth();
+        return nullptr;
+    case SkillType::Security:
+        // Security is an unlock, with a spike when an item is given. The
+        // creature the player controls first clears its actions unless it is
+        // busy, whether or not it then takes the unlock.
+        if (controlled) {
+            clearOrdersUnlessBusy();
+        }
+        return _game.newAction<UnlockObjectAction>(std::move(target), std::move(item));
+    case SkillType::Demolitions:
+        // Mine work by the creature the player controls first clears its
+        // actions unless it is busy, when it can be commanded.
+        if (controlled && isCommandable()) {
+            clearOrdersUnlessBusy();
+        }
+        return _game.newAction<UseSkillAction>(skill, std::move(target), subSkill, std::move(item));
+    case SkillType::TreatInjury:
+        return _game.newAction<UseSkillAction>(skill, std::move(target), subSkill, std::move(item));
+    default:
+        // Computer Use, Awareness, Persuade and Repair have no use of their own.
+        return nullptr;
+    }
 }
 
 void Creature::updateMindTrickPerception(const Creature &target, bool heard, bool seen) {
@@ -3738,25 +3761,7 @@ int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &
         return 0;
     }
 
-    // Increases and decreases each count the strongest amount of every item
-    // or spell and every other effect on its own, up to 90 points.
-    struct Bucket {
-        EffectSourceKey source;
-        int amount;
-    };
-    std::vector<Bucket> increases;
-    std::vector<Bucket> decreases;
-    auto add = [](auto &buckets, EffectSourceKey source, int amount) {
-        if (source.kind != EffectSourceKind::Independent) {
-            for (auto &bucket : buckets) {
-                if (bucket.source.kind == source.kind && bucket.source.value == source.value) {
-                    bucket.amount = std::max(bucket.amount, amount);
-                    return;
-                }
-            }
-        }
-        buckets.push_back({source, amount});
-    };
+    auto reducer = EffectBonusReducer::forSkill(_game.isTSL());
     for (const auto &effect : effects()) {
         if (!effect.hasLiveRuntimeSource()) {
             continue;
@@ -3765,7 +3770,7 @@ int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &
             continue;
         }
         const int selectedSkill = effect.integerParameter(0);
-        if (selectedSkill != 255 && selectedSkill != row) {
+        if (selectedSkill != kAllSkills && selectedSkill != row) {
             continue;
         }
         if (versus) {
@@ -3777,23 +3782,19 @@ int Creature::skillRank(SkillType skill, bool baseOnly, const OptionalCreature &
             // An unopposed query has no versus object.
             continue;
         }
-        add(effect.type() == EffectType::SkillIncrease ? increases : decreases,
-            getEffectSourceKey(effect), effect.integerParameter(1));
-    }
-    auto total = [](const auto &buckets) {
-        int value = 0;
-        for (const auto &bucket : buckets) {
-            value += bucket.amount;
+        if (effect.type() == EffectType::SkillIncrease) {
+            reducer.addIncrease(getEffectSourceKey(effect), effect.integerParameter(1));
+        } else {
+            reducer.addDecrease(getEffectSourceKey(effect), effect.integerParameter(1));
         }
-        return std::min(value, 90);
-    };
-    rank += total(increases) - total(decreases);
+    }
+    rank += reducer.total();
 
     const Ability ability = rules->keyAbility;
-    rank += getEffectiveAbilityModifier(ability);
-    if ((ability == Ability::Strength || ability == Ability::Dexterity) &&
-        hasEffect(EffectType::Blindness))
+    rank += ability == Ability::Dexterity ? getDexterityModifier(false) : getEffectiveAbilityModifier(ability);
+    if ((ability == Ability::Strength || ability == Ability::Dexterity) && isBlind()) {
         rank -= 4;
+    }
 
     switch (skill) {
     case SkillType::ComputerUse:
@@ -7488,7 +7489,7 @@ bool Creature::hasEffectImmunity(
 }
 
 int Creature::getAbilityEffectModifier(Ability ability) const {
-    AbilityEffectReducer reducer(_game.isTSL());
+    auto reducer = EffectBonusReducer::forAbility(_game.isTSL());
     for (const EffectInstance &effect : effects()) {
         if (!effect.hasLiveRuntimeSource() ||
             effect.integerParameter(0, -1) != static_cast<int>(ability))
@@ -7527,6 +7528,24 @@ int Creature::getEffectiveAbilityScore(Ability ability) const {
 
 int Creature::getEffectiveAbilityModifier(Ability ability) const {
     return getAbilityModifierFromScore(getEffectiveAbilityScore(ability));
+}
+
+int Creature::getDexterityModifier(bool armourCapped) const {
+    const int modifier = getEffectiveAbilityModifier(Ability::Dexterity);
+    if (isDebilitated(true)) {
+        return std::min(modifier, 0);
+    }
+    if (!armourCapped) {
+        return modifier;
+    }
+    // Only armour drawn as the body model with an armour class limits Dexterity.
+    auto armor = getEquippedItem(InventorySlots::body);
+    if (!armor || armor->bodyArmorClass() <= 0) {
+        return modifier;
+    }
+    const int cap = getEffectiveArmorMaxDexterityBonus(_game.isTSL(), armor->maxDexterityBonus(),
+                                                       armor->maxDexterityBonusAdjustment());
+    return cap >= 0 ? std::min(modifier, cap) : modifier;
 }
 
 // A live bonus feat effect gives the creature its feat.
@@ -7677,7 +7696,8 @@ void Creature::appendEquippedItemEffects(
                     static_cast<SkillType>(property.subtype), property.costValue));
             break;
         case ItemProperty::DecreasedSkillModifier: {
-            const int amount = getCostTableValue(_services, kDecreaseCostTable, property.costValue, CostColumn::Value, 0);
+            const int amount = costCell(_services.game.combatTables.costTableAt(kDecreasedSkillCostTable),
+                                        property.costValue, CostColumn::Value, 0);
             if (amount != 0)
                 append(_game.newEffect<SkillDecreaseEffect>(
                     static_cast<SkillType>(property.subtype), -amount));
@@ -8427,25 +8447,6 @@ void Creature::removeArmorClassEffect(const EffectInstance &effect) {
 
 void Creature::updateArmorClassEffectCursor() {
     _armorClassCursor.update(effects().size(), [&](size_t i) { return effects()[i].serializedType; });
-}
-
-int Creature::getDexterityModifier(bool armorLimited) const {
-    int dexterityModifier = getEffectiveAbilityModifier(Ability::Dexterity);
-    auto armor = armorLimited ? getEquippedItem(InventorySlots::body) : nullptr;
-    int armorMaxDexterityBonus = armor
-                                     ? getEffectiveArmorMaxDexterityBonus(_game.isTSL(), armor->maxDexterityBonus(),
-                                                                          armor->maxDexterityBonusAdjustment())
-                                     : -1;
-    // A debilitated creature loses a Dexterity bonus, but not a penalty. Only
-    // armour drawn as the body model with an armour class limits Dexterity.
-    if (isDebilitated(true)) {
-        dexterityModifier = std::min(dexterityModifier, 0);
-    } else if (armor && armor->bodyArmorClass() > 0 && armorMaxDexterityBonus >= 0) {
-        dexterityModifier = std::min(
-            dexterityModifier,
-            armorMaxDexterityBonus);
-    }
-    return dexterityModifier;
 }
 
 DefenseBreakdown Creature::getDefenseBreakdown(std::optional<std::reference_wrapper<const Creature>> attacker, int damageFlags, bool touch) const {
@@ -11132,17 +11133,35 @@ void Creature::deserializeAttributes(const resource::Gff &gff) {
         _spellLikeAbilities.push_back({spell, flags, casterLevel});
     }
 
-    int skillType = 0;
-    for (const auto &skill : gff.getList("SkillList")) {
-        attributes.setSkillRank(
-            static_cast<SkillType>(skillType++), skill->getUint("Rank"));
-    }
-
-    // Only a feat the feat table defines is held.
+    // Only a feat the feat table defines is held. The feats come before the
+    // skills, whose default ranks count them.
     for (const auto &feat : gff.getList("FeatList")) {
         auto featType = static_cast<FeatType>(feat->getUint("Feat"));
         if (_services.game.feats.get(featType)) {
             _attributes.addFeat(featType);
+        }
+    }
+
+    // A record with a skill list sets the ranks of the eight skills, a skill
+    // the list leaves out to 0; a record without one, as a module's instance
+    // of a template, keeps the ranks it has. A saved rank from 128 up reads
+    // as that value less 256: the save writes a negative rank so. An entry
+    // without its rank gives the skill's total rank on a base of 0, at most
+    // 127 either way, and only a skill the skills table defines takes it.
+    if (gff.has("SkillList")) {
+        static constexpr int kMaxSkillRank = 127;
+        const auto skills = gff.getList("SkillList");
+        for (int index = 0; index < kSkillListSize; ++index) {
+            attributes.setSkillRank(static_cast<SkillType>(index), 0);
+        }
+        const int entries = std::min(kSkillListSize, static_cast<int>(skills.size()));
+        for (int index = 0; index < entries; ++index) {
+            const auto skill = static_cast<SkillType>(index);
+            auto rank = static_cast<uint8_t>(std::clamp(getUnopposedSkillRank(skill), -kMaxSkillRank, kMaxSkillRank));
+            skills[index]->readByte(rank, "Rank");
+            if (_services.game.skills.get(skill)) {
+                attributes.setSkillRank(skill, static_cast<int8_t>(rank));
+            }
         }
     }
 }

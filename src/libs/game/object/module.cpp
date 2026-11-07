@@ -148,7 +148,7 @@ static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, c
                               const std::shared_ptr<Creature> &leader) {
     static constexpr uint32_t kObjectMineTypes = 0x679c1f8;
     static constexpr int kLastObjectMineType = 26;
-    if (!game.isTSL() || !leader->attributes().hasSkill(SkillType::Demolitions)) {
+    if (!game.isTSL() || !leader->canUseSkill(SkillType::Demolitions)) {
         return;
     }
     if (area.playerRestrictMode()) {
@@ -1541,9 +1541,6 @@ void Module::receivePlayerDeathEvent(const SavedObjectReference &caller) {
     _game.scriptRunner().run(_info.onPlayerDeath, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
-// A standing of at most this is hostile.
-static constexpr int kHighestHostileReputation = 10;
-
 // The usable items of the party's shared inventory, which the player carries
 // for whoever leads.
 static const ItemAttributes &partyItemAttributes(Game &game, const std::shared_ptr<Creature> &leader) {
@@ -1665,7 +1662,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         // an enemy takes the hostile power menu and, in TSL, the hostile item
         // list in place of its own mine kits (which only TSL has).
         const bool hostileTarget = placeable->isHostileAppearance() && !placeable->hasInventory() &&
-                                   leader->getReputationFrom(placeable->faction()) <= kHighestHostileReputation;
+                                   leader->getReputationFrom(placeable->faction()) <= kHighestEnemyReputation;
         if (hostileTarget) {
             for (auto &power : leader->powerMenuActions(*object, true)) {
                 actions.push_back(std::move(power));
@@ -1687,7 +1684,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         if (!trigger->isTrap()) {
             break;
         }
-        if (leader->attributes().hasSkill(SkillType::Demolitions)) {
+        if (leader->canUseSkill(SkillType::Demolitions)) {
             if (trigger->isTrapHostileTo(*leader)) {
                 actions.push_back(ContextAction(SkillType::Demolitions));
             }

@@ -254,10 +254,6 @@ SavingThrows CreatureAttributes::getAggregateSavingThrows() const {
     return result;
 }
 
-bool CreatureAttributes::hasSkill(SkillType skill) const {
-    return getSkillRank(skill) > 0;
-}
-
 int CreatureAttributes::getSkillRank(SkillType skill) const {
     auto it = _skillRanks.find(skill);
     return it != _skillRanks.end() ? it->second : kDefaultSkillRank;
