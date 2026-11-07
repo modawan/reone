@@ -5906,9 +5906,11 @@ void Game::setRelativeMouseMode(bool relative) {
 }
 
 // In play the cursor is also held while the mouse turns the camera, unless a
-// popup takes the input.
+// popup takes the input. A popup over a minigame, which holds the cursor,
+// frees it until the popup closes.
 bool Game::relativeMouseMode() const {
-    return _relativeMouseMode || isMouseLooking();
+    const bool popup = _confirmPopup && _confirmPopup->isVisible();
+    return (_relativeMouseMode && !popup) || isMouseLooking();
 }
 
 bool Game::isMouseLooking() const {
