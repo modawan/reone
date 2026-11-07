@@ -278,6 +278,14 @@ public:
      *        plays on while it runs
      */
     void playVideo(const std::string &name, bool streamingMusic = false);
+    /** Adds a movie to the list playMovieQueue plays; a click skips it only if it is skippable. */
+    void queueMovie(const std::string &name, bool skippable);
+    /**
+     * Plays the queued movies in order, after any movie playing, and empties
+     * the queue. Skipping a movie of the list ends only that movie when
+     * separate skips are allowed, else every movie of the list left.
+     */
+    void playMovieQueue(bool allowSeparateSkips);
 
     bool isPaused() const { return _paused; }
     /**
@@ -1778,7 +1786,19 @@ private:
     PendingTurretRequest _pendingTurret;
 
     std::shared_ptr<movie::IMovie> _movie;
+    /** Whether a click ends the movie playing. */
+    bool _movieSkippable {true};
     std::queue<std::string> _moduleTransitionMovies;
+
+    struct QueuedMovie {
+        std::string name;
+        bool skippable {true};
+    };
+    /** The movies queued for the next playMovieQueue. */
+    std::vector<QueuedMovie> _queuedMovies;
+    /** What is left of the list playMovieQueue is playing. */
+    std::queue<QueuedMovie> _movieQueue;
+    bool _movieQueueSeparateSkips {true};
     std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
@@ -2291,6 +2311,9 @@ private:
     /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
     bool startVideo(const std::string &name, bool streamingMusic);
     bool playNextModuleTransitionMovie();
+    bool playNextQueuedMovie();
+    /** A click on a movie: ends it if it is skippable, and the rest of its list unless skips are separate. */
+    void skipMovie();
     void updateMovie(float dt);
     void updateMusic();
     void updatePassiveSelection(float frameTime);

@@ -7584,19 +7584,20 @@ static Variable QueueMovie(const std::vector<Variable> &args, const RoutineConte
     auto nSkippable = getIntOrElse(args, 1, 1);
 
     // Transform
+    auto movie = boost::to_lower_copy(sMovie);
 
     // Execute
-    throw RoutineNotImplementedException("QueueMovie");
+    ctx.game.queueMovie(movie, nSkippable != 0);
+    return Variable::ofNull();
 }
 
 static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nAllowSkips = getIntOrElse(args, 0, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlayMovieQueue");
+    ctx.game.playMovieQueue(nAllowSkips != 0);
+    return Variable::ofNull();
 }
 
 static Variable YavinHackDoorClose(const std::vector<Variable> &args, const RoutineContext &ctx) {

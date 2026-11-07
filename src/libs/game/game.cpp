@@ -1390,7 +1390,7 @@ bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     }
     _pointer->setPressed(true);
     if (_movie) {
-        _movie->finish();
+        skipMovie();
         return true;
     }
     return false;
@@ -2029,6 +2029,8 @@ void Game::retireRuntimeSession() {
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
     }
+    _queuedMovies.clear();
+    _movieQueue = std::queue<QueuedMovie>();
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
@@ -2961,7 +2963,52 @@ void Game::playVideo(const std::string &name, bool streamingMusic) {
     _moduleTransitionMovies = std::queue<std::string>();
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
+    _movieQueue = std::queue<QueuedMovie>();
     startVideo(name, streamingMusic);
+}
+
+void Game::queueMovie(const std::string &name, bool skippable) {
+    _queuedMovies.push_back(QueuedMovie {name, skippable});
+}
+
+void Game::playMovieQueue(bool allowSeparateSkips) {
+    if (_queuedMovies.empty()) {
+        return;
+    }
+    // As with a script's single movie, the transition list is emptied.
+    _moduleTransitionMovies = std::queue<std::string>();
+    _loadComesWithMovies = false;
+    _movieQueue = std::queue<QueuedMovie>();
+    for (auto &movie : _queuedMovies) {
+        _movieQueue.push(std::move(movie));
+    }
+    _queuedMovies.clear();
+    _movieQueueSeparateSkips = allowSeparateSkips;
+    if (!_movie) {
+        playNextQueuedMovie();
+    }
+}
+
+bool Game::playNextQueuedMovie() {
+    while (!_movieQueue.empty()) {
+        auto movie = std::move(_movieQueue.front());
+        _movieQueue.pop();
+        if (startVideo(movie.name, false)) {
+            _movieSkippable = movie.skippable;
+            return true;
+        }
+    }
+    return false;
+}
+
+void Game::skipMovie() {
+    if (!_movie || !_movieSkippable) {
+        return;
+    }
+    _movie->finish();
+    if (!_movieQueueSeparateSkips) {
+        _movieQueue = std::queue<QueuedMovie>();
+    }
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -5097,6 +5144,7 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
 
 bool Game::startVideo(const std::string &name, bool streamingMusic) {
     _movie = _services.resource.movies.get(name);
+    _movieSkippable = true;
     _timingDiscontinuity = true;
     if (!_movie) {
         return false;
@@ -5134,7 +5182,9 @@ void Game::updateMovie(float dt) {
     if (_movie->isFinished()) {
         _movie.reset();
         _timingDiscontinuity = true;
-        playNextModuleTransitionMovie();
+        if (!playNextQueuedMovie()) {
+            playNextModuleTransitionMovie();
+        }
     }
 }
 
@@ -9571,6 +9621,7 @@ void Game::consoleShowBark(const ConsoleArgs &args) {
 void Game::consoleSkipMovie(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
     _movie.reset();
+    _movieQueue = std::queue<QueuedMovie>();
 }
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {
