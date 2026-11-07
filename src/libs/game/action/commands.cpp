@@ -17,6 +17,7 @@
 
 #include <cmath>
 
+#include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/playanimation.h"
@@ -32,6 +33,7 @@
 #include "reone/game/object/placeable.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/savedsituation.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
 #include "reone/script/program.h"
