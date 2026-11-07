@@ -21,6 +21,8 @@
 #include <array>
 #include <stack>
 
+#include "glm/gtx/intersect.hpp"
+
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
@@ -29,6 +31,8 @@
 #include "reone/game/object/minigameobject.h"
 #include "reone/game/script/runner.h"
 #include "reone/graphics/animation.h"
+#include "reone/graphics/mesh.h"
+#include "reone/graphics/modelnode.h"
 #include "reone/graphics/types.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/audioclips.h"
@@ -38,6 +42,7 @@
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/modelnode.h"
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
 
@@ -137,13 +142,64 @@ void playIdleAnimation(ModelSceneNode &node) {
  * rate active throughout flight would create a continuous explosion trail. Keep the visible
  * bolt mesh unchanged.
  */
-void silenceEmitters(SceneNode &node) {
+void silenceEmitters(SceneNode &node, bool silent = true) {
     for (auto &child : node.children()) {
         if (child->type() == SceneNodeType::Emitter) {
-            child->setEnabled(false);
+            child->setEnabled(!silent);
             continue;
         }
-        silenceEmitters(*child);
+        silenceEmitters(*child, silent);
+    }
+}
+
+// The nearest point where a segment crosses a mesh of the model at or under
+// \p node, with the face's normal and the mesh's name. Attached models are
+// models of their own and are not searched.
+void intersectMeshes(const SceneNode &node,
+                     const glm::vec3 &from,
+                     const glm::vec3 &to,
+                     std::optional<std::pair<float, Turret::BulletHit>> &nearest) {
+    if (node.type() == SceneNodeType::Mesh) {
+        const auto &meshNode = static_cast<const ModelNodeSceneNode &>(node);
+        auto mesh = meshNode.modelNode().mesh();
+        if (mesh && mesh->mesh && !mesh->skin && !mesh->saber) {
+            const glm::vec3 localFrom {meshNode.absoluteTransformInverse() * glm::vec4(from, 1.0f)};
+            const glm::vec3 localTo {meshNode.absoluteTransformInverse() * glm::vec4(to, 1.0f)};
+            const float length = glm::length(localTo - localFrom);
+            float boxDistance = 0.0f;
+            if (length > 0.0f) {
+                const glm::vec3 dir {(localTo - localFrom) / length};
+                if (mesh->mesh->aabb().raycast(localFrom, 1.0f / dir, length, boxDistance)) {
+                    const auto &vertices = mesh->mesh->vertices();
+                    for (const auto &face : mesh->mesh->faces()) {
+                        const auto &a = vertices[face.vertices[0]].position;
+                        const auto &b = vertices[face.vertices[1]].position;
+                        const auto &c = vertices[face.vertices[2]].position;
+                        glm::vec2 barycentric {0.0f};
+                        float distance = 0.0f;
+                        if (!glm::intersectRayTriangle(localFrom, dir, a, b, c, barycentric, distance) ||
+                            distance < 0.0f || distance > length) {
+                            continue;
+                        }
+                        const float fraction = distance / length;
+                        if (nearest && nearest->first <= fraction) {
+                            continue;
+                        }
+                        Turret::BulletHit hit;
+                        hit.position = from + (to - from) * fraction;
+                        glm::vec3 normal = glm::mat3(meshNode.absoluteTransform()) * glm::cross(b - a, c - a);
+                        hit.normal = glm::length2(normal) > 0.0f ? glm::normalize(normal) : glm::vec3(0.0f, 0.0f, 1.0f);
+                        hit.part = meshNode.modelNode().name();
+                        nearest = std::make_pair(fraction, std::move(hit));
+                    }
+                }
+            }
+        }
+    }
+    for (auto &child : node.children()) {
+        if (child->type() == SceneNodeType::Mesh || child->type() == SceneNodeType::Dummy) {
+            intersectMeshes(*child, from, to, nearest);
+        }
     }
 }
 
@@ -270,6 +326,7 @@ bool TurretBullet::advance(float dt) {
     // A bolt is created and integrated within the same tick, so its first step
     // is spent standing at the muzzle: that is the only frame in which it is
     // drawn where the authored gun bank actually points.
+    previousPosition = position;
     if (atMuzzle) {
         atMuzzle = false;
         return true;
@@ -896,6 +953,10 @@ void Turret::detachAll() {
 
     _pendingAnimationEvents.clear();
     _readyReturns.clear();
+    for (auto &explosion : _explosions) {
+        sceneGraph.removeRoot(*explosion.modelNode);
+    }
+    _explosions.clear();
 
     for (auto &bullet : _bullets) {
         releaseBulletNode(bullet);
@@ -1015,6 +1076,7 @@ void Turret::update(float dt) {
 
     runAnimationEvents();
     updateReadyReturns();
+    updateExplosions();
     if (_player) {
         checkTrackLoop(*_player);
     }
@@ -1351,6 +1413,7 @@ std::shared_ptr<ModelSceneNode> Turret::acquireBulletNode(const std::string &res
     if (pooled != _bulletNodePool.end() && !pooled->second.empty()) {
         auto node = std::move(pooled->second.back());
         pooled->second.pop_back();
+        playIdleAnimation(*node);
         return node;
     }
     auto node = loadModel(resRef);
@@ -1383,28 +1446,32 @@ void Turret::updateBullets(float dt) {
     }
 }
 
-// A follower is hit inside its sphere, an obstacle inside its model's bounds.
+// A bullet hits what it crossed on its last step: in KotOR a model's
+// "hitbullet" part, which a model without one does not have, and in TSL the
+// whole model. A follower is hit on any of its models, the nearest hit taken.
 // No follower is hit by its own bullets.
-bool Turret::bulletHits(const Bullet &bullet, const Actor &target) const {
+std::optional<Turret::BulletHit> Turret::bulletHits(const Bullet &bullet, const Actor &target) const {
     if (target.id() == bullet.shooter) {
-        return false;
+        return std::nullopt;
     }
-    if (auto follower = dynamic_cast<const Follower *>(&target)) {
-        return sphereContainsPoint(follower->position, follower->sphereRadius, bullet.sim.position);
-    }
+    std::optional<std::pair<float, BulletHit>> nearest;
     for (const auto &model : target.models) {
-        auto bounds = model->model().aabb() * model->absoluteTransform();
-        if (bounds.contains(bullet.sim.position)) {
-            return true;
+        if (_game.isTSL()) {
+            intersectMeshes(*model, bullet.sim.previousPosition, bullet.sim.position, nearest);
+        } else if (auto part = model->getNodeByName("hitbullet")) {
+            intersectMeshes(*part, bullet.sim.previousPosition, bullet.sim.position, nearest);
         }
     }
-    return false;
+    if (!nearest) {
+        return std::nullopt;
+    }
+    return nearest->second;
 }
 
 // Each bullet, last to first, is checked against the player, then the listed
 // enemies and obstacles, each last to first; the first it hits takes it. The
-// target keeps the hit, then its bullet hit hook runs. A bullet that hits an
-// obstacle in TSL takes the obstacle away.
+// target keeps the hit, then its bullet hit hook runs, and the bullet explodes
+// where it hit. A bullet that hits an obstacle in TSL takes the obstacle away.
 void Turret::checkBulletHits() {
     for (size_t i = _bullets.size(); i-- > 0;) {
         if (i >= _bullets.size()) {
@@ -1413,13 +1480,17 @@ void Turret::checkBulletHits() {
         const Bullet bullet = _bullets[i];
         Actor *target = nullptr;
         Obstacle *hitObstacle = nullptr;
-        if (_player && bulletHits(bullet, *_player)) {
-            target = _player.get();
+        std::optional<BulletHit> hit;
+        if (_player) {
+            hit = bulletHits(bullet, *_player);
+            if (hit) {
+                target = _player.get();
+            }
         }
         if (!target) {
             auto enemies = listedEnemies();
             for (auto it = enemies.rbegin(); it != enemies.rend(); ++it) {
-                if (bulletHits(bullet, **it)) {
+                if ((hit = bulletHits(bullet, **it))) {
                     target = *it;
                     break;
                 }
@@ -1428,7 +1499,7 @@ void Turret::checkBulletHits() {
         if (!target) {
             auto obstacles = listedObstacles();
             for (auto it = obstacles.rbegin(); it != obstacles.rend(); ++it) {
-                if (bulletHits(bullet, **it)) {
+                if ((hit = bulletHits(bullet, **it))) {
                     target = hitObstacle = *it;
                     break;
                 }
@@ -1437,20 +1508,52 @@ void Turret::checkBulletHits() {
         if (!target) {
             continue;
         }
-        releaseBulletNode(_bullets[i]);
+        Bullet spent = std::move(_bullets[i]);
         _bullets.erase(_bullets.begin() + static_cast<std::ptrdiff_t>(i));
 
         target->lastBulletHit = bullet.info;
         target->lastBulletShooter = bullet.shooter;
-        target->lastBulletHitPart = _game.isTSL() ? "root" : "hitbullet";
-        target->lastBulletHitPosition = bullet.sim.position;
+        target->lastBulletHitPart = hit->part;
+        target->lastBulletHitPosition = hit->position;
         onBulletHit(*target, false);
+        explodeBullet(spent, *hit);
         if (hitObstacle && _game.isTSL()) {
             destroyObstacle(*hitObstacle);
         }
         if (!_active) {
             return;
         }
+    }
+}
+
+// The bolt plays its explosion where it hit, turned to the surface, and goes
+// once the explosion has played. TSL's Onderon turret and its test module
+// only take the bolt away.
+void Turret::explodeBullet(Bullet &bullet, const BulletHit &hit) {
+    const bool quiet = _game.isTSL() && (boost::iequals(_areaName, "505ond") || boost::iequals(_areaName, "module000"));
+    if (!bullet.modelNode || quiet || !bullet.modelNode->model().getAnimation("explode")) {
+        releaseBulletNode(bullet);
+        return;
+    }
+    auto node = std::move(bullet.modelNode);
+    const glm::quat facing = turretAimOrientation(turretYawDegrees(hit.normal), turretPitchDegrees(hit.normal));
+    node->setLocalTransform(glm::translate(hit.position) * glm::mat4_cast(facing));
+    silenceEmitters(*node, false);
+    node->playAnimation("explode", nullptr, AnimationProperties::fromFlags(0));
+    _explosions.push_back({std::move(node), bullet.modelResRef});
+}
+
+void Turret::updateExplosions() {
+    for (auto it = _explosions.begin(); it != _explosions.end();) {
+        auto base = it->modelNode->baseAnimationChannel();
+        if (base && boost::iequals(base->get().anim->name(), "explode") && !base->get().finished) {
+            ++it;
+            continue;
+        }
+        silenceEmitters(*it->modelNode);
+        _services.scene.graphs.get(kSceneMain).removeRoot(*it->modelNode);
+        _bulletNodePool[it->modelResRef].push_back(std::move(it->modelNode));
+        it = _explosions.erase(it);
     }
 }
 

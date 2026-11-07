@@ -174,6 +174,8 @@ private:
  */
 struct TurretBullet {
     glm::vec3 position {0.0f};
+    /** Where the bullet was before its last step: the hit tests sweep from here to position. */
+    glm::vec3 previousPosition {0.0f};
     glm::vec3 direction {0.0f, 1.0f, 0.0f};
 
     // World orientation of the firing actor at the moment of the shot. Authored
@@ -482,6 +484,13 @@ public:
         bool listed {true};
     };
 
+    /** Where a bullet hit, the surface's normal there and the part it hit. */
+    struct BulletHit {
+        glm::vec3 position {0.0f};
+        glm::vec3 normal {0.0f, 0.0f, 1.0f};
+        std::string part;
+    };
+
     struct Bullet {
         TurretBullet sim;
         std::shared_ptr<scene::ModelSceneNode> modelNode;
@@ -615,6 +624,13 @@ private:
 
     std::vector<Bullet> _bullets;
 
+    // Bullets playing their explosion where they hit.
+    struct Explosion {
+        std::shared_ptr<scene::ModelSceneNode> modelNode;
+        std::string modelResRef;
+    };
+    std::vector<Explosion> _explosions;
+
     // An animation event, waiting for the turret's update.
     struct PendingAnimationEvent {
         uint32_t actorId {script::kObjectInvalid};
@@ -706,7 +722,10 @@ private:
     void updateDeath(Follower &follower, float dt);
     void updateBullets(float dt);
     void checkBulletHits();
-    bool bulletHits(const Bullet &bullet, const Actor &target) const;
+    std::optional<BulletHit> bulletHits(const Bullet &bullet, const Actor &target) const;
+    /** Plays the bullet's explosion where it hit, or takes it away when it has none. */
+    void explodeBullet(Bullet &bullet, const BulletHit &hit);
+    void updateExplosions();
     void fire();
     void spawnBullet(const GunBank &bank,
                      const glm::vec3 &origin,
