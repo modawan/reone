@@ -57,6 +57,8 @@ public:
 
     /** Whether the store buys from the party as well as selling to it. */
     bool buysAndSells() const { return _buySellFlag == kBuysAndSells; }
+    /** Whether the store only buys from the party. */
+    bool onlyBuys() const { return _buySellFlag == kOnlyBuys; }
 
     /** The bonuses a script opens the store with, each held to -100 to 100. */
     void setBonusMarks(int markUp, int markDown);
@@ -67,7 +69,7 @@ public:
 
     /**
      * Takes an item into the stock. A plot item is refused and destroyed. An
-     * item identical to the first stocked item with its tag counts one more
+     * item identical to the first stocked item with its tag adds its stack
      * there (never for an endless stock) and is destroyed. Otherwise the
      * store files it, identified, by cost.
      *
@@ -85,6 +87,8 @@ public:
 private:
     friend class ModuleSnapshotBuilder;
 
+    /** The BuySellFlag of a store that only buys from the party. */
+    static constexpr uint8_t kOnlyBuys = 2;
     /** The BuySellFlag of a store that both buys and sells. */
     static constexpr uint8_t kBuysAndSells = 3;
 

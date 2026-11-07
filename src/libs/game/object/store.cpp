@@ -111,8 +111,10 @@ void Store::readPlacement(const resource::Gff &gff, bool zeroWhereMissing) {
     }
 }
 
-// Loaded stock lies dearest first, items of one cost in the order read. An
-// item joins an identical stack before it, and what is left of it follows.
+// Loaded stock lies dearest first, items of one cost in the order read. It
+// is filled cheapest first, the last read of one cost first, each item at
+// the front unless it joins an identical stack already there: so an item
+// joins one read after it, whose flags, Infinite among them, stay.
 void Store::deserializeItems(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
@@ -160,7 +162,8 @@ void Store::deserializeItems(
             std::stable_sort(loaded.begin(), loaded.end(), [this](const auto &left, const auto &right) {
                 return itemCost(*left) > itemCost(*right);
             });
-            for (const auto &item : loaded) {
+            for (auto it = loaded.rbegin(); it != loaded.rend(); ++it) {
+                const auto &item = *it;
                 const bool joined = std::any_of(replacement.begin(), replacement.end(), [&](const auto &stocked) {
                     return stocked->mergeStackFrom(*item);
                 });
@@ -168,7 +171,7 @@ void Store::deserializeItems(
                     item->clearOwner();
                     _game.discardStagedRuntimeObjects({item});
                 } else {
-                    replacement.push_back(item);
+                    replacement.insert(replacement.begin(), item);
                 }
             }
         },
@@ -255,8 +258,9 @@ std::shared_ptr<Item> Store::acquireItem(const std::shared_ptr<Item> &item) {
     }
     item->setIdentified(true);
     if (auto stocked = getItemByTag(item->tag()); stocked && stocked->isIdenticalTo(*item)) {
+        // The stock grows by the whole stack taken in.
         if (!stocked->isInfinite()) {
-            stocked->setStackSize(stocked->stackSize() + 1);
+            stocked->setStackSize(stocked->stackSize() + item->stackSize());
         }
         _game.destroyRuntimeObjectGraph(item);
         return nullptr;

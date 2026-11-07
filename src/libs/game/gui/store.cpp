@@ -135,13 +135,17 @@ void StoreGUI::open(const std::shared_ptr<Store> &store) {
     _filter = Filter::All;
     _gold = _game.party().gold();
     showCredits();
-    // Every store opens on its own stock; only one that buys as well can
-    // switch to the party's items.
+    // A store that only buys opens on the party's items, any other on its own
+    // stock; only one that buys and sells can switch between them.
     _controls.BTN_Examine->setVisible(store->buysAndSells());
     if (isTSL()) {
         setFilter(Filter::All);
     }
-    showBuyList();
+    if (store->onlyBuys()) {
+        showSellList();
+    } else {
+        showBuyList();
+    }
 }
 
 bool StoreGUI::handle(const input::Event &event) {
