@@ -115,6 +115,8 @@ public:
      */
     void scrollToItem(int index);
     void scrollToSelectedItem();
+    /** A button prototype's icon frame takes the GUI's pulsing alpha while its row is hilighted. */
+    void setIconFrameHilightPulsing(bool pulsing) { _iconFrameHilightPulsing = pulsing; }
 
     /**
      * Draws underneath the list's own frame and rows. Lets a GUI repaint
@@ -184,6 +186,7 @@ private:
     SelectionMode _selectionMode {SelectionMode::OnHover};
     bool _keepsSelection {false};
     std::shared_ptr<Control> _protoItem;
+    bool _iconFrameHilightPulsing {false};
     std::shared_ptr<Control> _scrollBar;
     std::vector<Item> _items;
     int _slotCount {0};

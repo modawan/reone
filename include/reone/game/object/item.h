@@ -349,6 +349,9 @@ public:
     void setDropable(bool dropable);
     void setStackSize(int size);
     void setIdentified(bool value);
+    /** Whether a store holds the item without end: a stack that never runs out. */
+    bool isInfinite() const { return _infinite; }
+    void setInfinite(bool infinite) { _infinite = infinite; }
     void setEquipped(bool equipped);
 
     uint32_t owner() const { return _ownerId; }
@@ -372,6 +375,7 @@ private:
     uint16_t _stackSize {1};
     uint32_t _upgrades {0};
     bool _identified {true};
+    bool _infinite {false};
     uint8_t _modelVariation {0};
     uint8_t _bodyVariation {0};
     uint8_t _textureVariation {0};

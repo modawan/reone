@@ -61,6 +61,7 @@
 #include "gui/partyselect.h"
 #include "gui/pazaak.h"
 #include "gui/saveload.h"
+#include "gui/store.h"
 #include "journal.h"
 #include "location.h"
 #include "messagelog.h"
@@ -207,6 +208,7 @@ public:
         InGameMenu,
         Conversation,
         Container,
+        Store,
         PartySelection,
         SaveLoad,
         GalaxyMap,
@@ -546,6 +548,16 @@ public:
     void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
     void openContainer(const std::shared_ptr<Object> &container);
     void closeContainer(const Object &container);
+    /**
+     * Shows the store, pausing play, over whatever is shown, which comes back
+     * when it closes; over the in-game menu, or while a conversation is under
+     * way, nothing is shown.
+     */
+    void openStore(const std::shared_ptr<Store> &store);
+    /** The store closes, and the screen it was opened over comes back. */
+    void closeStore();
+    /** KotOR's examine box: a message box dismissed with Close. */
+    void showExamineBox(const std::string &message);
     void openPartySelection(const PartySelectionContext &ctx);
 
     /**
@@ -1634,6 +1646,7 @@ public:
 private:
     friend class Area;
     friend class Object;
+    friend class Store;
     friend class TestGameModule;
     friend class ModuleSnapshotBuilder;
     friend class SaveWideSnapshotBuilder;
@@ -2028,6 +2041,9 @@ private:
      */
     float _deathTimeScale {1.0f};
     std::unique_ptr<ContainerGUI> _container;
+    std::unique_ptr<StoreGUI> _storeGUI;
+    /** The screen the store was opened over. */
+    Screen _storeUnderneath {Screen::InGame};
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;

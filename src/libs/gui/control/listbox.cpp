@@ -764,7 +764,8 @@ void ListBox::renderItemWithButtonProtoIcon(
         if (item.invalid) {
             frameColor = kInvalidItemBorderColor;
         }
-        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, 1.0f));
+        const float frameAlpha = _protoItem->isSelected() && _iconFrameHilightPulsing ? _gui.pulsingAlpha() : 1.0f;
+        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, frameAlpha));
     }
     if (item.iconTexture) {
         pass.drawIcon(*item.iconTexture, iconPosition, iconSize);

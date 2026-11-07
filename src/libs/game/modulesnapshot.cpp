@@ -1665,13 +1665,19 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
     const auto direction = glm::vec3(-std::sin(store.getFacing()), std::cos(store.getFacing()), 0.0f);
     put(*result, Gff::Field::newFloat("XOrientation", direction.x));
     put(*result, Gff::Field::newFloat("YOrientation", direction.y));
+    put(*result, Gff::Field::newCExoLocString("LocName", store._locName.id(), store._locName.str()));
     put(*result, Gff::Field::newInt("MarkDown", store._markDown));
     put(*result, Gff::Field::newInt("MarkUp", store._markUp));
     put(*result, Gff::Field::newResRef("OnOpenStore", store._onOpenStore));
     put(*result, Gff::Field::newByte("BuySellFlag", store._buySellFlag));
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : store._items) if (item) items.push_back(
-        writeItem(*item, 0, ids.objectId(*item), &ids));
+    for (const auto &item : store._items) {
+        if (item) {
+            auto entry = writeItem(*item, 0, ids.objectId(*item), &ids);
+            put(*entry, Gff::Field::newByte("Infinite", item->isInfinite()));
+            items.push_back(std::move(entry));
+        }
+    }
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }
