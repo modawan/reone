@@ -53,12 +53,6 @@ void main() {
     } else if (isFeatureEnabled(FEATURE_DANGLY)) {
         fragPos = uDanglyPositions[gl_VertexID];
 
-    } else if (isFeatureEnabled(FEATURE_SABER)) {
-        float signum = 2.0 * (gl_VertexID / 88) - 1.0;
-        float hdist = ((gl_VertexID % 88) / 4) / 21.0;
-        float vdist = (gl_VertexID % 4) / 3.0;
-        fragPos = vec4(P.xyz + 0.5 * signum * hdist * vdist * uSaberDisplacement.xyz, 1.0);
-
     } else {
         fragPos = P;
     }
@@ -68,6 +62,13 @@ void main() {
     }
 
     fragPosWorld = uModel * fragPos;
+
+    if (isFeatureEnabled(FEATURE_SABER)) {
+        float signum = 2.0 * (gl_VertexID / 88) - 1.0;
+        float hdist = ((gl_VertexID % 88) / 4) / 21.0;
+        float vdist = (gl_VertexID % 4) / 3.0;
+        fragPosWorld.xyz += 0.5 * signum * hdist * vdist * uSaberDisplacement.xyz;
+    }
 
     mat3 normalMatrix = transpose(mat3(uModelInv));
     fragNormalWorld = normalize(normalMatrix * N.xyz);

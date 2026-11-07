@@ -179,9 +179,8 @@ void MeshSceneNode::updateSaberAnimation(float dt) {
     float deltaPosMag = glm::length(deltaPos);
     if (deltaPosMag > 1.0f) {
         _saber.displacement = glm::vec3 {0.0f};
-    } else if (deltaPosMag > 0.0f) {
-        glm::vec3 deltaLocal = _absTransformInv * glm::vec4 {deltaPos, 0.0f};
-        _saber.displacement += deltaLocal;
+    } else {
+        _saber.displacement += deltaPos;
     }
     _saber.displacement -= _saber.displacement * glm::min(8.0f * dt, 1.0f);
     _saber.prevWorldPos = worldPos;
