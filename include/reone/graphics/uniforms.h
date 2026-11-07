@@ -225,7 +225,12 @@ public:
     virtual void setGlobals(const std::function<void(GlobalUniforms &)> &block) = 0;
     virtual void setLocals(const std::function<void(LocalUniforms &)> &block) = 0;
     virtual void setBones(const std::function<void(BoneUniforms &)> &block) = 0;
-    virtual void setDangly(const std::function<void(DanglyUniforms &)> &block) = 0;
+    /**
+     * Uploads the positions of a dangly mesh's vertices, up to
+     * kMaxDanglyVertices of them. The rest of the block keeps whatever an
+     * earlier mesh left there, which the shader does not read.
+     */
+    virtual void setDangly(const std::vector<glm::vec4> &positions) = 0;
     virtual void setParticles(const std::function<void(ParticleUniforms &)> &block) = 0;
     virtual void setGrass(const std::function<void(GrassUniforms &)> &block) = 0;
     virtual void setWalkmesh(const std::function<void(WalkmeshUniforms &)> &block) = 0;
@@ -247,7 +252,7 @@ public:
     void setGlobals(const std::function<void(GlobalUniforms &)> &block) override;
     void setLocals(const std::function<void(LocalUniforms &)> &block) override;
     void setBones(const std::function<void(BoneUniforms &)> &block) override;
-    void setDangly(const std::function<void(DanglyUniforms &)> &block) override;
+    void setDangly(const std::vector<glm::vec4> &positions) override;
     void setParticles(const std::function<void(ParticleUniforms &)> &block) override;
     void setGrass(const std::function<void(GrassUniforms &)> &block) override;
     void setWalkmesh(const std::function<void(WalkmeshUniforms &)> &block) override;
