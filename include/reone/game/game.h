@@ -2407,6 +2407,7 @@ private:
     void consoleAddItem(const ConsoleArgs &tokens);
     void consoleGiveXP(const ConsoleArgs &tokens);
     void consoleGiveGold(const ConsoleArgs &tokens);
+    void consoleGiveItem(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleCamera(const ConsoleArgs &tokens);
     void consoleCamPos(const ConsoleArgs &tokens);

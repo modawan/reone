@@ -42,6 +42,8 @@ struct CheatFixture : Test {
         ON_CALL(engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(sceneGraph));
         game = std::make_unique<Game>(GameID::KotOR, "", engine.options(), engine.services(), console);
+        // A leader change runs a script on the new leader.
+        game->initLocalServices();
         player = game->newCreature();
         TestGameModule::configureModuleSnapshot(*game, game->newArea(), player, "end_m01aa", "end_m01aa");
         companion = game->newCreature();
@@ -96,8 +98,36 @@ TEST_F(CheatFixture, additem_adds_nothing_for_an_unknown_code) {
     EXPECT_TRUE(player->items().empty());
 }
 
+TEST_F(CheatFixture, giveitem_gives_the_item_to_the_party_even_with_another_object_selected) {
+    expectItem("g1_w_dblsbr001");
+    auto chest = game->newPlaceable();
+    game->module()->area()->selectObject(chest, true);
 
+    console.execute("giveitem", {"g1_w_dblsbr001"});
 
+    ASSERT_EQ(1u, player->items().size());
+    EXPECT_EQ("g1_w_dblsbr001", player->items()[0]->tag());
+    EXPECT_TRUE(chest->items().empty());
+}
+
+TEST_F(CheatFixture, giveitem_adds_nothing_for_an_unknown_code) {
+    EXPECT_CALL(engine.resourceModule().gffs(), get("no_such_item", ResType::Uti))
+        .WillRepeatedly(Return(nullptr));
+
+    EXPECT_THROW(console.execute("giveitem", {"no_such_item"}), std::runtime_error);
+
+    EXPECT_TRUE(player->items().empty());
+}
+
+TEST_F(CheatFixture, giveitem_gives_to_the_shared_inventory_under_another_leader) {
+    expectItem("g1_w_dblsbr001");
+    ASSERT_TRUE(game->party().setPartyLeader(0));
+
+    console.execute("giveitem", {"g1_w_dblsbr001"});
+
+    ASSERT_EQ(1u, player->items().size());
+    EXPECT_TRUE(companion->items().empty());
+}
 
 
 

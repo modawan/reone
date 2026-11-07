@@ -749,7 +749,8 @@ void Game::registerConsoleCommand(std::string name, std::string description, Con
         "spawncreature", "spawncompanion", "setfaction", "setposition",
         "professionaltools", "killroom", "setability", "setskill",
         "addfeat", "removefeat", "addspell", "removespell",
-        "castspellatobject", "opendoor", "closedoor"};
+        "castspellatobject", "opendoor", "closedoor",
+        "giveitem"};
     bool marksCheatUsed = cheatCommands.count(name) != 0;
     _console.registerCommand(
         name, description,
@@ -789,6 +790,7 @@ void Game::initConsole() {
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
     registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
+    registerConsoleCommand("giveitem", "give an item to the party", &Game::consoleGiveItem);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -9372,6 +9374,12 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     _party.giveGold(args.get<int>(1).value());
     _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
+}
+
+// The item always goes to the party, whatever is selected.
+void Game::consoleGiveItem(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "item_tpl");
+    addConsoleItem(getConsoleLeader(), std::string(args[1].value()), 1);
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ
