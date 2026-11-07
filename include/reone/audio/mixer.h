@@ -45,6 +45,11 @@ public:
      *        begins; none for a movie that holds every sound
      */
     virtual void setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) = 0;
+    /**
+     * Sets the volume, in percent, that sources of \p type play at, those
+     * playing included.
+     */
+    virtual void setVolume(AudioType type, int volume) = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -64,6 +69,7 @@ public:
     void stop(AudioType type) override;
     void stopAll() override;
     void setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) override;
+    void setVolume(AudioType type, int volume) override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -76,6 +82,8 @@ private:
     struct ActiveSource {
         std::shared_ptr<AudioSource> source;
         AudioType type {AudioType::Sound};
+        /** The gain asked for, before the type's volume. */
+        float gain {1.0f};
     };
 
     AudioOptions &_options;

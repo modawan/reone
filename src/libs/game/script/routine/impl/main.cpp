@@ -22,6 +22,8 @@
 #include <cstdlib>
 #include <functional>
 
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
@@ -7174,10 +7176,13 @@ static Variable SetMusicVolume(const std::vector<Variable> &args, const RoutineC
     // Load
     auto fVolume = getFloatOrElse(args, 0, 1.0f);
 
-    // Transform
+    // Transform: a volume below 0 is 0; any other that is not below 1 is 1.
+    float volume = fVolume < 0.0f ? 0.0f : (fVolume < 1.0f ? fVolume : 1.0f);
 
-    // Execute
-    throw RoutineNotImplementedException("SetMusicVolume");
+    // Execute: the music volume setting, as the options set it, for the
+    // music playing and the music to come.
+    ctx.services.audio.mixer.setVolume(audio::AudioType::Music, static_cast<int>(std::lround(volume * 100.0f)));
+    return Variable::ofNull();
 }
 
 static Variable CreateItemOnFloor(const std::vector<Variable> &args, const RoutineContext &ctx) {

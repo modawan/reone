@@ -270,7 +270,15 @@ void AudioSource::setLooping(bool loop) {
 }
 
 void AudioSource::setGainScale(float scale) {
+    _gainScale = scale;
     alSourcef(_source, AL_GAIN, _gain * scale);
+}
+
+void AudioSource::setGain(float gain) {
+    _gain = gain;
+    if (_source) {
+        alSourcef(_source, AL_GAIN, _gain * _gainScale);
+    }
 }
 
 void AudioSource::setPitch(float pitch) {

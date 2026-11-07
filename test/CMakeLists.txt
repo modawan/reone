@@ -90,6 +90,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/moviequeue.cpp
+    ${TESTS_SOURCE_DIR}/game/musicvolume.cpp
     ${TESTS_SOURCE_DIR}/game/loadfromsavegame.cpp
     ${TESTS_SOURCE_DIR}/game/savenpcstate.cpp
     ${TESTS_SOURCE_DIR}/game/savegame.cpp

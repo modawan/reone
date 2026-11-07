@@ -90,8 +90,32 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
     } else {
         source->play();
     }
-    _sources.push_back(ActiveSource {source, type});
+    _sources.push_back(ActiveSource {source, type, gain});
     return source;
+}
+
+void AudioMixer::setVolume(AudioType type, int volume) {
+    switch (type) {
+    case AudioType::Music:
+        _options.musicVolume = volume;
+        break;
+    case AudioType::Voice:
+        _options.voiceVolume = volume;
+        break;
+    case AudioType::Sound:
+        _options.soundVolume = volume;
+        break;
+    case AudioType::Movie:
+        _options.movieVolume = volume;
+        break;
+    default:
+        return;
+    }
+    for (auto &active : _sources) {
+        if (active.type == type) {
+            active.source->setGain(gainByType(type, active.gain));
+        }
+    }
 }
 
 float AudioMixer::gainByType(AudioType type, float gain) const {

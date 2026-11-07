@@ -67,6 +67,8 @@ public:
     void setLooping(bool loop);
     /** Scales the gain the source was created with; used to fade it out. */
     void setGainScale(float scale);
+    /** Replaces the gain the source was created with; a scale set on it still applies. */
+    void setGain(float gain);
     /** Plays the source at \p pitch times its own rate, which raises or lowers its pitch. */
     void setPitch(float pitch);
 
@@ -77,6 +79,7 @@ public:
 private:
     std::shared_ptr<AudioClip> _stream;
     float _gain;
+    float _gainScale {1.0f};
     bool _loop;
     std::optional<glm::vec3> _position;
 
