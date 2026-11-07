@@ -237,10 +237,50 @@ TEST_F(CheatFixture, heal_heals_the_new_leader_after_a_leader_change) {
     EXPECT_EQ(5, player->currentHitPoints());
 }
 
+TEST_F(CheatFixture, invulnerability_turns_on_the_plot_flag_for_the_whole_party) {
+    console.execute("invulnerability");
 
+    EXPECT_TRUE(player->plotFlag());
+    EXPECT_TRUE(companion->plotFlag());
+    EXPECT_EQ("invulnerability on", console.lines.back());
+}
 
+TEST_F(CheatFixture, invulnerability_toggles_back_off) {
+    console.execute("invulnerability");
+    console.execute("invulnerability");
 
+    EXPECT_FALSE(player->plotFlag());
+    EXPECT_FALSE(companion->plotFlag());
+    EXPECT_EQ("invulnerability off", console.lines.back());
+}
 
+TEST_F(CheatFixture, invulnerability_gives_the_party_the_opposite_of_the_leaders_flag) {
+    player->setPlotFlag(true);
+
+    console.execute("invulnerability");
+
+    EXPECT_FALSE(player->plotFlag());
+    EXPECT_FALSE(companion->plotFlag());
+}
+
+TEST_F(CheatFixture, invulnerability_leaves_companions_outside_the_party_alone) {
+    auto waiting = game->newCreature();
+    game->party().addAvailableMember(1, waiting);
+
+    console.execute("invulnerability");
+
+    EXPECT_FALSE(waiting->plotFlag());
+}
+
+TEST_F(CheatFixture, invulnerability_reads_the_new_leaders_flag_after_a_leader_change) {
+    companion->setPlotFlag(true);
+    ASSERT_TRUE(game->party().setPartyLeader(0));
+
+    console.execute("invulnerability");
+
+    EXPECT_FALSE(companion->plotFlag());
+    EXPECT_FALSE(player->plotFlag());
+}
 
 
 

@@ -751,7 +751,7 @@ void Game::registerConsoleCommand(std::string name, std::string description, Con
         "professionaltools", "killroom", "setability", "setskill",
         "addfeat", "removefeat", "addspell", "removespell",
         "castspellatobject", "opendoor", "closedoor",
-        "giveitem", "heal"};
+        "giveitem", "heal", "invulnerability"};
     bool marksCheatUsed = cheatCommands.count(name) != 0;
     _console.registerCommand(
         name, description,
@@ -793,6 +793,7 @@ void Game::initConsole() {
     registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
     registerConsoleCommand("giveitem", "give an item to the party", &Game::consoleGiveItem);
     registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
+    registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -9392,6 +9393,20 @@ void Game::consoleHeal(const ConsoleArgs &args) {
     leader->applyEffect(newEffect<ResurrectionEffect>(0), DurationType::Permanent);
     leader->applyEffect(newEffect<HealEffect>(leader->maxHitPoints()), DurationType::Permanent);
     leader->setCurrentForcePoints(leader->maxForcePoints());
+}
+
+// God mode is the plot flag. The whole party takes the opposite of the
+// leader's flag, so members whose flags differ end up matching.
+void Game::consoleInvulnerability(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    bool invulnerable = !leader->plotFlag();
+    for (const auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->setPlotFlag(invulnerable);
+        }
+    }
+    _console.printLine(invulnerable ? "invulnerability on" : "invulnerability off");
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ
