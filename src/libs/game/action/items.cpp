@@ -70,7 +70,8 @@ bool GiveItemAction::queue(Game &game, Object &giver, std::shared_ptr<Item> item
 // it, disturbed by the item's holder before the give. A creature that
 // receives one runs its disturbed script the same way, unless it gave the
 // item itself or its inventory held the item already, as party members
-// sharing the party inventory do.
+// sharing the party inventory do. An item given into the party from outside
+// it is signalled to the module as acquired from its holder.
 void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     if (auto *giver = dyn_cast<Creature>(&actor)) {
@@ -100,6 +101,7 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
             disturber = holder->owner();
         }
     }
+    auto from = _game.itemHolder(*_item);
     std::shared_ptr<Item> split;
     if (_count > 0 && _count < _item->stackSize()) {
         split = _game.newItemClone(*_item);
@@ -126,6 +128,9 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         auto receiver = party.sharedInventoryReceiver(_giveTo);
         const bool alreadyHeld = _item->owner() == receiver->id() && !_item->isEquipped();
         auto delivered = deliver(*receiver);
+        if (delivered) {
+            _game.signalItemAcquired(*receiver, delivered.held, from);
+        }
         if (_givenByScript && party.isMember(*_giveTo)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsReceived, 0, {name});
         }
@@ -167,7 +172,8 @@ std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record,
 // item is taken from runs its disturbed script, disturbed by the taker, for
 // the taker's stack that holds the item, as an item merged into a stack is
 // gone. A take between creatures sharing the party inventory moves nothing
-// and is neither.
+// and is neither. An item a party member takes from outside the party is
+// signalled to the module as acquired from its holder.
 void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     ItemTransfer taken;
@@ -179,7 +185,11 @@ void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     case ObjectType::Creature: {
         auto receiver = party.sharedInventoryReceiver(_game.getObjectById(actor.id()));
         alreadyHeld = _item->owner() == receiver->id() && !_item->isEquipped();
+        auto from = _game.itemHolder(*_item);
         taken = transferItemTo(_game, _item, *receiver);
+        if (taken) {
+            _game.signalItemAcquired(*receiver, taken.held, from);
+        }
         if (taken && !alreadyHeld && party.isMember(*_takeFrom)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsLost);
         }

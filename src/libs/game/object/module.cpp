@@ -1472,7 +1472,7 @@ void Module::runSpawnScriptsOutsideArea() {
 }
 
 // Item events (activated, acquired, lost and equipped) record their objects
-// for the module's getters, then run the matching module script.
+// for the module's getters, then run the matching module script, if any.
 void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectReference &caller) {
     auto objectId = [&event](size_t index) {
         if (index >= event.objects.size()) {
@@ -1512,7 +1512,9 @@ void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectRe
         break;
     }
     }
-    _game.scriptRunner().run(script, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+    if (!script.empty()) {
+        _game.scriptRunner().run(script, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+    }
 }
 
 // A fallen party member's death event records it for GetLastPlayerDied, then

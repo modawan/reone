@@ -331,7 +331,7 @@ void UseSkillAction::resolveMine(Creature &actor) {
             return;
         }
         if (auto receiver = _game.party().sharedInventoryReceiver(actorPtr)) {
-            receiver->addItem(resRef);
+            _game.signalItemAcquired(*receiver, receiver->addItem(resRef), nullptr);
         }
     };
 

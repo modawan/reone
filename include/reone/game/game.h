@@ -955,6 +955,21 @@ public:
      */
     void signalItemEquipped(Creature &wearer, int slot, const std::shared_ptr<Item> &item);
     /**
+     * The object whose inventory holds the item: its owner, or, for an item
+     * inside other items, the holder of the outermost one; none when the item
+     * or the outermost one lies in the area.
+     */
+    std::shared_ptr<Object> itemHolder(const Item &item) const;
+    /**
+     * Signals the module that the stack now holding an item came into the
+     * party's inventory, held by receiver, from the object that held it
+     * before, or from nowhere. Nothing is signalled when the receiver is
+     * outside the party, when the item came from within the party, or when
+     * no stack holds it, as for credits. The module's acquire script runs on
+     * it once the move is over.
+     */
+    void signalItemAcquired(const Object &receiver, const std::shared_ptr<Item> &held, const std::shared_ptr<Object> &from);
+    /**
      * An item put on while its wearer is read. The module is told once the
      * wearer and the item are live.
      */

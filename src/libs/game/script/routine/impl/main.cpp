@@ -621,8 +621,11 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
     item->setDropable(true);
     const std::string name = item->localizedName();
     // The object answered is the stack now holding the item, or none when the
-    // item was counted instead of kept.
-    auto held = ctx.game.party().sharedInventoryReceiver(oTarget)->addItem(item);
+    // item was counted instead of kept. An item created in the party's
+    // inventory is signalled to the module as acquired from nowhere.
+    auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
+    auto held = receiver->addItem(item);
+    ctx.game.signalItemAcquired(*receiver, held, nullptr);
     // An item created on a party member is reported in the status summary,
     // unless the script hides it.
     if (ctx.game.party().isMember(*oTarget) && !nHideMessage) {
@@ -3335,8 +3338,12 @@ static Variable GiveItem(const std::vector<Variable> &args, const RoutineContext
     // Transform
     auto item = checkItem(oItem);
 
-    // Execute
-    transferItemTo(ctx.game, item, *oGiveTo);
+    // Execute: an item given to a party member goes to the party's inventory.
+    auto receiver = ctx.game.party().sharedInventoryReceiver(oGiveTo);
+    auto from = ctx.game.itemHolder(*item);
+    if (auto given = transferItemTo(ctx.game, item, *receiver)) {
+        ctx.game.signalItemAcquired(*receiver, given.held, from);
+    }
     return Variable::ofNull();
 }
 
@@ -3422,14 +3429,23 @@ static Variable SetEncounterSpawnsCurrent(const std::vector<Variable> &args, con
     return Variable::ofNull();
 }
 
+// An acquire event's object while it still exists; none without a module.
+static uint32_t acquiredEventObject(const RoutineContext &ctx, uint32_t ModuleItemEvents::*field) {
+    auto module = ctx.game.module();
+    if (!module) {
+        return kObjectInvalid;
+    }
+    return getObjectIdOrInvalid(ctx.game.getObjectById(module->itemEvents().*field));
+}
+
 static Variable GetModuleItemAcquired(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofObject(ctx.game.module()->itemEvents().acquired);
+    return Variable::ofObject(acquiredEventObject(ctx, &ModuleItemEvents::acquired));
 }
 
 static Variable GetModuleItemAcquiredFrom(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofObject(ctx.game.module()->itemEvents().acquiredFrom);
+    return Variable::ofObject(acquiredEventObject(ctx, &ModuleItemEvents::acquiredFrom));
 }
 
 static Variable SetCustomToken(const std::vector<Variable> &args, const RoutineContext &ctx) {

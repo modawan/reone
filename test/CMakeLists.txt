@@ -70,6 +70,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/itempossession.cpp
     ${TESTS_SOURCE_DIR}/game/inventorydisturbed.cpp
+    ${TESTS_SOURCE_DIR}/game/moduleitemacquired.cpp
     ${TESTS_SOURCE_DIR}/game/equipmentoperation.cpp
     ${TESTS_SOURCE_DIR}/game/equipmentweaponsetlabels.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp

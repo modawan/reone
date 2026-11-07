@@ -1577,13 +1577,16 @@ void Object::moveAllItemsTo(Object &other) {
     }
 }
 
-// An item a party member is handed goes to the party's inventory.
+// An item a party member is handed goes to the party's inventory, and the
+// module is told the party acquired it from this object.
 void Object::handOverItem(const std::shared_ptr<Item> &item, Object &other) {
     if (Creature *creature = dyn_cast<Creature>(this)) {
         creature->itemAttributes().removeItem(item);
     }
     item->clearOwner();
-    _game.party().sharedInventoryReceiver(_game.getObjectById(other.id()))->addItem(item);
+    auto receiver = _game.party().sharedInventoryReceiver(_game.getObjectById(other.id()));
+    auto held = receiver->addItem(item);
+    _game.signalItemAcquired(*receiver, held, _game.getObjectById(_id));
 }
 
 int Object::damageImmunity(int flags) const {

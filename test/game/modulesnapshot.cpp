@@ -23,6 +23,7 @@
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
+#include "reone/game/action/takeitem.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/effect.h"
@@ -2594,3 +2595,89 @@ TEST_F(SnapshotFixture, creature_records_carry_the_creation_script_flag) {
 }
 
 } // namespace
+
+namespace {
+
+// The object list of the one acquire event in a saved module queue.
+std::vector<uint32_t> savedAcquireObjects(const Gff &ifo) {
+    std::vector<uint32_t> ids;
+    const auto &queue = ifo.getList("EventQueue");
+    EXPECT_EQ(1u, queue.size());
+    if (queue.size() != 1) {
+        return ids;
+    }
+    EXPECT_EQ(static_cast<uint32_t>(SavedEventType::SignalEvent), queue[0]->getUint("EventId"));
+    auto data = queue[0]->findStruct("EventData");
+    EXPECT_TRUE(data);
+    if (!data) {
+        return ids;
+    }
+    EXPECT_EQ(static_cast<uint32_t>(SavedSignalEventType::ItemAcquired), data->getUint("EventType"));
+    for (const auto &object : data->getList("ObjectList")) {
+        ids.push_back(object->getUint("Parameter"));
+    }
+    return ids;
+}
+
+} // namespace
+
+// A party acquisition still waiting when the module is saved names its
+// previous holder by the holder's saved id, which binds again on load and
+// reaches GetModuleItemAcquiredFrom.
+TEST_F(SnapshotFixture, pending_item_acquired_event_round_trips_its_source) {
+    TestGameModule::setSnapshotWorldTime(game, 4, 5000, 2);
+    auto giver = game.newCreature();
+    giver->setPC(false);
+    giver->setTag("acq_giver");
+    TestGameModule::addSnapshotObject(*area, giver);
+    auto item = game.newOwnedItem();
+    item->setTag("acq_item");
+    giver->addItem(item);
+    auto take = game.newAction<TakeItemAction>(item, giver);
+    take->execute(take, *player, 0.0f);
+    ASSERT_EQ(player->id(), item->owner());
+    ASSERT_EQ(1u, game.module()->pendingSavedEventCount());
+
+    auto saved = ModuleSnapshotBuilder(game, "module_acq").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto ifo = readGff(saved.snapshot->ifoBytes);
+    const auto ids = savedAcquireObjects(*ifo);
+    ASSERT_EQ(2u, ids.size());
+    auto giverRecord = recordById(*saved.snapshot->git, "Creature List", ids[1]);
+    ASSERT_TRUE(giverRecord) << "the source is written as its saved creature";
+    EXPECT_EQ("acq_giver", giverRecord->getString("Tag"));
+
+    // Load the queue back in place of the live event.
+    game.module()->dropPendingEvents(*game.module());
+    ASSERT_EQ(0u, game.module()->pendingSavedEventCount());
+    TestGameModule::registerSavedModuleReferenceTarget(game, game.module(), snapshotIdentityContext());
+    game.registerSavedObjectIdentity(ids[1], giver, snapshotIdentityContext());
+    game.module()->deserializeSavedEventQueue(*ifo, snapshotIdentityContext());
+    game.module()->bindSavedEventQueue();
+    game.module()->publishSavedEventQueue();
+    ASSERT_EQ(1u, game.module()->pendingSavedEventCount());
+    TestGameModule::dispatchSnapshotEvents(*game.module());
+
+    EXPECT_EQ(0u, game.module()->pendingSavedEventCount());
+    EXPECT_EQ(giver->id(), game.module()->itemEvents().acquiredFrom);
+}
+
+// A source gone by the time of the save is written as no object.
+TEST_F(SnapshotFixture, pending_item_acquired_event_from_a_deleted_source_saves_no_source) {
+    auto giver = game.newCreature();
+    giver->setPC(false);
+    TestGameModule::addSnapshotObject(*area, giver);
+    auto item = game.newOwnedItem();
+    giver->addItem(item);
+    auto take = game.newAction<TakeItemAction>(item, giver);
+    take->execute(take, *player, 0.0f);
+    TestGameModule::markSnapshotObjectDeleted(*area, giver->id());
+
+    auto saved = ModuleSnapshotBuilder(game, "module_acq").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    const auto ids = savedAcquireObjects(*readGff(saved.snapshot->ifoBytes));
+    ASSERT_EQ(2u, ids.size());
+    EXPECT_EQ(kSavedRuntimeInvalidObjectId, ids[1]);
+}

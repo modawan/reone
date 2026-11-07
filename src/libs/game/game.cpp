@@ -6521,6 +6521,38 @@ void Game::signalItemEquipped(Creature &wearer, int slot, const std::shared_ptr<
     queueScriptEvent(*_module, wearer, *newEvent(kItemEquippedEvent, std::vector<int32_t> {}, std::vector<float> {}, std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {item}));
 }
 
+std::shared_ptr<Object> Game::itemHolder(const Item &item) const {
+    const Item *current = &item;
+    std::shared_ptr<Object> holder;
+    // Each step reaches an item's owner, so a chain of items that loops back
+    // on itself is cut off by the count of live objects.
+    for (size_t step = 0; step <= _objectById.size(); ++step) {
+        if (!current->isHeld()) {
+            return nullptr;
+        }
+        holder = getObjectById(current->owner());
+        auto container = std::dynamic_pointer_cast<Item>(holder);
+        if (!container) {
+            return holder;
+        }
+        current = container.get();
+    }
+    return nullptr;
+}
+
+void Game::signalItemAcquired(const Object &receiver, const std::shared_ptr<Item> &held, const std::shared_ptr<Object> &from) {
+    if (!_module || !held) {
+        return;
+    }
+    const auto inParty = [this](const Object &object) {
+        return _party.isMember(object) || &object == _party.actualPlayer().get();
+    };
+    if (!inParty(receiver) || (from && inParty(*from))) {
+        return;
+    }
+    queueScriptEvent(*_module, receiver, *newEvent(static_cast<int>(SavedSignalEventType::ItemAcquired), std::vector<int32_t> {}, std::vector<float> {}, std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {held, from}));
+}
+
 void Game::recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item) {
     assert(_stagedRuntimeObjectGraph && "equipment is read inside a runtime object graph");
     _stagedRuntimeObjectGraph->equippedOnLoad.push_back({slot, item});
@@ -9349,7 +9381,7 @@ void Game::consoleAddItem(const ConsoleArgs &args) {
     auto object = getConsoleTargetObject();
     int stackSize = args.get<int>(2).value_or(1);
     auto receiver = _party.sharedInventoryReceiver(object);
-    receiver->addItem(std::string(args[1].value()), stackSize);
+    signalItemAcquired(*receiver, receiver->addItem(std::string(args[1].value()), stackSize), nullptr);
 }
 
 void Game::consoleGiveXP(const ConsoleArgs &args) {
@@ -9993,8 +10025,9 @@ void Game::consoleProfessionalTools(const ConsoleArgs &args) {
     if (!creature) {
         return;
     }
+    auto receiver = _party.sharedInventoryReceiver(creature);
     for (auto &kv : items) {
-        creature->addItem(kv.first, kv.second);
+        signalItemAcquired(*receiver, receiver->addItem(kv.first, kv.second), nullptr);
     }
 }
 
