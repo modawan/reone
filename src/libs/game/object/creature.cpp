@@ -503,6 +503,15 @@ static constexpr int kRunAnimationId = 10004;
 static constexpr int kStealthWalkAnimationId = 10133;
 static constexpr int kInjuredWalkAnimationId = 10093;
 static constexpr int kInjuredRunAnimationId = 10094;
+static constexpr int kWalkBackAnimationId = 10003;
+// Clips of a creature the player steers that turns as it goes: in place,
+// walking or running, to the left or to the right.
+static constexpr int kTurnInPlaceLeftAnimationId = 10078;
+static constexpr int kTurnInPlaceRightAnimationId = 10079;
+static constexpr int kWalkTurnLeftAnimationId = 10084;
+static constexpr int kWalkTurnRightAnimationId = 10085;
+static constexpr int kRunTurnLeftAnimationId = 10086;
+static constexpr int kRunTurnRightAnimationId = 10087;
 static constexpr int kDeadAnimationId = 10006;
 static constexpr int kDead1AnimationId = 10008;
 static constexpr int kDead3AnimationId = 10156;
@@ -1229,9 +1238,9 @@ Creature::Creature(
     ServicesView &services) :
     Object(id, ObjectType::Creature, std::move(sceneName), game, services) {
 
-    // Initialize unsaved perception ranges from PercepRngDefault in ranges.2da.
-    _perception.sightRange = 20.0f;
-    _perception.hearingRange = 20.0f;
+    // Perception ranges come only from data.
+    _perception.sightRange = 0.0f;
+    _perception.hearingRange = 0.0f;
     startUnsavedCounters();
     // A creature's destroyed body waits 8 s before it fades.
     _fadeOutTime = 8000;
@@ -1340,14 +1349,24 @@ void Creature::retireAreaRuntime(
     _lastWeaponUsed = script::kObjectInvalid;
     _partyCombatMode = false;
 
-    _perception.clear();
+    // What it perceived starts over too, but for its view of the player
+    // character: a party member keeps its id into the next module, yet
+    // forgets the other members all the same. Its stealth experience timer
+    // starts over.
+    const auto player = _game.party().player();
+    const uint32_t playerId = player ? player->id() : script::kObjectInvalid;
+    for (auto *entries : {&_perception.seen, &_perception.heard, &_perception.invisible}) {
+        for (auto it = entries->begin(); it != entries->end();) {
+            it = it->first == playerId ? std::next(it) : entries->erase(it);
+        }
+    }
+    auto &order = _perception.order;
+    order.erase(std::remove_if(order.begin(), order.end(), [playerId](uint32_t id) { return id != playerId; }), order.end());
     _perceptionStarted = false;
+    _stealthXPTimer.reset();
     stopTalking();
     stopStuntMode();
-    if (_audioSourceVoice) _audioSourceVoice->stop();
-    if (_audioSourceFootstep) _audioSourceFootstep->stop();
-    _audioSourceVoice.reset();
-    _audioSourceFootstep.reset();
+    stopVoiceAndFootsteps();
 }
 
 std::optional<std::reference_wrapper<const Creature>> Creature::asCreature(const Object &object) {
@@ -1392,6 +1411,10 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     countLoadedItems();
     updateTransform();
     loadAppearance();
+    // A creature that comes into the world in stealth shows it arriving.
+    if (_stealthMode) {
+        presentStealthChange(true, false);
+    }
     return true;
 }
 
@@ -2163,7 +2186,7 @@ void Creature::interruptActivities(bool keepStealth) {
     }
 }
 
-void Creature::setStealthMode(bool enabled) {
+void Creature::setStealthMode(bool enabled, bool quiet) {
     if (_stealthMode == enabled) {
         return;
     }
@@ -2172,7 +2195,16 @@ void Creature::setStealthMode(bool enabled) {
     if (isRunLimited() && _movementType == MovementType::Run) {
         setMovementType(MovementType::Walk);
     }
+    presentStealthChange(enabled, quiet);
+}
+
+// KotOR plays the activate clip on entering and leaving stealth alike.
+void Creature::presentStealthChange(bool enabled, bool quiet) {
     presentStealth(enabled, true);
+    if (!_game.isTSL() && !quiet) {
+        playFireForgetAnimation(getAnimationName(AnimationType::FireForgetActivate),
+                                AnimationSource {kCreatureActivateAnimationId, false, true});
+    }
 }
 
 // Entering stealth plays the BeginStealth sound and wraps the creature in the
@@ -2425,6 +2457,51 @@ void Creature::update(float dt) {
     updateCombat(dt);
     updateRegeneration(dt);
     updateLightsaberSoundPositions();
+    updateStealthXPTimer();
+}
+
+// A creature that newly sees the player's creature costs the area stealth
+// experience six seconds later.
+static constexpr int kStealthXPSightingMilliseconds = 6000;
+
+// The player's creature, for stealth experience: the player character or the
+// controlled creature.
+static bool isPlayersCreature(Game &game, const Creature &creature) {
+    return creature.isPC() || game.party().getLeader().get() == &creature;
+}
+
+void Creature::startStealthXPTimer(const Creature &seen) {
+    if (isPlayersCreature(_game, seen)) {
+        _stealthXPTimer = kStealthXPSightingMilliseconds;
+    }
+}
+
+void Creature::hastenStealthXPTimer(const Creature &victim) {
+    if (_stealthXPTimer && isPlayersCreature(_game, victim)) {
+        _stealthXPTimer = 0;
+    }
+}
+
+// The timer counts down by the frame time. A creature outside any area keeps
+// its timer as it is.
+void Creature::updateStealthXPTimer() {
+    auto area = spatialArea();
+    if (!area) {
+        return;
+    }
+    if (!area->get().isStealthXPEnabled()) {
+        _stealthXPTimer.reset();
+        return;
+    }
+    if (!_stealthXPTimer) {
+        return;
+    }
+    if (*_stealthXPTimer <= _frameMilliseconds) {
+        area->get().loseStealthXP();
+        _stealthXPTimer.reset();
+    } else {
+        *_stealthXPTimer -= _frameMilliseconds;
+    }
 }
 
 // With the clock stopped the frame takes no time, so nothing turns.
@@ -6076,6 +6153,13 @@ void Creature::setObjectInvisible(const std::shared_ptr<Object> &object, bool in
     _perception.reorder(object->id());
 }
 
+void Creature::perceiveAtOnce(const std::shared_ptr<Object> &object) {
+    if (!_perception.has(object->id())) {
+        setObjectSeen(object, true);
+        setObjectHeard(object, true);
+    }
+}
+
 void Creature::forgetPerceived(uint32_t id) {
     _perception.seen.erase(id);
     _perception.heard.erase(id);
@@ -6103,6 +6187,8 @@ bool Creature::isBlind() const {
            (_visibilityCounterBits & (kDarknessCounter | kUltravisionCounter)) == kDarknessCounter;
 }
 
+// In combat a creature other than the controlled one sees and hears as far as
+// the party combat ranges reach; a range left blank is 0.
 float Creature::spotRange() const {
     if (_combatState.active && _game.party().getLeader().get() != this) {
         return _services.game.spells.range(kCombatPerceptionRangeRow).primary.value_or(0.0f);
@@ -6157,8 +6243,29 @@ void Creature::refreshPerceptionRolls() {
     _perceptionRolls.age = 0.0f;
 }
 
+// A creature counts as still unless it shows one of its moving animations.
+// Under a clip that is only shown it is still unless it walks or runs.
 bool Creature::isStationaryForDetection() const {
-    return _movementType == MovementType::None;
+    if (_animationSource.shownOnly) {
+        return _movementType == MovementType::None;
+    }
+    switch (currentAnimationId()) {
+    case kWalkAnimationId:
+    case kWalkBackAnimationId:
+    case kRunAnimationId:
+    case kTurnInPlaceLeftAnimationId:
+    case kTurnInPlaceRightAnimationId:
+    case kWalkTurnLeftAnimationId:
+    case kWalkTurnRightAnimationId:
+    case kRunTurnLeftAnimationId:
+    case kRunTurnRightAnimationId:
+    case kInjuredWalkAnimationId:
+    case kInjuredRunAnimationId:
+    case kStealthWalkAnimationId:
+        return false;
+    default:
+        return true;
+    }
 }
 
 float Creature::maxAttackRange(const Object &target, bool choreographed, bool enemySearch) const {
@@ -6300,10 +6407,7 @@ bool Creature::detectsBySound(const Creature &target, bool invisible) const {
     if (distance2 > listen * listen) {
         return false;
     }
-    const auto occlusion = area->soundOcclusion(*this, target, eye, targetEye);
-    if (!occlusion) {
-        return false;
-    }
+    // Sound always gets through, so a creature not hiding is heard.
     if (!target._stealthMode) {
         return true;
     }
@@ -6311,9 +6415,10 @@ bool Creature::detectsBySound(const Creature &target, bool invisible) const {
     if (rank == 0) {
         return true;
     }
+    const int occlusion = area->soundOcclusion(*this, target, eye, targetEye);
 
     const int aware = getSkillRankVersus(SkillType::Awareness, target);
-    int total = *occlusion - (rank + target._perceptionRolls.moveSilently) + aware + _perceptionRolls.listen +
+    int total = occlusion - (rank + target._perceptionRolls.moveSilently) + aware + _perceptionRolls.listen +
                 area->modListenCheck();
     if (_movementType == MovementType::Run) {
         total -= 5;
@@ -10755,6 +10860,10 @@ void Creature::deserialize(
 
     updateTransform();
     loadAppearance();
+    // A creature that comes into the world in stealth shows it arriving.
+    if (_stealthMode) {
+        presentStealthChange(true, false);
+    }
 }
 
 void Creature::deserializeAll(
@@ -10782,8 +10891,8 @@ void Creature::deserializeAll(
     gff.readByte(_isPC, "IsPC");
     _actsAsPC = _isPC;
     gff.readBool(_playerCreated, "PlayerCreated");
-    // Only the value 1 is stealth.
-    setStealthMode(gff.getUint("StealthMode", _stealthMode ? 1 : 0) == 1);
+    // Only the value 1 is stealth. It shows once the model is built.
+    setStealthMode(gff.getUint("StealthMode", _stealthMode ? 1 : 0) == 1, true);
     gff.readInt(_assignedPuppet, "AssignedPup");
 
     // index into racialtypes.2da

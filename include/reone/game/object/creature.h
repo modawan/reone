@@ -308,11 +308,13 @@ struct SavingThrowBreakdown {
 
 /**
  * Where the clip a creature shows came from: its animation ID, -1 when
- * unknown, and whether it is a dialog animation.
+ * unknown, whether it is a dialog animation, and whether it is only shown, the
+ * creature carrying on with what it does under it.
  */
 struct AnimationSource {
     int id {-1};
     bool dialog {false};
+    bool shownOnly {false};
 };
 
 /**
@@ -1188,8 +1190,22 @@ public:
     void setPuppet(bool puppet) { _puppet = puppet; }
     void setCurrentForm(CombatForm form) { _currentForm = form; }
     bool isStealthed() const { return _stealthMode; }
-    /** Enters or leaves stealth, with its presentation. */
-    void setStealthMode(bool enabled);
+    /**
+     * Enters or leaves stealth, with its presentation. In KotOR the creature
+     * also plays its activate clip, unless \p quiet: stealth ended by
+     * restrict mode or the start of a conversation, or a loaded creature.
+     */
+    void setStealthMode(bool enabled, bool quiet = false);
+    /**
+     * Newly seeing \p seen: when it is the player character or the controlled
+     * creature, the area loses stealth experience in six seconds.
+     */
+    void startStealthXPTimer(const Creature &seen);
+    /**
+     * Attacking \p victim: when it is the player character or the controlled
+     * creature, a running stealth experience loss comes on the next update.
+     */
+    void hastenStealthXPTimer(const Creature &victim);
     /**
      * The latest of the creature's own shells, the stealth exit's flash or
      * else the stealth field, with the effect application order current when
@@ -1663,6 +1679,8 @@ public:
     void setObjectHeard(const std::shared_ptr<Object> &object, bool heard);
     /** Records whether \p object is invisible to the creature. */
     void setObjectInvisible(const std::shared_ptr<Object> &object, bool invisible);
+    /** Sees and hears \p object at once, unless the creature already perceives it. */
+    void perceiveAtOnce(const std::shared_ptr<Object> &object);
     /** Forgets having seen, heard or noticed the invisible \p id. */
     void forgetPerceived(uint32_t id);
     /** Record a perception change as the last one and run the notice script. */
@@ -2670,7 +2688,17 @@ private:
     float _presentationFacing {0.0f};
     float _desiredFacing {0.0f};
     float _movementFacing {0.0f};
+    /**
+     * The time this update covers on the creature's own clock, in
+     * milliseconds; 0 while the clock stands still.
+     */
     int _frameMilliseconds {0};
+    /**
+     * Milliseconds until a sighting of the player's creature costs the area
+     * stealth experience, 0 once the loss is due on the next update; none
+     * when the timer is not running. Not saved.
+     */
+    std::optional<int> _stealthXPTimer;
 
     // Current path that the creature is following, its velocity and position at
     // the previous frame.
@@ -3042,11 +3070,22 @@ private:
     // Stealth
 
     void presentStealth(bool enabled, bool announce);
+    /**
+     * Shows the stealth state changing: the stealth sound, field and cue, and
+     * in KotOR, unless the change is quiet, the activate clip.
+     */
+    void presentStealthChange(bool enabled, bool quiet);
     void presentStealthField(bool enabled, bool announce);
     /** TSL's stealth feat or one of its Force Camouflage powers. */
     bool hasTSLStealthTalent() const;
     /** TSL Dampen Sound on an equipped item. */
     bool hasSilentMove() const;
+    /**
+     * Runs the stealth experience timer in an area paying stealth
+     * experience, by the frame time, and stops it elsewhere; when it runs
+     * out the area loses its decrement.
+     */
+    void updateStealthXPTimer();
 
     // END Stealth
 
@@ -3234,6 +3273,11 @@ private:
     /** The skill rank, \p versus a creature or unopposed. */
     int skillRank(SkillType skill, bool baseOnly,
                   const std::optional<std::reference_wrapper<const Creature>> &versus) const;
+    /**
+     * Whether the creature counts as still for stealth detection: it shows no
+     * moving animation, or, under a clip that is only shown, it neither walks
+     * nor runs.
+     */
     bool isStationaryForDetection() const;
     void reportStealthDetection(const Creature &target, int spotRoll, int hideRoll, int aware, int rank,
                                 int observerStill, int targetStill, int distance, int facing, int run, int combat) const;

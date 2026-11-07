@@ -778,12 +778,9 @@ static Variable SetPlayerRestrictMode(const std::vector<Variable> &args, const R
     // Load
     auto bRestrict = getInt(args, 0);
 
-    // Transform
-    auto restrict = static_cast<bool>(bRestrict);
-
     // Execute
     if (auto area = ctx.game.module()->area()) {
-        area->setPlayerRestrictMode(restrict);
+        area->setPlayerRestrictMode(bRestrict);
     }
     return Variable::ofNull();
 }
@@ -1053,7 +1050,7 @@ static Variable GetPlayerRestrictMode(const std::vector<Variable> &args, const R
     if (!creature || !ctx.game.party().isMember(*creature)) {
         return Variable::ofInt(0);
     }
-    return Variable::ofInt(static_cast<int>(ctx.game.module()->area()->playerRestrictMode()));
+    return Variable::ofInt(ctx.game.module()->area()->playerRestrictMode());
 }
 
 static Variable GetCasterLevel(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5167,26 +5164,34 @@ static Variable GetSoloMode(const std::vector<Variable> &args, const RoutineCont
     return Variable::ofInt(static_cast<int>(solo));
 }
 
+// The stealth experience routines act on the controlled creature's area: a
+// getter gives 0 and a setter does nothing while it is in none.
+static std::optional<std::reference_wrapper<Area>> controlledCreatureArea(const RoutineContext &ctx) {
+    auto leader = ctx.game.party().getLeader();
+    return leader ? leader->spatialArea() : std::nullopt;
+}
+
 static Variable GetMaxStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofInt(ctx.game.module()->area()->maxStealthXP());
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? static_cast<int>(area->get().maxStealthXP()) : 0);
 }
 
 static Variable SetMaxStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nMax = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    ctx.game.module()->area()->setMaxStealthXP(nMax);
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setMaxStealthXP(static_cast<uint32_t>(nMax));
+    }
     return Variable::ofNull();
 }
 
 static Variable GetCurrentStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    int xp = ctx.game.module()->area()->currentStealthXP();
-    return Variable::ofInt(xp);
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? static_cast<int>(area->get().currentStealthXP()) : 0);
 }
 
 static Variable GetNumStackedItems(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5231,10 +5236,10 @@ static Variable SetCurrentStealthXP(const std::vector<Variable> &args, const Rou
     // Load
     auto nCurrent = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    ctx.game.module()->area()->setCurrentStealthXP(nCurrent);
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setCurrentStealthXP(static_cast<uint32_t>(nCurrent));
+    }
     return Variable::ofNull();
 }
 
@@ -5249,35 +5254,29 @@ static Variable AwardStealthXP(const std::vector<Variable> &args, const RoutineC
     // Load
     auto oTarget = getObjectOrNull(args, 0, ctx);
 
-    // Execute: a creature's area pays out its stealth experience once, and
-    // stealth experience is then off there.
-    auto area = ctx.game.module()->area();
-    if (!oTarget || !isa<Creature>(oTarget)) {
-        return Variable::ofNull();
+    // Execute: the target creature's own area pays out its stealth experience.
+    auto *creature = oTarget ? dyn_cast<Creature>(oTarget.get()) : nullptr;
+    auto targetArea = creature ? creature->spatialArea() : std::nullopt;
+    if (targetArea) {
+        targetArea->get().awardStealthXP();
     }
-    if (!area->isStealthXPEnabled() || area->currentStealthXP() == 0) {
-        return Variable::ofNull();
-    }
-    ctx.game.party().awardXP(area->currentStealthXP(), XPSource::Stealth);
-    area->setCurrentStealthXP(0);
-    area->setStealthXPEnabled(false);
     return Variable::ofNull();
 }
 
 static Variable GetStealthXPEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofInt(ctx.game.module()->area()->isStealthXPEnabled() ? 1 : 0);
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? area->get().stealthXPEnabled() : 0);
 }
 
 static Variable SetStealthXPEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto bEnabled = getInt(args, 0);
 
-    // Transform
-    bool enabled = static_cast<bool>(bEnabled);
-
     // Execute
-    ctx.game.module()->area()->setStealthXPEnabled(enabled);
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setStealthXPEnabled(bEnabled);
+    }
     return Variable::ofNull();
 }
 
@@ -5428,17 +5427,19 @@ static Variable GetSubRace(const std::vector<Variable> &args, const RoutineConte
 
 static Variable GetStealthXPDecrement(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetStealthXPDecrement");
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? static_cast<int>(area->get().stealthXPDecrement()) : 0);
 }
 
 static Variable SetStealthXPDecrement(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nDecrement = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetStealthXPDecrement");
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setStealthXPDecrement(static_cast<uint32_t>(nDecrement));
+    }
+    return Variable::ofNull();
 }
 
 static Variable DuplicateHeadAppearance(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -1762,10 +1762,6 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
         result = emptyRecord(std::numeric_limits<uint32_t>::max());
     }
     put(*result, Gff::Field::newCExoString("Tag", area._tag));
-    put(*result, Gff::Field::newByte("StealthXPEnabled", area._stealthXPEnabled));
-    put(*result, Gff::Field::newDword("StealthXPMax", static_cast<uint32_t>(std::max(0, area._maxStealthXP))));
-    put(*result, Gff::Field::newDword("StealthXPCurrent", static_cast<uint32_t>(std::max(0, area._currentStealthXP))));
-    put(*result, Gff::Field::newDword("StealthXPLoss", static_cast<uint32_t>(std::max(0, area._stealthXPDecrement))));
     return result;
 }
 
@@ -1795,10 +1791,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     put(*result, Gff::Field::newByte("TransPendNextID", area._transitionPendingNextId));
     put(*result, Gff::Field::newByte("TransPendCurrID", area._transitionPendingCurrentId));
 
-    // The area properties carry the music and ambient sound settings, then the
-    // area flags and the fog colour; what is playing is not saved.
+    // The area properties carry the music and ambient sound settings and the
+    // stealth experience, then the area flags and the fog colour; what is
+    // playing is not saved. Whether stealth experience is paid is saved as on
+    // or off.
     const auto &audio = area._ambientAudio;
-    auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).build();
+    auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).field(Gff::Field::newDword("StealthXPMax", area._maxStealthXP)).field(Gff::Field::newDword("StealthXPCurrent", area._currentStealthXP)).field(Gff::Field::newDword("StealthXPLoss", area._stealthXPDecrement)).field(Gff::Field::newByte("StealthXPEnabled", area.isStealthXPEnabled() ? 1 : 0)).build();
     put(*properties, Gff::Field::newByte("Unescapable", area._unescapable));
     if (_game.isTSL()) {
         put(*properties, Gff::Field::newByte("DisableTransit", area._transitDisabled));

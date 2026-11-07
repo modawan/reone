@@ -8130,6 +8130,10 @@ bool Game::reconcilePartySelection(
         }
     }
 
+    // The creature under control when the selection is accepted perceives
+    // each companion the selection brings in: in KotOR the player character,
+    // who took the lead when the selection opened.
+    const auto viewer = _party.getLeader();
     const auto currentMembers = _party.members();
     bool leadHandedBack = false;
     for (const auto &member : currentMembers) {
@@ -8178,6 +8182,7 @@ bool Game::reconcilePartySelection(
         }
         // A companion joining takes up the alignment its influence gives.
         member->recomputeInfluenceAlignment();
+        viewer->perceiveAtOnce(member);
     }
 
     area->repositionParty();
@@ -8804,17 +8809,15 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     changeScreen(Screen::Conversation);
     _dialogUnderWay = true;
 
-    // A computer conversation leaves everyone's stealth alone.
+    // Starting a conversation other than a computer's also quietly ends the
+    // stealth of the controlled creature and the party members.
     if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
-        if (auto creature = std::dynamic_pointer_cast<Creature>(owner)) {
-            creature->setStealthMode(false);
-        }
         if (auto leader = _party.getLeader()) {
-            leader->setStealthMode(false);
+            leader->setStealthMode(false, true);
         }
         for (int i = 0; i < _party.getSize(); ++i)
             if (auto member = _party.getMember(i)) {
-                member->setStealthMode(false);
+                member->setStealthMode(false, true);
             }
     }
     _conversation = conversation;
@@ -8895,6 +8898,17 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
         _dialogUnderWay = false;
     }
     return started;
+}
+
+void Game::endConversationStealth(const std::shared_ptr<Object> &owner, const std::shared_ptr<Object> &listener) {
+    if (isTSL() && _keepStealthInDialog) {
+        return;
+    }
+    for (const auto &object : {listener, owner}) {
+        if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+            creature->setStealthMode(false, true);
+        }
+    }
 }
 
 void Game::resumeConversation() {

@@ -32,6 +32,12 @@ class TwoDA;
 
 namespace game {
 
+/**
+ * The animation ID of a creature's activate clip: it plays it as it uses an
+ * item, and in KotOR as it enters or leaves stealth.
+ */
+constexpr int kCreatureActivateAnimationId = 10136;
+
 bool isAnimationLooping(AnimationType animation);
 
 /**
