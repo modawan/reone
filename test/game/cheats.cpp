@@ -18,6 +18,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -34,8 +36,44 @@ using namespace reone::game;
 using namespace reone::resource;
 using namespace testing;
 
+void reone::game::TestGameModule::addLevelStats(Creature &creature, int hitDie, int forcePoints) {
+    creature._levelStats.push_back({hitDie, forcePoints});
+}
 
 namespace {
+
+// A Jedi Guardian class whose tables carry only what loading a class reads.
+struct JediClass {
+    NiceMock<MockStrings> strings;
+    NiceMock<MockTwoDAs> twoDas;
+    Classes classes {strings, twoDas};
+    std::shared_ptr<CreatureClass> clazz;
+
+    JediClass() {
+        auto empty = std::shared_ptr<TwoDA>(TwoDA::Builder().build());
+        TwoDA::Builder saves;
+        saves.columns({"level", "fortsave", "refsave", "willsave"}).row({"1", "0", "0", "0"});
+        TwoDA::Builder attacks;
+        attacks.columns({"bab"}).row({"0"});
+        TwoDA::Builder defenses;
+        defenses.columns({"def"}).row({"2"}).row({"2"});
+        ON_CALL(twoDas, get("skills")).WillByDefault(Return(empty));
+        ON_CALL(twoDas, get("save")).WillByDefault(Return(std::shared_ptr<TwoDA>(saves.build())));
+        ON_CALL(twoDas, get("attack")).WillByDefault(Return(std::shared_ptr<TwoDA>(attacks.build())));
+        ON_CALL(twoDas, get("acbonus")).WillByDefault(Return(std::shared_ptr<TwoDA>(defenses.build())));
+
+        TwoDA::Builder table;
+        table.columns({"name", "description", "hitdie", "skillpointbase",
+                       "str", "dex", "con", "int", "wis", "cha",
+                       "skillstable", "savingthrowtable", "attackbonustable",
+                       "armorclasscolumn", "featstable", "featgain", "spellgaintable"})
+            .row({"0", "0", "12", "0",
+                  "10", "10", "10", "10", "10", "10",
+                  "unused", "save", "attack", "def", "", "", ""});
+        clazz = std::make_shared<CreatureClass>(ClassType::JediGuardian, classes, strings, twoDas);
+        clazz->load(*table.build(), 0);
+    }
+};
 
 struct CheatFixture : Test {
     void SetUp() override {
@@ -50,6 +88,13 @@ struct CheatFixture : Test {
         game->party().addAvailableMember(0, companion);
         game->party().addMember(0, companion);
         TestGameModule::initConsole(*game);
+    }
+
+    // A creature's maximums come from its level history, so the heal tests
+    // record one Jedi level.
+    void giveJediLevel(Creature &creature) {
+        creature.attributes().addClassLevels(jedi.clazz.get(), 1);
+        TestGameModule::addLevelStats(creature, 12, 8);
     }
 
     // An item template, and the base item table that loading one reads.
@@ -69,6 +114,7 @@ struct CheatFixture : Test {
     }
 
     TestEngine &engine = testEngine();
+    JediClass jedi;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     StubConsole console;
     std::unique_ptr<Game> game;
@@ -129,11 +175,67 @@ TEST_F(CheatFixture, giveitem_gives_to_the_shared_inventory_under_another_leader
     EXPECT_TRUE(companion->items().empty());
 }
 
+TEST_F(CheatFixture, heal_restores_the_leaders_hit_points) {
+    giveJediLevel(*player);
+    player->setCurrentHitPoints(5);
 
+    console.execute("heal");
 
+    EXPECT_GT(player->maxHitPoints(), 5);
+    EXPECT_EQ(player->maxHitPoints(), player->currentHitPoints());
+}
 
+TEST_F(CheatFixture, heal_revives_a_dead_leader) {
+    giveJediLevel(*player);
+    // A loaded creature is raiseable unless its record says otherwise.
+    player->setRaiseable(true);
+    player->setCurrentHitPoints(-5);
 
+    console.execute("heal");
 
+    EXPECT_EQ(player->maxHitPoints(), player->currentHitPoints());
+}
+
+TEST_F(CheatFixture, heal_leaves_a_dead_leader_that_cannot_be_raised_dead) {
+    giveJediLevel(*player);
+    player->setCurrentHitPoints(-5);
+
+    console.execute("heal");
+
+    EXPECT_EQ(-5, player->currentHitPoints());
+}
+
+TEST_F(CheatFixture, heal_restores_the_leaders_force_points) {
+    giveJediLevel(*player);
+    player->setCurrentForcePoints(0);
+
+    console.execute("heal");
+
+    EXPECT_GT(player->maxForcePoints(), 0);
+    EXPECT_EQ(player->maxForcePoints(), player->currentForce());
+}
+
+TEST_F(CheatFixture, heal_leaves_the_rest_of_the_party_hurt) {
+    giveJediLevel(*companion);
+    companion->setCurrentHitPoints(5);
+
+    console.execute("heal");
+
+    EXPECT_EQ(5, companion->currentHitPoints());
+}
+
+TEST_F(CheatFixture, heal_heals_the_new_leader_after_a_leader_change) {
+    giveJediLevel(*player);
+    giveJediLevel(*companion);
+    player->setCurrentHitPoints(5);
+    companion->setCurrentHitPoints(5);
+    ASSERT_TRUE(game->party().setPartyLeader(0));
+
+    console.execute("heal");
+
+    EXPECT_EQ(companion->maxHitPoints(), companion->currentHitPoints());
+    EXPECT_EQ(5, player->currentHitPoints());
+}
 
 
 

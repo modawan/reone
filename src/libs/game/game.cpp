@@ -49,6 +49,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/creaturestate.h"
+#include "reone/game/effect/heal.h"
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/gui/hud.h"
@@ -750,7 +751,7 @@ void Game::registerConsoleCommand(std::string name, std::string description, Con
         "professionaltools", "killroom", "setability", "setskill",
         "addfeat", "removefeat", "addspell", "removespell",
         "castspellatobject", "opendoor", "closedoor",
-        "giveitem"};
+        "giveitem", "heal"};
     bool marksCheatUsed = cheatCommands.count(name) != 0;
     _console.registerCommand(
         name, description,
@@ -791,6 +792,7 @@ void Game::initConsole() {
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
     registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
     registerConsoleCommand("giveitem", "give an item to the party", &Game::consoleGiveItem);
+    registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -9380,6 +9382,16 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
 void Game::consoleGiveItem(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "item_tpl");
     addConsoleItem(getConsoleLeader(), std::string(args[1].value()), 1);
+}
+
+// Only the leader is healed. The resurrection effect also revives a dead leader
+// that can be raised.
+void Game::consoleHeal(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    leader->applyEffect(newEffect<ResurrectionEffect>(0), DurationType::Permanent);
+    leader->applyEffect(newEffect<HealEffect>(leader->maxHitPoints()), DurationType::Permanent);
+    leader->setCurrentForcePoints(leader->maxForcePoints());
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ
