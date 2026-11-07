@@ -581,6 +581,12 @@ private:
     // END Surfaces
 
     void cullRoots();
+
+    /**
+     * Line of sight from origin to dest, optionally leaving out area (room)
+     * walkmeshes and keeping only door and placeable walkmeshes.
+     */
+    bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, bool areaWalkmeshes, Collision &outCollision) const;
     /** Keeps the blocking surfaces in step with the walkable and walk-check ones. */
     void updateBlockingSurfaces();
     const FloorStacking &floorStacking() const;

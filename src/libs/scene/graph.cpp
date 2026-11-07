@@ -801,6 +801,10 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
 }
 
 bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
+    return testLineOfSight(origin, dest, /*areaWalkmeshes=*/true, outCollision);
+}
+
+bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, bool areaWalkmeshes, Collision &outCollision) const {
     const auto originToDest = dest - origin;
     const float maxDistance = glm::length(originToDest);
     // A line of no length meets nothing.
@@ -819,6 +823,9 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         glm::vec3 originLocal;
         glm::vec3 dirLocal;
         if (root->walkmesh().isAreaWalkmesh()) {
+            if (!areaWalkmeshes) {
+                continue;
+            }
             originLocal = origin;
             dirLocal = dir;
         } else {
@@ -1373,6 +1380,28 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
     glm::vec3 end(glm::unProject(glm::vec3(x, _graphicsOpt.height - y, 1.0f), camera->view(), camera->projection(), viewport));
     glm::vec3 dir(glm::normalize(end - start));
 
+    // Rooms hide an object from the pointer by what they draw, not by their
+    // walkmeshes: a room walkmesh also holds invisible barriers, and a module
+    // can put an object to use behind one. The Ebon Hawk's ramp in Davik's
+    // hangar (tar_m08aa) stands past a Nonwalk wall the player cannot cross.
+    float roomDistance = kMaxCollisionDistanceLineOfSight;
+    const glm::vec3 farEnd = start + kMaxCollisionDistanceLineOfSight * dir;
+    for (auto &room : _modelRoots) {
+        if (room->usage() != ModelUsage::Room || !room->isEnabled()) {
+            continue;
+        }
+        auto objSpaceStart = room->absoluteTransformInverse() * glm::vec4(start, 1.0f);
+        auto objSpaceInvDir = 1.0f / (room->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
+        float boxDistance;
+        if (!room->aabb().raycast(objSpaceStart, objSpaceInvDir, roomDistance, boxDistance)) {
+            continue;
+        }
+        auto share = room->intersectSegment(start, farEnd, /*opaqueOnly=*/true);
+        if (share) {
+            roomDistance = std::min(roomDistance, *share * kMaxCollisionDistanceLineOfSight);
+        }
+    }
+
     std::vector<std::pair<ModelSceneNode *, float>> distances;
     for (auto &model : _modelRoots) {
         if (!model->isPickable() || (except == model->user())) {
@@ -1385,8 +1414,12 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
         auto objSpaceInvDir = 1.0f / (model->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
         float distance;
         if (model->aabb().raycast(objSpaceStart, objSpaceInvDir, kMaxCollisionDistanceLineOfSight, distance) && distance > 0.0f) {
+            if (distance > roomDistance) {
+                continue;
+            }
+            // A closed door still stands in the way through its walkmesh.
             Collision collision;
-            if (testLineOfSight(start, start + distance * dir, collision) && collision.user != model->user()) {
+            if (testLineOfSight(start, start + distance * dir, /*areaWalkmeshes=*/false, collision) && collision.user != model->user()) {
                 continue;
             }
             distances.push_back(std::make_pair(model.get(), distance));
