@@ -4,11 +4,15 @@ name: Check the Nix flake
 # request gets the fast check: every flake output evaluates and the run
 # wrapper's tests pass. The full package build (every application, the unit
 # tests and the install check, about 25 minutes with no binary cache) runs
-# when started by hand with "full". A CMake change that breaks only the Nix
-# package is therefore caught by that manual run, not on its pull request.
+# for a release tag, or when started by hand with "full". A CMake change
+# that breaks only the Nix package is therefore caught by the next release
+# or manual run, not on its pull request.
 on:
   push:
     branches: [master]
+    # Release versions such as 0.22.0, not the moving nightly tag. Paths
+    # filters don't apply to tag pushes, so a release always builds in full.
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
     paths:
       - flake.nix
       - flake.lock
@@ -44,11 +48,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - name: Evaluate every flake output
-        if: ${{ !inputs.full }}
+        if: ${{ !(inputs.full || startsWith(github.ref, 'refs/tags/')) }}
         run: nix flake check --no-build -L
       - name: Run the wrapper tests
-        if: ${{ !inputs.full }}
+        if: ${{ !(inputs.full || startsWith(github.ref, 'refs/tags/')) }}
         run: nix build -L .#checks.x86_64-linux.reone-run
       - name: Build the package and run all checks
-        if: ${{ inputs.full }}
+        if: ${{ inputs.full || startsWith(github.ref, 'refs/tags/') }}
         run: nix flake check -L
