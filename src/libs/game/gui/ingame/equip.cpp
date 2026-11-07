@@ -80,19 +80,11 @@ static const std::unordered_map<Equipment::Slot, SlotNameStrRefs> kSlotStrRefs =
 
 static int getInventorySlot(Equipment::Slot slot);
 
-static void enableBorderFillTint(const std::shared_ptr<Control> &control) {
-    if (!control) {
-        return;
-    }
-    control->setTintBorderFill(true);
-}
-
 static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
     if (!listBox) {
         return;
     }
     listBox->setBorderColor(baseColor);
-    listBox->setTintBorderFill(true);
 }
 
 void Equipment::onGUILoaded() {
@@ -152,7 +144,6 @@ void Equipment::onGUILoaded() {
     _controls.LB_DESC->setVisible(false);
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LBL_CANTEQUIP->setVisible(false);
-    tintK2LoadoutOverlay();
     updateK2LoadoutOverlayVisibility(true);
 
     configureItemsListBox();
@@ -230,13 +221,10 @@ void Equipment::configureItemsListBox() {
         enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
-        protoItem.setTintBorderFill(true);
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
         tintK2PanelFill(_controls.LB_DESC, _baseColor);
-    } else {
-        protoItem.setBorderColor(_baseColor);
-        protoItem.setHilightColor(_hilightColor);
     }
+    useK1ItemEntryColors(protoItem);
 }
 
 void Equipment::clearCandidateDescription() {
@@ -456,15 +444,6 @@ void Equipment::selectSlot(Slot slot) {
     if (noneSelected) {
         clearCandidateDescription();
     }
-}
-
-void Equipment::tintK2LoadoutOverlay() {
-    if (!isTSL())
-        return;
-
-    // Preserve the muted K2 panel colours authored in equip_p.gui.
-    enableBorderFillTint(_controls.LBL_BACK1);
-    enableBorderFillTint(_controls.LBL_DEF_BACK);
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {

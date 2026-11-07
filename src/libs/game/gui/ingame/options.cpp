@@ -45,7 +45,6 @@ void OptionsMenu::onGUILoaded() {
 
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        _controls.LB_DESC->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_TITLE);
         for (auto &button : {
                  _controls.BTN_SAVEGAME,
@@ -182,7 +181,6 @@ void OptionsMenu::loadFeedbackPanel() {
         useK2ShellTitle(controls.LBL_TITLE);
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DESC->setTintBorderFill(true);
     }
 
     // Row order and names: TSL has eight rows, KotOR adds small fonts before tooltips.
@@ -283,7 +281,6 @@ void OptionsMenu::loadGameplayPanel() {
         useK2ShellTitle(controls.LBL_TITLE);
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DESC->setTintBorderFill(true);
     }
 
     // The level changes at once; the configuration is written when the options close.
@@ -395,7 +392,6 @@ void OptionsMenu::loadAutoPausePanel() {
     if (_game.isTSL()) {
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DETAILS->setTintBorderFill(true);
     }
 
     // Each checkbox describes itself when it gains focus; a click only flips it.

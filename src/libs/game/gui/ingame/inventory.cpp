@@ -46,14 +46,6 @@ static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::
         return;
     }
     listBox->setBorderColor(baseColor);
-    listBox->setTintBorderFill(true);
-}
-
-static void enableBorderFillTint(const std::shared_ptr<Label> &label) {
-    if (!label) {
-        return;
-    }
-    label->setTintBorderFill(true);
 }
 
 static InventoryFilter nextK1Filter(InventoryFilter filter) {
@@ -132,9 +124,6 @@ void InventoryMenu::onGUILoaded() {
     configureFilterControls();
     if (isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        enableBorderFillTint(_controls.LBL_BAR1);
-        enableBorderFillTint(_controls.LBL_BAR2);
-        enableBorderFillTint(_controls.LBL_BAR6);
         useK2ShellTitle(_controls.LBL_INV);
         enableK2ButtonBodyFill(_controls.BTN_USEITEM);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
@@ -190,11 +179,8 @@ void InventoryMenu::configureItemsListBox() {
             enableK2ButtonBodyFill(*protoItem);
             protoItem->setBorderFill("uibit_fill_2wt");
             protoItem->setHilightFill("uibit_fill_2wt");
-            protoItem->setTintBorderFill(true);
-        } else {
-            protoItem->setBorderColor(_baseColor);
-            protoItem->setHilightColor(_hilightColor);
         }
+        useK1ItemEntryColors(*protoItem);
     }
 }
 

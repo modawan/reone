@@ -75,7 +75,6 @@ void Control::Extent::getCenter(int &x, int &y) const {
 void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
     loadExtent(gui.EXTENT);
     loadBorder(gui.BORDER);
-    _tintBorderFill = _gui.tintBorderFills();
     _isProtoItem = protoItem;
     // A button's text pulses while the button is selected, and so does an
     // image button's where the GUI says so.
@@ -315,7 +314,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
                 fillSize,
-                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), fillAlpha),
+                glm::vec4(color, fillAlpha),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
         });
@@ -447,7 +446,12 @@ void Control::renderText(const std::vector<std::string> &lines,
     glm::vec3 linePosition(0.0f);
     const auto &hilight = shownHilight();
     const bool pulsing = _text.pulsing || (_selected && _text.hilightPulsing);
-    glm::vec4 color {(_selected && hilight) ? hilight->color : _text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    glm::vec4 color {_text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    if (_selected && _text.selectedColor) {
+        color = glm::vec4(*_text.selectedColor, color.a);
+    } else if (_selected && hilight) {
+        color = glm::vec4(hilight->color, color.a);
+    }
 
     for (auto &line : lines) {
         linePosition.x = static_cast<float>(position.x + offset.x);
@@ -678,7 +682,8 @@ void Control::setHilightColor(glm::vec3 color) {
     if (!_hilight) {
         _hilight = std::make_shared<Border>();
     }
-    _hilight->color = std::move(color);
+    _hilight->color = color;
+    _text.selectedColor = color;
 }
 
 void Control::setHilightPulsing(bool frame, bool fill) {
