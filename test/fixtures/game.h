@@ -75,6 +75,7 @@ class Module;
 class SaveLoad;
 class Sound;
 class MainMenu;
+class PartySelection;
 class Conversation;
 class DialogGUI;
 class HUD;
@@ -484,6 +485,7 @@ public:
     static bool hasPendingSave(const Game &game);
     static void setRuntimeSessionPlayable(Game &game, bool playable);
     static MainMenu &installMainMenu(Game &game);
+    static PartySelection &installPartySelection(Game &game);
     static void clearSnapshotModule(Game &game);
     static void clearSnapshotArea(Game &game);
     static void clearSnapshotPlayers(Game &game);

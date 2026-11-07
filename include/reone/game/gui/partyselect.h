@@ -26,6 +26,7 @@
 #include "reone/gui/control/togglebutton.h"
 
 #include "../gui.h"
+#include "../partyselectionstate.h"
 
 namespace reone {
 
@@ -113,10 +114,11 @@ private:
 
     PartySelectionContext _context;
     int _selectedNpc {-1};
-    bool _added[kMaxNpcCount] {false};
+    PartySelectionState _selection;
+    /** Leaving without confirming would drop a companion a script forces in. */
+    bool _cancelLocked {false};
     /** Companions this opening of the screen brought into being to show them. */
     bool _materialized[kMaxNpcCount] {false};
-    int _availableCount {0};
     /** The colour the Add/Remove caption is authored with. */
     glm::vec3 _acceptTextColor {0.0f};
 
@@ -182,11 +184,9 @@ private:
         _controls.LBL_TITLE = findControl<gui::Label>("LBL_TITLE");
     }
 
-    void addNpc(int npc);
     void refreshAcceptButton();
     void refreshAvailableCount();
     void refreshNpcButtons();
-    void removeNpc(int npc);
 
     static glm::vec3 tslFrameColor(
         const glm::vec3 &baseColor,
