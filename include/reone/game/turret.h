@@ -34,6 +34,7 @@ namespace reone {
 namespace audio {
 
 class AudioClip;
+class AudioSource;
 
 }
 
@@ -435,7 +436,12 @@ public:
         std::optional<float> lastTrackTime;
         std::vector<GunBank> gunBanks;
         std::string deathSound;
+        /** The engine's looping sound, heard where the follower is while its track plays. */
+        std::string engineSound;
+        std::shared_ptr<audio::AudioSource> engineSource;
         std::array<SoundSettings, 2> sounds;
+        /** Whether a script has set the engine sound's volume; until then it plays at full volume. */
+        bool engineVolumeSet {false};
 
         int hitPoints {100};
         int maxHitPoints {0};
@@ -560,6 +566,9 @@ public:
     void removeAnimation(Actor &actor, const std::string &name);
 
     void setNumLoops(Follower &follower, int loops);
+
+    /** Sets the engine (0) or death (1) sound's volume, out of 127; the engine's takes effect at once. */
+    void setSoundVolume(Follower &follower, int sound, int volume);
 
     /** Puts a new gun model on every gun of the bank. */
     void setGunModel(Follower &follower, GunBank &bank, const std::string &resRef);
@@ -686,7 +695,10 @@ private:
                       float sphereRadius,
                       int numLoops,
                       float invincibility,
-                      const std::string &deathSound);
+                      const std::string &deathSound,
+                      const std::string &engineSound);
+    void startEngineSound(Follower &follower);
+    void stopEngineSound(Follower &follower);
     void go(Follower &follower);
 
     /**

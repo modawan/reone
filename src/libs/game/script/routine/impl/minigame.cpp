@@ -1000,12 +1000,13 @@ static Variable SWMG_GetSoundVolume(const std::vector<Variable> &args, const Rou
 
 static Variable SWMG_SetSoundVolume(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto sound = soundArg(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
+    auto nSound = getInt(args, 1);
     auto nValue = getInt(args, 2);
 
     // Execute
-    if (sound) {
-        sound->volume = nValue;
+    if (follower) {
+        activeTurret(ctx)->setSoundVolume(*follower, nSound, nValue);
     }
     return Variable::ofNull();
 }

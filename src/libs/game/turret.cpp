@@ -580,7 +580,8 @@ void Turret::loadFollower(Follower &follower,
                           float sphereRadius,
                           int numLoops,
                           float invincibility,
-                          const std::string &deathSound) {
+                          const std::string &deathSound,
+                          const std::string &engineSound) {
     if (hitPoints > 0) {
         follower.hitPoints = static_cast<int>(hitPoints);
     }
@@ -589,6 +590,7 @@ void Turret::loadFollower(Follower &follower,
     setNumLoops(follower, numLoops);
     follower.invincibility = glm::max(0.0f, invincibility);
     follower.deathSound = deathSound;
+    follower.engineSound = engineSound;
     for (auto &model : follower.models) {
         listenTo(follower, *model);
     }
@@ -617,6 +619,48 @@ void Turret::go(Follower &follower) {
     follower.trackNode->playAnimation(follower.trackAnimation, nullptr, AnimationProperties::fromFlags(flags));
     if (follower.player) {
         follower.trackNode->setAnimationSpeed(follower.trackAnimation, _speed / kDefaultSpeed);
+    }
+    startEngineSound(follower);
+}
+
+// A follower's engine loops where the follower is while its track plays, and
+// stops when the track does. Until a script sets its volume it plays at full
+// volume.
+void Turret::startEngineSound(Follower &follower) {
+    if (follower.engineSound.empty() || (follower.engineSource && follower.engineSource->isPlaying())) {
+        return;
+    }
+    auto clip = _services.resource.audioClips.get(follower.engineSound);
+    if (!clip) {
+        return;
+    }
+    glm::vec3 position = follower.position;
+    if (!follower.models.empty()) {
+        position = transformOrigin(follower.models.front()->absoluteTransform());
+    }
+    follower.engineSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, true, position);
+    if (follower.engineSource && follower.engineVolumeSet) {
+        follower.engineSource->setGainScale(glm::clamp(follower.sounds[0].volume / 127.0f, 0.0f, 1.0f));
+    }
+}
+
+void Turret::stopEngineSound(Follower &follower) {
+    if (follower.engineSource) {
+        follower.engineSource->stop();
+        follower.engineSource.reset();
+    }
+}
+
+void Turret::setSoundVolume(Follower &follower, int sound, int volume) {
+    if (sound < 0 || sound >= static_cast<int>(follower.sounds.size())) {
+        return;
+    }
+    follower.sounds[sound].volume = volume;
+    if (sound == 0) {
+        follower.engineVolumeSet = true;
+        if (follower.engineSource) {
+            follower.engineSource->setGainScale(glm::clamp(volume / 127.0f, 0.0f, 1.0f));
+        }
     }
 }
 
@@ -706,7 +750,7 @@ bool Turret::loadPlayer() {
                        spec.scripts.onAnimEvent};
     registerActor(*player);
     loadFollower(*player, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
-                 spec.numLoops, spec.invincePeriod, spec.sounds.death);
+                 spec.numLoops, spec.invincePeriod, spec.sounds.death, spec.sounds.engine);
     _player = std::move(player);
     return true;
 }
@@ -759,7 +803,7 @@ void Turret::loadEnemies() {
                           spec.scripts.onAnimEvent};
         registerActor(*enemy);
         loadFollower(*enemy, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
-                     spec.numLoops, spec.invincePeriod, spec.sounds.death);
+                     spec.numLoops, spec.invincePeriod, spec.sounds.death, spec.sounds.engine);
         _enemies.push_back(std::move(enemy));
         // An enemy's creation script runs before it is known to be a trigger.
         auto &created = *_enemies.back();
@@ -929,6 +973,7 @@ void Turret::releaseFollowerNodes(Follower &follower) {
     // reference models it names (mgf_sithfighter attaches an fx_ref engine
     // flare at each of its OmenRef nodes), plus its lights and emitters.
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+    stopEngineSound(follower);
     for (auto &model : follower.models) {
         model->clearAnimationEventListener();
     }
@@ -1162,6 +1207,9 @@ void Turret::updateFollower(Follower &follower, float dt) {
         follower.position = transformOrigin(transform);
         follower.orientation = transformOrientation(transform);
         follower.forward = turretFireDirection(follower.orientation);
+    }
+    if (follower.engineSource) {
+        follower.engineSource->setPosition(follower.position);
     }
     runScript(follower.scripts.onHeartbeat, follower);
     follower.invincibilityTimer = glm::max(0.0f, follower.invincibilityTimer - dt);
@@ -1686,6 +1734,7 @@ void Turret::onDeath(Follower &follower, bool apply) {
         return;
     }
     follower.dying = true;
+    stopEngineSound(follower);
     if (follower.player) {
         _trackPlaying = false;
         _firing = false;
