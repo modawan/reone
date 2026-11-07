@@ -44,6 +44,7 @@
 #include "event.h"
 #include "floatingtext.h"
 #include "globalfade.h"
+#include "menukeys.h"
 #include "gui/chargen.h"
 #include "gui/computer.h"
 #include "gui/confirmpopup.h"
@@ -523,6 +524,11 @@ public:
     // END Turret minigame
 
     void openInGameMenu(InGameMenuTab tab);
+    /**
+     * What a key does in KotOR's in-game menu, as keymap.2da binds it; nothing
+     * in TSL, whose bindings are not mapped.
+     */
+    std::optional<MenuKey> menuKeyFor(input::KeyCode code) const;
     /** The roster index whose inventory the menu shows, or -1 when it is closed. */
     int inventoryMenuCharacter() const;
     /** The SUBSCREEN_ID_* of the open in-game menu tab; 0 when the menu is closed. */
@@ -1707,6 +1713,8 @@ private:
     std::unordered_map<int, InputEventKeys> _inputEvents;
     /** The key-name strings of bindablekeys.2da, by keyboard key from the first. */
     std::vector<int> _keyNameStrRefs;
+    /** The in-game menu's keymap.2da input events, by the key that makes each. */
+    std::unordered_map<int, int> _menuKeyEvents;
     std::vector<TutorialRow> _tutorials;
     /** The feedbacktext.2da strings; none where blank. */
     std::vector<std::optional<int>> _feedbackTexts;
