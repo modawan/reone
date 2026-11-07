@@ -133,6 +133,19 @@ std::shared_ptr<Animation> Model::getAnimation(const std::string &name) const {
     return anim;
 }
 
+float Model::animationScaleFor(const Animation &animation) const {
+    float scale = 1.0f;
+    const Model *model = this;
+    for (;;) {
+        auto owned = model->_animations.find(animation.name());
+        if (owned != model->_animations.end() && owned->second.get() == &animation) {
+            return scale;
+        }
+        scale *= model->_animationScale;
+        model = model->_superModel.get();
+    }
+}
+
 } // namespace graphics
 
 } // namespace reone

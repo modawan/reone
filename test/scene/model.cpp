@@ -467,11 +467,11 @@ TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root)
         audioModule.services(),
         resourceModule.services());
 
-    // when
+    // when: a clip of another model carries that model's scale
     modelSceneNode->init();
-    modelSceneNode->playAnimation(
-        *external, nullptr,
-        AnimationProperties::fromFlags(AnimationFlags::retargetRoot));
+    auto properties = AnimationProperties::fromFlags(AnimationFlags::retargetRoot);
+    properties.scale = 1.0f;
+    modelSceneNode->playAnimation(*external, nullptr, properties);
     modelSceneNode->update(1.0f);
 
     // then
@@ -570,9 +570,10 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
     accessory->playAnimation(
         "local_overlay", nullptr,
         AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-    body->playAnimation(
-        *external, nullptr,
-        AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::retargetRoot));
+    // A clip of another model carries that model's scale.
+    auto properties = AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::retargetRoot);
+    properties.scale = 1.0f;
+    body->playAnimation(*external, nullptr, properties);
     body->update(1.0f);
 
     // then

@@ -323,8 +323,10 @@ void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipA
 }
 
 void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
+    // An animation of this model's chain plays at the chain's scale for it; a
+    // caller playing an animation of another model gives that model's scale.
     if (properties.scale == 0.0f) {
-        properties.scale = _model->animationScale();
+        properties.scale = _model->animationScaleFor(anim);
     }
 
     if (properties.flags & AnimationFlags::layer) {
@@ -359,8 +361,11 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
             }
             // Attachments have their own animation sets. Resolve by name so
             // an unrelated body animation cannot replace a weapon's local
-            // state animation (for example, a lightsaber's "off" pose).
-            attachedModel.playAnimation(anim.name(), lipAnim, properties);
+            // state animation (for example, a lightsaber's "off" pose). The
+            // attachment's own animation plays at its own chain's scale.
+            auto attachedProperties = properties;
+            attachedProperties.scale = 0.0f;
+            attachedModel.playAnimation(anim.name(), lipAnim, std::move(attachedProperties));
         }
     }
 }

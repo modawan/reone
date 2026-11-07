@@ -71,6 +71,14 @@ public:
     std::vector<std::string> getAnimationNames() const;
     std::shared_ptr<Animation> getAnimation(const std::string &name) const;
 
+    /**
+     * The scale of the positions of \p animation, played by this model: the
+     * product of the animation scales of each model of the supermodel chain
+     * that comes before the model that owns it. An animation of this model
+     * plays unscaled. \p animation must belong to a model of the chain.
+     */
+    float animationScaleFor(const Animation &animation) const;
+
     const std::unordered_map<std::string, std::shared_ptr<Animation>> &animations() const {
         return _animations;
     }
