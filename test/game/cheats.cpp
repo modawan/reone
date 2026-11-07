@@ -282,5 +282,30 @@ TEST_F(CheatFixture, invulnerability_reads_the_new_leaders_flag_after_a_leader_c
     EXPECT_FALSE(player->plotFlag());
 }
 
+TEST_F(CheatFixture, whereami_prints_the_module_and_the_leaders_position) {
+    player->setPosition(glm::vec3(1.5f, -2.25f, 0.0f));
 
+    console.execute("whereami");
 
+    ASSERT_EQ(2u, console.lines.size());
+    EXPECT_EQ("module: end_m01aa", console.lines[0]);
+    EXPECT_EQ("position: (1.50, -2.25, 0.00)", console.lines[1]);
+}
+
+TEST_F(CheatFixture, whereami_prints_only_the_position_without_a_module) {
+    TestGameModule::setActiveModule(*game, false);
+
+    console.execute("whereami");
+
+    ASSERT_EQ(1u, console.lines.size());
+    EXPECT_EQ("position: (0.00, 0.00, 0.00)", console.lines[0]);
+}
+
+TEST_F(CheatFixture, whereami_reports_the_new_leader_after_a_leader_change) {
+    companion->setPosition(glm::vec3(4.0f, 5.0f, 6.0f));
+    ASSERT_TRUE(game->party().setPartyLeader(0));
+
+    console.execute("whereami");
+
+    EXPECT_EQ("position: (4.00, 5.00, 6.00)", console.lines.back());
+}

@@ -751,7 +751,7 @@ void Game::registerConsoleCommand(std::string name, std::string description, Con
         "professionaltools", "killroom", "setability", "setskill",
         "addfeat", "removefeat", "addspell", "removespell",
         "castspellatobject", "opendoor", "closedoor",
-        "giveitem", "heal", "invulnerability"};
+        "giveitem", "heal", "invulnerability", "whereami"};
     bool marksCheatUsed = cheatCommands.count(name) != 0;
     _console.registerCommand(
         name, description,
@@ -794,6 +794,7 @@ void Game::initConsole() {
     registerConsoleCommand("giveitem", "give an item to the party", &Game::consoleGiveItem);
     registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
     registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
+    registerConsoleCommand("whereami", "print the module and the party leader's position", &Game::consoleWhereAmI);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -9407,6 +9408,16 @@ void Game::consoleInvulnerability(const ConsoleArgs &args) {
         }
     }
     _console.printLine(invulnerable ? "invulnerability on" : "invulnerability off");
+}
+
+void Game::consoleWhereAmI(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    if (_module) {
+        _console.printLine("module: " + _module->name());
+    }
+    const glm::vec3 &position = leader->position();
+    _console.printLine(str(boost::format("position: (%3.2f, %3.2f, %3.2f)") % position.x % position.y % position.z));
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ

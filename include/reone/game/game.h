@@ -2410,6 +2410,7 @@ private:
     void consoleGiveItem(const ConsoleArgs &tokens);
     void consoleHeal(const ConsoleArgs &tokens);
     void consoleInvulnerability(const ConsoleArgs &tokens);
+    void consoleWhereAmI(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleCamera(const ConsoleArgs &tokens);
     void consoleCamPos(const ConsoleArgs &tokens);
