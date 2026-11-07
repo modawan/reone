@@ -538,10 +538,6 @@ std::vector<glm::mat4> MeshSceneNode::buildSkinBoneTransforms() const {
 }
 
 void MeshSceneNode::renderBlendedDepth(IRenderPass &pass) {
-    auto mesh = _modelNode.mesh();
-    if (!mesh) {
-        return;
-    }
     Material material;
     material.type = MaterialType::BlendedModelDepth;
     material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
