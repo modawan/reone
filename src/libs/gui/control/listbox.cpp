@@ -58,7 +58,9 @@ void ListBox::addItem(Item &&item) {
     if (!_protoItem)
         return;
 
-    item._textLines = breakText(item.text, *_protoItem->text().font, getItemTextWidth(), _protoItem->scale());
+    if (const auto &font = _protoItem->text().font) {
+        item._textLines = breakText(item.text, *font, getItemTextWidth(), _protoItem->scale());
+    }
     _items.push_back(item);
 
     updateItemSlots();
@@ -74,8 +76,10 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
         std::vector<std::string> lines;
         if (logicalLine.empty()) {
             lines.push_back("");
+        } else if (const auto &font = _protoItem->text().font) {
+            lines = breakText(logicalLine, *font, getItemTextWidth(), _protoItem->scale());
         } else {
-            lines = breakText(logicalLine, *_protoItem->text().font, getItemTextWidth(), _protoItem->scale());
+            lines.push_back(logicalLine);
         }
 
         for (auto &line : lines) {
@@ -621,8 +625,9 @@ void ListBox::updateItemsLayout() {
     }
 
     int textWidth = getItemTextWidth();
+    const auto &font = _protoItem->text().font;
     for (auto &item : _items) {
-        item._textLines = breakText(item.text, *_protoItem->text().font, textWidth, _protoItem->scale());
+        item._textLines = font ? breakText(item.text, *font, textWidth, _protoItem->scale()) : std::vector<std::string> {};
     }
     updateItemSlots();
 }
