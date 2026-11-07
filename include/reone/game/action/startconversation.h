@@ -110,6 +110,7 @@ private:
 
     /** Brings the speaker close enough to its partner; true once it is. */
     bool approach(Creature &speaker, float dt);
+    bool isPartnerInSight(const Creature &speaker) const;
     /** A companion's conversation goes to the player character instead. */
     bool handsOffToPlayer(const std::shared_ptr<Object> &actor) const;
     void handOffToPlayer(std::shared_ptr<Action> self, Object &actor);

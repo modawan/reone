@@ -43,6 +43,8 @@ namespace game {
 // ends.
 static constexpr float kConversationUseRangeExtra = 1.0f;
 static constexpr float kConversationStartDistance = 10.0f;
+// Eye height for seeing a partner across a counter.
+static constexpr float kConversationSightHeight = 1.5f;
 static constexpr float kHandOffFadeLength = 0.75f;
 // Followers at least this far (squared metres) from the handing-off companion
 // are brought to their formation spots, placed within this radius.
@@ -75,11 +77,25 @@ bool StartConversationAction::approach(Creature &speaker, float dt) {
     const float range = partnerType == ObjectType::Door || partnerType == ObjectType::Placeable
                             ? use.range
                             : use.range + kConversationUseRangeExtra;
+    const glm::vec3 offset {_objectToConverse->position() - speaker.position()};
+    const bool withinStartDistance = glm::dot(offset, offset) <= kConversationStartDistance * kConversationStartDistance;
     if (!speaker.navigateTo(use.point, true, range, dt, *_objectToConverse)) {
+        // No way reaches a partner across a counter, as Taris's droid seller
+        // Janice Nall stands; the speaker talks from where the walk stops
+        // when the partner is near and in sight over it, rather than
+        // standing there for good.
+        return speaker.navigationFailed() && withinStartDistance && isPartnerInSight(speaker);
+    }
+    return withinStartDistance;
+}
+
+bool StartConversationAction::isPartnerInSight(const Creature &speaker) const {
+    auto area = speaker.spatialArea();
+    if (!area) {
         return false;
     }
-    const glm::vec3 offset {_objectToConverse->position() - speaker.position()};
-    return glm::dot(offset, offset) <= kConversationStartDistance * kConversationStartDistance;
+    const glm::vec3 lift {0.0f, 0.0f, kConversationSightHeight};
+    return area->get().isEyeLineClear(speaker.position() + lift, _objectToConverse->position() + lift, speaker, *_objectToConverse);
 }
 
 // A companion that reaches someone with a conversation of their own hands
