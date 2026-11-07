@@ -570,6 +570,9 @@ void ModelSceneNode::updateAnimations(float dt) {
     // Apply states and compute bone transforms only when this model is not culled
     if (!_culled) {
         applyAnimationStates(*_model->rootNode(), layerCount());
+        // The look-at reads the head's absolute transform, so the pose must
+        // be in place first.
+        computeAbsoluteTransforms();
         applyLookAt(dt);
     }
 }
@@ -978,7 +981,7 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
         }
 
         if (combined.flags & AnimationStateFlags::transform) {
-            sceneNode->setLocalTransform(combined.transform);
+            sceneNode->setLocalTransformDeferred(combined.transform);
         }
         if (combined.flags & AnimationStateFlags::alpha) {
             static_cast<MeshSceneNode *>(sceneNode)->setAlpha(combined.alpha);
