@@ -9222,6 +9222,14 @@ std::shared_ptr<Creature> Game::getConsoleLeader() {
     throw std::runtime_error("No party leader");
 }
 
+// An unknown code is rejected, since an item without a template arrives blank.
+void Game::addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize) {
+    if (!_services.resource.gffs.get(resRef, ResType::Uti)) {
+        throw std::runtime_error("Unknown item: " + resRef);
+    }
+    _party.sharedInventoryReceiver(receiver)->addItem(resRef, stackSize);
+}
+
 std::shared_ptr<Area> Game::getConsoleArea() {
     std::shared_ptr<Module> mod = module();
     if (!mod) {
@@ -9346,10 +9354,7 @@ void Game::consoleKill(const ConsoleArgs &args) {
 
 void Game::consoleAddItem(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 2, "item_tpl [size]");
-    auto object = getConsoleTargetObject();
-    int stackSize = args.get<int>(2).value_or(1);
-    auto receiver = _party.sharedInventoryReceiver(object);
-    receiver->addItem(std::string(args[1].value()), stackSize);
+    addConsoleItem(getConsoleTargetObject(), std::string(args[1].value()), args.get<int>(2).value_or(1));
 }
 
 void Game::consoleGiveXP(const ConsoleArgs &args) {

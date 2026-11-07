@@ -2391,6 +2391,7 @@ private:
      * Returns the leader creature.
      */
     std::shared_ptr<Creature> getConsoleLeader();
+    void addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize);
 
     /**
      * Returns the current Area.
