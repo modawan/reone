@@ -85,6 +85,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/savedsituation.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/listenpattern.cpp
+    ${TESTS_SOURCE_DIR}/game/uiroutines.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp

@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <functional>
 
+#include "reone/audio/mixer.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
@@ -47,7 +48,10 @@
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/sound.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/reputes.h"
+#include "reone/game/room.h"
+#include "reone/game/roomanimation.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/script/routine/objectutil.h"
@@ -56,10 +60,12 @@
 #include "reone/game/talent.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/ltrs.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/node/model.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/routine/exception/argument.h"
 #include "reone/script/routine/exception/notimplemented.h"
@@ -688,14 +694,28 @@ static Variable SetCameraFacing(const std::vector<Variable> &args, const Routine
     return Variable::ofNull();
 }
 
+// 46: "Play sSoundName". The sound plays once where the caller stands; the
+// module or an area, which stand nowhere, play it everywhere. A name with no
+// sound plays nothing.
 static Variable PlaySound(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sSoundName = getString(args, 0);
-
-    // Transform
+    auto caller = getCallerOrNull(ctx);
 
     // Execute
-    throw RoutineNotImplementedException("PlaySound");
+    if (sSoundName.empty()) {
+        return Variable::ofNull();
+    }
+    auto clip = ctx.services.resource.audioClips.get(sSoundName);
+    if (!clip) {
+        return Variable::ofNull();
+    }
+    std::optional<glm::vec3> position;
+    if (caller && caller->type() != ObjectType::Module && caller->type() != ObjectType::Area) {
+        position = caller->position();
+    }
+    ctx.services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, 1.0f, false, position);
+    return Variable::ofNull();
 }
 
 static Variable GetSpellTargetObject(const std::vector<Variable> &, const RoutineContext &ctx) {
@@ -4425,15 +4445,18 @@ static Variable JumpToObject(const std::vector<Variable> &args, const RoutineCon
     return Variable::ofNull();
 }
 
+// A map pin is a waypoint with a map note; the map shows the note only while
+// the pin is enabled. Anything that is not a waypoint is left alone.
 static Variable SetMapPinEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oMapPin = getObject(args, 0, ctx);
+    auto oMapPin = getObjectOrNull(args, 0, ctx);
     auto nEnabled = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetMapPinEnabled");
+    if (auto waypoint = oMapPin ? dyn_cast<Waypoint>(oMapPin) : nullptr) {
+        waypoint->setMapNoteEnabled(nEnabled != 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable PopUpGUIPanel(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6925,15 +6948,30 @@ static Variable ChangeFactionByFaction(const std::vector<Variable> &args, const 
     return Variable::ofNull();
 }
 
+// 738: "Plays a looping animation on a room." nAnimation is an
+// ANIMATION_ROOM_SCRIPTLOOP* constant, which names the room model's
+// scriptloopNN animation; the room is found by name, ignoring case, in the
+// current area. An unknown room, number or animation plays nothing.
 static Variable PlayRoomAnimation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sRoom = getString(args, 0);
     auto nAnimation = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlayRoomAnimation");
+    auto name = roomScriptLoopName(nAnimation);
+    if (!name || !ctx.game.module() || !ctx.game.module()->area()) {
+        return Variable::ofNull();
+    }
+    for (const auto &[roomName, room] : ctx.game.module()->area()->rooms()) {
+        if (!room || !boost::iequals(roomName, sRoom)) {
+            continue;
+        }
+        if (auto model = room->model()) {
+            model->playAnimation(*name, nullptr, scene::AnimationProperties::fromFlags(scene::AnimationFlags::loop));
+        }
+        break;
+    }
+    return Variable::ofNull();
 }
 
 static Variable ShowGalaxyMap(const std::vector<Variable> &args, const RoutineContext &ctx) {
