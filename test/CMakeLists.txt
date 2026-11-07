@@ -28,6 +28,7 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/data.h
     ${TESTS_SOURCE_DIR}/fixtures/engine.h
     ${TESTS_SOURCE_DIR}/fixtures/game.h
+    ${TESTS_SOURCE_DIR}/fixtures/glsl.h
     ${TESTS_SOURCE_DIR}/fixtures/graphics.h
     ${TESTS_SOURCE_DIR}/fixtures/gui.h
     ${TESTS_SOURCE_DIR}/fixtures/itempresentation.h
@@ -49,6 +50,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/fixtures/audio.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/fixtures/game.cpp
+    ${TESTS_SOURCE_DIR}/fixtures/glsl.cpp
     ${TESTS_SOURCE_DIR}/fixtures/graphics.cpp
     ${TESTS_SOURCE_DIR}/fixtures/gui.cpp
     ${TESTS_SOURCE_DIR}/fixtures/movie.cpp
@@ -127,6 +129,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/shadersemantics.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
+    ${TESTS_SOURCE_DIR}/graphics/uniformlayout.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp

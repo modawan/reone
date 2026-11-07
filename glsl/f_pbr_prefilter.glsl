@@ -1,10 +1,9 @@
 #include "i_math.glsl"
+#include "u_locals.glsl"
 
 in vec4 fragPosWorld;
 
 out vec4 fragColor;
-
-uniform float uRoughness;
 
 uniform samplerCube sEnvMapCube;
 

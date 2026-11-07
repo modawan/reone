@@ -25,15 +25,16 @@ layout(std140) uniform Locals {
     vec4 uDiffuseColor;
     vec4 uSelfIllumColor;
     vec4 uForceSightColor;
+    vec4 uSaberDisplacement;
     int uFeatureMask;
     int uBumpMapFrame;
     float uBumpMapScale;
     float uWaterAlpha;
     float uBillboardSize;
     float uShellOffset;
+    int uEnvMapDerivedLayer;
+    float uRoughness;
 };
-
-uniform int uEnvMapDerivedLayer;
 
 bool isFeatureEnabled(int flag) {
     return (uFeatureMask & flag) != 0;

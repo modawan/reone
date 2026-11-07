@@ -182,7 +182,7 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
     for (int mip = 0; mip < kNumPrefilteredMipMaps; ++mip) {
         int w = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
         int h = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
-        _context.withViewport(glm::ivec4 {0, 0, w, h}, [this, &request, &layer, &shader, &mip]() {
+        _context.withViewport(glm::ivec4 {0, 0, w, h}, [this, &request, &layer, &mip]() {
             for (int i = 0; i < kNumCubeFaces; ++i) {
                 _irradianceFramebuffer->attachTextureLayer(*_prefilteredEnvMapArray, kNumCubeFaces * layer + i, mip, Framebuffer::Attachment::Color);
                 _irradianceFramebuffer->attachRenderbuffer(*_prefilterDepthBuffers[mip], Framebuffer::Attachment::Depth);
@@ -191,8 +191,6 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
                     globals.projection = kCubeMapProjection;
                     globals.view = kCubeMapViews[i];
                 });
-                float roughness = mip / static_cast<float>(kNumPrefilteredMipMaps - 1);
-                shader.setUniform("uRoughness", mip);
                 _context.clearColorDepth();
                 _context.drawMesh(_meshRegistry.get(MeshName::cubemap));
             }

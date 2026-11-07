@@ -32,159 +32,102 @@ namespace reone {
 
 namespace resource {
 
-static const std::string kVertBillboard = "v_billboard";
-static const std::string kVertGrass = "v_grass";
-static const std::string kVertModel = "v_model";
-static const std::string kVertMVP = "v_mvp";
-static const std::string kVertMVPNormal = "v_mvpnormal";
-static const std::string kVertAABB = "v_aabb";
-static const std::string kVertParticles = "v_particles";
-static const std::string kVertPassthrough = "v_passthrough";
-static const std::string kVertShadows = "v_shadows";
-static const std::string kVertText = "v_text";
-static const std::string kVertTextBillboard = "v_textBillboard";
-static const std::string kVertWalkmesh = "v_walkmesh";
+const std::vector<ShaderProgramSpec> &shaderProgramSpecs() {
+    static const std::vector<ShaderProgramSpec> kSpecs {
+        {ShaderProgramId::aabbColor, "v_aabb", "", "f_color"},
+        {ShaderProgramId::billboard, "v_billboard", "", "f_texture"},
+        {ShaderProgramId::retroOpaqueModel, "v_model", "", "f_rtr_opaqmodel"},
+        {ShaderProgramId::retroGrass, "v_grass", "", "f_rtr_grass"},
+        {ShaderProgramId::retroAABB, "v_aabb", "", "f_rtr_aabb"},
+        {ShaderProgramId::retroWalkmesh, "v_walkmesh", "", "f_rtr_walkmesh"},
+        {ShaderProgramId::pbrAABB, "v_aabb", "", "f_pbr_aabb"},
+        {ShaderProgramId::pbrCombine, "v_passthrough", "", "f_pbr_combine"},
+        {ShaderProgramId::pbrGrass, "v_grass", "", "f_pbr_grass"},
+        {ShaderProgramId::pbrOpaqueModel, "v_model", "", "f_pbr_opaqmodel"},
+        {ShaderProgramId::pbrSSAO, "v_passthrough", "", "f_pbr_ssao"},
+        {ShaderProgramId::pbrSSR, "v_passthrough", "", "f_pbr_ssr"},
+        {ShaderProgramId::pbrWalkmesh, "v_walkmesh", "", "f_pbr_walkmesh"},
+        {ShaderProgramId::dirLightShadows, "v_shadows", "g_dirlightshadow", "f_null"},
+        {ShaderProgramId::mvpColor, "v_mvp", "", "f_color"},
+        {ShaderProgramId::mvpIcon, "v_mvp", "", "f_icon"},
+        {ShaderProgramId::mvpTexture, "v_mvp", "", "f_texture"},
+        {ShaderProgramId::ndcTexture, "v_passthrough", "", "f_texnoper"},
+        {ShaderProgramId::oitBlend, "v_passthrough", "", "f_oit_blend"},
+        {ShaderProgramId::oitModel, "v_model", "", "f_oit_model"},
+        {ShaderProgramId::oitParticles, "v_particles", "", "f_oit_particles"},
+        {ShaderProgramId::oitProjectedBeam, "v_mvp", "", "f_oit_projbeam"},
+        {ShaderProgramId::pointLightShadows, "v_shadows", "g_ptlightshadow", "f_ptlightshadow"},
+        {ShaderProgramId::postBoxBlur4, "v_passthrough", "", "f_pp_boxblur4"},
+        {ShaderProgramId::postFXAA, "v_passthrough", "", "f_pp_fxaa"},
+        {ShaderProgramId::postGaussianBlur13, "v_passthrough", "", "f_pp_gausblur13"},
+        {ShaderProgramId::postGaussianBlur9, "v_passthrough", "", "f_pp_gausblur9"},
+        {ShaderProgramId::postMedianFilter3, "v_passthrough", "", "f_pp_medianfilt3"},
+        {ShaderProgramId::postMedianFilter5, "v_passthrough", "", "f_pp_medianfilt5"},
+        {ShaderProgramId::postSharpen, "v_passthrough", "", "f_pp_sharpen"},
+        {ShaderProgramId::postSpeedBlur, "v_passthrough", "", "f_pp_speedblur"},
+        {ShaderProgramId::postVideoEffect, "v_passthrough", "", "f_pp_videofx"},
+        {ShaderProgramId::postDistortionOverlay, "v_passthrough", "", "f_pp_distortion"},
+        {ShaderProgramId::text, "v_text", "", "f_text"},
+        {ShaderProgramId::textBillboard, "v_textBillboard", "", "f_text"},
+        {ShaderProgramId::pbrIrradiance, "v_mvp", "", "f_pbr_irradiance"},
+        {ShaderProgramId::brdfLUT, "v_mvp", "", "f_pbr_brdf"},
+        {ShaderProgramId::pbrPrefilter, "v_mvp", "", "f_pbr_prefilter"},
+        {ShaderProgramId::profiler, "v_mvp", "", "f_profiler"},
+    };
+    return kSpecs;
+}
 
-static const std::string kGeometryDirLightShadows = "g_dirlightshadow";
-static const std::string kGeometryPointLightShadows = "g_ptlightshadow";
+std::list<std::string> composeShaderSources(const std::string &resRef,
+                                            const std::function<std::string(const std::string &)> &loadSource) {
+    static const std::regex kInclude("^#include \"([\\d\\w_]+)\\.glsl\"$");
 
-static const std::string kFragColor = "f_color";
-static const std::string kFragIcon = "f_icon";
-static const std::string kFragRetroOpaqueModel = "f_rtr_opaqmodel";
-static const std::string kFragRetroGrass = "f_rtr_grass";
-static const std::string kFragRetroAABB = "f_rtr_aabb";
-static const std::string kFragRetroWalkmesh = "f_rtr_walkmesh";
-static const std::string kFragRetroCombine = "f_rtr_combine";
-static const std::string kFragPBRAABB = "f_pbr_aabb";
-static const std::string kFragPBRCombine = "f_pbr_combine";
-static const std::string kFragPBRGrass = "f_pbr_grass";
-static const std::string kFragPBROpaqueModel = "f_pbr_opaqmodel";
-static const std::string kFragPBRSSAO = "f_pbr_ssao";
-static const std::string kFragPBRSSR = "f_pbr_ssr";
-static const std::string kFragPBRWalkmesh = "f_pbr_walkmesh";
-static const std::string kFragNull = "f_null";
-static const std::string kFragOITBlend = "f_oit_blend";
-static const std::string kFragOITModel = "f_oit_model";
-static const std::string kFragOITParticles = "f_oit_particles";
-static const std::string kFragOITProjectedBeam = "f_oit_projbeam";
-static const std::string kFragPointLightShadows = "f_ptlightshadow";
-static const std::string kFragPostBoxBlur4 = "f_pp_boxblur4";
-static const std::string kFragPostFXAA = "f_pp_fxaa";
-static const std::string kFragPostGaussianBlur13 = "f_pp_gausblur13";
-static const std::string kFragPostGaussianBlur9 = "f_pp_gausblur9";
-static const std::string kFragPostMedianFilter3 = "f_pp_medianfilt3";
-static const std::string kFragPostMedianFilter5 = "f_pp_medianfilt5";
-static const std::string kFragPostSharpen = "f_pp_sharpen";
-static const std::string kFragPostSpeedBlur = "f_pp_speedblur";
-static const std::string kFragPostVideoEffect = "f_pp_videofx";
-static const std::string kFragPostDistortionOverlay = "f_pp_distortion";
-static const std::string kFragText = "f_text";
-static const std::string kFragTexture = "f_texture";
-static const std::string kFragTextureNoPerspective = "f_texnoper";
-static const std::string kFragPBRIrradiance = "f_pbr_irradiance";
-static const std::string kFragPBRBRDF = "f_pbr_brdf";
-static const std::string kFragPBRPrefilter = "f_pbr_prefilter";
-static const std::string kFragProfiler = "f_profiler";
+    std::list<std::string> sources;
+    std::list<std::string> resRefs;
+    resRefs.push_back(resRef);
+    while (!resRefs.empty()) {
+        auto rr = resRefs.back();
+        resRefs.pop_back();
+        auto data = loadSource(rr);
+        auto source = StringBuilder();
+        auto stream = MemoryInputStream(data);
+        auto reader = TextReader(stream);
+        while (auto line = reader.readLine()) {
+            std::smatch match;
+            if (std::regex_search(*line, match, kInclude)) {
+                resRefs.push_back(match[1].str());
+                continue;
+            }
+            source.append(*line);
+            source.append("\n");
+        }
+        sources.push_front(source.string());
+    }
+    return sources;
+}
 
 void Shaders::init() {
     if (_inited) {
         return;
     }
 
-    // Shaders
-    auto vertBillboard = initShader(ShaderType::Vertex, kVertBillboard);
-    auto vertGrass = initShader(ShaderType::Vertex, kVertGrass);
-    auto vertModel = initShader(ShaderType::Vertex, kVertModel);
-    auto vertMVP = initShader(ShaderType::Vertex, kVertMVP);
-    auto vertMVPNormal = initShader(ShaderType::Vertex, kVertMVPNormal);
-    auto vertAABB = initShader(ShaderType::Vertex, kVertAABB);
-    auto vertParticles = initShader(ShaderType::Vertex, kVertParticles);
-    auto vertPassthrough = initShader(ShaderType::Vertex, kVertPassthrough);
-    auto vertShadows = initShader(ShaderType::Vertex, kVertShadows);
-    auto vertText = initShader(ShaderType::Vertex, kVertText);
-    auto vertTextBillboard = initShader(ShaderType::Vertex, kVertTextBillboard);
-    auto vertWalkmesh = initShader(ShaderType::Vertex, kVertWalkmesh);
-
-    auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
-    auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
-
-    auto fragColor = initShader(ShaderType::Fragment, kFragColor);
-    auto fragIcon = initShader(ShaderType::Fragment, kFragIcon);
-    auto fragRetroOpaqueModel = initShader(ShaderType::Fragment, kFragRetroOpaqueModel);
-    auto fragRetroGrass = initShader(ShaderType::Fragment, kFragRetroGrass);
-    auto fragRetroAABB = initShader(ShaderType::Fragment, kFragRetroAABB);
-    auto fragRetroWalkmesh = initShader(ShaderType::Fragment, kFragRetroWalkmesh);
-    auto fragPBRAABB = initShader(ShaderType::Fragment, kFragPBRAABB);
-    auto fragPBRCombine = initShader(ShaderType::Fragment, kFragPBRCombine);
-    auto fragPBRGrass = initShader(ShaderType::Fragment, kFragPBRGrass);
-    auto fragPBROpaqueModel = initShader(ShaderType::Fragment, kFragPBROpaqueModel);
-    auto fragPBRSSAO = initShader(ShaderType::Fragment, kFragPBRSSAO);
-    auto fragPBRSSR = initShader(ShaderType::Fragment, kFragPBRSSR);
-    auto fragPBRWalkmesh = initShader(ShaderType::Fragment, kFragPBRWalkmesh);
-    auto fragNull = initShader(ShaderType::Fragment, kFragNull);
-    auto fragOITBlend = initShader(ShaderType::Fragment, kFragOITBlend);
-    auto fragOITModel = initShader(ShaderType::Fragment, kFragOITModel);
-    auto fragOITParticles = initShader(ShaderType::Fragment, kFragOITParticles);
-    auto fragOITProjectedBeam = initShader(ShaderType::Fragment, kFragOITProjectedBeam);
-    auto fragPointLightShadows = initShader(ShaderType::Fragment, kFragPointLightShadows);
-    auto fragPostBoxBlur4 = initShader(ShaderType::Fragment, kFragPostBoxBlur4);
-    auto fragPostFXAA = initShader(ShaderType::Fragment, kFragPostFXAA);
-    auto fragPostGaussianBlur13 = initShader(ShaderType::Fragment, kFragPostGaussianBlur13);
-    auto fragPostGaussianBlur9 = initShader(ShaderType::Fragment, kFragPostGaussianBlur9);
-    auto fragPostMedianFilter3 = initShader(ShaderType::Fragment, kFragPostMedianFilter3);
-    auto fragPostMedianFilter5 = initShader(ShaderType::Fragment, kFragPostMedianFilter5);
-    auto fragPostSharpen = initShader(ShaderType::Fragment, kFragPostSharpen);
-    auto fragPostSpeedBlur = initShader(ShaderType::Fragment, kFragPostSpeedBlur);
-    auto fragPostVideoEffect = initShader(ShaderType::Fragment, kFragPostVideoEffect);
-    auto fragPostDistortionOverlay = initShader(ShaderType::Fragment, kFragPostDistortionOverlay);
-    auto fragText = initShader(ShaderType::Fragment, kFragText);
-    auto fragTexture = initShader(ShaderType::Fragment, kFragTexture);
-    auto fragTextureNoPerspective = initShader(ShaderType::Fragment, kFragTextureNoPerspective);
-    auto fragIrradiance = initShader(ShaderType::Fragment, kFragPBRIrradiance);
-    auto fragPBRBRDF = initShader(ShaderType::Fragment, kFragPBRBRDF);
-    auto fragPBRPrefilter = initShader(ShaderType::Fragment, kFragPBRPrefilter);
-    auto fragProfiler = initShader(ShaderType::Fragment, kFragProfiler);
-
-    // Shader Programs
-    _shaderRegistry.add(ShaderProgramId::aabbColor, initShaderProgram({vertAABB, fragColor}));
-    _shaderRegistry.add(ShaderProgramId::billboard, initShaderProgram({vertBillboard, fragTexture}));
-    _shaderRegistry.add(ShaderProgramId::retroOpaqueModel, initShaderProgram({vertModel, fragRetroOpaqueModel}));
-    _shaderRegistry.add(ShaderProgramId::retroGrass, initShaderProgram({vertGrass, fragRetroGrass}));
-    _shaderRegistry.add(ShaderProgramId::retroAABB, initShaderProgram({vertAABB, fragRetroAABB}));
-    _shaderRegistry.add(ShaderProgramId::retroWalkmesh, initShaderProgram({vertWalkmesh, fragRetroWalkmesh}));
-    _shaderRegistry.add(ShaderProgramId::pbrAABB, initShaderProgram({vertAABB, fragPBRAABB}));
-    _shaderRegistry.add(ShaderProgramId::pbrCombine, initShaderProgram({vertPassthrough, fragPBRCombine}));
-    _shaderRegistry.add(ShaderProgramId::pbrGrass, initShaderProgram({vertGrass, fragPBRGrass}));
-    _shaderRegistry.add(ShaderProgramId::pbrOpaqueModel, initShaderProgram({vertModel, fragPBROpaqueModel}));
-    _shaderRegistry.add(ShaderProgramId::pbrSSAO, initShaderProgram({vertPassthrough, fragPBRSSAO}));
-    _shaderRegistry.add(ShaderProgramId::pbrSSR, initShaderProgram({vertPassthrough, fragPBRSSR}));
-    _shaderRegistry.add(ShaderProgramId::pbrWalkmesh, initShaderProgram({vertWalkmesh, fragPBRWalkmesh}));
-    _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows, geomDirLightShadows, fragNull}));
-    _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
-    _shaderRegistry.add(ShaderProgramId::mvpIcon, initShaderProgram({vertMVP, fragIcon}));
-    _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
-    _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
-    _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
-    _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
-    _shaderRegistry.add(ShaderProgramId::oitParticles, initShaderProgram({vertParticles, fragOITParticles}));
-    _shaderRegistry.add(ShaderProgramId::oitProjectedBeam, initShaderProgram({vertMVP, fragOITProjectedBeam}));
-    _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows, geomPointLightShadows, fragPointLightShadows}));
-    _shaderRegistry.add(ShaderProgramId::postBoxBlur4, initShaderProgram({vertPassthrough, fragPostBoxBlur4}));
-    _shaderRegistry.add(ShaderProgramId::postFXAA, initShaderProgram({vertPassthrough, fragPostFXAA}));
-    _shaderRegistry.add(ShaderProgramId::postGaussianBlur13, initShaderProgram({vertPassthrough, fragPostGaussianBlur13}));
-    _shaderRegistry.add(ShaderProgramId::postGaussianBlur9, initShaderProgram({vertPassthrough, fragPostGaussianBlur9}));
-    _shaderRegistry.add(ShaderProgramId::postMedianFilter3, initShaderProgram({vertPassthrough, fragPostMedianFilter3}));
-    _shaderRegistry.add(ShaderProgramId::postMedianFilter5, initShaderProgram({vertPassthrough, fragPostMedianFilter5}));
-    _shaderRegistry.add(ShaderProgramId::postSharpen, initShaderProgram({vertPassthrough, fragPostSharpen}));
-    _shaderRegistry.add(ShaderProgramId::postSpeedBlur, initShaderProgram({vertPassthrough, fragPostSpeedBlur}));
-    _shaderRegistry.add(ShaderProgramId::postVideoEffect, initShaderProgram({vertPassthrough, fragPostVideoEffect}));
-    _shaderRegistry.add(ShaderProgramId::postDistortionOverlay, initShaderProgram({vertPassthrough, fragPostDistortionOverlay}));
-    _shaderRegistry.add(ShaderProgramId::text, initShaderProgram({vertText, fragText}));
-    _shaderRegistry.add(ShaderProgramId::textBillboard, initShaderProgram({vertTextBillboard, fragText}));
-    _shaderRegistry.add(ShaderProgramId::pbrIrradiance, initShaderProgram({vertMVP, fragIrradiance}));
-    _shaderRegistry.add(ShaderProgramId::brdfLUT, initShaderProgram({vertMVP, fragPBRBRDF}));
-    _shaderRegistry.add(ShaderProgramId::pbrPrefilter, initShaderProgram({vertMVP, fragPBRPrefilter}));
-    _shaderRegistry.add(ShaderProgramId::profiler, initShaderProgram({vertMVP, fragProfiler}));
+    std::map<std::pair<ShaderType, std::string>, std::shared_ptr<Shader>> shaders;
+    auto getShader = [this, &shaders](ShaderType type, const std::string &resRef) {
+        auto key = std::make_pair(type, resRef);
+        auto it = shaders.find(key);
+        if (it == shaders.end()) {
+            it = shaders.insert({key, initShader(type, resRef)}).first;
+        }
+        return it->second;
+    };
+    for (const auto &spec : shaderProgramSpecs()) {
+        std::vector<std::shared_ptr<Shader>> stages;
+        stages.push_back(getShader(ShaderType::Vertex, spec.vertex));
+        if (!spec.geometry.empty()) {
+            stages.push_back(getShader(ShaderType::Geometry, spec.geometry));
+        }
+        stages.push_back(getShader(ShaderType::Fragment, spec.fragment));
+        _shaderRegistry.add(spec.id, initShaderProgram(std::move(stages)));
+    }
 
     _inited = true;
 }
@@ -201,31 +144,14 @@ std::shared_ptr<Shader> Shaders::initShader(ShaderType type, std::string resRef)
         str(boost::format("Initializing shader: type=%d resRef='%s'") % static_cast<int>(type) % resRef),
         LogChannel::Graphics);
 
-    std::list<std::string> sources;
-
-    std::list<std::string> resRefs;
-    resRefs.push_back(resRef);
-    while (!resRefs.empty()) {
-        auto rr = resRefs.back();
-        resRefs.pop_back();
+    auto sources = composeShaderSources(resRef, [this](const std::string &rr) {
         if (_sourceResRefToData.count(rr) == 0) {
             auto res = _resources.get(ResourceId(rr, ResType::Glsl));
             _sourceResRefToData[rr] = std::move(res.data);
         }
-        auto source = StringBuilder();
-        auto stream = MemoryInputStream(_sourceResRefToData.at(rr));
-        auto reader = TextReader(stream);
-        while (auto line = reader.readLine()) {
-            std::smatch match;
-            if (std::regex_search(*line, match, std::regex("^#include \"([\\d\\w_]+)\\.glsl\"$"))) {
-                resRefs.push_back(match[1].str());
-                continue;
-            }
-            source.append(*line);
-            source.append("\n");
-        }
-        sources.push_front(source.string());
-    }
+        const auto &data = _sourceResRefToData.at(rr);
+        return std::string(data.begin(), data.end());
+    });
 
     // Prepend preprocessor directives
     auto defines = StringBuilder();
@@ -252,26 +178,26 @@ std::shared_ptr<ShaderProgram> Shaders::initShaderProgram(std::vector<std::share
     program->use();
 
     // Samplers
-    program->setUniform("sMainTex", TextureUnits::mainTex);
-    program->setUniform("sLightmap", TextureUnits::lightmap);
-    program->setUniform("sEnvMap", TextureUnits::envMap);
-    program->setUniform("sNormalMap", TextureUnits::normalMap);
-    program->setUniform("sGBufSelfIllum", TextureUnits::gBufSelfIllum);
-    program->setUniform("sGBufDepth", TextureUnits::gBufDepth);
-    program->setUniform("sGBufEyeNormal", TextureUnits::gBufEyeNormal);
-    program->setUniform("sSSAO", TextureUnits::ssao);
-    program->setUniform("sSSR", TextureUnits::ssr);
-    program->setUniform("sHilights", TextureUnits::hilights);
-    program->setUniform("sOITAccum", TextureUnits::oitAccum);
-    program->setUniform("sOITRevealage", TextureUnits::oitRevealage);
-    program->setUniform("sNoise", TextureUnits::noise);
-    program->setUniform("sEnvMapCube", TextureUnits::envMapCube);
-    program->setUniform("sShadowMapCube", TextureUnits::shadowMapCube);
-    program->setUniform("sBumpMapArray", TextureUnits::bumpMapArray);
-    program->setUniform("sShadowMap", TextureUnits::shadowMapArray);
-    program->setUniform("sBRDFLUT", TextureUnits::brdfLUT);
-    program->setUniform("sIrradianceMapArray", TextureUnits::irradianceMapArray);
-    program->setUniform("sPrefilteredEnvMapArray", TextureUnits::prefilteredEnvMapArray);
+    program->setSamplerUnit("sMainTex", TextureUnits::mainTex);
+    program->setSamplerUnit("sLightmap", TextureUnits::lightmap);
+    program->setSamplerUnit("sEnvMap", TextureUnits::envMap);
+    program->setSamplerUnit("sNormalMap", TextureUnits::normalMap);
+    program->setSamplerUnit("sGBufSelfIllum", TextureUnits::gBufSelfIllum);
+    program->setSamplerUnit("sGBufDepth", TextureUnits::gBufDepth);
+    program->setSamplerUnit("sGBufEyeNormal", TextureUnits::gBufEyeNormal);
+    program->setSamplerUnit("sSSAO", TextureUnits::ssao);
+    program->setSamplerUnit("sSSR", TextureUnits::ssr);
+    program->setSamplerUnit("sHilights", TextureUnits::hilights);
+    program->setSamplerUnit("sOITAccum", TextureUnits::oitAccum);
+    program->setSamplerUnit("sOITRevealage", TextureUnits::oitRevealage);
+    program->setSamplerUnit("sNoise", TextureUnits::noise);
+    program->setSamplerUnit("sEnvMapCube", TextureUnits::envMapCube);
+    program->setSamplerUnit("sShadowMapCube", TextureUnits::shadowMapCube);
+    program->setSamplerUnit("sBumpMapArray", TextureUnits::bumpMapArray);
+    program->setSamplerUnit("sShadowMap", TextureUnits::shadowMapArray);
+    program->setSamplerUnit("sBRDFLUT", TextureUnits::brdfLUT);
+    program->setSamplerUnit("sIrradianceMapArray", TextureUnits::irradianceMapArray);
+    program->setSamplerUnit("sPrefilteredEnvMapArray", TextureUnits::prefilteredEnvMapArray);
 
     // Uniform Blocks
     program->bindUniformBlock("Globals", UniformBlockBindingPoints::globals);
@@ -283,6 +209,8 @@ std::shared_ptr<ShaderProgram> Shaders::initShaderProgram(std::vector<std::share
     program->bindUniformBlock("Walkmesh", UniformBlockBindingPoints::walkmesh);
     program->bindUniformBlock("Text", UniformBlockBindingPoints::text);
     program->bindUniformBlock("ScreenEffect", UniformBlockBindingPoints::screenEffect);
+    program->bindUniformBlock("AABB", UniformBlockBindingPoints::aabb);
+    program->bindUniformBlock("Profiler", UniformBlockBindingPoints::profiler);
 
     return program;
 }

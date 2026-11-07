@@ -1,12 +1,6 @@
-const int NUM_FRAMES = 100;
+#include "u_profiler.glsl"
+
 const float SCALE = 2.0;
-
-uniform vec4 uSeriesValues1[NUM_FRAMES / 4];
-uniform vec4 uSeriesValues2[NUM_FRAMES / 4];
-uniform vec4 uSeriesValues3[NUM_FRAMES / 4];
-uniform vec4 uSeriesValues4[NUM_FRAMES / 4];
-
-uniform vec4 uSeriesColors[4];
 
 in vec2 fragUV1;
 

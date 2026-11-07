@@ -35,6 +35,8 @@ struct UniformBlockBindingPoints {
     static constexpr int walkmesh = 7;
     static constexpr int text = 8;
     static constexpr int screenEffect = 9;
+    static constexpr int aabb = 10;
+    static constexpr int profiler = 11;
 };
 
 struct UniformsFeatureFlags {
@@ -117,12 +119,15 @@ struct LocalUniforms {
     glm::vec4 diffuseColor;
     glm::vec4 selfIllumColor;
     glm::vec4 forceSightColor;
+    glm::vec4 saberDisplacement;
     int featureMask;
     int bumpMapFrame;
     float bumpMapScale;
     float waterAlpha;
     float billboardSize;
     float shellOffset;
+    int envMapDerivedLayer;
+    float roughness;
 
     LocalUniforms() {
         reset();
@@ -137,14 +142,37 @@ struct LocalUniforms {
         diffuseColor = glm::vec4(1.0f);
         selfIllumColor = glm::vec4(0.0f);
         forceSightColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        saberDisplacement = glm::vec4(0.0f);
         featureMask = 0;
         bumpMapFrame = 0;
         bumpMapScale = 1.0f;
         waterAlpha = 0.0f;
         billboardSize = 1.0f;
         shellOffset = 0.0f;
+        envMapDerivedLayer = 0;
+        roughness = 0.0f;
     }
 };
+
+// Offsets follow std140 for the Locals block in glsl/u_locals.glsl.
+static_assert(offsetof(LocalUniforms, model) == 0);
+static_assert(offsetof(LocalUniforms, modelInv) == 64);
+static_assert(offsetof(LocalUniforms, uv) == 128);
+static_assert(offsetof(LocalUniforms, color) == 176);
+static_assert(offsetof(LocalUniforms, ambientColor) == 192);
+static_assert(offsetof(LocalUniforms, diffuseColor) == 208);
+static_assert(offsetof(LocalUniforms, selfIllumColor) == 224);
+static_assert(offsetof(LocalUniforms, forceSightColor) == 240);
+static_assert(offsetof(LocalUniforms, saberDisplacement) == 256);
+static_assert(offsetof(LocalUniforms, featureMask) == 272);
+static_assert(offsetof(LocalUniforms, bumpMapFrame) == 276);
+static_assert(offsetof(LocalUniforms, bumpMapScale) == 280);
+static_assert(offsetof(LocalUniforms, waterAlpha) == 284);
+static_assert(offsetof(LocalUniforms, billboardSize) == 288);
+static_assert(offsetof(LocalUniforms, shellOffset) == 292);
+static_assert(offsetof(LocalUniforms, envMapDerivedLayer) == 296);
+static_assert(offsetof(LocalUniforms, roughness) == 300);
+static_assert(sizeof(LocalUniforms) == 304);
 
 struct BoneUniforms {
     glm::mat4 bones[kMaxBones] {glm::mat4(1.0f)};
@@ -216,6 +244,45 @@ struct ScreenEffectUniforms {
     float videoScanNoiseEnabled {0.0f};
 };
 
+struct AABBUniforms {
+    glm::vec4 corners[kNumAABBCorners];
+
+    AABBUniforms() {
+        reset();
+    }
+
+    void reset() {
+        std::fill(std::begin(corners), std::end(corners), glm::vec4(0.0f));
+    }
+};
+
+// Offsets follow std140 for the AABB block in glsl/u_aabb.glsl.
+static_assert(offsetof(AABBUniforms, corners) == 0);
+static_assert(sizeof(AABBUniforms) == 128);
+
+/**
+ * Frame time series drawn by the engine's profiler overlay.
+ */
+struct ProfilerUniforms {
+    static constexpr int kNumSeries = 4;
+    static constexpr int kNumFrames = 100;
+
+    glm::vec4 colors[kNumSeries];
+    glm::vec4 values[kNumSeries][kNumFrames / 4]; /**< four frames per vec4 */
+
+    ProfilerUniforms() {
+        std::fill(std::begin(colors), std::end(colors), glm::vec4(1.0f));
+        for (auto &series : values) {
+            std::fill(std::begin(series), std::end(series), glm::vec4(0.0f));
+        }
+    }
+};
+
+// Offsets follow std140 for the Profiler block in glsl/u_profiler.glsl.
+static_assert(offsetof(ProfilerUniforms, colors) == 0);
+static_assert(offsetof(ProfilerUniforms, values) == 64);
+static_assert(sizeof(ProfilerUniforms) == 1664);
+
 class Context;
 
 class IUniforms {
@@ -231,6 +298,8 @@ public:
     virtual void setWalkmesh(const std::function<void(WalkmeshUniforms &)> &block) = 0;
     virtual void setText(const std::function<void(TextUniforms &)> &block) = 0;
     virtual void setScreenEffect(const std::function<void(ScreenEffectUniforms &)> &block) = 0;
+    virtual void setAABB(const std::function<void(AABBUniforms &)> &block) = 0;
+    virtual void setProfiler(const std::function<void(ProfilerUniforms &)> &block) = 0;
 };
 
 class Uniforms : public IUniforms, boost::noncopyable {
@@ -253,6 +322,8 @@ public:
     void setWalkmesh(const std::function<void(WalkmeshUniforms &)> &block) override;
     void setText(const std::function<void(TextUniforms &)> &block) override;
     void setScreenEffect(const std::function<void(ScreenEffectUniforms &)> &block) override;
+    void setAABB(const std::function<void(AABBUniforms &)> &block) override;
+    void setProfiler(const std::function<void(ProfilerUniforms &)> &block) override;
 
 private:
     bool _inited {false};
@@ -270,6 +341,8 @@ private:
     WalkmeshUniforms _walkmesh;
     TextUniforms _text;
     ScreenEffectUniforms _screenEffect;
+    AABBUniforms _aabb;
+    ProfilerUniforms _profiler;
 
     // END Uniforms
 
@@ -284,6 +357,8 @@ private:
     std::shared_ptr<UniformBuffer> _ubWalkmesh;
     std::shared_ptr<UniformBuffer> _ubText;
     std::shared_ptr<UniformBuffer> _ubScreenEffect;
+    std::shared_ptr<UniformBuffer> _ubAABB;
+    std::shared_ptr<UniformBuffer> _ubProfiler;
 
     // END Uniform Buffers
 

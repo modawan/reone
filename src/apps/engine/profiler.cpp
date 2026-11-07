@@ -39,7 +39,7 @@ namespace reone {
 
 static constexpr char kFontResRef[] = "fnt_console";
 static constexpr float kTextOffset = 3.0f;
-static constexpr int kNumTimedFrames = 100;
+static constexpr int kNumTimedFrames = ProfilerUniforms::kNumFrames;
 static constexpr float kFrameTimesScale = 2.0f;
 
 void Profiler::init() {
@@ -131,36 +131,21 @@ void Profiler::renderBackground() {
 }
 
 void Profiler::renderFrameTimes(const TimedThread &thread, int xOffset) {
-    auto &program = _graphicsSvc.shaderRegistry.get(ShaderProgramId::profiler);
-    _graphicsSvc.context.useProgram(program);
+    _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(ShaderProgramId::profiler));
 
-    std::vector<glm::vec4> seriesColors {4, glm::vec4 {1.0f}};
-    for (size_t i = 0; i < 4; ++i) {
-        if (thread.colors.size() <= i) {
-            break;
-        }
-        seriesColors[i] = glm::vec4 {thread.colors[i], 1.0f};
-    }
-    program.setUniform("uSeriesColors", seriesColors);
-
-    std::vector<glm::vec4> vecTimes;
-    vecTimes.resize(kNumTimedFrames / 4, glm::vec4 {0.0f});
     float oneOverFpsTarget = 1.0f / _fpsTarget;
-    for (int slot = 0; slot < 4; ++slot) {
-        if (thread.times[slot].size() >= kNumTimedFrames) {
+    _graphicsSvc.uniforms.setProfiler([&thread, &oneOverFpsTarget](auto &profiler) {
+        for (size_t slot = 0; slot < ProfilerUniforms::kNumSeries; ++slot) {
+            profiler.colors[slot] = slot < thread.colors.size() ? glm::vec4 {thread.colors[slot], 1.0f} : glm::vec4 {1.0f};
+            const auto &times = thread.times[slot];
+            bool full = times.size() >= kNumTimedFrames;
             for (int i = 0; i < kNumTimedFrames / 4; ++i) {
                 for (int j = 0; j < 4; ++j) {
-                    vecTimes[i][j] = thread.times[slot][4 * i + j] / oneOverFpsTarget;
-                    vecTimes[i][j] = thread.times[slot][4 * i + j] / oneOverFpsTarget;
-                    vecTimes[i][j] = thread.times[slot][4 * i + j] / oneOverFpsTarget;
-                    vecTimes[i][j] = thread.times[slot][4 * i + j] / oneOverFpsTarget;
+                    profiler.values[slot][i][j] = full ? times[4 * i + j] / oneOverFpsTarget : 0.0f;
                 }
             }
-        } else {
-            std::memset(&vecTimes[0], 0, vecTimes.size() * sizeof(glm::vec4));
         }
-        program.setUniform("uSeriesValues" + std::to_string(slot + 1), vecTimes);
-    }
+    });
 
     float size = kNumTimedFrames * kFrameTimesScale;
     auto transform = glm::scale(

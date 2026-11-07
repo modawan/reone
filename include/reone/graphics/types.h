@@ -32,6 +32,7 @@ constexpr int kNumSSAOSamples = 64;
 constexpr int kNumSaberSegments = 20;
 constexpr int kNumSaberSegmentVertices = 4;
 constexpr int kNumLipShapes = 16;
+constexpr int kNumAABBCorners = 8;
 
 constexpr int kMaxBones = 24;
 constexpr int kMaxDanglyVertices = 768;

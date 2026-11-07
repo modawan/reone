@@ -36,7 +36,7 @@ void RetroRenderPass::draw(Mesh &mesh,
                            Material &material,
                            const glm::mat4 &transform,
                            const glm::mat4 &transformInv) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
+    withMaterialAppliedToContext(material, [&]() {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
             locals.model = transform;
@@ -47,7 +47,7 @@ void RetroRenderPass::draw(Mesh &mesh,
     });
 }
 
-void RetroRenderPass::withMaterialAppliedToContext(const Material &material, std::function<void(ShaderProgram &)> block) {
+void RetroRenderPass::withMaterialAppliedToContext(const Material &material, std::function<void()> block) {
     static const std::unordered_map<MaterialType, std::string> kMatTypeToProgramId {
         {MaterialType::DirLightShadow, ShaderProgramId::dirLightShadows},     //
         {MaterialType::PointLightShadow, ShaderProgramId::pointLightShadows}, //
@@ -75,7 +75,7 @@ void RetroRenderPass::withMaterialAppliedToContext(const Material &material, std
     if (material.polygonMode && *material.polygonMode != prevPolygonMode) {
         _context.pushPolygonMode(*material.polygonMode);
     }
-    block(program);
+    block();
     if (material.blending && *material.blending != prevBlending) {
         _context.popBlendMode();
     }
@@ -147,7 +147,7 @@ void RetroRenderPass::drawSkinned(Mesh &mesh,
                                   const glm::mat4 &transform,
                                   const glm::mat4 &transformInv,
                                   const std::vector<glm::mat4> &bones) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
+    withMaterialAppliedToContext(material, [&]() {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
             locals.featureMask |= UniformsFeatureFlags::skin;
@@ -167,7 +167,7 @@ void RetroRenderPass::drawDangly(Mesh &mesh,
                                  const glm::mat4 &transform,
                                  const glm::mat4 &transformInv,
                                  const std::vector<glm::vec4> &positions) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
+    withMaterialAppliedToContext(material, [&]() {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
             locals.featureMask |= UniformsFeatureFlags::dangly;
@@ -188,15 +188,15 @@ void RetroRenderPass::drawSaber(Mesh &mesh,
                                 const glm::mat4 &transform,
                                 const glm::mat4 &transformInv,
                                 const glm::vec4 &displacement) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
-        _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
+    withMaterialAppliedToContext(material, [&]() {
+        _uniforms.setLocals([this, &material, &transform, &transformInv, &displacement](auto &locals) {
             locals.reset();
             locals.featureMask |= UniformsFeatureFlags::saber;
             locals.model = transform;
             locals.modelInv = transformInv;
+            locals.saberDisplacement = displacement;
             applyMaterialToLocals(material, locals);
         });
-        program.setUniform("uSaberDisplacement", displacement);
         _context.drawMesh(mesh);
     });
 }
@@ -301,9 +301,12 @@ void RetroRenderPass::drawGrass(float radius,
 }
 
 void RetroRenderPass::drawAABB(const std::vector<glm::vec4> &corners) {
-    auto &program = _shaderRegistry.get(ShaderProgramId::retroAABB);
-    _context.useProgram(program);
-    program.setUniform("uCorners", corners);
+    _context.useProgram(_shaderRegistry.get(ShaderProgramId::retroAABB));
+    _uniforms.setAABB([&corners](auto &aabb) {
+        aabb.reset();
+        auto numCorners = std::min<int>(kNumAABBCorners, corners.size());
+        std::copy_n(corners.begin(), numCorners, aabb.corners);
+    });
     _context.withDepthMask(false, [this]() {
         _context.withPolygonMode(PolygonMode::Line, [this]() {
             _context.drawMesh(_meshRegistry.get(MeshName::aabb));

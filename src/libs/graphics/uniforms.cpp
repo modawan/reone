@@ -37,6 +37,8 @@ void Uniforms::init() {
     static WalkmeshUniforms defaultWalkmesh;
     static TextUniforms defaultText;
     static ScreenEffectUniforms defaultScreenEffect;
+    static AABBUniforms defaultAABB;
+    static ProfilerUniforms defaultProfiler;
 
     _ubGlobals = initBuffer(&defaultGlobals, sizeof(GlobalUniforms));
     _ubLocals = initBuffer(&defaultLocals, sizeof(LocalUniforms));
@@ -47,6 +49,8 @@ void Uniforms::init() {
     _ubWalkmesh = initBuffer(&defaultWalkmesh, sizeof(WalkmeshUniforms));
     _ubText = initBuffer(&defaultText, sizeof(TextUniforms));
     _ubScreenEffect = initBuffer(&defaultScreenEffect, sizeof(ScreenEffectUniforms));
+    _ubAABB = initBuffer(&defaultAABB, sizeof(AABBUniforms));
+    _ubProfiler = initBuffer(&defaultProfiler, sizeof(ProfilerUniforms));
 
     _context.bindUniformBuffer(*_ubGlobals, UniformBlockBindingPoints::globals);
     _context.bindUniformBuffer(*_ubLocals, UniformBlockBindingPoints::locals);
@@ -57,6 +61,8 @@ void Uniforms::init() {
     _context.bindUniformBuffer(*_ubWalkmesh, UniformBlockBindingPoints::walkmesh);
     _context.bindUniformBuffer(*_ubText, UniformBlockBindingPoints::text);
     _context.bindUniformBuffer(*_ubScreenEffect, UniformBlockBindingPoints::screenEffect);
+    _context.bindUniformBuffer(*_ubAABB, UniformBlockBindingPoints::aabb);
+    _context.bindUniformBuffer(*_ubProfiler, UniformBlockBindingPoints::profiler);
 
     _inited = true;
 }
@@ -75,6 +81,8 @@ void Uniforms::deinit() {
     _ubWalkmesh.reset();
     _ubText.reset();
     _ubScreenEffect.reset();
+    _ubAABB.reset();
+    _ubProfiler.reset();
 
     _inited = false;
 }
@@ -131,6 +139,18 @@ void Uniforms::setScreenEffect(const std::function<void(ScreenEffectUniforms &)>
     block(_screenEffect);
     _context.bindUniformBuffer(*_ubScreenEffect, UniformBlockBindingPoints::screenEffect);
     _ubScreenEffect->setData(&_screenEffect, sizeof(ScreenEffectUniforms));
+}
+
+void Uniforms::setAABB(const std::function<void(AABBUniforms &)> &block) {
+    block(_aabb);
+    _context.bindUniformBuffer(*_ubAABB, UniformBlockBindingPoints::aabb);
+    _ubAABB->setData(&_aabb, sizeof(AABBUniforms));
+}
+
+void Uniforms::setProfiler(const std::function<void(ProfilerUniforms &)> &block) {
+    block(_profiler);
+    _context.bindUniformBuffer(*_ubProfiler, UniformBlockBindingPoints::profiler);
+    _ubProfiler->setData(&_profiler, sizeof(ProfilerUniforms));
 }
 
 std::unique_ptr<UniformBuffer> Uniforms::initBuffer(const void *data, ptrdiff_t size) {

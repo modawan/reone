@@ -38,15 +38,11 @@ public:
 
     void bindUniformBlock(const std::string &name, int bindingPoint);
 
-    void setUniform(const std::string &name, int value);
-    void setUniform(const std::string &name, float value);
-    void setUniform(const std::string &name, const glm::vec2 &v);
-    void setUniform(const std::string &name, const glm::vec3 &v);
-    void setUniform(const std::string &name, const glm::vec4 &v);
-    void setUniform(const std::string &name, const glm::mat4 &m);
-    void setUniform(const std::string &name, const std::vector<glm::vec4> &arr);
-    void setUniform(const std::string &name, const std::vector<glm::mat4> &arr);
-    void setUniform(const std::string &name, const std::function<void(int)> &setter);
+    /**
+     * Points the named sampler at a texture unit. Every other uniform lives
+     * in a uniform block, see uniforms.h.
+     */
+    void setSamplerUnit(const std::string &name, int unit);
 
 private:
     std::vector<std::shared_ptr<Shader>> _shaders;
@@ -56,7 +52,6 @@ private:
     // OpenGL
 
     uint32_t _nameGL {0};
-    std::map<std::string, int> _uniformLocations;
 
     // END OpenGL
 };

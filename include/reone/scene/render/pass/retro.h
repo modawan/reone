@@ -21,12 +21,6 @@
 
 namespace reone {
 
-namespace graphics {
-
-class ShaderProgram;
-
-}
-
 namespace scene {
 
 class RetroRenderPass : public IRenderPass, boost::noncopyable {
@@ -112,7 +106,7 @@ private:
 
     int materialFeatureMask(const graphics::Material &material) const;
 
-    void withMaterialAppliedToContext(const graphics::Material &material, std::function<void(graphics::ShaderProgram &)> block);
+    void withMaterialAppliedToContext(const graphics::Material &material, std::function<void()> block);
 };
 
 } // namespace scene

@@ -70,67 +70,10 @@ void ShaderProgram::bindUniformBlock(const std::string &name, int bindingPoint) 
     glUniformBlockBinding(_nameGL, blockIdx, bindingPoint);
 }
 
-void ShaderProgram::setUniform(const std::string &name, int value) {
-    setUniform(name, [this, &value](int loc) {
-        glUniform1i(loc, value);
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, float value) {
-    setUniform(name, [this, &value](int loc) {
-        glUniform1f(loc, value);
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const glm::vec2 &v) {
-    setUniform(name, [this, &v](int loc) {
-        glUniform2f(loc, v.x, v.y);
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const glm::vec3 &v) {
-    setUniform(name, [this, &v](int loc) {
-        glUniform3f(loc, v.x, v.y, v.z);
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const glm::vec4 &v) {
-    setUniform(name, [this, &v](int loc) {
-        glUniform4f(loc, v.x, v.y, v.z, v.w);
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const glm::mat4 &m) {
-    setUniform(name, [this, &m](int loc) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(m));
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const std::vector<glm::vec4> &arr) {
-    setUniform(name, [this, &arr](int loc) {
-        glUniform4fv(loc, static_cast<GLsizei>(arr.size()), reinterpret_cast<const GLfloat *>(&arr[0]));
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const std::vector<glm::mat4> &arr) {
-    setUniform(name, [this, &arr](int loc) {
-        glUniformMatrix4fv(loc, static_cast<GLsizei>(arr.size()), GL_FALSE, reinterpret_cast<const GLfloat *>(&arr[0]));
-    });
-}
-
-void ShaderProgram::setUniform(const std::string &name, const std::function<void(int)> &setter) {
-    GLint location;
-
-    auto maybeLocation = _uniformLocations.find(name);
-    if (maybeLocation != _uniformLocations.end()) {
-        location = maybeLocation->second;
-    } else {
-        location = glGetUniformLocation(_nameGL, name.c_str());
-        _uniformLocations.insert(std::make_pair(name, location));
-    }
-
+void ShaderProgram::setSamplerUnit(const std::string &name, int unit) {
+    GLint location = glGetUniformLocation(_nameGL, name.c_str());
     if (location != -1) {
-        setter(location);
+        glUniform1i(location, unit);
     }
 }
 

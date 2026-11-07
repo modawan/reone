@@ -37,7 +37,7 @@ void PBRRenderPass::draw(Mesh &mesh,
                          Material &material,
                          const glm::mat4 &transform,
                          const glm::mat4 &transformInv) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
+    withMaterialAppliedToContext(material, [&]() {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
             locals.model = transform;
@@ -48,7 +48,7 @@ void PBRRenderPass::draw(Mesh &mesh,
     });
 }
 
-void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::function<void(ShaderProgram &)> block) {
+void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::function<void()> block) {
     static const std::unordered_map<MaterialType, std::string> kMatTypeToProgramId {
         {MaterialType::DirLightShadow, ShaderProgramId::dirLightShadows},     //
         {MaterialType::PointLightShadow, ShaderProgramId::pointLightShadows}, //
@@ -64,18 +64,6 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
     for (const auto &[unit, texture] : material.textures) {
         _context.bindTexture(texture, unit);
     }
-    if (material.textures.count(TextureUnits::envMapCube) > 0) {
-        auto &envMap = material.textures.at(TextureUnits::envMapCube).get();
-        if (_options.pbr) {
-            auto layer = _pbrTextures.findEnvMapDerivedLayer(envMap.name());
-            if (layer) {
-                program.setUniform("uEnvMapDerivedLayer", *layer);
-            } else {
-                program.setUniform("uEnvMapDerivedLayer", 0);
-                _pbrTextures.requestEnvMapDerived({envMap});
-            }
-        }
-    }
     auto prevBlending = _context.blendMode();
     if (material.blending && *material.blending != prevBlending) {
         _context.pushBlendMode(*material.blending);
@@ -88,7 +76,7 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
     if (material.polygonMode && *material.polygonMode != prevPolygonMode) {
         _context.pushPolygonMode(*material.polygonMode);
     }
-    block(program);
+    block();
     if (material.blending && *material.blending != prevBlending) {
         _context.popBlendMode();
     }
@@ -157,7 +145,7 @@ void PBRRenderPass::drawSkinned(Mesh &mesh,
                                 const glm::mat4 &transform,
                                 const glm::mat4 &transformInv,
                                 const std::vector<glm::mat4> &bones) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
+    withMaterialAppliedToContext(material, [&]() {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
             locals.featureMask |= UniformsFeatureFlags::skin;
@@ -177,7 +165,7 @@ void PBRRenderPass::drawDangly(Mesh &mesh,
                                const glm::mat4 &transform,
                                const glm::mat4 &transformInv,
                                const std::vector<glm::vec4> &positions) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
+    withMaterialAppliedToContext(material, [&]() {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
             locals.featureMask |= UniformsFeatureFlags::dangly;
@@ -198,15 +186,15 @@ void PBRRenderPass::drawSaber(Mesh &mesh,
                               const glm::mat4 &transform,
                               const glm::mat4 &transformInv,
                               const glm::vec4 &displacement) {
-    withMaterialAppliedToContext(material, [&](auto &program) {
-        _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
+    withMaterialAppliedToContext(material, [&]() {
+        _uniforms.setLocals([this, &material, &transform, &transformInv, &displacement](auto &locals) {
             locals.reset();
             locals.featureMask |= UniformsFeatureFlags::saber;
             locals.model = transform;
             locals.modelInv = transformInv;
+            locals.saberDisplacement = displacement;
             applyMaterialToLocals(material, locals);
         });
-        program.setUniform("uSaberDisplacement", displacement);
         _context.drawMesh(mesh);
     });
 }
@@ -331,12 +319,24 @@ void PBRRenderPass::applyMaterialToLocals(const Material &material,
         locals.bumpMapFrame = material.bumpMapFrame;
         locals.bumpMapScale = bumpmap.features().bumpMapScaling;
     }
+    if (_options.pbr && material.textures.count(TextureUnits::envMapCube) > 0) {
+        auto &envMap = material.textures.at(TextureUnits::envMapCube).get();
+        auto layer = _pbrTextures.findEnvMapDerivedLayer(envMap.name());
+        if (layer) {
+            locals.envMapDerivedLayer = *layer;
+        } else {
+            _pbrTextures.requestEnvMapDerived({envMap});
+        }
+    }
 }
 
 void PBRRenderPass::drawAABB(const std::vector<glm::vec4> &corners) {
-    auto &program = _shaderRegistry.get(ShaderProgramId::pbrAABB);
-    _context.useProgram(program);
-    program.setUniform("uCorners", corners);
+    _context.useProgram(_shaderRegistry.get(ShaderProgramId::pbrAABB));
+    _uniforms.setAABB([&corners](auto &aabb) {
+        aabb.reset();
+        auto numCorners = std::min<int>(kNumAABBCorners, corners.size());
+        std::copy_n(corners.begin(), numCorners, aabb.corners);
+    });
     _context.withDepthMask(false, [this]() {
         _context.withPolygonMode(PolygonMode::Line, [this]() {
             _context.drawMesh(_meshRegistry.get(MeshName::aabb));

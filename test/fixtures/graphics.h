@@ -152,6 +152,8 @@ public:
     MOCK_METHOD(void, setWalkmesh, (const std::function<void(WalkmeshUniforms &)> &), (override));
     MOCK_METHOD(void, setText, (const std::function<void(TextUniforms &)> &), (override));
     MOCK_METHOD(void, setScreenEffect, (const std::function<void(ScreenEffectUniforms &)> &), (override));
+    MOCK_METHOD(void, setAABB, (const std::function<void(AABBUniforms &)> &), (override));
+    MOCK_METHOD(void, setProfiler, (const std::function<void(ProfilerUniforms &)> &), (override));
 };
 
 class TestGraphicsModule : boost::noncopyable {

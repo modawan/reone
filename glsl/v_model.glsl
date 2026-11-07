@@ -2,7 +2,6 @@
 #include "u_dangly.glsl"
 #include "u_globals.glsl"
 #include "u_locals.glsl"
-#include "u_saber.glsl"
 
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;

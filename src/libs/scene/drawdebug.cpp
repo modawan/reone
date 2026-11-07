@@ -192,15 +192,14 @@ static void renderLine(const Line &line, const DrawContext &ctx, IRenderPass &pa
 }
 
 static void renderTriangle(const Triangle &tri, const DrawContext &ctx, IRenderPass &pass) {
-    ShaderProgram &program = ctx.aabbColor;
-    ctx.services.context.useProgram(program);
-
-    // FIXME: change setUniform to take an ArrayRef instead of a vector.
-    // Then replace this vector with a C array.
-
-    std::vector<glm::vec4> corners = {glm::vec4(tri.v[0], 1.0f), glm::vec4(tri.v[1], 1.0f),
-                                      glm::vec4(tri.v[2], 1.0f), glm::vec4(tri.v[0], 1.0f)};
-    program.setUniform("uCorners", corners);
+    ctx.services.context.useProgram(ctx.aabbColor);
+    ctx.services.uniforms.setAABB([&tri](AABBUniforms &aabb) {
+        aabb.reset();
+        aabb.corners[0] = glm::vec4(tri.v[0], 1.0f);
+        aabb.corners[1] = glm::vec4(tri.v[1], 1.0f);
+        aabb.corners[2] = glm::vec4(tri.v[2], 1.0f);
+        aabb.corners[3] = glm::vec4(tri.v[0], 1.0f);
+    });
     ctx.services.uniforms.setLocals([&](LocalUniforms &locals) {
         locals.reset();
         locals.color = tri.color;
@@ -241,23 +240,18 @@ static void renderPoint(const Point &point, const DrawContext &ctx, IRenderPass 
 }
 
 static void renderBox(const Box &box, const DrawContext &ctx, IRenderPass &pass) {
-    ShaderProgram &program = ctx.aabbColor;
-    ctx.services.context.useProgram(program);
-
-    // FIXME: change setUniform to take an ArrayRef instead of a vector.
-    // Then replace this vector with a C array.
-
-    std::vector<glm::vec4> corners = {
-        glm::vec4(box.min.x, box.min.y, box.min.z, 1.0f),
-        glm::vec4(box.min.x, box.min.y, box.max.z, 1.0f),
-        glm::vec4(box.min.x, box.max.y, box.min.z, 1.0f),
-        glm::vec4(box.min.x, box.max.y, box.max.z, 1.0f),
-        glm::vec4(box.max.x, box.min.y, box.min.z, 1.0f),
-        glm::vec4(box.max.x, box.min.y, box.max.z, 1.0f),
-        glm::vec4(box.max.x, box.max.y, box.min.z, 1.0f),
-        glm::vec4(box.max.x, box.max.y, box.max.z, 1.0f),
-    };
-    program.setUniform("uCorners", corners);
+    ctx.services.context.useProgram(ctx.aabbColor);
+    ctx.services.uniforms.setAABB([&box](AABBUniforms &aabb) {
+        aabb.reset();
+        aabb.corners[0] = glm::vec4(box.min.x, box.min.y, box.min.z, 1.0f);
+        aabb.corners[1] = glm::vec4(box.min.x, box.min.y, box.max.z, 1.0f);
+        aabb.corners[2] = glm::vec4(box.min.x, box.max.y, box.min.z, 1.0f);
+        aabb.corners[3] = glm::vec4(box.min.x, box.max.y, box.max.z, 1.0f);
+        aabb.corners[4] = glm::vec4(box.max.x, box.min.y, box.min.z, 1.0f);
+        aabb.corners[5] = glm::vec4(box.max.x, box.min.y, box.max.z, 1.0f);
+        aabb.corners[6] = glm::vec4(box.max.x, box.max.y, box.min.z, 1.0f);
+        aabb.corners[7] = glm::vec4(box.max.x, box.max.y, box.max.z, 1.0f);
+    });
     ctx.services.uniforms.setLocals([&](LocalUniforms &locals) {
         locals.reset();
         locals.color = box.color;
