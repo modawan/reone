@@ -224,7 +224,7 @@ void Equipment::configureItemsListBox() {
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
         tintK2PanelFill(_controls.LB_DESC, _baseColor);
     }
-    useK1ItemEntryColors(protoItem);
+    useK1ListEntryColors(protoItem);
 }
 
 void Equipment::clearCandidateDescription() {

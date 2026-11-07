@@ -65,6 +65,7 @@ void JournalMenu::onGUILoaded() {
         _controls.BTN_SORT->setDisabled(true);
     }
 
+    useK1ListEntryColors(_controls.LB_ITEMS->protoItem());
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &plotId) {
         refreshEntryText(plotId);

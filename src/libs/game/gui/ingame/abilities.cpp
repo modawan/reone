@@ -77,7 +77,7 @@ void AbilitiesMenu::onGUILoaded() {
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
     }
-    useK1ItemEntryColors(protoItem);
+    useK1ListEntryColors(protoItem);
     // The active row's frames pulse; TSL's icon frame is white.
     protoItem.setHilightPulsing(true, false);
     if (_game.isTSL()) {

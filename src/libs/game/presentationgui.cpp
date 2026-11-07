@@ -255,7 +255,7 @@ void PresentationGUI::useBakedItemSlotArt(ListBox &listBox) {
         });
 }
 
-void PresentationGUI::useK1ItemEntryColors(Control &protoItem) {
+void PresentationGUI::useK1ListEntryColors(Control &protoItem) {
     if (isTSL()) {
         return;
     }

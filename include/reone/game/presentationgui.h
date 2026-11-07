@@ -134,11 +134,11 @@ protected:
      */
     void useBakedItemSlotArt(gui::ListBox &listBox);
     /**
-     * KotOR draws the entries of an item list, their icon frames included,
-     * in the GUI's base colour, and in its hilight colour while selected,
-     * whatever colours the list's prototype is authored in.
+     * KotOR draws the entries of its item and quest lists, item icon frames
+     * included, in the GUI's base colour, and in its hilight colour while
+     * selected, whatever colours the list's prototype is authored in.
      */
-    void useK1ItemEntryColors(gui::Control &protoItem);
+    void useK1ListEntryColors(gui::Control &protoItem);
     void enableK2ButtonBodyFill(gui::Control &control);
     void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);

@@ -180,7 +180,7 @@ void InventoryMenu::configureItemsListBox() {
             protoItem->setBorderFill("uibit_fill_2wt");
             protoItem->setHilightFill("uibit_fill_2wt");
         }
-        useK1ItemEntryColors(*protoItem);
+        useK1ListEntryColors(*protoItem);
     }
 }
 
