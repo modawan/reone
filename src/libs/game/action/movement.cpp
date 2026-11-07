@@ -209,6 +209,15 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
                 complete();
                 return;
             }
+            // A walk ended by a creature in the way, one the mover cannot get
+            // round or whose ring holds the walk's end, ends the move where
+            // the mover stands. Setting out again would meet the same creature
+            // every frame and hold the rest of the queue for good: a script's
+            // ActionResumeConversation behind the move, say.
+            if (creatureActor->walkEndedAtCreature()) {
+                complete();
+                return;
+            }
             // Short of the check, the mover sets out afresh for the current
             // use point with the move's range.
             if (toUsePoint) {
