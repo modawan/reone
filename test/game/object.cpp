@@ -3323,8 +3323,9 @@ TEST(DoorLifecycle, should_not_block_the_doorway_until_the_close_completes) {
     EXPECT_EQ("closed", doorPose(*door));
 }
 
-// D. Closing part way through an opening. The superseded opening must never
-// complete afterwards and hand the doorway over.
+// D. Closing part way through an opening. The close waits for the opening to
+// play out and then swings shut with closing2; the superseded opening never
+// hands the doorway over.
 TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3338,14 +3339,18 @@ TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     door->close();
     EXPECT_FALSE(door->isOpening());
     EXPECT_TRUE(door->isClosing());
+    EXPECT_EQ("opening2", doorPose(*door));
     EXPECT_TRUE(doorwayBlocks(*door));
 
-    // Past where the original opening would have completed, and on past where
-    // the close completes. The doorway is never handed over at any point.
-    for (int i = 0; i < 5; ++i) {
+    // Through the end of the opening and the whole close. The doorway is
+    // never handed over at any point.
+    for (int i = 0; i < 6; ++i) {
         stepDoor(*door, 0.4f);
         EXPECT_TRUE(doorwayBlocks(*door)) << "step " << i;
         EXPECT_FALSE(door->isOpen()) << "step " << i;
+        if (i == 2) {
+            EXPECT_EQ("closing2", doorPose(*door));
+        }
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());
@@ -3353,8 +3358,9 @@ TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     EXPECT_EQ("closed", doorPose(*door));
 }
 
-// E. Reopening part way through a close. The superseded close must never
-// complete afterwards and seal the doorway.
+// E. Reopening part way through a close. The opening waits for the close to
+// play out, and the door then stands open to the new side; the superseded
+// close never seals the doorway.
 TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3368,15 +3374,20 @@ TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     door->open();
     EXPECT_FALSE(door->isClosing());
     EXPECT_TRUE(door->isOpening());
+    EXPECT_EQ("closing1", doorPose(*door));
     EXPECT_FALSE(doorwayBlocks(*door));
     EXPECT_TRUE(door->isOpen());
 
-    // Past where the original close would have completed, and on past where the
-    // reopening completes. The doorway is never sealed at any point.
-    for (int i = 0; i < 5; ++i) {
+    // Through the end of the close and the whole opening. The doorway is
+    // never sealed at any point.
+    for (int i = 0; i < 6; ++i) {
         stepDoor(*door, 0.4f);
         EXPECT_FALSE(doorwayBlocks(*door)) << "step " << i;
         EXPECT_TRUE(door->isOpen()) << "step " << i;
+        if (i == 2) {
+            EXPECT_EQ("opening2", doorPose(*door));
+            EXPECT_EQ(DoorState::Opened2, door->state());
+        }
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());

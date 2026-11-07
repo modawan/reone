@@ -18,6 +18,7 @@
 #include "reone/game/object.h"
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <sstream>
 #include <typeinfo>
@@ -358,11 +359,25 @@ void Object::runActions() {
     executeActionsIfAble(0.0f);
 }
 
+// Actions run in turn for as long as each ends at once. An action still under
+// way ends the run, as does a walk to a point or a jump, a move made by the
+// action, or a millisecond's work.
 void Object::executeActionsIfAble(float dt) {
-    // An action that can no longer be cleared runs on whatever holds the object.
-    const auto current = getCurrentAction();
-    if (!isDead() && (takesUpActions() || (current && !current->isClearable()))) {
-        executeActions(dt);
+    static constexpr auto kActionTimeSlice = std::chrono::milliseconds(1);
+    const auto start = std::chrono::steady_clock::now();
+    while (true) {
+        // An action that can no longer be cleared runs on whatever holds the object.
+        const auto current = getCurrentAction();
+        if (isDead() || !(takesUpActions() || (current && !current->isClearable()))) {
+            return;
+        }
+        if (!executeActions(dt)) {
+            return;
+        }
+        removeCompletedActions();
+        if (_actions.nodes.empty() || std::chrono::steady_clock::now() - start > kActionTimeSlice) {
+            return;
+        }
     }
 }
 
@@ -1307,7 +1322,9 @@ void Object::removeCompletedActions() {
     }
 }
 
-void Object::executeActions(float dt) {
+// Runs the action at the front of the queue; true when it has ended and the
+// next may run now.
+bool Object::executeActions(float dt) {
     if (_actions.nodes.empty()) {
         _spellScriptContext.clearActiveTarget();
         if (auto *creature = dyn_cast<Creature>(this)) {
@@ -1316,13 +1333,13 @@ void Object::executeActions(float dt) {
             creature->resetAttemptedMovementTarget();
             creature->resetBlockingCreature();
         }
-        return;
+        return false;
     }
     auto node = _actions.nodes.front();
     auto action = node->action;
     auto *creature = dyn_cast<Creature>(this);
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
-        return;
+        return false;
     }
     const bool refused = creature && !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
@@ -1338,8 +1355,9 @@ void Object::executeActions(float dt) {
         if (!action->isCompleted()) {
             action->complete();
         }
-        return;
+        return true;
     }
+    const glm::vec3 position {_position};
     _executingActionNode = node;
     try {
         action->execute(action, *this, dt);
@@ -1348,14 +1366,23 @@ void Object::executeActions(float dt) {
         throw;
     }
     _executingActionNode.reset();
+    if (!action->isCompleted()) {
+        return false;
+    }
     // An action that completes behind the actions it queued ahead of itself
-    // leaves the queue now; one still in front leaves with the next update.
-    if (action->isCompleted()) {
-        auto &nodes = _actions.nodes;
-        const auto position = std::find(nodes.begin(), nodes.end(), node);
-        if (position != nodes.end() && position != nodes.begin()) {
-            nodes.erase(position);
-        }
+    // leaves the queue now.
+    auto &nodes = _actions.nodes;
+    const auto queued = std::find(nodes.begin(), nodes.end(), node);
+    if (queued != nodes.end() && queued != nodes.begin()) {
+        nodes.erase(queued);
+    }
+    switch (node->type()) {
+    case SavedActionType::MoveToPoint:
+    case SavedActionType::JumpToLocation:
+    case SavedActionType::JumpToObject:
+        return false;
+    default:
+        return _position == position;
     }
 }
 

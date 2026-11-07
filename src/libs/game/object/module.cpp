@@ -676,32 +676,19 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     }
 }
 
-// A placeable's default action is an order: it clears the leader's actions
-// unless the leader is busy, and then follows them.
+// A placeable's default action is a use, given as an order: it clears the
+// leader's actions unless the leader is busy, and then follows them. A use
+// starts no conversation of its own; the placeable's used script may, and in
+// KotOR 129 of the 130 conversation placeables with an OnUsed script do,
+// many choosing between dialogs, as the Taris sewer force field's
+// k_ptar_startconv does between its computer and Mission's tar05_ff_dlg2.
 void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     if (!partyLeader->isCommandable() || !_game.canClick()) {
         return;
     }
-
-    if (placeable->hasInventory()) {
-        // A locked container is walked up to all the same.
-        partyLeader->clearOrdersUnlessBusy();
-        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-    } else if (!placeable->conversation().empty() && !placeable->hasOnUsedScript()) {
-        // A placeable with a dialog and no used script talks when clicked.
-        // One with a used script is used, and the script decides: in KotOR
-        // 129 of the 130 conversation placeables with an OnUsed script start
-        // the conversation from it, many choosing between dialogs, as the
-        // Taris sewer force field's k_ptar_startconv does between its
-        // computer and Mission's tar05_ff_dlg2.
-        partyLeader->clearOrdersUnlessBusy();
-        _game.setDialogUnderWay(true);
-        partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
-    } else {
-        partyLeader->clearOrdersUnlessBusy();
-        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-    }
+    partyLeader->clearOrdersUnlessBusy();
+    partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
 }
 
 static constexpr uint32_t kBodyBagDelayMilliseconds = 500;
@@ -1204,10 +1191,19 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else {
             dyn_cast<Door>(target)->receiveClick(subject(), event.integers.empty() ? std::nullopt : std::optional<int>(event.integers[0]));
         }
-    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && type == Signal::Entered) {
-        // A trigger hears its own entry again; its second integer is the
-        // number of the transition it carries.
-        trigger->receiveEntered(subject(), event.integers[1]);
+    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && (type == Signal::Entered || type == Signal::Exited)) {
+        // A trigger hears an entry or a departure of its first object. An
+        // entry's first integer lets a mine fire on anyone, and its second is
+        // the number of the transition it carries; an integer the event lacks
+        // is 0.
+        const auto integer = [&event](size_t index) {
+            return index < event.integers.size() ? event.integers[index] : 0;
+        };
+        if (type == Signal::Entered) {
+            trigger->receiveEntered(subject(), integer(1), integer(0) != 0);
+        } else {
+            trigger->receiveExited(subject());
+        }
     } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
         // A conversation event reaches creatures, placeables and doors only;
         // the caller is the one who spoke.

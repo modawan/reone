@@ -945,7 +945,7 @@ protected:
      */
     std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> keptSavedActionAnchors() const;
 
-    void executeActions(float dt);
+    bool executeActions(float dt);
     void executeActionsIfAble(float dt);
 
     // END Actions

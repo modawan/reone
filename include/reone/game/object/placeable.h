@@ -82,8 +82,6 @@ public:
     float canSeeHeight() const override { return _canSeeHeight; }
     /** Whether the placeable can be used: its Useable byte is not 0. */
     bool isUsable() const { return _usable != 0; }
-    /** Whether the placeable has an OnUsed script. */
-    bool hasOnUsedScript() const { return !_onUsed.empty(); }
     void setOnUsedScript(std::string script) { _onUsed = std::move(script); }
     /** Appearances marked hostile in placeables.2da read as hostile objects. */
     bool isHostileAppearance() const { return _hostileAppearance; }
@@ -165,7 +163,7 @@ public:
      * light colour in placeables.2da.
      */
     int lightState() const;
-    /** Turns the light on or off; one whose appearance has no light is left as it is. */
+    /** Turns the light on or off, and shows it so; one whose appearance has no light is left as it is. */
     void setLightState(int state);
     Faction faction() const { return _faction; }
     void setFaction(Faction faction) { _faction = faction; }
@@ -292,6 +290,7 @@ private:
     void updateHeartbeat();
     void acquireItemsFrom(Object &source);
     void updateBodyBagPresentation();
+    void showLight();
     void updateOpenStateAnimation();
     /**
      * Shows animation \p id as a loop. A corpse keeps its pose.
@@ -362,6 +361,8 @@ private:
     /** The animation whose loop the model shows; -1 while it shows none of its own. */
     int _shownAnimation {-1};
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
+    /** The placeable light its appearance carries, if any. */
+    std::shared_ptr<scene::SceneNode> _light;
 
     // Scripts
 

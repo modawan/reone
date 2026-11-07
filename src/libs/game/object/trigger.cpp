@@ -574,8 +574,16 @@ void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
 
 static constexpr int kEnteredEvent = static_cast<int>(SavedSignalEventType::Entered);
 
-void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition) {
+void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition, bool force) {
     _lastEnteredId = enterer ? enterer->id() : script::kObjectInvalid;
+    if (!isAreaTransition()) {
+        if (_isTrap) {
+            fireMine(force);
+        } else if (!_onEnter.empty()) {
+            _game.scriptRunner().run(_onEnter, _id);
+        }
+        return;
+    }
     auto area = spatialArea();
     if (!area) {
         return;
@@ -587,6 +595,13 @@ void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::option
                                    _game.queueScriptEvent(*this, *this,
                                                           Event(kEnteredEvent, {0, id}, {}, {}, {_game.getObjectById(traveller.id())}), delay);
                                });
+}
+
+void Trigger::receiveExited(const std::shared_ptr<Object> &exiter) {
+    _lastLeftId = exiter ? exiter->id() : script::kObjectInvalid;
+    if (!_onExit.empty()) {
+        _game.scriptRunner().run(_onExit, _id);
+    }
 }
 
 void Trigger::removeTenant(const Object *object, bool announce) {

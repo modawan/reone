@@ -222,6 +222,7 @@ void Door::loadAppearance() {
 
     auto modelSceneNode = sceneGraph.newModel(*model, ModelUsage::Door);
     modelSceneNode->setUser(*this);
+    modelSceneNode->setAnimationEventListener(*this);
     // Under Force Sight a door is drawn see-through.
     modelSceneNode->setForceSightStyle(scene::ModelSceneNode::ForceSightStyle::Translucent);
     // modelSceneNode->setDrawDistance(_game.options().graphics.drawDistance);
@@ -255,6 +256,8 @@ void Door::loadAppearance() {
 void Door::applyRestingState() {
     _transition = DoorTransition::None;
     _transitionSwing.clear();
+    _queuedTransition.reset();
+    _queuedSwingRow.reset();
     clearStateAnimation();
     _lastAnimation = stateAnimation(_state);
     _open = _state != DoorState::Closed;
@@ -421,7 +424,7 @@ void Door::shutAtOnce() {
         enterDestroyedState();
         return;
     }
-    if (_state == DoorState::Closed && _transition == DoorTransition::None) {
+    if (_state == DoorState::Closed && latestTransition() == DoorTransition::None) {
         return;
     }
     _state = DoorState::Closed;
@@ -467,20 +470,14 @@ void Door::swingOpen(DoorTransition opening) {
         return;
     }
 
-    // A door that is swinging aside is still in the doorway. K2 will not
-    // let the player through one until the opening animation has finished, so
-    // the closed walkmesh stays enabled for the whole transition and only comes
-    // off when the door has physically arrived at its opened pose.
+    // A door that is swinging aside is still in the doorway: the closed
+    // walkmesh stays enabled until the swing's "door" event, or its end.
     beginTransition(opening);
 }
 
 void Door::swingShut() {
-    if (isClosing()) {
-        return;
-    }
-    if (_state == DoorState::Closed && _transition == DoorTransition::None) {
-        // Already shut and blocking. Closing again must not replay the
-        // transition, which would briefly reopen the doorway to collision.
+    // Already shut, or swinging or waiting to: closing again replays nothing.
+    if (actionState() == DoorState::Closed) {
         return;
     }
 
@@ -488,22 +485,38 @@ void Door::swingShut() {
     // yet. Scripts routinely close a door behind somebody who is still walking
     // through it - K2 103PER closes TO102PER on the same beat that sends the
     // player through it, and DOR_PER03 takes 2.667 seconds to shut - so the
-    // doorway stays passable until the door reaches its closed pose.
+    // doorway stays passable until the swing's "door" event, or its end.
     beginTransition(DoorTransition::Closing);
 }
 
 // The swing comes from the loop shown and the last animation: a door opens
 // with a swing only from its closed loop, and swings shut with closing1 only
-// after opened1.
+// after opened1, so a door told to shut part way through a swing shuts with
+// closing2.
+//
+// A swing given while another swing or a one-shot plays waits for it to end,
+// in place of any swing waiting already; the door moves to where the latest
+// swing leads at the door event or end of the one playing.
 void Door::beginTransition(DoorTransition transition) {
-    // _state is left alone. It names where the door still physically stands,
-    // and everything that can obstruct or admit a creature is read off it, so
-    // the door keeps the collision of the state it is leaving until it arrives.
     const int target = stateAnimation(transitionTarget(transition));
     const auto swingRow = stateLoopSwingRow(shownLoopAnimation(), _lastAnimation, target, true);
+    if (_transition != DoorTransition::None || !_stateOneShot.empty()) {
+        _queuedTransition = transition;
+        _queuedSwingRow = swingRow;
+        _stateLoop.clear();
+        _stateLoopAnimation.reset();
+        return;
+    }
+    playSwing(transition, swingRow);
+}
+
+void Door::playSwing(DoorTransition transition, std::optional<int> swingRow) {
+    // _state is left alone. Everything that can obstruct or admit a creature
+    // is read off it, so the door keeps the collision of the state it is
+    // leaving until it moves to its target.
     _transition = transition;
     clearStateAnimation();
-    _lastAnimation = target;
+    _lastAnimation = swingRow ? *swingRow : stateAnimation(transitionTarget(transition));
     _transitionSwing = swingRow ? _services.game.animations.getNameById(static_cast<uint32_t>(*swingRow)) : std::string();
 
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
@@ -518,10 +531,19 @@ void Door::beginTransition(DoorTransition transition) {
     }
 }
 
-void Door::finishTransition() {
+void Door::playQueuedSwing() {
+    const DoorTransition queued = *_queuedTransition;
+    const auto swingRow = _queuedSwingRow;
+    _queuedTransition.reset();
+    _queuedSwingRow.reset();
+    playSwing(queued, swingRow);
+}
+
+void Door::moveToTransitionTarget() {
     const DoorState previous = _state;
-    _state = transitionTarget(_transition);
-    applyRestingState();
+    _state = actionState();
+    _open = _state != DoorState::Closed;
+    enableStateWalkmeshes();
     if (_state == previous) {
         return;
     }
@@ -531,6 +553,21 @@ void Door::finishTransition() {
             shutDoor = *this;
         }
         area->get().budgeCreatures(_position, collisionBounds(), shutDoor);
+    }
+}
+
+void Door::finishTransition() {
+    moveToTransitionTarget();
+    if (_queuedTransition) {
+        playQueuedSwing();
+        return;
+    }
+    applyRestingState();
+}
+
+void Door::onEventSignalled(const std::string &name) {
+    if (_transition != DoorTransition::None && boost::iequals(name, "door")) {
+        moveToTransitionTarget();
     }
 }
 
@@ -638,14 +675,19 @@ void Door::updateStateAnimation() {
         return;
     }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
-    if (!model || model->activeAnimationName() != _stateOneShot) {
-        _stateOneShot.clear();
-        return;
-    }
-    if (!model->isAnimationFinished()) {
+    const bool displaced = !model || model->activeAnimationName() != _stateOneShot;
+    if (!displaced && !model->isAnimationFinished()) {
         return;
     }
     _stateOneShot.clear();
+    // A swing waiting on the one-shot plays now.
+    if (_queuedTransition) {
+        playQueuedSwing();
+        return;
+    }
+    if (displaced) {
+        return;
+    }
     // The finished clip no longer counts as the door's last animation: the
     // loop it returns to does.
     _lastAnimation = shownLoopAnimation();
@@ -682,7 +724,8 @@ DoorState Door::transitionTarget(DoorTransition transition) {
 }
 
 DoorState Door::actionState() const {
-    return _transition == DoorTransition::None ? _state : transitionTarget(_transition);
+    const DoorTransition latest = latestTransition();
+    return latest == DoorTransition::None ? _state : transitionTarget(latest);
 }
 
 std::optional<std::array<glm::vec3, 2>> Door::actionPoints(DoorState state) const {

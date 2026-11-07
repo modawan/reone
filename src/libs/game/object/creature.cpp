@@ -3538,8 +3538,9 @@ void Creature::abortFireForgetAnimation(bool clearLayers) {
     }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (clearLayers && model) {
+        // The talk or listen loop leaves the head too.
+        stopOverlayLoop();
         model->removeLayers();
-        _overlayLoop.reset();
     }
     // The running one-shot, or the flinch pose, ends in the stored loop; with
     // neither the loop is already current. The class-0 ready pose, which
@@ -5118,7 +5119,9 @@ void Creature::showReadyAnimation() {
     playAnimation(AnimationType::LoopingReady, AnimationProperties(), AnimationSource {kReadyAnimationId});
 }
 
+// The pause or ready pose takes the talk or listen loop away.
 void Creature::refreshPauseAnimation() {
+    stopOverlayLoop();
     _injuredIdle = false;
     _damageFlinchHeld = false;
     _animDirty = true;
@@ -5736,13 +5739,15 @@ void Creature::setMovementType(MovementType type) {
     _movementType = type;
     _animDirty = true;
     // A walk or run ends the running one-shot, though a layer goes on over
-    // it; the queue waits until the creature stands again.
+    // it, and takes the talk or listen loop away; the queue waits until the
+    // creature stands again.
     _oneShot.reset();
     _animFireForget = false;
     _damageFlinchHeld = false;
     _castAnimation.reset();
     if (type != MovementType::None) {
         _injuredPause = _injuredIdle = false;
+        stopOverlayLoop();
     }
 }
 
@@ -10838,7 +10843,14 @@ void Creature::deserialize(
                 SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff, identityContext);
+    // An entry placed from a template gives only where the creature stands
+    // and which way it faces, each missing value being 0.
+    if (utc) {
+        _position = glm::vec3(gff.getFloat("XPosition"), gff.getFloat("YPosition"), gff.getFloat("ZPosition"));
+        setFacing(-glm::atan(gff.getFloat("XOrientation"), gff.getFloat("YOrientation")));
+    } else {
+        deserializeAll(gff, identityContext);
+    }
 
     // Vitality is rebuilt from the record before equipment is worn, so worn
     // Constitution, Wisdom and Charisma move the rebuilt pools.
@@ -10846,8 +10858,9 @@ void Creature::deserialize(
     if (utc) {
         deserializeOwnedItemsAndEquipment(
             *utc, SerializedIdentityContext::templateResource(templateRes), true);
+    } else {
+        deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     }
-    deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     countLoadedItems();
     // A reloaded corpse lies, without dying again, in the dead pose it was
     // saved in; one saved in no dead pose lies in the second.

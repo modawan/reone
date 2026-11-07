@@ -52,6 +52,7 @@
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/scene/node/light.h"
 #include "reone/scene/node/model.h"
 #include "reone/script/types.h"
 
@@ -80,6 +81,25 @@ static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Dama
 // breaks; in TSL only when that creature is within this reach.
 static constexpr float kBrokenOpenReach = 3.0f;
 static constexpr uint32_t kBrokenOpenDelayMilliseconds = 1000;
+// The light a placeable with a light colour carries, raised this far above
+// its model's root unless its row says otherwise.
+static constexpr char kLightModelResRef[] = "fx_placeable01";
+static constexpr float kDefaultLightOffsetZ = 3.0f;
+
+// Calls \p apply on every light node under \p root.
+static void forEachLight(scene::SceneNode &root, const std::function<void(scene::LightSceneNode &)> &apply) {
+    std::vector<scene::SceneNode *> pending {&root};
+    while (!pending.empty()) {
+        auto node = pending.back();
+        pending.pop_back();
+        if (node->type() == SceneNodeType::Light) {
+            apply(static_cast<scene::LightSceneNode &>(*node));
+        }
+        for (auto child : node->children()) {
+            pending.push_back(child);
+        }
+    }
+}
 
 void Placeable::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> utp(_services.resource.gffs.get(resRef, ResType::Utp));
@@ -237,7 +257,26 @@ void Placeable::loadAppearance() {
     auto sceneNode = sceneGraph.newModel(*model, ModelUsage::Placeable);
     sceneNode->setUser(*this);
     sceneNode->setDrawDistance(_game.options().graphics.drawDistance);
+    // An appearance with a light colour carries the placeable light, in the
+    // colour of its lightcolor.2da row. The games carry it uncoloured.
+    _light.reset();
+    if (auto colorRow = placeables->getIntOpt(_appearance, "lightcolor")) {
+        if (auto lightModel = _services.resource.models.get(kLightModelResRef)) {
+            auto light = sceneGraph.newModel(*lightModel, ModelUsage::Placeable);
+            light->setLocalTransform(glm::translate(glm::vec3(
+                placeables->getFloat(_appearance, "lightoffsetx", 0.0f),
+                placeables->getFloat(_appearance, "lightoffsety", 0.0f),
+                placeables->getFloat(_appearance, "lightoffsetz", kDefaultLightOffsetZ))));
+            if (auto colors = _services.resource.twoDas.get("lightcolor")) {
+                const glm::vec3 color(colors->getFloat(*colorRow, "red"), colors->getFloat(*colorRow, "green"), colors->getFloat(*colorRow, "blue"));
+                forEachLight(*light, [&color](scene::LightSceneNode &node) { node.setColor(color); });
+            }
+            sceneNode->attach(model->rootNode()->name(), *light);
+            _light = std::move(light);
+        }
+    }
     _sceneNode = std::move(sceneNode);
+    showLight();
 
     auto walkmesh = _services.resource.walkmeshes.get(modelName, ResType::Pwk);
     if (walkmesh) {
@@ -394,17 +433,7 @@ void Placeable::enterDestroyedState() {
     if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
         model->playAnimation(_services.game.animations.getNameById(kDestroyedAnimation));
         // A destroyed placeable's lights go out.
-        std::vector<scene::SceneNode *> pending {model.get()};
-        while (!pending.empty()) {
-            auto node = pending.back();
-            pending.pop_back();
-            if (node->type() == SceneNodeType::Light) {
-                node->setEnabled(false);
-            }
-            for (auto child : node->children()) {
-                pending.push_back(child);
-            }
-        }
+        forEachLight(*model, [](scene::LightSceneNode &node) { node.setEnabled(false); });
     }
 }
 
@@ -470,6 +499,16 @@ static bool hasLight(ITwoDAs &twoDas, int appearance) {
     return placeables && placeables->getIntOpt(appearance, "lightcolor").has_value();
 }
 
+// The placeable light shows while it is on and the placeable stands. The games
+// show it whatever its state.
+void Placeable::showLight() {
+    if (!_light) {
+        return;
+    }
+    const bool shown = _lightState != 0 && _animation != kDeadAnimationId;
+    forEachLight(*_light, [shown](scene::LightSceneNode &node) { node.setEnabled(shown); });
+}
+
 int Placeable::lightState() const {
     return hasLight(_services.resource.twoDas, _appearance) ? _lightState : 0;
 }
@@ -477,6 +516,7 @@ int Placeable::lightState() const {
 void Placeable::setLightState(int state) {
     if (_lightState != state && hasLight(_services.resource.twoDas, _appearance)) {
         _lightState = static_cast<uint8_t>(state);
+        showLight();
     }
 }
 

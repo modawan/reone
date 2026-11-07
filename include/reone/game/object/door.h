@@ -23,6 +23,7 @@
 #include <set>
 
 #include "reone/resource/format/gffreader.h"
+#include "reone/scene/animeventlistener.h"
 #include "reone/scene/node/walkmesh.h"
 
 #include "../object.h"
@@ -38,7 +39,7 @@ class Creature;
 class Trigger;
 struct AttackEventFields;
 
-class Door : public Object {
+class Door : public Object, public scene::IAnimationEventListener {
 public:
     /** How far above the door its locked sound plays. */
     static constexpr float kLockedSoundHeight = 1.5f;
@@ -99,20 +100,25 @@ public:
 
     /** Transition the door is playing, if any. */
     DoorTransition transition() const { return _transition; }
-    /** The state the door is in or, during a transition, is moving to. */
+    /** The state the door is in or, while it swings or waits to, the state its latest swing leads to. */
     DoorState actionState() const;
 
     /**
-     * True while the door is swinging open. It has not reached its opened pose
-     * yet, so the doorway is still blocking and isOpen is still false.
+     * True while the latest swing the door was given opens it, playing or
+     * waiting. Until the door moves, the doorway still blocks and isOpen is
+     * still false.
      */
-    bool isOpening() const { return _transition == DoorTransition::Opening1 || _transition == DoorTransition::Opening2; }
+    bool isOpening() const {
+        const DoorTransition latest = latestTransition();
+        return latest == DoorTransition::Opening1 || latest == DoorTransition::Opening2;
+    }
 
     /**
-     * True while the door is swinging shut. It has not reached its closed pose
-     * yet, so the doorway is still passable and isOpen is still true.
+     * True while the latest swing the door was given shuts it, playing or
+     * waiting. Until the door moves, the doorway is still passable and isOpen
+     * is still true.
      */
-    bool isClosing() const { return _transition == DoorTransition::Closing; }
+    bool isClosing() const { return latestTransition() == DoorTransition::Closing; }
 
     /** Destruction animation and pending deletion do not change the HP predicate. */
     bool isDead() const override { return !_plot && currentHitPoints() <= 0; }
@@ -277,6 +283,9 @@ public:
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
 
+    /** A swing's "door" event brings the door to where it is swinging. */
+    void onEventSignalled(const std::string &name) override;
+
 private:
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
@@ -343,10 +352,16 @@ private:
     /**
      * The transition in flight. It names an animation to wait on and nothing
      * else: collision, pose and the open flag are read off _state alone, and
-     * _state only moves when a transition arrives. A reversal overwrites this,
-     * which is what stops the superseded transition from ever completing.
+     * _state only moves at the swing's door event or its end.
      */
     DoorTransition _transition {DoorTransition::None};
+    /**
+     * A swing given while another swing or a one-shot plays, and the
+     * animations.2da row it plays: it waits for that to end. A later one
+     * replaces it.
+     */
+    std::optional<DoorTransition> _queuedTransition;
+    std::optional<int> _queuedSwingRow;
     /** The loop a script set on the door, and its animation; none while the door shows its resting pose. */
     std::string _stateLoop;
     std::optional<int> _stateLoopAnimation;
@@ -393,10 +408,17 @@ private:
      */
     std::shared_ptr<Door> linkedDoor();
     void beginTransition(DoorTransition transition);
+    /** Plays the swing of animations.2da row \p swingRow, if any, for \p transition. */
+    void playSwing(DoorTransition transition, std::optional<int> swingRow);
+    void playQueuedSwing();
+    /** The waiting swing, if any, or else the one playing. */
+    DoorTransition latestTransition() const { return _queuedTransition.value_or(_transition); }
     /**
-     * The door arrives where its transition leads. A door that has come to
-     * rest open or shut moves the creatures it no longer leaves room for.
+     * The door stands where its latest swing leads, though a swing may still
+     * play, and moves the creatures it no longer leaves room for.
      */
+    void moveToTransitionTarget();
+    /** The swing ends: the door moves, then plays the waiting swing or comes to rest. */
     void finishTransition();
     bool isTransitionComplete() const;
     static DoorState transitionTarget(DoorTransition transition);

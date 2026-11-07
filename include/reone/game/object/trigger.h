@@ -131,11 +131,15 @@ public:
      */
     void receiveClick(const std::shared_ptr<Object> &clicker);
     /**
-     * A creature entering an area transition, or the transition's own entry
-     * signalled again with its number \p transition: it becomes the entering
-     * object, and the party passes as Area::passTransition() says.
+     * An object entering the trigger: it becomes the entering object. At an
+     * area transition, which also hears its own entry signalled again with
+     * its number \p transition, the party passes as Area::passTransition()
+     * says; a mine fires on the one entering, on any of them when \p force;
+     * any other trigger runs its enter script.
      */
-    void receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition = std::nullopt);
+    void receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition = std::nullopt, bool force = false);
+    /** An object leaving the trigger: it becomes the leaving object, and the exit script runs. */
+    void receiveExited(const std::shared_ptr<Object> &exiter);
     const std::string &getOnExit() const { return _onExit; }
     /** The object that last came into the trigger, kept until the next one does. */
     uint32_t lastEnteredId() const { return _lastEnteredId; }
