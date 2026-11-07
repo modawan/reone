@@ -206,7 +206,7 @@ ModelNodeSceneNode *ModelSceneNode::getNodeByName(const std::string &name) {
     return it != _nodeByName.end() ? it->second : nullptr;
 }
 
-std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const {
+std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, const glm::vec3 &to, bool opaqueOnly) const {
     std::optional<float> nearest;
     for (const auto &[number, node] : _nodeByNumber) {
         if (node->type() != SceneNodeType::Mesh) {
@@ -214,6 +214,9 @@ std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, con
         }
         auto mesh = node->modelNode().mesh();
         if (!mesh || !mesh->mesh || mesh->skin || mesh->saber) {
+            continue;
+        }
+        if (opaqueOnly && (!mesh->render || node->modelNode().isAABBMesh() || static_cast<const MeshSceneNode *>(node)->isTransparent())) {
             continue;
         }
         const glm::vec3 localFrom {node->absoluteTransformInverse() * glm::vec4(from, 1.0f)};
