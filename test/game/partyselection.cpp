@@ -11,31 +11,11 @@
 
 #include "reone/game/gui/partyselect.h"
 
+#include "../fixtures/partyselection.h"
+
 using namespace reone;
 using namespace reone::game;
 
-namespace reone::game {
-
-class PartySelectionTestAccess {
-public:
-    static glm::vec3 frameColor(
-        const glm::vec3 &baseColor,
-        const glm::vec3 &inPartyColor,
-        bool inParty,
-        bool chosen) {
-        return PartySelection::tslFrameColor(baseColor, inPartyColor, inParty, chosen);
-    }
-
-    static std::pair<bool, bool> sharedSlot(bool firstAvailable, bool secondAvailable) {
-        return PartySelection::sharedSlotVisibility(firstAvailable, secondAvailable);
-    }
-
-    static std::string count(int count, bool tsl, const std::string &label) {
-        return PartySelection::availableCountText(count, tsl, label);
-    }
-};
-
-} // namespace reone::game
 
 namespace {
 

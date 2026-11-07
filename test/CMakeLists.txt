@@ -32,6 +32,7 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/gui.h
     ${TESTS_SOURCE_DIR}/fixtures/itempresentation.h
     ${TESTS_SOURCE_DIR}/fixtures/movie.h
+    ${TESTS_SOURCE_DIR}/fixtures/partyselection.h
     ${TESTS_SOURCE_DIR}/fixtures/resource.h
     ${TESTS_SOURCE_DIR}/fixtures/scene.h
     ${TESTS_SOURCE_DIR}/fixtures/script.h
@@ -80,6 +81,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
     ${TESTS_SOURCE_DIR}/game/soundobject.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp
+    ${TESTS_SOURCE_DIR}/game/partyselectionstate.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
     ${TESTS_SOURCE_DIR}/game/inventoryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/worldtime.cpp
