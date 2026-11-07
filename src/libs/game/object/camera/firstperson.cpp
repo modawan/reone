@@ -64,6 +64,12 @@ bool FirstPersonCamera::handle(const input::Event &event) {
         return handleAttached(event);
     }
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton);
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion);
     case input::EventType::MouseMotion:
         return handleMouseMotion(event.motion);
     case input::EventType::KeyDown:
@@ -99,6 +105,18 @@ void FirstPersonCamera::updateSceneNode() {
     transform *= glm::mat4_cast(orientation);
 
     _sceneNode->setLocalTransform(transform);
+}
+
+bool FirstPersonCamera::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool FirstPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool FirstPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
 }
 
 bool FirstPersonCamera::handleKeyDown(const input::KeyEvent &event) {

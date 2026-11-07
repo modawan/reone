@@ -40,7 +40,7 @@ struct GameOptions {
     std::array<KeybindOptions, 1> keybinds;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 
-    KeybindOptions &activeKeybinds() {
+    KeybindOptions& activeKeybinds() {
         return keybinds.at(activeKeybindsIndex);
     }
 };

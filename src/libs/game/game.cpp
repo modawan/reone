@@ -928,6 +928,21 @@ bool Game::handle(const input::Event &event) {
     }
 
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        if (handleGamepadButtonDown(event.gamepadButton)) {
+            return true;
+        }
+        break;
+    case input::EventType::GamepadButtonUp:
+        if (handleGamepadButtonUp(event.gamepadButton)) {
+            return true;
+        }
+        break;
+    case input::EventType::GamepadAxisMotion:
+        if (handleGamepadAxisMotion(event.gamepadAxisMotion)) {
+            return true;
+        }
+        break;
     case input::EventType::KeyDown:
         if (handleKeyDown(event.key)) {
             return true;
@@ -1269,6 +1284,18 @@ void Game::render() {
         renderScene();
         renderGUI();
     }
+}
+
+bool Game::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Game::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Game::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
 }
 
 bool Game::handleKeyDown(const input::KeyEvent &event) {

@@ -125,7 +125,7 @@ public:
         return result;
     }
 
-    bool exists(const std::string &section) const {
+    bool exists(const std::string& section) const {
         for (const auto &line : _lines) {
             if (auto header = sectionHeader(line)) {
                 if (header == section)
@@ -174,6 +174,7 @@ public:
 
         return value;
     }
+
 
     /**
      * Replace these keys of a section. The section's keys are written together
@@ -309,7 +310,6 @@ void MenuPresentation::save(const std::filesystem::path &path) const {
                                  });
     configuration.write(path);
 }
-
 KeybindOptions KeybindOptions::load(const std::filesystem::path &path, const int index) {
     const auto configuration = ConfigurationFile::read(path);
     const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
@@ -333,6 +333,7 @@ void KeybindOptions::save(const std::filesystem::path &path, const int index) co
     configuration.set(kKeybindsSection, values);
     configuration.write(path);
 }
+
 
 FeedbackOptions FeedbackOptions::load(const std::filesystem::path &path) {
     const auto configuration = ConfigurationFile::read(path);
