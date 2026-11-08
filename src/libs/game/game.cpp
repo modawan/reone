@@ -5085,21 +5085,14 @@ void Game::loadNextModule() {
         return;
     }
     if (minigameType == MinigameType::Turret) {
-        openTurret();
-        if (_turret.isActive()) {
-            _turretLifecycle = MinigameLifecycle();
-            _turretLifecycle.active = true;
-            _turretLifecycle.haveOrigin = haveOrigin;
-            _turretLifecycle.originModule = originModule;
-            _turretLifecycle.originPosition = originPosition;
-            _turretLifecycle.originFacing = originFacing;
-            _pendingTurret = PendingTurretRequest();
-            debug(str(boost::format("turret: lifecycle start origin=%s target=%s hook=%s")
-                      % originModule % target
-                      % (pendingTurret ? "startturretgame" : "StartNewModule")));
-        } else if (pendingTurret) {
-            abandonPendingTurret("turret failed to start");
-        }
+        // The turret comes up as part of the arrival, once the module's load
+        // script has run (see startScheduledTurret).
+        _pendingTurret.active = true;
+        _pendingTurret.targetModule = target;
+        _pendingTurret.originModule = originModule;
+        _pendingTurret.originPosition = originPosition;
+        _pendingTurret.originFacing = originFacing;
+        _pendingTurret.haveOrigin = haveOrigin;
         return;
     }
     if (minigameType != MinigameType::SwoopRace) {
@@ -7354,9 +7347,21 @@ void Game::updateHostileHilites(float dt) {
 
 // END Target presentation
 
+// A minigame outlives the menus and conversations that come up over it, so
+// closing one returns to the minigame rather than to the world behind it.
+Game::Screen Game::gameplayScreen() const {
+    if (_turret.isActive()) {
+        return Screen::Turret;
+    }
+    if (_swoopRace.isActive()) {
+        return Screen::SwoopRace;
+    }
+    return Screen::InGame;
+}
+
 void Game::openInGame() {
     _runtimeSessionPlayable = static_cast<bool>(_module);
-    changeScreen(Screen::InGame);
+    changeScreen(gameplayScreen());
 }
 
 namespace {
@@ -7863,10 +7868,9 @@ void Game::openTurret() {
     changeScreen(Screen::Turret);
 
     // Every started session is a lifecycle session. A session started in
-    // place - the startturret developer command, or any entry that did not
-    // come from a module transition - captures no origin, and leaving it
-    // leaves the player where they are. A transition-driven entry overwrites
-    // this in onModuleLoaded with the origin it captured.
+    // place - the startturret developer command - captures no origin, and
+    // leaving it leaves the player where they are. A session started on
+    // arrival overwrites this with the origin the transition captured.
     _turretLifecycle = MinigameLifecycle();
     _turretLifecycle.active = true;
 
@@ -7908,6 +7912,25 @@ void Game::openTurret() {
               % aim.tunnelNegative().x % aim.tunnelNegative().y % aim.tunnelNegative().z
               % aim.tunnelPositive().x % aim.tunnelPositive().y % aim.tunnelPositive().z
               % aim.tunnelInfinite().x % aim.tunnelInfinite().y % aim.tunnelInfinite().z));
+}
+
+void Game::startScheduledTurret() {
+    if (!_pendingTurret.active) {
+        return;
+    }
+    PendingTurretRequest request = _pendingTurret;
+    openTurret();
+    if (!_turret.isActive()) {
+        abandonPendingTurret("turret failed to start");
+        return;
+    }
+    _pendingTurret = PendingTurretRequest();
+    _turretLifecycle.haveOrigin = request.haveOrigin;
+    _turretLifecycle.originModule = request.originModule;
+    _turretLifecycle.originPosition = request.originPosition;
+    _turretLifecycle.originFacing = request.originFacing;
+    debug(str(boost::format("turret: lifecycle start origin=%s target=%s")
+              % request.originModule % request.targetModule));
 }
 
 void Game::closeTurret() {

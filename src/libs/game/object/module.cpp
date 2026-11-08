@@ -454,6 +454,7 @@ void Module::receiveLoadedSignal(bool loadFromSaveGame) {
     if (_game.isModuleTransitionScheduled()) {
         return;
     }
+    _game.startScheduledTurret();
     if (auto player = _game.party().player()) {
         receiveClientEntered(*player);
     }

@@ -513,6 +513,12 @@ public:
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
+    /**
+     * The screen that presents play: the minigame while one runs, otherwise
+     * the world.
+     */
+    Screen gameplayScreen() const;
+    /** Returns to play, which is the minigame while one runs. */
     void openInGame();
     /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
     void renderScreenFill(const glm::vec3 &color, float alpha);
@@ -536,6 +542,14 @@ public:
     void closeTurret();
 
     Turret &turret() { return _turret; }
+
+    /**
+     * Starts the turret of the module just arrived in. A turret comes up as
+     * part of the arrival, after the module's load script and before anyone
+     * enters: its actors' creation scripts build on what the load script set
+     * up, and the area's enter script runs with the turret already there.
+     */
+    void startScheduledTurret();
 
     // Exit the active turret: returns to the lifecycle origin if a lifecycle
     // session is in progress, otherwise just stops the dev session in place.
