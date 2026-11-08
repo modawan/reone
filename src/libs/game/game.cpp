@@ -5237,6 +5237,12 @@ void Game::updateCamera(float dt) {
             }
         }
         break;
+    // A minigame looks through the first-person camera it drives, including
+    // after a conversation over it has taken a camera of its own.
+    case Screen::Turret:
+    case Screen::SwoopRace:
+        _cameraType = CameraType::FirstPerson;
+        break;
     default:
         break;
     }
