@@ -7998,7 +7998,19 @@ void Game::applyTurretResult(const std::string &turretModule, Turret::Outcome ou
         "turret: result module=m12ab outcome=won ebo_turret_done=1 ebo_num_fighters=0");
 }
 
+/**
+ * The script the in-game menu runs as it opens. It decides what the map's
+ * return button offers: whether it is shown, its label and its question.
+ */
+static constexpr char kInGameMenuOpenScript[] = "k_sup_guiopen";
+
 void Game::openInGameMenu(InGameMenuTab tab) {
+    // The menu runs its opening script with no caller when it opens over the
+    // game, not when it moves between pages, and before any page reads what
+    // the script sets.
+    if (_screen != Screen::InGameMenu) {
+        _scriptRunner->run(kInGameMenuOpenScript);
+    }
     setCursorType(CursorType::Default);
     // The menus end the choice of a party member to use an item on.
     cancelPartyItemTarget();
