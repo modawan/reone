@@ -208,11 +208,6 @@ bool AreaMapState::isExplored(const glm::vec2 &world) const {
 }
 
 bool AreaMapState::isCellExplored(int gridX, int gridY) const {
-    if (!isLoaded() ||
-        gridX < 0 || gridX > _gridWidth ||
-        gridY < 0 || gridY > _gridHeight) {
-        return false;
-    }
     return _explored[cellIndex(gridX, gridY)];
 }
 

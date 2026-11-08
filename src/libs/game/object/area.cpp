@@ -360,12 +360,8 @@ void Area::updateMapData() {
     // The whole party reveals the map it walks through, not just its leader.
     auto &party = _game.party();
     for (int index = 0; index < party.getSize(); ++index) {
-        auto member = party.getMember(index);
-        if (!member) {
-            continue;
-        }
         _mapState.setExplored(
-            glm::vec2(member->position()), AreaMapState::kPartyRevealRadius);
+            glm::vec2(party.getMember(index)->position()), AreaMapState::kPartyRevealRadius);
     }
 }
 

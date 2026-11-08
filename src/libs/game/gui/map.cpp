@@ -91,15 +91,7 @@ void Map::loadTextures(const std::string &area) {
 }
 
 const AreaMapState *Map::mapState() const {
-    auto module = _game.module();
-    if (!module) {
-        return nullptr;
-    }
-    auto area = module->area();
-    if (!area) {
-        return nullptr;
-    }
-    const AreaMapState &state = area->mapState();
+    const AreaMapState &state = _game.module()->area()->mapState();
     return state.isLoaded() ? &state : nullptr;
 }
 
@@ -137,11 +129,8 @@ glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
     const float width = height * state->canvasWidth() / state->canvasHeight();
 
     glm::vec2 mapPos(0.0f);
-    auto leader = _game.party().getLeader();
-    if (leader) {
-        if (auto position = state->toMapPosition(glm::vec2(leader->position()))) {
-            mapPos = *position;
-        }
+    if (auto position = state->toMapPosition(glm::vec2(_game.party().getLeader()->position()))) {
+        mapPos = *position;
     }
     return glm::vec4(
         bounds[0] + 0.5f * bounds[2] - mapPos.x * width,
@@ -173,9 +162,6 @@ void Map::renderArea(const glm::vec4 &rect) {
 
 void Map::renderFog(const glm::vec4 &bounds, const glm::vec4 &rect) {
     auto state = mapState();
-    if (!state) {
-        return;
-    }
     const float cellWidth = rect[2] / state->gridWidth();
     const float cellHeight = rect[3] / state->gridHeight();
     const float blotWidth = cellWidth * kFogBlotCells;
@@ -222,11 +208,10 @@ bool Map::isNoteVisible(const Waypoint &waypoint) const {
 std::vector<Map::NoteMarker> Map::noteMarkers(const glm::vec4 &bounds, float scale) const {
     std::vector<NoteMarker> result;
     auto state = mapState();
-    auto module = _game.module();
-    if (!state || !module || !module->area()) {
+    if (!state) {
         return result;
     }
-    for (auto &object : module->area()->getObjectsByType(ObjectType::Waypoint)) {
+    for (auto &object : _game.module()->area()->getObjectsByType(ObjectType::Waypoint)) {
         auto waypoint = std::static_pointer_cast<Waypoint>(object);
         if (!isNoteVisible(*waypoint)) {
             continue;
@@ -270,19 +255,12 @@ void Map::renderNotes(Mode mode, const glm::vec4 &rect, float scale) {
 
 void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsingAlpha) {
     auto state = mapState();
-    if (!state) {
-        return;
-    }
     auto &party = _game.party();
 
     // The map screen marks where the companions stand; the minimap shows the
     // leader alone. Both carry the leader's arrow.
     for (int index = 1; mode == Mode::Default && index < party.getSize(); ++index) {
-        auto member = party.getMember(index);
-        if (!member) {
-            continue;
-        }
-        auto mapPos = state->toMapPosition(glm::vec2(member->position()));
+        auto mapPos = state->toMapPosition(glm::vec2(party.getMember(index)->position()));
         if (!mapPos) {
             continue;
         }
@@ -299,9 +277,6 @@ void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsi
     }
 
     auto leader = party.getLeader();
-    if (!leader) {
-        return;
-    }
     auto mapPos = state->toMapPosition(glm::vec2(leader->position()));
     if (!mapPos) {
         return;
