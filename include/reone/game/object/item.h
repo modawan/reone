@@ -135,11 +135,8 @@ public:
         static constexpr uint8_t kNoUpgrade = 0xff;
         /** The saved uses per day of a property that records none. */
         static constexpr int kUnrecordedUsesPerDay = 255;
-        /**
-         * TSL: the saved PropUpgrade of a property no upgrade added. A property
-         * an upgrade added is saved with its slot plus one.
-         */
-        static constexpr int kSavedNoPropUpgrade = 0xff;
+        /** TSL: the upgrade mark of a property no upgrade added. */
+        static constexpr uint16_t kNoUpgradeMark = 0xff;
 
         uint8_t chanceAppear {0};
         uint8_t costTable {0};
@@ -149,8 +146,11 @@ public:
         uint16_t propertyName {0};
         uint16_t subtype {0};
         uint8_t upgradeType {kNoUpgrade};
-        /** TSL: the upgrade slot whose upgrade added the property; none for a property of the item's own. */
-        std::optional<int> upgradeSlot;
+        /**
+         * TSL: the slot plus one of the upgrade that added the property. Any
+         * other value names no slot, and is kept and saved as it was read.
+         */
+        uint16_t upgradeMark {kNoUpgradeMark};
         /** The uses left today of a property used so many times a day; none when not recorded. */
         std::optional<int> usesPerDay;
         bool usable {true};
@@ -161,7 +161,12 @@ public:
         uint32_t usedDay {0};
         uint32_t usedTime {0};
 
+        /** TSL: the upgrade mark of a property the upgrade in \p slot adds. */
+        static uint16_t markOfSlot(int slot) { return static_cast<uint16_t>(slot + 1); }
+
         ItemProperty type() const { return static_cast<ItemProperty>(propertyName); }
+        /** TSL: whether the upgrade in \p slot added the property. */
+        bool addedBySlot(int slot) const { return upgradeMark == markOfSlot(slot); }
     };
 
     Item(
@@ -425,11 +430,8 @@ public:
      * to the item, marked as the slot's.
      */
     void addUpgrade(const Item &upgrade, int slot);
-    /**
-     * TSL: takes off the properties a slot's upgrade added, counted against
-     * the upgrade taken out.
-     */
-    void removeUpgrade(const Item &upgrade, int slot);
+    /** TSL: takes off the properties the upgrade in \p slot added, and no others. */
+    void removeUpgrade(int slot);
     /** Whether the item is marked stolen. */
     bool stolen() const { return _stolen; }
     /** Marks the item stolen or not. */

@@ -231,14 +231,17 @@ protected:
     virtual void close(bool escape) = 0;
 
 private:
-    /** The last input to reach the current list's selected row, which decides what Accept does. */
-    enum class RowInput {
-        /** The selection moved to the row: Accept acts on it. */
-        Selected,
-        /** A double click, Return or keypad Enter chose the row: Accept acts on it, a create entry with its click. */
-        Chosen,
-        /** Return or keypad Enter was let go on the row: Accept does nothing. */
-        Released
+    /**
+     * What Accept does with the current list's selected row. After Return or
+     * keypad Enter is released on a row, Accept does nothing until the
+     * selection moves. After a choice by keyboard or double click, Accept
+     * repeats it, a create entry with its click. Otherwise Accept acts
+     * silently.
+     */
+    enum class AcceptAction {
+        ActSilently,
+        ChooseAgain,
+        None
     };
 
     /** The count the stations make items from and break them into. */
@@ -261,17 +264,16 @@ private:
     std::vector<RuntimeObjectRef<Item>> _breakable;
     /** The list row described; none while the list is empty. */
     std::optional<int> _describedRow;
-    /** The create list still shows a previous group's entries, which stand for nothing. */
-    /** The current list's row the last input reached; none while no row is selected. */
-    int _inputRow {-1};
-    /** The last input to reach that row. */
-    RowInput _rowInput {RowInput::Selected};
+    /** The current list's row Accept's action is set for; none while no row is selected. */
+    int _acceptRow {-1};
+    /** What Accept does with that row. */
+    AcceptAction _acceptAction {AcceptAction::ActSilently};
 
     /** The list of the current view. */
     gui::ListBox &currentList() const;
     /** Makes or breaks down the entry at \p row of \p list, with the create list's click. */
     void choose(const gui::ListBox &list, int row);
-    /** Accept acts on the selected row unless Return or keypad Enter was let go on it since the selection moved there. */
+    /** Accept does with the selected row what _acceptAction says. */
     void accept();
     /** Shows a view: its strings, controls and freshly built list, which holds the keyboard. */
     void showView(View view);
@@ -313,7 +315,7 @@ private:
     void describeBreakable(const Item &item);
     /** An item's description, its tokens resolved where the station resolves them. */
     std::string itemText(const Item &item) const;
-    /** How many of the item the party holds. */
+    /** How many of the item the party holds; -1 for an infinite carried match. */
     int stockOf(const Item &item) const;
     /** What breaking the item down adds to the count: at least one. */
     int breakdownGain(const Item &item) const;
@@ -483,13 +485,23 @@ public:
     void update(float dt) override;
 
     /**
-     * Lists the items, the row holding selected chosen, and gives the list the
-     * keyboard; picking one calls onPick, and Back or Escape onBack.
+     * Lists the items and gives the list the keyboard; picking one calls
+     * onPick, and Back or Escape onBack. The first row holding selected,
+     * which the items include, is chosen; without selected, the first row.
      */
     void open(std::vector<UpgradableItem> items,
               const std::shared_ptr<Item> &selected,
               std::function<void(const UpgradableItem &)> onPick,
               std::function<void()> onBack);
+    /**
+     * Back from upgrading the item last picked: the list stays while that
+     * row holds the item as it ends, and the first row holding it is chosen.
+     * An item its wearer no longer wears is held by the row afresh, carried.
+     *
+     * @param held the upgraded item, or the stack it joined
+     * @return false when the row holds another item, and the list is to be rebuilt
+     */
+    bool keepAfterUpgrade(const std::shared_ptr<Item> &held);
 
 protected:
     /** Clicking the lists is silent. */
@@ -514,9 +526,17 @@ private:
     std::function<void()> _onBack;
     /** The list row described; none while the list is empty. */
     std::optional<int> _describedRow;
+    /** The list row last picked. */
+    int _pickedRow {0};
 
     /** Binds the controls and wires the list and the buttons, which never take the keyboard. */
     void onGUILoaded() override;
+    /** Adds a list row for each item. */
+    void addRows();
+    /** The first list row holding the item; -1 when the list doesn't hold it. */
+    int rowOf(const std::shared_ptr<Item> &item) const;
+    /** Chooses and describes a list row; -1 chooses none and describes nothing. */
+    void select(int row);
     /** Picks the item of a list row. */
     void pick(int row);
     /** Describes the item of a list row. */
@@ -950,7 +970,11 @@ private:
     void openItems(UpgradableType kind, const std::shared_ptr<Item> &selected);
     /** Takes the item out of its place and opens the upgrade panel for it. */
     void beginUpgrade(const UpgradableItem &entry, bool direct);
-    /** The upgrade panel closed with the item as it ends. */
+    /**
+     * The upgrade panel closed with the item as it ends. KotOR's list of items
+     * stays while the row picked still holds the item, and is rebuilt when
+     * the item became another: Back's, another colour's, or a stack it joined.
+     */
     void finishUpgrade(std::shared_ptr<Item> item);
     /**
      * Returns the item to where it was, worn again when its wearer can wear

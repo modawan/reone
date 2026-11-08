@@ -100,34 +100,18 @@ void Item::addUpgrade(const Item &upgrade, int slot) {
             continue;
         }
         auto added = property;
-        added.upgradeSlot = slot;
+        added.upgradeMark = PropertyEntry::markOfSlot(slot);
         _properties.push_back(added);
     }
 }
 
-// The count is the upgrade's: an upgrade with no passive properties takes
-// none off; otherwise the properties the slot's upgrade added go, and of the
-// item's other passive properties only the first n - m stay, n being the
-// passive properties the item held and m the upgrade's.
-void Item::removeUpgrade(const Item &upgrade, int slot) {
-    const auto passive = [](const PropertyEntry &property) { return !isUseProperty(property.propertyName); };
-    const auto taken = std::count_if(upgrade._properties.begin(), upgrade._properties.end(), passive);
-    if (taken == 0) {
-        return;
-    }
-    const auto held = std::count_if(_properties.begin(), _properties.end(), passive);
-    _properties.erase(std::remove_if(_properties.begin(), _properties.end(), [&](const PropertyEntry &property) {
-                          return passive(property) && property.upgradeSlot == slot;
+// Only what the slot's upgrade added goes, however many properties the
+// upgrade taken out carries: the item's own properties all stay.
+void Item::removeUpgrade(int slot) {
+    _properties.erase(std::remove_if(_properties.begin(), _properties.end(), [slot](const PropertyEntry &property) {
+                          return !isUseProperty(property.propertyName) && property.addedBySlot(slot);
                       }),
                       _properties.end());
-    auto excess = std::count_if(_properties.begin(), _properties.end(), passive) - (held - taken);
-    for (auto it = _properties.end(); excess > 0 && it != _properties.begin();) {
-        --it;
-        if (passive(*it)) {
-            it = _properties.erase(it);
-            --excess;
-        }
-    }
 }
 
 void Item::setUpgradeInstalled(int row, bool installed) {
@@ -304,13 +288,7 @@ void Item::deserializeProperties(const resource::Gff &gff) {
             entry.usesPerDay = usesPerDay;
         }
         if (_game.isTSL()) {
-            // A property an upgrade added is marked with its slot plus one;
-            // any other mark names no slot.
-            uint16_t propUpgrade = PropertyEntry::kSavedNoPropUpgrade;
-            prop->readWord(propUpgrade, "PropUpgrade");
-            if (propUpgrade >= 1 && propUpgrade <= kUpgradeSlotCount) {
-                entry.upgradeSlot = propUpgrade - 1;
-            }
+            prop->readWord(entry.upgradeMark, "PropUpgrade");
         }
         prop->readBool(entry.usable, "Useable");
         prop->readDword(entry.usedDay, "UsedDay");

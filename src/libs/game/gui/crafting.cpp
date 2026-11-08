@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <stdexcept>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -83,6 +84,9 @@ static constexpr int kChemicalCostStrRef = 48434;
 static constexpr int kCreateButtonStrRef = 48379;
 static constexpr int kBreakdownViewButtonStrRef = 48373;
 static constexpr int kBreakdownTitleStrRef = 115425;
+static constexpr int kInfiniteStrRef = 41951;
+// What stockOf answers for a carried match that never runs out.
+static constexpr int kInfiniteStock = -1;
 static constexpr int kComponentYieldStrRef = 115427;
 static constexpr int kChemicalYieldStrRef = 115432;
 static constexpr int kBreakdownButtonStrRef = 115426;
@@ -181,12 +185,17 @@ void CraftingPanel::onGUILoaded() {
     }
 }
 
+// Whether the key chooses: Return or keypad Enter.
+static bool isChooseKey(input::KeyCode code) {
+    return code == input::KeyCode::Return || code == input::KeyCode::KeypadEnter;
+}
+
 // The keys of a panel whose list holds the keyboard: Return or keypad Enter
 // chooses the selected row, and Up and Down move the selection, also while
 // held, sounding as it moves; Up with no row selected selects the first
 // silently. Whether the key was one of them.
 static bool handleListKey(ServicesView &services, const input::KeyEvent &key, ListBox &list, const std::function<void(int)> &choose) {
-    if (!key.repeat && (key.code == input::KeyCode::Return || key.code == input::KeyCode::KeypadEnter)) {
+    if (!key.repeat && isChooseKey(key.code)) {
         const int row = list.selectedItemIndex();
         if (row >= 0) {
             choose(row);
@@ -221,12 +230,11 @@ static std::optional<Control::MoveDirection> moveDirectionOf(input::KeyCode code
 }
 
 bool CraftingPanel::handle(const input::Event &event) {
-    // Return or keypad Enter let go on the selected row leaves Accept idle on
-    // it.
-    if (event.type == input::EventType::KeyUp &&
-        (event.key.code == input::KeyCode::Return || event.key.code == input::KeyCode::KeypadEnter)) {
-        _inputRow = currentList().selectedItemIndex();
-        _rowInput = RowInput::Released;
+    // Return or keypad Enter released on the selected row leaves Accept idle
+    // on it.
+    if (event.type == input::EventType::KeyUp && isChooseKey(event.key.code)) {
+        _acceptRow = currentList().selectedItemIndex();
+        _acceptAction = AcceptAction::None;
     }
     if (event.type != input::EventType::KeyDown) {
         return GameGUI::handle(event);
@@ -244,28 +252,30 @@ bool CraftingPanel::handle(const input::Event &event) {
 
 // Choosing a row of the create list clicks; the breakdown list is silent.
 void CraftingPanel::choose(const ListBox &list, int row) {
-    _inputRow = row;
-    _rowInput = RowInput::Chosen;
+    _acceptRow = row;
+    _acceptAction = AcceptAction::ChooseAgain;
     if (&list == _controls.LB_SHOPITEMS.get()) {
         _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
     }
     act(row);
 }
 
-// Accept acts on the selected row as the last input to reach it left it:
-// chosen again when that input chose it, acted on silently when the
-// selection moved to it, and not at all when Return or keypad Enter was let
-// go on it. Nothing is chosen while the list is empty.
+// Nothing is chosen while the list is empty.
 void CraftingPanel::accept() {
     auto &list = currentList();
     const int row = list.selectedItemIndex();
-    if (row < 0 || _rowInput == RowInput::Released) {
+    if (row < 0) {
         return;
     }
-    if (_rowInput == RowInput::Chosen) {
+    switch (_acceptAction) {
+    case AcceptAction::ChooseAgain:
         choose(list, row);
-    } else {
+        break;
+    case AcceptAction::ActSilently:
         act(row);
+        break;
+    case AcceptAction::None:
+        break;
     }
 }
 
@@ -284,10 +294,10 @@ void CraftingPanel::onClick(const std::string &control) {
 void CraftingPanel::update(float dt) {
     GameGUI::update(dt);
     const int row = currentList().selectedItemIndex();
-    // The selection moving to another row is the last input that row has had.
-    if (row != _inputRow) {
-        _inputRow = row;
-        _rowInput = RowInput::Selected;
+    // Accept acts silently on a row the selection moves to.
+    if (row != _acceptRow) {
+        _acceptRow = row;
+        _acceptAction = AcceptAction::ActSilently;
     }
     // The selected row is described.
     if (row >= 0 && _describedRow != row) {
@@ -467,8 +477,8 @@ void CraftingPanel::addCreatable(const std::shared_ptr<Item> &item, int row) {
     if (item->plotFlag()) {
         return;
     }
-    const int madeStack = item->stackSize();
     item->setIdentified(true);
+    const int madeStack = item->stackSize();
     // The latest stocked item with the item's tag takes one more when identical.
     for (auto it = _stock.rbegin(); it != _stock.rend(); ++it) {
         auto &held = *it->item;
@@ -516,19 +526,19 @@ void CraftingPanel::fillBreakdownList(int keepRow) {
 void CraftingPanel::showList(int row) {
     auto &list = currentList();
     const int count = list.getItemCount();
-    // Choosing a row, even the one already selected, moves the selection to it
-    // afresh.
-    _rowInput = RowInput::Selected;
+    // Showing the list moves the selection afresh, even onto the row already
+    // selected.
+    _acceptAction = AcceptAction::ActSilently;
     if (count == 0) {
         list.setSelectedItemIndex(-1);
-        _inputRow = -1;
+        _acceptRow = -1;
         _describedRow.reset();
         clearFocus();
         return;
     }
     const int selected = std::clamp(row, 0, count - 1);
     list.setSelectedItemIndex(selected);
-    _inputRow = selected;
+    _acceptRow = selected;
     describe(selected);
 }
 
@@ -573,7 +583,11 @@ void CraftingPanel::describeCreatable(const Creatable &creatable) {
     const int rank = _game.party().getLeader()->getUnopposedSkillRank(baseSkill);
     _controls.LBL_RELATEDSKILL->setTextMessage(skillName + " (" + std::to_string(rank) + ")");
     _controls.LBL_RELATEDSKILL->setTextColor(creatable.available ? kTSLColorUpgradeText : kTSLColorRed);
-    _controls.LBL_STOCK_VALUE->setTextMessage(std::to_string(stockOf(*creatable.item)));
+    // An infinite match shows the infinite string, as the breakdown view does.
+    const int stock = stockOf(*creatable.item);
+    _controls.LBL_STOCK_VALUE->setTextMessage(stock == kInfiniteStock
+                                                  ? _services.resource.strings.getText(kInfiniteStrRef)
+                                                  : std::to_string(stock));
     const int requirement = table->getInt(creatable.row, skillColumn());
     const auto description = _services.resource.strings.getText(kRequirementHeaderStrRef) + "\n" +
                              skillName + " (" + std::to_string(requirement) + ")\n" +
@@ -584,18 +598,24 @@ void CraftingPanel::describeCreatable(const Creatable &creatable) {
 
 void CraftingPanel::describeBreakable(const Item &item) {
     _controls.LBL_COST_VALUE->setTextMessage(std::to_string(breakdownGain(item)));
-    _controls.LBL_STOCK_VALUE->setTextMessage(std::to_string(item.stackSize()));
+    _controls.LBL_STOCK_VALUE->setTextMessage(item.isInfinite()
+                                                  ? _services.resource.strings.getText(kInfiniteStrRef)
+                                                  : std::to_string(item.stackSize()));
     _controls.LB_DESCRIPTIONINV->clearItems();
     _controls.LB_DESCRIPTIONINV->addTextLinesAsItems(itemText(item));
 }
 
 // What the party holds of an item: the first matching stack it carries, and
-// one for each matching item the first three members wear.
+// one for each matching item the first three members wear. A carried match
+// that never runs out is infinite whatever is worn.
 int CraftingPanel::stockOf(const Item &item) const {
     auto &party = _game.party();
     int stock = 0;
     for (const auto &carried : inventoryOf(party.getLeader())) {
         if (carried->isIdenticalTo(item)) {
+            if (carried->isInfinite()) {
+                return kInfiniteStock;
+            }
             stock = carried->stackSize();
             break;
         }
@@ -1035,23 +1055,63 @@ void UpgradeItemsPanel::open(std::vector<UpgradableItem> items,
     _onBack = std::move(onBack);
     _controls.LB_ITEMS->clearItems();
     _controls.LB_ITEMS->setIconTextFont(rowCountFont(_game, _services));
-    int selectedRow = 0;
-    for (size_t i = 0; i < _items.size(); ++i) {
-        const int row = static_cast<int>(i);
-        const auto item = _items[i].item.resolve();
-        if (item == selected) {
-            selectedRow = row;
-        }
-        _controls.LB_ITEMS->addItem(upgradableEntry(_game, _services, _items[i], row, itemFrameTexture(item->stackSize())));
-    }
+    addRows();
     _controls.LB_DESCRIPTION->clearItems();
     _describedRow.reset();
-    if (!_items.empty()) {
-        _controls.LB_ITEMS->setSelectedItemIndex(selectedRow);
-        describe(selectedRow);
+    // The first row is chosen, or the first row holding the item asked for.
+    if (selected) {
+        select(rowOf(selected));
+    } else if (!_items.empty()) {
+        select(0);
     }
     // The list holds the keyboard.
     _gui->setActiveControl(*_controls.LB_ITEMS);
+}
+
+bool UpgradeItemsPanel::keepAfterUpgrade(const std::shared_ptr<Item> &held) {
+    auto &entry = _items[_pickedRow];
+    if (entry.slot && !held->isEquipped()) {
+        // An item its wearer no longer wears is named afresh where it went,
+        // carried, its row redrawn in place.
+        entry.item = held;
+        entry.wearer.reset();
+        entry.slot.reset();
+        auto &list = *_controls.LB_ITEMS;
+        const int offset = list.getItemOffset();
+        list.clearItems();
+        addRows();
+        list.setItemOffset(offset);
+    } else if (entry.item.resolve() != held) {
+        return false;
+    }
+    select(rowOf(held));
+    return true;
+}
+
+void UpgradeItemsPanel::addRows() {
+    for (size_t i = 0; i < _items.size(); ++i) {
+        const auto item = _items[i].item.resolve();
+        _controls.LB_ITEMS->addItem(upgradableEntry(_game, _services, _items[i], static_cast<int>(i), itemFrameTexture(item->stackSize())));
+    }
+}
+
+// An item put back after an upgrade is listed again unless it no longer
+// counts as an item of its kind, as a lightsaber of another colour may not.
+int UpgradeItemsPanel::rowOf(const std::shared_ptr<Item> &item) const {
+    const auto entry = std::find_if(_items.begin(), _items.end(), [&item](const UpgradableItem &upgradable) {
+        return upgradable.item.resolve() == item;
+    });
+    return entry == _items.end() ? -1 : static_cast<int>(std::distance(_items.begin(), entry));
+}
+
+void UpgradeItemsPanel::select(int row) {
+    _controls.LB_ITEMS->setSelectedItemIndex(row);
+    if (row < 0) {
+        _describedRow.reset();
+        _controls.LB_DESCRIPTION->clearItems();
+        return;
+    }
+    describe(row);
 }
 
 // Clicking the lists is silent: a click selecting another entry sounds as
@@ -1097,6 +1157,7 @@ void UpgradeItemsPanel::describe(int row) {
 }
 
 void UpgradeItemsPanel::pick(int row) {
+    _pickedRow = row;
     _onPick(_items[row]);
 }
 
@@ -2005,7 +2066,7 @@ void ItemUpgradePanel::pick(int entry) {
     if (place.held) {
         // The upgrade is counted before it rejoins a stack.
         if (tsl) {
-            _item->removeUpgrade(*place.held, slot);
+            _item->removeUpgrade(slot);
             _item->setUpgradeSlot(slot, std::nullopt);
         } else {
             _item->setUpgradeInstalled(*record.row, false);
@@ -2037,8 +2098,8 @@ void ItemUpgradePanel::pick(int entry) {
                         _slots[slot].held = take(chosen);
                         closeList();
                     },
-                    [this, slot, chosen]() {
-                        _item->removeUpgrade(*chosen, slot);
+                    [this, slot]() {
+                        _item->removeUpgrade(slot);
                         _item->setUpgradeSlot(slot, std::nullopt);
                     });
                 return;
@@ -2166,7 +2227,7 @@ bool ItemUpgradePanel::handleActiveControlKey(const input::KeyEvent &key) {
             pick(entry);
         });
     }
-    if (!key.repeat && (key.code == input::KeyCode::Return || key.code == input::KeyCode::KeypadEnter)) {
+    if (!key.repeat && isChooseKey(key.code)) {
         clickControl(control.tag());
         return true;
     }
@@ -2616,6 +2677,8 @@ void UpgradeSelectionGUI::finishUpgrade(std::shared_ptr<Item> item) {
         close();
     } else if (_game.isTSL()) {
         populate();
+    } else if (_items->keepAfterUpgrade(held)) {
+        _openPanel = OpenPanel::Items;
     } else {
         openItems(_origin.type, held);
     }
@@ -2752,7 +2815,7 @@ bool UpgradeSelectionGUI::handleKindKey(const input::KeyEvent &key) {
             return kindButton.button.get() == &button;
         });
     };
-    if (!key.repeat && (key.code == input::KeyCode::Return || key.code == input::KeyCode::KeypadEnter)) {
+    if (!key.repeat && isChooseKey(key.code)) {
         const auto kindButton = kindButtonOf(control);
         if (kindButton == _kindButtons.end()) {
             clickControl(control.tag());

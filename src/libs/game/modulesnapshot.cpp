@@ -1128,8 +1128,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
             .field(Gff::Field::newDword("UsedDay", property.usedDay))
             .field(Gff::Field::newDword("UsedTime", property.usedTime));
         if (_game.isTSL()) {
-            const int propUpgrade = property.upgradeSlot ? *property.upgradeSlot + 1 : Item::PropertyEntry::kSavedNoPropUpgrade;
-            record.field(Gff::Field::newWord("PropUpgrade", static_cast<uint16_t>(propUpgrade)));
+            record.field(Gff::Field::newWord("PropUpgrade", property.upgradeMark));
         }
         properties.push_back(record.build());
     }

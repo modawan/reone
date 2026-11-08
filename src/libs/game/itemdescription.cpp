@@ -140,24 +140,25 @@ constexpr int kNoDexterityLimit = -1;
 // The short property names a held upgrade's lines use: a property name
 // replaced by a shorter one, or by none.
 constexpr std::pair<int, int> kShortPropertyNames[] {
-    {659, -1},
-    {662, 129935},
-    {672, 129931},
-    {673, 129933},
-    {675, 686},
-    {678, -1},
-    {680, -1},
-    {700, 129930},
-    {705, -1},
-    {48014, -1}};
+    {659, -1},     // Attribute Bonus -> none
+    {662, 129935}, // Defense Bonus vs. Damage Type -> Defense vs. Damage
+    {672, 129931}, // Damage Bonus -> Damage +
+    {673, 129933}, // Damage Bonus vs. Alignment -> Damage vs. Align
+    {675, 686},    // Damage Immunity -> Immunity
+    {678, -1},     // Damage Resistance -> none
+    {680, -1},     // Attribute Penalty -> none
+    {700, 129930}, // Attack Bonus -> Attack +
+    {705, -1},     // Alignment Limitation -> none
+    {48014, -1}};  // PC Restriction -> none
 // The subtype names the short names replace, by none or by physical damage.
 constexpr std::pair<int, int> kShortSubtypeNames[] {
-    {0, -1},
-    {727, -1},
-    {728, -1},
-    {731, kPhysicalDamageStrRef},
-    {798, kPhysicalDamageStrRef}};
-// Subtype names that leave a property no line under the short names.
+    {0, -1},                       // Bad StrRef -> none
+    {727, -1},                     // Light Side -> none
+    {728, -1},                     // Dark Side -> none
+    {731, kPhysicalDamageStrRef},  // Slashing -> Physical
+    {798, kPhysicalDamageStrRef}}; // Slashing -> Physical
+// Subtype names that leave a property no line under the short names:
+// Bludgeoning and Piercing, each twice.
 constexpr int kLinelessSubtypeNames[] {729, 730, 796, 797};
 // A held upgrade lists its properties up to this many lines.
 constexpr int kMaxPropertyLines = 5;
@@ -171,6 +172,13 @@ int shortName(const std::pair<int, int> (&names)[N], int strRef) {
     });
     return it != std::end(names) ? it->second : strRef;
 }
+
+// Which names a property's strings use: its full names, or the short names
+// of a held upgrade's lines.
+enum class PropertyNaming {
+    Full,
+    Short
+};
 
 struct PropertyStrings {
     std::string name;
@@ -259,7 +267,7 @@ public:
             if (!include(property)) {
                 continue;
             }
-            const auto strings = propertyStrings(type(property), property.subtype, property.costValue, std::nullopt, true);
+            const auto strings = propertyStrings(type(property), property.subtype, property.costValue, std::nullopt, PropertyNaming::Short);
             std::string line = strings.name;
             if (!strings.cost.empty()) {
                 if (!strings.name.empty() && strings.name.back() != '+') {
@@ -366,18 +374,18 @@ private:
      * The name of a property and the names of its subtype, cost and
      * parameter. A property the table does not name shows no text; a subtype
      * without a name of its own is shown with its property's name. No cost
-     * or parameter value asks for no cost or parameter text. The short names
-     * replace some property and subtype names, and some subtypes leave the
+     * or parameter value asks for no cost or parameter text. Short naming replaces
+     * some property and subtype names, and some subtypes then leave the
      * property no text at all.
      */
-    PropertyStrings propertyStrings(int kind, std::optional<int> subtype, std::optional<int> costValue, std::optional<int> paramValue, bool shortNames = false) const {
+    PropertyStrings propertyStrings(int kind, std::optional<int> subtype, std::optional<int> costValue, std::optional<int> paramValue, PropertyNaming naming) const {
         PropertyStrings strings;
         auto definitions = requiredTable("itempropdef");
         auto nameStrRef = definitions->getIntOpt(kind, "name");
         if (!nameStrRef) {
             return strings;
         }
-        if (shortNames) {
+        if (naming == PropertyNaming::Short) {
             nameStrRef = shortName(kShortPropertyNames, *nameStrRef);
         }
         if (*nameStrRef != -1) {
@@ -388,7 +396,7 @@ private:
         if (!subtypeResRef.empty() && subtype) {
             subtypes = requiredTable(subtypeResRef);
             int subtypeStrRef = subtypes->getIntOpt(*subtype, "name").value_or(*nameStrRef);
-            if (shortNames) {
+            if (naming == PropertyNaming::Short) {
                 if (std::find(std::begin(kLinelessSubtypeNames), std::end(kLinelessSubtypeNames), subtypeStrRef) != std::end(kLinelessSubtypeNames)) {
                     return {};
                 }
@@ -733,7 +741,7 @@ private:
         if (!last) {
             return;
         }
-        const auto strings = propertyStrings(static_cast<int>(kind), last->subtype, std::nullopt, last->paramValue);
+        const auto strings = propertyStrings(static_cast<int>(kind), last->subtype, std::nullopt, last->paramValue, PropertyNaming::Full);
         _text += strings.param + ": " + bonusRange(minimum, maximum) + " " + gui(kVersusStrRef) + " " + strings.subtype + end;
     }
 
@@ -750,7 +758,7 @@ private:
             if (type(*property) != static_cast<int>(ItemProperty::DamageReduction) || isOutvalued(*property)) {
                 continue;
             }
-            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
             const int amount = namedAmount(strings.subtype, "%*s +%d");
             _text += strings.name + ": +" + std::to_string(amount) + " (" + strings.cost + ")\n\n";
         }
@@ -767,7 +775,7 @@ private:
             if (type(property) != damageBonus || hasDamageType(flags, property.subtype)) {
                 continue;
             }
-            const auto strings = propertyStrings(damageBonus, property.subtype, property.costValue, std::nullopt);
+            const auto strings = propertyStrings(damageBonus, property.subtype, property.costValue, std::nullopt, PropertyNaming::Full);
             if (!listed) {
                 _text += strings.name + ": ";
             }
@@ -845,27 +853,27 @@ private:
             if (type(*property) != onHitKind || property->subtype > lastEffect) {
                 continue;
             }
-            const auto effect = propertyStrings(onHitKind, property->subtype, std::nullopt, std::nullopt);
+            const auto effect = propertyStrings(onHitKind, property->subtype, std::nullopt, std::nullopt, PropertyNaming::Full);
             const std::string prefix(gui(kOnHitStrRef) + ": ");
             switch (property->subtype) {
             case kOnHitAbilityDrain:
             case kOnHitSlayRacialGroup:
             case kOnHitSlayAlignmentGroup: {
                 _text += prefix + effect.subtype + " ";
-                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue);
+                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue, PropertyNaming::Full);
                 _text += strings.param + " " + strings.cost + "\n\n";
                 break;
             }
             case kOnHitPoison: {
                 _text += prefix;
-                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue);
+                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue, PropertyNaming::Full);
                 const int difficulty = requiredTable("poison")->getInt(property->paramValue, "dc_save");
                 _text += strings.param + " " + gui(difficultyClassStrRef()) + " " + std::to_string(difficulty) + "\n\n";
                 break;
             }
             case kOnHitInstantDeath: {
                 _text += prefix + effect.subtype + " ";
-                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue);
+                const auto strings = propertyStrings(onHitKind, property->subtype, property->costValue, property->paramValue, PropertyNaming::Full);
                 _text += ", " + strings.cost + "\n\n";
                 break;
             }
@@ -959,7 +967,7 @@ private:
             if (listedBefore) {
                 continue;
             }
-            const auto strings = propertyStrings(kind, property.subtype, property.costValue, std::nullopt);
+            const auto strings = propertyStrings(kind, property.subtype, property.costValue, std::nullopt, PropertyNaming::Full);
             _text += "+" + std::to_string(sum) + " " + gui(kVersusStrRef) + " " + strings.subtype + "\n";
         }
     }
@@ -1016,7 +1024,7 @@ private:
             if ((!versus && !protection) || isOutvalued(*property)) {
                 continue;
             }
-            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
             if (versus) {
                 _text += "+" + strings.cost + " " + gui(kVersusStrRef) + " " + strings.subtype + "\n\n";
             } else {
@@ -1091,7 +1099,7 @@ private:
             if (type(*property) != static_cast<int>(ItemProperty::Immunity)) {
                 continue;
             }
-            const auto strings = propertyStrings(type(*property), property->subtype, std::nullopt, std::nullopt);
+            const auto strings = propertyStrings(type(*property), property->subtype, std::nullopt, std::nullopt, PropertyNaming::Full);
             if (count == 0) {
                 _text += strings.name + ": ";
             }
@@ -1121,7 +1129,7 @@ private:
             if (!bonus && !penalty) {
                 continue;
             }
-            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
             if (count > 0) {
                 _text += ", ";
             }
@@ -1146,7 +1154,7 @@ private:
             if ((kind != ItemProperty::SkillBonus && kind != ItemProperty::DecreasedSkillModifier) || isOutvalued(*property)) {
                 continue;
             }
-            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+            const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
             if (count > 0) {
                 _text += ", ";
             }
@@ -1190,7 +1198,7 @@ private:
                 continue;
             }
             if (!titled) {
-                const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt);
+                const auto strings = propertyStrings(type(*property), property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
                 const size_t colon = strings.name.find(':');
                 if (colon != std::string::npos) {
                     _text += strings.name.substr(0, colon) + ": " + " ";
@@ -1214,7 +1222,7 @@ private:
                 if (isOutvalued(*property)) {
                     break;
                 }
-                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
+                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
                 _text += strings.subtype + ": " + penaltyOrCost(kind == static_cast<int>(ItemProperty::DecreasedAbilityScore), strings.cost) + "\n\n";
                 break;
             }
@@ -1224,7 +1232,7 @@ private:
                 if (_tsl || isOutvalued(*property)) {
                     break;
                 }
-                const auto strings = propertyStrings(kind, std::nullopt, property->costValue, std::nullopt);
+                const auto strings = propertyStrings(kind, std::nullopt, property->costValue, std::nullopt, PropertyNaming::Full);
                 if (kind == static_cast<int>(ItemProperty::BlasterBoltDeflectIncrease)) {
                     _text += deflectionTitle(strings.name) + "+" + std::to_string(property->costValue) + "\n\n";
                 } else {
@@ -1233,7 +1241,7 @@ private:
                 break;
             }
             case ItemProperty::BonusFeat: {
-                const auto strings = propertyStrings(kind, property->subtype, std::nullopt, std::nullopt);
+                const auto strings = propertyStrings(kind, property->subtype, std::nullopt, std::nullopt, PropertyNaming::Full);
                 _text += strings.name + ": " + strings.subtype + "\n\n";
                 break;
             }
@@ -1241,7 +1249,7 @@ private:
                 if (isOutvalued(*property)) {
                     break;
                 }
-                const auto strings = propertyStrings(kind, property->subtype, std::nullopt, std::nullopt);
+                const auto strings = propertyStrings(kind, property->subtype, std::nullopt, std::nullopt, PropertyNaming::Full);
                 const auto odds = onHitOdds(property->costValue, property->paramValue);
                 _text += gui(kVulnerabilityStrRef) + ": " +
                          str(boost::format("%d%% %s, %d%s ") % odds.chance % gui(kChanceStrRef) %
@@ -1253,26 +1261,26 @@ private:
                 if (isOutvalued(*property)) {
                     break;
                 }
-                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
+                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
                 _text += gui(kForceResistanceStrRef) + ": +" + std::to_string(namedAmount(strings.cost, "%*s %d")) + "\n\n";
                 break;
             }
             case ItemProperty::Light:
             case ItemProperty::TrueSeeing:
             case ItemProperty::FreedomOfMovement:
-                _text += propertyStrings(kind, std::nullopt, std::nullopt, std::nullopt).name + "\n\n";
+                _text += propertyStrings(kind, std::nullopt, std::nullopt, std::nullopt, PropertyNaming::Full).name + "\n\n";
                 break;
             case ItemProperty::UseLimitationAlignmentGroup:
             case ItemProperty::UseLimitationClass:
                 _text += gui(kUseLimitationStrRef) + ": " +
-                         propertyStrings(kind, property->subtype, std::nullopt, std::nullopt).subtype + "\n\n";
+                         propertyStrings(kind, property->subtype, std::nullopt, std::nullopt, PropertyNaming::Full).subtype + "\n\n";
                 break;
             case ItemProperty::Regeneration:
             case ItemProperty::RegenerationForcePoints: {
                 if (isOutvalued(*property)) {
                     break;
                 }
-                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt);
+                const auto strings = propertyStrings(kind, property->subtype, property->costValue, std::nullopt, PropertyNaming::Full);
                 _text += strings.name + ": " + strings.cost + "\n\n";
                 break;
             }
