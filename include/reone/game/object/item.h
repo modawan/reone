@@ -54,6 +54,7 @@ public:
     static constexpr int kGauntletsItemType = 19;
     static constexpr int kForearmBandsItemType = 20;
     static constexpr int kCreditsItemType = 23;
+    static constexpr int kDatapadItemType = 24;
     static constexpr int kStimItemType = 25;
     static constexpr int kDroidRepairItemType = 26;
     /** Security spikes, which add to an unlock and offer themselves on a locked object's menu. */
@@ -77,6 +78,9 @@ public:
     static constexpr int kRocketItemType = 49;
     static constexpr int kChemicalsItemType = 50;
     static constexpr int kComponentsItemType = 51;
+
+    /** The local boolean set on a datapad once its text has been shown, or once it is taken without being shown. */
+    static constexpr int kDatapadShownBoolean = 94;
 
     /** The baseitems.2da model type of an item drawn as its wearer's body model. */
     static constexpr int kBodyModelType = 1;
@@ -491,26 +495,101 @@ public:
     /** Whether a creature or a container holds the item. */
     bool isHeld() const { return _ownerId != script::kObjectInvalid; }
     /**
+     * The object possessing the item: in the party's shared inventory, the
+     * creature possessing it there; otherwise its holder. Invalid when nothing
+     * holds it.
+     */
+    uint32_t possessorId() const;
+    /** The object possessing the item; none when nothing holds it. */
+    std::shared_ptr<Object> possessor() const;
+    /**
      * Gives the item to a holder: a creature, a container, or an item holding
-     * it. When the creature at the top, the holder or the creature carrying the
-     * item that holds it, is a player character and was not at the item's top
-     * before, the item becomes dropable and pickpocketable.
+     * it. An item coming to the party's shared inventory, kept on the player
+     * character, is possessed there by the creature in control. When the
+     * creature at the top, the one possessing the item or the item that holds
+     * it, is a player character and was not at the item's top before, the
+     * item becomes dropable and pickpocketable. An item with no holder is
+     * compared with the one possessing it when it last left a holder, so an
+     * item moving within one creature's belongings is not marked again.
      */
     void setOwner(const Object &holder);
-    void clearOwner() { _ownerId = script::kObjectInvalid; }
     /**
-     * Announces that the item has passed to a holder: a creature, or an item
-     * holding it. When the holder already held it, the module's acquisition
-     * event names that holder, whatever the flags. Otherwise the event names
-     * the creature at the top: the holder, or the creature carrying the item
-     * that holds it. That creature, when it is the controlled one and did not
-     * hold the item at the top before, is told it gained the item.
+     * Gives the item back to the holder a save records it with, as setOwner
+     * does, its dropable and pickpocketable marks staying as they were read.
+     */
+    void restoreOwner(const Object &holder);
+    /**
+     * Takes the item again for the creature now in control: one in the shared
+     * inventory comes to be possessed by that creature, and one worn stays
+     * with its wearer. The item becomes dropable and pickpocketable when the
+     * creature at its top is a player character other than \p previousTop.
      *
-     * @param previousHolder the item's holder before, invalid when none
-     * @param events whether the module's acquisition event is posted
+     * @param previousTop the creature at the item's top before, none when the
+     *                    item had none
+     */
+    void retakeForTop(const std::shared_ptr<Creature> &previousTop);
+    /** Takes the item from its holder, which is remembered until the item is given to another. */
+    void clearOwner() {
+        _releasedFrom = _ownerId;
+        _ownerId = script::kObjectInvalid;
+    }
+    /**
+     * Announces that the item has passed to a possessor: a creature, a
+     * placeable, or an item holding it. A creature coming to possess an item
+     * in the shared inventory possesses it there from then on; the item
+     * becomes dropable and pickpocketable when that creature is a player
+     * character and was not at the item's top before. The module's
+     * acquisition event names the creature at the top, the possessor or the
+     * one possessing the item that is the possessor, when there is one. That
+     * creature, when it leads the party and was not at the item's top before,
+     * is told it gained the item. With the events, a placeable the item left
+     * and a placeable it came to, unless destroyed once empty, have their
+     * inventory disturbed (removed, added), each by the creature at the top on
+     * the other side or else by the other placeable, and not without either;
+     * a placeable taking back an item it held is disturbed both ways.
+     *
+     * @param previousPossessor the object possessing the item before, invalid when none
+     * @param possessor the object possessing it now
+     * @param events whether the module's acquisition event and the disturbed
+     *               events are posted
      * @param feedback whether the gain is told
      */
-    void announceAcquisition(uint32_t previousHolder, const Object &holder, bool events, bool feedback);
+    void announceAcquisition(uint32_t previousPossessor, const Object &possessor, bool events, bool feedback);
+    /**
+     * Announces to the module that the item's possessor has acquired it
+     * again, as it does whenever an item passes to the object already
+     * possessing it.
+     */
+    void announceKept();
+    /**
+     * Passes the item to a possessor: when it already possesses the item, the
+     * item is announced kept, with the events; otherwise its acquisition is announced, from
+     * the item's possessor before, after the loss of the creature at its top
+     * before, when another is at its top now.
+     *
+     * @param events whether the module's lost, acquisition and disturbed
+     *               events are posted
+     * @param feedback whether the loss and the gain are told
+     */
+    void passTo(const Object &possessor, bool events, bool feedback);
+    /**
+     * Announces that the item, which has left its holder, is possessed by no
+     * one: when a creature was at its top, the module's lost event, and that
+     * creature, when it leads the party, is told it lost the item. The item
+     * forgets the one possessing it, so whoever takes it next takes it anew.
+     *
+     * @param feedback whether the loss is told
+     */
+    void announceLoss(bool feedback);
+    /**
+     * Announces the loss of this copy, split off \p stack, by the one
+     * possessing the stack, as announceLoss does for an item that leaves it.
+     *
+     * @param feedback whether the loss is told
+     */
+    void announceSplitLoss(const Item &stack, bool feedback);
+    /** Whether the item is in the party's shared inventory. */
+    bool inSharedInventory() const { return isHeld() && _sharedPossessorId != script::kObjectInvalid; }
 
 private:
     friend class ModuleSnapshotBuilder;
@@ -547,6 +626,14 @@ private:
     // END Serializable
 
     uint32_t _ownerId {script::kObjectInvalid};
+    /** The holder the item last left, while it has none; a holder it next comes to is compared with it. */
+    uint32_t _releasedFrom {script::kObjectInvalid};
+    /**
+     * The creature possessing the item while the party's shared inventory
+     * holds it, kept when the item leaves until it comes to another holder;
+     * invalid otherwise.
+     */
+    uint32_t _sharedPossessorId {script::kObjectInvalid};
 
     std::vector<FeatType> _requiredFeats;
     DroidOrHuman _droidOrHuman {DroidOrHuman::Anyone};
@@ -610,6 +697,17 @@ private:
 
     /** Whether a property used once in so many minutes may be used again. */
     bool isUseIntervalOver(const PropertyEntry &property) const;
+    /**
+     * Marks the item dropable and pickpocketable when the creature at its top,
+     * the one possessing it or \p holder, the item holding it, is a player
+     * character other than \p previousTop.
+     */
+    void markForTop(const Object &holder, const std::shared_ptr<Creature> &previousTop);
+    /**
+     * Tells the module, with the events, that \p previousTop lost the item,
+     * and the creature, with the feedback, when it leads the party.
+     */
+    void reportLoss(const std::shared_ptr<Creature> &previousTop, bool events, bool feedback);
 
     // Blueprint
     /**

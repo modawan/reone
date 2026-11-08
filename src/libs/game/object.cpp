@@ -266,7 +266,6 @@ void Object::deserializeOwnedItems(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
     SaveRecordOriginKind originKind,
-    bool forceDropable,
     std::string originOwner,
     bool placedTemplate) {
     if (!identityContext.isSerializedState()) {
@@ -298,7 +297,6 @@ void Object::deserializeOwnedItems(
                         }
                         item = _game.newOwnedItem(*itemGff, identityContext);
                     }
-                    if (forceDropable) item->setDropable(true);
                     item->setOwner(*this);
                     appendOwnedItemCandidate(
                         replacement, item, true);
@@ -333,10 +331,7 @@ void Object::deserializeOwnedItems(
                     identityContext,
                     {originKind,
                      originOwner.empty() ? std::to_string(_id) : originOwner});
-                if (forceDropable) {
-                    item->setDropable(true);
-                }
-                item->setOwner(*this);
+                item->restoreOwner(*this);
                 appendOwnedItemCandidate(
                     replacement, item, true);
             }
@@ -1461,7 +1456,7 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
             if (dropable) {
                 candidate->setDropable(*dropable);
             }
-            if (creature && _game.party().isCountedItem(*candidate)) {
+            if (_game.party().countsReceivedItem(*this, *candidate)) {
                 counted = candidate;
                 _game.discardStagedRuntimeObjects({candidate});
                 return;
@@ -1481,7 +1476,7 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
             }
         });
     if (counted) {
-        _game.party().acquireCountedItem(*creature, *counted);
+        _game.party().acquireReceivedItem(*this, *counted);
     }
     return result;
 }
@@ -1510,9 +1505,9 @@ std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
         return *alreadyOwned;
     }
     auto creature = dyn_cast<Creature>(this);
-    if (creature && _game.party().isCountedItem(*item)) {
+    if (_game.party().countsReceivedItem(*this, *item)) {
         item->clearOwner();
-        _game.party().acquireCountedItem(*creature, *item);
+        _game.party().acquireReceivedItem(*this, *item);
         _game.destroyRuntimeObjectGraph(item);
         return nullptr;
     }
@@ -1633,35 +1628,26 @@ void Object::faceAwayFrom(const Object &other) {
     setFacing(-glm::atan(dir.x, dir.y));
 }
 
-void Object::moveDropableItemsTo(Object &other) {
-    for (auto it = _items.begin(); it != _items.end();) {
-        if ((*it)->isDropable()) {
-            std::shared_ptr<Item> item(*it);
-            it = _items.erase(it);
-            handOverItem(item, other);
-        } else {
-            ++it;
-        }
-    }
-}
-
-void Object::moveAllItemsTo(Object &other) {
+std::vector<Object::HandedOverItem> Object::moveAllItemsTo(Object &other) {
+    std::vector<HandedOverItem> result;
     while (!_items.empty()) {
         auto item = _items.back();
         _items.pop_back();
-        handOverItem(item, other);
+        auto held = handOverItem(item, other);
+        result.push_back({std::move(item), std::move(held)});
     }
+    return result;
 }
 
 // An item a party member is handed goes to the party's inventory.
-void Object::handOverItem(const std::shared_ptr<Item> &item, Object &other) {
+std::shared_ptr<Item> Object::handOverItem(const std::shared_ptr<Item> &item, Object &other) {
     if (Creature *creature = dyn_cast<Creature>(this)) {
         creature->itemAttributes().removeItem(item);
     }
     item->clearOwner();
     auto receiver = _game.party().sharedInventoryReceiver(_game.getObjectById(other.id()));
     _game.party().noteItemReceived(*item, *receiver, this);
-    receiver->addItem(item);
+    return receiver->addItem(item);
 }
 
 int Object::damageImmunity(int flags) const {
@@ -2053,6 +2039,18 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
             return item;
         if (auto held = item->getItemByTag(tag)) {
             return held;
+        }
+    }
+    return nullptr;
+}
+
+std::shared_ptr<Item> Object::getItemByItemType(int itemType) const {
+    for (const auto &item : _items) {
+        if (auto held = item->getItemByItemType(itemType)) {
+            return held;
+        }
+        if (item->itemType() == itemType) {
+            return item;
         }
     }
     return nullptr;

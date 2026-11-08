@@ -396,16 +396,19 @@ void Trigger::stepOnMine(bool force) {
         }
     }
     if (key) {
+        // An auto-remove key is destroyed at once, and announced lost to no
+        // one.
         if (_autoRemoveKey) {
             if (equippedKey) {
                 creature->takeEquippedItem(key);
                 _game.destroyRuntimeObjectGraph(key);
             } else {
-                bool last = false;
-                repository->removeItem(key, last);
-                if (last) {
-                    _game.destroyRuntimeObjectGraph(key);
+                // A carried key goes whole, from wherever it is, which may
+                // be inside an item.
+                if (const auto holder = _game.getObjectById(key->owner())) {
+                    holder->removeItemStack(key);
                 }
+                _game.destroyRuntimeObjectGraph(key);
             }
         }
         _trap.receiveDisarmSignal(*this, creature->id());

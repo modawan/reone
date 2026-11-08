@@ -121,6 +121,8 @@ enum class SavedSignalEventType : uint16_t {
     /** A trap was disarmed; the caller is the one who disarmed it. */
     Disarmed = 24,
     Used = 25,
+    /** An item was added to or removed from a placeable's inventory. */
+    InventoryDisturbed = 27,
     Locked = 28,
     /** A door or placeable was unlocked; the caller is the one who unlocked it. */
     Unlocked = 29,

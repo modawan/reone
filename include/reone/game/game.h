@@ -19,6 +19,7 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -467,6 +468,13 @@ public:
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {},
         const std::optional<PopupColors> &colors = std::nullopt);
+    /**
+     * TSL: show a datapad's identified description in the datapad box, with
+     * OK only, and mark the datapad shown. Play pauses while it shows, as for
+     * a script's message box. A datapad shown while the box is open waits for
+     * it to close, then shows in turn.
+     */
+    void showDatapad(Item &datapad);
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
     /**
@@ -1011,12 +1019,18 @@ public:
     void signalItemEquipped(Creature &wearer, int slot, const std::shared_ptr<Item> &item);
     /**
      * An item put on while its wearer is read. The module is told once the
-     * wearer and the item are live.
+     * wearer and the item are live: first that the wearer acquired it, when
+     * \p acquired, then that it put it on.
      */
-    void recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item);
+    void recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item, bool acquired = false);
+    /**
+     * An item a creature read from a template carries. The module is told
+     * the creature acquired it once both are live, in the order read.
+     */
+    void recordCarriedOnLoad(const std::shared_ptr<Item> &item);
     /**
      * During a module load, tells the module of the items the wearer was read
-     * wearing: each creature's come just before it is announced to its area.
+     * with: each creature's come just before it is announced to its area.
      */
     void signalEquippedOnLoad(const Creature &wearer);
     /**
@@ -1910,9 +1924,30 @@ private:
     int _tutorialPage {0};
     /** The open window paused play, and resumes it when dismissed. */
     bool _tutorialPausedGame {false};
-    /** A script's message box paused play, and resumes it when it closes. */
+    /**
+     * A script's message box or the datapad box paused play, which resumes
+     * once no box holds the pause.
+     */
     bool _messageBoxPausedGame {false};
+    /** A script's message box holds the pause a box took. */
+    bool _scriptBoxHoldsPause {false};
+    /** The datapad box holds the pause a box took. */
+    bool _datapadHoldsPause {false};
+    /**
+     * A box opens: play pauses unless it is paused already or a conversation
+     * is under way, and \p holder, the box, holds the pause a box took.
+     */
+    void holdBoxPause(bool &holder);
+    /** \p holder, a box, lets go of the pause; play resumes when no box holds it. */
+    void releaseBoxPause(bool &holder);
+    /** Every box lets go of the pause, and play resumes when a box took it. */
     void releaseMessageBoxPause();
+    /** The texts of datapads waiting for the datapad box to close, first first. */
+    std::deque<std::string> _pendingDatapads;
+    /** Shows a datapad's text in the datapad box, pausing play. */
+    void openDatapadBox(const std::string &text);
+    /** The datapad box closed: the next waiting datapad shows, or play resumes. */
+    void onDatapadBoxClosed();
     /**
      * Whether the tutorial window opened after the other message box, which
      * it is then drawn over and takes the input before.
@@ -2016,13 +2051,17 @@ private:
     // One authoritative graph object has one canonical saved identity. Roster
     // doubles live in detached graphs and never create cross-graph aliases.
     std::map<const Object *, uint32_t> _savedIdByObject;
+    /** The slot of an item read on load that its creature carries rather than wears. */
+    static constexpr int kCarriedOnLoad = -1;
     /**
-     * An item a creature was read wearing, and its slot. The wearer is the
-     * item's owner; the module is told once both are live.
+     * An item a creature was read with: worn in a slot, or carried. The
+     * creature is the item's owner; the module is told once both are live.
      */
     struct EquippedOnLoad {
         int slot {0};
         std::shared_ptr<Item> item;
+        /** The module is told the creature acquired the item first. */
+        bool acquired {false};
     };
     struct StagedRuntimeObjectGraph {
         uint32_t initialNextObjectId {kFirstRuntimeObjectId};
@@ -2099,6 +2138,8 @@ private:
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
+    /** TSL's datapad box, drawn over the message boxes. */
+    std::unique_ptr<ConfirmPopup> _datapadBox;
     /** The tutorial window's own message box, drawn over the other message box when it opened after it. */
     std::unique_ptr<ConfirmPopup> _tutorialPopup;
     std::unique_ptr<ConfirmPopup> _deathMessage;
@@ -2260,7 +2301,16 @@ private:
     void releaseEquippedOnLoad(const std::vector<EquippedOnLoad> &equipped);
     /** The live creature wearing equipment read on load, if any. */
     std::shared_ptr<Creature> equippedOnLoadWearer(const EquippedOnLoad &equipped) const;
-    /** The arriving party tells the module of everything it wears. */
+    /**
+     * Tells the module of an item read on load: that its creature acquired
+     * it, when it did, and that it put it on, when it wears it.
+     */
+    void signalReadOnLoad(Creature &wearer, const EquippedOnLoad &read);
+    /**
+     * The arriving party's members other than the creature under control, and
+     * its puppets, tell the module of everything they wear, after what they
+     * were read acquiring.
+     */
     void signalPartyEquipment();
     /** The equipment read during a load that no announcement has told yet tells the module. */
     void signalKeptEquippedOnLoad();

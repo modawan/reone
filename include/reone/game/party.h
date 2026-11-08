@@ -291,8 +291,9 @@ public:
     void loadPersistedState(PersistedState state);
 
     /**
-     * Hand the lead to a member. For kNpcPlayer a downed player character is
-     * stood up first and made raiseable, even when it already leads.
+     * Hand the lead to a member, with no select sound. For kNpcPlayer a
+     * downed player character is stood up first and made raiseable, even when
+     * it already leads.
      *
      * @param npc roster NPC number, or kNpcPlayer for the player character
      * @return false when an NPC number names no member, true otherwise
@@ -300,8 +301,8 @@ public:
     bool setPartyLeader(int npc);
     /**
      * Hand the lead to the first member that is a player character, with no
-     * select sound; nothing changes when it already leads or no member is
-     * one.
+     * select sound; nothing changes when no member is one. One that already
+     * leads a party of more than one takes the party's items again.
      */
     void leadWithPlayerCharacter();
     /**
@@ -493,17 +494,49 @@ public:
     void readPlayerAsMember();
     /**
      * Forms the party again in a module it is carried into from another: the
-     * player, when someone is under control, is read as a party member's, and
+     * player, when someone is under control, is read as a party member's,
      * every other member but the player character hands the party its own
      * credits, components, chemicals and carried items again.
      */
     void formAgainOnModuleLoad();
+    /**
+     * At every module load the creature under control takes the party's
+     * items: first what it wears, then everything in the shared inventory,
+     * which it comes to possess. Each item becomes dropable and pickpocketable
+     * when that creature is a player character, and is announced acquired by
+     * it to the module, with nothing told; each worn item then tells the
+     * module it was put on.
+     */
+    void takeItemsOnModuleLoad();
+    /**
+     * The leader takes every item in the shared inventory, as whenever the
+     * lead or control passes to a creature: an item it does not possess yet
+     * passes to it with nothing announced or told.
+     */
+    void passItemsToLeader();
     /**
      * A companion already in the world, and not travelling with the party,
      * takes control: it hands the party its own credits, components,
      * chemicals and carried items again.
      */
     void takeControlFromWorld(Creature &creature) { transferInventory(creature); }
+    /**
+     * A character switch hands control to a creature (setControlledMember);
+     * a companion already in the world that isn't travelling with the party
+     * then hands the party what it carries (takeControlFromWorld). The party's items
+     * pass to the creature now in control, with nothing told, unless it
+     * possessed them already, and each is announced kept by it once; the
+     * leader then takes them (passItemsToLeader).
+     *
+     * @param previous the creature in control before, none when there was none
+     * @param fromWorld whether the creature is a companion already in the
+     *                  world that isn't travelling with the party
+     */
+    void switchControlTo(
+        int npc,
+        const std::shared_ptr<Creature> &creature,
+        const std::shared_ptr<Creature> &previous,
+        bool fromWorld);
     std::shared_ptr<Creature> rosterCreature(
         const RosterIdentity &identity) const;
     std::shared_ptr<Creature> rosterCreature(
@@ -580,6 +613,19 @@ public:
      * creature's are. The caller discards the item.
      */
     void acquireCountedItemAsPlayer(Creature &player, const Item &item);
+    /**
+     * Whether an item \p receiver receives is counted rather than kept: a
+     * creature counts what isCountedItem names, and the creature possessing a
+     * container item counts the credits and pazaak cards put into it.
+     */
+    bool countsReceivedItem(const Object &receiver, const Item &item) const;
+    /**
+     * The creature that counts an item \p receiver receives acquires it, as
+     * acquireCountedItem does, except that credits put into a carried
+     * container become the carrier's own credits, told as its own gain is.
+     * The caller discards the item.
+     */
+    void acquireReceivedItem(Object &receiver, const Item &item);
 
     // Pazaak state stored in PARTYTABLE.res. The final ownership slot is retained
     // verbatim even though side decks only use the card-type IDs before it.

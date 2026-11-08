@@ -64,15 +64,16 @@ void reportSkillUse(Game &game, Creature &actor, const std::shared_ptr<Object> &
 
 /**
  * One of an item the creature used is used up, when its item repository
- * still holds it; the last one is destroyed. Without an item nothing is used
- * up.
+ * still holds it; the last one is announced lost, told, and destroyed.
+ * Without an item nothing is used up.
  */
 void useUpCarriedItem(Game &game, Creature &actor, const std::shared_ptr<Item> &item);
 
 /**
  * A key the lock of \p target names, carried by the creature (in the party's
  * items for a party member) or equipped, locks or unlocks it; an auto-remove
- * key is used up, and the player's creature is told the key was used. The key
+ * key is used up, and the player's creature is told the key was used; the
+ * last key of a stack is then announced lost, told. The key
  * name must match the key's tag exactly, except that a TSL door's key is
  * found among the carried items by the name in lower case.
  *

@@ -2085,7 +2085,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     footlocker->addItem(makeItem(game, "g_i_credits002", 0, 10));
     footlocker->addItem(makeItem(game, "g_i_datapad001", 1, 1));
 
-    footlocker->moveDropableItemsTo(*player);
+    footlocker->moveAllItemsTo(*player);
 
     EXPECT_EQ(game.party().gold(), 15);
     ASSERT_EQ(player->items().size(), 1);
@@ -2111,7 +2111,7 @@ TEST(Object, should_convert_credits_to_gold_for_any_creature) {
     auto footlocker = game.newPlaceable();
     footlocker->addItem(makeItem(game, "g_i_credits001", 0, 5));
 
-    footlocker->moveDropableItemsTo(*thug);
+    footlocker->moveAllItemsTo(*thug);
 
     EXPECT_EQ(game.party().gold(), 0);
     ASSERT_EQ(thug->items().size(), 0);

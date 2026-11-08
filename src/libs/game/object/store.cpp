@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -256,7 +257,7 @@ void Store::sellItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Cr
     } else {
         removeItemStack(item);
     }
-    _game.party().sharedInventoryReceiver(buyer)->addItem(sold);
+    announceAcquiredBy(sold, _game.party().sharedInventoryReceiver(buyer)->addItem(sold), *buyer, true);
 }
 
 void Store::onOpened(uint32_t openerId) {

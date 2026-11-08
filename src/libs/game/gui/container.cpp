@@ -44,6 +44,8 @@ static constexpr int kSwitchToResRef = 47884;
 static constexpr int kGetItemsResRef = 38542;
 static constexpr int kGiveItemResRef = 38543;
 static constexpr int kInventoryResRef = 393;
+static constexpr int kEmptyInventoryResRef = 394;
+static constexpr int kNothingFoundResRef = 119906;
 
 void ContainerGUI::onGUILoaded() {
     bindControls();
@@ -54,11 +56,8 @@ void ContainerGUI::onGUILoaded() {
 
     _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
 
-    std::string LBL_MESSAGE(_services.resource.strings.getText(kInventoryResRef));
-    _controls.LBL_MESSAGE->setTextMessage(LBL_MESSAGE);
-
     _controls.BTN_OK->setOnClick([this]() {
-        transferItemsToPlayer();
+        close(_heldItemsWhenOpened);
     });
     _controls.BTN_CANCEL->setOnClick([this]() {
         close();
@@ -86,13 +85,9 @@ void ContainerGUI::configureItemsListBox() {
     });
 }
 
-void ContainerGUI::populateItems(Object &source, bool onlyDropable, bool skipCredits) {
+void ContainerGUI::populateItems(Object &source, bool skipCredits) {
     _controls.LB_ITEMS->clearItems();
     for (auto &item : source.items()) {
-        if (onlyDropable && !item->isDropable()) {
-            continue;
-        }
-
         if (skipCredits && item->isCredits()) {
             continue;
         }
@@ -118,8 +113,18 @@ void ContainerGUI::populateItems(Object &source, bool onlyDropable, bool skipCre
     _gui->setActiveControl(*_controls.LB_ITEMS);
 }
 
+// The caption tells whether the container held items when it opened; TSL
+// tells of an empty body bag, or an empty container that is searched, that
+// nothing was found.
 void ContainerGUI::open(std::shared_ptr<Object> container) {
     _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
+    _heldItemsWhenOpened = !container->items().empty();
+    int caption = _heldItemsWhenOpened ? kInventoryResRef : kEmptyInventoryResRef;
+    if (const auto placeable = dyn_cast<Placeable>(container);
+        _game.isTSL() && !_heldItemsWhenOpened && placeable && (placeable->isBodyBag() || placeable->useSearch())) {
+        caption = kNothingFoundResRef;
+    }
+    _controls.LBL_MESSAGE->setTextMessage(_services.resource.strings.getText(caption));
     _container = container;
     _mode = Mode::ContainerToPlayer;
     _controls.LB_ITEMS->clearItems();
@@ -136,7 +141,7 @@ void ContainerGUI::update(float dt) {
     _itemsListed = true;
     // A container that its open script destroyed lists nothing.
     if (auto container = _container.resolve()) {
-        populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
+        populateItems(*container, /*skipCredits=*/false);
     }
 }
 
@@ -154,7 +159,7 @@ void ContainerGUI::updateGiveRefresh() {
         }
         const int offset = _controls.LB_ITEMS->getItemOffset();
         const int row = _controls.LB_ITEMS->selectedItemIndex();
-        populateItems(*_game.party().getLeader(), /*onlyDropable=*/false, /*skipCredits=*/true);
+        populateItems(*_game.party().getLeader(), /*skipCredits=*/true);
         _controls.LB_ITEMS->setItemOffset(offset);
         // The selection stays on its row, or the last while the list is shorter.
         const int count = _controls.LB_ITEMS->getItemCount();
@@ -176,12 +181,14 @@ Object &ContainerGUI::container() const {
     return *container;
 }
 
-// Every way out of the container closes its inventory.
+// Every way out of the container closes its inventory. The game is back on
+// screen first, so a datapad the take-all shows stays up over it.
 void ContainerGUI::close(bool takeAll) {
-    if (auto placeable = std::dynamic_pointer_cast<Placeable>(_container.resolve())) {
+    auto placeable = std::dynamic_pointer_cast<Placeable>(_container.resolve());
+    _game.openInGame();
+    if (placeable) {
         placeable->closeInventory(*_game.party().getLeader(), takeAll);
     }
-    _game.openInGame();
 }
 
 void ContainerGUI::closeTakingAll() {
@@ -193,7 +200,7 @@ void ContainerGUI::switchMode() {
     case Mode::ContainerToPlayer: {
         _mode = Mode::PlayerToContainer;
         _controls.BTN_GIVEITEMS->setTextMessage(_getItemsMsg);
-        populateItems(*_game.party().getLeader(), /*onlyDropable=*/false, /*skipCredits=*/true);
+        populateItems(*_game.party().getLeader(), /*skipCredits=*/true);
         break;
     }
     case Mode::PlayerToContainer: {
@@ -204,27 +211,10 @@ void ContainerGUI::switchMode() {
             close();
             return;
         }
-        populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
+        populateItems(*container, /*skipCredits=*/false);
         break;
     }
     }
-}
-
-void ContainerGUI::transferItemsToPlayer() {
-    auto container = _container.resolve();
-    if (!container) {
-        close();
-        return;
-    }
-    std::shared_ptr<Creature> player = _game.party().player();
-    container->moveDropableItemsTo(*player);
-
-    auto placeable = dyn_cast<Placeable>(container);
-    if (placeable) {
-        placeable->runOnInvDisturbed(player->id(), InventoryDisturbType::Removed, script::kObjectInvalid);
-    }
-
-    close();
 }
 
 // The party leader gives the container one of the stack, or the whole stack

@@ -5778,13 +5778,16 @@ void Creature::updateEquipmentPresentation() {
     }
 }
 
-// Only the first sixteen equipment slots leave items in a body bag.
-static constexpr int kBodyBagEquipmentSlots = 16;
+// Only the first fourteen equipment slots leave items in a body bag, sixteen
+// in TSL.
+static constexpr int kBodyBagEquipmentSlots = 14;
+static constexpr int kTslBodyBagEquipmentSlots = 16;
 
 std::vector<std::shared_ptr<Item>> Creature::dropableItems() const {
     std::vector<std::shared_ptr<Item>> result;
+    const int bodyBagSlots = _game.isTSL() ? kTslBodyBagEquipmentSlots : kBodyBagEquipmentSlots;
     for (const auto &[slot, item] : _equipment) {
-        if (slot < kBodyBagEquipmentSlots && item->isDropable()) {
+        if (slot < bodyBagSlots && item->isDropable()) {
             result.push_back(item);
         }
     }
@@ -11571,20 +11574,16 @@ void Creature::forceEquipClothing() {
     }
     _bodyRefusedOnLoad = false;
     static constexpr char kClothing[] = "g_a_clothes01";
-    // The party's own clothing is taken first; otherwise a new, droppable set.
+    // The party's own clothing is worn first, its whole stack, found wherever
+    // it is and taken from what holds it. Otherwise a new, droppable set.
     auto self = _game.getObjectById(_id);
     auto repository = self ? _game.party().sharedInventoryReceiver(self) : nullptr;
     std::shared_ptr<Item> clothing;
     if (repository) {
-        std::shared_ptr<Item> found;
-        for (const auto &item : repository->items()) {
-            if (item && boost::iequals(item->tag(), kClothing)) {
-                found = item;
-                break;
-            }
-        }
-        if (found) {
-            clothing = takeEquipmentCandidate(_game, *repository, found);
+        if (const auto found = repository->getItemByTag(kClothing)) {
+            const auto holder = _game.getObjectById(found->owner());
+            (holder ? *holder : *repository).removeItemStack(found);
+            clothing = found;
         }
     }
     if (!clothing) {
@@ -11726,8 +11725,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                                 replacementItems, item, true);
                             continue;
                         }
-                        item->setOwner(*this);
+                        // Worn first, the item stays possessed by its wearer.
                         item->setEquipped(true);
+                        item->setOwner(*this);
                         _game.recordEquippedOnLoad(*slot, item);
                         replacementEquipment.emplace(*slot, std::move(item));
                     }
@@ -11800,7 +11800,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     // A saved player character is told why it may no longer wear an item.
                     const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, _isPC);
                     if (!slot) {
-                        item->setOwner(*this);
+                        item->restoreOwner(*this);
                         appendOwnedItemCandidate(
                             replacementItems, item, false);
                         continue;
@@ -11810,8 +11810,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                             "Multiple saved items occupy equipment slot " +
                             std::to_string(*slot));
                     }
-                    item->setOwner(*this);
+                    // Worn first, the item stays possessed by its wearer.
                     item->setEquipped(true);
+                    item->restoreOwner(*this);
                     _game.recordEquippedOnLoad(*slot, item);
                     replacementEquipment.emplace(*slot, std::move(item));
                 }
@@ -11825,7 +11826,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         *itemGff,
                         identityContext,
                         {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
-                    item->setOwner(*this);
+                    item->restoreOwner(*this);
                     replacementItems.push_back(std::move(item));
                 }
             }

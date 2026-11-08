@@ -37,6 +37,10 @@ public:
         _resRef = guiResRef("container");
     }
 
+    /**
+     * Shows a container's inventory, recording whether it holds items now:
+     * that sets the caption, and whether OK takes everything.
+     */
     void open(std::shared_ptr<Object> contanier);
     void update(float dt) override;
 
@@ -78,6 +82,8 @@ private:
      * the screen opened has finished, its open and used scripts included.
      */
     bool _itemsListed {false};
+    /** Whether the container held items when the screen opened: OK then takes everything it holds. */
+    bool _heldItemsWhenOpened {false};
 
     std::string _giveItemMsg;
     std::string _getItemsMsg;
@@ -93,12 +99,13 @@ private:
     }
 
     void configureItemsListBox();
-    void populateItems(Object &source, bool onlyDropable, bool skipCredits);
+    /** Lists every item \p source holds, less credits when \p skipCredits. */
+    void populateItems(Object &source, bool skipCredits);
     void switchMode();
-    void transferItemsToPlayer();
     void onItemDoubleClick(const std::string &tag);
     /** Lists the leader's items again once a give has had a frame to run. */
     void updateGiveRefresh();
+    /** Closes the container's inventory, taking everything in it when \p takeAll, and returns to the game. */
     void close(bool takeAll = false);
 };
 

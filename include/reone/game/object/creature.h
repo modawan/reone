@@ -1583,7 +1583,7 @@ public:
     std::optional<int> appearanceBodyBagRow() const { return _appearanceBodyBag; }
     /** The appearance's delay in milliseconds before a destroyed body fades; blank keeps the corpse. */
     std::optional<int> fadeDelayOnDeath() const { return _fadeDelayOnDeath; }
-    /** The items a body leaves in its bag: droppable equipment of the first sixteen slots, then droppable inventory. */
+    /** The items a body leaves in its bag: droppable equipment of the first fourteen slots (sixteen in TSL), then droppable inventory. */
     std::vector<std::shared_ptr<Item>> dropableItems() const;
     /** The body shows no weapons in its hands; its equipment is unchanged. */
     void stripHandWeapons();

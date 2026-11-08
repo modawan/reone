@@ -250,11 +250,29 @@ public:
     void openInventory(Object &opener);
     /**
      * An open inventory closes. Taking all moves every item to a closer the
-     * player controls. The closed script is signalled with the closer and the
-     * placeable takes its close pose; closing it empty destroys a placeable
-     * that dies when empty.
+     * player controls, the last first, each announced acquired by the one
+     * then possessing it and passed to the closer, unless the closer
+     * possesses it already: a counted item not at all, a stack it joined as
+     * kept by the stack's possessor. In TSL each datapad taken is marked
+     * shown, or, taken from the container that shows them and not shown
+     * before, has its text shown, one after another. The closed script is
+     * signalled with the closer and the placeable takes its close pose;
+     * closing it empty destroys a placeable that dies when empty.
      */
     void closeInventory(Object &closer, bool takeAll);
+    /**
+     * The placeable receives an item: the item moves to it, or the part split
+     * off it joins it in its place. An item that leaves its holder is
+     * announced lost. Once received, it is announced acquired from the item's
+     * possessor before the move when the placeable holds it as given; when it
+     * joined a stack of the placeable's, that stack is announced kept.
+     *
+     * @param item the item given
+     * @param split the part split off the item that the placeable receives instead, or none
+     * @param lossFeedback whether the loss is told
+     * @return the stack that holds what was received; none when nothing moved
+     */
+    std::shared_ptr<Item> receiveItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Item> &split = nullptr, bool lossFeedback = true);
 
     // END Inventory
 

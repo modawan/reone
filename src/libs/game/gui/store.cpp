@@ -496,7 +496,7 @@ void StoreGUI::buy(const std::shared_ptr<Item> &item) {
 }
 
 // An equipped item is taken off first. One of a stack is sold, or else the
-// whole item.
+// whole item, which is announced lost, told.
 void StoreGUI::sell(const std::shared_ptr<Item> &item) {
     auto store = _store.resolve();
     auto leader = _game.party().getLeader();
@@ -519,8 +519,10 @@ void StoreGUI::sell(const std::shared_ptr<Item> &item) {
         sold->setStackSize(1);
         sold->keepMarksOf(*item);
         item->setStackSize(item->stackSize() - 1);
+        sold->announceSplitLoss(*item, true);
     } else {
         inventory->removeItemStack(item);
+        item->announceLoss(true);
     }
     store->acquireItem(sold);
     // TSL shows the first row selected again after an equipped item's sale.

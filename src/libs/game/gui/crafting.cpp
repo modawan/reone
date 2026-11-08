@@ -75,7 +75,6 @@ static constexpr int kCloseStrRef = 1582;
 // The breakdown factor is the skill's share of this many ranks, at most all.
 static constexpr float kFullBreakdownRanks = 20.0f;
 static constexpr int kExcludedChemicalGroup = 5;
-static constexpr int kDatapadItemType = 24;
 
 // The views' strings: their titles, cost captions and buttons.
 static constexpr int kCreateTitleStrRef = 111574;
@@ -684,15 +683,14 @@ void CraftingPanel::finishCreate(int row) {
     setShownCount(_shownCount - itemValue(*creatable.item));
     _game.party().setCreatureCount(*character, _count, _shownCount);
     // One entry makes one item, however many identical rows the entry stands
-    // for. The character acquires the item as it is stored and again as it is
-    // taken. An item joining a stack the character holds is that stack
-    // acquired again; a counted item is not acquired.
+    // for. The item is acquired by the one possessing it as it is stored, then
+    // passes to the character as it is taken, unless the character possesses
+    // it already. An item joining a stack is that stack kept by its
+    // possessor; a counted item is not acquired.
     auto made = _game.newItemClone(*creatable.item);
     made->setStackSize(creatable.madeStack);
-    if (const auto held = _game.party().sharedInventoryReceiver(character)->addItem(made)) {
-        held->announceAcquisition(held == made ? script::kObjectInvalid : character->id(), *character, true, true);
-        held->announceAcquisition(character->id(), *character, true, true);
-    }
+    const auto held = _game.party().sharedInventoryReceiver(character)->addItem(made);
+    announceStoredFor(made, held, script::kObjectInvalid, *character);
     showList(row);
 }
 
@@ -850,7 +848,7 @@ bool ItemCreationPanel::passesBreakdownFilter(const Creature &character, const I
     case BreakdownFilter::Usable:
         return usable();
     case BreakdownFilter::Misc:
-        return !item.isEquippable() && item.itemType() != kDatapadItemType && !usable();
+        return !item.isEquippable() && item.itemType() != Item::kDatapadItemType && !usable();
     }
     // Everything passes ALL.
     return true;

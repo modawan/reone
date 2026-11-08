@@ -137,8 +137,8 @@ TEST(ItemPossession, controlled_companion_finds_an_item_looted_into_the_shared_i
 
     auto footlocker = harness.game().newPlaceable();
     footlocker->addItem(makeItem(harness.game(), kSpikeTag, 1, 2));
-    // "Take All" moves dropable items to the leader.
-    footlocker->moveDropableItemsTo(*harness.game().party().player());
+    // "Take All" moves every item to the leader.
+    footlocker->moveAllItemsTo(*harness.game().party().player());
 
     // The loot really did land in the shared inventory, not on the companion.
     ASSERT_TRUE(footlocker->items().empty());
@@ -161,7 +161,7 @@ TEST(ItemPossession, the_returned_item_reports_and_spends_the_shared_stack) {
 
     auto footlocker = harness.game().newPlaceable();
     footlocker->addItem(makeItem(harness.game(), kSpikeTag, 1, 3));
-    footlocker->moveDropableItemsTo(*harness.game().party().player());
+    footlocker->moveAllItemsTo(*harness.game().party().player());
 
     auto pc = harness.call("GetFirstPC", {});
     auto spike = Variable::ofObject(harness.possessedBy(pc, "K_COMPUTER_SPIKE"));
@@ -244,7 +244,7 @@ TEST(ItemPossession, a_placeable_keeps_its_own_inventory_lookup) {
     auto footlockerVar = Variable::ofObject(footlocker->id());
     EXPECT_EQ(spike->id(), harness.possessedBy(footlockerVar, "K_COMPUTER_SPIKE"));
 
-    footlocker->moveDropableItemsTo(*harness.game().party().player());
+    footlocker->moveAllItemsTo(*harness.game().party().player());
     EXPECT_EQ(kObjectInvalid, harness.possessedBy(footlockerVar, "K_COMPUTER_SPIKE"));
 }
 

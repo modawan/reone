@@ -112,6 +112,13 @@ public:
         Presentation,
     };
 
+    /** An item handed over to another object, and the stack that now holds it. */
+    struct HandedOverItem {
+        std::shared_ptr<Item> item;
+        /** The item itself, the stack it joined, or none when it was counted. */
+        std::shared_ptr<Item> held;
+    };
+
     virtual ~Object() = default;
 
     static bool classof(Object *from) {
@@ -305,14 +312,19 @@ public:
     std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item);
     bool removeItem(const std::shared_ptr<Item> &item, bool &last);
     bool removeItemStack(const std::shared_ptr<Item> &item);
-    void moveDropableItemsTo(Object &other);
-    /** Every item moves to other, the last first. */
-    void moveAllItemsTo(Object &other);
+    /**
+     * Every item moves to other, the last first.
+     *
+     * @return each item moved, in the order moved
+     */
+    std::vector<HandedOverItem> moveAllItemsTo(Object &other);
 
     std::shared_ptr<Item> getFirstItem();
     std::shared_ptr<Item> getNextItem();
     /** The first item with the tag, each item's own items searched right after it; none when no item has it. */
     std::shared_ptr<Item> getItemByTag(const std::string &tag);
+    /** The first item of the type, each item's own items searched before it; none when no item is of it. */
+    std::shared_ptr<Item> getItemByItemType(int itemType) const;
 
     const std::vector<std::shared_ptr<Item>> &items() const { return _items; }
 
@@ -688,8 +700,12 @@ protected:
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
 
-    /** An item taken out of this object's inventory goes to other. */
-    void handOverItem(const std::shared_ptr<Item> &item, Object &other);
+    /**
+     * An item taken out of this object's inventory goes to other.
+     *
+     * @return the stack now holding the item, or null when it was counted
+     */
+    std::shared_ptr<Item> handOverItem(const std::shared_ptr<Item> &item, Object &other);
 
     /**
      * Drops a node of a removed action group, bypassing commandability,
@@ -905,7 +921,6 @@ protected:
     /**
      * Replaces the object's items with those of a record's ItemList.
      *
-     * @param forceDropable whether each item read is made dropable
      * @param originOwner the owner a saved item's record is kept under; the object's id when empty
      * @param placedTemplate whether the record is the template of an object an
      *        area places, whose entries are each their InventoryRes template alone
@@ -914,7 +929,6 @@ protected:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         SaveRecordOriginKind originKind,
-        bool forceDropable = false,
         std::string originOwner = {},
         bool placedTemplate = false);
     /**
