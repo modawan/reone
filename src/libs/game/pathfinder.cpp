@@ -63,8 +63,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 #include "reone/game/debug.h"
+#include "reone/game/shaperules.h"
 #include "reone/scene/drawdebug.h"
 
 namespace reone {
@@ -845,26 +847,6 @@ int closestAvoidanceHexCorner(const AvoidanceHex &hex, const glm::vec3 &point) {
     return closest;
 }
 
-// Where two segments meet seen from above, ends included. Parallel segments
-// never meet.
-static bool intersectSegments2d(const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c, const glm::vec3 &d,
-                                glm::vec3 &outPoint) {
-    const glm::vec2 ab {b - a};
-    const glm::vec2 cd {d - c};
-    const float denominator = ab.x * cd.y - ab.y * cd.x;
-    if (denominator == 0.0f) {
-        return false;
-    }
-    const glm::vec2 ac {c - a};
-    const float t = (ac.x * cd.y - ac.y * cd.x) / denominator;
-    const float u = (ac.x * ab.y - ac.y * ab.x) / denominator;
-    if (t < 0.0f || t > 1.0f || u < 0.0f || u > 1.0f) {
-        return false;
-    }
-    outPoint = glm::vec3(glm::vec2(a) + ab * t, 0.0f);
-    return true;
-}
-
 bool findAvoidanceEntryAndExit(const AvoidanceHex &hex, const std::vector<glm::vec3> &points, uint32_t next,
                                AvoidanceCrossing &entry, AvoidanceCrossing &exit) {
     entry = AvoidanceCrossing();
@@ -900,12 +882,11 @@ bool findAvoidanceEntryAndExit(const AvoidanceHex &hex, const std::vector<glm::v
                     ++found;
                 }
             }
-            glm::vec3 crossing;
-            if (intersectSegments2d(a, b, corner, nextCorner, crossing)) {
+            if (auto along = shape::meetSegments(glm::vec2(a), glm::vec2(b), glm::vec2(corner), glm::vec2(nextCorner))) {
                 if (found > 0) {
                     entry = exit;
                 }
-                exit = {e, k, crossing};
+                exit = {e, k, glm::vec3(glm::vec2(a) + glm::vec2(b - a) * *along, 0.0f)};
                 ++found;
                 break;
             }
@@ -962,6 +943,26 @@ void insertAvoidanceWay(std::vector<glm::vec3> &points, uint32_t &next, int entr
     next = std::min(next, static_cast<uint32_t>(entryIndex));
 }
 
+std::optional<float> walkmeshElevationAt(const Uniwalk &uni, const glm::vec2 &xy, float nearZ) {
+    std::optional<float> best;
+    for (const Uniroom &room : uni.rooms) {
+        if (xy.x > room.max.x || xy.y > room.max.y || xy.x < room.min.x || xy.y < room.min.y) {
+            continue;
+        }
+        glm::vec3 top(xy, room.max.z + 1.0f);
+        for (uint32_t i = room.begin; i < room.end; ++i) {
+            CastResult res = castFace(uni, i, top);
+            if (!res.intersects) {
+                continue;
+            }
+            float z = res.intersection.z;
+            if (!best || std::fabs(z - nearZ) < std::fabs(*best - nearZ)) {
+                best = z;
+            }
+        }
+    }
+    return best;
+}
 // Keepout vector points away from a border edge or a corner vertex.
 glm::vec3 computeKeepoutForce(const Uniwalk &uni, const glm::vec3 &position) {
     float keepoutDistance2 = 4.0f;

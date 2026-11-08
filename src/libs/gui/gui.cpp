@@ -106,8 +106,8 @@ void GUI::loadControl(const resource::generated::GUI_CONTROLS &gui) {
         return;
     }
     control->load(gui);
-    if (_hasDefaultHilightColor) {
-        control->setHilightColor(_defaultHilightColor);
+    if (_selectedTextColor) {
+        control->setSelectedTextColor(*_selectedTextColor);
     }
 
     _tagToControl.insert({tag, *control});

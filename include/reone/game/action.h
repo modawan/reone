@@ -82,6 +82,17 @@ public:
     /** The attack records of this action's round, when it runs one. */
     virtual std::optional<std::reference_wrapper<AttackBuffer>> combatAttacks() { return std::nullopt; }
     /**
+     * The hits of the action's swing not yet out land as they come due with
+     * \p pauseLeftMilliseconds of its round's pause left, and, with \p flush,
+     * all of them as the pause ends.
+     */
+    virtual void releaseSwingHits(Creature &attacker, int pauseLeftMilliseconds, bool flush) {}
+    /**
+     * For an attack an earlier save took past its swing, with hits still to
+     * land, the swing's pause it had left; 0 for any other action.
+     */
+    virtual int pauseLeftAtLoadMilliseconds() const { return 0; }
+    /**
      * The command this action carries out. A wrapper keeps its queue
      * identity while it exposes the command it runs.
      */
@@ -152,6 +163,18 @@ public:
      */
     virtual std::optional<SavedActionRecord> saveFacingState() const {
         return _savedAction;
+    }
+    /**
+     * The commands a save of \p actor's queue records in front of the action,
+     * in its group, while the actor has yet to pass its range check: the walk
+     * up to its object while the actor is under way, then the check; the
+     * action's own saved command then no longer carries them. A cast or item
+     * use not yet begun also records the turn toward its object or location
+     * last, alone when it has no check to record. None for an action that
+     * keeps no such commands of its own.
+     */
+    virtual std::vector<SavedActionRecord> rangeCheckCommands(const Object &actor) const {
+        return {};
     }
 
     /**

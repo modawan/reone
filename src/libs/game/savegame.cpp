@@ -399,7 +399,7 @@ resource::SaveSlotDescriptor Game::saveTarget(const SaveRequest &request) const 
     std::ostringstream prefix;
     prefix << std::setw(6) << std::setfill('0') << request.slot;
     auto saves = savedGamesDirectory(_path);
-    // The game keeps the user-entered title in SAVEGAMENAME. Manual directory
+    // A save keeps the user-entered title in SAVEGAMENAME. Manual directory
     // suffixes use the allocation sequence after reserved quick/autosave slots.
     // Existing exact slot directories are retained below for overwrite identity.
     auto suffix = request.slot >= 2

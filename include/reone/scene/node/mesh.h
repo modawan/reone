@@ -120,15 +120,14 @@ private:
     };
 
     struct SaberMesh {
-        glm::vec3 displacement {0.0f};
-        glm::vec3 prevWorldPos {0.0f};
+        glm::mat4 drawnTransform {1.0f};
+        glm::mat4 prevTransform {1.0f};
+        float trailSpan {0.0f};
     } _saber;
 
     ModelSceneNode &_model;
 
     glm::vec2 _uvOffset {0.0f};
-    float _bumpmapCycleTime {0.0f};
-    int _bumpmapCycleFrame {0};
     float _alpha {1.0f};
     glm::vec3 _selfIllumColor {0.0f};
 
@@ -150,11 +149,12 @@ private:
     void applyForceSight(graphics::Material &material) const;
     /** Rebuilds the beam geometry for where the target is now and draws it. */
     void renderProjectedBeam(IRenderPass &pass);
+    /** Where the saber blade's trail ends, in world space. */
+    glm::mat4 saberTrailEnd() const;
 
     // Animation
 
     void updateUVAnimation(float dt, const graphics::ModelNode::TriangleMesh &mesh);
-    void updateBumpmapAnimation(float dt, const graphics::ModelNode::TriangleMesh &mesh);
     void updateDanglyAnimation(float dt, const graphics::ModelNode::Danglymesh &mesh);
     void updateSaberAnimation(float dt);
 

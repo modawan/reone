@@ -26,6 +26,8 @@ public:
     struct String {
         std::string text;
         std::string soundResRef;
+        /** The length of the string's sound in seconds; 0 when the table gives none. */
+        float soundLength {0.0f};
     };
 
     class Builder {

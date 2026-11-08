@@ -38,7 +38,6 @@ static void tintK2TopNavigationIcon(const std::shared_ptr<ImageButton> &button, 
         return;
     }
     button->setBorderColor(baseColor);
-    button->setTintBorderFill(true);
 }
 
 static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &button) {
@@ -82,7 +81,6 @@ void InGameMenuHost::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
         _controls.LBL_SECTITLE->setBorderFill(std::string());
         updateK2SectionTitle();
-        _controls.LBL_BACK1->setTintBorderFill(true);
         refreshK2Footer();
     }
 
@@ -223,6 +221,9 @@ void InGameMenuHost::refreshK2Footer() {
     hide(_controls.LBL_DEBILATATED1);
     hide(_controls.LBL_DEBILATATED2);
     hide(_controls.LBL_DEBILATATED3);
+    hide(_controls.LBL_DISABLED1);
+    hide(_controls.LBL_DISABLED2);
+    hide(_controls.LBL_DISABLED3);
     hide(_controls.LBL_DISABLE1);
     hide(_controls.LBL_DISABLE2);
     hide(_controls.LBL_DISABLE3);

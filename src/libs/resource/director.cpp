@@ -86,6 +86,7 @@ static constexpr char kModuleSaveTableName[] = "modulesave";
 static constexpr char kIncludeInSaveColumn[] = "includeinsave";
 
 static const std::vector<std::string> g_globalLipFiles {"global.mod", "localization.mod"};
+static constexpr char kK1LipFilename[] = "localization.mod";
 
 static const std::unordered_map<TextureQuality, std::string> kTexQualityToTexPack {
     {TextureQuality::High, kTexturePackFilenameHigh},
@@ -601,6 +602,14 @@ void ResourceDirector::loadK1GlobalResources() {
     loadGlobalRimResource();
     loadTexturePackResources();
     loadPlayerSupportResource();
+    // The lips of lines heard in any module, the party's among them.
+    for (const auto &lipsPath : lipsRoots(_gameId, _gamePath, _odysseyRoots)) {
+        if (auto localizationPath = findFileIgnoreCase(lipsPath, kK1LipFilename)) {
+            _resources.addERF(*localizationPath,
+                              ResourceOwner::Global,
+                              bucketOf(ResourceSourceBucket::EncapsulatedClass2));
+        }
+    }
 }
 
 void ResourceDirector::loadLiveResources() {

@@ -36,7 +36,7 @@ static GUI_EXTENT parseGUI_EXTENT(const Gff &gff) {
 
 static GUI_BORDER parseGUI_BORDER(const Gff &gff) {
     GUI_BORDER strct;
-    strct.COLOR = gff.getVector("COLOR");
+    strct.COLOR = gff.getVector("COLOR", glm::vec3(1.0f));
     strct.CORNER = gff.getString("CORNER");
     strct.DIMENSION = gff.getInt("DIMENSION");
     strct.EDGE = gff.getString("EDGE");
@@ -51,7 +51,7 @@ static GUI_BORDER parseGUI_BORDER(const Gff &gff) {
 static GUI_TEXT parseGUI_TEXT(const Gff &gff) {
     GUI_TEXT strct;
     strct.ALIGNMENT = gff.getInt("ALIGNMENT");
-    strct.COLOR = gff.getVector("COLOR");
+    strct.COLOR = gff.getVector("COLOR", glm::vec3(1.0f));
     strct.FONT = gff.getString("FONT");
     strct.PULSING = gff.getUint("PULSING");
     strct.STRREF = gff.getUint("STRREF");

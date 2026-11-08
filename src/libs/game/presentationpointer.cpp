@@ -37,8 +37,8 @@ void PresentationPointer::setPressed(bool pressed) {
         _cursor->setPressed(pressed);
 }
 
-void PresentationPointer::render(const graphics::GraphicsOptions &options, bool relativeMouseMode) {
-    if (!_cursor || relativeMouseMode)
+void PresentationPointer::render(const graphics::GraphicsOptions &options, bool hidden) {
+    if (!_cursor || hidden)
         return;
     static constexpr float kCursorSizeScale = 0.5f;
     float scale = std::min(options.width / 800.0f, options.height / 600.0f) * options.guiScale * kCursorSizeScale;

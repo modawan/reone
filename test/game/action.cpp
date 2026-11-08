@@ -426,6 +426,7 @@ TEST(Action, discarded_start_conversation_does_not_run_after_the_conversation_en
 // C. The complement of A, and the check that the guard rejects nothing it
 // should not: with no conversation running, the very same action survives and
 // its speaker sets about approaching the listener instead of being discarded.
+// The listener stands beyond the speaker's use range, which would end the walk.
 TEST(Action, start_conversation_survives_when_no_conversation_is_active) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -434,6 +435,7 @@ TEST(Action, start_conversation_survives_when_no_conversation_is_active) {
 
     auto speaker = makeApproachingSpeaker(game);
     auto listener = game.newCreature();
+    listener->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
     setScreen(game, Game::Screen::InGame);
     ASSERT_FALSE(game.isConversationActive());
 
@@ -930,15 +932,15 @@ TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
 
     // The released hit's damage is an event of the module, due at once.
     EXPECT_EQ(0u, attacks.signalReadyMelee(
-        499, game, engine.services(), *attacker, *target));
+                      499, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_EQ(20, target->currentHitPoints());
     EXPECT_EQ(0u, attacks.signalReadyMelee(
-                      500, game, engine.services(), *attacker, *target));
+                      500, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_EQ(20, target->currentHitPoints());
     EXPECT_EQ(1u, attacks.signalReadyMelee(
-                      501, game, engine.services(), *attacker, *target));
+                      501, false, game, engine.services(), *attacker, *target));
     game.module()->dispatchDueSavedEvents();
     EXPECT_LT(target->currentHitPoints(), 20);
 }

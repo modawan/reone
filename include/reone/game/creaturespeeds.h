@@ -43,11 +43,11 @@ class ICreatureSpeeds {
 public:
     virtual ~ICreatureSpeeds() = default;
 
-    /** The speeds of a row of the table; a row outside it is invalid. */
+    /** The speeds of a row of the table; a row outside it walks and runs at 0. */
     virtual const CreatureSpeed &get(int row) const = 0;
     /**
      * The row whose 2DA name is \p name, ignoring case, as an appearance's
-     * MOVERATE names it; a name no row has is invalid.
+     * MOVERATE names it; a name no row has gives the first row.
      */
     virtual int find(const std::string &name) const = 0;
 };
@@ -59,7 +59,7 @@ public:
         _twoDas(twoDas) {
     }
 
-    /** Reads the table, which the game requires. */
+    /** Reads the table, which is required. */
     void init();
 
     const CreatureSpeed &get(int row) const override;

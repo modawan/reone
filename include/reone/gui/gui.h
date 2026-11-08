@@ -134,7 +134,6 @@ public:
     virtual float textLayoutScale(float horizontalScale, float verticalScale) const = 0;
     virtual float borderScale() const = 0;
     virtual float listScale() const = 0;
-    virtual bool tintBorderFills() const = 0;
     /** Whether an image button's text pulses while the button is selected, as a button's does. */
     virtual bool imageButtonTextPulses() const = 0;
     /** The opacity pulsing borders and texts are drawn with now. */
@@ -147,11 +146,11 @@ public:
     virtual void setResolution(int x, int y) = 0;
     virtual void setScaling(ScalingMode scaling) = 0;
     virtual void setTextScale(float scale) = 0;
-    virtual void setTintBorderFills(bool tint) = 0;
     /** Sets whether the image buttons loaded afterwards pulse their text while selected. */
     virtual void setImageButtonTextPulses(bool pulses) = 0;
     virtual void setControlScaling(const std::string &tag, ScalingMode scaling) = 0;
-    virtual void setDefaultHilightColor(glm::vec3 color) = 0;
+    /** Every control loaded afterwards draws its text in \p color while selected. */
+    virtual void setSelectedTextColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
 
     /** Reapplies the layout after authored geometry or the resolution changed. */
@@ -234,10 +233,6 @@ public:
         _textScale = scale;
     }
 
-    void setTintBorderFills(bool tint) override {
-        _tintBorderFills = tint;
-    }
-
     void setImageButtonTextPulses(bool pulses) override {
         _imageButtonTextPulses = pulses;
     }
@@ -261,10 +256,6 @@ public:
         return _options.guiListScale;
     }
 
-    bool tintBorderFills() const override {
-        return _tintBorderFills;
-    }
-
     bool imageButtonTextPulses() const override {
         return _imageButtonTextPulses;
     }
@@ -281,9 +272,8 @@ public:
         _scalingByControlTag[tag] = scaling;
     }
 
-    void setDefaultHilightColor(glm::vec3 color) override {
-        _hasDefaultHilightColor = true;
-        _defaultHilightColor = color;
+    void setSelectedTextColor(glm::vec3 color) override {
+        _selectedTextColor = color;
     }
 
     void setBackground(std::shared_ptr<graphics::Texture> texture) override;
@@ -308,7 +298,6 @@ private:
     int _resolutionY {kDefaultResolutionY};
     ScalingMode _scaling {ScalingMode::Center};
     std::optional<float> _textScale;
-    bool _tintBorderFills {false};
     bool _imageButtonTextPulses {false};
     glm::ivec2 _rootOffset {0};
     glm::ivec2 _controlOffset {0};
@@ -338,8 +327,7 @@ private:
 
     // GUI Colors
 
-    bool _hasDefaultHilightColor {false};
-    glm::vec3 _defaultHilightColor {0.0f};
+    std::optional<glm::vec3> _selectedTextColor;
 
     // END GUI Colors
 

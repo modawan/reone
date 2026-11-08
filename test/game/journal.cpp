@@ -65,11 +65,12 @@ protected:
 
         ON_CALL(_gffs, get(_, _)).WillByDefault(Return(_jrlGff));
 
-        _journal = std::make_unique<Journal>(_gffs, _strings);
+        _journal = std::make_unique<Journal>(_gffs, _strings, _twoDas);
     }
 
     NiceMock<MockGffs> _gffs;
     NiceMock<MockStrings> _strings;
+    NiceMock<MockTwoDAs> _twoDas;
     std::shared_ptr<Gff> _jrlGff;
     std::unique_ptr<Journal> _journal;
 };

@@ -44,6 +44,12 @@ public:
     virtual const DifficultyOption &get(int difficulty) const = 0;
     /** The number of rows in the table, the last of which is not a selectable level. */
     virtual int count() const = 0;
+    /**
+     * Whether damage leaves the player character at 1 hit point rather than
+     * taking it to 0 or below. The rules play at the normal level of the
+     * difficulty settings, whichever level the player picks.
+     */
+    virtual bool keepsPlayerCharacterAtOneHitPoint() const = 0;
 };
 
 class DifficultyOptions : public IDifficultyOptions, boost::noncopyable {
@@ -56,10 +62,12 @@ public:
 
     const DifficultyOption &get(int difficulty) const override;
     int count() const override { return static_cast<int>(_options.size()); }
+    bool keepsPlayerCharacterAtOneHitPoint() const override { return _keepsPlayerCharacterAtOneHitPoint; }
 
 private:
     resource::ITwoDAs &_twoDas;
     std::vector<DifficultyOption> _options;
+    bool _keepsPlayerCharacterAtOneHitPoint {false};
 };
 
 } // namespace game

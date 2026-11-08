@@ -284,6 +284,16 @@ void ListBox::render(const glm::ivec2 &screenSize,
         if (item.textColor) {
             _protoItem->setTextColor(*item.textColor);
         }
+        const bool originalUsesFrameColor = _protoItem->usesBorderColorOverride();
+        const glm::vec3 originalFrameColor = _protoItem->borderColorOverride();
+        const float originalFrameAlpha = _protoItem->border().alpha;
+        if (item.frameColor) {
+            _protoItem->setBorderColorOverride(*item.frameColor);
+            _protoItem->setUseBorderColorOverride(true);
+        }
+        if (item.frameAlpha) {
+            _protoItem->setBorderAlpha(*item.frameAlpha);
+        }
 
         auto toggle = item.on ? std::dynamic_pointer_cast<ToggleButton>(_protoItem) : nullptr;
         bool originalOn = toggle && toggle->isOn();
@@ -302,6 +312,9 @@ void ListBox::render(const glm::ivec2 &screenSize,
         }
 
         _protoItem->setTextColor(originalTextColor);
+        _protoItem->setBorderColorOverride(originalFrameColor);
+        _protoItem->setUseBorderColorOverride(originalUsesFrameColor);
+        _protoItem->setBorderAlpha(originalFrameAlpha);
         if (toggle) {
             toggle->setOn(originalOn);
         }
@@ -713,7 +726,7 @@ int ListBox::getItemTextWidth() const {
     if (!_protoItem)
         return 0;
 
-    int width = _protoItem->extent().width -
+    int width = _protoItem->textExtent().width -
                 2 * _protoItem->border().dimension;
     if (shouldRenderItemIconsForButtonProto()) {
         // Button-proto item icons render in a square gutter sized from the row height.
@@ -747,10 +760,11 @@ void ListBox::renderItemWithButtonProtoIcon(
 
     _protoItem->setExtent(textExtent);
     _protoItem->setTextLines(item._textLines);
-    _protoItem->setBorderColorOverride(kInvalidItemBorderColor);
-    _protoItem->setUseBorderColorOverride(item.invalid);
+    if (item.invalid) {
+        _protoItem->setBorderColorOverride(kInvalidItemBorderColor);
+        _protoItem->setUseBorderColorOverride(true);
+    }
     _protoItem->render(screenSize, offset, pass);
-    _protoItem->setUseBorderColorOverride(false);
     _protoItem->setExtent(originalExtent);
 
     if (!item.iconFrame && !item.iconTexture)
@@ -759,12 +773,19 @@ void ListBox::renderItemWithButtonProtoIcon(
     glm::ivec2 iconPosition(offset.x + originalExtent.left, offset.y + originalExtent.top);
     glm::ivec2 iconSize(itemIconWidth, originalExtent.height);
 
+    // The icon frame shows the colour the row's frames show, and their
+    // opacity while the row is not selected.
     if (item.iconFrame) {
-        glm::vec3 frameColor(_protoItem->isSelected() ? _protoItem->hilight().color : _protoItem->border().color);
-        if (item.invalid) {
-            frameColor = kInvalidItemBorderColor;
+        const bool selected = _protoItem->isSelected();
+        glm::vec3 frameColor(selected ? _protoItem->hilight().color : _protoItem->border().color);
+        if (_protoItem->usesBorderColorOverride()) {
+            frameColor = _protoItem->borderColorOverride();
         }
-        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, 1.0f));
+        float frameAlpha = _protoItem->border().alpha;
+        if (selected) {
+            frameAlpha = _iconFrameHilightPulsing ? _gui.pulsingAlpha() : 1.0f;
+        }
+        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, frameAlpha));
     }
     if (item.iconTexture) {
         pass.drawIcon(*item.iconTexture, iconPosition, iconSize);

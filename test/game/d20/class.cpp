@@ -157,7 +157,7 @@ protected:
 
     CreatureAttributes newCharacter(ClassType type, bool tsl) {
         CreatureAttributes attributes(classes->get(type)->defaultAttributes());
-        feats->addGrantedFeats(attributes, RacialType::Human, kObjectTagPlayer, tsl, true);
+        feats->addGrantedFeats(attributes, RacialType::Human, 0, kObjectTagPlayer, tsl, true);
         return attributes;
     }
 };
@@ -230,17 +230,17 @@ TEST_F(GrantedFeatsTest, should_grant_the_feats_of_the_level_gained) {
     auto *clazz = scoundrel.classLevels().back().first;
 
     scoundrel.addClassLevels(clazz, 1);
-    feats->addGrantedFeats(scoundrel, RacialType::Human, kObjectTagPlayer, false, false);
+    feats->addGrantedFeats(scoundrel, RacialType::Human, 0, kObjectTagPlayer, false, false);
     EXPECT_FALSE(scoundrel.hasFeat(FeatType::SneakAttack2d6));
 
     scoundrel.addClassLevels(clazz, 1);
-    feats->addGrantedFeats(scoundrel, RacialType::Human, kObjectTagPlayer, false, false);
+    feats->addGrantedFeats(scoundrel, RacialType::Human, 0, kObjectTagPlayer, false, false);
     EXPECT_TRUE(scoundrel.hasFeat(FeatType::SneakAttack2d6));
     EXPECT_FALSE(scoundrel.hasFeat(FeatType::SneakAttack3d6));
 
     auto guardian = newCharacter(ClassType::JediGuardian, true);
     guardian.addClassLevels(guardian.classLevels().back().first, 1);
-    feats->addGrantedFeats(guardian, RacialType::Human, kObjectTagPlayer, true, false);
+    feats->addGrantedFeats(guardian, RacialType::Human, 0, kObjectTagPlayer, true, false);
     EXPECT_TRUE(guardian.hasFeat(static_cast<FeatType>(116)));
     EXPECT_TRUE(guardian.hasFeat(static_cast<FeatType>(212)));
 }
@@ -249,21 +249,21 @@ TEST_F(GrantedFeatsTest, should_apply_the_tsl_companion_columns_on_level_up) {
     // Bao-Dur is never granted the class feats marked 255 in his column.
     CreatureAttributes baoDur;
     baoDur.addClassLevels(classes->get(ClassType::Soldier).get(), 1);
-    feats->addGrantedFeats(baoDur, RacialType::Human, "BaoDur", true, false);
+    feats->addGrantedFeats(baoDur, RacialType::Human, 0, "BaoDur", true, false);
     EXPECT_TRUE(baoDur.hasFeat(FeatType::WeaponProficiencyBlaster));
     EXPECT_FALSE(baoDur.hasFeat(FeatType::ArmourProfHeavy));
 
     // A companion gains the feats of its own column at that character level.
     baoDur.addClassLevels(classes->get(ClassType::Soldier).get(), 1);
-    feats->addGrantedFeats(baoDur, RacialType::Human, "BaoDur", true, false);
+    feats->addGrantedFeats(baoDur, RacialType::Human, 0, "BaoDur", true, false);
     EXPECT_TRUE(baoDur.hasFeat(static_cast<FeatType>(212)));
 
     CreatureAttributes atton;
     atton.addClassLevels(classes->get(ClassType::Scoundrel).get(), 7);
-    feats->addGrantedFeats(atton, RacialType::Human, "Atton", true, false);
+    feats->addGrantedFeats(atton, RacialType::Human, 0, "Atton", true, false);
     EXPECT_FALSE(atton.hasFeat(FeatType::FightingSpirit));
     atton.addClassLevels(classes->get(ClassType::Scoundrel).get(), 1);
-    feats->addGrantedFeats(atton, RacialType::Human, "Atton", true, false);
+    feats->addGrantedFeats(atton, RacialType::Human, 0, "Atton", true, false);
     EXPECT_TRUE(atton.hasFeat(FeatType::FightingSpirit));
 }
 
@@ -271,7 +271,7 @@ TEST_F(GrantedFeatsTest, should_grant_unarmed_specialist_at_the_characters_jedi_
     CreatureAttributes jedi;
     jedi.addClassLevels(classes->get(ClassType::JediGuardian).get(), 1);
     jedi.addClassLevels(classes->get(ClassType::JediConsular).get(), 1);
-    feats->addGrantedFeats(jedi, RacialType::Human, kObjectTagPlayer, true, false);
+    feats->addGrantedFeats(jedi, RacialType::Human, 0, kObjectTagPlayer, true, false);
     EXPECT_TRUE(jedi.hasFeat(static_cast<FeatType>(212)));
 }
 

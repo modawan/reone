@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 #include <glm/glm.hpp>
 
@@ -92,6 +93,71 @@ inline bool matchSpellCone(const glm::vec3 &position,
     }
     glm::vec3 along = project(origin, target, position) - origin;
     return size * size >= glm::dot(along, along);
+}
+
+/**
+ * Whether the segment from \p from to \p to meets the surface of the sphere
+ * of \p radius around \p center: it begins on one side and ends on the
+ * other, or passes within the radius with both ends outside.
+ */
+inline bool crossesSphere(const glm::vec3 &from,
+                          const glm::vec3 &to,
+                          const glm::vec3 &center,
+                          float radius) {
+    const float radius2 = radius * radius;
+    const glm::vec3 fromOffset = from - center;
+    const glm::vec3 toOffset = to - center;
+    const bool fromInside = glm::dot(fromOffset, fromOffset) <= radius2;
+    const bool toInside = glm::dot(toOffset, toOffset) <= radius2;
+    if (fromInside || toInside) {
+        return fromInside != toInside;
+    }
+    const glm::vec3 nearest = project(from, to, center);
+    const float along = glm::dot(nearest - from, to - from);
+    if (along <= 0.0f || along >= glm::dot(to - from, to - from)) {
+        return false;
+    }
+    const glm::vec3 offset = nearest - center;
+    return glm::dot(offset, offset) <= radius2;
+}
+
+/**
+ * How far along the segment from \p from to \p to, as a fraction of it, it
+ * meets the segment from \p start to \p end across the ground, ends
+ * included; none when they do not meet. Parallel segments never meet.
+ */
+inline std::optional<float> meetSegments(const glm::vec2 &from,
+                                         const glm::vec2 &to,
+                                         const glm::vec2 &start,
+                                         const glm::vec2 &end) {
+    const auto cross = [](const glm::vec2 &a, const glm::vec2 &b) { return a.x * b.y - a.y * b.x; };
+    const glm::vec2 step = to - from;
+    const glm::vec2 edge = end - start;
+    const float denominator = cross(step, edge);
+    if (denominator == 0.0f) {
+        return std::nullopt;
+    }
+    const float stepFraction = cross(start - from, edge) / denominator;
+    const float edgeFraction = cross(start - from, step) / denominator;
+    if (stepFraction < 0.0f || stepFraction > 1.0f || edgeFraction < 0.0f || edgeFraction > 1.0f) {
+        return std::nullopt;
+    }
+    return stepFraction;
+}
+
+/**
+ * Whether the segment from \p from to \p to meets an edge of the closed
+ * outline through \p points, across the ground.
+ */
+template <class Points>
+inline bool crossesOutline(const glm::vec2 &from, const glm::vec2 &to, const Points &points) {
+    const size_t count = points.size();
+    for (size_t i = 0; i < count; ++i) {
+        if (meetSegments(from, to, glm::vec2(points[i]), glm::vec2(points[(i + 1) % count]))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace shape

@@ -70,7 +70,7 @@ public:
                    graphics::Material &material,
                    const glm::mat4 &transform,
                    const glm::mat4 &transformInv,
-                   const glm::vec4 &displacement) override;
+                   const glm::mat4 &trailEnd) override;
 
     void drawBillboard(graphics::Texture &texture,
                        const glm::vec4 &color,

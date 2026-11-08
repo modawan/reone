@@ -66,6 +66,8 @@ public:
     /** Take the rejection message off the bar's description. */
     void clearRejection() { _feedback.clearRejection(); }
 
+    /** The leader is dead or temporarily dead, which greys every action menu. */
+    bool isLeaderDown() const { return _leaderDown; }
     /** TSL: the bar waits for the party member to use a healing item on. */
     bool isChoosingPartyItemTarget() const { return _partyItemTarget.has_value(); }
     /**
@@ -125,7 +127,7 @@ private:
     ActionMenuFeedback _feedback;
     /** The leader the slots were last filled for. */
     uint32_t _leaderId {script::kObjectInvalid};
-    /** The leader is down, which greys every slot. */
+    /** The leader is down, which greys every slot and the target menu. */
     bool _leaderDown {false};
     /** The items the leader can draw on, gathered anew each frame: what it wears on its arms and belt, then the party's inventory. */
     std::vector<CarriedItem> _carried;

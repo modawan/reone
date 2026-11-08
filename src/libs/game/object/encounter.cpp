@@ -29,6 +29,7 @@
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/shaperules.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
@@ -236,6 +237,10 @@ bool Encounter::contains(const glm::vec3 &point) const {
     return isInPolygon2D(glm::vec2(point - _position), _geometry);
 }
 
+bool Encounter::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
+    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry);
+}
+
 void Encounter::setActive(bool active) {
     _active = active;
     if (active) {
@@ -243,19 +248,27 @@ void Encounter::setActive(bool active) {
     }
 }
 
-// A difficulty outside the table, or a blank one, leaves the encounter's as it was.
+// A difficulty outside the table leaves the encounter's as it was; a blank one
+// sets 0.
 void Encounter::setDifficulty(int difficultyIndex) {
-    if (const auto difficulty = _services.game.combatTables.encounterDifficulty(difficultyIndex)) {
-        _difficulty = *difficulty;
+    const auto &tables = _services.game.combatTables;
+    if (difficultyIndex < 0 || difficultyIndex >= tables.encounterDifficultyCount()) {
+        return;
     }
+    _difficulty = tables.encounterDifficulty(difficultyIndex).value_or(0);
 }
 
 // The creature signals the encounter when it enters or leaves; the signal is
 // handled with the other queued events rather than in the middle of its move.
-void Encounter::updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce) {
+// A step that passes through the outline signals both, in the order it
+// crossed.
+void Encounter::updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce, std::optional<glm::vec3> from) {
     const bool inside = contains(creature->position());
     const bool known = _occupants.count(creature->id()) != 0;
     if (inside == known) {
+        if (announce && from && crosses(*from, creature->position())) {
+            _game.queuePassage(*this, creature, inside);
+        }
         return;
     }
     if (inside) {

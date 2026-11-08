@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/d20/skills.h"
+#include "reone/game/di/services.h"
 #include "reone/game/effect/abilitydecrease.h"
 #include "reone/game/effect/abilityincrease.h"
 #include "reone/game/effect/acdecrease.h"
@@ -96,6 +98,7 @@
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/script/routines.h"
+#include "reone/game/visualeffects.h"
 #include "reone/script/routine/exception/notimplemented.h"
 #include "reone/script/variable.h"
 
@@ -116,6 +119,12 @@ using namespace reone::script;
 namespace reone {
 
 namespace game {
+
+// A script's skill effect names a skill of the skill table after Computer
+// Use, or every skill; on any other it is an invalid effect.
+static bool isScriptSkillEffectSkill(int skill, const RoutineContext &ctx) {
+    return skill == kAllSkills || (skill > 0 && ctx.services.game.skills.get(static_cast<SkillType>(skill)));
+}
 
 static Variable EffectAssuredHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
@@ -434,10 +443,9 @@ static Variable EffectVisualEffect(const std::vector<Variable> &args, const Rout
 
     // Transform
     bool missEffect = static_cast<bool>(nMissEffect);
-    // In TSL the distortion visual is shown as the stealth field, as with
-    // frame-buffer effects off; the effect then carries the stealth field's id.
+    // TSL shows its distortion visual as the stealth field, and the effect
+    // carries the stealth field's id.
     static constexpr int kDistortionVisual = 8000;
-    static constexpr int kStealthFieldVisual = 8002;
     if (ctx.game.isTSL() && nVisualEffectId == kDistortionVisual) {
         nVisualEffectId = kStealthFieldVisual;
     }
@@ -470,7 +478,10 @@ static Variable EffectBeam(const std::vector<Variable> &args, const RoutineConte
     auto bodyPart = static_cast<BodyNode>(nBodyPart);
     bool missEffect = static_cast<bool>(bMissEffect);
 
-    // Execute
+    // Execute: a visual that is not a beam makes an effect of no type.
+    if (!isBeamVisual(ctx.game.isTSL(), nBeamVisualEffect)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
     auto effect = ctx.game.newEffect<BeamEffect>(nBeamVisualEffect, std::move(oEffector), bodyPart, missEffect);
     return Variable::ofEffect(std::move(effect));
 }
@@ -538,8 +549,9 @@ static Variable EffectImmunity(const std::vector<Variable> &args, const RoutineC
     // Load
     auto nImmunityType = getInt(args, 0);
 
-    // Transform
-    auto immunityType = static_cast<ImmunityType>(nImmunityType);
+    // Transform: a negative type is All, and a type past the title's last
+    // is held one past it.
+    auto immunityType = static_cast<ImmunityType>(std::clamp(nImmunityType, 0, immunityTypeCount(ctx.game.isTSL())));
 
     // Execute
     auto effect = ctx.game.newEffect<ImmunityEffect>(immunityType);
@@ -577,12 +589,12 @@ static Variable EffectSkillIncrease(const std::vector<Variable> &args, const Rou
     // Load
     auto nSkill = getInt(args, 0);
     auto nValue = getInt(args, 1);
-
-    // Transform
-    auto skill = static_cast<SkillType>(nSkill);
+    if (!isScriptSkillEffectSkill(nSkill, ctx)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
 
     // Execute
-    auto effect = ctx.game.newEffect<SkillIncreaseEffect>(skill, nValue);
+    auto effect = ctx.game.newEffect<SkillIncreaseEffect>(static_cast<SkillType>(nSkill), nValue);
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -745,12 +757,12 @@ static Variable EffectSkillDecrease(const std::vector<Variable> &args, const Rou
     // Load
     auto nSkill = getInt(args, 0);
     auto nValue = getInt(args, 1);
-
-    // Transform
-    auto skill = static_cast<SkillType>(nSkill);
+    if (!isScriptSkillEffectSkill(nSkill, ctx)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
 
     // Execute
-    auto effect = ctx.game.newEffect<SkillDecreaseEffect>(skill, nValue);
+    auto effect = ctx.game.newEffect<SkillDecreaseEffect>(static_cast<SkillType>(nSkill), nValue);
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -931,7 +943,10 @@ static Variable EffectForceDrain(const std::vector<Variable> &args, const Routin
 
     // Transform
 
-    // Execute
+    // Execute: an amount below 1 makes an effect of no type.
+    if (nDamage < 1) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
     auto effect = ctx.game.newEffect<ForceDrainEffect>(nDamage);
     return Variable::ofEffect(std::move(effect));
 }

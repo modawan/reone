@@ -32,13 +32,9 @@ namespace game {
 void JournalMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
-    tintK2InGameFooter();
-    tintK2InGameHeader();
 
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        _controls.LB_ITEMS->setTintBorderFill(true);
-        _controls.LBL_ITEM_DESCRIPTION->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_TITLE);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
         enableK2ButtonBodyFill(_controls.BTN_MESSAGES);
@@ -69,6 +65,7 @@ void JournalMenu::onGUILoaded() {
         _controls.BTN_SORT->setDisabled(true);
     }
 
+    useK1ListEntryColors(_controls.LB_ITEMS->protoItem());
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &plotId) {
         refreshEntryText(plotId);
@@ -93,12 +90,38 @@ void JournalMenu::refresh() {
         ListBox::Item item;
         item.tag = quest.plotId;
         item.text = std::move(name);
+        if (quest.unread) {
+            useK1NewEntryStyle(item);
+        }
         _controls.LB_ITEMS->addItem(std::move(item));
     }
+    _shownQuest.clear();
+}
+
+// A new quest read in the journal shows as new until another is read, and
+// stops being new once the journal is left.
+void JournalMenu::markReadQuestsSeen() {
+    Journal &journal = _game.journal();
+    for (const auto &plotId : _readQuests) {
+        journal.markRead(plotId);
+    }
+    _readQuests.clear();
 }
 
 void JournalMenu::refreshEntryText(const std::string &plotId) {
     _controls.LBL_ITEM_DESCRIPTION->clearItems();
+
+    if (!_shownQuest.empty() && _shownQuest != plotId) {
+        for (int i = 0; i < _controls.LB_ITEMS->getItemCount(); ++i) {
+            if (_controls.LB_ITEMS->getItemAt(i).tag == _shownQuest) {
+                _controls.LB_ITEMS->clearItemFrameStyle(i);
+            }
+        }
+    }
+    _shownQuest = plotId;
+    if (std::find(_readQuests.begin(), _readQuests.end(), plotId) == _readQuests.end()) {
+        _readQuests.push_back(plotId);
+    }
 
     Journal &journal = _game.journal();
     std::string text(journal.getEntryText(plotId, journal.getEntryState(plotId)));

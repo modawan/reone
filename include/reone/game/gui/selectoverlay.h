@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <array>
+#include <map>
+#include <optional>
+
 #include "reone/graphics/font.h"
 #include "reone/graphics/texture.h"
 #include "reone/gui/control.h"
@@ -51,14 +55,27 @@ public:
 
     bool handle(const input::Event &event);
     void update(float dt);
-    void render();
+    /** Draw the reticles and the target menu, whose icons all grey while \p leaderDown. */
+    void render(bool leaderDown);
 
 private:
+    /** The target menu's columns. */
+    static constexpr int kNumActionSlots = 3;
+
     enum class ActionBand {
         None,
         Previous,
         Icon,
         Next
+    };
+
+    /** Targets that share a column memory. */
+    enum class SelectionGroup {
+        HostileCreature,
+        OtherCreatureOrFixture,
+        DoorOrContainer,
+        Mine,
+        None
     };
 
     Game &_game;
@@ -87,8 +104,19 @@ private:
     int _selectedActionSlot {-1};
     ActionBand _hilightedActionBand {ActionBand::None};
     bool _hilightedHostile {false};
+    /**
+     * Whether the selected target is a creature shown and offered as hostile:
+     * one hostile to the leader, or any while the dead-target hold runs.
+     */
     bool _selectedHostile {false};
     bool _hasActions {false};
+    /** The group of the selected target, whose entries the columns show. */
+    SelectionGroup _selectionGroup {SelectionGroup::None};
+    /**
+     * For each group of targets, the entry each column is set to. While a
+     * column does not offer its entry, it shows its first.
+     */
+    std::map<SelectionGroup, std::array<std::optional<EntryIdentity>, kNumActionSlots>> _selections;
     ActionMenuFeedback _feedback;
 
     bool handleMouseMotion(const input::MouseMotionEvent &event);
@@ -98,12 +126,12 @@ private:
     void renderReticle(graphics::Texture &texture, const glm::vec3 &screenCoords, float width, float height, float alpha);
     void renderTitleBar();
     void renderHealthBar();
-    void renderActionBar();
+    void renderActionBar(bool leaderDown);
 
     void renderActionFrame(int index);
     void renderActionArrows(int index);
     void renderActionArrow(int index, bool previous);
-    void renderActionIcon(int index);
+    void renderActionIcon(int index, bool leaderDown);
 
     bool getActionScreenCoords(int index, float &x, float &y) const;
     float layoutScale() const;

@@ -32,6 +32,11 @@ constexpr int kNumClasses = 6;
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;
 
+/** The name of the Security skill, which also names its use on a lock in the log and the target menu. */
+constexpr int kSecurityStrRef = 329;
+/** The name of recovering a mine, in the log and the target menu. */
+constexpr int kRecoverActionStrRef = 1531;
+
 constexpr char kSceneMain[] = "main";
 constexpr char kSceneMainMenu[] = "mainmenu";
 constexpr char kSceneCharGen[] = "chargen";
@@ -42,10 +47,20 @@ constexpr char kSceneCharacter[] = "character";
 constexpr glm::vec3 kGUIColorBase = glm::vec3(0.0f, 0.639216f, 0.952941f);
 constexpr glm::vec3 kGUIColorHilight = glm::vec3(0.980392f, 1.0f, 0.0f);
 constexpr glm::vec3 kGUIColorDisabled = glm::vec3(0.0f, 0.349020f, 0.549020f);
+/** KotOR's colour for what the player has not looked at yet: a new item or quest. */
+constexpr glm::vec3 kGUIColorNew = glm::vec3(0.95f, 0.0f, 0.85f);
 
 constexpr glm::vec3 kTSLGUIColorBase = glm::vec3(0.192157f, 0.768627f, 0.647059f);
 constexpr glm::vec3 kTSLGUIColorHilight = glm::vec3(0.768627f, 0.768627f, 0.686275f);
 constexpr glm::vec3 kTSLGUIColorDisabled = glm::vec3(0.513725f, 0.513725f, 0.415686f);
+
+// The colours of a control that leads to travel or a party change: KotOR's
+// while it is open and while it is refused, and TSL's refused text.
+constexpr glm::vec3 kTravelOpenTextColor {0.0f, 0.66f, 0.98f};
+constexpr glm::vec3 kTravelOpenBorderColor {1.0f, 1.0f, 1.0f};
+constexpr glm::vec3 kTravelRefusedTextColor {0.0f, 0.33f, 0.49f};
+constexpr glm::vec3 kTravelRefusedBorderColor {0.35f, 0.35f, 0.35f};
+constexpr glm::vec3 kTSLTravelRefusedTextColor {0.4f, 0.4f, 0.3f};
 
 enum class BackgroundType {
     None,
@@ -215,7 +230,6 @@ enum class EffectType {
     ElementalShield = 60,
     NegativeLevel = 61,
     Disguise = 62,
-    Sanctuary = 63,
     TrueSeeing = 64,
     SeeInvisible = 65,
     TimeStop = 66,
@@ -502,6 +516,9 @@ enum class SkillType {
     Security = 6,
     TreatInjury = 7
 };
+
+/** A skill effect on this skill applies to every skill. */
+constexpr int kAllSkills = 255;
 
 enum class FeatType {
     Invalid = 0,
@@ -890,7 +907,6 @@ constexpr bool isSaberForm(CombatForm form) {
 /** A stance a creature holds instead of attacking. */
 enum class CombatStance {
     None = -1,
-    TotalDefense = 0,
     Meditative = 1
 };
 
@@ -1037,6 +1053,7 @@ enum class ActionType {
     Appear = 0x1028,
     DoorSaber = 0x1029,
     ChangeFacing = 0x102a,
+    OrientCamera = 0x102b,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe
@@ -1524,6 +1541,8 @@ struct PartySelectionContext {
     std::string exitScript;
     int forceNpc1 {-1};
     int forceNpc2 {-2};
+    /** A script opened the selection: TSL then lets the party change whatever its state. */
+    bool openedByScript {false};
 };
 
 /**

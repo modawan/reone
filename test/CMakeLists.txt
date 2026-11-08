@@ -59,6 +59,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/actionactor.cpp
     ${TESTS_SOURCE_DIR}/game/area.cpp
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
+    ${TESTS_SOURCE_DIR}/game/avoidance.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
@@ -77,6 +78,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
+    ${TESTS_SOURCE_DIR}/game/inventoryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/worldtime.cpp
     ${TESTS_SOURCE_DIR}/game/savedruntime.cpp
     ${TESTS_SOURCE_DIR}/game/saveprovenance.cpp
@@ -99,7 +101,9 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/pazaakintegration.cpp
     ${TESTS_SOURCE_DIR}/game/pazaaksession.cpp
     ${TESTS_SOURCE_DIR}/game/presentationpointer.cpp
+    ${TESTS_SOURCE_DIR}/game/queryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/partyroutines.cpp
+    ${TESTS_SOURCE_DIR}/game/platformroutines.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/reputes.cpp
     ${TESTS_SOURCE_DIR}/game/rostermaterialization.cpp

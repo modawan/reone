@@ -58,6 +58,7 @@ public:
     /** The class index the talent is used through, or a casting source kind (castingSourceKind). */
     int castingClass() const { return _castingClass; }
     uint32_t item() const { return _item; }
+    /** The place of the talent's property among the properties its item is used through, or -1. */
     int itemPropertyIndex() const { return _itemPropertyIndex; }
     int casterLevel() const { return _casterLevel; }
     int metaType() const { return _metaType; }

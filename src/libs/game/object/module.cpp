@@ -31,6 +31,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
+#include "reone/game/action/playanimation.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/attack.h"
 #include "reone/game/castspell.h"
@@ -38,13 +39,16 @@
 #include "reone/game/combattables.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
+#include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
 #include "reone/game/projectiles.h"
@@ -145,7 +149,7 @@ static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, c
                               const std::shared_ptr<Creature> &leader) {
     static constexpr uint32_t kObjectMineTypes = 0x679c1f8;
     static constexpr int kLastObjectMineType = 26;
-    if (!game.isTSL() || !leader->attributes().hasSkill(SkillType::Demolitions)) {
+    if (!game.isTSL() || !leader->canUseSkill(SkillType::Demolitions)) {
         return;
     }
     if (area.playerRestrictMode()) {
@@ -175,11 +179,47 @@ static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, c
     }
 }
 
+// Security spikes the leader may use on a lock, after the Security entry
+// (TSL only), read from the items it carries as the menu is built.
+static void addSecuritySpikeActions(std::vector<ContextAction> &actions, const Creature &leader) {
+    for (const auto &item : leader.itemRepositoryOwner().items()) {
+        if (item->itemType() == Item::kSecuritySpikeItemType && item->hasActiveProperty(ItemProperty::SecuritySpike)) {
+            actions.emplace_back(SkillType::Security, 0, item);
+        }
+    }
+}
+
+// The item targeting spells.2da gives a power used on a container.
+static constexpr uint32_t kContainerItemTargeting = 2;
+
+// The leader's plot items with a cast-spell power in force that is used on a
+// container, in the order the party holds them, read as the menu is built.
+static void addContainerPlotItemActions(std::vector<ContextAction> &actions, ServicesView &services, const Creature &leader) {
+    for (const auto &item : leader.itemRepositoryOwner().items()) {
+        if (!item->plotFlag()) {
+            continue;
+        }
+        const auto &properties = item->properties();
+        auto power = std::find_if(properties.begin(), properties.end(), [&item](const Item::PropertyEntry &property) {
+            return property.type() == ItemProperty::ActivateItem && item->isPropertyActive(property);
+        });
+        if (power == properties.end()) {
+            continue;
+        }
+        // A power with no spells.2da row offers nothing.
+        auto spell = services.game.spells.get(static_cast<SpellType>(power->subtype));
+        if (spell && spell->itemTargeting == kContainerItemTargeting) {
+            actions.emplace_back(item, std::move(spell));
+            actions.back().containerUse = true;
+        }
+    }
+}
+
+// A locked container is offered Security even when its lock wants a key.
 static bool canUseSecurityOnPlaceable(const Placeable &placeable, const Creature &actor) {
     return placeable.hasInventory() &&
            placeable.isLocked() &&
-           !placeable.isKeyRequired() &&
-           actor.attributes().hasSkill(SkillType::Security);
+           actor.canUseSkill(SkillType::Security);
 }
 
 // Standing toward the placeable plays no part in whether it can be bashed.
@@ -367,6 +407,11 @@ void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     float facing = 0.0f;
     getEntryPoint(entry, position, facing);
 
+    // The area's creatures keep apart from the leader's face before the
+    // party joins them.
+    if (auto leader = _game.party().getLeader()) {
+        _area->wearBackupHeadsApartFrom(*leader);
+    }
     _area->loadParty(position, facing, preserveSavedPlacement);
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();
@@ -456,6 +501,10 @@ void Module::getEntryPoint(const std::string &waypoint, glm::vec3 &position, flo
 }
 
 bool Module::handle(const input::Event &event) {
+    // The player's controls are held while the area's transition is pending.
+    if (_area->transitionPending()) {
+        return false;
+    }
     if (_player && _player->handle(event))
         return true;
     if (_area->handle(event))
@@ -562,6 +611,15 @@ void Module::onObjectClick(const std::shared_ptr<Object> &object, bool sound) {
     }
 }
 
+void Module::removeWorldJournalEntry(int32_t id, bool byStrRef) {
+    auto entry = std::find_if(_worldJournal.rbegin(), _worldJournal.rend(), [&](const WorldJournalEntry &e) {
+        return e.byStrRef == byStrRef && e.id == id;
+    });
+    if (entry != _worldJournal.rend()) {
+        _worldJournal.erase(std::next(entry).base());
+    }
+}
+
 // With no one under control nothing is hostile to the leader.
 bool Module::isHostileToPartyLeader(const Creature &creature) const {
     const auto leader = _game.party().getLeader();
@@ -621,19 +679,9 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     if (!_game.party().getLeader()->isCommandable()) {
         return;
     }
-    if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
-        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-        if (door->isLocked()) {
-            tryUnlockDoorWithKey(_game, *door, *partyLeader, _game.party());
-        }
-        if (door->isLocked()) {
-            signalFailToOpen(*door, *partyLeader);
-            return;
-        }
-        door->setLastEnteredId(partyLeader->id());
-        _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
-        return;
-    }
+    // The click opens a closed door; travel through a linked one follows as
+    // the leader steps into its outline or a walk to it comes within use
+    // range.
     if (!door->isOpen()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         partyLeader->addAction(_game.newAction<OpenDoorAction>(door));
@@ -641,27 +689,19 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     }
 }
 
-// A placeable's default action is an order: it clears the leader's actions
-// unless the leader is busy, and then follows them.
+// A placeable's default action is a use, given as an order: it clears the
+// leader's actions unless the leader is busy, and then follows them. A use
+// starts no conversation of its own; the placeable's used script may, and in
+// KotOR 129 of the 130 conversation placeables with an OnUsed script do,
+// many choosing between dialogs, as the Taris sewer force field's
+// k_ptar_startconv does between its computer and Mission's tar05_ff_dlg2.
 void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     if (!partyLeader->isCommandable() || !_game.canClick()) {
         return;
     }
-
-    if (placeable->hasInventory()) {
-        partyLeader->clearOrdersUnlessBusy();
-        if (!placeable->isLocked()) {
-            partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-        }
-    } else if (!placeable->conversation().empty()) {
-        partyLeader->clearOrdersUnlessBusy();
-        _game.setDialogUnderWay(true);
-        partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
-    } else {
-        partyLeader->clearOrdersUnlessBusy();
-        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-    }
+    partyLeader->clearOrdersUnlessBusy();
+    partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
 }
 
 static constexpr uint32_t kBodyBagDelayMilliseconds = 500;
@@ -737,21 +777,14 @@ void Module::deserializeSavedEventQueue(
     _pendingSavedEvents.clear();
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
-    // Every event but a discarded one is kept. One that cannot be delivered
-    // stays pending, is never published, and is saved again as it was loaded.
+    // Every event but a discarded one is kept. One that cannot run stays
+    // pending, is never published, and is saved again as it was loaded.
     for (auto &event : queue.events) {
         const auto index = _nextSavedEventIndex++;
         if (event.shouldRestore()) {
-            _pendingSavedEvents.emplace(index, PendingSavedEvent {std::move(event), false});
+            _pendingSavedEvents.emplace(index, PendingSavedEvent {std::move(event)});
         }
     }
-}
-
-// Binds every reference of a queued event. Only the target decides whether
-// the event can be delivered; nothing else is looked up.
-static bool bindForDelivery(SavedEventRecord &event, const Game &game) {
-    event.bindObjectReferences(game);
-    return event.object.isInvalid() || event.object.boundObject() != nullptr;
 }
 
 std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
@@ -784,15 +817,21 @@ std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
 
 size_t Module::enqueueSaveEvent(SavedEventRecord event, std::shared_ptr<Action> command, bool keepsCallerFade) {
     // Bind before snapshot/publication, while this registry owns the domain.
-    const bool targetBound = bindForDelivery(event, _game);
-    return enqueueBoundSaveEvent(std::move(event), targetBound, std::move(command), keepsCallerFade);
+    event.bindObjectReferences(_game);
+    return enqueueBoundSaveEvent(std::move(event), std::move(command), keepsCallerFade);
+}
+
+// Only the target decides whether a bound event can be delivered.
+static bool isTargetBound(const SavedEventRecord &event) {
+    return event.object.isInvalid() || event.object.boundObject() != nullptr;
 }
 
 size_t Module::enqueueBoundSaveEvent(
-    SavedEventRecord event, bool targetBound, std::shared_ptr<Action> command, bool keepsCallerFade) {
+    SavedEventRecord event, std::shared_ptr<Action> command, bool keepsCallerFade) {
     // The caller has bound the target already.
     const auto index = _nextSavedEventIndex++;
-    PendingSavedEvent pending {std::move(event), targetBound};
+    PendingSavedEvent pending {std::move(event)};
+    pending.targetBound = isTargetBound(pending.record);
     pending.command = std::move(command);
     pending.keepsCallerFade = keepsCallerFade;
     _pendingSavedEvents.emplace(index, std::move(pending));
@@ -816,8 +855,8 @@ bool Module::cancelSaveEvent(size_t index) {
 
 void Module::bindSavedEventQueue() {
     for (auto &[index, pending] : _pendingSavedEvents) {
-        pending.targetBound = !pending.record.shouldRestore() ||
-                              bindForDelivery(pending.record, _game);
+        pending.record.bindObjectReferences(_game);
+        pending.targetBound = isTargetBound(pending.record);
     }
 }
 
@@ -843,7 +882,7 @@ void Module::publishSavedEventQueue() {
 void Module::publishSavedEvent(size_t index) {
     auto &pending = _pendingSavedEvents.find(index)->second;
     const auto &savedEvent = pending.record;
-    if (!savedEvent.shouldRestore() || !pending.targetBound) {
+    if (!pending.targetBound) {
         return;
     }
     if (!pending.command && savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
@@ -855,14 +894,8 @@ void Module::publishSavedEvent(size_t index) {
     event.command = pending.command;
     event.keepsCallerFade = pending.keepsCallerFade;
     if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
-        auto situation = std::get_if<SerializedScriptSituation>(&savedEvent.payload);
-        if (!situation) {
-            return;
-        }
         SavedScriptSituationImporter importer(_game, _services.resource.scripts);
-        auto imported = importer.import(*situation);
-        // A situation that cannot be resumed leaves its event pending and
-        // unpublished, to be saved again as it was loaded.
+        auto imported = importer.import(std::get<SerializedScriptSituation>(savedEvent.payload));
         if (!imported) {
             warn("Module: keeping a timed event that cannot be resumed: " + imported.message);
             return;
@@ -896,6 +929,7 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     auto node = _pendingSavedEvents.extract(published.savedIndex);
     const auto savedEvent = std::move(node.mapped().record);
     node = {};
+    // An event whose target has gone since it was queued is consumed.
     auto target = savedEvent.object.boundObject();
     if (!target) {
         return;
@@ -904,6 +938,9 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     // takes any event.
     if (auto creature = dyn_cast<Creature>(target)) {
         creature->runSpawnScript();
+    }
+    if (!published.command && savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
+        return;
     }
 
     switch (static_cast<SavedEventType>(savedEvent.eventId)) {
@@ -917,7 +954,7 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     case SavedEventType::OnMeleeAttacked:
         deliverAttackedEvent(savedEvent, *target);
         break;
-    case SavedEventType::BroadcastSafeProjectile:
+    case SavedEventType::SafeProjectile:
         deliverSafeProjectile(savedEvent);
         break;
     case SavedEventType::DestroyObject:
@@ -934,6 +971,38 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     }
     case SavedEventType::SpawnBodyBag:
         deliverBodyBag(std::get<SavedBodyBag>(savedEvent.payload), cast<Area>(*target));
+        break;
+    case SavedEventType::RemoveFromArea:
+        deliverRemovalFromArea(savedEvent, target);
+        break;
+    case SavedEventType::CloseObject:
+        // A door swings shut, with the door linked to it, and runs its closed
+        // script with the caller as the last to close it.
+        if (auto door = dyn_cast<Door>(target)) {
+            door->close();
+            const auto closer = savedEvent.caller.boundObject();
+            door->onClosed(closer ? closer->id() : script::kObjectInvalid);
+        }
+        break;
+    case SavedEventType::PlayAnimation:
+        deliverAnimation(savedEvent, *target);
+        break;
+    case SavedEventType::DecrementStackSize:
+        // An item's stack loses one; the last one goes with the item.
+        if (auto item = dyn_cast<Item>(target)) {
+            if (item->stackSize() > 1) {
+                item->setStackSize(item->stackSize() - 1);
+            } else {
+                deliverDestruction(item, false);
+            }
+        }
+        break;
+    case SavedEventType::AcquireItem:
+        // A placeable takes the caller, an item, into its inventory.
+        if (auto item = std::dynamic_pointer_cast<Item>(savedEvent.caller.boundObject());
+            item && isa<Placeable>(target)) {
+            transferItemTo(_game, item, *target);
+        }
         break;
     case SavedEventType::Timed:
         // The situation runs as the target whatever its state:
@@ -981,7 +1050,12 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
     if (!caster) {
         return;
     }
-    auto spell = *_services.game.spells.get(static_cast<SpellType>(impact->spellId));
+    // The impact runs the script it carries, even for a spell spells.2da has
+    // no row for.
+    const auto type = static_cast<SpellType>(impact->spellId);
+    auto known = _services.game.spells.get(type);
+    Spell spell = known ? *known : Spell();
+    spell.type = type;
     spell.impactScript = impact->script;
     auto spellTarget = impact->target.boundObject();
     // The event updates the spell and its cost; the impact otherwise reads
@@ -1007,15 +1081,18 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
     // path, to where the impact lands.
     if (overrideLevel && isa<Creature>(caster.get()))
         caster->setLastSpellProjectileMilliseconds(spellProjectileTimeMilliseconds(
-            spell, caster->position(), position, ProjectilePathType::Default, _game.isTSL()));
+            spell, caster->position(), position, ProjectilePathType::Default));
     runSpellImpact(_game, spell, *caster, spellTarget,
                    std::make_shared<Location>(position, targetFacing), context, item, overrideLevel);
 }
 
 // A conversation event carries in its integers the number of pieces of the
-// match, the whole string included, and the pattern number, and in its strings
-// the pieces, the whole string's place left empty. A request to talk carries
-// none of them: it matched no pattern and has no pieces.
+// match, the whole string included, the pattern number and whether the
+// conversation is private, and in its strings the dialog, then the pieces after
+// the whole string. A shout names no dialog and is not private. The hearer
+// takes the pattern number, the pieces, the dialog and the privacy. A request
+// to talk carries -1 for the count and the pattern number: it matched no
+// pattern.
 static Object::ConversationEvent conversationEventOf(const SavedScriptEvent &event, uint32_t speaker) {
     Object::ConversationEvent result;
     result.speaker = speaker;
@@ -1026,6 +1103,10 @@ static Object::ConversationEvent conversationEventOf(const SavedScriptEvent &eve
     for (int32_t i = 1; i < count; ++i) {
         result.matchedPieces.push_back(static_cast<size_t>(i) < event.strings.size() ? event.strings[i] : "");
     }
+    if (!event.strings.empty()) {
+        result.conversation = event.strings[0];
+    }
+    result.privateConversation = event.integers.size() > 2 && event.integers[2] != 0;
     return result;
 }
 
@@ -1068,19 +1149,24 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else if (placeable->isUsable()) {
             placeable->runOnUsed(savedEvent.caller.boundObject());
         }
-    } else if (type == Signal::Locked && doorOrPlaceable) {
-        // A locked door or placeable runs its script for being locked.
-        if (auto door = dyn_cast<Door>(target)) {
-            door->onLocked();
+    } else if (auto lock = target->findLock(); lock && (type == Signal::Locked || type == Signal::Unlocked)) {
+        // A door or placeable that was locked or unlocked remembers who did
+        // it and runs its script for that.
+        if (type == Signal::Locked) {
+            lock->get().onLocked(*target, callerId());
         } else {
-            placeable->onLocked();
+            lock->get().onUnlocked(*target, callerId());
         }
+    } else if (auto trap = target->findTrap(); trap && type == Signal::Disarmed) {
+        // A trap told it was disarmed remembers who did it and runs its disarm script.
+        trap->get().receiveDisarmSignal(*target, callerId());
     } else if (type == Signal::FailToOpen && doorOrPlaceable) {
-        // A door or placeable that failed to open for its caller runs its
-        // script for that; the first integer quiets a door's locked line.
+        // A door, or in TSL a placeable, that failed to open for its caller
+        // runs its script for that; the first integer quiets a door's locked
+        // line. A KotOR placeable takes no notice.
         if (auto door = dyn_cast<Door>(target)) {
             door->onFailToOpen(callerId(), !event.integers.empty() && event.integers[0] != 0);
-        } else {
+        } else if (_game.isTSL()) {
             placeable->onFailToOpen(callerId());
         }
     } else if (target.get() == this && (type == Signal::ItemActivated || type == Signal::ItemAcquired ||
@@ -1088,6 +1174,8 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         receiveItemEvent(event, savedEvent.caller);
     } else if (target.get() == this && type == Signal::ModuleLoaded) {
         receiveLoadedSignal(!event.integers.empty() && event.integers[0] != 0);
+    } else if (auto store = dyn_cast<Store>(target); store && type == Signal::InventoryOpened) {
+        store->onOpened(callerId());
     } else if (encounter && (type == Signal::Heartbeat || type == Signal::Entered || type == Signal::Exited ||
                              type == Signal::EncounterExhausted)) {
         if (type == Signal::Heartbeat) {
@@ -1111,11 +1199,25 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         area->receiveExitedSignal(savedEvent.caller.boundObject());
     } else if (type == Signal::Clicked && (isa<Trigger>(target.get()) || isa<Door>(target.get()))) {
         // A click reaches triggers and doors only; its first object is the
-        // one who clicked.
+        // one who clicked, and its first integer, on a door, the number of the
+        // transition it carries.
         if (auto trigger = dyn_cast<Trigger>(target)) {
             trigger->receiveClick(subject());
         } else {
-            dyn_cast<Door>(target)->receiveClick(subject());
+            dyn_cast<Door>(target)->receiveClick(subject(), event.integers.empty() ? std::nullopt : std::optional<int>(event.integers[0]));
+        }
+    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && (type == Signal::Entered || type == Signal::Exited)) {
+        // A trigger hears an entry or a departure of its first object. An
+        // entry's first integer lets a mine fire on anyone, and its second is
+        // the number of the transition it carries; an integer the event lacks
+        // is 0.
+        const auto integer = [&event](size_t index) {
+            return index < event.integers.size() ? event.integers[index] : 0;
+        };
+        if (type == Signal::Entered) {
+            trigger->receiveEntered(subject(), integer(1), integer(0) != 0);
+        } else {
+            trigger->receiveExited(subject());
         }
     } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
         // A conversation event reaches creatures, placeables and doors only;
@@ -1243,6 +1345,44 @@ void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keep
         }
     }
     _area->destroyObject(*target);
+}
+
+// A creature or placeable leaves its area and stays in the game, in no area,
+// at the origin. A creature leaves only for a nonzero value, and the areas of
+// effect it carries leave with it.
+void Module::deliverRemovalFromArea(const SavedEventRecord &savedEvent, const std::shared_ptr<Object> &target) {
+    std::vector<std::shared_ptr<Object>> leaving;
+    if (isa<Creature>(target)) {
+        const auto *value = std::get_if<SavedBytePayload>(&savedEvent.payload);
+        if (!value || value->value == 0) {
+            return;
+        }
+        for (const auto &object : _area->getObjectsByType(ObjectType::AreaOfEffect)) {
+            if (static_cast<const AreaOfEffect &>(*object).carrier() == target) {
+                leaving.push_back(object);
+            }
+        }
+    } else if (!isa<Placeable>(target)) {
+        return;
+    }
+    leaving.push_back(target);
+    for (const auto &object : leaving) {
+        _area->releaseObject(object);
+        object->setPosition(glm::vec3(0.0f));
+    }
+}
+
+// The animation shows on a creature, door or placeable that is not dead; a
+// party member down at no vitality shows none, nor does animation 0.
+void Module::deliverAnimation(const SavedEventRecord &savedEvent, Object &target) {
+    const auto *animation = std::get_if<SavedIntPayload>(&savedEvent.payload);
+    if (!animation || animation->value == 0 || target.isDead()) {
+        return;
+    }
+    if (const auto *creature = dyn_cast<Creature>(&target); creature && creature->isTemporarilyDead()) {
+        return;
+    }
+    showAnimation(target, animation->value);
 }
 
 // The bag appears where its source stood. A corpse bag takes over its
@@ -1412,9 +1552,6 @@ void Module::receivePlayerDeathEvent(const SavedObjectReference &caller) {
     _game.scriptRunner().run(_info.onPlayerDeath, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
-// A standing of at most this is hostile.
-static constexpr int kHighestHostileReputation = 10;
-
 // The usable items of the party's shared inventory, which the player carries
 // for whoever leads.
 static const ItemAttributes &partyItemAttributes(Game &game, const std::shared_ptr<Creature> &leader) {
@@ -1440,7 +1577,9 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     switch (object->type()) {
     case ObjectType::Creature: {
         auto creature = std::static_pointer_cast<Creature>(object);
-        if (isHostileToPartyLeader(*creature)) {
+        // While the dead-target hold runs, every creature is offered the
+        // hostile entries.
+        if (isHostileToPartyLeader(*creature) || _game.isDeadTargetHoldRunning()) {
             // In a restricted area neither the attack nor the combat feats are
             // offered.
             const bool restricted = _area->playerRestrictMode();
@@ -1500,8 +1639,11 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         } else if (!playerRestricted && canBashDoor(*door)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
-        if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
+        if (door->isLocked() && !door->lock().isKeyRequired() && leader->canUseSkill(SkillType::Security)) {
             actions.push_back(ContextAction(SkillType::Security));
+            if (_game.isTSL()) {
+                addSecuritySpikeActions(actions, *leader);
+            }
         }
         if (door->isLocked()) {
             addMineKitActions(actions, _game, *_area, leader);
@@ -1514,13 +1656,24 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (canUseSecurityOnPlaceable(*placeable, *leader)) {
-            actions.push_back(ContextAction(SkillType::Security));
+            // In TSL plot items used on a container take the place of
+            // Security and the spikes.
+            const size_t offered = actions.size();
+            if (_game.isTSL()) {
+                addContainerPlotItemActions(actions, _services, *leader);
+            }
+            if (actions.size() == offered) {
+                actions.push_back(ContextAction(SkillType::Security));
+                if (_game.isTSL()) {
+                    addSecuritySpikeActions(actions, *leader);
+                }
+            }
         }
         // A hostile placeable without an inventory that regards the leader as
         // an enemy takes the hostile power menu and, in TSL, the hostile item
         // list in place of its own mine kits (which only TSL has).
         const bool hostileTarget = placeable->isHostileAppearance() && !placeable->hasInventory() &&
-                                   leader->getReputationFrom(placeable->faction()) <= kHighestHostileReputation;
+                                   leader->getReputationFrom(placeable->faction()) <= kHighestEnemyReputation;
         if (hostileTarget) {
             for (auto &power : leader->powerMenuActions(*object, true)) {
                 actions.push_back(std::move(power));
@@ -1542,7 +1695,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         if (!trigger->isTrap()) {
             break;
         }
-        if (leader->attributes().hasSkill(SkillType::Demolitions)) {
+        if (leader->canUseSkill(SkillType::Demolitions)) {
             if (trigger->isTrapHostileTo(*leader)) {
                 actions.push_back(ContextAction(SkillType::Demolitions));
             }
@@ -1686,7 +1839,7 @@ bool Module::handleKeyDown(const input::KeyEvent &event) {
         }
         _game.selectNearestObject(keybinds.cycleTargetLeft.check(event.code) ? 0 : 1);
         // In combat mode a new target may pause play, whether or not one was found.
-        if (_game.clientCombatMode()) {
+        if (_game.partyCombatMode()) {
             _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
         }
         return true;

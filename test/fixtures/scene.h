@@ -44,6 +44,7 @@ public:
     MOCK_METHOD(void, setVideoEffect, (std::optional<VideoEffect>), (override));
     MOCK_METHOD(bool, isForceSightEnabled, (), (const override));
     MOCK_METHOD(float, forceSightPulse, (), (const override));
+    MOCK_METHOD(float, textureTime, (), (const override));
 
     MOCK_METHOD(void, addRoot, (std::shared_ptr<ModelSceneNode>), (override));
     MOCK_METHOD(void, addRoot, (std::shared_ptr<WalkmeshSceneNode>), (override));
@@ -58,6 +59,7 @@ public:
     MOCK_METHOD(void, removeRoot, (SoundSceneNode &), (override));
 
     MOCK_METHOD(bool, testLineOfSight, (const glm::vec3 &, const glm::vec3 &, Collision &), (const override));
+    MOCK_METHOD(bool, testSceneHit, (const glm::vec3 &, const glm::vec3 &, const std::vector<const IUser *> &, Collision &), (const override));
     MOCK_METHOD(bool, testWalk, (const glm::vec3 &, const glm::vec3 &, const IUser *, Collision &), (const override));
     MOCK_METHOD(std::shared_ptr<WalkmeshSceneNode>, findRoomWalkmesh, (const glm::vec3 &), (const override));
     MOCK_METHOD(std::optional<RoomFace>, findRoomFace, (const WalkmeshSceneNode &, const glm::vec3 &, RoomFaceProbe), (const override));

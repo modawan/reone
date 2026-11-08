@@ -490,11 +490,6 @@ std::vector<std::shared_ptr<Gff>> fiveSavedFactions(std::string fifthName = "dyn
         makeFaction(std::move(fifthName))};
 }
 
-void expectBaseLookup(TestEngine &engine) {
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("repute"))
-        .WillOnce(Return(makeReputeTable()));
-}
-
 } // namespace
 
 TEST(ReputesFac, parsing_is_separate_from_publication) {
@@ -502,7 +497,6 @@ TEST(ReputesFac, parsing_is_separate_from_publication) {
     auto reputes = makeReputes(engine);
     ASSERT_EQ(0, reputes->getReputation(kBeta, kGamma));
 
-    expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         fiveSavedFactions(),
         {makeRep(1, 2, 77)}));
@@ -518,7 +512,6 @@ TEST(ReputesFac, restores_saved_definitions_and_defaults_missing_global_to_true)
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
 
-    expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(fiveSavedFactions(), {}));
     ASSERT_TRUE(state);
     reputes->replace(std::move(*state));
@@ -533,7 +526,6 @@ TEST(ReputesFac, appends_only_base_rows_beyond_the_saved_faction_count) {
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
 
-    expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         {makeFaction("Player"), makeFaction("Saved_Beta")},
         {}));
@@ -550,7 +542,6 @@ TEST(ReputesFac, saved_pairs_win_and_sparse_dynamic_pairs_default_to_100) {
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
 
-    expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         fiveSavedFactions(),
         {makeRep(1, 2, 77)}));
@@ -565,7 +556,6 @@ TEST(ReputesFac, clamps_values_ignores_invalid_pairs_and_uses_last_duplicate) {
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
 
-    expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         fiveSavedFactions(),
         {makeRep(1, 2, 20),
@@ -584,15 +574,12 @@ TEST(ReputesFac, malformed_candidate_does_not_publish_or_retain_another_save) {
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
 
-    expectBaseLookup(engine);
     auto stateA = reputes->parse(*makeFac(fiveSavedFactions("save_a"), {makeRep(1, 2, 77)}));
     ASSERT_TRUE(stateA);
     reputes->replace(std::move(*stateA));
     ASSERT_EQ(77, reputes->getReputation(kBeta, kGamma));
 
-    expectBaseLookup(engine);
     EXPECT_FALSE(reputes->parse(*makeFac(fiveSavedFactions("bad"), {}, false)));
-    expectBaseLookup(engine);
     reputes->replace(reputes->baseState());
 
     EXPECT_EQ(0, reputes->getReputation(kBeta, kGamma));
@@ -603,7 +590,6 @@ TEST(ReputesFac, save_switch_a_b_a_replaces_all_factions_and_pairs) {
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
     auto loadFac = [&](std::string name, int value) {
-        expectBaseLookup(engine);
         auto state = reputes->parse(*makeFac(
             fiveSavedFactions(std::move(name)),
             {makeRep(1, 2, value)}));

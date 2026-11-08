@@ -30,6 +30,9 @@ public:
 
     virtual Routine &get(int index) = 0;
 
+    /** Whether a routine is registered at \p index. */
+    virtual bool contains(int index) const = 0;
+
     virtual int getNumRoutines() const = 0;
     virtual int getIndexByName(const std::string &name) const = 0;
 };

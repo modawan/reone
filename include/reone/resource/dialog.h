@@ -131,6 +131,8 @@ struct Dialog {
     std::string resRef;
     bool skippable {false};
     std::string cameraModel;
+    /** The music the conversation plays once from its start; empty for none. */
+    std::string ambientTrack;
     std::vector<EntryReplyLink> startEntries;
     std::vector<EntryReply> entries;
     std::vector<EntryReply> replies;
@@ -144,6 +146,10 @@ struct Dialog {
     /** Shots frame the participants' models where they stand, rather than their camera hooks. */
     bool oldHitCheck {false};
     std::vector<Stunt> stunts;
+    /** The conversation puts away the items in its participants' hands while it lasts. */
+    bool unequipItems {false};
+    /** The conversation puts away the items on its participants' heads while it lasts. */
+    bool unequipHeadItem {false};
     ConversationType conversationType {ConversationType::Cinematic};
     ComputerType computerType {ComputerType::Normal};
 

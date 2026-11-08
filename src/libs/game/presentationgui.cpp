@@ -78,13 +78,11 @@ void PresentationGUI::preload(IGUI &gui) {
     gui.setScaling(IGUI::ScalingMode::Scaled);
     if (isTSL()) {
         gui.setResolution(800, 600);
-        // TSL's GUI fills are authored as color masks. Their BORDER.COLOR
-        // values carry the screen palette; drawing the textures white turns
-        // title bars and panels into opaque gray rectangles.
-        gui.setTintBorderFills(true);
         gui.setImageButtonTextPulses(true);
     } else {
-        gui.setDefaultHilightColor(kGUIColorHilight);
+        // KotOR draws a selected control's text in its hilight colour,
+        // whatever colour the control's own hilight is authored in.
+        gui.setSelectedTextColor(kGUIColorHilight);
     }
 }
 
@@ -115,14 +113,14 @@ void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
         case BackgroundType::Menu:
         case BackgroundType::Load:
             // TSL's pause-menu plate is transparent outside its authored
-            // frame. The game's menus put blackfill behind it so the paused
-            // world cannot show through at wider aspect ratios.
+            // frame. TSL's menus put blackfill behind it so the paused world
+            // cannot show through at wider aspect ratios.
             resRef = "blackfill";
             break;
         case BackgroundType::Computer:
             // The terminal bezel is the computer_p panel's own fill; using it
             // as the backdrop too drew a cropped second copy behind the
-            // panel. The game's terminal sits on a void fill.
+            // panel. TSL's terminal sits on a void fill.
             resRef = "black";
             break;
         default:
@@ -257,6 +255,23 @@ void PresentationGUI::useBakedItemSlotArt(ListBox &listBox) {
         });
 }
 
+void PresentationGUI::useK1ListEntryColors(Control &protoItem) {
+    if (isTSL()) {
+        return;
+    }
+    protoItem.setBorderColor(_baseColor);
+    protoItem.setHilightColor(_hilightColor);
+}
+
+void PresentationGUI::useK1NewEntryStyle(ListBox::Item &entry) const {
+    static constexpr float kNewEntryFrameAlpha = 0.5f;
+    if (isTSL()) {
+        return;
+    }
+    entry.frameColor = kGUIColorNew;
+    entry.frameAlpha = kNewEntryFrameAlpha;
+}
+
 void PresentationGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {
     auto &root = _gui->rootControl();
     auto authored = root.authoredExtent();
@@ -275,31 +290,6 @@ std::shared_ptr<Texture> PresentationGUI::itemFrameTexture(int stackSize) const 
     int tier = stackSize >= 100 ? 2 : (stackSize > 1 ? 1 : 0);
     auto resRef = isTSL() ? kTSLFrames[tier] : kK1Frames[tier];
     return _presentation.textures.get(resRef, TextureUsage::GUI);
-}
-
-void PresentationGUI::tintK2InGameFooter() {
-    if (!isTSL()) {
-        return;
-    }
-
-    for (auto tag : {"LBL_BAR3", "LBL_BAR4", "LBL_BAR5"}) {
-        if (auto control = _gui->findControl(tag)) {
-            control->setTintBorderFill(true);
-        }
-    }
-}
-
-void PresentationGUI::tintK2InGameHeader() {
-    if (!isTSL()) {
-        return;
-    }
-
-    for (auto &tag : {"LBL_BAR1", "LBL_BAR2", "LBL_BAR6"}) {
-        auto control = _gui->findControl(tag);
-        if (control) {
-            control->setTintBorderFill(true);
-        }
-    }
 }
 
 void PresentationGUI::enableK2ButtonBodyFill(Control &control) {
@@ -337,11 +327,9 @@ void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar,
     }
 
     topBar->setBorderFill("uibit_brdr_16we");
-    topBar->setTintBorderFill(true);
 
     bottomBar->setBorderFill("uibit_brdr_16we");
     bottomBar->setBorderFillTransform(Control::Border::FillTransform::Rotate180);
-    bottomBar->setTintBorderFill(true);
 
     auto &upper = topBar->extent();
     auto &lower = bottomBar->extent();
@@ -358,7 +346,6 @@ void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar,
     fill->setExtent({upper.left, top, upper.width, height});
     fill->setBorderFill("uibit_fill_2wt");
     fill->setBorderColor(topBar->border().color);
-    fill->setTintBorderFill(true);
     _gui->addControlToFront(std::move(fill), IGUI::ControlCoordinates::Authored);
 }
 

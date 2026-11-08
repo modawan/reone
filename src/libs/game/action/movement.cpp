@@ -53,6 +53,12 @@ static constexpr float kJumpSearchRadius = 20.0f;
 // A forced move that runs out of time puts the mover down on its destination
 // only when that spot itself is safe.
 static constexpr float kForcedPointJumpRadius = 1.0f;
+// A range check in front of an action aimed at a point counts the walker as
+// in range up to this much beyond its range.
+static constexpr float kRangeCheckSlack = 0.01f;
+// A range check's eighth parameter, which it may leave out: its walk may end
+// in a clear line.
+static constexpr size_t kRangeCheckClearLineParameter = 7;
 
 // Facing along a direction; a direction too short to have one faces along +x.
 static float facingAlong(const glm::vec3 &direction) {
@@ -67,8 +73,8 @@ static float facingAlong(const glm::vec3 &direction) {
 // door's closed-state use point nearest its back, twice the jumper's creature
 // personal space further back, facing away from the door. A jump onto anything
 // else lands on it facing along +x. The trail keeps the facing the jumper had
-// before it jumped.
-static void jumpToObject(Creature &jumper, Object &target, bool clearLine, Game &game) {
+// before it jumped. Returns whether the jumper found a spot to land on.
+static bool jumpToObject(Creature &jumper, Object &target, bool clearLine, Game &game) {
     glm::vec3 destination {target.position()};
     float facing;
     if (target.type() == ObjectType::Waypoint) {
@@ -82,13 +88,13 @@ static void jumpToObject(Creature &jumper, Object &target, bool clearLine, Game 
     } else {
         facing = facingAlong(glm::vec3(1.0f, 0.0f, 0.0f));
     }
-    jumpToPositionFacing(jumper, destination, facing, jumper.getFacing(), kJumpSearchRadius, clearLine, game);
+    return jumpToPositionFacing(jumper, destination, facing, jumper.getFacing(), kJumpSearchRadius, clearLine, game);
 }
 
 MoveToObjectAction::MoveToObjectAction(
     Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
     bool run, float range, bool force, float timeout, bool pointPath, std::optional<float> checkRange,
-    bool closeToUseRange) :
+    std::optional<ApproachFlags> approachFlags, std::optional<float> pathOffset) :
     Action(game, services, ActionType::MoveToObject),
     _moveTo(std::move(moveTo)),
     _run(run),
@@ -97,7 +103,8 @@ MoveToObjectAction::MoveToObjectAction(
     _pointPath(pointPath),
     _timeout(timeout),
     _checkRange(checkRange),
-    _closeToUseRange(closeToUseRange) {
+    _approachFlags(approachFlags),
+    _pathOffset(pathOffset) {
     requireRuntimeObject(_moveTo);
     if (_moveTo) {
         _forcedState.destination = _moveTo->position();
@@ -106,7 +113,7 @@ MoveToObjectAction::MoveToObjectAction(
 
 MoveToObjectAction::MoveToObjectAction(
     Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
-    bool run, float range, float timeout, ForcedState forcedState, bool force) :
+    bool run, float range, float timeout, ForcedState forcedState, bool force, SavedMoveCommand::Carried carried) :
     Action(game, services, ActionType::MoveToObject),
     _moveTo(std::move(moveTo)),
     _run(run),
@@ -114,7 +121,8 @@ MoveToObjectAction::MoveToObjectAction(
     _force(force),
     _pointPath(true),
     _timeout(timeout),
-    _forcedState(std::move(forcedState)) {
+    _forcedState(std::move(forcedState)),
+    _carried(carried) {
     requireRuntimeObject(_moveTo);
 }
 
@@ -143,14 +151,13 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
                             (_moveTo->type() == ObjectType::Door || _moveTo->type() == ObjectType::Placeable);
     if (toUsePoint) {
         if (!_approach) {
-            _approach = Creature::UseApproach {_moveTo->id(), {_moveTo->position(), _range}};
+            _approach = Creature::UseApproach {{_moveTo->position(), _range}};
         }
-        _approach->follow(creatureActor->useRange(*_moveTo));
+        _approach->follow(creatureActor->useRange(*_moveTo, false, _pathOffset));
     }
     auto destination = [&]() {
         return toUsePoint ? _approach->use.point : _moveTo->position();
     };
-    const float closeTo = closingRange();
 
     if (_force && !_forcedState.active) {
         _forcedState.active = true;
@@ -180,7 +187,11 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     if (_moveTo) {
         pathTarget = *_moveTo;
     }
-    bool reached = creatureActor->navigateTo(dest, _run, closeTo, dt, pathTarget);
+    // A walk to an object ends where the mover stands once it is within its
+    // use range of the object, or, for a range check, near enough to it; then
+    // any check is taken.
+    const bool reached = creatureActor->walkToward(pathTarget, dest, _run, _range, dt, pathTarget,
+                                                   _approachFlags && _approachFlags->clearLineWalk != 0, _pathOffset);
     if (!reached) {
         // No path reaches the object (a locked room, off the walkmesh): give
         // up, as a walk to a point does, rather than planning again every
@@ -192,8 +203,8 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         return;
     }
     if (_checkRange && _moveTo) {
-        const float useRange = creatureActor->useRange(*_moveTo).range;
-        if (!creatureActor->isInUseRange(*_moveTo, std::max(0.0f, *_checkRange - useRange))) {
+        const float useRange = creatureActor->useRange(*_moveTo, false, _pathOffset).range;
+        if (!creatureActor->isInUseRange(*_moveTo, std::max(0.0f, *_checkRange - useRange), _pathOffset)) {
             if (!_moveTo->spatialArea() && !isa<Creature>(*_moveTo)) {
                 complete();
                 return;
@@ -201,17 +212,13 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
             // Short of the check, the mover sets out afresh for the current
             // use point with the move's range.
             if (toUsePoint) {
-                _approach = Creature::UseApproach {_moveTo->id(), creatureActor->useRange(*_moveTo)};
+                _approach = Creature::UseApproach {creatureActor->useRange(*_moveTo)};
                 _approach->use.range = _range;
             }
             return;
         }
     }
     complete();
-}
-
-float MoveToObjectAction::closingRange() const {
-    return _closeToUseRange && _approach ? _approach->use.range : _range;
 }
 
 // A forced walk under way keeps its absolute deadline as the day and time a
@@ -251,10 +258,10 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
             _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
         command.target = SavedObjectReference::fromRuntimeId(_moveTo->id());
         command.run = _run;
-        command.range = closingRange();
+        command.carried = _carried;
+        command.range = _range;
         command.forcedPending = _force && !_forcedState.active;
         command.timeout = command.forcedPending ? _timeout : 0.0f;
-        command.offset = _forcedState.offset;
         if (_force && _forcedState.active) {
             saveExpiry(command, _forcedState.expiryMilliseconds, _game.millisecondsPerWorldDay());
         }
@@ -263,16 +270,26 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
         return result;
     }
 
+    return savedCommand(*_moveTo, _run, _range, _checkRange.value_or(_range), _approachFlags);
+}
+
+SavedActionRecord MoveToObjectAction::savedCommand(
+    const Object &target,
+    bool run,
+    float range,
+    float checkRange,
+    const std::optional<ApproachFlags> &approachFlags) {
+
     auto result = SavedActionRecord::command(SavedActionType::MoveToObject, {
-                                                                                {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_moveTo->id())},
-                                                                                {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
-                                                                                {kSavedFloatParameter, _range},
-                                                                                {kSavedFloatParameter, _checkRange.value_or(_range)},
+                                                                                {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(target.id())},
+                                                                                {kSavedIntegerParameter, int32_t {run ? 1 : 0}},
+                                                                                {kSavedFloatParameter, range},
+                                                                                {kSavedFloatParameter, checkRange},
                                                                                 {kSavedIntegerParameter, kMoveToObjectFlags},
                                                                             });
-    if (_approachFlags) {
-        result.parameters.push_back({kSavedIntegerParameter, int32_t {_approachFlags->objectsInLine}});
-        result.parameters.push_back({kSavedIntegerParameter, int32_t {_approachFlags->clearLineWalk}});
+    if (approachFlags) {
+        result.parameters.push_back({kSavedIntegerParameter, int32_t {approachFlags->objectsInLine}});
+        result.parameters.push_back({kSavedIntegerParameter, int32_t {approachFlags->clearLineWalk}});
         result.declaredParameterCount = static_cast<uint16_t>(result.parameters.size());
     }
     return result;
@@ -290,11 +307,11 @@ std::shared_ptr<Action> MoveToObjectAction::restore(const SavedActionRecord &rec
         moveFlags != kMoveToObjectFlags) {
         return nullptr;
     }
-    auto action = game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, true);
+    std::optional<ApproachFlags> approachFlags;
     if (record.parameters.size() > kMoveToObjectParameterCount) {
-        action->_approachFlags = ApproachFlags {record.integerParameter(5), record.integerParameter(6)};
+        approachFlags = ApproachFlags {record.integerParameter(5), record.integerParameter(6)};
     }
-    return action;
+    return game.newAction<MoveToObjectAction>(std::move(target), run != 0, moveRange, false, -1.0f, false, checkRange, approachFlags);
 }
 
 // A move order lets go of the orientation lock and ends a push or leap
@@ -317,6 +334,16 @@ void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, 
         return;
     }
     glm::vec3 destination {_destination->position()};
+
+    // A range check is made once, as the walk sets out.
+    if (_checksRange) {
+        _checksRange = false;
+        const float reach = _closeRange + kRangeCheckSlack;
+        if (creatureActor->getSquareDistanceTo(glm::vec2(destination)) <= reach * reach) {
+            complete();
+            return;
+        }
+    }
 
     if (_force && !_forcedState.active) {
         _forcedState.active = true;
@@ -359,13 +386,31 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
         return std::nullopt;
     }
 
+    // A move not yet begun is in the current area.
+    const auto area = SavedObjectReference::fromRuntimeId(
+        _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
+    if (_checksRange) {
+        const glm::vec3 &point = _destination->position();
+        return SavedActionRecord::command(SavedActionType::PointRangeCheck, {
+                                                                                {kSavedFloatParameter, point.x},
+                                                                                {kSavedFloatParameter, point.y},
+                                                                                {kSavedFloatParameter, point.z},
+                                                                                {kSavedObjectParameter, area},
+                                                                                {kSavedObjectParameter, SavedObjectReference()},
+                                                                                {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                                {kSavedFloatParameter, _closeRange},
+                                                                                {kSavedIntegerParameter, int32_t {_carried.clearLine ? 1 : 0}},
+                                                                            });
+    }
+
     SavedMoveCommand command;
     command.destination = _destination->position();
-    // A move not yet begun is in the current area.
-    command.area = SavedObjectReference::fromRuntimeId(
-        _forcedState.areaId != kSavedRuntimeInvalidObjectId ? _forcedState.areaId : _game.module()->area()->id());
+    command.area = area;
+    command.target = SavedObjectReference::fromRuntimeId(_offsetFromId);
+    command.offset = _offset;
     command.run = _run;
     command.straight = _straight;
+    command.carried = _carried;
     command.range = _closeRange;
     command.forcedPending = _force && !_forcedState.active;
     command.timeout = command.forcedPending ? _timeout : 0.0f;
@@ -387,25 +432,50 @@ std::shared_ptr<Action> MoveToLocationAction::restore(const SavedActionRecord &r
     const uint64_t expiryMilliseconds = restoredExpiry(*command, game.millisecondsPerWorldDay());
     const bool forced = command->forcedPending || command->forcedActive;
     const float timeout = command->forcedPending ? command->timeout : 0.0f;
-    if (command->target.isInvalid()) {
+    auto target = command->target.boundObject();
+    if (!command->target.isInvalid() && !target) {
+        return nullptr;
+    }
+    // A walk to a point reckoned from an object walks to the point itself.
+    if (!target || command->offset != glm::vec2(0.0f)) {
         ForcedState state;
         state.areaId = command->area.id;
         state.active = command->forcedActive;
         state.expiryMilliseconds = expiryMilliseconds;
         auto location = std::make_shared<Location>(command->destination, 0.0f);
-        return game.newAction<MoveToLocationAction>(std::move(location), command->run, forced, timeout, state,
-                                                    command->range, command->straight);
-    }
-    auto target = command->target.boundObject();
-    if (!target) {
-        return nullptr;
+        auto result = game.newAction<MoveToLocationAction>(std::move(location), command->run, forced, timeout, state,
+                                                           command->range, command->straight);
+        result->_carried = command->carried;
+        if (target) {
+            result->_offsetFromId = target->id();
+            result->_offset = command->offset;
+        }
+        return result;
     }
     MoveToObjectAction::ForcedState state;
     state.destination = command->destination;
     state.areaId = command->area.id;
     state.active = command->forcedActive;
     state.expiryMilliseconds = expiryMilliseconds;
-    return game.newAction<MoveToObjectAction>(std::move(target), command->run, command->range, timeout, state, forced);
+    return game.newAction<MoveToObjectAction>(std::move(target), command->run, command->range, timeout, state, forced,
+                                              command->carried);
+}
+
+std::shared_ptr<Action> MoveToLocationAction::restoreRangeCheck(const SavedActionRecord &record, Game &game) {
+    const glm::vec3 point {record.floatParameter(0), record.floatParameter(1), record.floatParameter(2)};
+    const float range = record.floatParameter(6);
+    if (!std::dynamic_pointer_cast<Area>(record.objectParameter(3).boundObject()) ||
+        !record.objectParameter(4).isInvalid() ||
+        !std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z) ||
+        !std::isfinite(range) || range < 0.0f) {
+        return nullptr;
+    }
+    auto result = game.newAction<MoveToLocationAction>(std::make_shared<Location>(point, 0.0f),
+                                                       record.integerParameter(5) != 0, false, -1.0f, range);
+    result->_checksRange = true;
+    result->_carried.clearLine = record.parameters.size() > kRangeCheckClearLineParameter &&
+                                 record.integerParameter(kRangeCheckClearLineParameter) != 0;
+    return result;
 }
 
 void MoveToPointAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -415,8 +485,11 @@ void MoveToPointAction::execute(std::shared_ptr<Action> self, Object &actor, flo
         return;
     }
 
-    bool reached = creatureActor->navigateTo(_point, _run, _range, dt);
-    if (reached) {
+    std::optional<std::reference_wrapper<const Object>> goal;
+    if (_goal) {
+        goal = *_goal;
+    }
+    if (creatureActor->walkToward(goal, _point, _run, _range, dt, goal, false)) {
         complete();
     }
 }
@@ -453,11 +526,6 @@ static void moveAwayFrom(Game &game, const Action &action, Creature &creature, c
 
 void MoveAwayFromObject::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &creature = static_cast<Creature &>(actor);
-    // A creature that is dead, or down at no vitality, gives up.
-    if (creature.isDead() || creature.isTemporarilyDead()) {
-        complete();
-        return;
-    }
     // Every other move away from the same object queued for the creature is
     // cleared with its group.
     creature.cancelActionGroups([this](const Action &other) {
@@ -478,10 +546,8 @@ void MoveAwayFromObject::execute(std::shared_ptr<Action> self, Object &actor, fl
 
 void MoveAwayFromLocation::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &creature = static_cast<Creature &>(actor);
-    // A creature that is dead, or down at no vitality, gives up; one out of
-    // range of the location is done.
-    if (creature.isDead() || creature.isTemporarilyDead() ||
-        creature.getSquareDistanceTo(_moveAwayFrom->position()) > _moveAwayRange * _moveAwayRange) {
+    // A creature out of range of the location is done.
+    if (creature.getSquareDistanceTo(_moveAwayFrom->position()) > _moveAwayRange * _moveAwayRange) {
         complete();
         return;
     }
@@ -528,6 +594,13 @@ std::shared_ptr<Action> MoveAwayFromLocation::restore(const SavedActionRecord &r
                                                 record.integerParameter(3) != 0, record.floatParameter(4));
 }
 
+// A follower checks again this long after each walk, a party member sooner.
+static constexpr float kFollowPause = 0.25f;
+static constexpr float kPartyFollowPause = 0.025f;
+// A follower has caught up once its point moves no more than this between
+// rounds (squared metres).
+static constexpr float kCaughtUp2 = 0.01f;
+
 void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
     if (!creatureActor) {
@@ -535,43 +608,83 @@ void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt
         return;
     }
 
-    auto dest = _follow->position();
-    float distance2 = creatureActor->getSquareDistanceTo(glm::vec2(dest));
-    bool run = distance2 > kDistanceWalk * kDistanceWalk;
-
-    if (creatureActor->navigateTo(dest, run, _followDistance, dt, *_follow)) {
-        complete();
+    // A party member heads for its place by the party's follow anchor, anyone
+    // else for its point beside the one it follows, at that one's height. The
+    // point last headed for is kept at zero height.
+    Party &party = _game.party();
+    const bool member = party.isMember(*creatureActor);
+    const glm::vec3 target = member ? party.followAnchorPoint(_point) : glm::vec3(_point, _follow->position().z);
+    const glm::vec3 moved {target - glm::vec3(_last, 0.0f)};
+    const float moved2 = glm::dot(moved, moved);
+    bool caughtUp;
+    if (_caughtUp) {
+        // Caught up, the follower waits until its point moves the follow range.
+        const float range = party.followRange();
+        if (moved2 < range * range) {
+            return;
+        }
+        caughtUp = false;
+    } else {
+        caughtUp = moved2 <= kCaughtUp2;
     }
+
+    // The follower walks onto the point, or into use range of the one
+    // followed, pauses, and follows again.
+    const auto group = creatureActor->actionGroup(*this);
+    creatureActor->addActionOnTop(_game.newAction<FollowAction>(_follow, _run, _point, caughtUp, glm::vec2(target)));
+    creatureActor->addActionOnTop(_game.newAction<WaitAction>(member ? kPartyFollowPause : kFollowPause), group);
+    creatureActor->addActionOnTop(_game.newAction<MoveToPointAction>(target, _run, 0.0f, _follow), group);
+    complete();
 }
 
-// A follow is kept as the one followed and the point the follow distance in
-// front of it, which is also where the follower last headed.
 std::optional<SavedActionRecord> FollowAction::saveFacingState() const {
-    const float facing = _follow->getFacing();
-    const glm::vec3 point = _follow->position() + _followDistance * glm::vec3(-std::sin(facing), std::cos(facing), 0.0f);
     // The one followed, a run, the point heading for, whether the follower
     // caught up, and the point last headed for.
     return SavedActionRecord::command(SavedActionType::Follow, {
                                                                    {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_follow->id())},
-                                                                   {kSavedIntegerParameter, int32_t {1}},
-                                                                   {kSavedFloatParameter, point.x},
-                                                                   {kSavedFloatParameter, point.y},
-                                                                   {kSavedIntegerParameter, int32_t {0}},
-                                                                   {kSavedFloatParameter, point.x},
-                                                                   {kSavedFloatParameter, point.y},
+                                                                   {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                   {kSavedFloatParameter, _point.x},
+                                                                   {kSavedFloatParameter, _point.y},
+                                                                   {kSavedIntegerParameter, int32_t {_caughtUp ? 1 : 0}},
+                                                                   {kSavedFloatParameter, _last.x},
+                                                                   {kSavedFloatParameter, _last.y},
                                                                });
 }
 
-// The follow distance is how far in front of the one followed the point
-// heading for lies.
 std::shared_ptr<Action> FollowAction::restore(const SavedActionRecord &record, Game &game) {
     auto target = record.objectParameter(0).boundObject();
     if (!target) {
         return nullptr;
     }
-    const glm::vec2 point {record.floatParameter(2), record.floatParameter(3)};
-    const float distance = glm::distance(point, glm::vec2(target->position()));
-    return game.newAction<FollowAction>(std::move(target), distance);
+    return game.newAction<FollowAction>(std::move(target), record.integerParameter(1) != 0,
+                                        glm::vec2(record.floatParameter(2), record.floatParameter(3)),
+                                        record.integerParameter(4) != 0,
+                                        glm::vec2(record.floatParameter(5), record.floatParameter(6)));
+}
+
+void FollowCheckAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    actor.addActionOnTop(_game.newAction<FollowCheckAction>(_follow, _run, _point));
+    actor.addActionOnTop(_game.newAction<FollowAction>(_follow, _run, _point, false, glm::vec2(actor.position())));
+    complete();
+}
+
+std::optional<SavedActionRecord> FollowCheckAction::saveFacingState() const {
+    // The one followed, a run and the point heading for.
+    return SavedActionRecord::command(SavedActionType::FollowCheck, {
+                                                                        {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_follow->id())},
+                                                                        {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
+                                                                        {kSavedFloatParameter, _point.x},
+                                                                        {kSavedFloatParameter, _point.y},
+                                                                    });
+}
+
+std::shared_ptr<Action> FollowCheckAction::restore(const SavedActionRecord &record, Game &game) {
+    auto target = record.objectParameter(0).boundObject();
+    if (!target) {
+        return nullptr;
+    }
+    return game.newAction<FollowCheckAction>(std::move(target), record.integerParameter(1) != 0,
+                                             glm::vec2(record.floatParameter(2), record.floatParameter(3)));
 }
 
 static constexpr float kGlanceDistance = 8.0f;
@@ -665,10 +778,13 @@ std::shared_ptr<Action> FollowOwnerAction::restore(const SavedActionRecord &reco
     return game.newAction<FollowOwnerAction>(record.floatParameter(0));
 }
 
-// A jump to a location always lands where the jumper could walk straight to it from.
+// A jump to a location always lands where the jumper could walk straight to
+// it from. Having jumped, the jumper holds a moment before its next action.
 void JumpToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     const float facing = objectFacingFromScript(_location->facing());
-    jumpToPositionFacing(cast<Creature>(actor), _location->position(), facing, facing, kJumpSearchRadius, true, _game);
+    if (jumpToPositionFacing(cast<Creature>(actor), _location->position(), facing, facing, kJumpSearchRadius, true, _game)) {
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(WaitAction::kAfterJumpSeconds));
+    }
     complete();
 }
 
@@ -698,8 +814,11 @@ std::shared_ptr<Action> JumpToLocationAction::restore(const SavedActionRecord &r
     return game.newAction<JumpToLocationAction>(std::make_shared<Location>(position, orientation));
 }
 
+// Having jumped, the jumper holds a moment before its next action.
 void JumpToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    jumpToObject(cast<Creature>(actor), *_toJumpTo, _walkStraightLine, _game);
+    if (jumpToObject(cast<Creature>(actor), *_toJumpTo, _walkStraightLine, _game)) {
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(WaitAction::kAfterJumpSeconds));
+    }
     complete();
 }
 
@@ -730,15 +849,20 @@ void ChangeFacingAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
 // A turn is kept as the object faced, or as the point faced.
 std::optional<SavedActionRecord> ChangeFacingAction::saveFacingState() const {
-    if (_target) {
-        return SavedActionRecord::command(SavedActionType::FaceObject, {
-                                                                           {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_target->id())},
-                                                                       });
-    }
+    return _target ? savedCommand(*_target) : savedCommand(_point);
+}
+
+SavedActionRecord ChangeFacingAction::savedCommand(const Object &target) {
+    return SavedActionRecord::command(SavedActionType::FaceObject, {
+                                                                       {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(target.id())},
+                                                                   });
+}
+
+SavedActionRecord ChangeFacingAction::savedCommand(const glm::vec3 &point) {
     return SavedActionRecord::command(SavedActionType::FacePoint, {
-                                                                      {kSavedFloatParameter, _point.x},
-                                                                      {kSavedFloatParameter, _point.y},
-                                                                      {kSavedFloatParameter, _point.z},
+                                                                      {kSavedFloatParameter, point.x},
+                                                                      {kSavedFloatParameter, point.y},
+                                                                      {kSavedFloatParameter, point.z},
                                                                   });
 }
 

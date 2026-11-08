@@ -325,6 +325,8 @@ static const char *screenName(Game::Screen screen) {
         return "Conversation";
     case Game::Screen::Container:
         return "Container";
+    case Game::Screen::Store:
+        return "Store";
     case Game::Screen::PartySelection:
         return "PartySelection";
     case Game::Screen::SaveLoad:
@@ -346,12 +348,15 @@ static const char *screenName(Game::Screen screen) {
 
 // The menus and panels that pause the world while they are shown over a
 // running module; levelling up is the only character generation with a
-// module behind it.
+// module behind it. Their pause freezes the area: its scene stops animating,
+// its animated camera included, and a conversation shown under them waits
+// for them to close.
 static bool pausesWorld(Game::Screen screen) {
     switch (screen) {
     case Game::Screen::CharacterGeneration:
     case Game::Screen::InGameMenu:
     case Game::Screen::Container:
+    case Game::Screen::Store:
     case Game::Screen::PartySelection:
     case Game::Screen::SaveLoad:
     case Game::Screen::GalaxyMap:
@@ -361,17 +366,35 @@ static bool pausesWorld(Game::Screen screen) {
     }
 }
 
-// The screens shown over a running module. Pazaak does not pause the world,
-// but the world waits behind it here, apart from due events. The minigames
-// hold the module instead.
-static bool isMenuOverModule(Game::Screen screen) {
+// The screens that leave the world running: play, a conversation, the death
+// sequence and pazaak.
+static bool runsWorld(Game::Screen screen) {
     switch (screen) {
+    case Game::Screen::InGame:
+    case Game::Screen::Conversation:
+    case Game::Screen::Death:
     case Game::Screen::PazaakWager:
     case Game::Screen::PazaakSetup:
     case Game::Screen::PazaakBoard:
         return true;
     default:
-        return pausesWorld(screen);
+        return false;
+    }
+}
+
+// The screens that hold the input as menus: all but play, a conversation and
+// the minigames.
+static bool holdsInputAsMenu(Game::Screen screen) {
+    switch (screen) {
+    case Game::Screen::None:
+    case Game::Screen::Loading:
+    case Game::Screen::InGame:
+    case Game::Screen::Conversation:
+    case Game::Screen::SwoopRace:
+    case Game::Screen::Turret:
+        return false;
+    default:
+        return true;
     }
 }
 
@@ -702,6 +725,7 @@ void Game::initTables() {
         });
     }
     _party.init();
+    _journal.init();
 }
 
 std::optional<int> Game::feedbackTextStrRef(int row) const {
@@ -715,7 +739,9 @@ const TrapTypeRow &Game::trapType(int type) const {
 
 void Game::initJournalNotifications() {
     _journal.setOnQuestChanged([this](const Journal::EntryChange &change) {
+        // The journal row comes with the notice of a new or completed quest.
         submitStatusSummary(StatusSummaryCategory::Journal);
+        _statusSummary.submitQuestSound(change.end);
         awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
     });
 }
@@ -846,17 +872,45 @@ void Game::setSceneSurfaces() {
     }
 }
 
+static constexpr uint32_t kConversationClickCooldownMillis = 750;
+
+void Game::coolDownConversationClicks() {
+    _clickCooldownStart = _services.system.clock.millis();
+}
+
+bool Game::isCoolingDown(const input::Event &event) {
+    if (!_clickCooldownStart) {
+        return false;
+    }
+    if (_services.system.clock.millis() - *_clickCooldownStart >= kConversationClickCooldownMillis) {
+        _clickCooldownStart.reset();
+        return false;
+    }
+    const bool leftButton = (event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+                            event.button.button == input::MouseButton::Left;
+    const bool returnKey = (event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
+                           event.key.code == input::KeyCode::Return;
+    return leftButton || returnKey;
+}
+
 bool Game::handle(const input::Event &event) {
     // Either Shift is the alternate actions key: pressing one holds it and
-    // releasing one lets it go. KotOR does not take it while the container
-    // screen is open, so it stays as it was when the screen opened.
+    // releasing one lets it go. While a menu, the credits or a popup holds
+    // the input, a Shift is taken only when its keymap row lets menus take
+    // it; otherwise the key stays as it was when the menu opened.
+    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible());
     if ((event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
         (event.key.code == input::KeyCode::LeftShift || event.key.code == input::KeyCode::RightShift) &&
-        (isTSL() || _screen != Screen::Container)) {
+        (!menuHoldsInput || _menusTakeAlternateActions[event.key.code == input::KeyCode::LeftShift ? 0 : 1])) {
         _alternateActionsHeld = event.type == input::EventType::KeyDown;
     }
-    if (_playerInputBlocked && event.type != input::EventType::KeyUp &&
+    // While the player's input is held only releases pass, except to a movie,
+    // which takes the input while it plays.
+    if (_playerInputBlocked && !_movie && event.type != input::EventType::KeyUp &&
         event.type != input::EventType::MouseButtonUp) {
+        return true;
+    }
+    if (isCoolingDown(event)) {
         return true;
     }
     if (_credits) {
@@ -959,7 +1013,14 @@ bool Game::consumeTimingDiscontinuity() {
     return discontinuity;
 }
 
+std::optional<glm::ivec2> Game::consumePointerWarp() {
+    auto warp = _pointerWarp;
+    _pointerWarp.reset();
+    return warp;
+}
+
 void Game::update(float frameTime) {
+    updateMouseLookPointer();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
@@ -1031,26 +1092,34 @@ void Game::update(float frameTime) {
     // Sounds wait while a movie runs and resume once the frame's module
     // transition, if any, has been made.
     _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie), nullptr);
-    syncClientCombatMode();
+    syncPartyCombatMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
-        // Each member's client combat mode follows its own targets. Leaving it
-        // lets the next enemy sighting count at once.
+        // Each member's party combat mode follows its own targets. A door or
+        // placeable stored by a member in combat mode also counts for the
+        // members after it in this pass. Leaving the mode lets the next enemy
+        // sighting count at once.
+        std::shared_ptr<Object> carried;
         for (int i = 0; i < _party.getSize(); ++i) {
             auto member = _party.getMember(i);
             if (!member) {
                 continue;
             }
-            const auto stored = _party.members()[i].lastTarget.resolve();
-            std::optional<std::reference_wrapper<const Object>> storedTarget;
-            if (stored) {
-                storedTarget = *stored;
+            const Creature *storedCreature = nullptr;
+            if (member->partyCombatMode()) {
+                if (auto stored = _party.members()[i].lastTarget.resolve()) {
+                    if (auto creature = Creature::asCreature(stored)) {
+                        storedCreature = &creature->get();
+                    } else {
+                        carried = std::move(stored);
+                    }
+                }
             }
-            if (member->updateClientCombatMode(storedTarget, i == 0 && _deadTargetHold > 0.0f)) {
+            if (member->updatePartyCombatMode(storedCreature, carried.get(), i == 0 && isDeadTargetHoldRunning())) {
                 _enemySightingHold = -1.0f;
             }
         }
-        syncClientCombatMode();
+        syncPartyCombatMode();
     }
     updateCamera(dt);
     if (_module) {
@@ -1094,9 +1163,7 @@ void Game::update(float frameTime) {
     }
     updateTemporaryDeath();
 
-    // The world keeps running behind the death sequence.
-    bool updModule = !_movie && _module &&
-                     (_screen == Screen::InGame || _screen == Screen::Conversation || _screen == Screen::Death);
+    bool updModule = !_movie && _module && runsWorld(_screen);
     const auto clockSample = _services.system.clock.micros();
     const auto elapsed = _worldClockSample ? clockSample - *_worldClockSample : 0;
     _worldClockSample = clockSample;
@@ -1151,7 +1218,7 @@ void Game::update(float frameTime) {
     // While the world is held, creatures new to it still run their creation
     // script and every object its actions, with the clock stopped; an event
     // an action posts is delivered in the same frame.
-    const bool moduleLive = updModule || (!_movie && _module && isMenuOverModule(_screen));
+    const bool moduleLive = updModule || (!_movie && _module && pausesWorld(_screen));
     if (moduleLive && !(updModule && !_paused)) {
         auto heldModule = _module;
         auto generation = _runtimeSessionGeneration;
@@ -1185,7 +1252,7 @@ void Game::update(float frameTime) {
     if (isConversationActive()) {
         clearPlayerHostileActions();
     }
-    syncClientCombatMode();
+    syncPartyCombatMode();
     commitTutorialWindow();
     auto gui = getScreenGUI();
     if (gui) {
@@ -1744,8 +1811,10 @@ bool Game::loadPreparedModule(
                 render();
 
                 _services.scene.graphs.get(kSceneMain).clear();
-                // A module starts with no conversation under way.
+                // A module starts with no conversation under way or asked for.
                 _dialogUnderWay = false;
+                dropConversationRequest();
+                _conversationRequestAdmitted = false;
 
                 const auto &ifo = prepared.ifo;
                 ModuleLoadContext context = prepared.context;
@@ -2003,9 +2072,9 @@ void Game::retireRuntimeSession() {
     _timeStopExclusions.clear();
     _timeStopMilliseconds = 0;
     _timeStopFraction = 0.0;
-    _clientCombatMode = false;
-    _clientCombatLeader.reset();
-    _clientCombatArea.reset();
+    _partyCombatMode = false;
+    _partyCombatLeader.reset();
+    _partyCombatArea.reset();
     _keepStealthInDialog = false;
     _relativeMouseMode = false;
 
@@ -2021,6 +2090,7 @@ void Game::retireRuntimeSession() {
     _dialog.reset();
     _computer.reset();
     _container.reset();
+    _storeGUI.reset();
     _partySelect.reset();
 
     if (_map) {
@@ -2764,8 +2834,17 @@ bool Game::killRosterCreature(const RosterIdentity &identity) {
         _party.clearRosterCreature(identity);
         return false;
     }
-    // Its place in the party stays, naming nothing, and the events still
-    // pending for it go with it.
+    // A creature that leads hands the lead to the player character, quietly,
+    // as it starts to fade out, which is at once. The change of leader runs
+    // its script at once, and a creature that script kills or destroys is
+    // gone already. Otherwise its place in the party stays, naming nothing,
+    // and the events still pending for it go with it.
+    if (_party.getLeader() == creature) {
+        _party.leadWithPlayerCharacter();
+        if (_party.rosterCreature(identity) != creature) {
+            return true;
+        }
+    }
     _party.vacateMemberEntries(*creature);
     if (_module) {
         _module->dropPendingEvents(*creature);
@@ -3027,8 +3106,6 @@ void Game::renderScene() {
 // the leader and the party is not solo.
 static constexpr float kRecoveryPlacementRadius = 5.0f;
 static constexpr float kRegroupDistance = 40.0f;
-// A creature regarding another at this standing or less is hostile to it.
-static constexpr int kHighestHostileReputation = 10;
 // The death fade holds the view for twelve seconds before a one second fade to
 // black; hurrying it fades at once over half a second.
 static constexpr float kDeathFadeWait = 12.0f;
@@ -3089,7 +3166,7 @@ void Game::updateTemporaryDeath() {
                 if (!creature || _party.isMember(*creature)) {
                     continue;
                 }
-                if (creature->getReputationToward(*reference) > kHighestHostileReputation) {
+                if (creature->getReputationToward(*reference) > kHighestEnemyReputation) {
                     continue;
                 }
                 const bool seesMember = std::any_of(
@@ -3148,6 +3225,7 @@ bool Game::hasModalPanel() const {
     switch (_screen) {
     case Screen::InGameMenu:
     case Screen::Container:
+    case Screen::Store:
     case Screen::PartySelection:
     case Screen::SaveLoad:
     case Screen::PazaakWager:
@@ -3482,7 +3560,7 @@ int Game::scaleDamageForDifficulty(
         static_cast<float>(damage) * difficulty.damageMultiplier);
 }
 
-// The client difficulty settings that shift TSL trap DCs.
+// The difficulty settings that shift TSL trap DCs.
 static constexpr int kEasyDifficulty = 0;
 static constexpr int kDifficultDifficulty = 2;
 static constexpr int kTrapDifficultyShift = 5;
@@ -4179,7 +4257,7 @@ void Game::publishSavedRuntimeState() {
     }
     _module->restoreProjectilePresentations();
     _module->publishSavedEventQueue();
-    syncClientCombatMode();
+    syncPartyCombatMode();
 }
 
 // One simulation second advances a clock by 1000 milliseconds.
@@ -4243,10 +4321,10 @@ void Game::updateTimeStop() {
     }
 }
 
-void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event) {
+void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event,
+                            uint32_t delayMilliseconds) {
     SavedEventRecord queued;
-    queued.day = worldTimeDay();
-    queued.time = worldTimeOfDay();
+    setEventDue(queued, worldTimeMilliseconds() + delayMilliseconds);
     queued.object = SavedObjectReference::fromRuntimeId(target.id());
     // An absent object is carried as no reference, so it never holds the event back.
     auto reference = [](uint32_t id) {
@@ -4266,16 +4344,38 @@ void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper
     _module->enqueueSaveEvent(std::move(queued));
 }
 
+void Game::queueClick(const Object &target, const Object &sender, const Object &clicker, std::optional<int> transition,
+                      uint32_t delayMilliseconds) {
+    static constexpr int kClickedEvent = static_cast<int>(SavedSignalEventType::Clicked);
+    std::vector<int32_t> integers;
+    if (transition) {
+        integers.push_back(*transition);
+    }
+    queueScriptEvent(*getObjectById(target.id()), sender,
+                     Event(kClickedEvent, std::move(integers), {}, {}, {getObjectById(clicker.id())}), delayMilliseconds);
+}
+
+void Game::queuePassage(Object &subArea, const std::shared_ptr<Creature> &creature, bool inside) {
+    static constexpr int kEnteredEvent = static_cast<int>(SavedSignalEventType::Entered);
+    static constexpr int kExitedEvent = static_cast<int>(SavedSignalEventType::Exited);
+    for (int number : {inside ? kExitedEvent : kEnteredEvent, inside ? kEnteredEvent : kExitedEvent}) {
+        queueScriptEvent(subArea, *creature, Event(number, {}, {}, {}, {creature}));
+    }
+}
+
+void Game::setEventDue(SavedEventRecord &event, uint64_t milliseconds) const {
+    event.day = static_cast<uint32_t>(milliseconds / millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(milliseconds % millisecondsPerWorldDay());
+}
+
 void Game::queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds) {
     SavedEventRecord event;
-    const uint64_t when = worldTimeMilliseconds() + delayMilliseconds;
-    event.day = static_cast<uint32_t>(when / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % millisecondsPerWorldDay());
+    setEventDue(event, worldTimeMilliseconds() + delayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::ApplyEffect);
     event.payload = std::move(effect);
-    const bool bound = bindSavedObjectReference(event.object);
-    _module->enqueueBoundSaveEvent(std::move(event), bound);
+    bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event));
 }
 
 std::optional<uint64_t> Game::delayedWorldTime(float seconds) const {
@@ -4291,16 +4391,17 @@ std::optional<uint64_t> Game::delayedWorldTime(float seconds) const {
     return _worldTimeMilliseconds + static_cast<uint64_t>(static_cast<int64_t>(milliseconds));
 }
 
-void Game::postDelayedCommand(Object &owner, std::shared_ptr<Action> command, float seconds) {
+void Game::postDelayedCommand(Object &owner, std::optional<std::reference_wrapper<const Object>> caller, std::shared_ptr<Action> command, float seconds) {
     const auto when = delayedWorldTime(seconds);
     if (!when) {
         return;
     }
     SavedEventRecord event;
-    event.day = static_cast<uint32_t>(*when / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
+    setEventDue(event, *when);
     event.object = SavedObjectReference::fromRuntimeId(owner.id());
-    event.caller = SavedObjectReference::fromRuntimeId(owner.id());
+    if (caller) {
+        event.caller = SavedObjectReference::fromRuntimeId(caller->get().id());
+    }
     event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
     _module->enqueueSaveEvent(std::move(event), std::move(command));
 }
@@ -4444,7 +4545,7 @@ void Game::disableScriptVideoEffect() {
     disableVideoEffect();
 }
 
-void Game::postObjectDestruction(Object &target, std::optional<std::reference_wrapper<const Object>> caller, float seconds, bool keepsCallerFade) {
+void Game::postObjectDestruction(Object &target, uint32_t callerId, float seconds, bool keepsCallerFade) {
     const auto when = delayedWorldTime(seconds);
     if (!when) {
         return;
@@ -4454,24 +4555,8 @@ void Game::postObjectDestruction(Object &target, std::optional<std::reference_wr
     event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
     event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
-    if (caller) {
-        event.caller = SavedObjectReference::fromRuntimeId(caller->get().id());
-    }
+    event.caller = SavedObjectReference::fromRuntimeId(callerId);
     _module->enqueueSaveEvent(std::move(event), nullptr, keepsCallerFade);
-}
-
-void Game::postObjectDestruction(Object &target, float delay) {
-    const auto time = delayedWorldTime(delay);
-    if (!time) {
-        return;
-    }
-    SavedEventRecord event;
-    event.day = static_cast<uint32_t>(*time / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(*time % millisecondsPerWorldDay());
-    event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
-    event.object = SavedObjectReference::fromRuntimeId(target.id());
-    const bool bound = bindSavedObjectReference(event.object);
-    _module->enqueueBoundSaveEvent(std::move(event), bound);
 }
 
 void Game::queueEffectRemoval(Object &target, EffectId id) {
@@ -4484,8 +4569,8 @@ void Game::queueEffectRemoval(Object &target, EffectId id) {
     value.id = id;
     value.creatorId = kSavedEffectInvalidObjectId;
     event.payload = std::move(value);
-    const bool bound = bindSavedObjectReference(event.object);
-    _module->enqueueBoundSaveEvent(std::move(event), bound);
+    bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event));
 }
 
 std::optional<float> Game::remainingEffectDuration(const EffectInstance &effect) const {
@@ -4535,6 +4620,7 @@ void Game::renderGUI() {
         _confirmPopup->render();
     }
     // The credits cover everything, the fade included, and hide the pointer.
+    // The pointer also hides while the mouse turns the camera.
     if (_credits) {
         _credits->render();
     } else {
@@ -5092,10 +5178,10 @@ void Game::updateCamera(float dt) {
     }
     auto &area = *_module->area();
     updateFreeLookExits();
-    // Client combat mode holds the third-person camera in its combat behavior.
-    area.setThirdPersonCombat(_clientCombatMode);
+    // Party combat mode holds the third-person camera in its combat behavior.
+    area.setThirdPersonCombat(_partyCombatMode);
     // The combat camera follows the leader's posed head every frame.
-    if (_clientCombatMode) {
+    if (_partyCombatMode) {
         area.update3rdPersonCameraTarget();
     }
     auto &thirdPerson = *area.getCamera<ThirdPersonCamera>(CameraType::ThirdPerson);
@@ -5117,10 +5203,10 @@ void Game::updateCamera(float dt) {
             auto leader = _party.getLeader();
             auto target = _lastTarget.resolve();
             // The combat camera starts turning from rest again.
-            if (_clientCombatMode) {
+            if (_partyCombatMode) {
                 thirdPerson.resetCombatTurn();
             }
-            if (_clientCombatMode && leader && target) {
+            if (_partyCombatMode && leader && target) {
                 thirdPerson.faceAlong(leader->position(), target->position());
             }
         }
@@ -5130,7 +5216,9 @@ void Game::updateCamera(float dt) {
     }
     Camera *camera = getActiveCamera();
     if (camera) {
-        camera->update(dt);
+        // An animated camera's shot stands still while the world is held, the
+        // player's pause included.
+        camera->update(_cameraType == CameraType::Animated && holdsWorld() ? 0.0f : dt);
 
         // Behind the leader the listener sits three quarters of the way from
         // the camera to the point it follows, the leader's camera hook; any
@@ -5150,9 +5238,11 @@ void Game::updateSceneGraph(float dt) {
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.setActiveCamera(camera->cameraSceneNode().get());
-    sceneGraph.setUpdateRoots(!_paused && !_timeStopped);
-    // While time is stopped only the excluded objects' models animate.
-    if (!_paused && _timeStopped) {
+    const bool areaFrozen = pausesWorld(_screen);
+    sceneGraph.setUpdateRoots(!_paused && !_timeStopped && !areaFrozen);
+    // While time is stopped only the excluded objects' models animate; a
+    // frozen area stops them too.
+    if (!_paused && !areaFrozen && _timeStopped) {
         for (const auto &excluded : _timeStopExclusions) {
             auto object = excluded.resolve();
             auto model = object ? std::dynamic_pointer_cast<ModelSceneNode>(object->sceneNode()) : nullptr;
@@ -5204,6 +5294,54 @@ static constexpr uint32_t kCalendarMonthsInYear = 12;
 static constexpr uint32_t kCalendarHoursInDay = 24;
 static constexpr uint32_t kCalendarLastYear = 32767;
 static constexpr uint32_t kCalendarYearPastLast = 1340;
+
+void Game::advanceToTime(int hours, int minutes, int seconds, int milliseconds) {
+    if ((hours | minutes | seconds | milliseconds) < 0) {
+        return;
+    }
+    // The fields carry up from the milliseconds; the hours carry whole days.
+    const uint32_t totalSeconds = static_cast<uint32_t>(milliseconds) / 1000 + seconds;
+    const uint32_t totalMinutes = totalSeconds / 60 + minutes;
+    const int totalHours = static_cast<int>(totalMinutes / 60 + hours);
+    const uint32_t second = static_cast<int>(totalSeconds) % 60;
+    const uint32_t minute = static_cast<int>(totalMinutes) % 60;
+    const uint32_t hour = totalHours % 24;
+    const int millisecond = milliseconds % 1000;
+    uint32_t daysCarried = static_cast<uint32_t>(totalHours) / 24;
+
+    const uint32_t mph = _minutesPerHour == 0 ? 5 : _minutesPerHour;
+    const uint32_t timeOfDay = (hour > 23 ? 23 * 60000 : hour * 60000) * mph +
+                               (minute > 59 ? 59 * 60000 : minute * 60000) +
+                               (second > 59 ? 56000 : second * 1000) + millisecond;
+
+    const uint32_t day = worldTimeDay();
+    uint32_t dayOfMonth = day % kCalendarDaysInMonth + 1;
+    uint32_t month = day / kCalendarDaysInMonth % kCalendarMonthsInYear + 1;
+    uint32_t year = day / (kCalendarDaysInMonth * kCalendarMonthsInYear);
+    if (year > kCalendarLastYear) {
+        year = kCalendarYearPastLast;
+    }
+
+    // A time of day already past today is tomorrow's.
+    if (daysCarried == 0 && timeOfDay < millisecondsPerWorldDay() && worldTimeOfDay() > timeOfDay) {
+        daysCarried = 1;
+    }
+    if (daysCarried != 0) {
+        const uint32_t days = daysCarried + dayOfMonth;
+        month += days / (kCalendarDaysInMonth + 1);
+        year += month / (kCalendarMonthsInYear + 1);
+        if (year > 32000) {
+            return;
+        }
+        dayOfMonth = days % (kCalendarDaysInMonth + 1);
+        month %= kCalendarMonthsInYear + 1;
+    }
+
+    uint32_t calendarDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
+    calendarDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
+    calendarDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
+    _worldTimeMilliseconds = static_cast<uint64_t>(calendarDay) * millisecondsPerWorldDay() + timeOfDay;
+}
 
 // The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
 static constexpr int kLowestNeutralGoodEvil = 41;
@@ -5264,6 +5402,12 @@ static constexpr int kLastMappedInputEventK1 = 265;
 static constexpr int kLastMappedInputEventTSL = 269;
 static constexpr int kFirstTwoKeyInputEvent = 280;
 static constexpr int kLastTwoKeyInputEvent = 286;
+// The alternate actions events, the left Shift's and then the right's.
+static constexpr int kAlternateActionsInputEvent = 221;
+// KotOR's free-look and left look-about bindings.
+static constexpr int kFreeLookInputEventK1 = 208;
+static constexpr int kLeftLookAboutInputEventK1 = 219;
+static constexpr int kLeftAltKey = 26;
 
 /** An input event the engine defines itself, and the key it takes. */
 struct EngineInputEvent {
@@ -5271,7 +5415,7 @@ struct EngineInputEvent {
     int key {0};
 };
 
-static constexpr std::array<EngineInputEvent, 23> kEngineInputEventsK1 {{
+static constexpr std::array<EngineInputEvent, 24> kEngineInputEventsK1 {{
     {0x03, 110},
     {0x04, 111},
     {0x07, 111},
@@ -5295,6 +5439,7 @@ static constexpr std::array<EngineInputEvent, 23> kEngineInputEventsK1 {{
     {0xb8, 7},
     {0xb9, 8},
     {0xbb, 88},
+    {0xbc, 89},
 }};
 static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
     {0x01, 125},
@@ -5329,26 +5474,30 @@ static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
 }};
 
 void Game::initInputEvents() {
+    const bool tsl = isTSL();
     _inputEvents.clear();
     const auto addEngineEvents = [this](const auto &events) {
         for (const EngineInputEvent &engineEvent : events) {
             _inputEvents[engineEvent.event] = InputEventKeys {engineEvent.key, std::nullopt};
         }
     };
-    if (isTSL()) {
+    if (tsl) {
         addEngineEvents(kEngineInputEventsTSL);
     } else {
         addEngineEvents(kEngineInputEventsK1);
     }
 
     auto keymap = getRequiredTwoDA(_services.resource.twoDas, "keymap");
-    const int lastMappedEvent = isTSL() ? kLastMappedInputEventTSL : kLastMappedInputEventK1;
+    const int lastMappedEvent = tsl ? kLastMappedInputEventTSL : kLastMappedInputEventK1;
     const auto rowOf = [&keymap](int event, const std::string &suffix) {
         return keymap->indexByLabel("action" + std::to_string(event) + suffix);
     };
     // A disabled row makes no event.
     const auto enabled = [&keymap](int row) {
         return row != -1 && keymap->getInt(row, "disabled", 0) != 1;
+    };
+    const auto makesEvent = [&](int event, int row) {
+        return enabled(row) && (tsl || event != kFreeLookInputEventK1);
     };
     // Keys are read from the column of the talk table's language when an
     // enabled single-key row gives a key there, else from the first
@@ -5357,7 +5506,7 @@ void Game::initInputEvents() {
     bool languageHasKeys = false;
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
         const int row = rowOf(event, "");
-        languageHasKeys = enabled(row) && keymap->getInt(row, column, -1) >= 0;
+        languageHasKeys = makesEvent(event, row) && keymap->getInt(row, column, -1) >= 0;
     }
     if (!languageHasKeys) {
         column = "language0";
@@ -5366,10 +5515,12 @@ void Game::initInputEvents() {
     // negative.
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent; ++event) {
         const int row = rowOf(event, "");
-        const int key = enabled(row) ? keymap->getInt(row, column, -1) : -1;
-        if (key >= 0) {
-            _inputEvents[event] = InputEventKeys {key, std::nullopt};
+        const int key = makesEvent(event, row) ? keymap->getInt(row, column, -1) : -1;
+        if (key < 0) {
+            continue;
         }
+        const bool leftAlt = !tsl && event == kLeftLookAboutInputEventK1;
+        _inputEvents[event] = InputEventKeys {leftAlt ? kLeftAltKey : key, std::nullopt};
     }
     // A two-key event is made from its A and B rows when both give a key that
     // is not negative and the two differ, or are both 0: the B key is its key
@@ -5386,6 +5537,12 @@ void Game::initInputEvents() {
             continue;
         }
         _inputEvents[event] = InputEventKeys {keyB, keyA};
+    }
+    // A menu that holds the input takes an alternate actions event only when
+    // its row's ICPCGUI is set.
+    for (size_t i = 0; i < _menusTakeAlternateActions.size(); ++i) {
+        const int row = rowOf(kAlternateActionsInputEvent + static_cast<int>(i), "");
+        _menusTakeAlternateActions[i] = enabled(row) && keymap->getInt(row, "icpcgui", 0) != 0;
     }
 
     auto keys = getRequiredTwoDA(_services.resource.twoDas, "bindablekeys");
@@ -5700,16 +5857,16 @@ void Game::setGlobalLocation(const std::string &name, const std::shared_ptr<Loca
 
 // Combat mode is the leader's, in the area it stands in. Outside a module (the
 // main menu, character generation) nobody is in combat mode.
-void Game::syncClientCombatMode() {
+void Game::syncPartyCombatMode() {
     auto leader = _party.getLeader();
     std::shared_ptr<Area> area;
     if (_module) {
         area = _module->area();
     }
-    _clientCombatLeader = RuntimeObjectRef<Creature>(leader);
-    _clientCombatArea = RuntimeObjectRef<Area>(area);
-    _clientCombatMode = leader && area && area->isObjectResident(*leader) && leader->clientCombatMode();
-    if (!_clientCombatMode) {
+    _partyCombatLeader = RuntimeObjectRef<Creature>(leader);
+    _partyCombatArea = RuntimeObjectRef<Area>(area);
+    _partyCombatMode = leader && area && area->isObjectResident(*leader) && leader->partyCombatMode();
+    if (!_partyCombatMode) {
         _attackMashTime = 0.0f;
     }
 }
@@ -5721,13 +5878,28 @@ void Game::setRelativeMouseMode(bool relative) {
 // In play the cursor is also held while the mouse turns the camera, unless a
 // popup takes the input.
 bool Game::relativeMouseMode() const {
-    if (_relativeMouseMode) {
-        return true;
-    }
+    return _relativeMouseMode || isMouseLooking();
+}
+
+bool Game::isMouseLooking() const {
     if (_screen != Screen::InGame || _cameraType != CameraType::ThirdPerson || hasModalPanel()) {
         return false;
     }
-    return getActiveCamera()->isMouseLookMode();
+    // Without a module there is no world camera to turn.
+    const auto *camera = getActiveCamera();
+    return camera && camera->isMouseLookMode();
+}
+
+void Game::updateMouseLookPointer() {
+    const bool looking = isMouseLooking();
+    if (looking && !_mouseLookPointer) {
+        _mouseLookPointer = _pointer->position();
+    } else if (!looking && _mouseLookPointer) {
+        const glm::ivec2 position = *_mouseLookPointer;
+        _mouseLookPointer.reset();
+        _pointerWarp = position;
+        handle(input::Event::newMouseMotion(input::MouseMotionEvent {position.x, position.y, 0.0f, 0.0f}));
+    }
 }
 
 void Game::withLoadingScreen(const std::string &moduleName, const std::function<void()> &block) {
@@ -5828,7 +6000,7 @@ void Game::requestStealth() {
         return;
     }
     if (_party.isSoloMode() || _party.getSize() == 1) {
-        leader->useStealthSkill();
+        leader->useSkill(SkillType::Stealth, leader);
     } else {
         showSoloModeQuery(true);
     }
@@ -5893,7 +6065,7 @@ void Game::showSoloModeQuery(bool forStealth) {
             _scriptRunner->run(kSoloModeScript, script::kObjectInvalid);
             if (forStealth) {
                 if (auto leader = _party.getLeader()) {
-                    leader->useStealthSkill();
+                    leader->useSkill(SkillType::Stealth, leader);
                 }
             }
             restorePause();
@@ -5984,7 +6156,7 @@ void Game::delayNextEnemyAutoPause() {
 void Game::updateDeferredAutoPause(float frameTime) {
     if (_deferredAutoPauseDelay > 0.0f) {
         _deferredAutoPauseDelay -= frameTime;
-        if (_deferredAutoPauseDelay <= 0.0f && !_clientCombatMode) {
+        if (_deferredAutoPauseDelay <= 0.0f && !_partyCombatMode) {
             if (isTSL()) {
                 autoPause(AutoPauseReason::EnemySighted);
             }
@@ -6068,6 +6240,14 @@ bool Game::requestTutorialWindow(int id, uint32_t actor, uint32_t subject, uint3
     return true;
 }
 
+bool Game::requestTutorialWindow(int id, std::function<void()> onClosed) {
+    if (!requestTutorialWindow(id)) {
+        return false;
+    }
+    _tutorialPending->onClosed = std::move(onClosed);
+    return true;
+}
+
 void Game::commitTutorialWindow() {
     if (!_tutorialPending) {
         return;
@@ -6143,6 +6323,10 @@ void Game::finishTutorialWindow(bool takeAction) {
         return;
     }
     // The window finishes the action it interrupted.
+    if (tutorial.onClosed) {
+        tutorial.onClosed();
+        return;
+    }
     auto actor = getObjectById<Creature>(tutorial.actor);
     if (!actor) {
         return;
@@ -6207,11 +6391,11 @@ void Game::finishTutorialWindow(bool takeAction) {
 }
 
 void Game::beginMenuAttack(Creature &attacker) {
-    attacker.setClientCombatMode(true);
+    attacker.setPartyCombatMode(true);
     if (isTSL() && _party.isMember(attacker)) {
         for (const auto &member : _party.members()) {
             if (member.creature && member.creature.get() != &attacker) {
-                member.creature->setClientCombatMode(true);
+                member.creature->setPartyCombatMode(true);
             }
         }
     }
@@ -6299,10 +6483,8 @@ void Game::sendMenuCast(Creature &caster, const std::shared_ptr<Spell> &spell, c
     if (!caster.isInCombat()) {
         caster.clearOrdersUnlessBusy();
     }
-    // The player's cast at an object checks its line to the object.
     auto action = newAction<CastSpellAtObjectAction>(spell, target, std::nullopt);
     action->setUserAction(true);
-    action->requireUseLineCheck();
     _combat.scheduleCast(caster, action);
     breakForfeitCondition(caster, Party::kForfeitNoForcePowers);
 }
@@ -6460,7 +6642,7 @@ std::optional<int> Game::forcePowerTutorial(const Spell &spell) const {
 
 void Game::clearOneAction() {
     auto leader = _party.getLeader();
-    if (!leader || !_clientCombatMode) {
+    if (!leader || !_partyCombatMode) {
         return;
     }
     if (requestTutorialWindow(kClearOneActionTutorial, leader->id())) {
@@ -6480,10 +6662,10 @@ void Game::clearOneCombatAction(Creature &leader) {
 
 void Game::cancelCombat() {
     auto leader = _party.getLeader();
-    if (!leader || !_clientCombatMode) {
+    if (!leader || !_partyCombatMode) {
         return;
     }
-    leader->setClientCombatMode(false);
+    leader->setPartyCombatMode(false);
     _combat.clearAllOrders(*leader);
 }
 
@@ -6515,7 +6697,7 @@ void Game::clearPlayerHostileActions() {
     const ObjectList creatures = _module->area()->getObjectsByType(ObjectType::Creature);
     for (const auto &object : creatures) {
         auto &creature = static_cast<Creature &>(*object);
-        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestHostileReputation) {
+        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestEnemyReputation) {
             continue;
         }
         creature.clearAllActions(true);
@@ -6738,7 +6920,7 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
 // Direct movement out of combat mode lets go of the target after half a second.
 void Game::releaseTargetOnMove(float frameTime) {
     // A deferred autopause holds the target too.
-    if (!_clientCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
+    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
         _module->isPlayerMoving()) {
         _targetMoveTime += frameTime;
         if (_targetMoveTime >= kTargetMoveSpeedTime) {
@@ -6801,7 +6983,7 @@ void Game::takeSightedTarget(TargetPass &pass, bool hostileCreature, bool hostil
                     if (!mine) {
                         requestTutorialWindow(kHostileCreatureTutorial);
                     }
-                    if (!_clientCombatMode) {
+                    if (!_partyCombatMode) {
                         requestAutoPause(mine ? AutoPauseReason::MineSighted : AutoPauseReason::EnemySighted);
                     }
                     pass.target = object;
@@ -6858,7 +7040,7 @@ bool Game::isTargetLost(TargetPass &pass, const Creature &leader, const Area &ar
 // Otherwise the nearest visible object ahead.
 std::shared_ptr<Object> Game::pickTarget(const std::vector<size_t> &cone, bool hostileCreature,
                                          const Creature &leader, const Area &area) {
-    if (!_clientCombatMode || !hostileCreature) {
+    if (!_partyCombatMode || !hostileCreature) {
         for (size_t index : cone) {
             auto &entry = _nearestObjects[index];
             auto object = entry.object.resolve();
@@ -6914,7 +7096,7 @@ void Game::selectPassTarget(TargetPass &pass, const Creature &leader, const Area
             pass.keep = true;
         }
     }
-    if (hostileCreature && _clientCombatMode && !pass.keep) {
+    if (hostileCreature && _partyCombatMode && !pass.keep) {
         pass.keep = holdsDeadTarget(pass.target, frameTime);
     } else {
         _deadTargetHold = 0.0f;
@@ -6990,7 +7172,7 @@ std::shared_ptr<Object> Game::selectNearestObject(int direction) {
     };
     // In combat mode only hostile creatures qualify, if any visible one remains.
     // Entries that are gone or out of view are dropped on the way.
-    bool hostilesOnly = _clientCombatMode;
+    bool hostilesOnly = _partyCombatMode;
     if (hostilesOnly) {
         bool found = false;
         for (size_t i = _nearestObjects.size(); i-- > 0;) {
@@ -7100,11 +7282,11 @@ void Game::showTarget(const std::shared_ptr<Object> &object, bool look, bool cam
     if (leader) {
         leader->lookAt(object, kTargetLookDistance);
     }
-    if ((camera || _clientCombatMode) && _cameraType == CameraType::ThirdPerson) {
+    if ((camera || _partyCombatMode) && _cameraType == CameraType::ThirdPerson) {
         _module->area()->getCamera<ThirdPersonCamera>(CameraType::ThirdPerson)->setLookAtTarget(object);
     }
     auto creature = std::dynamic_pointer_cast<Creature>(object);
-    if (_clientCombatMode && creature && _module->isHostileToPartyLeader(*creature)) {
+    if (_partyCombatMode && creature && _module->isHostileToPartyLeader(*creature)) {
         auto model = creature->sceneNode();
         if (model && model->type() == SceneNodeType::Model) {
             static_cast<ModelSceneNode &>(*model).setHiliteColor(kHostileHiliteColor);
@@ -7892,6 +8074,31 @@ void Game::closeContainer(const Object &container) {
     }
 }
 
+void Game::openStore(const std::shared_ptr<Store> &store) {
+    if (!_module || _screen == Screen::InGameMenu || _dialogUnderWay || !_storeGUI) {
+        return;
+    }
+    stopMovement();
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    _storeGUI->open(store);
+    if (_screen != Screen::Store) {
+        _storeUnderneath = _screen;
+    }
+    changeScreen(Screen::Store);
+    if (auto clip = _services.game.guiSounds.getPanelAdded()) {
+        _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    }
+}
+
+void Game::closeStore() {
+    if (_storeUnderneath == Screen::InGame) {
+        openInGame();
+    } else {
+        changeScreen(_storeUnderneath);
+    }
+}
+
 void Game::openPartySelection(const PartySelectionContext &ctx) {
     stopMovement();
     setRelativeMouseMode(false);
@@ -7978,6 +8185,10 @@ bool Game::reconcilePartySelection(
         }
     }
 
+    // The creature under control when the selection is accepted perceives
+    // each companion the selection brings in: in KotOR the player character,
+    // who took the lead when the selection opened.
+    const auto viewer = _party.getLeader();
     const auto currentMembers = _party.members();
     bool leadHandedBack = false;
     for (const auto &member : currentMembers) {
@@ -7997,7 +8208,7 @@ bool Game::reconcilePartySelection(
             // A deselected companion leaves the party as any removed member
             // does: its effects are cleared, its record saved and its puppet
             // dismissed. Its creature stays where it stands.
-            _party.removeMember(member.npc);
+            _party.removeMember(member.npc, true);
         }
     }
 
@@ -8026,10 +8237,36 @@ bool Game::reconcilePartySelection(
         }
         // A companion joining takes up the alignment its influence gives.
         member->recomputeInfluenceAlignment();
+        viewer->perceiveAtOnce(member);
     }
 
     area->repositionParty();
     return isPartySelectionRealized(selectedNpcs);
+}
+
+std::shared_ptr<Creature> Game::spawnPuppet(int puppet, const glm::vec3 &position, float facing) {
+    auto creature = _party.getAvailablePuppet(puppet, true);
+    auto area = _module ? _module->area() : nullptr;
+    if (!creature || !area) {
+        return nullptr;
+    }
+    creature->setPuppet(true);
+    // A spawned puppet drops its actions, commandable or not.
+    creature->clearAllActions(true, true);
+    creature->setPosition(area->partySpawnPosition(position, *creature));
+    creature->setFacing(facing);
+    area->landObject(*creature);
+    const bool alreadyResident = std::find(
+        area->objects().begin(), area->objects().end(), creature) !=
+        area->objects().end();
+    if (!alreadyResident) {
+        area->add(creature);
+    } else if (!creature->isDead()) {
+        // One already standing here leaves the area and comes back, which
+        // the area hears as an exit.
+        area->signalExited(*creature);
+    }
+    return creature;
 }
 
 void Game::openSaveLoad(SaveLoadMode mode) {
@@ -8052,6 +8289,20 @@ bool Game::canOpenGalaxyMapFrom(Screen screen) {
         // own to return to. Taking it over would strand it.
         return false;
     }
+}
+
+bool Game::isTravelScriptRunning() const {
+    return _runningReturnScript || (_galaxyMap && _galaxyMap->isRunningTravelScript());
+}
+
+static constexpr char kReturnToBaseScript[] = "k_sup_gohawk";
+
+void Game::returnToBase() {
+    openInGame();
+    // KotOR runs the script with no caller.
+    _runningReturnScript = true;
+    _scriptRunner->run(kReturnToBaseScript, 0);
+    _runningReturnScript = false;
 }
 
 void Game::openGalaxyMap(int initialPlanet) {
@@ -8573,13 +8824,13 @@ void Game::startCharacterGeneration() {
     });
 }
 
-void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
+bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                        GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
     if (_captureHUDPresentation) {
-        return;
+        return false;
     }
     if (admission && !_globalFade.isCurrentDialog(admission)) {
-        return;
+        return false;
     }
     std::shared_ptr<resource::Dialog> dialog;
     try {
@@ -8590,13 +8841,13 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
         warn("Game: conversation load failed: " + resRef + ": " + e.what());
         _globalFade.finishDialog(admission);
         _dialogUnderWay = false;
-        return;
+        return false;
     }
     if (!dialog) {
         warn("Game: conversation not found or invalid: " + resRef);
         _globalFade.finishDialog(admission);
         _dialogUnderWay = false;
-        return;
+        return false;
     }
 
     bool computerConversation = dialog->conversationType == ConversationType::Computer;
@@ -8604,7 +8855,7 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     if (!conversation) {
         _globalFade.finishDialog(admission);
         _dialogUnderWay = false;
-        return;
+        return false;
     }
 
     stopMovement();
@@ -8613,22 +8864,106 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     changeScreen(Screen::Conversation);
     _dialogUnderWay = true;
 
-    // A computer conversation leaves everyone's stealth alone.
+    // Starting a conversation other than a computer's also quietly ends the
+    // stealth of the controlled creature and the party members.
     if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
-        if (auto creature = std::dynamic_pointer_cast<Creature>(owner)) {
-            creature->setStealthMode(false);
-        }
         if (auto leader = _party.getLeader()) {
-            leader->setStealthMode(false);
+            leader->setStealthMode(false, true);
         }
         for (int i = 0; i < _party.getSize(); ++i)
             if (auto member = _party.getMember(i)) {
-                member->setStealthMode(false);
+                member->setStealthMode(false, true);
             }
     }
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
     _conversation->start(dialog, owner, std::move(admission), listener);
+    return true;
+}
+
+static constexpr int kConversationEventNumber = static_cast<int>(SavedSignalEventType::Conversation);
+
+// The request carries -1 for its count and pattern number, its privacy and
+// start range, and the dialog it names.
+void Game::requestConversation(const Object &speaker, Object &target, const std::string &resRef,
+                               bool privateConversation, bool ignoreStartRange,
+                               GlobalFade::DialogTicket admission) {
+    dropConversationRequest();
+    _conversationRequest = std::move(admission);
+    queueScriptEvent(target, speaker,
+                     Event(kConversationEventNumber, {-1, -1, privateConversation ? 1 : 0, ignoreStartRange ? 1 : 0},
+                           {}, {resRef}, {}));
+}
+
+void Game::dropConversationRequest() {
+    _globalFade.finishDialog(_conversationRequest);
+    _conversationRequest.reset();
+}
+
+bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string resRef, std::shared_ptr<Object> target) {
+    const bool requested = _conversationRequestAdmitted;
+    _conversationRequestAdmitted = false;
+    auto admission = std::move(_conversationRequest);
+    _conversationRequest.reset();
+    if (self && (!_dialogUnderWay || requested)) {
+        if (!target) {
+            target = getObjectById(self->lastSpeaker());
+        }
+    } else {
+        target.reset();
+    }
+    bool started = false;
+    if (target) {
+        // Each of the two stops what it was doing, unless it is the player's,
+        // and shows its pause; it faces as it did should nothing start.
+        const auto player = _party.getLeader();
+        std::vector<std::pair<std::shared_ptr<Creature>, float>> facings;
+        for (const auto &object : {target, self}) {
+            auto creature = std::dynamic_pointer_cast<Creature>(object);
+            if (!creature) {
+                continue;
+            }
+            if (creature != player) {
+                creature->clearAllActions(true);
+            }
+            facings.emplace_back(creature, creature->getFacing());
+            creature->showDialogPause();
+        }
+        if (resRef.empty()) {
+            resRef = self->lastConversation();
+        }
+        // The player's partner owns the conversation, and so does the one a
+        // party member speaks to.
+        auto selfCreature = std::dynamic_pointer_cast<Creature>(self);
+        const bool selfListens = target != player &&
+                                 (self == player || (selfCreature && _party.isMember(*selfCreature)));
+        const auto &owner = selfListens ? target : self;
+        const auto &listener = selfListens ? self : target;
+        const std::string dialog = resRef.empty() ? owner->conversation() : resRef;
+        started = !dialog.empty() && startDialog(owner, dialog, admission, listener);
+        if (!started) {
+            for (auto &[creature, facing] : facings) {
+                creature->dropOrientationLock();
+                creature->setFacing(facing);
+            }
+        }
+    }
+    if (!started) {
+        _globalFade.finishDialog(admission);
+        _dialogUnderWay = false;
+    }
+    return started;
+}
+
+void Game::endConversationStealth(const std::shared_ptr<Object> &owner, const std::shared_ptr<Object> &listener) {
+    if (isTSL() && _keepStealthInDialog) {
+        return;
+    }
+    for (const auto &object : {listener, owner}) {
+        if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+            creature->setStealthMode(false, true);
+        }
+    }
 }
 
 void Game::resumeConversation() {
@@ -8668,11 +9003,29 @@ void Game::resumeConversationBy(Object &caller) {
     }
 }
 
+void Game::releaseConversationPauseBy(Object &caller) {
+    auto *creature = dyn_cast<Creature>(&caller);
+    if (creature && !creature->isConversationPaused()) {
+        return;
+    }
+    resumeConversation();
+    if (creature) {
+        creature->setConversationPaused(false);
+    }
+}
+
 void Game::stopConversationParticipation(const Object &object) {
     if (!_conversation || !isConversationActive()) {
         return;
     }
     _conversation->stopParticipant(object);
+}
+
+void Game::showConversationPlacedCamera(int cameraId) {
+    if (!_conversation || !isConversationActive()) {
+        return;
+    }
+    _conversation->showPlacedCamera(cameraId);
 }
 
 void Game::pauseConversation() {
@@ -8698,6 +9051,9 @@ void Game::loadInGameMenus() {
     if (!_container) {
         _container = tryLoadGUI<ContainerGUI>();
     }
+    if (!_storeGUI) {
+        _storeGUI = tryLoadGUI<StoreGUI>();
+    }
     if (!_partySelect) {
         _partySelect = tryLoadGUI<PartySelection>();
     }
@@ -8707,12 +9063,21 @@ int Game::inventoryMenuCharacter() const {
     return _screen == Screen::InGameMenu && _inGame ? _inGame->inventoryCharacter() : -1;
 }
 
+int Game::subScreenId() const {
+    return _screen == Screen::InGameMenu && _inGame ? game::subScreenId(_inGame->activeTab()) : 0;
+}
+
 void Game::finishPostDialogCharacterSwitch() {
     if (_postDialogCharacterSwitch.empty()) {
         return;
     }
     auto companion = _postDialogCharacterSwitch.resolve();
     _postDialogCharacterSwitch.reset();
+    // While the party selection is open, the lead stays where it is and the
+    // hand-back is dropped.
+    if (_screen == Screen::PartySelection) {
+        return;
+    }
     // The lead passes to the next member, one step at a time, until the
     // companion leads; each step is a leader change of its own. A companion
     // that is gone never leads, so the lead goes once round the party.
@@ -8728,7 +9093,7 @@ float Game::baseItemCostMultiplier(int baseItem) const {
 
 void Game::changeScreen(Screen screen) {
     if (_screen == Screen::InGameMenu && screen != Screen::InGameMenu && _inGame) {
-        _inGame->closeEquipment();
+        _inGame->leaveTab(InGameMenuTab::None);
     }
     auto gui = getScreenGUI();
     if (gui) {
@@ -8737,6 +9102,7 @@ void Game::changeScreen(Screen screen) {
     if (_confirmPopup) {
         _confirmPopup->hide();
     }
+    releaseMessageBoxPause();
     if (_tutorial) {
         finishTutorialWindow(false);
     }
@@ -8761,6 +9127,8 @@ GameGUI *Game::getScreenGUI() const {
         return _conversation;
     case Screen::Container:
         return _container.get();
+    case Screen::Store:
+        return _storeGUI.get();
     case Screen::PartySelection:
         return _partySelect.get();
     case Screen::SaveLoad:
@@ -8784,6 +9152,36 @@ GameGUI *Game::getScreenGUI() const {
 
 void Game::setBarkBubbleText(std::string text, float duration) {
     _hud->barkBubble().setBarkText(text, duration);
+}
+
+void Game::bark(Object &speaker, int strRef) {
+    const std::string text = getInterfaceText(strRef);
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    playBarkSound(speaker, _services.resource.strings.getSound(strRef));
+}
+
+void Game::bark(int strRef) {
+    const std::string text = getInterfaceText(strRef);
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    startBarkVoice(_services.resource.strings.getSound(strRef), std::nullopt);
+}
+
+void Game::startBarkVoice(const std::string &sound, std::optional<glm::vec3> position) {
+    if (_barkVoice) {
+        _barkVoice->stop();
+    }
+    auto clip = _services.resource.audioClips.get(sound);
+    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, 1.0f, false, position)
+                      : nullptr;
+}
+
+void Game::playBarkSound(Object &speaker, const std::string &sound) {
+    startBarkVoice(sound, speaker.position());
+    if (auto *creature = dyn_cast<Creature>(&speaker)) {
+        if (auto lip = _services.resource.lips.get(sound)) {
+            creature->talkOnce(lip);
+        }
+    }
 }
 
 void Game::addFeedbackMessage(int strRef, const std::map<int, std::string> &tokens) {
@@ -8829,32 +9227,11 @@ void Game::finishStatusSummaryCycle() {
     }
 }
 
-int Game::getPlotXP(const std::string &plotName) {
-    std::shared_ptr<TwoDA> plotTable(_services.resource.twoDas.get("plot"));
-    if (!plotTable) {
-        return 0;
-    }
-    for (int row = 0; row < plotTable->getRowCount(); ++row) {
-        if (boost::iequals(plotTable->getString(row, "label"), plotName)) {
-            return plotTable->getInt(row, "xp");
-        }
-    }
-    return 0;
-}
-
-int Game::getPlotXPByIndex(int plotIndex) {
-    std::shared_ptr<TwoDA> plotTable(_services.resource.twoDas.get("plot"));
-    if (!plotTable || plotIndex < 0 || plotIndex >= plotTable->getRowCount()) {
-        return 0;
-    }
-    return plotTable->getInt(plotIndex, "xp");
-}
-
 void Game::awardPlotXP(const std::string &plotName, int percentage) {
     if (plotName.empty() || percentage == 0) {
         return;
     }
-    int baseXP = getPlotXP(plotName);
+    int baseXP = _journal.plotXP(plotName);
     if (baseXP == 0) {
         return;
     }
@@ -8866,7 +9243,7 @@ void Game::awardPlotXPByIndex(int plotIndex, float fraction) {
     if (plotIndex < 0 || fraction == 0.0f) {
         return;
     }
-    int baseXP = getPlotXPByIndex(plotIndex);
+    int baseXP = _journal.plotXP(plotIndex);
     if (baseXP == 0) {
         return;
     }
@@ -9287,6 +9664,14 @@ void Game::closeMessagePopup() {
     }
 }
 
+static constexpr int kExamineCloseStrRef = 1582;
+
+void Game::showExamineBox(const std::string &message) {
+    if (showMessagePopup(message)) {
+        _confirmPopup->setConfirmText(_services.resource.strings.getText(kExamineCloseStrRef));
+    }
+}
+
 bool Game::showMessagePopup(
     const std::string &message,
     std::shared_ptr<Texture> icon,
@@ -9301,6 +9686,42 @@ bool Game::showMessagePopup(
     // steering and mouse-look held when it opens stop now.
     stopMovement();
     _confirmPopup->show(message, std::move(icon), std::move(onConfirm));
+    return true;
+}
+
+void Game::showScriptMessageBox(const std::string &text, const std::string &iconResRef) {
+    std::shared_ptr<Texture> icon;
+    if (!iconResRef.empty()) {
+        icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
+    }
+    if (!showMessagePopup(text, std::move(icon), [this]() { releaseMessageBoxPause(); })) {
+        return;
+    }
+    if (!_paused && !_dialogUnderWay) {
+        setPaused(true);
+        _messageBoxPausedGame = true;
+    }
+}
+
+void Game::releaseMessageBoxPause() {
+    if (_messageBoxPausedGame) {
+        _messageBoxPausedGame = false;
+        setPaused(false);
+    }
+}
+
+bool Game::showConfirmPopup(
+    const std::string &message,
+    std::function<void()> onConfirm,
+    std::function<void()> onCancel) {
+    if (!_confirmPopup) {
+        _confirmPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_confirmPopup) {
+        return false;
+    }
+    stopMovement();
+    _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel));
     return true;
 }
 
@@ -9569,7 +9990,7 @@ void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
 
 void Game::consoleSelectLeader(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
-    getConsoleArea()->selectObject(getConsoleLeader());
+    getConsoleArea()->selectObject(getConsoleLeader(), /*force=*/true);
 }
 
 void Game::consoleSetFaction(const ConsoleArgs &args) {
@@ -9743,6 +10164,11 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
     _captureHUDPresentation = false;
     auto resRef = args[1];
     if (resRef) {
+        // No conversation replaces one under way, as none started otherwise does.
+        if (_dialogUnderWay) {
+            _console.printLine("startconversation: a conversation is under way");
+            return;
+        }
         startDialog(leader, std::string(resRef.value()), {}, _party.player());
         return;
     }
@@ -9864,7 +10290,9 @@ void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
     }
 
     auto action = newAction<CastSpellAtObjectAction>(
-        spell, std::move(target), std::move(item), cheat);
+        spell, target, std::move(item), cheat);
+    // The command carries where its target stands now.
+    action->setCommandLocation(target->position());
 
     _combat.scheduleCast(*leader, action);
 }
@@ -9991,6 +10419,28 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
         return;
     }
     const auto &mg = area->miniGame();
+    auto slot = [](std::string &out, const char *name, const std::string &resRef) {
+        if (!resRef.empty()) {
+            out += str(boost::format(" %s=%s") % name % resRef);
+        }
+    };
+    auto followerScripts = [&slot](const MinigameFollowerScriptSpec &sc) {
+        std::string out;
+        slot(out, "create", sc.onCreate);
+        slot(out, "hitbullet", sc.onHitBullet);
+        slot(out, "hitfollower", sc.onHitFollower);
+        slot(out, "animevent", sc.onAnimEvent);
+        slot(out, "heartbeat", sc.onHeartbeat);
+        slot(out, "damage", sc.onDamage);
+        slot(out, "death", sc.onDeath);
+        slot(out, "fire", sc.onFire);
+        slot(out, "hitobstacle", sc.onHitObstacle);
+        slot(out, "loop", sc.onTrackLoop);
+        slot(out, "accelerate", sc.onAccelerate);
+        slot(out, "brake", sc.onBrake);
+        slot(out, "hitworld", sc.onHitWorld);
+        return out;
+    };
     _console.printLine(str(boost::format("minigame: type=%s camfov=%.1f lataccel=%.3f movePerSec=%.3f inertia=%d bumpPlane=%u doBumping=%d")
                            % minigameTypeName(mg.type)
                            % mg.cameraViewAngle
@@ -9999,14 +10449,16 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
                            % static_cast<int>(mg.useInertia)
                            % mg.bumpPlane
                            % static_cast<int>(mg.doBumping)));
-    _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f hp=%u models=%zu")
+    _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f (%.3f/s) hp=%u models=%zu music=%s")
                            % mg.player.cameraResRef
                            % mg.player.trackResRef
                            % mg.player.minimumSpeed
                            % mg.player.maximumSpeed
                            % mg.player.accelSecs
+                           % mg.player.accelPerSecond
                            % mg.player.hitPoints
-                           % mg.player.models.size()));
+                           % mg.player.models.size()
+                           % mg.music));
     _console.printLine(str(boost::format("  tunnel (deg): X=[%.1f,%.1f] Y=[%.1f,%.1f] Z=[%.1f,%.1f]")
                            % mg.player.tunnelXNeg % mg.player.tunnelXPos
                            % mg.player.tunnelYNeg % mg.player.tunnelYPos
@@ -10020,11 +10472,18 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
     }
     for (size_t i = 0; i < mg.enemies.size(); ++i) {
         const auto &e = mg.enemies[i];
-        _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu")
-                               % i % e.trackResRef % e.hitPoints % e.models.size()));
+        _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu scripts:%s")
+                               % i % e.trackResRef % e.hitPoints % e.models.size() % followerScripts(e.scripts)));
     }
     for (size_t i = 0; i < mg.obstacles.size(); ++i) {
-        _console.printLine(str(boost::format("    obstacle[%zu] name=%s") % i % mg.obstacles[i].name));
+        const auto &o = mg.obstacles[i];
+        std::string scripts;
+        slot(scripts, "create", o.scripts.onCreate);
+        slot(scripts, "hitbullet", o.scripts.onHitBullet);
+        slot(scripts, "hitfollower", o.scripts.onHitFollower);
+        slot(scripts, "animevent", o.scripts.onAnimEvent);
+        slot(scripts, "heartbeat", o.scripts.onHeartbeat);
+        _console.printLine(str(boost::format("    obstacle[%zu] name=%s scripts:%s") % i % o.name % scripts));
     }
     if (auto layout = _services.resource.layouts.get(area->name())) {
         auto placement = layout->findTrackByName(mg.player.trackResRef);
@@ -10045,11 +10504,7 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
         _console.printLine(str(boost::format("  lyt obstacles=%zu (matched %zu of %zu .are obstacles)")
                                % layout->obstacles.size() % obstaclesMatched % mg.obstacles.size()));
     }
-    const auto &sc = mg.player.scripts;
-    if (!sc.onCreate.empty() || !sc.onDeath.empty() || !sc.onTrackLoop.empty()) {
-        _console.printLine(str(boost::format("  scripts: create=%s death=%s loop=%s damage=%s")
-                               % sc.onCreate % sc.onDeath % sc.onTrackLoop % sc.onDamage));
-    }
+    _console.printLine("  player scripts:" + followerScripts(mg.player.scripts));
 }
 
 void Game::consoleStartSwoop(const ConsoleArgs &args) {

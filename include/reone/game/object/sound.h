@@ -66,12 +66,18 @@ public:
     bool continuous() const { return _continuous; }
     float elevation() const { return _elevation; }
     bool looping() const { return _looping; }
+    float pitchVariation() const { return _pitchVariation; }
     bool positional() const { return _positional; }
+    int volume() const { return _volume; }
+    float fixedVariance() const { return _fixedVariance; }
 
     void setActive(bool active);
+    void setFixedVariance(float variance) { _fixedVariance = variance; }
+    void setPitchVariation(float variation) { _pitchVariation = variation; }
 
 private:
     friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     // Serializable
     resource::LocString _locName;
     bool _active {false};

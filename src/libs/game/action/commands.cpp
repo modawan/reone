@@ -17,6 +17,7 @@
 
 #include <cmath>
 
+#include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/playanimation.h"
@@ -26,11 +27,13 @@
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/savedsituation.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
 #include "reone/script/program.h"
@@ -120,8 +123,9 @@ std::optional<SavedActionRecord> DoCommandAction::saveFacingState() const {
 // An animation the actor has no clip for still takes a second.
 static constexpr float kNoClipSeconds = 1.0f;
 static constexpr float kCoalescingSeconds = 30.0f;
-// The animation constants a negative duration plays at once: in KotOR those up
-// to this one, in TSL those below the first and from the second on.
+// The animation constants a negative duration plays at once, none of them
+// negative: in KotOR those up to this one, in TSL those below the first and
+// from the second on.
 static constexpr int kLastImmediateAnimation = 32;
 static constexpr int kFirstQueuedAnimationTSL = 47;
 static constexpr int kFirstImmediateDialogAnimationTSL = 10001;
@@ -145,17 +149,10 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
     }
     const int animation = callerAnimationId(game, caller, constant);
     if (seconds < 0.0f) {
-        const bool direct = game.isTSL() ? (constant < kFirstQueuedAnimationTSL || constant >= kFirstImmediateDialogAnimationTSL)
-                                         : constant <= kLastImmediateAnimation;
-        if (!direct) {
-            return;
-        }
-        if (creature) {
-            creature->playScriptAnimation(creature->getScriptAnimation(animation), 1.0f);
-        } else if (auto *placeable = dyn_cast<Placeable>(&caller)) {
-            placeable->setStateAnimation(animation);
-        } else if (auto *door = dyn_cast<Door>(&caller)) {
-            door->setStateAnimation(animation);
+        const bool direct = constant >= 0 && (game.isTSL() ? (constant < kFirstQueuedAnimationTSL || constant >= kFirstImmediateDialogAnimationTSL)
+                                                           : constant <= kLastImmediateAnimation);
+        if (direct) {
+            showAnimation(caller, animation);
         }
         return;
     }
@@ -171,8 +168,16 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
     }
 }
 
-// The clip plays for its length at the speed given, and a loop given a
-// duration plays for that long; without a clip the action takes a second.
+void showAnimation(Object &object, int animation) {
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->playScriptAnimation(creature->getScriptAnimation(animation), 1.0f);
+    } else if (auto *placeable = dyn_cast<Placeable>(&object)) {
+        placeable->setStateAnimation(animation);
+    } else if (auto *door = dyn_cast<Door>(&object)) {
+        door->setStateAnimation(animation);
+    }
+}
+
 // From 30 seconds on, the same animation queued right behind it at the same
 // speed is dropped. A placeable or door takes the animation as its state on
 // every update while the action runs, and keeps it at the end; a creature
@@ -188,6 +193,9 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
     }
     if (_playing) {
         _timer.update(dt);
+        if (_workSoundDue) {
+            *_workSoundDue -= dt;
+        }
     } else {
         float length = 0.0f;
         bool fireForget = false;
@@ -210,6 +218,7 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         }
         _timer.reset(duration);
         _playing = true;
+        scheduleWorkSound(actor);
         _firstRun = false;
     }
     if (_durationSeconds >= kCoalescingSeconds) {
@@ -221,6 +230,7 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
             return other.animation() == _animation && other.speed() == _speed;
         });
     }
+    playDueWorkSound();
     if (!_timer.elapsed()) {
         if (placeable) {
             placeable->setStateAnimation(_animation);
@@ -236,6 +246,31 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         creature->refreshPauseAnimation();
     }
     complete();
+}
+
+// The controlled creature hears a work clip's sound its set time into the
+// clip; any other object, or an action taken up again after it had run, hears
+// it at once.
+void PlayAnimationAction::scheduleWorkSound(const Object &actor) {
+    const auto sound = workSound(_animation, _game.isTSL());
+    if (!sound) {
+        return;
+    }
+    const bool leader = _game.party().getLeader().get() == &actor;
+    _workSoundDue = _firstRun && leader ? sound->delaySeconds : 0.0f;
+}
+
+// The sound is not tied to a place, though it plays at the volume of the
+// one-shot positional sounds.
+void PlayAnimationAction::playDueWorkSound() {
+    if (!_workSoundDue || *_workSoundDue > 0.0f) {
+        return;
+    }
+    _workSoundDue.reset();
+    const auto sound = workSound(_animation, _game.isTSL());
+    if (auto clip = _services.resource.audioClips.get(sound->resRef)) {
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+    }
 }
 
 std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
@@ -298,6 +333,19 @@ std::optional<SavedActionRecord> WaitAction::saveFacingState() const {
 
 std::shared_ptr<Action> WaitAction::restore(const SavedActionRecord &record, Game &game) {
     return game.newAction<WaitAction>(record.floatParameter(0));
+}
+
+std::shared_ptr<Action> WaitAction::restoreAfterJump(const SavedActionRecord &record, Game &game) {
+    return game.newAction<WaitAction>(kAfterJumpSeconds);
+}
+
+// The check's only effect is on the party's own record of who is keeping up,
+// which the follow behind it takes care of; it ends at once.
+std::shared_ptr<Action> WaitAction::restoreFollowRangeCheck(const SavedActionRecord &record, Game &game) {
+    if (!std::dynamic_pointer_cast<Area>(record.objectParameter(3).boundObject())) {
+        return nullptr;
+    }
+    return game.newAction<WaitAction>(0.0f);
 }
 
 // Only non-player creatures are given this action; a player character's

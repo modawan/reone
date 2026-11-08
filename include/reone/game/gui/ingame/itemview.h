@@ -60,6 +60,8 @@ struct MenuItemView {
     std::shared_ptr<graphics::Texture> icon;
     int stackSize {1};
     bool equipped {false};
+    /** The party took the item in and the player has not looked at it yet. */
+    bool newlyAcquired {false};
     bool valid {true};
     /** Why the equipment screen will not equip the item, or 0. */
     int refusalStrRef {0};
@@ -133,6 +135,10 @@ public:
      * when the use is refused.
      */
     virtual std::optional<int> useItem(uint64_t handle) = 0;
+    /** The player looks at a listed item. */
+    virtual void noteItemViewed(uint64_t handle) = 0;
+    /** The items the player has looked at since the inventory opened are no longer new. */
+    virtual void markViewedItemsSeen() = 0;
 };
 
 class IEquipmentMenuBacking {

@@ -47,6 +47,8 @@ struct Race {
     std::array<int, 6> abilityAdjustments {};
     /** The favoured class (low byte), or kNoFavoredClass. */
     int favoredClass {kNoFavoredClass};
+    /** Whether a player's character may take the race. */
+    bool playerRace {false};
     /** The feats the race grants at the first character level. */
     std::unordered_set<FeatType> firstLevelFeats;
 };
