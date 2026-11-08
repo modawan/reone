@@ -331,7 +331,10 @@ void UseSkillAction::resolveMine(Creature &actor) {
             return;
         }
         if (auto receiver = _game.party().sharedInventoryReceiver(actorPtr)) {
-            receiver->addItem(resRef);
+            auto kit = _game.newItemFromBlueprint(resRef);
+            kit->setDropable(true);
+            _game.party().noteItemReceived(*kit, *receiver, nullptr);
+            receiver->addItem(kit);
         }
     };
 

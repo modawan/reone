@@ -622,7 +622,9 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
     const std::string name = item->localizedName();
     // The object answered is the stack now holding the item, or none when the
     // item was counted instead of kept.
-    auto held = ctx.game.party().sharedInventoryReceiver(oTarget)->addItem(item);
+    auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
+    ctx.game.party().noteItemReceived(*item, *receiver, nullptr);
+    auto held = receiver->addItem(item);
     // An item created on a party member is reported in the status summary,
     // unless the script hides it.
     if (ctx.game.party().isMember(*oTarget) && !nHideMessage) {

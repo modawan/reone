@@ -39,13 +39,24 @@ namespace game {
 // The description of the first autopause option, shown when the panel opens.
 static constexpr int kStrRefEndOfRoundDescription = 42445;
 
+void OptionsMenu::showCheckBoxes(IGUI &panel) {
+    for (auto &child : panel.rootControl().children()) {
+        showCheckBox(child.get());
+    }
+}
+
+void OptionsMenu::showCheckBox(Control &control) {
+    if (auto toggle = dynamic_cast<ToggleButton *>(&control)) {
+        toggle->showAsCheckBox(_baseColor, _hilightColor);
+    }
+}
+
 void OptionsMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        _controls.LB_DESC->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_TITLE);
         for (auto &button : {
                  _controls.BTN_SAVEGAME,
@@ -173,6 +184,7 @@ void OptionsMenu::loadFeedbackPanel() {
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.LB_OPTIONS = std::static_pointer_cast<ListBox>(find("LB_OPTIONS"));
+    showCheckBox(controls.LB_OPTIONS->protoItem());
 
     const bool tsl = _game.isTSL();
     if (tsl) {
@@ -182,7 +194,6 @@ void OptionsMenu::loadFeedbackPanel() {
         useK2ShellTitle(controls.LBL_TITLE);
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DESC->setTintBorderFill(true);
     }
 
     // Row order and names: TSL has eight rows, KotOR adds small fonts before tooltips.
@@ -278,12 +289,12 @@ void OptionsMenu::loadGameplayPanel() {
     controls.CB_INVERTCAM = std::static_pointer_cast<ToggleButton>(find("CB_INVERTCAM"));
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
+    showCheckBoxes(*_gameplayGUI);
 
     if (_game.isTSL()) {
         useK2ShellTitle(controls.LBL_TITLE);
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DESC->setTintBorderFill(true);
     }
 
     // The level changes at once; the configuration is written when the options close.
@@ -391,11 +402,11 @@ void OptionsMenu::loadAutoPausePanel() {
     controls.CB_PARTYKILLED = std::static_pointer_cast<ToggleButton>(find("CB_PARTYKILLED"));
     controls.CB_TRIGGERS = std::static_pointer_cast<ToggleButton>(find("CB_TRIGGERS"));
     controls.LB_DETAILS = std::static_pointer_cast<ListBox>(find("LB_DETAILS"));
+    showCheckBoxes(*_autoPauseGUI);
 
     if (_game.isTSL()) {
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DETAILS->setTintBorderFill(true);
     }
 
     // Each checkbox describes itself when it gains focus; a click only flips it.

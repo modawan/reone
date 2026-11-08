@@ -54,6 +54,8 @@ public:
     void refreshPortraits();
     /** Lists the items again and selects the given row, or the last one when the list is shorter. */
     void refreshItems(int selectedRow = 0);
+    /** The items the player looked at while the inventory was shown are no longer new. */
+    void markViewedItemsSeen();
 
 private:
     struct Controls {

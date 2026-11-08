@@ -638,6 +638,13 @@ public:
     // when the receiver is a creature that draws on them
     // (Creature::itemRepositoryOwner), otherwise the receiver itself.
     std::shared_ptr<Object> sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const;
+    /**
+     * An item the party's items receive from anything outside the party, or
+     * from nothing, is new to the party until the player looks at it in the
+     * inventory. \p receiver is where the item goes, \p source where it came
+     * from.
+     */
+    void noteItemReceived(Item &item, const Object &receiver, const Object *source) const;
 
     // END Inventory
 
