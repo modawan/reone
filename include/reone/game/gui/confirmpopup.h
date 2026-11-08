@@ -18,7 +18,6 @@
 #pragma once
 
 #include <optional>
-
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/listbox.h"
 
