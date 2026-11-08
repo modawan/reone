@@ -446,6 +446,13 @@ static constexpr float kGroundLineHeight = 0.1f;
 // A walk to a use point keeps its point while the current one lies within a
 // millimetre of it.
 static constexpr float kUsePointTolerance = 0.001f;
+// The ground beside a placeable's use point that no path reaches is looked for
+// within two metres of it, in rings a quarter of a metre apart, sixteen
+// directions each, and walked to within a quarter of a metre.
+static constexpr float kUseBesideRadius = 2.0f;
+static constexpr float kUseBesideStep = 0.25f;
+static constexpr int kUseBesideDirections = 16;
+static constexpr float kUseBesideArrival = 0.25f;
 // Walking into other creatures: five blocked steps are planned round, the
 // sixth ends the walk.
 static constexpr int kMaxPathBumps = 5;
@@ -10009,8 +10016,21 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
         if (target.type() == ObjectType::Door || target.type() == ObjectType::Placeable) {
             _useWalk->kept = UseApproach {use, !followsPoint};
         }
+        if (target.type() == ObjectType::Placeable) {
+            _useWalk->beside = walkablePointBeside(target, use.point);
+        }
     } else if (_useWalk->kept) {
         _useWalk->kept->follow(use);
+    }
+    // A placeable with no use point on the ground, used from its own origin
+    // inside its footprint, is used from the ground beside it. A walk to the
+    // origin itself would find no path and give up where the creature stands.
+    if (_useWalk->beside) {
+        if (!walkToward(goal, *_useWalk->beside, run, kUseBesideArrival, dt, pathTarget, inClearLine)) {
+            return false;
+        }
+        _useWalk.reset();
+        return true;
     }
     const UseRange &walk = _useWalk->kept ? _useWalk->kept->use : use;
     if (!walkToward(goal, walk.point, run, walk.range + walkExtra, dt, pathTarget, inClearLine)) {
@@ -10019,6 +10039,42 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
     // Arriving ends the walk; the next one sets out afresh.
     _useWalk.reset();
     return isInUseRange(target, extra);
+}
+
+std::optional<glm::vec3> Creature::walkablePointBeside(const Object &target, const glm::vec3 &point) const {
+    if (!_game.module() || !_game.module()->area()) {
+        return std::nullopt;
+    }
+    Area &area = *_game.module()->area();
+    const Pathfinder &pf = area.pathfinder();
+    if (pf.uni.regions.empty() || !pathExists(pf, _position, _position) || pathExists(pf, _position, point)) {
+        return std::nullopt;
+    }
+    const glm::vec3 lift {0.0f, 0.0f, kEyeHeight};
+    for (float ring = kUseBesideStep; ring <= kUseBesideRadius + 1e-4f; ring += kUseBesideStep) {
+        std::optional<glm::vec3> best;
+        float bestDistance2 = 0.0f;
+        for (int i = 0; i < kUseBesideDirections; ++i) {
+            const float angle = static_cast<float>(i) * glm::two_pi<float>() / kUseBesideDirections;
+            const glm::vec3 candidate {point.x + ring * std::sin(angle), point.y + ring * std::cos(angle), _position.z};
+            if (!pathExists(pf, _position, candidate) ||
+                !area.isEyeLineClear(candidate + lift, point + lift, *this, target)) {
+                continue;
+            }
+            // Of a ring's points, the one nearest the creature: it walks round
+            // the object no farther than it must.
+            const glm::vec2 offset {glm::vec2(candidate) - glm::vec2(_position)};
+            const float distance2 = glm::dot(offset, offset);
+            if (!best || distance2 < bestDistance2) {
+                best = candidate;
+                bestDistance2 = distance2;
+            }
+        }
+        if (best) {
+            return best;
+        }
+    }
+    return std::nullopt;
 }
 
 void Creature::advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt) {

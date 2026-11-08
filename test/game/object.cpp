@@ -25,6 +25,7 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
+#include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/unlockobject.h"
@@ -4772,6 +4773,48 @@ TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reac
 
     EXPECT_TRUE(npc->navigationFailed());
     EXPECT_TRUE(action->isCompleted());
+}
+
+// A placeable with no use point on the ground is used from its own origin,
+// which lies inside its footprint, off the walkmesh. The use walks to the
+// ground beside it rather than giving up where the creature stands.
+TEST(CreatureNavigationFailure, using_a_placeable_off_the_walkmesh_walks_to_the_ground_beside_it) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto desk = fixture.game.newPlaceable();
+    desk->setPosition(glm::vec3(6.5f, 0.0f, 0.0f));
+    fixture.area->add(desk);
+
+    auto action = fixture.game.newAction<OpenContainerAction>(desk);
+    npc->addAction(action);
+    for (int i = 0; i < 200 && !action->isCompleted(); ++i) {
+        action->execute(action, *npc, 0.1f);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_GT(npc->position().x, 4.0f);
+    EXPECT_LE(glm::distance(glm::vec2(npc->position()), glm::vec2(desk->position())), 2.5f);
+}
+
+// A placeable in a room no path reaches has no ground beside it within reach,
+// and its use still gives up.
+TEST(CreatureNavigationFailure, using_a_placeable_in_another_room_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto desk = fixture.game.newPlaceable();
+    desk->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+    fixture.area->add(desk);
+
+    auto action = fixture.game.newAction<OpenContainerAction>(desk);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(glm::vec3(0.0f), npc->position());
 }
 
 // Invoke GetBlockingDoor as the given caller.
