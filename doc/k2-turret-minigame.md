@@ -188,11 +188,37 @@ key is backquote.
 | `turretaim <pitch> <yaw>` | point the gun at an aim in degrees, kept inside the tunnel |
 | `turretfire [0\|1]` | hold the trigger down, or let it go |
 | `finishturret [count]` | deal that many enemies still flying, all by default, a hit that takes every hit point they have |
-| `runscript <script>` | run an authored script, such as K1's turret entry below |
+| `runscript <script> [Caller:<id>]` | run an authored script, as the object with that id |
+| `info` | print the selected object's id, or the party leader's when nothing is selected |
 | `listglobals` | print the global variables the scripts have written |
 
 A turret area entered through a module transition starts its turret by itself;
 `warp` loads a module directly and does not, so after a warp use `startturret`.
+
+### Where the campaigns start each turret
+
+Each of these runs the script the campaign runs at that point, from the module
+it runs in. A script that delays its own module change - `a_load003ebo`,
+`a_505turret` and `k_act_hk47simul` - needs an owner to carry the delayed
+command: run `info`
+first and pass the leader's id as `Caller:<id>`. Without one the delayed
+command is refused and the screen stays faded out. A tutorial window that comes
+up on arrival holds the world until it is closed.
+
+| game | campaign moment | console |
+|---|---|---|
+| TSL | leaving the Peragus administration level for the hangar | `warp 106per`, then `runscript a_load003ebo Caller:<id>` |
+| TSL | the Ebon Hawk heading for Onderon | `warp 003ebo`, then `runscript a_to_421dxn` |
+| TSL | the Onderon turret | `warp 504ond`, then `runscript a_505turret Caller:<id>` |
+| K1 | the escape from Taris | `warp ebo_m12aa`, then `runscript k_ren_taris03` |
+| K1 | the escape from the Leviathan | `runscript k_ren_levescape` |
+| K1 | leaving the Unknown World | `runscript k_ren_unkturret` |
+| K1 | HK-47's turret simulation | `warp ebo_m12aa`, then `runscript k_act_hk47simul Caller:<id>` |
+| K1 | a random attack between planets | the galaxy map's travel script, on a 50/50 roll |
+
+The Taris, Leviathan and Unknown World exits depend on plot state the
+campaign has set by then, so from the console those turrets run but do not
+leave.
 
 ### By hand, in each encounter
 
@@ -210,7 +236,7 @@ no alarm, no animation at the top of the gauge, and bolts vanish without
 exploding. Every ending goes to `504OND` at `From_505OND`.
 
 **M12AB - Ebon Hawk (K1).** In a K1 install, `warp ebo_m12aa` and then
-`runscript k_act_hk47simul`, HK-47's turret simulation, which sets
+`runscript k_act_hk47simul Caller:<id>`, HK-47's turret simulation, which sets
 `K_HK47_SIMULATION` and starts `m12ab` itself. The battle music plays and the
 backdrop shows the planet `K_TURRET_SKYBOX` names. Clearing the wing or being
 destroyed both return to `ebo_m12aa` at `K_MINI_GAME`.
