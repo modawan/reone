@@ -3206,6 +3206,9 @@ void Creature::returnToStoredLoop() {
 }
 
 void Creature::playOverlayLoop(const std::string &clip, AnimationProperties properties, AnimationSource source) {
+    if (_movementType != MovementType::None) {
+        return;
+    }
     stopOverlayLoop();
     properties.flags |= AnimationFlags::loop | AnimationFlags::overlay | AnimationFlags::layer | AnimationFlags::propagate;
     _overlayLoop = OverlayLoop {clip, std::move(properties), source};
@@ -5620,13 +5623,15 @@ void Creature::setMovementType(MovementType type) {
     _movementType = type;
     _animDirty = true;
     // A walk or run ends the running one-shot, though a layer goes on over
-    // it; the queue waits until the creature stands again.
+    // it; the queue waits until the creature stands again. Like any loop
+    // asked for, it takes the talk or listen loop away.
     _oneShot.reset();
     _animFireForget = false;
     _damageFlinchHeld = false;
     _castAnimation.reset();
     if (type != MovementType::None) {
         _injuredPause = _injuredIdle = false;
+        stopOverlayLoop();
     }
 }
 
