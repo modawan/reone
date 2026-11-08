@@ -2560,7 +2560,7 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
     // regular GUI layout scale and its own text setting.
     EXPECT_FLOAT_EQ(listBox.protoItem().scale(), 1.5f);
     EXPECT_EQ(listBox.protoItem().border().dimension, 2);
-    listBox.handleMouseMotion(0, 119);
+    listBox.handleMouseMotion(listBox.protoItem().extent().left, 119);
     EXPECT_EQ(listBox.selectedItemIndex(), 4);
 }
 

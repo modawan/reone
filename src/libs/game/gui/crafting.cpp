@@ -192,8 +192,8 @@ static bool isChooseKey(input::KeyCode code) {
 
 // The keys of a panel whose list holds the keyboard: Return or keypad Enter
 // chooses the selected row, and Up and Down move the selection, also while
-// held, sounding as it moves; Up with no row selected selects the first
-// silently. Whether the key was one of them.
+// held until it wraps round, sounding as it moves; Up with no row selected
+// selects the first silently. Whether the key was one of them.
 static bool handleListKey(ServicesView &services, const input::KeyEvent &key, ListBox &list, const std::function<void(int)> &choose) {
     if (!key.repeat && isChooseKey(key.code)) {
         const int row = list.selectedItemIndex();
@@ -205,7 +205,7 @@ static bool handleListKey(ServicesView &services, const input::KeyEvent &key, Li
     if (key.code == input::KeyCode::Up || key.code == input::KeyCode::Down) {
         const bool down = key.code == input::KeyCode::Down;
         const bool sounds = down || list.selectedItemIndex() >= 0;
-        if (list.selectAdjacentItem(down) && sounds) {
+        if (list.selectAdjacentItem(down, key.repeat) && sounds) {
             services.game.guiSounds.play(services.game.guiSounds.getOnEnter());
         }
         return true;
@@ -1377,7 +1377,7 @@ void ItemUpgradePanel::onGUILoaded() {
             pick(std::stoi(tag));
         });
     } else {
-        _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnHoverKept);
+        _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnHover);
         _controls.LB_ITEMS->setOnItemClick([this](const std::string &tag) {
             _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             pick(std::stoi(tag));

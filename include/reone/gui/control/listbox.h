@@ -30,9 +30,8 @@ constexpr int kDefaultSlotCount = 6;
 class ListBox : public Control {
 public:
     enum class SelectionMode {
-        OnHover,
         /** The row under the pointer is selected and stays so when the pointer leaves the rows. */
-        OnHoverKept,
+        OnHover,
         OnClick
     };
 
@@ -102,25 +101,29 @@ public:
 
     void changeProtoItemType(ControlType type);
 
-    void setSelected(bool selected) override;
     void setExtent(Extent extent) override;
     void setExtentHeight(int height) override;
     void setSelectionMode(SelectionMode mode);
-    /**
-     * Whether a hovered list keeps its selected row when the pointer is over
-     * no row or leaves the list, rather than losing it.
-     */
-    void setKeepsSelection(bool keeps) { _keepsSelection = keeps; }
+    /** Selects the row, or none for an index out of range; the selected row is scrolled into view. */
     void setSelectedItemIndex(int index);
     /**
      * Moves the selection a row down or up, as the arrow keys do: with no row
      * selected either way selects the first row; past either end the
      * selection wraps round when the list loops, and stays otherwise. The
-     * selected row is scrolled into view.
+     * selected row is scrolled into view. A held key stops at a wrap: its
+     * repeats move nothing until it is pressed again.
      *
+     * @param next whether the selection moves down
+     * @param repeat whether the key is held, repeating
      * @return whether a row was selected
      */
-    bool selectAdjacentItem(bool next);
+    bool selectAdjacentItem(bool next, bool repeat);
+    /**
+     * The list takes the keyboard. With no row selected, its first row is
+     * selected silently and scrolled into view; in a list that selects on
+     * click, the row is then chosen as a click on it chooses it.
+     */
+    void takeKeyboard();
     /**
      * Whether the pointer has moved the selection to another row since the
      * last call, a line of text excepted; the call clears it.
@@ -223,7 +226,6 @@ public:
 
 private:
     SelectionMode _selectionMode {SelectionMode::OnHover};
-    bool _keepsSelection {false};
     std::shared_ptr<Control> _protoItem;
     bool _iconFrameHilightPulsing {false};
     std::shared_ptr<Control> _scrollBar;
@@ -236,6 +238,7 @@ private:
     bool _leftScrollBar {false}; /**< authored side for the scroll bar */
     bool _looping {false};       /**< the selection wraps round past either end */
     bool _selectionEntered {false};  /**< the pointer moved the selection to another row */
+    bool _repeatStopped {false};     /**< the held arrow key wrapped round and moves nothing until pressed again */
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _textLineRows {false};      /**< rows are the lines of one block of text */
     bool _overflowing {false};       /**< the rows need more room than the list has */
@@ -270,7 +273,7 @@ private:
     int getItemTextWidth() const;
     int getItemIndex(int y) const;
     int getDrawnItemIndex(int x, int y) const;
-    /** The pointer selects the row at \p index. */
+    /** The pointer selects the row at \p index, which isn't a line of text. */
     void selectByPointer(int index);
     bool shouldRenderItemIconsForButtonProto() const;
     void renderItemWithButtonProtoIcon(

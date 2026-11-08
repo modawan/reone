@@ -99,6 +99,7 @@ void DialogGUI::preload(IGUI &gui) {
 
 void DialogGUI::onGUILoaded() {
     bindControls();
+    _gui->setHilightFollowsKeyboard(true);
     configureMessage();
     configureReplies();
     loadFrames();
@@ -171,8 +172,6 @@ void DialogGUI::configureReplies() {
             safeArea.height});
     }
     _controls.LB_REPLIES->setProtoMatchContent(true);
-    // The selected reply stays selected when the pointer moves off it.
-    _controls.LB_REPLIES->setKeepsSelection(true);
     _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
     _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
     _controls.LB_REPLIES->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
@@ -928,6 +927,9 @@ void DialogGUI::releaseStuntParticipants() {
 void DialogGUI::onEntryEnded() {
     _controls.LB_REPLIES->setVisible(true);
     if (!autoPicksFirstReply()) {
+        // Replies the player chooses from hold the keyboard, the first
+        // selected as they are listed.
+        _gui->setActiveControl(*_controls.LB_REPLIES);
         passTurnToReplySpeaker();
     }
     repositionMessage();

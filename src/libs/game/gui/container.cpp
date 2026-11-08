@@ -113,6 +113,9 @@ void ContainerGUI::populateItems(Object &source, bool onlyDropable, bool skipCre
 
         _controls.LB_ITEMS->addItem(std::move(lbItem));
     }
+    // The list takes the keyboard afresh at each listing.
+    _gui->clearActiveControl();
+    _gui->setActiveControl(*_controls.LB_ITEMS);
 }
 
 void ContainerGUI::open(std::shared_ptr<Object> container) {
@@ -150,8 +153,14 @@ void ContainerGUI::updateGiveRefresh() {
             break;
         }
         const int offset = _controls.LB_ITEMS->getItemOffset();
+        const int row = _controls.LB_ITEMS->selectedItemIndex();
         populateItems(*_game.party().getLeader(), /*onlyDropable=*/false, /*skipCredits=*/true);
         _controls.LB_ITEMS->setItemOffset(offset);
+        // The selection stays on its row, or the last while the list is shorter.
+        const int count = _controls.LB_ITEMS->getItemCount();
+        if (count > 0) {
+            _controls.LB_ITEMS->setSelectedItemIndex(std::min(row, count - 1));
+        }
         break;
     }
     case GiveRefresh::None:

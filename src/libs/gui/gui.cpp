@@ -340,8 +340,7 @@ void GUI::followPointer(const std::optional<std::reference_wrapper<Control>> &co
         if (!target.isSelected()) {
             onEntered(target.tag());
         }
-        releaseKeyboard();
-        _activeControl = target;
+        setActiveControl(target);
         hilight(target);
     }
     if ((!_selection && !control) ||
@@ -382,7 +381,7 @@ void GUI::unhilight(Control &control) {
 }
 
 void GUI::releaseKeyboard() {
-    if (_activeControl && hilightFollowsKeyboard(_activeControl->get())) {
+    if (_activeControl && _hilightFollowsKeyboard && _activeControl->get().type() != ControlType::ListBox) {
         unhilight(_activeControl->get());
     }
     _activeControl.reset();
@@ -394,14 +393,18 @@ void GUI::setActiveControl(Control &control) {
     }
     releaseKeyboard();
     _activeControl = control;
+    // The list holds the keyboard before it selects, so a row handler giving
+    // it the keyboard again changes nothing.
+    if (control.type() == ControlType::ListBox) {
+        static_cast<ListBox &>(control).takeKeyboard();
+    }
 }
 
 void GUI::selectActiveControl(Control &control) {
     if (holdsKeyboard(control)) {
         return;
     }
-    releaseKeyboard();
-    _activeControl = control;
+    setActiveControl(control);
     hilight(control);
 }
 
@@ -421,7 +424,7 @@ void GUI::enterList(Control &control, const glm::ivec2 &coords) {
         _listEntered = true;
         entered = true;
         if (list.isNavigable()) {
-            setActiveControl(control);
+            setActiveControl(list);
         }
     }
     // Reaching a row and moving the selection onto it at once sound once.

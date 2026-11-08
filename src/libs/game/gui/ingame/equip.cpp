@@ -443,6 +443,9 @@ void Equipment::selectSlot(Slot slot) {
     activateSlot(slot);
     if (noneSelected) {
         clearCandidateDescription();
+    } else {
+        // An opened slot's item list takes the keyboard.
+        _gui->setActiveControl(*_controls.LB_ITEMS);
     }
 }
 

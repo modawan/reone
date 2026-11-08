@@ -234,8 +234,10 @@ void OptionsMenu::loadFeedbackPanel() {
 
 void OptionsMenu::openFeedbackPanel() {
     showFeedbackOptions();
-    // The panel opens on its first row.
-    showFeedbackDescription(0);
+    // The panel opens with its list holding the keyboard, which selects and
+    // describes the first row.
+    _feedbackGUI->clearActiveControl();
+    _feedbackGUI->setActiveControl(*_feedbackControls.LB_OPTIONS);
     _feedbackOpen = true;
 }
 

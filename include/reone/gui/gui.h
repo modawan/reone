@@ -127,20 +127,21 @@ public:
     virtual std::optional<std::reference_wrapper<Control>> activeControl() const = 0;
     /**
      * Gives the keyboard to \p control, silently and without selecting it;
-     * the control holding it before loses it, and its hilight when the
-     * hilight follows the keyboard.
+     * the control holding it before loses it, and its hilight on a GUI whose
+     * hilight follows the keyboard, unless it is a list. A list taking it then selects as
+     * ListBox::takeKeyboard does. Nothing changes when \p control holds the
+     * keyboard already.
      */
     virtual void setActiveControl(Control &control) = 0;
     /**
-     * Gives the keyboard to \p control and selects it, without the sound of
-     * entering it; the control holding it before loses it, and its hilight
-     * when the hilight follows the keyboard. Nothing changes when \p control
+     * Gives the keyboard to \p control as setActiveControl does and selects
+     * it, without the sound of entering it. Nothing changes when \p control
      * holds the keyboard already.
      */
     virtual void selectActiveControl(Control &control) = 0;
     /**
      * No control holds the keyboard; the one holding it loses its hilight
-     * when the hilight follows the keyboard.
+     * on a GUI whose hilight follows the keyboard, unless it is a list.
      */
     virtual void clearActiveControl() = 0;
     /**
@@ -447,7 +448,7 @@ private:
     void unhilight(Control &control);
     /**
      * No control holds the keyboard; the one holding it loses its hilight
-     * when that follows the keyboard.
+     * on a GUI whose hilight follows the keyboard, unless it is a list.
      */
     void releaseKeyboard();
     /** A list the pointer acted on is entered when the pointer moved its selection to another row. */

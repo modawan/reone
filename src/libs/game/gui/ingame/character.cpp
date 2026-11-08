@@ -240,6 +240,8 @@ void CharacterMenu::loadScriptSelectPanel() {
     controls.BTN_Back->setOnClick([this]() {
         closeScriptSelectPanel();
     });
+    // The list holds the keyboard until the pointer gives it to another control.
+    _scriptSelectGUI->setActiveControl(list);
 }
 
 // The panel opens for the leader with its current style marked and focused,

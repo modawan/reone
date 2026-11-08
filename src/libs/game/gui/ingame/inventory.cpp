@@ -175,6 +175,8 @@ void InventoryMenu::configureItemsListBox() {
     _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &) {
         activateSelectedItem();
     });
+    // The item list holds the keyboard until the pointer gives it to another control.
+    _gui->setActiveControl(*_controls.LB_ITEMS);
 
     if (auto protoItem = _controls.LB_ITEMS->protoItemOrNull()) {
         if (isTSL()) {
