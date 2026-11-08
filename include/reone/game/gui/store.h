@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../gui.h"
 
 #include "reone/gui/control/button.h"
@@ -43,6 +45,7 @@ public:
     void open(const std::shared_ptr<Store> &store);
 
     bool handle(const input::Event &event) override;
+    void update(float dt) override;
 
 private:
     struct Controls {
@@ -77,8 +80,8 @@ private:
     RuntimeObjectRef<Store> _store;
     bool _selling {false};
     Filter _filter {Filter::All};
-    /** The party's credits, taken when the store opens and kept by its trades. */
-    int _gold {0};
+    /** The credits the screen shows, kept to the party's as they change. */
+    std::optional<int> _shownCredits;
 
     void onGUILoaded() override;
 

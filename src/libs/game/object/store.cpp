@@ -18,8 +18,6 @@
 #include "reone/game/object/store.h"
 
 #include <algorithm>
-#include <optional>
-#include <set>
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -128,7 +126,6 @@ void Store::deserializeItems(
         obsolete,
         [&]() {
             std::vector<std::shared_ptr<Item>> loaded;
-            std::optional<std::set<std::string>> endlessTemplates;
             for (const auto &entry : gff.getList("ItemList")) {
                 std::shared_ptr<Item> item;
                 if (placedTemplate) {
@@ -155,7 +152,9 @@ void Store::deserializeItems(
                         identityContext,
                         {SaveRecordOriginKind::StoreItem, std::to_string(_id)});
                 }
-                item->setInfinite(entryInfinite(gff, *entry, identityContext, endlessTemplates));
+                // An entry never runs out when its Infinite's low bit is set; an
+                // entry without one runs out.
+                item->setInfinite((entry->getUint("Infinite", 0) & 1) != 0);
                 item->setOwner(_id);
                 loaded.push_back(std::move(item));
             }
@@ -178,36 +177,6 @@ void Store::deserializeItems(
         [&]() noexcept {
             _items = std::move(replacement);
         });
-}
-
-// An entry's Infinite is its low bit. A save from before stocked items kept
-// it takes it from the store's template: whether an entry there that never
-// runs out names the item's template.
-bool Store::entryInfinite(
-    const resource::Gff &record,
-    const resource::Gff &entry,
-    const SerializedIdentityContext &identityContext,
-    std::optional<std::set<std::string>> &endlessTemplates) const {
-    if (!identityContext.isSerializedState() || entry.has("Infinite")) {
-        return (entry.getUint("Infinite", 0) & 1) != 0;
-    }
-    if (!endlessTemplates) {
-        endlessTemplates.emplace();
-        std::string storeTemplate;
-        if (record.readResRef(storeTemplate, "ResRef") || record.readResRef(storeTemplate, "TemplateResRef")) {
-            if (auto utm = _services.resource.gffs.get(storeTemplate, ResType::Utm)) {
-                for (const auto &stocked : utm->getList("ItemList")) {
-                    std::string itemTemplate;
-                    if ((stocked->getUint("Infinite", 0) & 1) != 0 && stocked->readResRef(itemTemplate, "InventoryRes")) {
-                        endlessTemplates->insert(boost::to_lower_copy(itemTemplate));
-                    }
-                }
-            }
-        }
-    }
-    std::string itemTemplate;
-    return entry.readResRef(itemTemplate, "TemplateResRef") &&
-           endlessTemplates->count(boost::to_lower_copy(itemTemplate)) != 0;
 }
 
 int Store::itemCost(const Item &item) const {

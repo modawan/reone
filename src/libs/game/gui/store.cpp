@@ -133,7 +133,7 @@ void StoreGUI::configureItemList(ListBox &list) {
 void StoreGUI::open(const std::shared_ptr<Store> &store) {
     _store = store;
     _filter = Filter::All;
-    _gold = _game.party().gold();
+    _shownCredits.reset();
     showCredits();
     // A store that only buys opens on the party's items, any other on its own
     // stock; only one that buys and sells can switch between them.
@@ -414,7 +414,7 @@ void StoreGUI::offerToBuy(const std::shared_ptr<Item> &item) {
     }
     const auto price = static_cast<uint32_t>(store->buyPrice(*item));
     // KotOR says so in its examine box.
-    if (static_cast<uint32_t>(_gold) < price) {
+    if (static_cast<uint32_t>(_game.party().gold()) < price) {
         if (isTSL()) {
             _game.showMessagePopup(_game.getInterfaceText(kNotEnoughCreditsStrRef));
         } else {
@@ -483,7 +483,6 @@ void StoreGUI::buy(const std::shared_ptr<Item> &item) {
     }
     playSound(_presentation.mixer, _presentation.sounds.getInventoryAdd());
     const int price = store->buyPrice(*item);
-    _gold -= price;
     _game.party().takeGold(price);
     store->sellItem(item, leader);
     // TSL shows the first row selected again.
@@ -508,7 +507,6 @@ void StoreGUI::sell(const std::shared_ptr<Item> &item) {
     }
     playSound(_presentation.mixer, _presentation.sounds.getInventoryDrop());
     const int price = store->sellPrice(*item);
-    _gold += price;
     _game.party().giveGold(price);
     std::shared_ptr<Item> sold = item;
     if (item->stackSize() > 1) {
@@ -542,8 +540,20 @@ void StoreGUI::relist(ListBox &list, bool keepSelection) {
     }
 }
 
+// The screen shows the party's credits, and follows them when anything else,
+// such as the store's open script, changes them while it is up.
 void StoreGUI::showCredits() {
-    _controls.LBL_CREDITS_VALUE->setTextMessage(std::to_string(_gold));
+    const int credits = _game.party().gold();
+    if (_shownCredits == credits) {
+        return;
+    }
+    _shownCredits = credits;
+    _controls.LBL_CREDITS_VALUE->setTextMessage(std::to_string(credits));
+}
+
+void StoreGUI::update(float dt) {
+    GameGUI::update(dt);
+    showCredits();
 }
 
 void StoreGUI::close() {

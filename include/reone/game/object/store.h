@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <optional>
-#include <set>
-
 #include "../object.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/strings.h"
@@ -128,16 +125,6 @@ private:
      * a field it lacks counts as 0, otherwise the current value stays.
      */
     void readPlacement(const resource::Gff &gff, bool zeroWhereMissing);
-    /**
-     * Whether an item list entry never runs out. A saved entry without
-     * Infinite takes it from the store's template, read once into
-     * \p endlessTemplates.
-     */
-    bool entryInfinite(
-        const resource::Gff &record,
-        const resource::Gff &entry,
-        const SerializedIdentityContext &identityContext,
-        std::optional<std::set<std::string>> &endlessTemplates) const;
     int itemCost(const Item &item) const;
     /**
      * Files an item by cost. An item cheaper than the first goes in before
