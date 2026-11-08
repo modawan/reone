@@ -38,6 +38,7 @@ void TpcReader::load() {
 
     bool cubemap = height / width == kNumCubeFaces;
     if (cubemap) {
+        _type = TextureType::CubeMap;
         _width = width;
         _height = width;
         _numLayers = kNumCubeFaces;
@@ -55,9 +56,13 @@ void TpcReader::load() {
         getMipMapSize(0, w, h);
         _dataSize = getMipMapDataSize(w, h);
     }
+    _pixelFormat = getPixelFormat();
 
     loadLayers();
     loadFeatures();
+    if (_features.procedureType == Texture::ProcedureType::Cycle) {
+        loadFrames();
+    }
     loadTexture();
 }
 
@@ -95,12 +100,39 @@ void TpcReader::loadFeatures() {
     _features = reader.features();
 }
 
+// A texture that cycles through frames stores them one after another, each
+// with its own mip maps down to a pixel, and its data size covers them all.
+// Each frame's largest image becomes a layer of its own, unpacked like every
+// texture of frames.
+void TpcReader::loadFrames() {
+    int numFrames = _features.numX * _features.numY;
+    int frameWidth = _width / _features.numX;
+    int frameHeight = _height / _features.numY;
+    int frameDataSize = 0;
+    for (int level = 0; (glm::max(frameWidth, frameHeight) >> level) > 0; ++level) {
+        frameDataSize += getMipMapDataSize(glm::max(1, frameWidth >> level), glm::max(1, frameHeight >> level));
+    }
+    int imageDataSize = getMipMapDataSize(frameWidth, frameHeight);
+    PixelFormat storedFormat = _pixelFormat;
+    const ByteBuffer &data = *_layers.front().pixels;
+    std::vector<Texture::Layer> frames;
+    frames.reserve(numFrames);
+    for (int i = 0; i < numFrames; ++i) {
+        auto image = data.begin() + static_cast<std::ptrdiff_t>(i) * frameDataSize;
+        Texture::Layer frame {std::make_shared<ByteBuffer>(image, image + imageDataSize)};
+        decompressLayer(frameWidth, frameHeight, frame, storedFormat, _pixelFormat);
+        frames.push_back(std::move(frame));
+    }
+    _type = TextureType::TwoDimArray;
+    _width = frameWidth;
+    _height = frameHeight;
+    _numLayers = numFrames;
+    _layers = std::move(frames);
+}
+
 void TpcReader::loadTexture() {
-    _texture = std::make_shared<Texture>(
-        _resRef,
-        _numLayers == kNumCubeFaces ? TextureType::CubeMap : TextureType::TwoDim,
-        getTextureProperties(_usage));
-    _texture->setPixels(_width, _height, getPixelFormat(), _layers);
+    _texture = std::make_shared<Texture>(_resRef, _type, getTextureProperties(_usage));
+    _texture->setPixels(_width, _height, _pixelFormat, _layers);
     _texture->setFeatures(_features);
 }
 

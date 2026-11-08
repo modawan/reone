@@ -24,7 +24,7 @@ namespace reone {
 
 namespace graphics {
 
-static void decompressLayer(int width, int height, Texture::Layer &layer, PixelFormat srcFormat, PixelFormat &dstFormat) {
+void decompressLayer(int width, int height, Texture::Layer &layer, PixelFormat srcFormat, PixelFormat &dstFormat) {
     if (!isCompressed(srcFormat)) {
         throw std::invalid_argument("format must be either DXT1 or DXT5");
     }
@@ -114,6 +114,24 @@ void convertGridTextureToArray(Texture &texture, int numX, int numY) {
         frameSize.x, frameSize.y,
         texture.pixelFormat(),
         std::move(frameLayers));
+}
+
+int getCycleFrame(const Texture &texture, float time) {
+    const Texture::Features &features = texture.features();
+    if (features.procedureType != Texture::ProcedureType::Cycle) {
+        return 0;
+    }
+    int frameCount = features.numX * features.numY;
+    float length = frameCount / static_cast<float>(features.fps);
+    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
+}
+
+glm::ivec2 getImageSize(const Texture &texture) {
+    if (!texture.is2DArray()) {
+        return {texture.width(), texture.height()};
+    }
+    const Texture::Features &features = texture.features();
+    return {texture.width() * features.numX, texture.height() * features.numY};
 }
 
 Texture::Properties getTextureProperties(TextureUsage usage) {

@@ -328,6 +328,7 @@ void SceneGraph::updateSounds() {
 void SceneGraph::refresh() {
     _opaqueMeshes.clear();
     _transparentMeshes.clear();
+    _blendedDepthMeshes.clear();
     _shellMeshes.clear();
     _shadowMeshes.clear();
     _lights.clear();
@@ -365,6 +366,9 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
             // Sort model nodes into transparent and opaque
             if (modelNode.isTransparent()) {
                 _transparentMeshes.push_back(&modelNode);
+                if (modelNode.writesBlendedDepth()) {
+                    _blendedDepthMeshes.push_back(&modelNode);
+                }
             } else {
                 _opaqueMeshes.push_back(&modelNode);
             }
@@ -565,6 +569,11 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
         }
         pipeline.inRenderPass(RenderPassName::OpaqueGeometry, [this](auto &pass) {
             renderOpaque(pass);
+        });
+        pipeline.inRenderPass(RenderPassName::BlendedGeometryDepth, [this](auto &pass) {
+            for (auto &mesh : _blendedDepthMeshes) {
+                mesh->renderBlendedDepth(pass);
+            }
         });
         pipeline.inRenderPass(RenderPassName::TransparentGeometry, [this](auto &pass) {
             renderTransparent(pass);

@@ -22,6 +22,7 @@
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/textureutil.h"
 #include "reone/graphics/textutil.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/resource/gff.h"
@@ -134,6 +135,7 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
         border->fill = _resourceSvc.textures.get(fill, TextureUsage::GUI);
     }
 
+    border->fillStyle = static_cast<Border::FillStyle>(gui.FILLSTYLE);
     border->dimension = gui.DIMENSION;
     border->innerOffset = gui.INNEROFFSET;
     border->color = gui.COLOR;
@@ -207,6 +209,7 @@ void Control::update(float dt) {
     if (!_visible) {
         return;
     }
+    _textureTime += dt;
     for (auto &child : _children) {
         child.get().update(dt);
     }
@@ -314,14 +317,55 @@ void Control::renderBorder(const Border &border,
         auto blending = border.fill->features().blending == Texture::Blending::Additive
                             ? BlendMode::Additive
                             : BlendMode::Normal;
-        _graphicsSvc.context.withBlendMode(blending, [&]() {
+        glm::ivec2 fillPosition {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y};
+        int frame = getCycleFrame(*border.fill, _textureTime);
+        auto drawFill = [&](const glm::ivec2 &position, const glm::ivec2 &drawSize) {
             pass.drawImage(
                 *border.fill,
-                {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
-                fillSize,
+                position,
+                drawSize,
                 glm::vec4(color, fillAlpha),
                 uv,
-                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
+                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default,
+                frame);
+        };
+        // Tiles and a centred image are as big as the image is authored,
+        // grown with the layout - and never less than a pixel, so that
+        // there is always a whole number of them.
+        glm::ivec2 imageSize = glm::max(
+            glm::ivec2(1),
+            glm::ivec2(glm::vec2(getImageSize(*border.fill)) * _frameLayoutScale));
+        _graphicsSvc.context.withBlendMode(blending, [&]() {
+            switch (border.fillStyle) {
+            case Border::FillStyle::Tile: {
+                // As many whole images as fit along each axis, or one where
+                // none does, with what is left over shared out a pixel each
+                // from the first.
+                glm::ivec2 count = glm::max(glm::ivec2(1), fillSize / imageSize);
+                glm::ivec2 tileSize = fillSize / count;
+                glm::ivec2 widened = fillSize - tileSize * count;
+                int x = fillPosition.x;
+                for (int column = 0; column < count.x; ++column) {
+                    int width = tileSize.x + (column < widened.x ? 1 : 0);
+                    int y = fillPosition.y;
+                    for (int row = 0; row < count.y; ++row) {
+                        int height = tileSize.y + (row < widened.y ? 1 : 0);
+                        drawFill({x, y}, {width, height});
+                        y += height;
+                    }
+                    x += width;
+                }
+                break;
+            }
+            case Border::FillStyle::Center: {
+                glm::ivec2 drawSize = glm::min(imageSize, fillSize);
+                drawFill(fillPosition + (fillSize - drawSize) / 2, drawSize);
+                break;
+            }
+            case Border::FillStyle::Stretch:
+                drawFill(fillPosition, fillSize);
+                break;
+            }
         });
     }
 
@@ -566,6 +610,7 @@ void Control::setPresentationScale(float frameLayoutScale, float textLayoutScale
     // Text and frame slices do not follow the extent on their own. Keeping
     // this separate lets compound controls give their contents an independent
     // density while retaining the parent's layout rectangle.
+    _frameLayoutScale = frameLayoutScale;
     _scale = textLayoutScale * _gui.textScale();
     if (_border) {
         _border->dimension = static_cast<int>(_authoredBorderDimension * frameLayoutScale * _gui.borderScale());

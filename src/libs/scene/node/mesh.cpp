@@ -115,18 +115,6 @@ void MeshSceneNode::updateUVAnimation(float dt, const ModelNode::TriangleMesh &m
     }
 }
 
-// A cycling bump map shows its frames in turn on the scene's texture clock,
-// which a pause doesn't stop.
-static int bumpmapCycleFrame(const Texture &bumpmap, float time) {
-    const Texture::Features &features = bumpmap.features();
-    if (features.procedureType != Texture::ProcedureType::Cycle) {
-        return 0;
-    }
-    int frameCount = features.numX * features.numY;
-    float length = frameCount / static_cast<float>(features.fps);
-    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
-}
-
 static std::string vectorToString(const glm::vec3 &vec) {
     return str(boost::format("[%.04f, %.04f, %.04f]") % vec.x % vec.y % vec.z);
 }
@@ -260,6 +248,16 @@ bool MeshSceneNode::isTransparent() const {
         return false;
     }
     return hasAlphaChannel(_nodeTextures.diffuse->pixelFormat());
+}
+
+bool MeshSceneNode::writesBlendedDepth() const {
+    if (_projectedBeam) {
+        return false;
+    }
+    if (_sceneGraph.isForceSightEnabled() && _model.forceSightStyle() != ModelSceneNode::ForceSightStyle::Grey) {
+        return false;
+    }
+    return isTransparent() && _nodeTextures.diffuse->features().blending != Texture::Blending::Additive;
 }
 
 static bool isLightingEnabledByUsage(ModelUsage usage) {
@@ -428,7 +426,9 @@ void MeshSceneNode::render(IRenderPass &pass) {
     if (_nodeTextures.bumpmap) {
         if (_nodeTextures.bumpmap->isGrayscale()) {
             material.textures.insert({TextureUnits::bumpMapArray, *_nodeTextures.bumpmap});
-            material.bumpMapFrame = bumpmapCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
+            // A cycling bump map runs on the scene's texture clock, which a
+            // pause doesn't stop.
+            material.bumpMapFrame = getCycleFrame(*_nodeTextures.bumpmap, _sceneGraph.textureTime());
         } else {
             material.textures.insert({TextureUnits::normalMap, *_nodeTextures.bumpmap});
         }
@@ -544,6 +544,19 @@ std::vector<glm::mat4> MeshSceneNode::buildSkinBoneTransforms() const {
         bones[i] *= skin.boneMatrices[skin.boneSerial[i]]; // extract changes to the bone transform in this model node space
     }
     return bones;
+}
+
+void MeshSceneNode::renderBlendedDepth(IRenderPass &pass) {
+    Material material;
+    material.type = MaterialType::BlendedModelDepth;
+    material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
+    material.uv = glm::mat3x4(
+        glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        glm::vec4(_uvOffset.x, _uvOffset.y, 0.0f, 0.0f));
+    material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha * _model.fadeAlpha());
+    material.faceCulling = _nodeTextures.diffuse->features().decal ? FaceCullMode::None : FaceCullMode::Back;
+    drawWithMaterial(pass, material);
 }
 
 void MeshSceneNode::renderShadow(IRenderPass &pass) {

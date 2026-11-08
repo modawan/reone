@@ -61,11 +61,19 @@ public:
      */
     void renderBumpedOutShell(IRenderPass &pass, graphics::Texture &texture, float offset);
     void renderShadow(IRenderPass &pass);
+    /** Writes the mesh's depth where it shows. */
+    void renderBlendedDepth(IRenderPass &pass);
 
     bool shouldRender() const;
     bool shouldCastShadows() const;
 
     bool isTransparent() const;
+    /**
+     * A blended mesh writes its depth where it shows, as an opaque one does,
+     * so what it covers stays hidden; an additive one does not, and neither
+     * does a model drawn see-through or glowing under Force Sight.
+     */
+    bool writesBlendedDepth() const;
 
     ModelSceneNode &model() { return _model; }
     const ModelSceneNode &model() const { return _model; }

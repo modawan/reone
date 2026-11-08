@@ -57,6 +57,8 @@ private:
     bool _compressed {false};
     int _numLayers {0};
     uint8_t _numMipMaps {0};
+    TextureType _type {TextureType::TwoDim};
+    PixelFormat _pixelFormat {PixelFormat::R8};
 
     std::vector<Texture::Layer> _layers;
     Texture::Features _features;
@@ -66,6 +68,8 @@ private:
 
     void loadLayers();
     void loadFeatures();
+    /** Makes each frame of a texture that cycles through frames a layer of its own. */
+    void loadFrames();
 
     void loadTexture();
 
