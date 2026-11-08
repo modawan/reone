@@ -2591,6 +2591,9 @@ private:
     void consoleStopTurret(const ConsoleArgs &tokens);
     void consoleTurretState(const ConsoleArgs &tokens);
     void consoleStartTurretGame(const ConsoleArgs &tokens);
+    void consoleFinishTurret(const ConsoleArgs &tokens);
+    void consoleTurretAim(const ConsoleArgs &tokens);
+    void consoleTurretFire(const ConsoleArgs &tokens);
     void consoleShowImGui(const ConsoleArgs &tokens);
     void consoleShowPath(const ConsoleArgs &tokens);
 

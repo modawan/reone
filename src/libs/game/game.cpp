@@ -874,6 +874,9 @@ void Game::initConsole() {
         registerConsoleCommand("startturretgame", "enter a turret module from the current one and auto-start the minigame", &Game::consoleStartTurretGame);
         registerConsoleCommand("stopturret", "exit the turret minigame", &Game::consoleStopTurret);
         registerConsoleCommand("turretstate", "print the current turret aim/health/enemy state", &Game::consoleTurretState);
+        registerConsoleCommand("finishturret", "deal the turret's remaining enemies, or that many, a hit that takes all their hit points", &Game::consoleFinishTurret);
+        registerConsoleCommand("turretaim", "aim the turret at a pitch and yaw in degrees", &Game::consoleTurretAim);
+        registerConsoleCommand("turretfire", "hold the turret's trigger down (1, the default) or let it go (0)", &Game::consoleTurretFire);
         registerConsoleCommand("showimgui", "open imgui demo", &Game::consoleShowImGui);
     }
 }
@@ -10735,6 +10738,47 @@ void Game::consoleStartTurretGame(const ConsoleArgs &args) {
 
     _console.printLine(str(boost::format("turret: lifecycle scheduled origin=%s target=%s")
                            % originModule % target));
+}
+
+void Game::consoleFinishTurret(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1, "[count]");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    // Each is hit as a bolt would hit it, through its own damage and death
+    // scripts.
+    auto enemies = _turret.listedEnemies();
+    size_t count = static_cast<size_t>(args.get<int>(1).value_or(static_cast<int>(enemies.size())));
+    size_t struck = 0;
+    for (auto enemy : enemies) {
+        if (struck == count) {
+            break;
+        }
+        _turret.adjustHitPoints(*enemy, -enemy->hitPoints);
+        ++struck;
+    }
+    _console.printLine(str(boost::format("turret: struck %zu of %zu enemies") % struck % enemies.size()));
+}
+
+void Game::consoleTurretAim(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "pitch yaw");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    auto &aim = _turret.aim();
+    aim.setOffset(glm::vec3(args.get<float>(1).value(), aim.offset().y, args.get<float>(2).value()));
+    _console.printLine(str(boost::format("turret: aim pitch=%.1f yaw=%.1f") % aim.offset().x % aim.offset().z));
+}
+
+void Game::consoleTurretFire(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1, "[0|1]");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    _turret.setFiring(args.get<int>(1).value_or(1) != 0);
 }
 
 void Game::consoleStopTurret(const ConsoleArgs &args) {

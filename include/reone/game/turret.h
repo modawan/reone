@@ -569,6 +569,8 @@ public:
     float farClip() const { return _farClip; }
     void setCameraClip(float nearClip, float farClip);
     bool trackPlaying() const { return _trackPlaying; }
+    /** Holds the player's trigger down, or lets it go, as the fire button does. */
+    void setFiring(bool firing) { _firing = firing; }
 
     // Diagnostics
 
