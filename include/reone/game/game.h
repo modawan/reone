@@ -1956,8 +1956,29 @@ private:
 
     /** Whether the tutorial window is open and over the other message box, or that box is closed. */
     bool isTutorialPopupOver() const;
-    /** The other message box, about to be shown, goes over the tutorial window unless it is shown already. */
+    /**
+     * The other message box, about to be shown, goes over the tutorial window
+     * unless it is shown already. A box it is showing gives way to it (see
+     * ConfirmPopup::withdraw), and a pause a script's box held is let go.
+     * Shown over a station, it takes over the box held under the station.
+     */
     void putMessagePopupOnTop();
+
+    /**
+     * The message boxes open as a station opens stay under it, neither drawn
+     * nor taking input, until the station closes; one shown again meanwhile
+     * is the station's.
+     */
+    bool _messageBoxUnderStation {false};
+    bool _tutorialUnderStation {false};
+    bool _datapadUnderStation {false};
+
+    /** Holds the open message boxes under a station opening. */
+    void holdPopupsUnderStation();
+    /** Gives back the message boxes held under the stations. */
+    void releasePopupsUnderStation();
+    /** The message box drawn on top and taking the input, if any is shown. */
+    ConfirmPopup *topShownPopup() const;
 
     bool isTutorialWindowValid(int id) const;
     void commitTutorialWindow();
@@ -2462,6 +2483,8 @@ private:
     void renderHUD();
 
     GameGUI *getScreenGUI() const;
+    /** The GUI \p screen shows; none for a screen without one. */
+    GameGUI *guiForScreen(Screen screen) const;
     CameraType getConversationCamera(int &cameraId) const;
 
     // Updates
@@ -2572,12 +2595,14 @@ private:
      */
     template <class T, class Prepare>
     void openStationScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
-        if (_stationReturnScreens.count(screen) > 0) {
+        // The loader would replace a station opened under it with play.
+        if (_stationReturnScreens.count(screen) > 0 || _screen == Screen::Loading) {
             return;
         }
         const Screen underneath = _screen;
         if (openPanelScreen(panel, screen, prepare)) {
             _stationReturnScreens[screen] = underneath;
+            holdPopupsUnderStation();
         }
     }
 

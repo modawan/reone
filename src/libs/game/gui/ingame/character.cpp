@@ -404,6 +404,8 @@ std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneG
         _game.newPresentationCreature(sceneGraph.name());
     character->setFacing(-glm::half_pi<float>());
     character->setAppearance(partyLeader->appearance());
+    // A disguise previews over the texture variation the leader shows.
+    character->takeShownTextureVariation(*partyLeader);
 
     for (auto &item : partyLeader->equipment()) {
         switch (item.first) {

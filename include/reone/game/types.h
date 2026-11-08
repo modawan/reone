@@ -100,7 +100,10 @@ enum class BackgroundType {
     None,
     Menu,
     Load,
-    Computer
+    Computer,
+    Store,
+    /** The upgrade bench's panels: the menu backdrop, which TSL looks for too. */
+    Upgrade
 };
 
 enum class WeaponType {

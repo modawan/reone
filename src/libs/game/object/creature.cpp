@@ -5519,6 +5519,21 @@ static int wornBodyVariation(const Item &item) {
     return std::max(item.bodyVariation(), 1) - 1;
 }
 
+void Creature::noteBodyLook(int slot, const Item &item) {
+    if (slot == InventorySlots::body && item.isBodyModel()) {
+        _shownTextureVariation = item.textureVariation();
+    }
+}
+
+// A body item of the body model type is drawn with its own look; any other
+// with the first body model and the texture variation shown.
+std::pair<int, int> Creature::bodyLookOf(const Item &body) const {
+    if (body.isBodyModel()) {
+        return {wornBodyVariation(body), body.textureVariation()};
+    }
+    return {0, _shownTextureVariation};
+}
+
 void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
     if (!_game.isTSL()) {
         return;
@@ -5640,6 +5655,7 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     _equipment[slot] = item;
     item->setEquipped(true);
     item->setOwner(*this);
+    noteBodyLook(slot, *item);
     replaceEffectState(std::move(replacementEffects));
     bringOutHandForConversation(slot);
 
@@ -5710,6 +5726,9 @@ bool Creature::replaceEquipment(
     _equipment[slot] = item;
     item->setEquipped(true);
     item->setOwner(*this);
+    // Worn straight over the last, an item keeps or takes the look as an
+    // equip does; nothing was unequipped.
+    noteBodyLook(slot, *item);
     displacedReceiver.addItem(previous);
     replaceEffectState(std::move(replacementEffects));
     bringOutHandForConversation(slot);
@@ -10945,8 +10964,7 @@ CreaturePresentation Creature::presentation() const {
     result.appearance = _appearance;
     auto body = getEquippedItem(InventorySlots::body);
     if (body) {
-        result.bodyVariation = wornBodyVariation(*body);
-        result.textureVariation = body->textureVariation();
+        std::tie(result.bodyVariation, result.textureVariation) = bodyLookOf(*body);
     }
     return result;
 }
@@ -10987,7 +11005,7 @@ std::string Creature::getBodyModelName() const {
         if (_presentation) {
             column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
+            column += bodyColumnLetter(bodyLookOf(*bodyItem).first, _game.isTSL());
         } else {
             column += "a";
         }
@@ -11017,7 +11035,7 @@ std::string Creature::getBodyTextureName() const {
         if (_presentation) {
             column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
+            column += bodyColumnLetter(bodyLookOf(*bodyItem).first, _game.isTSL());
         } else {
             column += "a";
         }
@@ -11038,7 +11056,7 @@ std::string Creature::getBodyTextureName() const {
     if (_modelType == Creature::ModelType::Character) {
         bool texFound = false;
         if (_presentation || bodyItem) {
-            auto variation = _presentation ? _presentation->textureVariation : bodyItem->textureVariation();
+            auto variation = _presentation ? _presentation->textureVariation : bodyLookOf(*bodyItem).second;
             std::string tmp(str(boost::format("%s%02d") % texName % variation));
             std::shared_ptr<Texture> texture(_services.resource.textures.get(tmp, TextureUsage::MainTex));
             if (texture) {
@@ -11772,8 +11790,13 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     replaceEffectState(std::move(replacementEffects));
                 }
             });
-        // Body armour read with the creature is put on like any other.
+        // Body armour read with the creature is put on like any other, and the
+        // body look starts from what the creature wears.
+        if (replaceEquipment) {
+            _shownTextureVariation = kFirstTextureVariation;
+        }
         if (auto armour = replaceEquipment ? getEquippedItem(InventorySlots::body) : nullptr) {
+            noteBodyLook(InventorySlots::body, *armour);
             updateArmourAppearance(armour);
         }
         return;
@@ -11880,8 +11903,13 @@ void Creature::deserializeOwnedItemsAndEquipment(
     if (_appearance != previousAppearance) {
         loadAppearanceProperties();
     }
-    // Body armour read with the creature is put on like any other.
+    // Body armour read with the creature is put on like any other, and the
+    // body look starts from what the creature wears.
+    if (replaceEquipment) {
+        _shownTextureVariation = kFirstTextureVariation;
+    }
     if (auto armour = replaceEquipment ? getEquippedItem(InventorySlots::body) : nullptr) {
+        noteBodyLook(InventorySlots::body, *armour);
         updateArmourAppearance(armour);
     }
 }

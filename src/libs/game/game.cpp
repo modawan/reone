@@ -374,6 +374,11 @@ static bool pausesWorld(Game::Screen screen) {
     }
 }
 
+// The crafting stations, whose panels open over whatever is shown.
+static bool isStationScreen(Game::Screen screen) {
+    return screen == Game::Screen::UpgradeSelection || screen == Game::Screen::LabStation;
+}
+
 // The screens that leave the world running: play, a conversation, the death
 // sequence and pazaak.
 static bool runsWorld(Game::Screen screen) {
@@ -1098,13 +1103,8 @@ bool Game::handle(const input::Event &event) {
         _credits->handle(event);
         return true;
     }
-    // The datapad box is over the message boxes, and the message box opened
-    // last is over the other; the one on top takes the input first.
-    ConfirmPopup *popup = isTutorialPopupOver() ? _tutorialPopup.get() : _confirmPopup.get();
-    if (_datapadBox && _datapadBox->isVisible()) {
-        popup = _datapadBox.get();
-    }
-    if (popup && popup->isVisible()) {
+    // The message box on top takes the input first.
+    if (ConfirmPopup *popup = topShownPopup()) {
         // The drawn pointer keeps following the mouse while the popup takes
         // the input.
         if (event.type == input::EventType::MouseMotion) {
@@ -1804,6 +1804,10 @@ void Game::endSourceSession(const std::string &destination) {
     if (_conversation && (_screen == Screen::Conversation || _conversation->isRunning())) {
         _conversation->cleanupForModuleTransition();
     }
+    // A station open across the change has nothing to return to; left
+    // listed, it could not be opened again until a load.
+    _stationReturnScreens.clear();
+    releasePopupsUnderStation();
 
     if (_module) {
         // The source snapshot is already frozen. Module retirement now owns
@@ -2223,6 +2227,7 @@ void Game::retireRuntimeSession() {
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
     _stationReturnScreens.clear();
+    releasePopupsUnderStation();
     _lastRenderedSceneOutput = nullptr;
 
     abortPazaak();
@@ -3286,6 +3291,10 @@ std::shared_ptr<AudioSource> Game::takeLoadMusic(const std::string &resRef) {
 void Game::renderScene() {
     if (!_module || !_options.graphics.sceneRender) {
         _lastRenderedSceneOutput = nullptr;
+        return;
+    }
+    // A station covers the world, which is not drawn while it is up.
+    if (isStationScreen(_screen)) {
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
@@ -4810,21 +4819,29 @@ void Game::renderGUI() {
         _hud->renderModal();
     }
     if (!gameplayHUD) {
+        // A station is drawn alone, over its own backdrop: the screen it
+        // covers is not.
         auto gui = getScreenGUI();
         if (gui) {
             gui->render();
         }
     }
-    // The message box opened last is drawn over the other.
+    // The message box opened last is drawn over the other; a box held under
+    // a station is not drawn.
     const bool tutorialOver = isTutorialPopupOver();
-    const auto renderPopup = [](const std::unique_ptr<ConfirmPopup> &popup) {
-        if (popup && popup->isVisible()) {
+    const auto renderPopup = [](const std::unique_ptr<ConfirmPopup> &popup, bool held) {
+        if (popup && popup->isVisible() && !held) {
             popup->render();
         }
     };
-    renderPopup(tutorialOver ? _confirmPopup : _tutorialPopup);
-    renderPopup(tutorialOver ? _tutorialPopup : _confirmPopup);
-    renderPopup(_datapadBox);
+    if (tutorialOver) {
+        renderPopup(_confirmPopup, _messageBoxUnderStation);
+        renderPopup(_tutorialPopup, _tutorialUnderStation);
+    } else {
+        renderPopup(_tutorialPopup, _tutorialUnderStation);
+        renderPopup(_confirmPopup, _messageBoxUnderStation);
+    }
+    renderPopup(_datapadBox, _datapadUnderStation);
     // The credits cover everything, the fade included, and hide the pointer.
     // The pointer also hides while the mouse turns the camera.
     if (_credits) {
@@ -6528,6 +6545,7 @@ bool Game::showTutorialPage() {
             [this]() { finishTutorialWindow(true); });
     }
     _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    _tutorialUnderStation = false;
     return true;
 }
 
@@ -8615,13 +8633,23 @@ void Game::closeStation(Screen station) {
     }
     const Screen underneath = found->second;
     _stationReturnScreens.erase(found);
-    // A conversation that a reply's script ended under the station is gone.
+    // The message boxes held under it come back with the screen.
+    if (!isStationScreen(underneath)) {
+        releasePopupsUnderStation();
+    }
+    if (auto gui = getScreenGUI()) {
+        gui->clearSelection();
+    }
+    // The covered screen comes back as it was left. A conversation that a
+    // reply's script ended under the station is gone, and play takes its
+    // place.
     const bool conversationGone = underneath == Screen::Conversation && !_conversation->isRunning();
     if (underneath == Screen::InGame || conversationGone) {
-        openInGame();
+        _runtimeSessionPlayable = static_cast<bool>(_module);
+        _screen = Screen::InGame;
         return;
     }
-    changeScreen(underneath);
+    _screen = underneath;
 }
 
 bool Game::holdsConversation() const {
@@ -9389,7 +9417,15 @@ float Game::baseItemCostMultiplier(int baseItem) const {
     return found != _baseItemCostMultipliers.end() ? found->second : 1.0f;
 }
 
+// A station opening over a screen leaves that screen as it was, as a panel
+// added over it does: the in-game menu keeps its tab and sub-screen, and an
+// open message box or tutorial window stays up. Its close returns to the
+// screen the same way (closeStation).
 void Game::changeScreen(Screen screen) {
+    if (isStationScreen(screen)) {
+        _screen = screen;
+        return;
+    }
     if (_screen == Screen::InGameMenu && screen != Screen::InGameMenu && _inGame) {
         _inGame->leaveTab(InGameMenuTab::None);
     }
@@ -9413,7 +9449,11 @@ void Game::changeScreen(Screen screen) {
 }
 
 GameGUI *Game::getScreenGUI() const {
-    switch (_screen) {
+    return guiForScreen(_screen);
+}
+
+GameGUI *Game::guiForScreen(Screen screen) const {
+    switch (screen) {
     case Screen::Death:
         return isTSL() ? static_cast<GameGUI *>(_deathDisplay.get()) : static_cast<GameGUI *>(_deathMessage.get());
     case Screen::MainMenu:
@@ -10015,10 +10055,12 @@ bool Game::isTutorialPopupOver() const {
            (_tutorialPopupOnTop || !_confirmPopup || !_confirmPopup->isVisible());
 }
 
-// A message box shown again while it is open keeps its place.
-// The box it was showing gives way: a question it asked goes unanswered, and
-// a pause a script's box held is let go.
+// A message box shown again while it is open keeps its place. The box it was
+// showing gives way: a question it asked goes unanswered, and a pause a
+// script's box held is let go. A box held under a station is the station's
+// now.
 void Game::putMessagePopupOnTop() {
+    _messageBoxUnderStation = false;
     if (!_confirmPopup->isVisible()) {
         _tutorialPopupOnTop = false;
         return;
@@ -10031,6 +10073,35 @@ void Game::putMessagePopupOnTop() {
         _confirmPopup->withdraw();
         releaseBoxPause(_scriptBoxHoldsPause);
     }
+}
+
+void Game::holdPopupsUnderStation() {
+    _messageBoxUnderStation = _messageBoxUnderStation || (_confirmPopup && _confirmPopup->isVisible());
+    _tutorialUnderStation = _tutorialUnderStation || (_tutorialPopup && _tutorialPopup->isVisible());
+    _datapadUnderStation = _datapadUnderStation || (_datapadBox && _datapadBox->isVisible());
+}
+
+void Game::releasePopupsUnderStation() {
+    _messageBoxUnderStation = false;
+    _tutorialUnderStation = false;
+    _datapadUnderStation = false;
+}
+
+// The datapad box is over the message boxes, and the message box opened last
+// is over the other.
+ConfirmPopup *Game::topShownPopup() const {
+    const auto shown = [](const std::unique_ptr<ConfirmPopup> &popup, bool held) {
+        return popup && popup->isVisible() && !held;
+    };
+    if (shown(_datapadBox, _datapadUnderStation)) {
+        return _datapadBox.get();
+    }
+    const bool tutorial = shown(_tutorialPopup, _tutorialUnderStation);
+    const bool messageBox = shown(_confirmPopup, _messageBoxUnderStation);
+    if (tutorial && (!messageBox || isTutorialPopupOver())) {
+        return _tutorialPopup.get();
+    }
+    return messageBox ? _confirmPopup.get() : nullptr;
 }
 
 void Game::closeMessagePopup() {
@@ -10151,6 +10222,7 @@ void Game::showDatapad(Item &datapad) {
 
 void Game::openDatapadBox(const std::string &text) {
     stopMovement();
+    _datapadUnderStation = false;
     _datapadBox->showDatapad(text, [this]() { onDatapadBoxClosed(); });
     holdBoxPause(_datapadHoldsPause);
 }

@@ -100,6 +100,7 @@ void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
         _id = controlStruct.ID;
         _padding = controlStruct.PADDING;
         _moveTo = {controlStruct.MOVETO.UP, controlStruct.MOVETO.LEFT, controlStruct.MOVETO.DOWN, controlStruct.MOVETO.RIGHT};
+        _layoutMoveTo = _moveTo;
         if (controlStruct.TEXT) {
             loadText(*controlStruct.TEXT);
         }

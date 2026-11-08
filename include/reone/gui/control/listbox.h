@@ -239,7 +239,6 @@ private:
     bool _leftScrollBar {false}; /**< authored side for the scroll bar */
     bool _looping {false};       /**< the selection wraps round past either end */
     bool _selectionEntered {false};  /**< the pointer moved the selection to another row */
-    bool _repeatStopped {false};     /**< the held arrow key wrapped round and moves nothing until pressed again */
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _textLineRows {false};      /**< rows are the lines of one block of text */
     bool _overflowing {false};       /**< the rows need more room than the list has */

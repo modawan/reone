@@ -36,6 +36,8 @@
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
 #include "reone/game/twodautil.h"
+#include "reone/graphics/di/services.h"
+#include "reone/graphics/textureregistry.h"
 #include "reone/gui/sceneinitializer.h"
 #include "reone/input/event.h"
 #include "reone/resource/2da.h"
@@ -111,7 +113,9 @@ CraftingPanel::CraftingPanel(Game &game, ServicesView &services, HeldCount count
     _breakdownSkill(breakdownSkill) {
 }
 
+// The workbench's and lab's creation panels stand on the store backdrop.
 void CraftingPanel::onGUILoaded() {
+    loadBackground(BackgroundType::Store);
     _controls.BTN_Accept = findControl<Button>("BTN_Accept");
     _controls.BTN_Cancel = findControl<Button>("BTN_Cancel");
     _controls.BTN_Examine = findControl<Button>("BTN_Examine");
@@ -1018,6 +1022,7 @@ UpgradeItemsPanel::UpgradeItemsPanel(Game &game, ServicesView &services) :
 }
 
 void UpgradeItemsPanel::onGUILoaded() {
+    loadBackground(BackgroundType::Upgrade);
     _controls.BTN_BACK = findControl<Button>("BTN_BACK");
     _controls.BTN_UPGRADEITEM = findControl<Button>("BTN_UPGRADEITEM");
     _controls.LB_DESCRIPTION = findControl<ListBox>("LB_DESCRIPTION");
@@ -1288,6 +1293,7 @@ std::string ItemUpgradePanel::slotPropertyText(int slot) {
 }
 
 void ItemUpgradePanel::onGUILoaded() {
+    loadBackground(BackgroundType::Upgrade);
     _upgradeTable = getRequiredTwoDA(_services.resource.twoDas, "upgrade");
     _crystalTable = getRequiredTwoDA(_services.resource.twoDas, "upcrystals");
     const bool tsl = _game.isTSL();
@@ -1498,9 +1504,13 @@ void ItemUpgradePanel::open(std::shared_ptr<Item> item,
 // The links between slot buttons the arrow keys follow, by the item's kind,
 // over the layout's in those directions. TSL's lightsaber slots stand in two
 // columns of three; its other weapons' third slot stands between the first
-// two.
+// two. The layout's links come back first: the GUI outlives the panel, and an
+// earlier kind's links would stay on buttons this kind doesn't link.
 void ItemUpgradePanel::linkSlotButtons() {
     using Direction = Control::MoveDirection;
+    for (const auto &[tag, controls] : _controls.slots) {
+        controls.first->restoreLayoutMoves();
+    }
     const auto link = [this](const std::string &from, Direction direction, const std::string &to) {
         _controls.slots.at(from).first->setMoveTo(direction, _controls.slots.at(to).first->id());
     };
@@ -1621,8 +1631,8 @@ void ItemUpgradePanel::refresh3D() {
     if (_type == UpgradableType::Armor) {
         // Armour is drawn with its look's texture of the item's texture
         // variation, a variation below 1 being 1; without that texture, with
-        // its look model's first; without either, with the model's own. A
-        // look naming no texture keeps the model's.
+        // its look model's first; without either, with a texture holding no
+        // image. A look naming no texture keeps the model's.
         const auto &look = _armourLooks[armourLook(*_item, tsl)];
         if (!look.texture.empty()) {
             const auto variation = str(boost::format("%02d") % std::max(1, _item->textureVariation()));
@@ -1630,9 +1640,8 @@ void ItemUpgradePanel::refresh3D() {
             if (!_itemTexture) {
                 _itemTexture = _services.resource.textures.get(look.model + "01", TextureUsage::MainTex);
             }
-            if (_itemTexture) {
-                _itemModel->setMainTexture(_itemTexture.get());
-            }
+            _itemModel->setMainTexture(_itemTexture ? _itemTexture.get()
+                                                    : &_services.graphics.textureRegistry.get(TextureName::default2dRgb));
         }
     }
     const std::string rotateHook = "rotatehook" + suffix;
@@ -1642,11 +1651,16 @@ void ItemUpgradePanel::refresh3D() {
     } else {
         graph.addRoot(_itemModel);
     }
-    if (_item->isPoweredItem()) {
-        _itemModel->playAnimation("powered", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+    // Armour stands in its neutral pose; a powered item plays its powered
+    // animation, over that pose for a powered armour.
+    // Both of an armour's overlay, so the powered one keeps the pose.
+    const bool armour = _type == UpgradableType::Armor;
+    const int flags = armour ? AnimationFlags::loopOverlay : AnimationFlags::loop;
+    if (armour) {
+        _itemModel->playAnimation("neutral", nullptr, AnimationProperties::fromFlags(flags));
     }
-    if (_type == UpgradableType::Armor) {
-        _itemModel->playAnimation("neutral", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+    if (_item->isPoweredItem()) {
+        _itemModel->playAnimation("powered", nullptr, AnimationProperties::fromFlags(flags));
     }
 }
 
@@ -2249,7 +2263,7 @@ bool ItemUpgradePanel::handleActiveControlKey(const input::KeyEvent &key) {
     if (!direction) {
         return false;
     }
-    if (const auto target = _gui->moveTarget(control, *direction)) {
+    if (const auto target = _gui->moveTarget(control, *direction, !_game.isTSL())) {
         _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
         _gui->selectActiveControl(target->get());
     }
@@ -2332,6 +2346,7 @@ void UpgradeSelectionGUI::init() {
 
 void UpgradeSelectionGUI::onGUILoaded() {
     const bool tsl = _game.isTSL();
+    loadBackground(BackgroundType::Upgrade);
     _controls.BTN_BACK = findControl<Button>("BTN_BACK");
     _controls.BTN_UPGRADEITEMS = findControl<Button>("BTN_UPGRADEITEMS");
     _controls.BTN_BACK->setOnClick([this]() {
@@ -2397,8 +2412,7 @@ void UpgradeSelectionGUI::onGUILoaded() {
         // pressing it takes up its kind before its list opens.
         kindButton.button->setSelectedOnHover(false);
         kindButton.button->setOnClick([this, kind = kindButton.kind]() {
-            describeKind(kind);
-            openItems(kind, nullptr);
+            chooseKind(kind);
         });
         // The kind buttons are framed blue, their hilight yellow and pulsing,
         // their fill taking the same colours.
@@ -2576,6 +2590,15 @@ void UpgradeSelectionGUI::onSelectionChanged(const std::string &control, bool se
     // Leaving Upgrade Items gives it back its own text colour.
     if (!selected && control == _controls.BTN_UPGRADEITEMS->tag()) {
         _controls.BTN_UPGRADEITEMS->setTextColor(_upgradeItemsTextColor);
+    }
+}
+
+// A kind button's click and its Return are one action: the kind is taken
+// up, and its list opens when the party holds an item of it.
+void UpgradeSelectionGUI::chooseKind(UpgradableType kind) {
+    describeKind(kind);
+    if (_kindsHeld.count(kind) > 0) {
+        openItems(kind, nullptr);
     }
 }
 
@@ -2840,16 +2863,14 @@ bool UpgradeSelectionGUI::handleKindKey(const input::KeyEvent &key) {
             return true;
         }
         _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
-        if (_kindsHeld.count(kindButton->kind) > 0) {
-            openItems(kindButton->kind, nullptr);
-        }
+        chooseKind(kindButton->kind);
         return true;
     }
     const auto direction = moveDirectionOf(key.code);
     if (!direction) {
         return false;
     }
-    if (const auto target = _gui->moveTarget(control, *direction)) {
+    if (const auto target = _gui->moveTarget(control, *direction, !_game.isTSL())) {
         _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
         const auto kindButton = kindButtonOf(target->get());
         if (kindButton != _kindButtons.end()) {
@@ -2898,8 +2919,9 @@ void UpgradeSelectionGUI::update(float dt) {
     }
 }
 
+// Each panel covers the screen with its backdrop, so only the one on top is
+// drawn.
 void UpgradeSelectionGUI::render() {
-    GameGUI::render();
     switch (_openPanel) {
     case OpenPanel::Creation:
         _creation->render();
@@ -2908,16 +2930,10 @@ void UpgradeSelectionGUI::render() {
         _items->render();
         break;
     case OpenPanel::Upgrade:
-        // The list of items stays under the upgrade panel: empty for a
-        // script's item, and never filled in TSL. With creation all the
-        // workbench offers, the creation panel stays under both.
-        if (_disableUpgrade) {
-            _creation->render();
-        }
-        _items->render();
         _upgrade->render();
         break;
     case OpenPanel::None:
+        GameGUI::render();
         break;
     }
 }

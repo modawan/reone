@@ -44,7 +44,9 @@ public:
     MOCK_METHOD(void, selectActiveControl, (Control &), (override));
     MOCK_METHOD(void, clearActiveControl, (), (override));
     MOCK_METHOD(void, setHilightFollowsKeyboard, (bool), (override));
-    MOCK_METHOD(std::optional<std::reference_wrapper<Control>>, moveTarget, (const Control &, Control::MoveDirection), (const override));
+    MOCK_METHOD(bool, keyRepeatStopped, (), (const override));
+    MOCK_METHOD(void, setKeyRepeatStopped, (bool), (override));
+    MOCK_METHOD(std::optional<std::reference_wrapper<Control>>, moveTarget, (const Control &, Control::MoveDirection, bool), (const override));
 
     MOCK_METHOD(Control &, rootControl, (), (override));
 

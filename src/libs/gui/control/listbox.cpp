@@ -494,8 +494,8 @@ void ListBox::setSelectedItemIndex(int index) {
 
 bool ListBox::selectAdjacentItem(bool next, bool repeat) {
     if (!repeat) {
-        _repeatStopped = false;
-    } else if (_repeatStopped) {
+        _gui.setKeyRepeatStopped(false);
+    } else if (_gui.keyRepeatStopped()) {
         return false;
     }
     const int count = getItemCount();
@@ -510,7 +510,7 @@ bool ListBox::selectAdjacentItem(bool next, bool repeat) {
                 return false;
             }
             index = index < 0 ? count - 1 : 0;
-            _repeatStopped = true;
+            _gui.setKeyRepeatStopped(true);
         }
     }
     _selectedItemIndex = index;

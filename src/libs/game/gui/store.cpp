@@ -69,7 +69,7 @@ static const PopupColors kTSLStorePopupColors {kTSLColorDarkGold, kTSLColorNewHi
 
 void StoreGUI::onGUILoaded() {
     bindControls();
-    loadBackground(BackgroundType::Menu);
+    loadBackground(BackgroundType::Store);
 
     configureItemList(*_controls.LB_SHOPITEMS);
     configureItemList(*_controls.LB_INVITEMS);

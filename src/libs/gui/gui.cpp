@@ -451,14 +451,36 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) cons
 
 // A disabled control is passed over along the same direction; links that only
 // lead round disabled controls lead nowhere.
-std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &control, Control::MoveDirection direction) const {
+// The keys move through buttons, lists and sliders.
+static bool isNavigable(const Control &control) {
+    switch (control.type()) {
+    case ControlType::Button:
+    case ControlType::ToggleButton:
+    case ControlType::Slider:
+    case ControlType::ListBox:
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly) const {
+    const auto takes = [visibleOnly](const Control &target) {
+        return !target.isDisabled() && (!visibleOnly || target.isVisible());
+    };
     std::reference_wrapper<const Control> from = control;
     for (size_t step = 0; step < _controls.size(); ++step) {
         auto next = findControlById(from.get().moveTo(direction));
         if (!next || &next->get() == &control) {
             return std::nullopt;
         }
-        if (!next->get().isDisabled()) {
+        if (!isNavigable(next->get())) {
+            if (visibleOnly && !takes(next->get())) {
+                return std::nullopt;
+            }
+            return next;
+        }
+        if (takes(next->get())) {
             return next;
         }
         from = next->get();

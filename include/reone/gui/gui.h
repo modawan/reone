@@ -155,12 +155,25 @@ public:
      */
     virtual void setHilightFollowsKeyboard(bool follows) = 0;
     /**
+     * Whether a held arrow key wrapped one of the GUI's lists round: the
+     * key's repeats then move none of its lists until a key is pressed again
+     * (ListBox::selectAdjacentItem).
+     */
+    virtual bool keyRepeatStopped() const = 0;
+    virtual void setKeyRepeatStopped(bool stopped) = 0;
+    /**
      * The control the arrow key of \p direction moves the keyboard to from
      * \p control: the one its link names, or past a disabled one the next
-     * along the same direction. None when the links lead to no control or
-     * back to \p control.
+     * along the same direction. A link to a control the keys don't move
+     * through (a label, a panel, a bar) ends the walk there, and that control
+     * takes the keyboard even when disabled. None when the links lead to no
+     * control or back to \p control.
+     *
+     * @param visibleOnly KotOR's walk: it also passes over a hidden control,
+     *        and a control it ends on takes the keyboard only when enabled
+     *        and shown
      */
-    virtual std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction) const = 0;
+    virtual std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const = 0;
 
     virtual Control &rootControl() = 0;
 
@@ -256,7 +269,10 @@ public:
         _hilightFollowsKeyboard = follows;
     }
 
-    std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction) const override;
+    bool keyRepeatStopped() const override { return _keyRepeatStopped; }
+    void setKeyRepeatStopped(bool stopped) override { _keyRepeatStopped = stopped; }
+
+    std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const override;
 
     Control &rootControl() override {
         return *_rootControl;
@@ -385,6 +401,8 @@ private:
     bool _listEntered {false};
     /** Whether the hilight of a navigable control other than a list follows the keyboard. */
     bool _hilightFollowsKeyboard {false};
+    /** Whether a held arrow key wrapped one of the lists round (keyRepeatStopped). */
+    bool _keyRepeatStopped {false};
 
     // END Controls
 

@@ -557,6 +557,12 @@ public:
      * may change the creature's appearance for good.
      */
     void updateArmourAppearance(const std::shared_ptr<Item> &armour);
+    /** Takes the texture variation of a body item of the body model type put on \p slot. */
+    void noteBodyLook(int slot, const Item &item);
+    /** The body variation and texture variation \p body is drawn with. */
+    std::pair<int, int> bodyLookOf(const Item &body) const;
+    /** Shows the texture variation \p other shows, as a preview of it does. */
+    void takeShownTextureVariation(const Creature &other) { _shownTextureVariation = other._shownTextureVariation; }
 
     void deserialize(
         const resource::Gff &gff,
@@ -2657,6 +2663,16 @@ private:
     EffectId _activePoisonEffectId {kUnassignedEffectId};
     bool _notReorienting {false};
     uint8_t _bodyVariation {0};
+    /** The texture variation a creature's look starts from. */
+    static constexpr int kFirstTextureVariation = 1;
+    /**
+     * The texture variation shown, which a body item of the body model type
+     * sets. A body item of another model type (a disguise, droid plating) is
+     * drawn with the first body model and this texture variation. It starts
+     * at kFirstTextureVariation, and again whenever the creature is read; it
+     * is not saved.
+     */
+    int _shownTextureVariation {kFirstTextureVariation};
     std::optional<CreaturePresentation> _presentation;
     uint8_t _textureVar {0};
     bool _partyInteract {false};
