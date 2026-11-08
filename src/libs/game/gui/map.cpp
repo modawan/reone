@@ -123,15 +123,13 @@ glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
         return bounds;
     }
     // The minimap shows the map at a fixed size, at the layout's scale, and
-    // keeps the party leader under the centre of its frame.
+    // keeps the party leader under the centre of its frame, on the map or off
+    // it.
     auto state = mapState();
     const float height = kMinimapMapHeight * scale;
     const float width = height * state->canvasWidth() / state->canvasHeight();
 
-    glm::vec2 mapPos(0.0f);
-    if (auto position = state->toMapPosition(glm::vec2(_game.party().getLeader()->position()))) {
-        mapPos = *position;
-    }
+    const glm::vec2 mapPos(state->toCanvasPosition(glm::vec2(_game.party().getLeader()->position())));
     return glm::vec4(
         bounds[0] + 0.5f * bounds[2] - mapPos.x * width,
         bounds[1] + 0.5f * bounds[3] - mapPos.y * height,

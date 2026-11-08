@@ -18,7 +18,6 @@
 #include "reone/game/areamapstate.h"
 
 #include "reone/resource/gff.h"
-#include "reone/system/logutil.h"
 
 using namespace reone::resource;
 
@@ -48,10 +47,7 @@ std::string AreaMapState::imageResRef(const std::string &area) {
     return "lbl_map" + area;
 }
 
-void AreaMapState::load(
-    GameID gameId,
-    const std::string &area,
-    const resource::generated::ARE_Map &map) {
+void AreaMapState::load(GameID gameId, const resource::generated::ARE_Map &map) {
     *this = AreaMapState();
 
     if (map.MapResX == 0) {
@@ -60,19 +56,23 @@ void AreaMapState::load(
     }
 
     const bool tsl = gameId == GameID::TSL;
-    const int canvasWidth = tsl ? kTSLCanvasWidth : kKotorCanvasWidth;
-    const int canvasHeight = tsl ? kTSLCanvasHeight : kKotorCanvasHeight;
+    _canvasWidth = tsl ? kTSLCanvasWidth : kKotorCanvasWidth;
+    _canvasHeight = tsl ? kTSLCanvasHeight : kKotorCanvasHeight;
+
+    _gridWidth = map.MapResX > kMaxGridWidth ? kMaxGridWidth : map.MapResX;
+    _gridHeight = std::max(1, _gridWidth * _canvasHeight / _canvasWidth);
+    _explored.assign(static_cast<size_t>(_gridWidth + 1) * (_gridHeight + 1), false);
 
     _northAxis = map.NorthAxis;
 
     // The authored points are fractions of the canvas; measure them in its
     // pixels so that a world point converts straight into a map position.
     const glm::vec2 mapPoint1(
-        std::floor(map.MapPt1X * canvasWidth + 0.5f),
-        std::floor(map.MapPt1Y * canvasHeight + 0.5f));
+        std::floor(map.MapPt1X * _canvasWidth + 0.5f),
+        std::floor(map.MapPt1Y * _canvasHeight + 0.5f));
     const glm::vec2 mapPoint2(
-        std::floor(map.MapPt2X * canvasWidth + 0.5f),
-        std::floor(map.MapPt2Y * canvasHeight + 0.5f));
+        std::floor(map.MapPt2X * _canvasWidth + 0.5f),
+        std::floor(map.MapPt2Y * _canvasHeight + 0.5f));
 
     // Both reference points are turned the same way the map turns world
     // space, which leaves a straight fit along each axis.
@@ -81,27 +81,7 @@ void AreaMapState::load(
     const glm::vec2 worldPoint2(
         orientToMap(glm::vec2(map.WorldPt2X, map.WorldPt2Y)));
 
-    // Each axis takes its scale from how far apart the reference points lie
-    // along it. Points level along an axis, on the map or in the world, give
-    // it no scale, and the map can place nothing.
-    const glm::vec2 mapSpan(mapPoint2 - mapPoint1);
-    const glm::vec2 worldSpan(worldPoint2 - worldPoint1);
-    if (mapSpan.x == 0.0f || mapSpan.y == 0.0f ||
-        worldSpan.x == 0.0f || worldSpan.y == 0.0f) {
-        *this = AreaMapState();
-        warn(str(boost::format(
-                     "Area %s carries no map: its map reference points share a row or column") %
-                 area));
-        return;
-    }
-
-    _canvasWidth = canvasWidth;
-    _canvasHeight = canvasHeight;
-    _gridWidth = map.MapResX > kMaxGridWidth ? kMaxGridWidth : map.MapResX;
-    _gridHeight = std::max(1, _gridWidth * _canvasHeight / _canvasWidth);
-    _explored.assign(static_cast<size_t>(_gridWidth + 1) * (_gridHeight + 1), false);
-
-    _worldPerPixel = worldSpan / mapSpan;
+    _worldPerPixel = (worldPoint2 - worldPoint1) / (mapPoint2 - mapPoint1);
     _worldBase = worldPoint1 - mapPoint1 * _worldPerPixel;
 }
 
@@ -118,12 +98,15 @@ glm::vec2 AreaMapState::orientToMap(const glm::vec2 &world) const {
     }
 }
 
+glm::vec2 AreaMapState::toCanvasPixel(const glm::vec2 &world) const {
+    return (orientToMap(world) - _worldBase) / _worldPerPixel;
+}
+
 std::optional<AreaMapState::MapPoint> AreaMapState::toMapPoint(const glm::vec2 &world) const {
     if (!isLoaded()) {
         return std::nullopt;
     }
-    const glm::vec2 oriented(orientToMap(world));
-    const glm::vec2 point((oriented - _worldBase) / _worldPerPixel);
+    const glm::vec2 point(toCanvasPixel(world));
 
     const int x = static_cast<int>(point.x + 0.5f);
     const int y = static_cast<int>(point.y + 0.5f);
@@ -141,6 +124,11 @@ std::optional<glm::vec2> AreaMapState::toMapPosition(const glm::vec2 &world) con
     return glm::vec2(
         static_cast<float>(point->x) / _canvasWidth,
         static_cast<float>(point->y) / _canvasHeight);
+}
+
+glm::vec2 AreaMapState::toCanvasPosition(const glm::vec2 &world) const {
+    return glm::floor(toCanvasPixel(world) + 0.5f) /
+           glm::vec2(_canvasWidth, _canvasHeight);
 }
 
 float AreaMapState::toMapFacing(float facing) const {
@@ -212,9 +200,6 @@ bool AreaMapState::isCellExplored(int gridX, int gridY) const {
 }
 
 void AreaMapState::loadFromGit(const resource::Gff &git) {
-    if (!isLoaded()) {
-        return;
-    }
     auto areaMap = git.findStruct("AreaMap");
     if (!areaMap) {
         return;

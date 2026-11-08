@@ -51,8 +51,7 @@ namespace game {
  *     part of the image the game shows.
  *   - `WorldPt1X/Y` and `WorldPt2X/Y` are the world positions of those two
  *     points. The two points must differ along both axes, both on the map and
- *     in the world. Points that share a row or column leave that axis with no
- *     scale, and the area carries no map.
+ *     in the world, since each axis takes its scale from them.
  *   - `NorthAxis` sets which world axis runs across the map: world x for 0
  *     and 1, world y for 2 and 3. The reference points set each axis's scale
  *     and direction. Within each pair, only the party leader's arrow differs,
@@ -81,15 +80,11 @@ public:
     static std::string imageResRef(const std::string &area);
 
     /**
-     * Takes on \p map for the area named \p area, sizing the exploration grid
-     * and leaving it unexplored. An area whose map asks for no grid, or whose
-     * reference points share a row or column, carries no map at all: it has
-     * no position on the map, nothing to explore, and nothing to save.
+     * Takes on \p map, sizing the exploration grid and leaving it unexplored.
+     * An area whose map asks for no grid carries no map at all: it has no
+     * position on the map, nothing to explore, and nothing to save.
      */
-    void load(
-        resource::GameID gameId,
-        const std::string &area,
-        const resource::generated::ARE_Map &map);
+    void load(resource::GameID gameId, const resource::generated::ARE_Map &map);
 
     bool isLoaded() const { return !_explored.empty(); }
 
@@ -106,6 +101,11 @@ public:
      * it lies off the map.
      */
     std::optional<glm::vec2> toMapPosition(const glm::vec2 &world) const;
+
+    /**
+     * Where \p world falls as a fraction of the canvas, on the map or off it.
+     */
+    glm::vec2 toCanvasPosition(const glm::vec2 &world) const;
 
     /** The angle, counter-clockwise, the map shows a world facing of \p facing at. */
     float toMapFacing(float facing) const;
@@ -145,6 +145,9 @@ private:
      * the map points fit the turned axes one to one.
      */
     glm::vec2 orientToMap(const glm::vec2 &world) const;
+
+    /** \p world in canvas pixels, before rounding to a map position. */
+    glm::vec2 toCanvasPixel(const glm::vec2 &world) const;
 
     void setMapPointExplored(const MapPoint &point);
     std::optional<MapPoint> toGridCell(const MapPoint &point) const;

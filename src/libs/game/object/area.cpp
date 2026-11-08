@@ -346,7 +346,7 @@ void Area::loadMap(const resource::generated::ARE &are) {
     // map settings go unread.
     const std::string image(AreaMapState::imageResRef(_name));
     if (_services.resource.textures.get(image, TextureUsage::AreaMap)) {
-        _mapState.load(_game.gameId(), _name, are.Map);
+        _mapState.load(_game.gameId(), are.Map);
     } else if (are.Map.MapResX != 0) {
         warn(str(boost::format("Area %s carries no map: its map image %s is missing") % _name % image));
     }
@@ -354,9 +354,6 @@ void Area::loadMap(const resource::generated::ARE &are) {
 }
 
 void Area::updateMapData() {
-    if (!_mapState.isLoaded()) {
-        return;
-    }
     // The whole party reveals the map it walks through, not just its leader.
     auto &party = _game.party();
     for (int index = 0; index < party.getSize(); ++index) {

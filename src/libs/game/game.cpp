@@ -1225,7 +1225,7 @@ void Game::update(float frameTime) {
     }
     // The party explores the map wherever it stands on every frame the module
     // is live. An action run while the world is held can still move a member.
-    if (moduleLive && _module && _module->area()) {
+    if (moduleLive) {
         _module->area()->updateMapData();
     }
     // A companion brought into being outside the area, such as one the party
