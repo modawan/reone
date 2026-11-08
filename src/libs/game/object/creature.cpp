@@ -3344,6 +3344,9 @@ void Creature::returnToStoredLoop() {
 }
 
 void Creature::playOverlayLoop(const std::string &clip, AnimationProperties properties, AnimationSource source) {
+    if (_movementType != MovementType::None) {
+        return;
+    }
     stopOverlayLoop();
     properties.flags |= AnimationFlags::loop | AnimationFlags::overlay | AnimationFlags::layer | AnimationFlags::propagate;
     _overlayLoop = OverlayLoop {clip, std::move(properties), source};

@@ -3188,7 +3188,8 @@ private:
     void returnToStoredLoop();
     /**
      * Shows a talk or listen loop over the loop beneath it, in place of the
-     * one shown; while a one-shot runs it waits for the one-shot to end.
+     * one shown; while a one-shot runs it waits for the one-shot to end. Like
+     * any loop it is a pose of a creature standing: one on the move shows none.
      */
     void playOverlayLoop(const std::string &clip, scene::AnimationProperties properties, AnimationSource source);
     /** Shows the talk or listen loop that waited for a one-shot. */
