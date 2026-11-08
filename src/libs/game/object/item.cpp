@@ -54,10 +54,7 @@ static constexpr uint32_t kLightsaberForceItemMask = uint32_t {1} << 6;
 // The On Hit save DC of a cost value outside iprp_onhitdc.
 static constexpr int kDefaultOnHitDifficultyClass = 20;
 
-// The baseitems.2da model type of an item drawn as its wearer's body model.
-static constexpr int kBodyModelType = 1;
-
-// The last letter that names a base item's body variation in each game.
+// The last letter that names a base item's body variation, KotOR's and TSL's.
 static constexpr char kK1LastBodyVariation = 'J';
 static constexpr char kTSLLastBodyVariation = 'Z';
 
@@ -164,6 +161,7 @@ void Item::loadBlank() {
     _modelVariation = 1;
     _dropable = true;
     loadBaseItem();
+    loadIcon();
 }
 
 std::optional<std::string> Item::entryTemplate(const resource::Gff &entry) {
@@ -271,8 +269,6 @@ void Item::deserializeAll(
             _modelVariation = 1;
         }
     }
-    gff.readByte(_textureVariation, "TextureVar");
-    gff.readByte(_bodyVariation, "BodyVariation");
     gff.readBool(_dropable, "Dropable");
     gff.readBool(_nonEquippable, "NonEquippable");
     gff.readBool(_newlyAcquired, "NewItem");
@@ -349,6 +345,16 @@ void Item::deserializeBase(const resource::Gff &gff) {
         return;
     }
     loadBaseItem();
+    // Only an item drawn as its wearer's body model reads its texture
+    // variation, 1 when the record has none.
+    if (isBodyModel()) {
+        _textureVariation = 1;
+        gff.readByte(_textureVariation, "TextureVar");
+    }
+    // An item drawn as its wearer's body model takes its base item's body
+    // variation, counted from 1; any other item has none.
+    _bodyVariation = isBodyModel() ? _baseBodyVariation + 1 : 0;
+    loadIcon();
 }
 
 void Item::loadBaseItem() {
@@ -357,7 +363,7 @@ void Item::loadBaseItem() {
     _storePanelSort = baseItems->getInt(_baseItem, "storepanelsort", 0);
     _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
     _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
-    _bodyModel = baseItems->getInt(_baseItem, "modeltype", 0) == kBodyModelType;
+    _modelType = baseItems->getInt(_baseItem, "modeltype", 0);
     _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
     _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
     _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
@@ -421,25 +427,19 @@ void Item::loadBaseItem() {
         _poweredSound = loadSound("poweredsnd");
     }
 
-    std::string iconResRef;
-    if (isEquippable(InventorySlots::body)) {
-        const auto bodyVariation = baseItems->getString(_baseItem, "bodyvar");
-        const char lastBodyVariation = _game.isTSL() ? kTSLLastBodyVariation : kK1LastBodyVariation;
-        const bool named = bodyVariation.size() == 1 && bodyVariation[0] >= 'A' && bodyVariation[0] <= lastBodyVariation;
-        _baseBodyVariation = named ? bodyVariation[0] - 'A' : 0;
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_textureVariation);
-    } else if (isEquippable(InventorySlots::rightWeapon)) {
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
-    } else {
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
-    }
+    const auto bodyVariation = baseItems->getString(_baseItem, "bodyvar");
+    const char lastBodyVariation = _game.isTSL() ? kTSLLastBodyVariation : kK1LastBodyVariation;
+    const bool named = bodyVariation.size() == 1 && bodyVariation[0] >= 'A' && bodyVariation[0] <= lastBodyVariation;
+    _baseBodyVariation = named ? bodyVariation[0] - 'A' : 0;
+}
+
+void Item::loadIcon() {
+    const int variation = _modelType != 0 ? _textureVariation : _modelVariation;
+    // A gender-specific base item names its icon for the male model.
+    const auto iconResRef = _genderSpecific
+                                ? str(boost::format("i%s_m_%03d") % _itemClass % variation)
+                                : str(boost::format("i%s_%03d") % _itemClass % variation);
     _icon = _services.resource.textures.get(iconResRef, TextureUsage::GUI);
-    if (!_icon && isEquippable(InventorySlots::body)) {
-        // Some body items (e.g. disguises) key the inventory icon on ModelVariation
-        // rather than TextureVar; fall back to it when the primary icon is missing.
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
-        _icon = _services.resource.textures.get(iconResRef, TextureUsage::GUI);
-    }
 }
 
 void Item::loadAmmunitionType() {
@@ -491,7 +491,9 @@ void Item::clone(const Item &from) {
     _maxCharges = from._maxCharges;
     _cost = from._cost;
     _addCost = from._addCost;
-    _stolen = from._stolen;
+    // A copy is never stolen, and is infinite as the original is.
+    _stolen = false;
+    _infinite = from._infinite;
     _stackSize = from._stackSize;
     _upgrades = from._upgrades;
     _upgradeLevel = from._upgradeLevel;
@@ -541,7 +543,7 @@ void Item::clone(const Item &from) {
     _weaponFocusFeat = from._weaponFocusFeat;
     _weaponSpecializationFeat = from._weaponSpecializationFeat;
     _baseDefense = from._baseDefense;
-    _bodyModel = from._bodyModel;
+    _modelType = from._modelType;
     _maxDexterityBonus = from._maxDexterityBonus;
     _acBonusType = from._acBonusType;
 
@@ -618,7 +620,7 @@ std::optional<size_t> Item::usePropertyAt(size_t place) const {
 int Item::armorValue(bool installedUpgradesOnly) const {
     // Only armour worn as the body model counts its base armour class, so
     // droid plating starts from nothing.
-    int value = _bodyModel ? _baseDefense : 0;
+    int value = isBodyModel() ? _baseDefense : 0;
     for (const auto &property : _properties) {
         if (property.type() == ItemProperty::AcBonus && (!installedUpgradesOnly || isPropertyActive(property))) {
             value += property.costValue;

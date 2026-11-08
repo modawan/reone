@@ -40,6 +40,7 @@ public:
             resourceSvc) {
 
         _selectable = true;
+        _navigable = true;
     }
 
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
@@ -68,6 +69,8 @@ public:
         _iconFrameHilightColor = std::move(color);
         _iconFrameHilightPulsing = pulsing;
     }
+    /** Sets the font the icon text is drawn in. */
+    void setIconFont(std::shared_ptr<graphics::Font> font) { _iconFont = std::move(font); }
 
 private:
     /** The selected icon frame's colour; unset, the hilight's. */

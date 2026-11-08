@@ -1099,8 +1099,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     }
     put(*result, Gff::Field::newByte("Identified", item._identified));
     put(*result, Gff::Field::newByte("ModelVariation", item._modelVariation));
-    put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
-    put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
+    // Only an item drawn as its wearer's body model records its body and
+    // texture variations.
+    if (item.isBodyModel()) {
+        put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
+        put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
+    } else {
+        removeSaveField(*result, "BodyVariation");
+        removeSaveField(*result, "TextureVar");
+    }
     put(*result, Gff::Field::newByte("Dropable", item._dropable));
     put(*result, Gff::Field::newByte("NonEquippable", item._nonEquippable));
     put(*result, Gff::Field::newByte("NewItem", item._newlyAcquired));

@@ -170,6 +170,14 @@ bool ListBox::takeSelectionEntered() {
     return entered;
 }
 
+bool ListBox::hasSelectableItemAt(int x, int y) const {
+    if (!_itemsInteractive) {
+        return false;
+    }
+    const int itemIdx = getDrawnItemIndex(x, y);
+    return itemIdx != -1 && !_items[itemIdx].textLine;
+}
+
 // The drawn row under a point, or -1. Rows below the drawn ones, the space
 // beside the rows and the scroll bar are no row.
 int ListBox::getDrawnItemIndex(int x, int y) const {
@@ -633,6 +641,15 @@ void ListBox::setRenderItemIconsForButtonProto(bool render) {
     updateItemsLayout();
 }
 
+void ListBox::setIconTextFont(std::shared_ptr<Font> font) {
+    // An image-button prototype draws the icon text itself.
+    if (auto imageButton = std::dynamic_pointer_cast<ImageButton>(_protoItem)) {
+        imageButton->setIconFont(std::move(font));
+    } else {
+        _iconTextFont = std::move(font);
+    }
+}
+
 void ListBox::setItemOffset(int offset) {
     if (_items.size()) {
         _itemOffset = std::min(offset, static_cast<int>(_items.size() - 1));
@@ -867,11 +884,12 @@ void ListBox::renderItemWithButtonProtoIcon(
     if (item.iconTexture) {
         pass.drawIcon(*item.iconTexture, iconPosition, iconSize);
     }
-    if (!item.iconText.empty() && _protoItem->text().font) {
+    const auto &iconTextFont = _iconTextFont ? _iconTextFont : _protoItem->text().font;
+    if (!item.iconText.empty() && iconTextFont) {
         glm::vec3 position(0.0f);
         position.x = static_cast<float>(iconPosition.x + iconSize.x);
-        position.y = static_cast<float>(iconPosition.y + iconSize.y - 0.5f * _protoItem->text().font->height() * _protoItem->scale());
-        _protoItem->text().font->render(item.iconText, position, item.iconTextColor.value_or(_protoItem->text().color), TextGravity::LeftCenter, _protoItem->scale());
+        position.y = static_cast<float>(iconPosition.y + iconSize.y - 0.5f * iconTextFont->height() * _protoItem->scale());
+        iconTextFont->render(item.iconText, position, item.iconTextColor.value_or(_protoItem->text().color), TextGravity::LeftCenter, _protoItem->scale());
     }
 }
 

@@ -87,8 +87,6 @@ constexpr glm::vec3 kTSLColorUpgradeBorder = glm::vec3(0.0f, 0.33f, 0.5f);
 constexpr glm::vec3 kTSLColorDisabledText = glm::vec3(0.4f, 0.4f, 0.3f);
 /** TSL's interface green: frames, and the colour a message box takes when it closes. */
 constexpr glm::vec3 kTSLColorNewGreen = glm::vec3(0.05f, 0.35f, 0.27f);
-/** The border of a TSL crafting entry no table row names. */
-constexpr glm::vec3 kTSLColorDarkGold = glm::vec3(0.31f, 0.25f, 0.09f);
 
 enum class BackgroundType {
     None,

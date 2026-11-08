@@ -5455,13 +5455,19 @@ static constexpr int kHandmaidenDarkAlignment = 40;
 // Body variations past L use the L models.
 static constexpr int kLastArmourModelVariation = 11;
 
+// The body variation a worn body item gives, 0 for the first (A); an item
+// with none gives the first.
+static int wornBodyVariation(const Item &item) {
+    return std::max(item.bodyVariation(), 1) - 1;
+}
+
 void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
     if (!_game.isTSL()) {
         return;
     }
     int variation = 0;
     if (armour) {
-        variation = std::min(armour->baseBodyVariation(), kLastArmourModelVariation);
+        variation = std::min(wornBodyVariation(*armour), kLastArmourModelVariation);
     }
     if (armour && boost::iequals(_tag, kHandmaidenTag)) {
         if (variation == kHandmaidenClothingVariation) {
@@ -10712,7 +10718,7 @@ CreaturePresentation Creature::presentation() const {
     result.appearance = _appearance;
     auto body = getEquippedItem(InventorySlots::body);
     if (body) {
-        result.bodyVariation = body->baseBodyVariation();
+        result.bodyVariation = wornBodyVariation(*body);
         result.textureVariation = body->textureVariation();
     }
     return result;
@@ -10733,6 +10739,17 @@ void Creature::setPresentation(const CreaturePresentation &presentation) {
     _gender = static_cast<Gender>(presentation.gender);
 }
 
+// The last body model and texture columns of appearance.2da, J in KotOR and
+// N in TSL, which every body variation past them uses.
+static constexpr int kK1LastBodyColumn = 9;
+static constexpr int kTSLLastBodyColumn = 13;
+
+// The letter of the body model and texture columns for a body variation
+// counted from 0.
+static char bodyColumnLetter(int bodyVariation, bool tsl) {
+    return static_cast<char>('a' + std::min(bodyVariation, tsl ? kTSLLastBodyColumn : kK1LastBodyColumn));
+}
+
 std::string Creature::getBodyModelName() const {
     std::string column;
 
@@ -10741,9 +10758,9 @@ std::string Creature::getBodyModelName() const {
 
         std::shared_ptr<Item> bodyItem(getEquippedItem(InventorySlots::body));
         if (_presentation) {
-            column += static_cast<char>('a' + _presentation->bodyVariation);
+            column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            column += static_cast<char>('a' + bodyItem->baseBodyVariation());
+            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
         } else {
             column += "a";
         }
@@ -10771,9 +10788,9 @@ std::string Creature::getBodyTextureName() const {
         column = "tex";
 
         if (_presentation) {
-            column += static_cast<char>('a' + _presentation->bodyVariation);
+            column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            column += static_cast<char>('a' + bodyItem->baseBodyVariation());
+            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
         } else {
             column += "a";
         }

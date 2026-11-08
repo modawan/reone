@@ -278,8 +278,8 @@ TEST_F(MainMenuTest, visual_tuple_cannot_be_applied_to_a_runtime_creature) {
 
 TEST_F(MainMenuTest, captures_effective_body_visuals_without_copying_equipment) {
     std::shared_ptr<TwoDA> baseItems = TwoDA::Builder()
-        .columns({"equipableslots", "bodyvar", "ammunitiontype"})
-        .row({"2", "B", "0"}).build();
+        .columns({"equipableslots", "bodyvar", "ammunitiontype", "modeltype"})
+        .row({"2", "B", "0", "1"}).build();
     ON_CALL(engine.resourceModule().twoDas(), get("baseitems")).WillByDefault(Return(baseItems));
     auto uti = Gff::Builder()
         .field(Gff::Field::newInt("BaseItem", 0))

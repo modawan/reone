@@ -48,7 +48,8 @@ public:
     virtual void onClick(const std::string &control) = 0;
     virtual void onSelectionChanged(const std::string &control, bool selected) = 0;
     /**
-     * The pointer came onto \p control or, for a list, moved its selection to
+     * The pointer came onto \p control or, for a list, reached one of its rows
+     * while the list does not hold the keyboard, or moved its selection to
      * another of its rows.
      */
     virtual void onEntered(const std::string &control) = 0;
@@ -118,6 +119,47 @@ public:
     virtual void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) = 0;
 
     virtual void clearSelection() = 0;
+
+    /**
+     * The control holding the keyboard, if any: the one a screen gave it to,
+     * or the last navigable control the pointer came onto.
+     */
+    virtual std::optional<std::reference_wrapper<Control>> activeControl() const = 0;
+    /**
+     * Gives the keyboard to \p control, silently and without selecting it;
+     * the control holding it before loses it, and its hilight when the
+     * hilight follows the keyboard.
+     */
+    virtual void setActiveControl(Control &control) = 0;
+    /**
+     * Gives the keyboard to \p control and selects it, without the sound of
+     * entering it; the control holding it before loses it, and its hilight
+     * when the hilight follows the keyboard. Nothing changes when \p control
+     * holds the keyboard already.
+     */
+    virtual void selectActiveControl(Control &control) = 0;
+    /**
+     * No control holds the keyboard; the one holding it loses its hilight
+     * when the hilight follows the keyboard.
+     */
+    virtual void clearActiveControl() = 0;
+    /**
+     * Makes the hilight of a navigable control other than a list follow the
+     * keyboard: such a control takes the keyboard as the pointer comes onto
+     * it, sounding unless it is hilighted; it stays hilighted after the
+     * pointer leaves it, until another control takes the keyboard or the
+     * pointer comes onto another such control; and coming back onto it is
+     * silent. A list keeps its hilight on the pointer and takes the keyboard
+     * by its rows.
+     */
+    virtual void setHilightFollowsKeyboard(bool follows) = 0;
+    /**
+     * The control the arrow key of \p direction moves the keyboard to from
+     * \p control: the one its link names, or past a disabled one the next
+     * along the same direction. None when the links lead to no control or
+     * back to \p control.
+     */
+    virtual std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction) const = 0;
 
     virtual Control &rootControl() = 0;
 
@@ -196,6 +238,24 @@ public:
     void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) override;
 
     void clearSelection() override;
+
+    std::optional<std::reference_wrapper<Control>> activeControl() const override {
+        return _activeControl;
+    }
+
+    void setActiveControl(Control &control) override;
+
+    void selectActiveControl(Control &control) override;
+
+    void clearActiveControl() override {
+        releaseKeyboard();
+    }
+
+    void setHilightFollowsKeyboard(bool follows) override {
+        _hilightFollowsKeyboard = follows;
+    }
+
+    std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction) const override;
 
     Control &rootControl() override {
         return *_rootControl;
@@ -318,6 +378,12 @@ private:
 
     std::optional<std::reference_wrapper<Control>> _rootControl;
     std::optional<std::reference_wrapper<Control>> _selection;
+    /** The control holding the keyboard. */
+    std::optional<std::reference_wrapper<Control>> _activeControl;
+    /** The list the pointer is on has been entered since the pointer came onto it. */
+    bool _listEntered {false};
+    /** Whether the hilight of a navigable control other than a list follows the keyboard. */
+    bool _hilightFollowsKeyboard {false};
 
     // END Controls
 
@@ -365,8 +431,38 @@ private:
     glm::ivec2 controlCoordinates(const Control &control, int screenX, int screenY) const;
     float scaledFactor() const;
     void updateSelection(int screenX, int screenY);
+    /**
+     * The pointer is on \p control, or on none, when the hilight follows the
+     * keyboard: a navigable control other than a list takes the keyboard,
+     * on every move; the control the pointer comes onto is hilighted; the
+     * control it leaves keeps its hilight while that follows the keyboard,
+     * unless the pointer came onto another such control.
+     */
+    void followPointer(const std::optional<std::reference_wrapper<Control>> &control);
+    /** Whether the hilight of \p control follows the keyboard. */
+    bool hilightFollowsKeyboard(const Control &control) const;
+    /** \p control is hilighted, which it is told of. */
+    void hilight(Control &control);
+    /** \p control loses its hilight, which it is told of, if it has it. */
+    void unhilight(Control &control);
+    /**
+     * No control holds the keyboard; the one holding it loses its hilight
+     * when that follows the keyboard.
+     */
+    void releaseKeyboard();
     /** A list the pointer acted on is entered when the pointer moved its selection to another row. */
     void enterListSelection(Control &control);
+    /**
+     * A list the pointer moves on at \p coords, control-space, is entered when
+     * the pointer moved its selection to another row, or once when it reaches
+     * a row while the list does not hold the keyboard, which a navigable list
+     * then takes.
+     */
+    void enterList(Control &control, const glm::ivec2 &coords);
+    /** Whether \p control holds the keyboard. */
+    bool holdsKeyboard(const Control &control) const;
+    /** The control of the layout ID, none for a negative ID or one no control has. */
+    std::optional<std::reference_wrapper<Control>> findControlById(int id) const;
 
     void renderBackground(scene::IRenderPass &pass);
 

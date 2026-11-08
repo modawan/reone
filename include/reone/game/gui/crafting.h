@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <functional>
 #include <map>
 #include <memory>
@@ -130,27 +131,26 @@ protected:
         int confirmBreakdown {0};
     };
 
+    /** A stocked template item and the table row that stocked it. */
+    struct Stocked {
+        /** The template item, holding one more for each identical row stocked after it. */
+        std::shared_ptr<Item> item;
+        /** The first table row that stocked the item. */
+        int row {0};
+        /** The stack the row's template has, which one entry makes. */
+        int madeStack {1};
+    };
+
     /** A row of the create list: a template item, the table row it answers to, and whether the leader can make it. */
     struct Creatable {
         /** The template item the entry makes a copy of. */
         std::shared_ptr<Item> item;
-        /** None when no row names the item: it is shown, and takes its list position's row and availability. */
-        std::optional<int> row;
+        /** The table row that stocked the item, by which it is described and made. */
+        int row {0};
         /** The leader's rank in the row's skill reaches the row's requirement. */
         bool available {false};
-    };
-
-    /**
-     * What a position of the create list holds while the panel is open: the
-     * row and availability of the last entry shown there that a row named. An
-     * entry no row names takes the position's; a position no such entry has
-     * filled has no row and is unavailable.
-     */
-    struct CreateSlot {
-        /** The table row the position's entry is described and made by. */
-        std::optional<int> row;
-        /** Whether the position's entry can be made. */
-        bool available {false};
+        /** The stack one making gives. */
+        int madeStack {1};
     };
 
     /** The controls both stations' panels have. */
@@ -189,7 +189,7 @@ protected:
     /** The breakdown view's filter; the lab station keeps ALL. */
     BreakdownFilter _breakdownFilter {BreakdownFilter::All};
 
-    /** Binds both stations' controls, colours the lists and wires the buttons. */
+    /** Binds both stations' controls, colours the lists and wires the buttons, which never take the keyboard. */
     void onGUILoaded() override;
     /** Clicking the lists is silent. */
     void onClick(const std::string &control) override;
@@ -211,8 +211,6 @@ protected:
     virtual std::string skillColumn() const = 0;
     /** Whether a create row also asks for a level and an alignment. */
     virtual bool checksLevelAndAlignment() const = 0;
-    /** The item tag a create row answers to; empty when its cells are blank. */
-    virtual std::string rowTag(const resource::TwoDA &table, int row) const = 0;
     /** Whether a create row whose template is missing stocks a blank item. */
     virtual bool stocksMissingTemplates() const = 0;
     /** What an item is worth at this station. */
@@ -238,52 +236,40 @@ private:
     /** The view shown. */
     View _view {View::Create};
     /** The station's stock under the current group, in list order: what the create list is built from. */
-    std::vector<std::shared_ptr<Item>> _stock;
+    std::vector<Stocked> _stock;
     /** The create list's entries, by list row. */
     std::vector<Creatable> _creatable;
-    /** The create list's positions, by list row, since the panel opened. */
-    std::vector<CreateSlot> _createSlots;
     /** The breakdown list's items, by list row. */
     std::vector<RuntimeObjectRef<Item>> _breakable;
     /** The list row described; none while the list is empty. */
     std::optional<int> _describedRow;
-    /** The create list still shows a previous group's entries, which stand for nothing. */
-    bool _createListStale {false};
 
     /** The list of the current view. */
     gui::ListBox &currentList() const;
     /** Makes or breaks down the entry at \p row of \p list, with the create list's click. */
     void choose(const gui::ListBox &list, int row);
-    /** Shows a view: its strings, controls and freshly built list. */
+    /** Shows a view: its strings, controls and freshly built list, which holds the keyboard. */
     void showView(View view);
     /** Highlights the current filter of each view. */
     void colourFilters();
 
     /**
-     * Stocks the station from its table under the current group.
-     *
-     * @return false when a blank cell ended the table, which stocks only the rows before it
+     * Stocks the station from its table under the current group. A blank
+     * cell ends the table: only the rows before it are stocked.
      */
-    bool restockCreatable();
+    void restockCreatable();
     /**
-     * Builds the create list from the stock, however it was stocked, and
-     * records the row and availability each stocked item gives its list
-     * position.
+     * Builds the create list from the stock, each entry answering to the row
+     * that stocked it; counts are in the row count font.
      */
     void showCreateList();
     /**
-     * Adds a template item to the stock; plot items are left out. The latest
-     * stocked item with the item's tag takes one more when identical to it;
-     * otherwise identical stocked items, latest first, take what their stacks
-     * have room for, and the rest is stocked on its own.
+     * Adds a template item a table row stocks; plot items are left out. The
+     * latest stocked item with the item's tag takes one more when identical
+     * to it; otherwise identical stocked items, latest first, take what their
+     * stacks have room for, and the rest is stocked on its own.
      */
-    void addCreatable(const std::shared_ptr<Item> &item);
-    /**
-     * Finds the row an entry answers to and whether the leader can make it.
-     * False drops the entry: a row with blank tag cells is met first, or the
-     * row found has no skill (the entry still names that row).
-     */
-    bool matchRow(Creatable &creatable, const resource::TwoDA &table, const Creature &leader) const;
+    void addCreatable(const std::shared_ptr<Item> &item, int row);
     /** Builds the breakdown list, choosing the given row or the nearest one left. */
     void fillBreakdownList(int keepRow);
     /** Chooses and describes a row of the current list, the nearest one if it is past the end. */
@@ -294,12 +280,10 @@ private:
     /** Describes a row of the current list. */
     void describe(int row);
     /**
-     * Shows an entry's cost and, by its position's row, the skill line, stock,
-     * skill requirement and item. A position with no row, or a row with a
-     * blank skill, shows the cost alone; a row with a blank requirement leaves
-     * the description as it was.
+     * Shows an entry's cost and, by its row, the skill line, stock, skill
+     * requirement and item.
      */
-    void describeCreatable(const Creatable &creatable, const CreateSlot &slot);
+    void describeCreatable(const Creatable &creatable);
     /** Shows what breaking the item down yields, how many there are, and the item. */
     void describeBreakable(const Item &item);
     /** How many of the item the party holds. */
@@ -380,8 +364,6 @@ private:
     std::string skillColumn() const override { return "skill"; }
     /** A row also asks for a level and an alignment. */
     bool checksLevelAndAlignment() const override { return true; }
-    /** The row's OverrideTag, else its template. */
-    std::string rowTag(const resource::TwoDA &table, int row) const override;
     /** A row whose template is missing stocks nothing. */
     bool stocksMissingTemplates() const override { return false; }
     /** The item's component value. */
@@ -424,8 +406,6 @@ private:
     std::string skillColumn() const override { return "skillLevel"; }
     /** A row asks for no level or alignment. */
     bool checksLevelAndAlignment() const override { return false; }
-    /** The row's template. */
-    std::string rowTag(const resource::TwoDA &table, int row) const override;
     /** A row whose template is missing stocks a blank item. */
     bool stocksMissingTemplates() const override { return true; }
     /** The item's chemical value. */
@@ -464,16 +444,21 @@ public:
 
     /** Escape goes back; Return or keypad Enter picks the selected item, and Up and Down move the selection. */
     bool handle(const input::Event &event) override;
-    /** Describes the item the pointer is on. */
+    /** Describes the selected item. */
     void update(float dt) override;
 
-    /** Lists the items, the row holding selected chosen; picking one calls onPick, and Back or Escape onBack. */
+    /**
+     * Lists the items, the row holding selected chosen, and gives the list the
+     * keyboard; picking one calls onPick, and Back or Escape onBack.
+     */
     void open(std::vector<UpgradableItem> items,
               const std::shared_ptr<Item> &selected,
               std::function<void(const UpgradableItem &)> onPick,
               std::function<void()> onBack);
-    /** Empties the list and its description. */
-    void clear();
+
+protected:
+    /** Clicking the lists is silent. */
+    void onClick(const std::string &control) override;
 
 private:
     /** The screen's own controls. */
@@ -495,7 +480,7 @@ private:
     /** The list row described; none while the list is empty. */
     std::optional<int> _describedRow;
 
-    /** Binds the controls and wires the list and the buttons. */
+    /** Binds the controls and wires the list and the buttons, which never take the keyboard. */
     void onGUILoaded() override;
     /** Picks the item of a list row. */
     void pick(int row);
@@ -514,9 +499,9 @@ public:
     /** Loads panel upgrade. */
     ItemUpgradePanel(Game &game, ServicesView &services);
 
-    /** Escape closes a list, else cancels. */
+    /** Escape closes a list, else cancels; the other keys go to the control holding the keyboard. */
     bool handle(const input::Event &event) override;
-    /** Describes the list entry the pointer is on, and turns an item standing on no hook of the light model. */
+    /** Describes the selected list entry, and turns an item standing on no hook of the light model. */
     void update(float dt) override;
 
     /**
@@ -541,12 +526,15 @@ public:
     const resource::TwoDA &upgradeTable() const { return *_upgradeTable; }
 
 protected:
-    /** Assemble plays the upgrade sound in place of the click. */
+    /** Assemble plays the upgrade sound in place of the click; clicking the lists is silent. */
     void onClick(const std::string &control) override;
-    /** Pointing at a slot describes it. */
+    /** A slot button selected describes the slot it acts for. */
     void onSelectionChanged(const std::string &control, bool selected) override;
 
 private:
+    /** The most slots a kind of item has: the slot records the panel keeps. */
+    static constexpr int kSlotRecordCount = 6;
+
     /** Where an upgrade goes on one kind of item. */
     struct SlotInfo {
         /** The upgrade.2da UpgradeType the slot takes; none for a lightsaber's colour crystal. */
@@ -557,16 +545,25 @@ private:
         int nameStrRef {0};
         /** The tag of the slot's button; its label's tag differs only in the prefix. */
         std::string button;
+        /** The slot record the slot uses, which the slots of other kinds at the same place share. */
+        int record {0};
+    };
+
+    /**
+     * What a slot answers to, kept from one item to the next while the panel
+     * lives: an opening rewrites only the records its rows reach.
+     */
+    struct SlotRecord {
+        /** The upgrade.2da row the slot answers to; none until a row is placed in the record. */
+        std::optional<int> row;
+        /** The template of a row placed in the record, which is the tag of its upgrade. */
+        std::string tag;
     };
 
     /** A slot as the panel shows it. */
     struct Slot {
         /** The upgrade the slot holds; none while it is empty. */
         std::shared_ptr<Item> held;
-        /** The upgrade.2da row the slot answers to; none for the colour crystal's slot. */
-        std::optional<int> row;
-        /** The template of that row, which is the tag of its upgrade. */
-        std::string tag;
         /** The slot's button. */
         std::shared_ptr<gui::Button> button;
         /** The label under the slot's button, showing its upgrade or its empty icon, dimmed while the party has nothing for it. */
@@ -655,6 +652,8 @@ private:
     RuntimeObjectRef<Creature> _wearer;
     /** The slots of the item's kind. */
     std::vector<Slot> _slots;
+    /** The slot records, by place. */
+    std::array<SlotRecord, kSlotRecordCount> _slotRecords;
     /** Upgrades taken from the party inventory this opening. */
     std::vector<std::shared_ptr<Item>> _taken;
     /** The stacks upgrades the item held went back to this opening. */
@@ -670,9 +669,28 @@ private:
 
     /** Reads the tables and binds this game's controls and slots. */
     void onGUILoaded() override;
+    /**
+     * Gives a key to the control holding the keyboard: the open list, a
+     * slot's button, or a control the arrows moved the keyboard to.
+     *
+     * @return whether the key was taken
+     */
+    bool handleActiveControlKey(const input::KeyEvent &key);
 
     /** The slots of the item's kind, in this game. */
     const std::vector<SlotInfo> &slotInfos() const;
+    /**
+     * The slot of the item's kind a slot button acts for: the one whose
+     * record is the button's place in its row, hidden or not.
+     *
+     * @return none for a control that is no slot button, or a place where the
+     *         kind has no slot
+     */
+    std::optional<int> slotOfButton(const std::string &tag) const;
+    /** The record of a slot of the item's kind. */
+    SlotRecord &slotRecord(int slot);
+    /** The item's properties keyed to the row of a slot's record; empty while the record holds no row. */
+    std::string slotPropertyText(int slot);
     /** TSL: the first upgrade.2da row with the same template as the given row, which may be that row. */
     int firstRowWithTemplateOf(int row) const;
     /** The list describing the item: a KotOR lightsaber has one of its own. */
@@ -681,13 +699,24 @@ private:
     std::optional<int> crystalRow(const Item &item) const;
     /** The inventory upgrades come from and go back to. */
     std::shared_ptr<Object> partyInventory() const;
+    /** Links the slot buttons of the item's kind for the arrow keys, over the layout's links in those directions. */
+    void linkSlotButtons();
     /** Puts the upgrades the item holds in their slots, and dims or lights each slot by the upgrades the party has for it. */
     void placeInstalledUpgrades();
+    /**
+     * KotOR gives the keyboard to the first slot of the item's kind, selecting
+     * its button without a sound, which describes the slot unless the button
+     * held the keyboard already.
+     */
+    void activateFirstSlot();
     /** Shows the slots, closing a list. */
     void showSlots();
-    /** Closes the open list and describes the slot it was for. */
+    /**
+     * Closes the open list, giving the keyboard back to the slot it was for
+     * and selecting its button without a sound, and describes that slot.
+     */
     void closeList();
-    /** Lists a slot's choices, hiding the slots and their texts. */
+    /** Lists a slot's choices, hiding the slots and their texts; the list takes the keyboard. */
     void showList(int slot);
     /** Shows each slot's upgrade, or its empty icon, and describes the item; TSL lights the slots holding an upgrade. */
     void refreshSlots();
@@ -738,8 +767,9 @@ public:
     void init() override;
     /**
      * Input goes to the panel open over the screen; otherwise Escape closes
-     * the screen, and in TSL Return or keypad Enter upgrades the selected item
-     * and Up and Down move the selection.
+     * the screen, in TSL Return or keypad Enter upgrades the selected item
+     * and Up and Down move the selection, and in KotOR the keys go to the kind
+     * button holding the keyboard.
      */
     bool handle(const input::Event &event) override;
     /** The panel open over the screen is updated in place of TSL's description of the list. */
@@ -751,7 +781,9 @@ public:
     void open(UpgradeScreenRequest request);
 
 protected:
-    /** KotOR: pointing at a control takes the hilight from the active kind button, and leaving Upgrade Items gives back its text colour. */
+    /** TSL: clicking the lists is silent. */
+    void onClick(const std::string &control) override;
+    /** KotOR: leaving Upgrade Items gives back its text colour. */
     void onSelectionChanged(const std::string &control, bool selected) override;
 
 private:
@@ -784,8 +816,11 @@ private:
         bool offHand {false};
         /** The item came from the script; closing its panel closes the workbench. */
         bool direct {false};
-        /** A script's item the party doesn't carry, not a stack, upgraded where it is; none otherwise. */
-        RuntimeObjectRef<Item> leftInPlace;
+        /**
+         * What holds a script's item the party doesn't carry, which goes back
+         * there, or the one item split off its stack there; none otherwise.
+         */
+        RuntimeObjectRef<Object> holder;
         /** The item's kind, whose list KotOR shows again. */
         UpgradableType type {UpgradableType::Lightsaber};
     };
@@ -857,8 +892,15 @@ private:
     std::vector<UpgradableItem> upgradableItems(std::optional<UpgradableType> kind) const;
     /** KotOR offers each kind the party has an item of. */
     void showKinds();
-    /** KotOR: the kind's button becomes the active one, and Upgrade Items takes up the kind, showing whether the party has an item of it. */
+    /** KotOR: the kind's button becomes the active one, holding the keyboard, and Upgrade Items takes up the kind, showing whether the party has an item of it. */
     void describeKind(UpgradableType kind);
+    /**
+     * KotOR: gives a key to the kind button holding the keyboard, or to a
+     * control the arrows moved the keyboard to.
+     *
+     * @return whether the key was taken
+     */
+    bool handleKindKey(const input::KeyEvent &key);
     /** TSL lists the items of the filter. */
     void populate();
     /** KotOR lists the items of a kind, the row holding selected chosen. */

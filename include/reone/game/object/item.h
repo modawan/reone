@@ -78,6 +78,9 @@ public:
     static constexpr int kChemicalsItemType = 50;
     static constexpr int kComponentsItemType = 51;
 
+    /** The baseitems.2da model type of an item drawn as its wearer's body model. */
+    static constexpr int kBodyModelType = 1;
+
     /**
      * Activate Item cost values (iprp_chargecost.2da): how a cast-spell
      * property is paid for. Codes 2 to 6 take 5 down to 1 charges a use, 8 to
@@ -231,6 +234,8 @@ public:
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }
     bool isDropable() const { return _dropable; }
+    /** Whether the base item is drawn as its wearer's body model. */
+    bool isBodyModel() const { return _modelType == kBodyModelType; }
     /** Scripts can mark an item as never equippable. */
     bool isNonEquippable() const { return _nonEquippable; }
     void setNonEquippable(bool nonEquippable) { _nonEquippable = nonEquippable; }
@@ -252,14 +257,19 @@ public:
     bool isMineKit() const;
 
     /**
-     * The body variation of a body item's base item, 0 for the first (A): a
-     * single upper-case letter names one, KotOR's from A to J and TSL's from
-     * A to Z, and anything else, a blank cell included, names the first.
+     * The body variation of the base item, 0 for the first (A): a single
+     * upper-case letter names one, KotOR's from A to J and TSL's from A to Z,
+     * and anything else, a blank cell included, names the first.
      */
     int baseBodyVariation() const { return _baseBodyVariation; }
     const std::string &itemClass() const { return _itemClass; }
     const std::string &localizedName() const { return _localizedName.str(); }
     float attackRange() const { return _attackRange; }
+    /**
+     * The body variation the item gives its wearer's body model, counted from
+     * 1 for the first (A): its base item's for an item drawn as its wearer's
+     * body model, and 0 for any other.
+     */
     int bodyVariation() const { return _bodyVariation; }
     /** The base item's row of weapon sounds. */
     int weaponMaterialType() const { return _weaponMaterialType; }
@@ -319,7 +329,7 @@ public:
      * The armour class that limits its wearer's Dexterity: the base armour
      * class of an item drawn as the wearer's body model, else none.
      */
-    int bodyArmorClass() const { return _bodyModel ? _baseDefense : 0; }
+    int bodyArmorClass() const { return isBodyModel() ? _baseDefense : 0; }
     int maxDexterityBonus() const { return _maxDexterityBonus; }
     /** TSL: the sum of the cost values of the Max Dexterity Bonus properties in force; zero in KotOR. */
     int maxDexterityBonusAdjustment() const;
@@ -537,8 +547,8 @@ private:
     FeatType _weaponFocusFeat {FeatType::Invalid};
     FeatType _weaponSpecializationFeat {FeatType::Invalid};
     int _baseDefense {0};
-    /** The base item is drawn as the wearer's body model. */
-    bool _bodyModel {false};
+    /** The base item's baseitems.2da model type. */
+    int _modelType {0};
     int _maxDexterityBonus {-1};
     ACBonus _acBonusType {ACBonus::Invalid};
 
@@ -566,6 +576,11 @@ private:
     void deserializeBase(const resource::Gff &gff);
     /** Reads the base item's row of baseitems.2da. */
     void loadBaseItem();
+    /**
+     * Loads the inventory icon: a base item with a model type takes the one
+     * of its texture variation, any other the one of its model variation.
+     */
+    void loadIcon();
     void loadAmmunitionType();
     // END Blueprint
 };

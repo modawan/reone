@@ -75,6 +75,7 @@ public:
             resourceSvc) {
 
         _selectable = true;
+        _navigable = true;
     }
 
     void clearItems();
@@ -125,6 +126,8 @@ public:
      * last call, a line of text excepted; the call clears it.
      */
     bool takeSelectionEntered();
+    /** Whether a row the pointer can select, a line of text excepted, is drawn at the point. Control-space. */
+    bool hasSelectableItemAt(int x, int y) const;
     void setItemsInteractive(bool interactive);
     void setScrollBarEnabled(bool enabled);
     void setProtoMatchContent(bool match);
@@ -142,6 +145,8 @@ public:
      */
     void setTextLineRows(bool lines);
     void setRenderItemIconsForButtonProto(bool render);
+    /** Sets the font the text beside the rows' icons is drawn in, in place of the prototype's. */
+    void setIconTextFont(std::shared_ptr<graphics::Font> font);
     void scrollToBottom();
     /**
      * Scroll the least that brings row \p index into view: up to it when it
@@ -235,6 +240,8 @@ private:
     bool _textLineRows {false};      /**< rows are the lines of one block of text */
     bool _overflowing {false};       /**< the rows need more room than the list has */
     bool _renderItemIconsForButtonProto {false};
+    /** The font of the text beside the rows' icons drawn through a button prototype; none for the prototype's. */
+    std::shared_ptr<graphics::Font> _iconTextFont;
     float _layoutScale {1.0f};
     BackgroundRenderer _backgroundRenderer;
 
