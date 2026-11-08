@@ -52,6 +52,8 @@ public:
     SceneInitializer &perspective(float verticalFov);
     SceneInitializer &prewarmEmitters();
     SceneInitializer &modelSupplier(const std::function<std::shared_ptr<scene::ModelSceneNode>(scene::ISceneGraph &)> &supplier);
+    /** A room the model stands in, shown with it in the scene. */
+    SceneInitializer &room(std::shared_ptr<scene::ModelSceneNode> room);
     SceneInitializer &modelScale(float scale);
     SceneInitializer &modelOffset(glm::vec2 offset);
     SceneInitializer &cameraTransform(glm::mat4 transform);
@@ -67,6 +69,8 @@ private:
     std::optional<float> _perspectiveVerticalFov;
     bool _prewarmEmitters {false};
     std::function<std::shared_ptr<scene::ModelSceneNode>(scene::ISceneGraph &)> _modelSupplier;
+    /** The room the model stands in; none unless one is given. */
+    std::shared_ptr<scene::ModelSceneNode> _room;
     float _modelScale {1.0f};
     glm::vec2 _modelOffset {0.0f};
     glm::mat4 _cameraTransform {1.0f};

@@ -178,7 +178,10 @@ void Object::deserialize(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     gff.readBool(_minOneHP, "Min1HP");
-    gff.readBool(_plot, "Plot");
+    auto plot = static_cast<uint8_t>(_plot);
+    if (gff.readByte(plot, "Plot")) {
+        _plot = plot;
+    }
     gff.readBool(_commandable, "Commandable");
     gff.readBool(_interruptable, "Interruptable");
     const bool hasBaseHitPoints = gff.readShort(_hitPoints, "HitPoints");
@@ -2026,6 +2029,9 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
     for (auto &item : _items) {
         if (item->tag() == tag)
             return item;
+        if (auto held = item->getItemByTag(tag)) {
+            return held;
+        }
     }
     return nullptr;
 }

@@ -279,7 +279,7 @@ static constexpr char kNoticeBoxCorner[] = "uibit_brdr_16bct";
 static constexpr char kNoticeBoxEdge[] = "uibit_brdr_16bet";
 static constexpr char kNoticeBoxFill[] = "uibit_fill_2bt";
 static constexpr int kNoticeBoxBorderDimension = 16;
-static const glm::vec3 kNoticeBoxBorderColor {0.05f, 0.35f, 0.27f};
+static const glm::vec3 kNoticeBoxBorderColor = kTSLColorNewGreen;
 static const glm::vec3 kNoticeBoxTextColor {0.7f, 0.7f, 0.6f};
 static constexpr char kNoticeBoxFont[] = "dialogfont16x16";
 

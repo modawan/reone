@@ -210,6 +210,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/confirmpopup.h
     ${GAME_INCLUDE_DIR}/gui/container.h
     ${GAME_INCLUDE_DIR}/gui/conversation.h
+    ${GAME_INCLUDE_DIR}/gui/crafting.h
     ${GAME_INCLUDE_DIR}/gui/credits.h
     ${GAME_INCLUDE_DIR}/gui/deathdisplay.h
     ${GAME_INCLUDE_DIR}/gui/dialog.h
@@ -440,6 +441,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/confirmpopup.cpp
     ${GAME_SOURCE_DIR}/gui/container.cpp
     ${GAME_SOURCE_DIR}/gui/conversation.cpp
+    ${GAME_SOURCE_DIR}/gui/crafting.cpp
     ${GAME_SOURCE_DIR}/gui/credits.cpp
     ${GAME_SOURCE_DIR}/gui/dialog.cpp
     ${GAME_SOURCE_DIR}/gui/galaxymap.cpp

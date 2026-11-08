@@ -53,6 +53,7 @@ protected:
             resourceSvc) {
 
         _selectable = true;
+        _navigable = true;
     }
 };
 

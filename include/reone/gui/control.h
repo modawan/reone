@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
 #include "reone/input/event.h"
@@ -72,6 +74,14 @@ public:
         RightCenter2 = 20,
 
         CenterBottom = 0x1000
+    };
+
+    /** A direction the arrow keys move the keyboard in, from one control to another. */
+    enum class MoveDirection {
+        Up,
+        Left,
+        Down,
+        Right
     };
 
     struct Extent {
@@ -159,11 +169,19 @@ public:
 
     bool isVisible() const { return _visible; }
     bool isSelectable() const { return _selectable; }
+    /** Whether pointing at the control selects it; one that isn't is selected only by its screen. */
+    bool isSelectedOnHover() const { return _selectedOnHover; }
     bool isSelected() const { return _selected; }
     bool isDisabled() const { return _disabled; }
+    /** Whether the control takes the keyboard when the pointer comes onto it. */
+    bool isNavigable() const { return _navigable; }
     bool isHilightOverBorder() const { return _hilightOverBorder; }
 
     int id() const { return _id; }
+    /** The kind of control this is. */
+    ControlType type() const { return _type; }
+    /** The ID of the control the arrow key of \p direction moves the keyboard to from this one. */
+    int moveTo(MoveDirection direction) const { return _moveTo[static_cast<size_t>(direction)]; }
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
     const Extent &authoredExtent() const { return _authoredExtent; }
@@ -203,11 +221,17 @@ public:
     void setBorderAlpha(float alpha);
     void setBorderColorOverride(glm::vec3 color);
     void setDisabled(bool disabled);
+    /** Sets whether the control takes the keyboard when the pointer comes onto it. */
+    void setNavigable(bool navigable) { _navigable = navigable; }
+    /** Sets the ID of the control the arrow key of \p direction moves the keyboard to from this one. */
+    void setMoveTo(MoveDirection direction, int id) { _moveTo[static_cast<size_t>(direction)] = id; }
     virtual void setExtent(Extent extent);
     virtual void setExtentHeight(int height);
     void setExtentTop(int top);
     virtual void setSelected(bool selected);
     void setSelectable(bool selectable);
+    /** Sets whether pointing at the control selects it. */
+    void setSelectedOnHover(bool selectedOnHover) { _selectedOnHover = selectedOnHover; }
     void setHeight(int height);
     void setHilight(Border hilight);
     /** The hilight and the text take \p color while the control is selected. */
@@ -306,6 +330,10 @@ protected:
     bool _selectable {false};
     /** Whether this control is a list's prototype, drawn once for each row. */
     bool _isProtoItem {false};
+    bool _selectedOnHover {true};
+    bool _navigable {false};
+    /** By MoveDirection, the IDs of the controls the arrow keys move the keyboard to. */
+    std::array<int, 4> _moveTo {};
     bool _sharpenBorderFillAlpha {false};
     /** Seconds the control has been updated while shown, which runs its fills that cycle through frames. */
     float _textureTime {0.0f};

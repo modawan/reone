@@ -31,8 +31,8 @@ static constexpr float kDeathDisplayReadiness = 0.5f;
  * green border and bright green text.
  */
 static constexpr glm::vec3 kUnreadyBorderColor {0.4f, 0.4f, 0.3f};
-static constexpr glm::vec3 kReadyBorderColor {0.05f, 0.35f, 0.27f};
-static constexpr glm::vec3 kUnreadyTextColor {0.05f, 0.35f, 0.27f};
+static constexpr glm::vec3 kReadyBorderColor = kTSLColorNewGreen;
+static constexpr glm::vec3 kUnreadyTextColor = kTSLColorNewGreen;
 static constexpr glm::vec3 kReadyTextColor {0.1f, 0.7f, 0.55f};
 /** Shown when no save of the current character can be launched. */
 static constexpr int kStrRefLastSaveUnavailable = 42491;

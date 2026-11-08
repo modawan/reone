@@ -31,6 +31,7 @@
 
 #include "reone/game/galaxymapstate.h"
 #include "reone/game/runtimeref.h"
+#include "reone/game/types.h"
 #include "reone/input/event.h"
 
 namespace reone {
@@ -485,6 +486,24 @@ public:
     void respawnVacantFollowers();
     /** Rebuilding the party drops the entries that name nothing. */
     void removeVacantMembers();
+    /**
+     * The creature under control is read as a party member's as the party
+     * enters a module from another module: it holds no counts of its own.
+     */
+    void readPlayerAsMember();
+    /**
+     * Forms the party again in a module it is carried into from another: the
+     * player, when someone is under control, is read as a party member's, and
+     * every other member but the player character hands the party its own
+     * credits, components, chemicals and carried items again.
+     */
+    void formAgainOnModuleLoad();
+    /**
+     * A companion already in the world, and not travelling with the party,
+     * takes control: it hands the party its own credits, components,
+     * chemicals and carried items again.
+     */
+    void takeControlFromWorld(Creature &creature) { transferInventory(creature); }
     std::shared_ptr<Creature> rosterCreature(
         const RosterIdentity &identity) const;
     std::shared_ptr<Creature> rosterCreature(
@@ -514,28 +533,33 @@ public:
 
     // END Default party
 
-    // Credits
+    // Held counts
     //
-    // KOTOR stores credits as a single party-shared pool, not per creature.
-    // Gold script routines (GetGold/GiveGoldToCreature/TakeGoldFromCreature)
-    // that target a party member operate on this pool.
+    // Credits, components and chemicals are held by the party for its
+    // members, and by any other creature itself.
 
     int gold() const { return _gold; }
-    /** The party's credits rise by amount, up to 999999999. */
+    /** The party's credits rise by amount, up to kMaxHeldCount. */
     void giveGold(int amount);
     /** The party's credits fall by amount, down to none. */
     void takeGold(int amount);
 
-    /** A creature's credits: the shared pool for a party member, its own otherwise. */
-    int creatureGold(const Creature &creature) const;
+    /** A creature's count: the party's for a party member, its own otherwise. */
+    int creatureCount(const Creature &creature, HeldCount count) const;
     /**
-     * Credits a creature gains, up to 999999999, or loses, down to none. The
-     * creature the player controls is told the change. Returns the change.
+     * A creature's count rises by amount, up to kMaxHeldCount. The creature
+     * the player controls is told the change. Returns the change.
      */
-    int addCreatureGold(Creature &creature, int amount);
+    int addCreatureCount(Creature &creature, HeldCount count, int amount);
+    /** Sets a creature's count, up to kMaxHeldCount. */
+    void setCreatureCount(Creature &creature, HeldCount count, int value);
+    /**
+     * A creature's credits fall by amount, down to none. The creature the
+     * player controls is told the change. Returns the change.
+     */
     int removeCreatureGold(Creature &creature, int amount);
 
-    // END Credits
+    // END Held counts
 
     /**
      * Credits, chemicals (TSL), components (TSL) and pazaak cards a creature
@@ -543,11 +567,19 @@ public:
      */
     bool isCountedItem(const Item &item) const;
     /**
-     * A creature acquires a counted item: credits become its credits,
-     * chemicals and components the party's counts, and pazaak cards join the
-     * party's collection. The caller discards the item.
+     * A creature acquires a counted item: credits, chemicals and components
+     * become its counts, a party member's gained through the leader, who is
+     * told the change; pazaak cards join the party's collection. The caller
+     * discards the item.
      */
     void acquireCountedItem(Creature &acquirer, const Item &item);
+    /**
+     * The player, read as a party member's, carries a counted item: credits,
+     * chemicals and components become the party's, up to kMaxHeldCount, and
+     * the player is told each change; pazaak cards are acquired as any
+     * creature's are. The caller discards the item.
+     */
+    void acquireCountedItemAsPlayer(Creature &player, const Item &item);
 
     // Pazaak state stored in PARTYTABLE.res. The final ownership slot is retained
     // verbatim even though side decks only use the card-type IDs before it.
@@ -801,6 +833,20 @@ private:
      */
     void joinRosterFaction(const RosterIdentity &identity, Creature &creature) const;
     void transferInventory(Creature &creature);
+    /** The count the party holds for its members. */
+    int partyCount(HeldCount count) const;
+    /** Sets the count the party holds for its members. */
+    void setPartyCount(HeldCount count, int value);
+    /** A count of \p holder's: the party's when \p partyHeld, its own otherwise. */
+    int holderCount(const Creature &holder, HeldCount count, bool partyHeld) const;
+    /** Sets a count of \p holder's, up to kMaxHeldCount: the party's when \p partyHeld, its own otherwise. */
+    void setHolderCount(Creature &holder, HeldCount count, int value, bool partyHeld);
+    /**
+     * A count of \p holder's rises by amount, up to kMaxHeldCount: the party's
+     * when \p partyHeld, its own otherwise. The player is told the change when
+     * \p told. Returns the change.
+     */
+    int addHolderCount(Creature &holder, HeldCount count, int amount, bool partyHeld, bool told);
 
     void saveLeaderAttackTarget();
     void onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound = true);

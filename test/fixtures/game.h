@@ -171,7 +171,9 @@ public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestNewNotify, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestCompleteNotify, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryAdd, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getUpgrade, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getAlignmentShift, (bool light), (const override));
 };

@@ -31,6 +31,8 @@ class ListBox : public Control {
 public:
     enum class SelectionMode {
         OnHover,
+        /** The row under the pointer is selected and stays so when the pointer leaves the rows. */
+        OnHoverKept,
         OnClick
     };
 
@@ -45,9 +47,17 @@ public:
         std::optional<glm::vec3> frameColor;
         /** The opacity of the row's frames while the row is not selected. */
         std::optional<float> frameAlpha;
+        /** The row's border colour in place of the prototype's. */
+        std::optional<glm::vec3> borderColor;
+        /** The row's hilight colour in place of the prototype's, which has a hilight. */
+        std::optional<glm::vec3> hilightColor;
+        /** The colour of the text beside the row's icon, whether or not the row is selected. */
+        std::optional<glm::vec3> iconTextColor;
         /** A row drawn through a toggle-button prototype shows this state. */
         std::optional<bool> on;
         bool invalid {false};
+        /** A line of a block of text, which the pointer does not enter. */
+        bool textLine {false};
 
         std::vector<std::string> _textLines;
     };
@@ -65,6 +75,7 @@ public:
             resourceSvc) {
 
         _selectable = true;
+        _navigable = true;
     }
 
     void clearItems();
@@ -101,6 +112,22 @@ public:
      */
     void setKeepsSelection(bool keeps) { _keepsSelection = keeps; }
     void setSelectedItemIndex(int index);
+    /**
+     * Moves the selection a row down or up, as the arrow keys do: with no row
+     * selected either way selects the first row; past either end the
+     * selection wraps round when the list loops, and stays otherwise. The
+     * selected row is scrolled into view.
+     *
+     * @return whether a row was selected
+     */
+    bool selectAdjacentItem(bool next);
+    /**
+     * Whether the pointer has moved the selection to another row since the
+     * last call, a line of text excepted; the call clears it.
+     */
+    bool takeSelectionEntered();
+    /** Whether a row the pointer can select, a line of text excepted, is drawn at the point. Control-space. */
+    bool hasSelectableItemAt(int x, int y) const;
     void setItemsInteractive(bool interactive);
     void setScrollBarEnabled(bool enabled);
     void setProtoMatchContent(bool match);
@@ -118,6 +145,8 @@ public:
      */
     void setTextLineRows(bool lines);
     void setRenderItemIconsForButtonProto(bool render);
+    /** Sets the font the text beside the rows' icons is drawn in, in place of the prototype's. */
+    void setIconTextFont(std::shared_ptr<graphics::Font> font);
     void scrollToBottom();
     /**
      * Scroll the least that brings row \p index into view: up to it when it
@@ -205,10 +234,14 @@ private:
     bool _itemsInteractive {true};
     bool _scrollBarEnabled {true};
     bool _leftScrollBar {false}; /**< authored side for the scroll bar */
+    bool _looping {false};       /**< the selection wraps round past either end */
+    bool _selectionEntered {false};  /**< the pointer moved the selection to another row */
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _textLineRows {false};      /**< rows are the lines of one block of text */
     bool _overflowing {false};       /**< the rows need more room than the list has */
     bool _renderItemIconsForButtonProto {false};
+    /** The font of the text beside the rows' icons drawn through a button prototype; none for the prototype's. */
+    std::shared_ptr<graphics::Font> _iconTextFont;
     float _layoutScale {1.0f};
     BackgroundRenderer _backgroundRenderer;
 
@@ -236,6 +269,9 @@ private:
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;
+    int getDrawnItemIndex(int x, int y) const;
+    /** The pointer selects the row at \p index. */
+    void selectByPointer(int index);
     bool shouldRenderItemIconsForButtonProto() const;
     void renderItemWithButtonProtoIcon(
         const glm::ivec2 &screenSize,

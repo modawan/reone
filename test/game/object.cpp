@@ -2073,7 +2073,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
         .WillRepeatedly(Return(makeBaseItemsTable()));
     // Item deserialization incidentally looks up inventory icons; no texture
     // is needed.
-    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_000", "ii_datapad_000"), _))
+    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_001", "ii_datapad_001"), _))
         .Times(AnyNumber());
 
     auto player = game.newCreature();
@@ -2103,7 +2103,7 @@ TEST(Object, should_convert_credits_to_gold_for_any_creature) {
         .WillRepeatedly(Return(makeBaseItemsTable()));
     // Item deserialization incidentally looks up inventory icons; no texture
     // is needed.
-    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_000", _))
+    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_001", _))
         .Times(AnyNumber());
 
     auto thug = game.newCreature();

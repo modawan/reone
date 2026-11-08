@@ -393,10 +393,10 @@ void PresentationGUI::onClick(const std::string &control) {
 }
 
 void PresentationGUI::onSelectionChanged(const std::string &control, bool selected) {
-    if (selected) {
-        auto clip = _presentation.sounds.getOnEnter();
-        _audioSource = _presentation.mixer.play(std::move(clip), AudioType::Sound);
-    }
+}
+
+void PresentationGUI::onEntered(const std::string &control) {
+    _audioSource = _presentation.mixer.play(_presentation.sounds.getOnEnter(), AudioType::Sound);
 }
 
 } // namespace game
