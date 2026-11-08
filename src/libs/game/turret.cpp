@@ -1917,23 +1917,26 @@ void Turret::onAnimationEvent(Actor &actor, const std::string &modelName, const 
 }
 
 void Turret::suppressCanopyGlass() {
-    if (!_turretRoot) {
-        return;
-    }
     // Hide the canopy glass until additive environment-mapped model materials
     // can be rendered without compositing across the cockpit. Both shells are
     // authored inward-facing and enclose the camera, so at full strength they
     // lay the scratch texture over the whole field of view - twice. The nodes
     // stay in the loaded model and the shipped resource is untouched; only this
-    // session's cockpit instance stops drawing them.
+    // session's cockpit instance stops drawing them. Whichever of the player's
+    // models authors them carries them: mgf_turret, the first, in KotOR, and
+    // 421dxn_11, the third, on Dxun.
     static const std::array<const char *, 2> kGlassNodes {"sphere04", "sphere05"};
     for (const auto *name : kGlassNodes) {
-        auto node = _turretRoot->getNodeByName(name);
-        if (!node) {
-            debug(str(boost::format("turret: canopy glass node '%s' not present") % name));
-            continue;
+        bool found = false;
+        for (const auto &model : _player->models) {
+            if (auto node = model->getNodeByName(name)) {
+                node->setEnabled(false);
+                found = true;
+            }
         }
-        node->setEnabled(false);
+        if (!found) {
+            debug(str(boost::format("turret: canopy glass node '%s' not present") % name));
+        }
     }
 }
 
