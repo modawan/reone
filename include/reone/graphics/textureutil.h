@@ -33,8 +33,8 @@ void decompressLayer(int width, int height, Texture::Layer &layer, PixelFormat s
 
 /**
  * The frame a cycling texture shows \p time seconds into its clock: its
- * frames in turn at their rate, over and over. Any other texture shows its
- * first frame.
+ * frames in turn, each for one beat of its rate, over and over. Any other
+ * texture shows its first frame.
  */
 int getCycleFrame(const Texture &texture, float time);
 

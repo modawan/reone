@@ -122,8 +122,7 @@ int getCycleFrame(const Texture &texture, float time) {
         return 0;
     }
     int frameCount = features.numX * features.numY;
-    float length = frameCount / static_cast<float>(features.fps);
-    return static_cast<int>(glm::round((frameCount - 1) * (std::fmod(time, length) / length)));
+    return static_cast<int>(std::fmod(time * features.fps, static_cast<float>(frameCount)));
 }
 
 glm::ivec2 getImageSize(const Texture &texture) {
