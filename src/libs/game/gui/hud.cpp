@@ -294,7 +294,6 @@ static void tintHUDMenuButton(const std::shared_ptr<Button> &button, const glm::
         return;
     }
     button->setBorderColor(baseColor);
-    button->setTintBorderFill(true);
 }
 
 void HUD::preload(IGUI &gui) {
@@ -428,11 +427,6 @@ void HUD::onGUILoaded() {
         tintHUDMenuButton(_controls.BTN_JOU, _baseColor);
         tintHUDMenuButton(_controls.BTN_MAP, _baseColor);
         tintHUDMenuButton(_controls.BTN_OPT, _baseColor);
-        // The bar backings are colour masks like the rest of the TSL HUD.
-        for (auto &bar : {_controls.PB_VIT1, _controls.PB_VIT2, _controls.PB_VIT3,
-                          _controls.PB_FORCE1, _controls.PB_FORCE2, _controls.PB_FORCE3}) {
-            bar->setTintBorderFill(true);
-        }
     } else {
         _controls.LBL_COMBATBG1->setVisible(false);
         _controls.LBL_COMBATBG2->setVisible(false);
@@ -559,7 +553,6 @@ void HUD::loadNoticeBox() {
     border.dimension = kNoticeBoxBorderDimension;
     notice->setBorder(border);
     notice->setHilight(border);
-    notice->setTintBorderFill(true);
     notice->setTextFont(_services.resource.fonts.get(kNoticeBoxFont));
     notice->setTextAlignment(Control::TextAlign::LeftTop);
     notice->setTextColor(kNoticeBoxTextColor);

@@ -108,6 +108,7 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     }
     const auto deliver = [&](Object &receiver) -> ItemTransfer {
         if (split) {
+            _game.party().noteItemReceived(*split, receiver, _game.getObjectById(_item->owner()).get());
             return {true, receiver.addItem(split)};
         }
         return transferItemTo(_game, _item, receiver);

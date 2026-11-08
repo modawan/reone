@@ -42,6 +42,8 @@ public:
 
     /** Reload the quest list from the journal. */
     void refresh();
+    /** The quests the player read while the journal was shown are no longer new. */
+    void markReadQuestsSeen();
 
 private:
     enum class Filter {
@@ -73,6 +75,10 @@ private:
 
     Controls _controls;
     Filter _filter {Filter::Priority};
+    /** The plot ID of the quest whose entry is shown; empty for none. */
+    std::string _shownQuest;
+    /** The plot IDs of the quests read while the journal is shown. */
+    std::vector<std::string> _readQuests;
 
     void onGUILoaded() override;
     void setFilter(Filter filter);

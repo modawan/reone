@@ -122,6 +122,8 @@ public:
          * alpha; deselecting the control stops the text's pulse.
          */
         bool hilightPulsing {false};
+        /** The colour of the text while the control is selected; without one, the hilight's. */
+        std::optional<glm::vec3> selectedColor;
     };
 
     static ControlType getType(const resource::generated::GUI_BASECONTROL &gui);
@@ -167,6 +169,10 @@ public:
     /** Applies independent frame and text layout scales without changing the control's rectangle. */
     virtual void setPresentationScale(float frameLayoutScale, float textLayoutScale);
     const Extent &extent() const { return _extent; }
+    /** The area the borders are drawn over: the whole extent, unless the control lays them out apart from its text. */
+    virtual Extent borderExtent() const { return _extent; }
+    /** The area the text is laid out in: the whole extent, unless the control lays it out apart from its borders. */
+    virtual Extent textExtent() const { return _extent; }
     const Border &hilight() const { return *_hilight; }
     const std::string &borderFillResRef() const { return _borderFillResRef; }
     const std::string &hilightFillResRef() const { return _hilightFillResRef; }
@@ -193,6 +199,7 @@ public:
     void setSelectable(bool selectable);
     void setHeight(int height);
     void setHilight(Border hilight);
+    /** The hilight and the text take \p color while the control is selected. */
     void setHilightColor(glm::vec3 color);
     void setHilightFill(std::string resRef);
     void setHilightFill(std::shared_ptr<graphics::Texture> texture);
@@ -203,6 +210,8 @@ public:
     void setText(Text text);
     void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
+    /** The text alone takes \p color while the control is selected. */
+    void setSelectedTextColor(glm::vec3 color) { _text.selectedColor = color; }
     /** Sets whether the text is drawn at the GUI's pulsing alpha. */
     void setTextPulsing(bool pulsing) { _text.pulsing = pulsing; }
     /** The hilight's frame and fill pulse, as chosen; a control without a hilight is left alone. */
@@ -213,9 +222,10 @@ public:
     void setTextFont(std::shared_ptr<graphics::Font> font);
     void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
     int textPaddingLeft() const;
-    void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
+    bool usesBorderColorOverride() const { return _useBorderColorOverride; }
+    const glm::vec3 &borderColorOverride() const { return _borderColorOverride; }
     void setVisible(bool visible);
 
     void setTextLines(std::vector<std::string> lines) {
@@ -283,7 +293,6 @@ protected:
     bool _selectable {false};
     /** Whether this control is a list's prototype, drawn once for each row. */
     bool _isProtoItem {false};
-    bool _tintBorderFill {false};
     bool _sharpenBorderFillAlpha {false};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};

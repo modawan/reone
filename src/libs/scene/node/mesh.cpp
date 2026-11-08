@@ -45,6 +45,8 @@ namespace reone {
 namespace scene {
 
 static constexpr float kUvAnimationSpeed = 250.0f;
+static constexpr float kSaberTrailLife = 0.012f;
+static constexpr float kSaberMinFrameTime = 0.001f;
 
 void MeshSceneNode::init() {
     _point = false;
@@ -173,18 +175,23 @@ void MeshSceneNode::updateDanglyAnimation(float dt, const ModelNode::Danglymesh 
     _dangly.prevWorldPos = std::move(worldPos);
 }
 
+// A frame's trail starts where the blade was last drawn. Its pose for the frame
+// is final only once it is drawn: by now the body has moved, but the arm has
+// not yet swung.
 void MeshSceneNode::updateSaberAnimation(float dt) {
-    glm::vec3 worldPos = _absTransform[3];
-    glm::vec3 deltaPos = worldPos - _saber.prevWorldPos;
-    float deltaPosMag = glm::length(deltaPos);
-    if (deltaPosMag > 1.0f) {
-        _saber.displacement = glm::vec3 {0.0f};
-    } else if (deltaPosMag > 0.0f) {
-        glm::vec3 deltaLocal = _absTransformInv * glm::vec4 {deltaPos, 0.0f};
-        _saber.displacement += deltaLocal;
+    _saber.prevTransform = _saber.drawnTransform;
+    _saber.trailSpan = kSaberTrailLife / glm::max(dt, kSaberMinFrameTime);
+}
+
+// The blur sweeps the blade over its last 12 ms of movement, behind it and as
+// far ahead, at any frame rate. A frame counts as at least 1 ms, as the first
+// after a load takes none. A jump of more than a unit leaves no trail.
+glm::mat4 MeshSceneNode::saberTrailEnd() const {
+    glm::vec3 jump = _absTransform[3] - _saber.prevTransform[3];
+    if (glm::length(jump) > 1.0f) {
+        return _absTransform;
     }
-    _saber.displacement -= _saber.displacement * glm::min(8.0f * dt, 1.0f);
-    _saber.prevWorldPos = worldPos;
+    return _absTransform + _saber.trailSpan * (_saber.prevTransform - _absTransform);
 }
 
 bool MeshSceneNode::shouldRender() const {
@@ -433,7 +440,8 @@ void MeshSceneNode::render(IRenderPass &pass) {
     material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha * _model.fadeAlpha());
     material.ambientColor = mesh->ambient;
     material.diffuseColor = mesh->diffuse;
-    material.selfIllumColor = _selfIllumColor;
+    // Decal textures are fully self-illuminated.
+    material.selfIllumColor = _nodeTextures.diffuse->features().decal ? glm::vec3(1.0f) : _selfIllumColor;
     if (const auto &hilite = _model.hiliteColor()) {
         material.diffuseColor *= *hilite;
         material.selfIllumColor += *hilite;
@@ -504,11 +512,12 @@ void MeshSceneNode::drawWithMaterial(IRenderPass &pass, Material &material) {
                         _absTransformInv,
                         positions);
     } else if (_modelNode.isSaberMesh()) {
+        _saber.drawnTransform = _absTransform;
         pass.drawSaber(*mesh->mesh,
                        material,
                        _absTransform,
                        _absTransformInv,
-                       glm::vec4 {_saber.displacement, 0.0f});
+                       saberTrailEnd());
     } else {
         pass.draw(*mesh->mesh, material, _absTransform, _absTransformInv);
     }

@@ -628,7 +628,9 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
     if (auto store = dyn_cast<Store>(oTarget)) {
         held = store->acquireItem(item);
     } else {
-        held = ctx.game.party().sharedInventoryReceiver(oTarget)->addItem(item);
+        auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
+        ctx.game.party().noteItemReceived(*item, *receiver, nullptr);
+        held = receiver->addItem(item);
     }
     // An item created on a party member is reported in the status summary,
     // unless the script hides it.

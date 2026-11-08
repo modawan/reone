@@ -41,6 +41,10 @@ public:
         std::shared_ptr<graphics::Texture> iconTexture;
         std::shared_ptr<graphics::Texture> iconFrame;
         std::optional<glm::vec3> textColor;
+        /** The row's frames take this colour, selected or not. */
+        std::optional<glm::vec3> frameColor;
+        /** The opacity of the row's frames while the row is not selected. */
+        std::optional<float> frameAlpha;
         /** A row drawn through a toggle-button prototype shows this state. */
         std::optional<bool> on;
         bool invalid {false};
@@ -67,6 +71,12 @@ public:
     void addItem(Item &&item);
     /** Change a row's on state without rebuilding the list. */
     void setItemOn(int index, bool on) { _items.at(static_cast<size_t>(index)).on = on; }
+    /** The row at \p index shows the prototype's frames again. */
+    void clearItemFrameStyle(int index) {
+        auto &item = _items.at(static_cast<size_t>(index));
+        item.frameColor.reset();
+        item.frameAlpha.reset();
+    }
     void addTextLinesAsItems(const std::string &text);
 
     void clearSelection();
