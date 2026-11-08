@@ -3263,11 +3263,20 @@ void Creature::presentEquippedItems(const std::string &clip) {
 }
 
 void Creature::presentHandItems(ModelSceneNode &body) const {
-    const bool shown = !_equipmentHidden && !_handItemsPutAwayForConversation && !_handWeaponsStripped;
-    for (const auto *hand : {&g_rightHandNode, &g_leftHandNode}) {
-        if (auto *item = body.getAttachment(*hand)) {
-            item->setEnabled(shown);
-        }
+    const bool shown = !_equipmentHidden && !_handWeaponsStripped;
+    if (auto *item = body.getAttachment(g_rightHandNode)) {
+        item->setEnabled(shown && !_rightHandPutAwayForConversation);
+    }
+    if (auto *item = body.getAttachment(g_leftHandNode)) {
+        item->setEnabled(shown && !_leftHandPutAwayForConversation);
+    }
+}
+
+void Creature::bringOutHandForConversation(int slot) {
+    if (slot == InventorySlots::rightWeapon) {
+        _rightHandPutAwayForConversation = false;
+    } else if (slot == InventorySlots::leftWeapon) {
+        _leftHandPutAwayForConversation = false;
     }
 }
 
@@ -3283,7 +3292,8 @@ void Creature::presentHeadItem(ModelSceneNode &body) const {
 
 // A creature without a model has no items to show.
 void Creature::setHandItemsPutAwayForConversation(bool putAway) {
-    _handItemsPutAwayForConversation = putAway;
+    _rightHandPutAwayForConversation = putAway;
+    _leftHandPutAwayForConversation = putAway;
     if (auto body = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
         presentHandItems(*body);
     }
@@ -5451,6 +5461,7 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     item->setEquipped(true);
     item->setOwner(_id);
     replaceEffectState(std::move(replacementEffects));
+    bringOutHandForConversation(slot);
 
     updateEquipmentPresentation();
     if (_sceneNode && _combatState.active &&
@@ -5521,6 +5532,7 @@ bool Creature::replaceEquipment(
     item->setOwner(_id);
     displacedReceiver.addItem(previous);
     replaceEffectState(std::move(replacementEffects));
+    bringOutHandForConversation(slot);
     updateEquipmentPresentation();
     if (previous->itemType() == Item::kStealthUnitItemType && _stealthMode) {
         toggleStealth();

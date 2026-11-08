@@ -318,7 +318,9 @@ void Conversation::unequipNodeAnimationParticipants(const Dialog::EntryReply &no
 }
 
 // Only a creature holds items to put away, and a participant who is not
-// there holds none.
+// there holds none. A creature's items are put away the first time a line
+// involves it, and not again: an item equipped into its hands later in the
+// conversation shows.
 void Conversation::unequipNodeParticipant(const std::shared_ptr<Object> &object) {
     if (!object) {
         return;
@@ -327,16 +329,17 @@ void Conversation::unequipNodeParticipant(const std::shared_ptr<Object> &object)
     if (!creature) {
         return;
     }
+    const auto found = std::find_if(_unequippedCreatures.begin(), _unequippedCreatures.end(),
+                                    [&](const auto &ref) { return ref.resolve() == creature; });
+    if (found != _unequippedCreatures.end()) {
+        return;
+    }
+    _unequippedCreatures.emplace_back(creature);
     if (_dialog->unequipItems) {
         creature->setHandItemsPutAwayForConversation(true);
     }
     if (_dialog->unequipHeadItem) {
         creature->setHeadItemPutAwayForConversation(true);
-    }
-    const auto found = std::find_if(_unequippedCreatures.begin(), _unequippedCreatures.end(),
-                                    [&](const auto &ref) { return ref.resolve() == creature; });
-    if (found == _unequippedCreatures.end()) {
-        _unequippedCreatures.emplace_back(creature);
     }
 }
 
