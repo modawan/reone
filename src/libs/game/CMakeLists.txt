@@ -181,6 +181,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/footstepsounds.h
     ${GAME_INCLUDE_DIR}/floatingtext.h
     ${GAME_INCLUDE_DIR}/forcerules.h
+    ${GAME_INCLUDE_DIR}/areamapstate.h
     ${GAME_INCLUDE_DIR}/galaxymapstate.h
     ${GAME_INCLUDE_DIR}/game.h
     ${GAME_INCLUDE_DIR}/globalfade.h
@@ -412,6 +413,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/equipmentrules.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp
     ${GAME_SOURCE_DIR}/floatingtext.cpp
+    ${GAME_SOURCE_DIR}/areamapstate.cpp
     ${GAME_SOURCE_DIR}/galaxymapstate.cpp
     ${GAME_SOURCE_DIR}/game.cpp
     ${GAME_SOURCE_DIR}/globalfade.cpp

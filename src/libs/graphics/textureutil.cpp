@@ -156,6 +156,12 @@ Texture::Properties getTextureProperties(TextureUsage usage) {
         properties.minFilter = Texture::Filtering::Linear;
         properties.wrap = Texture::Wrapping::ClampToEdge;
 
+    } else if (usage == TextureUsage::AreaMap) {
+        // A map image is often drawn well under its own size, on the minimap
+        // and at small layout scales. It keeps its mipmaps so that it shrinks
+        // smoothly at any resolution.
+        properties.wrap = Texture::Wrapping::ClampToEdge;
+
     } else if (usage == TextureUsage::Font) {
         properties.minFilter = Texture::Filtering::Linear;
         properties.wrap = Texture::Wrapping::ClampToBorder;

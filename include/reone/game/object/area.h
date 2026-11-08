@@ -22,6 +22,7 @@
 #include <functional>
 #include <optional>
 
+#include "reone/game/areamapstate.h"
 #include "reone/game/minigame.h"
 #include "reone/game/transitioncandidate.h"
 #include "reone/graphics/aabb.h"
@@ -429,6 +430,8 @@ public:
      * before any room, everything is drawn.
      */
     void updateRoomVisibility();
+    /** Reveals the map around each party member where it stands. */
+    void updateMapData();
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
@@ -590,6 +593,9 @@ public:
     void setPlayerRestrictMode(int value);
     const ObjectList &objects() const { return _objects; }
     const std::string &localizedName() const { return _localizedName; }
+    /** The area's map: where world points sit on it, and what the party has explored. */
+    AreaMapState &mapState() { return _mapState; }
+    const AreaMapState &mapState() const { return _mapState; }
     const RoomMap &rooms() const { return _rooms; }
     const Grass &grass() const { return _grass; }
     const glm::vec3 &ambientColor() const { return _ambientColor; }
@@ -873,7 +879,7 @@ private:
 
     Pathfinder _pathfinder;
     std::string _localizedName;
-    resource::generated::ARE_Map _map;
+    AreaMapState _mapState;
     RoomMap _rooms;
     /**
      * Room lookup is first walkable hit in LYT order, not nearest
@@ -1172,7 +1178,7 @@ private:
     void loadCameraStyle(const resource::generated::ARE &are);
     void loadAmbientColor(const resource::generated::ARE &are);
     void loadScripts(const resource::generated::ARE &are);
-    void loadMap(const resource::generated::ARE &are);
+    void loadMap(const resource::Gff &are);
     /**
      * Stealth experience as the area file or the saved area properties give
      * it: the maximum, then the pool, which starts full unless given and

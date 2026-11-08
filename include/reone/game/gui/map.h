@@ -19,23 +19,23 @@
 
 #include "reone/graphics/texture.h"
 
-#include "reone/resource/parser/gff/are.h"
-
 namespace reone {
-
-namespace resource {
-
-class Gff;
-
-}
 
 namespace game {
 
 struct ServicesView;
 
+class AreaMapState;
 class Game;
 class Waypoint;
 
+/**
+ * Draws the active area's map, the party's place on it, its map notes and the
+ * fog over what the party has not explored.
+ *
+ * The map and its markers are drawn into a control's rect but not by the
+ * control, so the owning GUI passes its layout scale in.
+ */
 class Map {
 public:
     enum class Mode {
@@ -43,9 +43,15 @@ public:
         Minimap
     };
 
+    /** A map note the map draws, and the rect it answers a click in. */
+    struct NoteMarker {
+        std::shared_ptr<Waypoint> waypoint;
+        glm::vec4 bounds {0.0f};
+    };
+
     Map(Game &game, ServicesView &services);
 
-    void load(const std::string &area, const resource::generated::ARE_Map &map);
+    void load(const std::string &area);
 
     void retireRuntimeSession();
 
@@ -53,45 +59,60 @@ public:
      * @param scale the factor the owning GUI draws its layout at.
      * @param pulsingAlpha the owning GUI's pulsing alpha, which the party
      *                     leader's arrow is drawn at on the map screen.
-     *
-     * The map and its markers are drawn into a control's rect but not by the
-     * control, so nothing else carries the layout scale to them: the frame
-     * shrank with the GUI while the map inside it stayed unscaled.
      */
     void render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha);
 
-    bool isLoaded() const { return static_cast<bool>(_areaTexture); }
+    /** Whether there is a map to show: the area carries one and its image loaded. */
+    bool isLoaded() const { return _areaTexture && mapState(); }
+
+    /** The map notes the map shows, with the rect each one occupies. */
+    std::vector<NoteMarker> noteMarkers(const glm::vec4 &bounds, float scale) const;
 
     void setSelectedNote(std::shared_ptr<Waypoint> waypoint) { _selectedNote = std::move(waypoint); }
+
+    /**
+     * Whether the map shows \p waypoint: it carries a note, the note is on,
+     * and its place is explored.
+     */
+    bool isNoteVisible(const Waypoint &waypoint) const;
 
 private:
     Game &_game;
     ServicesView &_services;
 
-    int _northAxis {0};
-    glm::vec2 _worldPoint1 {0.0f};
-    glm::vec2 _worldPoint2 {0.0f};
-    glm::vec2 _mapPoint1 {0.0f};
-    glm::vec2 _mapPoint2 {0.0f};
-
     std::shared_ptr<graphics::Texture> _areaTexture;
     std::shared_ptr<graphics::Texture> _arrowTexture;
     std::shared_ptr<graphics::Texture> _noteTexture;
+    std::shared_ptr<graphics::Texture> _companionTexture;
+    std::shared_ptr<graphics::Texture> _fogTexture;
 
     std::string _arrowResRef;
     std::shared_ptr<Waypoint> _selectedNote;
 
-    void loadProperties(const resource::generated::ARE_Map &map);
     void loadTextures(const std::string &area);
 
-    void renderArea(Mode mode, const glm::vec4 &bounds, float scale);
-    void renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha);
-    void renderNotes(Mode mode, const glm::vec4 &bounds, float scale);
+    /** The area's map, or none when no area is active or it carries no map. */
+    const AreaMapState *mapState() const;
 
-    glm::vec2 getMapPosition(const glm::vec2 &world) const;
+    void renderArea(const glm::vec4 &rect);
+    void renderFog(const glm::vec4 &bounds, const glm::vec4 &rect);
+    void renderNotes(Mode mode, const glm::vec4 &rect, float scale);
+    void renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsingAlpha);
 
-    /** Converts a normalized map position into logical map-canvas pixels. */
-    void normalizeMapPosition(glm::vec2 &mapPos) const;
+    /**
+     * The rect the area image is drawn into. On the map screen that is the
+     * control's rect; the minimap centres the image on the party leader.
+     */
+    glm::vec4 mapRect(Mode mode, const glm::vec4 &bounds, float scale) const;
+
+    /** Draws \p texture over \p rect, tinted \p color, through \p program. */
+    void renderMarker(
+        const glm::vec4 &rect,
+        graphics::Texture &texture,
+        const glm::vec4 &color,
+        const char *program);
+
+    void renderScissored(const glm::vec4 &bounds, const std::function<void()> &block);
 };
 
 } // namespace game

@@ -53,6 +53,7 @@
 #include "reone/game/object/sound.h"
 #include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
@@ -4498,13 +4499,19 @@ static Variable JumpToObject(const std::vector<Variable> &args, const RoutineCon
 
 static Variable SetMapPinEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oMapPin = getObject(args, 0, ctx);
+    auto oMapPin = getObjectOrNull(args, 0, ctx);
     auto nEnabled = getInt(args, 1);
 
     // Transform
+    auto mapPin = oMapPin ? dyn_cast<Waypoint>(oMapPin) : nullptr;
+    auto enabled = static_cast<bool>(nEnabled);
 
-    // Execute
-    throw RoutineNotImplementedException("SetMapPinEnabled");
+    // Execute: only a waypoint carries a map pin; anything else is left as
+    // it is.
+    if (mapPin) {
+        mapPin->setMapNoteEnabled(enabled);
+    }
+    return Variable::ofNull();
 }
 
 static Variable PopUpGUIPanel(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5648,10 +5655,15 @@ static Variable RevealMap(const std::vector<Variable> &args, const RoutineContex
     auto vPoint = getVectorOrElse(args, 0, glm::vec3(0.0f, 0.0f, 0.0f));
     auto nRadius = getIntOrElse(args, 1, -1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("RevealMap");
+    auto &map = ctx.game.module()->area()->mapState();
+    // The default radius reveals the whole map, wherever the point is.
+    if (nRadius == -1) {
+        map.setFullyExplored();
+    } else {
+        map.setExplored(glm::vec2(vPoint), nRadius);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetTutorialWindowsEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {

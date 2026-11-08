@@ -1010,7 +1010,7 @@ void HUD::update(float dt) {
         _statusSummary->update(dt);
     }
 
-    // Hide minimap when there is no image to display
+    // Hide the minimap when the area has no map to show
     _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
 
     if (_capturePresentation) {

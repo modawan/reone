@@ -266,15 +266,17 @@ void Area::load(
     }
     loadStealthXP(areParsed.StealthXPMax, currentStealthXP, areParsed.StealthXPLoss, areParsed.StealthXPEnabled);
     loadARE(areParsed);
+    loadMap(are);
     loadLYT();
     loadGIT(git, identityContext);
     loadVIS();
 }
 
 void Area::activate() {
-    // Map is presentation state owned by Game, while loaded areas are cached.
-    // Restore this area's map whenever a cached module becomes active again.
-    _game.map().load(_name, _map);
+    // The map screen draws whichever area is active, while loaded areas are
+    // cached. Point it back at this area whenever a cached module becomes
+    // active again; the exploration it shows stays with the area.
+    _game.map().load(_name);
     applySceneProperties();
 
     for (auto &pair : _rooms) {
@@ -294,7 +296,6 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadCameraStyle(are);
     loadAmbientColor(are);
     loadScripts(are);
-    loadMap(are);
     loadHearing(are);
     loadGrass(are);
     loadFog(are);
@@ -340,9 +341,25 @@ void Area::loadScripts(const resource::generated::ARE &are) {
     _onUserDefined = are.OnUserDefined;
 }
 
-void Area::loadMap(const resource::generated::ARE &are) {
-    _map = are.Map;
-    _game.map().load(_name, _map);
+void Area::loadMap(const resource::Gff &are) {
+    // An area carries a map only when its map image exists. Without one its
+    // map settings go unread.
+    const std::string image(AreaMapState::imageResRef(_name));
+    if (_services.resource.textures.get(image, TextureUsage::AreaMap)) {
+        _mapState.load(_game.gameId(), _name, are);
+    } else if (auto map = are.findStruct("Map"); map && map->getInt("MapResX") != 0) {
+        warn(str(boost::format("Area %s carries no map: its map image %s is missing") % _name % image));
+    }
+    _game.map().load(_name);
+}
+
+void Area::updateMapData() {
+    // The whole party reveals the map it walks through, not just its leader.
+    auto &party = _game.party();
+    for (int index = 0; index < party.getSize(); ++index) {
+        _mapState.setExplored(
+            glm::vec2(party.getMember(index)->position()), AreaMapState::kPartyRevealRadius);
+    }
 }
 
 void Area::setPlayerRestrictMode(int value) {
@@ -474,6 +491,8 @@ void Area::loadGIT(
     const SerializedIdentityContext &identityContext) {
     _game.reserveSavedObjectIds(gff, identityContext, SerializedGraphRoot::AreaGit);
     loadProperties(gff);
+    // The area file sized the exploration grid; put back what was explored.
+    _mapState.loadFromGit(gff);
     loadCreatures(gff, identityContext);
     loadDoors(gff, identityContext);
     loadPlaceables(gff, identityContext);

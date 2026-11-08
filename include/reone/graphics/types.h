@@ -52,7 +52,9 @@ enum class TextureUsage {
     Movie,
     GUI,
     Font,
-    Noise
+    Noise,
+    /** The image an area's map is drawn from, at whatever size the map takes. */
+    AreaMap
 };
 
 enum class TextureQuality {
