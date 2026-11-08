@@ -8369,7 +8369,7 @@ void Game::closeStation(Screen station) {
     const Screen underneath = found->second;
     _stationReturnScreens.erase(found);
     // A conversation that a reply's script ended under the station is gone.
-    const bool conversationGone = underneath == Screen::Conversation && !_conversation->isOpen();
+    const bool conversationGone = underneath == Screen::Conversation && !_conversation->isRunning();
     if (underneath == Screen::InGame || conversationGone) {
         openInGame();
         return;

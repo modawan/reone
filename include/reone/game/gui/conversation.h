@@ -73,9 +73,6 @@ public:
     /** True from start() until the conversation has finished or been cleaned up. */
     bool isRunning() const { return _dialog && _fadeDialog; }
 
-    /** Whether the conversation is running: started and not yet finished. */
-    bool isOpen() const { return _open; }
-
     CameraType getCamera(int &cameraId) const;
     /**
      * A script shows placed camera \p cameraId until the next entry or reply
@@ -261,8 +258,6 @@ private:
     bool _autoPickFirstReply {false};
     /** Whether the conversation has listed the replies of the entry it ends on. */
     bool _endReached {false};
-    /** The conversation is running: started and not yet finished. */
-    bool _open {false};
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
     uint64_t _generation {0};

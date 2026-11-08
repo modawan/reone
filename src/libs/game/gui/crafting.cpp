@@ -1648,9 +1648,11 @@ void ItemUpgradePanel::refresh3D() {
 void ItemUpgradePanel::placeInstalledUpgrades() {
     const bool tsl = _game.isTSL();
     const auto &infos = slotInfos();
+    // A lightsaber upcrystals.2da doesn't list shows no colour crystal.
     if (_type == UpgradableType::Lightsaber) {
-        const int row = *crystalRow(*_item);
-        _slots[kLightsaberColourSlot].held = _game.newItemFromBlueprint(boost::to_lower_copy(_crystalTable->getString(row, "Template")));
+        if (const auto row = crystalRow(*_item)) {
+            _slots[kLightsaberColourSlot].held = _game.newItemFromBlueprint(boost::to_lower_copy(_crystalTable->getString(*row, "Template")));
+        }
     }
     // TSL dims every slot first; a slot it lights for a row stays lit.
     std::vector<bool> lit(_slots.size(), false);
@@ -1893,6 +1895,11 @@ void ItemUpgradePanel::closeList() {
 }
 
 void ItemUpgradePanel::showList(int slot) {
+    // With no colour crystal there is no colour to change: a new one would
+    // replace the lightsaber with another template.
+    if (!slotInfos()[slot].upgradeType && !_slots[slot].held) {
+        return;
+    }
     _listSlot = slot;
     _candidates.clear();
     const bool tsl = _game.isTSL();

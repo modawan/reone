@@ -771,7 +771,10 @@ private:
      * and selecting its button without a sound, and describes that slot.
      */
     void closeList();
-    /** Lists a slot's choices, hiding the slots and their texts; the list takes the keyboard. */
+    /**
+     * Lists a slot's choices, hiding the slots and their texts; the list takes
+     * the keyboard. An empty colour slot lists nothing.
+     */
     void showList(int slot);
     /** Shows each slot's upgrade, or its empty icon, and describes the item; TSL lights the slots holding an upgrade. */
     void refreshSlots();

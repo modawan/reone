@@ -179,7 +179,6 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
 
     _paused = false;
     _endReached = false;
-    _open = true;
     _dialog = dialog;
     _owner = owner;
     _partner = listener;
@@ -496,7 +495,6 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     _replies.clear();
     stopVoice();
     resetEntryFade();
-    _open = false;
     onFinish();
     if (_generation != generation) {
         return;
@@ -546,7 +544,6 @@ void Conversation::cleanupForModuleTransition() {
     _game.setLeaderAnswersInDialog(false);
     _paused = false;
     _entryEnded = true;
-    _open = false;
     if (!_dialog) {
         return;
     }
