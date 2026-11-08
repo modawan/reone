@@ -137,6 +137,41 @@ constexpr int kSecondsPerRound = 3;
 // A Dexterity limit of this value means none.
 constexpr int kNoDexterityLimit = -1;
 
+// The short property names a held upgrade's lines use: a property name
+// replaced by a shorter one, or by none.
+constexpr std::pair<int, int> kShortPropertyNames[] {
+    {659, -1},
+    {662, 129935},
+    {672, 129931},
+    {673, 129933},
+    {675, 686},
+    {678, -1},
+    {680, -1},
+    {700, 129930},
+    {705, -1},
+    {48014, -1}};
+// The subtype names the short names replace, by none or by physical damage.
+constexpr std::pair<int, int> kShortSubtypeNames[] {
+    {0, -1},
+    {727, -1},
+    {728, -1},
+    {731, kPhysicalDamageStrRef},
+    {798, kPhysicalDamageStrRef}};
+// Subtype names that leave a property no line under the short names.
+constexpr int kLinelessSubtypeNames[] {729, 730, 796, 797};
+// A held upgrade lists its properties up to this many lines.
+constexpr int kMaxPropertyLines = 5;
+
+// The name a table of short names puts in place of an interface string, or
+// the string itself.
+template <size_t N>
+int shortName(const std::pair<int, int> (&names)[N], int strRef) {
+    const auto it = std::find_if(std::begin(names), std::end(names), [strRef](const auto &name) {
+        return name.first == strRef;
+    });
+    return it != std::end(names) ? it->second : strRef;
+}
+
 struct PropertyStrings {
     std::string name;
     std::string subtype;
@@ -207,35 +242,42 @@ public:
         return _text + description;
     }
 
-    // A line for each property chosen, from its name, subtype and cost.
+    /**
+     * A line for each property chosen, in the short names, up to five lines:
+     * its name, then its cost, straight after a name ending in a plus and
+     * after a colon otherwise, then its subtype, after a comma when both
+     * come before it, a colon after a name alone and a space after a cost
+     * alone. A property with none of the three has no line.
+     */
     std::string buildPropertyLines(const std::function<bool(const Item::PropertyEntry &)> &include) const {
         std::string text;
+        int lineCount = 0;
         for (const auto &property : _item.properties()) {
+            if (lineCount == kMaxPropertyLines) {
+                break;
+            }
             if (!include(property)) {
                 continue;
             }
-            const auto strings = propertyStrings(type(property), property.subtype, property.costValue, std::nullopt);
-            std::string line;
-            if (!strings.name.empty() && !strings.subtype.empty()) {
-                line = strings.name + (strings.name.back() == '+' ? "" : ": ") + strings.subtype;
-                if (!strings.cost.empty()) {
-                    line += ", " + strings.cost;
+            const auto strings = propertyStrings(type(property), property.subtype, property.costValue, std::nullopt, true);
+            std::string line = strings.name;
+            if (!strings.cost.empty()) {
+                if (!strings.name.empty() && strings.name.back() != '+') {
+                    line += ": ";
                 }
-            } else if (!strings.name.empty()) {
-                line = strings.name;
-                if (!strings.cost.empty()) {
-                    line += ": " + strings.cost;
+                line += strings.cost;
+            }
+            if (!strings.subtype.empty()) {
+                if (!strings.name.empty()) {
+                    line += strings.cost.empty() ? ": " : ", ";
+                } else if (!strings.cost.empty()) {
+                    line += " ";
                 }
-            } else if (!strings.subtype.empty()) {
-                line = strings.subtype;
-                if (!strings.cost.empty()) {
-                    line += " " + strings.cost;
-                }
-            } else {
-                line = strings.cost;
+                line += strings.subtype;
             }
             if (!line.empty()) {
                 text += line + "\n";
+                ++lineCount;
             }
         }
         return text;
@@ -324,14 +366,19 @@ private:
      * The name of a property and the names of its subtype, cost and
      * parameter. A property the table does not name shows no text; a subtype
      * without a name of its own is shown with its property's name. No cost
-     * or parameter value asks for no cost or parameter text.
+     * or parameter value asks for no cost or parameter text. The short names
+     * replace some property and subtype names, and some subtypes leave the
+     * property no text at all.
      */
-    PropertyStrings propertyStrings(int kind, std::optional<int> subtype, std::optional<int> costValue, std::optional<int> paramValue) const {
+    PropertyStrings propertyStrings(int kind, std::optional<int> subtype, std::optional<int> costValue, std::optional<int> paramValue, bool shortNames = false) const {
         PropertyStrings strings;
         auto definitions = requiredTable("itempropdef");
-        const auto nameStrRef = definitions->getIntOpt(kind, "name");
+        auto nameStrRef = definitions->getIntOpt(kind, "name");
         if (!nameStrRef) {
             return strings;
+        }
+        if (shortNames) {
+            nameStrRef = shortName(kShortPropertyNames, *nameStrRef);
         }
         if (*nameStrRef != -1) {
             strings.name = gui(*nameStrRef);
@@ -340,7 +387,14 @@ private:
         const std::string subtypeResRef(definitions->getString(kind, "subtyperesref"));
         if (!subtypeResRef.empty() && subtype) {
             subtypes = requiredTable(subtypeResRef);
-            strings.subtype = gui(subtypes->getIntOpt(*subtype, "name").value_or(*nameStrRef));
+            int subtypeStrRef = subtypes->getIntOpt(*subtype, "name").value_or(*nameStrRef);
+            if (shortNames) {
+                if (std::find(std::begin(kLinelessSubtypeNames), std::end(kLinelessSubtypeNames), subtypeStrRef) != std::end(kLinelessSubtypeNames)) {
+                    return {};
+                }
+                subtypeStrRef = shortName(kShortSubtypeNames, subtypeStrRef);
+            }
+            strings.subtype = gui(subtypeStrRef);
         }
         const auto costTableIndex = definitions->getIntOpt(kind, "costtableresref");
         if (costValue && costTableIndex) {

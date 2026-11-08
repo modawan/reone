@@ -37,8 +37,9 @@ struct ServicesView;
 std::string buildItemDescription(const Item &item, const Game &game, ServicesView &services);
 
 /**
- * A line for each property of the item that include chooses, active or not:
- * its name, subtype and cost, as a workbench lists an upgrade's properties.
+ * A line for each property of the item that include chooses, active or not,
+ * up to five lines: its name, cost and subtype in TSL's short property names,
+ * as a workbench lists a held upgrade's properties.
  */
 std::string buildItemPropertyLines(
     const Item &item,

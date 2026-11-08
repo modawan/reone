@@ -69,7 +69,7 @@ struct UpgradeScreenRequest {
     std::shared_ptr<Creature> character;
     /** The Create Items button is hidden. */
     bool disableItemCreation {false};
-    /** Creation opens at once, and closing it closes the workbench. */
+    /** Creation opens at once, under the item's upgrades when an item is named, and closing it closes the workbench. */
     bool disableUpgrade {false};
     /** The table creation lists, in place of ItemCreate when not empty. */
     std::string itemCreateTable;
@@ -86,9 +86,13 @@ public:
     /** A panel making items from, and breaking them into, the given count; breakdown yields by the given skill. */
     CraftingPanel(Game &game, ServicesView &services, HeldCount count, SkillType breakdownSkill);
 
-    /** Escape closes the panel; Return or keypad Enter chooses the selected entry, and Up and Down move the selection. */
+    /**
+     * Escape closes the panel; Return or keypad Enter chooses the selected
+     * entry, and letting it go leaves Accept idle on that entry. Up and Down
+     * move the selection.
+     */
     bool handle(const input::Event &event) override;
-    /** Describes the selected entry. */
+    /** Describes the selected entry, which a moved selection leaves to Accept. */
     void update(float dt) override;
 
 protected:
@@ -213,6 +217,10 @@ protected:
     virtual bool checksLevelAndAlignment() const = 0;
     /** Whether a create row whose template is missing stocks a blank item. */
     virtual bool stocksMissingTemplates() const = 0;
+    /** Whether the tokens in an item's description are resolved. */
+    virtual bool resolvesDescriptionTokens() const = 0;
+    /** Whether showing the create view clears the skill line, which otherwise keeps the last entry's. */
+    virtual bool clearsSkillLineOnCreateView() const = 0;
     /** What an item is worth at this station. */
     virtual int itemValue(const Item &item) const = 0;
     /** The character's items the breakdown list offers under the current filter, in order. */
@@ -223,6 +231,16 @@ protected:
     virtual void close(bool escape) = 0;
 
 private:
+    /** The last input to reach the current list's selected row, which decides what Accept does. */
+    enum class RowInput {
+        /** The selection moved to the row: Accept acts on it. */
+        Selected,
+        /** A double click, Return or keypad Enter chose the row: Accept acts on it, a create entry with its click. */
+        Chosen,
+        /** Return or keypad Enter was let go on the row: Accept does nothing. */
+        Released
+    };
+
     /** The count the stations make items from and break them into. */
     HeldCount _count;
     /** The skill whose ranks set the breakdown factor. */
@@ -243,11 +261,18 @@ private:
     std::vector<RuntimeObjectRef<Item>> _breakable;
     /** The list row described; none while the list is empty. */
     std::optional<int> _describedRow;
+    /** The create list still shows a previous group's entries, which stand for nothing. */
+    /** The current list's row the last input reached; none while no row is selected. */
+    int _inputRow {-1};
+    /** The last input to reach that row. */
+    RowInput _rowInput {RowInput::Selected};
 
     /** The list of the current view. */
     gui::ListBox &currentList() const;
     /** Makes or breaks down the entry at \p row of \p list, with the create list's click. */
     void choose(const gui::ListBox &list, int row);
+    /** Accept acts on the selected row unless Return or keypad Enter was let go on it since the selection moved there. */
+    void accept();
     /** Shows a view: its strings, controls and freshly built list, which holds the keyboard. */
     void showView(View view);
     /** Highlights the current filter of each view. */
@@ -286,6 +311,8 @@ private:
     void describeCreatable(const Creatable &creatable);
     /** Shows what breaking the item down yields, how many there are, and the item. */
     void describeBreakable(const Item &item);
+    /** An item's description, its tokens resolved where the station resolves them. */
+    std::string itemText(const Item &item) const;
     /** How many of the item the party holds. */
     int stockOf(const Item &item) const;
     /** What breaking the item down adds to the count: at least one. */
@@ -366,6 +393,10 @@ private:
     bool checksLevelAndAlignment() const override { return true; }
     /** A row whose template is missing stocks nothing. */
     bool stocksMissingTemplates() const override { return false; }
+    /** An item's description has its tokens resolved. */
+    bool resolvesDescriptionTokens() const override { return true; }
+    /** Showing the create view clears the skill line. */
+    bool clearsSkillLineOnCreateView() const override { return true; }
     /** The item's component value. */
     int itemValue(const Item &item) const override;
     /** The character's items under the filter, leaving out plot items, worthless ones and what the lab station makes. */
@@ -408,6 +439,10 @@ private:
     bool checksLevelAndAlignment() const override { return false; }
     /** A row whose template is missing stocks a blank item. */
     bool stocksMissingTemplates() const override { return true; }
+    /** An item's description is shown as it stands. */
+    bool resolvesDescriptionTokens() const override { return false; }
+    /** Showing the create view keeps the skill line. */
+    bool clearsSkillLineOnCreateView() const override { return false; }
     /** The item's chemical value. */
     int itemValue(const Item &item) const override;
     /** The character's items the station makes, apart from one group, by their base items' store order. */
@@ -744,8 +779,12 @@ private:
     void destroyItem();
     /** Takes one upgrade off a party stack. */
     std::shared_ptr<Item> take(const std::shared_ptr<Item> &stack);
-    /** Returns an upgrade to the party inventory. */
-    void giveBack(const std::shared_ptr<Item> &upgrade);
+    /**
+     * Returns an upgrade to the party inventory.
+     *
+     * @return the stack the upgrade joined, or the upgrade itself
+     */
+    std::shared_ptr<Item> giveBack(const std::shared_ptr<Item> &upgrade);
     /** Keeps the item as it is now and closes. */
     void assemble();
     /** Restores the item and every upgrade moved, and closes. */
@@ -777,7 +816,11 @@ public:
     /** The panel open is drawn over the screen. */
     void render() override;
 
-    /** Opens for a script's request: an item's upgrades at once, or the selection (with disableUpgrade, creation). */
+    /**
+     * Opens for a script's request: an item's upgrades at once, or the
+     * selection. With disableUpgrade, creation opens first, a script's item
+     * opening over it.
+     */
     void open(UpgradeScreenRequest request);
 
 protected:

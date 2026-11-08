@@ -156,11 +156,7 @@ void CraftingPanel::onGUILoaded() {
         button->setNavigable(false);
     }
     _controls.BTN_Accept->setOnClick([this]() {
-        // Nothing is chosen while the list is empty.
-        const int row = currentList().selectedItemIndex();
-        if (row >= 0) {
-            act(row);
-        }
+        accept();
     });
     _controls.BTN_Cancel->setOnClick([this]() {
         close(false);
@@ -225,6 +221,13 @@ static std::optional<Control::MoveDirection> moveDirectionOf(input::KeyCode code
 }
 
 bool CraftingPanel::handle(const input::Event &event) {
+    // Return or keypad Enter let go on the selected row leaves Accept idle on
+    // it.
+    if (event.type == input::EventType::KeyUp &&
+        (event.key.code == input::KeyCode::Return || event.key.code == input::KeyCode::KeypadEnter)) {
+        _inputRow = currentList().selectedItemIndex();
+        _rowInput = RowInput::Released;
+    }
     if (event.type != input::EventType::KeyDown) {
         return GameGUI::handle(event);
     }
@@ -241,10 +244,29 @@ bool CraftingPanel::handle(const input::Event &event) {
 
 // Choosing a row of the create list clicks; the breakdown list is silent.
 void CraftingPanel::choose(const ListBox &list, int row) {
+    _inputRow = row;
+    _rowInput = RowInput::Chosen;
     if (&list == _controls.LB_SHOPITEMS.get()) {
         _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
     }
     act(row);
+}
+
+// Accept acts on the selected row as the last input to reach it left it:
+// chosen again when that input chose it, acted on silently when the
+// selection moved to it, and not at all when Return or keypad Enter was let
+// go on it. Nothing is chosen while the list is empty.
+void CraftingPanel::accept() {
+    auto &list = currentList();
+    const int row = list.selectedItemIndex();
+    if (row < 0 || _rowInput == RowInput::Released) {
+        return;
+    }
+    if (_rowInput == RowInput::Chosen) {
+        choose(list, row);
+    } else {
+        act(row);
+    }
 }
 
 // Clicking the lists is silent: a click selecting another entry sounds as
@@ -261,8 +283,13 @@ void CraftingPanel::onClick(const std::string &control) {
 
 void CraftingPanel::update(float dt) {
     GameGUI::update(dt);
-    // The selected row is described.
     const int row = currentList().selectedItemIndex();
+    // The selection moving to another row is the last input that row has had.
+    if (row != _inputRow) {
+        _inputRow = row;
+        _rowInput = RowInput::Selected;
+    }
+    // The selected row is described.
     if (row >= 0 && _describedRow != row) {
         describe(row);
     }
@@ -321,7 +348,9 @@ void CraftingPanel::showView(View view) {
     _gui->setActiveControl(currentList());
 
     if (create) {
-        _controls.LBL_RELATEDSKILL->setTextMessage("");
+        if (clearsSkillLineOnCreateView()) {
+            _controls.LBL_RELATEDSKILL->setTextMessage("");
+        }
         restockCreatable();
         showCreateList();
     } else {
@@ -344,10 +373,12 @@ void CraftingPanel::colourFilters() {
 
 // Lists
 
+// An item's row: TSL resolves the tokens in its name, KotOR shows the name as
+// it stands.
 static ListBox::Item listEntry(Game &game, const Item &item, int index, std::shared_ptr<graphics::Texture> frame) {
     ListBox::Item entry;
     entry.tag = std::to_string(index);
-    entry.text = game.substituteLogTokens(item.localizedName());
+    entry.text = game.isTSL() ? game.substituteLogTokens(item.localizedName()) : item.localizedName();
     entry.iconTexture = item.icon();
     entry.iconFrame = std::move(frame);
     if (item.stackSize() > 1) {
@@ -485,14 +516,19 @@ void CraftingPanel::fillBreakdownList(int keepRow) {
 void CraftingPanel::showList(int row) {
     auto &list = currentList();
     const int count = list.getItemCount();
+    // Choosing a row, even the one already selected, moves the selection to it
+    // afresh.
+    _rowInput = RowInput::Selected;
     if (count == 0) {
         list.setSelectedItemIndex(-1);
+        _inputRow = -1;
         _describedRow.reset();
         clearFocus();
         return;
     }
     const int selected = std::clamp(row, 0, count - 1);
     list.setSelectedItemIndex(selected);
+    _inputRow = selected;
     describe(selected);
 }
 
@@ -520,6 +556,13 @@ static std::string describedItem(Game &game, ServicesView &services, const Item 
     return game.substituteLogTokens(buildItemDescription(item, game, services));
 }
 
+std::string CraftingPanel::itemText(const Item &item) const {
+    if (resolvesDescriptionTokens()) {
+        return describedItem(_game, _services, item);
+    }
+    return buildItemDescription(item, _game, _services);
+}
+
 void CraftingPanel::describeCreatable(const Creatable &creatable) {
     _controls.LBL_COST_VALUE->setTextMessage(std::to_string(itemValue(*creatable.item)));
     const auto table = createTable();
@@ -534,7 +577,7 @@ void CraftingPanel::describeCreatable(const Creatable &creatable) {
     const int requirement = table->getInt(creatable.row, skillColumn());
     const auto description = _services.resource.strings.getText(kRequirementHeaderStrRef) + "\n" +
                              skillName + " (" + std::to_string(requirement) + ")\n" +
-                             describedItem(_game, _services, *creatable.item);
+                             itemText(*creatable.item);
     _controls.LB_DESCRIPTION->clearItems();
     _controls.LB_DESCRIPTION->addTextLinesAsItems(description);
 }
@@ -543,7 +586,7 @@ void CraftingPanel::describeBreakable(const Item &item) {
     _controls.LBL_COST_VALUE->setTextMessage(std::to_string(breakdownGain(item)));
     _controls.LBL_STOCK_VALUE->setTextMessage(std::to_string(item.stackSize()));
     _controls.LB_DESCRIPTIONINV->clearItems();
-    _controls.LB_DESCRIPTIONINV->addTextLinesAsItems(describedItem(_game, _services, item));
+    _controls.LB_DESCRIPTIONINV->addTextLinesAsItems(itemText(item));
 }
 
 // What the party holds of an item: the first matching stack it carries, and
@@ -1214,6 +1257,19 @@ void ItemUpgradePanel::onGUILoaded() {
         _controls.LBL_UPGRADES = findControl<Label>("LBL_UPGRADES");
         _controls.LBL_UPGRADE_COUNT = findControl<Label>("LBL_UPGRADE_COUNT");
         _controls.LB_DESC_LS = findControl<ListBox>("LB_DESC_LS");
+        // KotOR writes either description in the lightsaber description's
+        // row: its place, width and text.
+        const auto &lightsaberRow = _controls.LB_DESC_LS->protoItem();
+        auto &row = _controls.LB_DESC->protoItem();
+        const auto placed = [](Control::Extent extent, const Control::Extent &place) {
+            extent.left = place.left;
+            extent.top = place.top;
+            extent.width = place.width;
+            return extent;
+        };
+        row.setAuthoredExtent(placed(row.authoredExtent(), lightsaberRow.authoredExtent()));
+        row.setExtent(placed(row.extent(), lightsaberRow.extent()));
+        row.setText(lightsaberRow.text());
     }
 
     // The panel's frames are KotOR's blue or TSL's upgrade border, and the
@@ -1271,9 +1327,11 @@ void ItemUpgradePanel::onGUILoaded() {
     _controls.BTN_BACK->setNavigable(false);
     if (tsl) {
         _controls.BTN_OK->setNavigable(false);
+        // OK passes over a greyed entry in silence: only the entry's own pick
+        // says it is too high.
         _controls.BTN_OK->setOnClick([this]() {
             const int entry = _controls.LB_ITEMS->selectedItemIndex();
-            if (entry >= 0) {
+            if (entry >= 0 && !_candidates[entry].disabled) {
                 pick(entry);
             }
         });
@@ -1736,8 +1794,10 @@ void ItemUpgradePanel::clickSlot(int slot) {
     }
     const int row = *record.row;
     _item->setUpgradeInstalled(row, true);
-    // An item its wearer could no longer wear is asked about first.
-    if (!_wearer.empty() && evaluateEquipmentAdmission(*_wearer.resolve(), *_item) != EquipmentCandidateReason::None) {
+    // An item its wearer could no longer wear is asked about first. No takes
+    // the row off the item again, leaving the slot empty and the upgrade with
+    // the party.
+    if (wearerRefusesItem()) {
         _game.showConfirmPopup(
             _services.resource.strings.getText(kCannotWearStrRef),
             [this, slot, upgrade]() {
@@ -1749,6 +1809,10 @@ void ItemUpgradePanel::clickSlot(int slot) {
         return;
     }
     install(slot, upgrade);
+}
+
+bool ItemUpgradePanel::wearerRefusesItem() const {
+    return !_wearer.empty() && evaluateEquipmentAdmission(*_wearer.resolve(), *_item) != EquipmentCandidateReason::None;
 }
 
 void ItemUpgradePanel::install(int slot, const std::shared_ptr<Item> &upgrade) {
@@ -1822,8 +1886,12 @@ void ItemUpgradePanel::showList(int slot) {
             entry = listEntry(_game, *candidate.item, static_cast<int>(i), itemFrameTexture(candidate.item->stackSize()));
             entry.iconTextColor = upgradeEntryCountColor(_game);
         } else {
+            // The entry that empties the slot shows the empty icon on a
+            // single item's plate.
             entry.tag = std::to_string(i);
             entry.text = _services.resource.strings.getText(kNoneStrRef);
+            entry.iconTexture = _services.resource.textures.get(tsl ? "inone_blue" : "inone", TextureUsage::GUI);
+            entry.iconFrame = itemFrameTexture(1);
         }
         // A greyed entry lights in the highlight colour; its count keeps its
         // colour.
@@ -1915,11 +1983,16 @@ void ItemUpgradePanel::pick(int entry) {
         _game.showMessagePopup(_services.resource.strings.getText(kUpgradeTooHighStrRef), nullptr, {}, kCraftingPopupColors);
         return;
     }
-    if (candidate.current) {
+    const bool tsl = _game.isTSL();
+    const bool colour = !slotInfos()[slot].upgradeType;
+    // The slot's current upgrade closes the list unchanged in TSL, as the
+    // current colour crystal does in both games. In KotOR any other slot's
+    // current upgrade is given back and taken again like any other.
+    if ((tsl || colour) && candidate.current) {
         closeList();
         return;
     }
-    if (!slotInfos()[slot].upgradeType) {
+    if (colour) {
         swapLightsaber(*candidate.row);
         giveBack(place.held);
         place.held = take(candidate.item);
@@ -1927,8 +2000,8 @@ void ItemUpgradePanel::pick(int entry) {
         refresh3D();
         return;
     }
-    const bool tsl = _game.isTSL();
     auto &record = slotRecord(slot);
+    auto chosen = candidate.item;
     if (place.held) {
         // The upgrade is counted before it rejoins a stack.
         if (tsl) {
@@ -1937,18 +2010,42 @@ void ItemUpgradePanel::pick(int entry) {
         } else {
             _item->setUpgradeInstalled(*record.row, false);
         }
-        giveBack(place.held);
+        // The slot's own crystal, given back, is gone once it joins a stack,
+        // and the slot stays empty.
+        const auto stack = giveBack(place.held);
+        if (chosen == place.held && stack != chosen) {
+            chosen.reset();
+        }
         place.held.reset();
     }
-    if (candidate.item) {
-        place.held = take(candidate.item);
+    if (chosen) {
         // The slot answers to the entry's row.
         record.row = candidate.row;
         if (tsl) {
-            // The item records the first row with its template.
+            // The item records the first row with its template and takes the
+            // upgrade's properties. An item its wearer could no longer wear
+            // is asked about first: Yes takes the upgrade into the slot; No
+            // takes the upgrade's properties and row off the item again and
+            // leaves the list open, the slot empty and the upgrade with the
+            // party.
             _item->setUpgradeSlot(slot, firstRowWithTemplateOf(*candidate.row));
-            _item->addUpgrade(*place.held, slot);
+            _item->addUpgrade(*chosen, slot);
+            if (wearerRefusesItem()) {
+                _game.showConfirmPopup(
+                    _services.resource.strings.getText(kCannotWearStrRef),
+                    [this, slot, chosen]() {
+                        _slots[slot].held = take(chosen);
+                        closeList();
+                    },
+                    [this, slot, chosen]() {
+                        _item->removeUpgrade(*chosen, slot);
+                        _item->setUpgradeSlot(slot, std::nullopt);
+                    });
+                return;
+            }
+            place.held = take(chosen);
         } else {
+            place.held = take(chosen);
             _item->setUpgradeInstalled(*candidate.row, true);
         }
     }
@@ -2007,7 +2104,7 @@ std::shared_ptr<Item> ItemUpgradePanel::take(const std::shared_ptr<Item> &stack)
     return taken;
 }
 
-void ItemUpgradePanel::giveBack(const std::shared_ptr<Item> &upgrade) {
+std::shared_ptr<Item> ItemUpgradePanel::giveBack(const std::shared_ptr<Item> &upgrade) {
     auto taken = std::find(_taken.begin(), _taken.end(), upgrade);
     const bool takenNow = taken != _taken.end();
     if (takenNow) {
@@ -2015,8 +2112,9 @@ void ItemUpgradePanel::giveBack(const std::shared_ptr<Item> &upgrade) {
     }
     auto stack = partyInventory()->addItem(upgrade);
     if (!takenNow) {
-        _returned.push_back(std::move(stack));
+        _returned.push_back(stack);
     }
+    return stack;
 }
 
 // Clicking the lists is silent: a click selecting another entry sounds as the
@@ -2269,9 +2367,10 @@ void UpgradeSelectionGUI::open(UpgradeScreenRequest request) {
         _controls.LB_UPGRADELIST->clearItems();
         _controls.LB_DESCRIPTION->clearItems();
     }
+    // With creation all the workbench offers, creation opens first; a script's
+    // item still opens over it.
     if (_disableUpgrade) {
         openCreation();
-        return;
     }
     if (!request.item) {
         if (tsl) {
@@ -2729,7 +2828,11 @@ void UpgradeSelectionGUI::render() {
         break;
     case OpenPanel::Upgrade:
         // The list of items stays under the upgrade panel: empty for a
-        // script's item, and never filled in TSL.
+        // script's item, and never filled in TSL. With creation all the
+        // workbench offers, the creation panel stays under both.
+        if (_disableUpgrade) {
+            _creation->render();
+        }
         _items->render();
         _upgrade->render();
         break;

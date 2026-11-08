@@ -65,6 +65,9 @@ static constexpr float kOnHitStateSecondsPerRoundTSL = 3.0f;
 // The iprp_onhit parameter table that gives a chance and duration.
 static constexpr int kOnHitDurationParameterTable = 1;
 
+// The charges a new item holds.
+static constexpr int kNewItemCharges = 50;
+
 int Item::cost(float baseCostMultiplier) const {
     if (plotValue() == 1) {
         return 0;
@@ -159,6 +162,7 @@ void Item::loadBlank() {
     static constexpr int kBlankBaseItem = 30;
     _baseItem = kBlankBaseItem;
     _modelVariation = 1;
+    _charges = kNewItemCharges;
     _dropable = true;
     loadBaseItem();
     loadIcon();
@@ -214,10 +218,9 @@ void Item::deserializeAll(
 
     // A complete record without charges holds fifty; a record with charges but
     // no maximum holds as many charges as it has.
-    static constexpr int kDefaultCharges = 50;
     const bool charged = gff.readByte(_charges, "Charges");
     if (!charged && completeRecord) {
-        _charges = kDefaultCharges;
+        _charges = kNewItemCharges;
     }
     uint8_t maxCharges = 0;
     if (gff.readByte(maxCharges, "MaxCharges")) {

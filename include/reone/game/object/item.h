@@ -184,7 +184,8 @@ public:
     bool loadFromBlueprint(const std::string &resRef);
     /**
      * Makes a new item whose template is missing what such an item is: base
-     * item 30 in model variation 1, droppable, its tag, name and cost left empty.
+     * item 30 in model variation 1 with 50 charges, droppable, its tag, name
+     * and cost left empty.
      */
     void loadBlank();
     /**
