@@ -233,23 +233,35 @@ std::vector<std::shared_ptr<Object>> Object::ownedRuntimeObjects() const {
     return {_items.begin(), _items.end()};
 }
 
+size_t Object::itemInsertPosition(const std::vector<std::shared_ptr<Item>> &items, const Item &item) const {
+    if (!keepsItemsInOrder()) {
+        return _loadingItems ? items.size() : 0;
+    }
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto &existing = *items[i];
+        if (item.baseItemType() < existing.baseItemType()) {
+            return i;
+        }
+        if (item.baseItemType() == existing.baseItemType() && item.localizedName() < existing.localizedName()) {
+            return i;
+        }
+    }
+    return items.size();
+}
+
+void Object::placeItem(std::vector<std::shared_ptr<Item>> &items, std::shared_ptr<Item> item) const {
+    const auto position = static_cast<std::ptrdiff_t>(itemInsertPosition(items, *item));
+    items.insert(items.begin() + position, std::move(item));
+}
+
 std::shared_ptr<Item> Object::appendOwnedItemCandidate(
     std::vector<std::shared_ptr<Item>> &items,
-    const std::shared_ptr<Item> &item,
-    bool preserveSerializedIdentities) {
+    const std::shared_ptr<Item> &item) {
     if (!item) {
         throw ValidationException("Cannot stage a null owned Item");
     }
     for (const auto &existing : items) {
-        if (!existing || existing.get() == item.get()) {
-            continue;
-        }
-        if (preserveSerializedIdentities &&
-            (existing->serializedObjectIdentity() ||
-             item->serializedObjectIdentity())) {
-            continue;
-        }
-        if (!existing->isStackCompatibleWith(*item)) {
+        if (!existing || existing.get() == item.get() || !existing->isStackCompatibleWith(*item)) {
             continue;
         }
         if (existing->mergeStackFrom(*item)) {
@@ -258,7 +270,7 @@ std::shared_ptr<Item> Object::appendOwnedItemCandidate(
             return existing;
         }
     }
-    items.push_back(item);
+    placeItem(items, item);
     return item;
 }
 
@@ -268,6 +280,7 @@ void Object::deserializeOwnedItems(
     SaveRecordOriginKind originKind,
     std::string originOwner,
     bool placedTemplate) {
+    const ItemLoadScope loading(*this);
     if (!identityContext.isSerializedState()) {
         if (!gff.has("ItemList")) return;
         std::vector<std::shared_ptr<Object>> obsolete(
@@ -299,7 +312,7 @@ void Object::deserializeOwnedItems(
                     }
                     item->setOwner(*this);
                     appendOwnedItemCandidate(
-                        replacement, item, true);
+                        replacement, item);
                 }
                 if (creature) {
                     for (const auto &item : replacement) {
@@ -333,7 +346,7 @@ void Object::deserializeOwnedItems(
                      originOwner.empty() ? std::to_string(_id) : originOwner});
                 item->restoreOwner(*this);
                 appendOwnedItemCandidate(
-                    replacement, item, true);
+                    replacement, item);
             }
             if (creature) {
                 for (const auto &item : replacement) {
@@ -1443,6 +1456,8 @@ std::shared_ptr<Action> Object::getCurrentAction() const {
 std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, std::optional<bool> dropable) {
     std::shared_ptr<Item> result;
     std::shared_ptr<Item> counted;
+    bool joined = false;
+    bool newlyAcquired = false;
     std::vector<std::shared_ptr<Object>> noObsolete;
     std::vector<std::shared_ptr<Item>> replacement(_items);
     ItemAttributes replacementAttributes;
@@ -1461,10 +1476,13 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
                 _game.discardStagedRuntimeObjects({candidate});
                 return;
             }
+            _game.party().noteItemReceived(*candidate, *this, nullptr);
+            newlyAcquired = candidate->isNewlyAcquired();
             candidate->setOwner(*this);
             result = appendOwnedItemCandidate(
-                replacement, candidate, false);
-            if (creature && result.get() == candidate.get()) {
+                replacement, candidate);
+            joined = result.get() != candidate.get();
+            if (creature && !joined) {
                 replacementAttributes.addItem(candidate, _services.game);
             }
         },
@@ -1478,10 +1496,14 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
     if (counted) {
         _game.party().acquireReceivedItem(*this, *counted);
     }
+    // In KotOR a stack a new item joins is marked new too.
+    if (joined && newlyAcquired && !_game.isTSL()) {
+        result->setNewlyAcquired(true);
+    }
     return result;
 }
 
-std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
+std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item, ItemStacking stacking) {
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly())) {
         throw ValidationException("Cannot own a non-live runtime item");
     }
@@ -1511,18 +1533,24 @@ std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
         _game.destroyRuntimeObjectGraph(item);
         return nullptr;
     }
-    for (const auto &existing : _items) {
-        if (!existing->isStackCompatibleWith(*item)) {
-            continue;
-        }
-        if (existing->mergeStackFrom(*item)) {
-            item->clearOwner();
-            _game.destroyRuntimeObjectGraph(item);
-            return existing;
+    if (stacking == ItemStacking::Join) {
+        for (const auto &existing : _items) {
+            if (!existing->isStackCompatibleWith(*item)) {
+                continue;
+            }
+            if (existing->mergeStackFrom(*item)) {
+                // In KotOR a stack a new item joins is marked new too.
+                if (item->isNewlyAcquired() && !_game.isTSL()) {
+                    existing->setNewlyAcquired(true);
+                }
+                item->clearOwner();
+                _game.destroyRuntimeObjectGraph(item);
+                return existing;
+            }
         }
     }
     std::vector<std::shared_ptr<Item>> replacement(_items);
-    replacement.push_back(item);
+    placeItem(replacement, item);
     ItemAttributes replacementAttributes;
     if (creature) {
         replacementAttributes = creature->itemAttributes();

@@ -2013,6 +2013,10 @@ void Creature::clearHostileActionsAgainst(const Object &object) {
             return false; }, [this](const OrdinaryActionQueue::Node &node) { discardGroupNode(node); });
 }
 
+bool Creature::keepsItemsInOrder() const {
+    return _game.party().actualPlayer().get() == this;
+}
+
 // A Force push holds only the creature's moves, through its AI state.
 bool Creature::canExecuteActions() const {
     return !_dead && !isTemporarilyDead() && !hasEffect(EffectType::Stunned) &&
@@ -5748,20 +5752,20 @@ std::shared_ptr<Item> Creature::takeEquippedItem(
     return result;
 }
 
-bool Creature::moveEquippedItemTo(
+std::shared_ptr<Item> Creature::moveEquippedItemTo(
     const std::shared_ptr<Item> &item,
-    Object &receiver) {
+    Object &receiver,
+    ItemStacking stacking) {
     if (!item ||
         (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
         (isPresentationOnly() != receiver.isPresentationOnly())) {
-        return false;
+        return nullptr;
     }
     auto taken = takeEquippedItem(item);
     if (!taken) {
-        return false;
+        return nullptr;
     }
-    receiver.addItem(taken);
-    return true;
+    return receiver.addItem(taken, stacking);
 }
 
 void Creature::updateEquipmentPresentation() {
@@ -11668,6 +11672,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
     if (!replaceItems && !replaceEquipment) {
         return;
     }
+    const ItemLoadScope loading(*this);
     bool bodyRefused = false;
 
     if (!identityContext.isSerializedState()) {
@@ -11711,7 +11716,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
         _game.replaceRuntimeObjectGraph(
             obsolete,
             [&]() {
-                // Refused equipment enters the inventory before the carried items.
+                // Refused equipment enters the inventory before the carried items
+                // and joins a stack it matches.
                 if (replaceEquipment) {
                     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
                         auto item = loadEntry(*itemGff, "EquippedRes");
@@ -11721,14 +11727,14 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, false);
                         if (!slot || replacementEquipment.count(*slot) != 0) {
                             item->setOwner(*this);
-                            appendOwnedItemCandidate(
-                                replacementItems, item, true);
+                            _game.recordCarriedOnLoad(appendOwnedItemCandidate(
+                                replacementItems, item));
                             continue;
                         }
                         // Worn first, the item stays possessed by its wearer.
                         item->setEquipped(true);
                         item->setOwner(*this);
-                        _game.recordEquippedOnLoad(*slot, item);
+                        _game.recordEquippedOnLoad(*slot, item, true);
                         replacementEquipment.emplace(*slot, std::move(item));
                     }
                 }
@@ -11740,7 +11746,13 @@ void Creature::deserializeOwnedItemsAndEquipment(
                             continue;
                         }
                         item->setOwner(*this);
-                        replacementItems.push_back(std::move(item));
+                        // The creature acquires what it carries, but not what
+                        // it counts, which goes as it is counted.
+                        if (!_game.party().isCountedItem(*item)) {
+                            _game.recordCarriedOnLoad(item);
+                        }
+                        // Carried items keep their own stacks.
+                        placeItem(replacementItems, std::move(item));
                     }
                 }
                 for (const auto &item : replacementItems) {
@@ -11802,7 +11814,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     if (!slot) {
                         item->restoreOwner(*this);
                         appendOwnedItemCandidate(
-                            replacementItems, item, false);
+                            replacementItems, item);
                         continue;
                     }
                     if (replacementEquipment.count(*slot) != 0) {
@@ -11827,7 +11839,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         identityContext,
                         {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
                     item->restoreOwner(*this);
-                    replacementItems.push_back(std::move(item));
+                    // Carried items keep their own stacks.
+                    placeItem(replacementItems, std::move(item));
                 }
             }
             for (const auto &item : replacementItems) {

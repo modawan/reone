@@ -296,6 +296,10 @@ std::shared_ptr<Action> EquipItemAction::restore(const SavedActionRecord &record
 }
 
 void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    takeOff(actor, ItemStacking::Join);
+}
+
+void UnequipItemAction::takeOff(Object &actor, ItemStacking stacking) {
     std::shared_ptr<Item> container;
     if (!_containerOverwritten && _containerId != kSavedRuntimeInvalidObjectId) {
         container = std::dynamic_pointer_cast<Item>(_game.getObjectById(_containerId));
@@ -305,7 +309,7 @@ void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, flo
         !_containerOverwritten && (_containerId == kSavedRuntimeInvalidObjectId || container);
     if (auto *creature = dyn_cast<Creature>(&actor);
         creature && containerNamed && canRunEquipmentCommand(_game, *creature))
-        runUnequip(_game, *creature, _item, container, _instant != 0);
+        runUnequip(_game, *creature, _item, container, _instant != 0, stacking);
     complete();
 }
 
@@ -380,10 +384,11 @@ void swapWeaponSets(Game &game, Creature &creature) {
     game.combat().discardEquipment(creature);
 
     // Off-hands leave before their main hands so neither is promoted, then each
-    // set moves into the other pair.
+    // set moves into the other pair. Each keeps its own stack, so the very
+    // item put away goes back on.
     for (const auto &item : {alternateLeft, alternateRight, left, right})
         if (item) {
-            runUnequip(game, creature, item, nullptr, false);
+            runUnequip(game, creature, item, nullptr, false, ItemStacking::Own);
         }
     if (alternateRight) {
         runEquip(game, creature, alternateRight, InventorySlots::rightWeapon, false);

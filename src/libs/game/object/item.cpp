@@ -402,6 +402,8 @@ void Item::loadBaseItem() {
         static_cast<int>(std::numeric_limits<uint16_t>::max())));
 
     _poweredItem = baseItems->getInt(_baseItem, "powereditem") != 0;
+    // The whole cell counts, and a blank one is 0: it takes no other column's
+    // value.
     _genderSpecific = baseItems->getInt(_baseItem, "genderspecific") != 0;
     if (_poweredItem) {
         auto loadSound = [this, &baseItems](const char *column) {

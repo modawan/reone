@@ -309,7 +309,12 @@ public:
      * counted.
      */
     std::shared_ptr<Item> addItem(const std::string &resRef, int stackSize = 1, std::optional<bool> dropable = true);
-    std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item);
+    /**
+     * The object takes a live item, as addItem above does. Keeping its own
+     * stack, the item joins none.
+     */
+    std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item, ItemStacking stacking = ItemStacking::Join);
+    /** One item of a stack leaves the object; the last one takes the stack, which is no longer new. */
     bool removeItem(const std::shared_ptr<Item> &item, bool &last);
     bool removeItemStack(const std::shared_ptr<Item> &item);
     /**
@@ -728,13 +733,26 @@ protected:
      */
     void recordReceivedAttack(uint32_t attackerId, int weaponAttackType);
 
-    // Add one privately constructed Item to a candidate owned graph using the
-    // same stacking rules as runtime inventory insertion. Authoritative saved
-    // identities can be preserved as distinct records during restoration.
+    /**
+     * Adds one privately constructed Item to a candidate owned graph with the
+     * stacking rules of runtime inventory insertion; a loaded item joins an
+     * identical stack whatever saved identity either carries. An item taken
+     * in whole by a stack is discarded, so its saved identity names nothing.
+     *
+     * @return the stack now holding the item
+     */
     std::shared_ptr<Item> appendOwnedItemCandidate(
         std::vector<std::shared_ptr<Item>> &items,
-        const std::shared_ptr<Item> &item,
-        bool preserveSerializedIdentities);
+        const std::shared_ptr<Item> &item);
+    /**
+     * Where a new item goes among the object's items: by base item, then by
+     * name among items of one base item, when the object keeps its items in
+     * order; otherwise first, or last while the items are read from a record,
+     * which keeps the record's order.
+     */
+    size_t itemInsertPosition(const std::vector<std::shared_ptr<Item>> &items, const Item &item) const;
+    /** Puts \p item among \p items where itemInsertPosition places it. */
+    void placeItem(std::vector<std::shared_ptr<Item>> &items, std::shared_ptr<Item> item) const;
     /** Atomically replace canonical effect state and run exact lifecycle hooks. */
     void replaceEffectState(std::deque<EffectInstance> replacement) noexcept;
 
@@ -763,6 +781,19 @@ protected:
     glm::vec3 _position {0.0f};
     glm::quat _orientation {1.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::shared_ptr<Item>> _items; // FIXME: deserialize
+    /** Whether the object is reading its items from a record, whose order they keep. */
+    bool _loadingItems {false};
+
+    /** Marks the object as reading its items for as long as it lives. */
+    class ItemLoadScope {
+    public:
+        explicit ItemLoadScope(Object &object) :
+            _object(object) { _object._loadingItems = true; }
+        ~ItemLoadScope() { _object._loadingItems = false; }
+
+    private:
+        Object &_object;
+    };
     // END Serializable
 
     /**
@@ -917,6 +948,8 @@ protected:
      * running or failing by its own rule; by default, while it can act.
      */
     virtual bool takesUpActions() const { return canExecuteActions(); }
+    /** Whether the object's inventory keeps itself in order. */
+    virtual bool keepsItemsInOrder() const { return false; }
 
     /**
      * Replaces the object's items with those of a record's ItemList.

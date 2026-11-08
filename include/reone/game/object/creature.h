@@ -1544,10 +1544,17 @@ public:
      * Without the presentation update the model keeps showing the item.
      */
     std::shared_ptr<Item> takeEquippedItem(const std::shared_ptr<Item> &item, bool updatePresentation = true);
-    /** Unequip an Item directly into an explicit owning inventory. */
-    bool moveEquippedItemTo(
+    /**
+     * Unequip an Item directly into an explicit owning inventory, joining its
+     * stacks or not as Object::addItem does.
+     *
+     * @return the Item as it lies in \p receiver, itself or the stack it
+     *         joined; none when it could not be moved
+     */
+    std::shared_ptr<Item> moveEquippedItemTo(
         const std::shared_ptr<Item> &item,
-        Object &receiver);
+        Object &receiver,
+        ItemStacking stacking = ItemStacking::Join);
 
     std::shared_ptr<Item> getEquippedItem(int slot) const;
     /** The first item worn with tag \p tag, in slot order; KotOR has no second weapon set to search. */
@@ -2450,6 +2457,8 @@ protected:
     /** A party member at zero vitality takes up its actions too, which mostly fail. */
     bool takesUpActions() const override;
     glm::quat presentedOrientation() const override;
+    /** The party's inventory, which the actual player creature holds, keeps itself in order. */
+    bool keepsItemsInOrder() const override;
     /** Runs the conversation script, the fallback one for a creature with none or "default". */
     void runConversationScript() override;
 
@@ -3404,7 +3413,10 @@ private:
         const std::map<int, std::shared_ptr<Item>> &loaded, bool &bodyRefused, bool reportRefusal);
     /**
      * Replaces the carried items and the equipment with those of the record's
-     * lists.
+     * lists. A creature read from a template, or placed by an area outside a
+     * saved game, acquires what it wears and carries: the module is told of
+     * each worn item before it is told it was put on, then of each carried
+     * item but those it counts, with nothing told to the party.
      *
      * @param placedTemplate whether the record is the template of a creature
      *        an area places: each entry then names its list's template and

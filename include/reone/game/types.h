@@ -90,6 +90,12 @@ constexpr glm::vec3 kTSLColorNewGreen = glm::vec3(0.05f, 0.35f, 0.27f);
 /** The frame of TSL's store message boxes. */
 constexpr glm::vec3 kTSLColorDarkGold = glm::vec3(0.31f, 0.25f, 0.09f);
 
+/** Whether an item joins a matching stack where it lands, or keeps a stack of its own. */
+enum class ItemStacking {
+    Join,
+    Own
+};
+
 enum class BackgroundType {
     None,
     Menu,

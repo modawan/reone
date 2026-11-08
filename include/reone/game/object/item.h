@@ -255,6 +255,7 @@ public:
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
+    /** Whether another item of a stack joins this one: a stackable item identical to it. */
     bool isStackCompatibleWith(const Item &other) const;
     /**
      * Whether \p other is the same item: base item, tag, name, plot flag,
