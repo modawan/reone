@@ -378,9 +378,24 @@ private:
 
     void runDamagedScript();
 
+    /**
+     * Reads a record: a save's, a template, or an area's entry with the
+     * template it names read first.
+     *
+     * @param placedTemplate whether a template the record names is that of a placeable an area places
+     */
+    void deserializeRecord(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        bool placedTemplate);
+    /**
+     * @param placedTemplate whether the record is the template of a placeable
+     *        an area places, whose items are their templates alone
+     */
     void deserializeAll(
         const resource::Gff &gff,
-        const SerializedIdentityContext &identityContext);
+        const SerializedIdentityContext &identityContext,
+        bool placedTemplate);
     void loadAppearance();
 
     void updateTransform() override;

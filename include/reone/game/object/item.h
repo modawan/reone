@@ -205,7 +205,17 @@ public:
     static std::optional<std::string> entryTemplate(const resource::Gff &entry);
     /** Whether an entry names a template that does not exist; such an entry makes no item. */
     static bool namesMissingTemplate(const resource::Gff &entry, resource::IGffs &gffs);
+    /**
+     * Takes another item's tag, name and item state. The plot flag and the
+     * stolen mark are not taken: a copy starts as not plot and not stolen,
+     * dropable and pickpocketable.
+     */
     void clone(const Item &from);
+    /**
+     * Takes the plot flag and the stolen, dropable and pickpocketable marks
+     * of the stack this item was split off, which a copy doesn't take.
+     */
+    void keepMarksOf(const Item &stack);
 
     void update(float dt) override;
 
@@ -251,6 +261,8 @@ public:
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }
     bool isDropable() const { return _dropable; }
+    /** Whether the item may be picked from its holder's pocket. */
+    bool isPickpocketable() const { return _pickpocketable; }
     /** Whether the base item is drawn as its wearer's body model. */
     bool isBodyModel() const { return _modelType == kBodyModelType; }
     /** Scripts can mark an item as never equippable. */
@@ -318,7 +330,7 @@ public:
     const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
     /**
-     * The item's value: none when its plot value is exactly 1, else its added
+     * The item's value: none when it is plot, else its added
      * cost, a signed number, scaled by its base item and held within an int,
      * and 1 when that is 0 or 1. KotOR raises a negative cost to 0; TSL keeps
      * it negative.
@@ -466,6 +478,8 @@ public:
     int disguiseAppearance() const { return _disguiseAppearance; }
 
     void setDropable(bool dropable);
+    /** Marks the item as one that may be picked from its holder's pocket, or not. */
+    void setPickpocketable(bool pickpocketable) { _pickpocketable = pickpocketable; }
     void setStackSize(int size);
     void setIdentified(bool value);
     /** Whether a store holds the item without end: a stack that never runs out. */
@@ -476,8 +490,27 @@ public:
     uint32_t owner() const { return _ownerId; }
     /** Whether a creature or a container holds the item. */
     bool isHeld() const { return _ownerId != script::kObjectInvalid; }
-    void setOwner(uint32_t id) { _ownerId = id; }
+    /**
+     * Gives the item to a holder: a creature, a container, or an item holding
+     * it. When the creature at the top, the holder or the creature carrying the
+     * item that holds it, is a player character and was not at the item's top
+     * before, the item becomes dropable and pickpocketable.
+     */
+    void setOwner(const Object &holder);
     void clearOwner() { _ownerId = script::kObjectInvalid; }
+    /**
+     * Announces that the item has passed to a holder: a creature, or an item
+     * holding it. When the holder already held it, the module's acquisition
+     * event names that holder, whatever the flags. Otherwise the event names
+     * the creature at the top: the holder, or the creature carrying the item
+     * that holds it. That creature, when it is the controlled one and did not
+     * hold the item at the top before, is told it gained the item.
+     *
+     * @param previousHolder the item's holder before, invalid when none
+     * @param events whether the module's acquisition event is posted
+     * @param feedback whether the gain is told
+     */
+    void announceAcquisition(uint32_t previousHolder, const Object &holder, bool events, bool feedback);
 
 private:
     friend class ModuleSnapshotBuilder;
@@ -506,7 +539,9 @@ private:
     uint8_t _modelVariation {0};
     uint8_t _bodyVariation {0};
     uint8_t _textureVariation {0};
-    bool _dropable {false};
+    /** A new item is dropable and pickpocketable, a copy included. */
+    bool _dropable {true};
+    bool _pickpocketable {true};
     bool _nonEquippable {false};
     bool _newlyAcquired {false};
     // END Serializable

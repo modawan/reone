@@ -330,6 +330,8 @@ private:
 
     bool _preciseUse {false};
     bool _blocksSight {true};
+    /** Whether the door type shows a model; a door without one stays destroyed whatever state it is asked to take. */
+    bool _visibleModel {true};
     /** Seconds until a door whose lock a mine blew swings open, while it is due. */
     std::optional<float> _mineOpenDelay;
     std::string _soundArmorType;
@@ -403,9 +405,9 @@ private:
     /** A one-shot a script set gives way, once it ends, to the loop the door showed before. */
     void updateStateAnimation();
     void enableStateWalkmeshes();
-    /** Swings this door alone open to the side the opening names. */
+    /** Swings this door alone open to the side the opening names; a door without a visible model stays destroyed. */
     void swingOpen(DoorTransition opening);
-    /** Swings this door alone shut. */
+    /** Swings this door alone shut; a door without a visible model stays destroyed. */
     void swingShut();
     /**
      * The door this one is linked to: for a door linked to a door or a
@@ -437,9 +439,12 @@ private:
 };
 
 /**
- * Whether door can be bashed open. This is the single definition of door bash
- * eligibility, shared by the player context action and by the DOOR_ACTION_BASH
- * script routines. Standing toward the door plays no part.
+ * Whether the player may bash the door open: a locked, selectable door that
+ * is neither dead, blast-proof nor plot. Standing toward the door plays no
+ * part.
+ *
+ * @param door the door to bash
+ * @return whether the door can be bashed
  */
 bool canBashDoor(const Door &door);
 

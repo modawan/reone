@@ -113,23 +113,32 @@ void Placeable::loadFromBlueprint(const std::string &resRef) {
     if (!utp) {
         return;
     }
-    deserialize(*utp, SerializedIdentityContext::templateResource(resRef));
+    deserializeRecord(*utp, SerializedIdentityContext::templateResource(resRef), false);
 }
 
+// An area's entry or a save's record; a template it names is that of an
+// area-placed placeable.
 void Placeable::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, true);
+}
+
+void Placeable::deserializeRecord(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     std::string templateRes;
     std::shared_ptr<Gff> utp;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
         utp = _services.resource.gffs.get(templateRes, ResType::Utp);
         if (utp) {
-            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes));
+            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes), placedTemplate);
             captureAuthoredRecord(*utp, gff);
         }
     }
-    deserializeAll(gff, identityContext);
+    deserializeAll(gff, identityContext, false);
     // The Static byte is the record's or, when the record has none, set
     // unless its Useable byte is 1. A placeable whose entry carries no object
     // id is never static, and only a Static byte of 1 makes it plot.
@@ -156,7 +165,8 @@ void Placeable::deserialize(
 
 void Placeable::deserializeAll(
     const resource::Gff &gff,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
@@ -165,9 +175,7 @@ void Placeable::deserializeAll(
         _name = _locName.str();
     }
     gff.readEnum(_faction, "Faction");
-    bool plot = plotFlag();
-    gff.readBool(plot, "Plot");
-    _plot = plot;
+    deserializePlot(gff, true);
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), true);
     _trap.deserialize(gff);
@@ -238,7 +246,9 @@ void Placeable::deserializeAll(
         gff,
         identityContext,
         SaveRecordOriginKind::PlaceableItem,
-        true);
+        true,
+        {},
+        placedTemplate);
 
     // FIXME: deserialize EffectList, ActionList
 }

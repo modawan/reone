@@ -104,6 +104,7 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     if (_count > 0 && _count < _item->stackSize()) {
         split = _game.newItemClone(*_item);
         split->setStackSize(_count);
+        split->keepMarksOf(*_item);
         _item->setStackSize(_item->stackSize() - _count);
     }
     const auto deliver = [&](Object &receiver) -> ItemTransfer {

@@ -775,7 +775,21 @@ void ModuleSnapshotBuilder::writeObjectState(
     }
     put(record, Gff::Field::newByte("Commandable", object._commandable));
     put(record, Gff::Field::newByte("Min1HP", object._minOneHP));
-    put(record, Gff::Field::newByte("Plot", object._plot));
+    // Only creatures, items, doors and placeables record their plot flag; no
+    // other record carries one. An input-only Invulnerable value is removed
+    // from the resource shadow so it cannot override Plot on the next load.
+    switch (object._type) {
+    case ObjectType::Creature:
+    case ObjectType::Item:
+    case ObjectType::Door:
+    case ObjectType::Placeable:
+        put(record, Gff::Field::newByte("Plot", object._plot));
+        break;
+    default:
+        removeSaveField(record, "Plot");
+        break;
+    }
+    removeSaveField(record, "Invulnerable");
     put(record, Gff::Field::newStruct("SWVarTable", writeLocals(object)));
 
     std::vector<std::shared_ptr<Gff>> effects;
@@ -1120,6 +1134,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
         removeSaveField(*result, "TextureVar");
     }
     put(*result, Gff::Field::newByte("Dropable", item._dropable));
+    put(*result, Gff::Field::newByte("Pickpocketable", item._pickpocketable));
     put(*result, Gff::Field::newByte("NonEquippable", item._nonEquippable));
     put(*result, Gff::Field::newByte("NewItem", item._newlyAcquired));
     std::vector<std::shared_ptr<Gff>> properties;
@@ -1482,9 +1497,6 @@ static void putLockDifficulty(Gff &record, const Lock &lock) {
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     const Door &door, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(door, ResType::Utd, 8);
-    // Write current Plot state. Remove an input-only Invulnerable value from the
-    // resource shadow so it cannot override Plot on the next load.
-    removeSaveField(*result, "Invulnerable");
     writeObjectState(*result, door, ids);
     put(*result, Gff::Field::newByte("Static", door._static));
     putTransform(*result, door, true);

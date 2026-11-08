@@ -71,7 +71,7 @@ static constexpr int kOnHitDurationParameterTable = 1;
 static constexpr int kNewItemCharges = 50;
 
 int Item::cost(float baseCostMultiplier) const {
-    if (plotValue() == 1) {
+    if (plotFlag()) {
         return 0;
     }
     const float scaled = static_cast<float>(static_cast<int32_t>(_addCost)) * baseCostMultiplier;
@@ -149,7 +149,6 @@ void Item::loadBlank() {
     _baseItem = kBlankBaseItem;
     _modelVariation = 1;
     _charges = kNewItemCharges;
-    _dropable = true;
     loadBaseItem();
     loadIcon();
 }
@@ -168,8 +167,8 @@ bool Item::namesMissingTemplate(const resource::Gff &entry, resource::IGffs &gff
 }
 
 // A saved item is its own record. Any other entry that names a template is
-// that template with the entry's Dropable flag, when it has one; an entry
-// naming none is a whole item record.
+// that template with the entry's Dropable and Pickpocketable flags, when it
+// has them; an entry naming none is a whole item record.
 void Item::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -178,10 +177,8 @@ void Item::deserialize(
             if (auto uti = _services.resource.gffs.get(*resRef, ResType::Uti)) {
                 deserializeAll(*uti, SerializedIdentityContext::templateResource(*resRef), true);
             }
-            uint8_t dropable = 0;
-            if (gff.readByte(dropable, "Dropable")) {
-                _dropable = (dropable & 1) != 0;
-            }
+            gff.readBool(_dropable, "Dropable");
+            gff.readBool(_pickpocketable, "Pickpocketable");
             return;
         }
     }
@@ -258,7 +255,11 @@ void Item::deserializeAll(
             _modelVariation = 1;
         }
     }
+    // A record without either flag has it unset.
+    _dropable = false;
     gff.readBool(_dropable, "Dropable");
+    _pickpocketable = false;
+    gff.readBool(_pickpocketable, "Pickpocketable");
     gff.readBool(_nonEquippable, "NonEquippable");
     gff.readBool(_newlyAcquired, "NewItem");
 
@@ -462,7 +463,6 @@ void Item::clone(const Item &from) {
     // Object
     _tag = from._tag;
     _name = from._name;
-    _plot = from._plot;
     // END Object
 
     // Serializable
@@ -485,7 +485,9 @@ void Item::clone(const Item &from) {
     _modelVariation = from._modelVariation;
     _bodyVariation = from._bodyVariation;
     _textureVariation = from._textureVariation;
-    _dropable = from._dropable;
+    // A copy starts dropable and pickpocketable, whatever the original.
+    _dropable = true;
+    _pickpocketable = true;
     _nonEquippable = from._nonEquippable;
     _newlyAcquired = from._newlyAcquired;
     // END Serializable
@@ -884,6 +886,61 @@ void Item::setIdentified(bool value) {
 
 void Item::setEquipped(bool equipped) {
     _equipped = equipped;
+}
+
+static constexpr int kItemAcquiredEvent = static_cast<int>(SavedSignalEventType::ItemAcquired);
+static constexpr int kItemGainedStrRef = 1449;
+
+// The creature at the top of a holder: the holder itself, or the creature
+// carrying the item that is the holder; none for anything else.
+static std::shared_ptr<Creature> topCreatureOf(const Game &game, uint32_t holder) {
+    if (const auto container = game.getObjectById<Item>(holder)) {
+        return game.getObjectById<Creature>(container->owner());
+    }
+    return game.getObjectById<Creature>(holder);
+}
+
+void Item::setOwner(const Object &holder) {
+    const auto previousTop = topCreatureOf(_game, _ownerId);
+    _ownerId = holder.id();
+    const Creature *top = dyn_cast<const Creature>(&holder);
+    std::shared_ptr<Creature> carrier;
+    if (const auto *container = dyn_cast<const Item>(&holder)) {
+        carrier = _game.getObjectById<Creature>(container->owner());
+        top = carrier.get();
+    }
+    // An item coming to a player character becomes dropable and pickpocketable.
+    if (top && top->isPC() && top != previousTop.get()) {
+        _dropable = true;
+        _pickpocketable = true;
+    }
+}
+
+void Item::announceAcquisition(uint32_t previousHolder, const Object &holder, bool events, bool feedback) {
+    auto &module = *_game.module();
+    const auto self = _game.getObjectById(_id);
+    if (previousHolder == holder.id()) {
+        _game.queueScriptEvent(module, *this, Event(kItemAcquiredEvent, {}, {}, {}, {self, _game.getObjectById(holder.id())}));
+        return;
+    }
+    const auto top = topCreatureOf(_game, holder.id());
+    if (!top) {
+        return;
+    }
+    const bool topChanged = top != topCreatureOf(_game, previousHolder);
+    if (feedback && topChanged && top == _game.party().getLeader()) {
+        _game.addFeedbackMessage(kItemGainedStrRef, {{0, localizedName()}});
+    }
+    if (events) {
+        _game.queueScriptEvent(module, *this, Event(kItemAcquiredEvent, {}, {}, {}, {self, top}));
+    }
+}
+
+void Item::keepMarksOf(const Item &stack) {
+    _plot = stack._plot;
+    _stolen = stack._stolen;
+    _dropable = stack._dropable;
+    _pickpocketable = stack._pickpocketable;
 }
 
 // Armour takes its row too: the game's armour material class is never set.

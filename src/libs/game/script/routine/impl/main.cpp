@@ -3455,7 +3455,7 @@ static Variable GetModuleItemAcquired(const std::vector<Variable> &args, const R
 
 static Variable GetModuleItemAcquiredFrom(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofObject(ctx.game.module()->itemEvents().acquiredFrom);
+    return Variable::ofObject(ctx.game.module()->itemEvents().acquiredBy);
 }
 
 static Variable SetCustomToken(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5178,7 +5178,7 @@ static Variable SetPlotFlag(const std::vector<Variable> &args, const RoutineCont
     // Transform
 
     // Execute
-    oTarget->setPlotFlag(nPlotFlag);
+    oTarget->setPlotFlag(nPlotFlag != 0);
     return Variable::ofNull();
 }
 

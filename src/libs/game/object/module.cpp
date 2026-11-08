@@ -1512,7 +1512,7 @@ void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectRe
         break;
     case SavedSignalEventType::ItemAcquired:
         _itemEvents.acquired = objectId(0);
-        _itemEvents.acquiredFrom = objectId(1);
+        _itemEvents.acquiredBy = objectId(1);
         script = _info.onAcquireItem;
         break;
     case SavedSignalEventType::ItemEquipped:

@@ -3085,7 +3085,8 @@ TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto gameplayItem = game.newItem();
-    gameplayItem->setOwner(77);
+    auto holder = game.newItem();
+    gameplayItem->setOwner(*holder);
     const size_t registrySize = TestGameModule::objectRegistrySize(game);
     for (int i = 0; i < 5; ++i) {
         auto preview = game.newPresentationCreature("preview");
@@ -3099,7 +3100,7 @@ TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
         EXPECT_FALSE(game.getObjectById(previewItem->id()));
     }
     EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
-    EXPECT_EQ(77u, gameplayItem->owner());
+    EXPECT_EQ(holder->id(), gameplayItem->owner());
 }
 
 TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_idempotently) {

@@ -5635,7 +5635,7 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
 
     _equipment[slot] = item;
     item->setEquipped(true);
-    item->setOwner(_id);
+    item->setOwner(*this);
     replaceEffectState(std::move(replacementEffects));
     bringOutHandForConversation(slot);
 
@@ -5705,7 +5705,7 @@ bool Creature::replaceEquipment(
     previous->clearOwner();
     _equipment[slot] = item;
     item->setEquipped(true);
-    item->setOwner(_id);
+    item->setOwner(*this);
     displacedReceiver.addItem(previous);
     replaceEffectState(std::move(replacementEffects));
     bringOutHandForConversation(slot);
@@ -6990,9 +6990,9 @@ void Creature::recordQueuedAttack(Object &target) {
     if (!_combatState.attemptedAttackTarget.resolve()) {
         setAttemptedAttackTarget(target.id());
     }
-    // A plot door or placeable told it is attacked fails to open for the
-    // attacker.
-    if ((isa<Door>(&target) || isa<Placeable>(&target)) && target.plotFlag()) {
+    // A plot door, or in TSL a plot placeable, fails to open for the attacker
+    // when told it is attacked.
+    if ((isa<Door>(&target) || (_game.isTSL() && isa<Placeable>(&target))) && target.plotFlag()) {
         signalFailToOpen(target, *this);
     }
 }
@@ -11699,9 +11699,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     return nullptr;
                 }
                 auto item = _game.newItemFromBlueprint(resRef);
-                uint8_t dropable = 0;
-                entry.readByte(dropable, "Dropable");
-                item->setDropable((dropable & 1) != 0);
+                bool dropable = false;
+                entry.readBool(dropable, "Dropable");
+                item->setDropable(dropable);
                 return item;
             }
             if (Item::namesMissingTemplate(entry, _services.resource.gffs)) {
@@ -11721,12 +11721,12 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         }
                         const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, false);
                         if (!slot || replacementEquipment.count(*slot) != 0) {
-                            item->setOwner(_id);
+                            item->setOwner(*this);
                             appendOwnedItemCandidate(
                                 replacementItems, item, true);
                             continue;
                         }
-                        item->setOwner(_id);
+                        item->setOwner(*this);
                         item->setEquipped(true);
                         _game.recordEquippedOnLoad(*slot, item);
                         replacementEquipment.emplace(*slot, std::move(item));
@@ -11739,7 +11739,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         if (!item) {
                             continue;
                         }
-                        item->setOwner(_id);
+                        item->setOwner(*this);
                         replacementItems.push_back(std::move(item));
                     }
                 }
@@ -11800,7 +11800,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     // A saved player character is told why it may no longer wear an item.
                     const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, _isPC);
                     if (!slot) {
-                        item->setOwner(_id);
+                        item->setOwner(*this);
                         appendOwnedItemCandidate(
                             replacementItems, item, false);
                         continue;
@@ -11810,7 +11810,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                             "Multiple saved items occupy equipment slot " +
                             std::to_string(*slot));
                     }
-                    item->setOwner(_id);
+                    item->setOwner(*this);
                     item->setEquipped(true);
                     _game.recordEquippedOnLoad(*slot, item);
                     replacementEquipment.emplace(*slot, std::move(item));
@@ -11825,7 +11825,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         *itemGff,
                         identityContext,
                         {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
-                    item->setOwner(_id);
+                    item->setOwner(*this);
                     replacementItems.push_back(std::move(item));
                 }
             }

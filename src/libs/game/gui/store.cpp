@@ -517,6 +517,7 @@ void StoreGUI::sell(const std::shared_ptr<Item> &item) {
     if (item->stackSize() > 1) {
         sold = _game.newItemClone(*item);
         sold->setStackSize(1);
+        sold->keepMarksOf(*item);
         item->setStackSize(item->stackSize() - 1);
     } else {
         inventory->removeItemStack(item);

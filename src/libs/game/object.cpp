@@ -48,6 +48,7 @@
 #include "reone/resource/di/services.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/resource/strings.h"
 #include "reone/system/exception/validation.h"
@@ -178,10 +179,8 @@ void Object::deserialize(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     gff.readBool(_minOneHP, "Min1HP");
-    auto plot = static_cast<uint8_t>(_plot);
-    if (gff.readByte(plot, "Plot")) {
-        _plot = plot;
-    }
+    // A creature reads Invulnerable before Plot; an item reads Plot alone.
+    deserializePlot(gff, _type == ObjectType::Creature);
     gff.readBool(_commandable, "Commandable");
     gff.readBool(_interruptable, "Interruptable");
     const bool hasBaseHitPoints = gff.readShort(_hitPoints, "HitPoints");
@@ -200,6 +199,14 @@ void Object::deserialize(
             gff, identityContext, SaveRecordOriginKind::ContainedItem);
     }
     deserializeRuntimeState(gff, identityContext);
+}
+
+// Any value but 0 makes the object plot.
+void Object::deserializePlot(const resource::Gff &gff, bool readInvulnerable) {
+    bool plot = false;
+    if ((readInvulnerable && gff.readBool(plot, "Invulnerable")) || gff.readBool(plot, "Plot")) {
+        _plot = plot;
+    }
 }
 
 void Object::deserializePlacement(const resource::Gff &gff) {
@@ -260,7 +267,8 @@ void Object::deserializeOwnedItems(
     const SerializedIdentityContext &identityContext,
     SaveRecordOriginKind originKind,
     bool forceDropable,
-    std::string originOwner) {
+    std::string originOwner,
+    bool placedTemplate) {
     if (!identityContext.isSerializedState()) {
         if (!gff.has("ItemList")) return;
         std::vector<std::shared_ptr<Object>> obsolete(
@@ -272,13 +280,26 @@ void Object::deserializeOwnedItems(
             obsolete,
             [&]() {
                 for (const auto &itemGff : gff.getList("ItemList")) {
-                    // An entry naming a missing template makes no item.
-                    if (Item::namesMissingTemplate(*itemGff, _services.resource.gffs)) {
-                        continue;
+                    std::shared_ptr<Item> item;
+                    if (placedTemplate) {
+                        // The template of an object an area places makes each
+                        // entry its InventoryRes template and nothing more of
+                        // the entry; an entry without one makes no item.
+                        std::string resRef;
+                        if (!itemGff->readResRef(resRef, "InventoryRes") ||
+                            !_services.resource.gffs.get(resRef, resource::ResType::Uti)) {
+                            continue;
+                        }
+                        item = _game.newItemFromBlueprint(resRef);
+                    } else {
+                        // An entry naming a missing template makes no item.
+                        if (Item::namesMissingTemplate(*itemGff, _services.resource.gffs)) {
+                            continue;
+                        }
+                        item = _game.newOwnedItem(*itemGff, identityContext);
                     }
-                    auto item = _game.newOwnedItem(*itemGff, identityContext);
                     if (forceDropable) item->setDropable(true);
-                    item->setOwner(_id);
+                    item->setOwner(*this);
                     appendOwnedItemCandidate(
                         replacement, item, true);
                 }
@@ -315,7 +336,7 @@ void Object::deserializeOwnedItems(
                 if (forceDropable) {
                     item->setDropable(true);
                 }
-                item->setOwner(_id);
+                item->setOwner(*this);
                 appendOwnedItemCandidate(
                     replacement, item, true);
             }
@@ -944,6 +965,7 @@ void Object::setLastHostileActor(uint32_t actor, bool force) {
         }
         return;
     }
+    // A plot object keeps no record.
     if (_plot) {
         _lastHostileActor.reset();
         return;
@@ -1444,7 +1466,7 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
                 _game.discardStagedRuntimeObjects({candidate});
                 return;
             }
-            candidate->setOwner(_id);
+            candidate->setOwner(*this);
             result = appendOwnedItemCandidate(
                 replacement, candidate, false);
             if (creature && result.get() == candidate.get()) {
@@ -1512,7 +1534,7 @@ std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
         replacementAttributes.addItem(item, _services.game);
     }
     _items = std::move(replacement);
-    item->setOwner(_id);
+    item->setOwner(*this);
     if (creature) {
         creature->itemAttributes() = std::move(replacementAttributes);
     }

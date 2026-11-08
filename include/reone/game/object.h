@@ -218,10 +218,8 @@ public:
     const std::string &blueprintResRef() const { return _blueprintResRef; }
     const std::string &name() const { return _name; }
     const std::string &conversation() const { return _conversation; }
-    /** Whether the object is plot: its plot value is not 0. */
-    bool plotFlag() const { return _plot != 0; }
-    /** The plot value as it was read or set. */
-    int plotValue() const { return _plot; }
+    /** Whether the object is plot. */
+    bool plotFlag() const { return _plot; }
     /**
      * Damage immunity is kept per damage type. For several types in \p flags,
      * the types are taken in bit order: a running value of 0 takes the next
@@ -274,8 +272,7 @@ public:
     void setTag(std::string tag) { _tag = std::move(tag); }
     void setConversation(std::string conversation) { _conversation = std::move(conversation); }
     void setName(std::string name) { _name = std::move(name); }
-    /** Sets the plot value; any value but 0 makes the object plot. */
-    void setPlotFlag(int plot) { _plot = plot; }
+    void setPlotFlag(bool plot) { _plot = plot; }
     void setCommandable(bool commandable) { _commandable = commandable; }
     virtual void setIsInConversation(bool isInConversation) { _isInConversation = isInConversation; }
 
@@ -740,8 +737,8 @@ protected:
     std::string _onHeartbeat;
     std::string _onUserDefined;
     bool _minOneHP {false};
-    /** The plot value as read or set; the object is plot when it is not 0. */
-    int _plot {0};
+    /** Whether the object is plot: a record's value or a script's argument sets it when not 0. */
+    bool _plot {false};
     bool _commandable {true};
     bool _interruptable {false};
     int _hitPoints {0};
@@ -905,12 +902,29 @@ protected:
      */
     virtual bool takesUpActions() const { return canExecuteActions(); }
 
+    /**
+     * Replaces the object's items with those of a record's ItemList.
+     *
+     * @param forceDropable whether each item read is made dropable
+     * @param originOwner the owner a saved item's record is kept under; the object's id when empty
+     * @param placedTemplate whether the record is the template of an object an
+     *        area places, whose entries are each their InventoryRes template alone
+     */
     void deserializeOwnedItems(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         SaveRecordOriginKind originKind,
         bool forceDropable = false,
-        std::string originOwner = {});
+        std::string originOwner = {},
+        bool placedTemplate = false);
+    /**
+     * Reads the plot flag of a record. An Invulnerable value takes precedence
+     * over Plot, an explicit zero included; a record holding neither keeps the
+     * current value.
+     *
+     * @param readInvulnerable whether the record's Invulnerable value is read
+     */
+    void deserializePlot(const resource::Gff &gff, bool readInvulnerable);
 
     // Actions
 

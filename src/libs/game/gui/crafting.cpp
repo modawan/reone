@@ -683,10 +683,16 @@ void CraftingPanel::finishCreate(int row) {
     _services.game.guiSounds.play(_services.game.guiSounds.getInventoryAdd());
     setShownCount(_shownCount - itemValue(*creatable.item));
     _game.party().setCreatureCount(*character, _count, _shownCount);
-    // One entry makes one item, however many identical rows the entry stands for.
+    // One entry makes one item, however many identical rows the entry stands
+    // for. The character acquires the item as it is stored and again as it is
+    // taken. An item joining a stack the character holds is that stack
+    // acquired again; a counted item is not acquired.
     auto made = _game.newItemClone(*creatable.item);
     made->setStackSize(creatable.madeStack);
-    _game.party().sharedInventoryReceiver(character)->addItem(std::move(made));
+    if (const auto held = _game.party().sharedInventoryReceiver(character)->addItem(made)) {
+        held->announceAcquisition(held == made ? script::kObjectInvalid : character->id(), *character, true, true);
+        held->announceAcquisition(character->id(), *character, true, true);
+    }
     showList(row);
 }
 
@@ -1452,7 +1458,10 @@ void ItemUpgradePanel::open(std::shared_ptr<Item> item,
     _type = type;
     _wearer = wearer;
     _onClose = std::move(onClose);
+    // Back restores the item as it was, its plot flag and its stolen,
+    // dropable and pickpocketable marks included, which a copy doesn't take.
     _backup = _game.newItemClone(*_item);
+    _backup->keepMarksOf(*_item);
     _taken.clear();
     _returned.clear();
     _slots.clear();
@@ -2664,10 +2673,14 @@ void UpgradeSelectionGUI::beginUpgrade(const UpgradableItem &entry, bool direct)
             if (const auto holder = _game.getObjectById(item->owner())) {
                 _origin.holder = holder;
             }
+            // The one split off keeps the stack's plot flag and its stolen,
+            // dropable and pickpocketable marks, which a copy doesn't take.
             if (item->stackSize() > 1) {
                 item->setStackSize(item->stackSize() - 1);
-                item = _game.newItemClone(*item);
-                item->setStackSize(1);
+                auto split = _game.newItemClone(*item);
+                split->setStackSize(1);
+                split->keepMarksOf(*item);
+                item = std::move(split);
             }
         }
     }
