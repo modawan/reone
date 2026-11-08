@@ -661,10 +661,10 @@ void Party::setSoloMode(bool value) {
     _solo = value;
 }
 
-void Party::endStealth() {
+void Party::endStealth(bool quiet) {
     for (const auto &member : _members) {
         if (member.creature) {
-            member.creature->setStealthMode(false);
+            member.creature->setStealthMode(false, quiet);
         }
     }
 }
@@ -894,8 +894,6 @@ void Party::awardXP(int amount, XPSource source) {
         _game.submitStatusSummary(StatusSummaryCategory::PlotXP, amount);
         break;
     case XPSource::Stealth:
-        _game.submitStatusSummary(StatusSummaryCategory::StealthXP, amount);
-        break;
     case XPSource::Combat:
     case XPSource::Skill:
     case XPSource::Script:

@@ -572,6 +572,7 @@ void Conversation::loadEntry(int index, bool start) {
     if (start) {
         _game.areaMusic().playDialogAmbientTrack(_dialog->ambientTrack);
     }
+    _game.endConversationStealth(_owner.resolve(), _partner.resolve());
     _currentEntry = &_dialog->getEntry(index);
     // An entry keeps the camera angle it is given while the conversation lasts.
     const int drawnAngle = drawCameraAngle();
@@ -1079,6 +1080,7 @@ static std::string getParsedReplyText(const Dialog::EntryReply &reply, const Gam
 void Conversation::loadReplies() {
     auto generation = _generation;
     auto dialog = _dialog;
+    _game.endConversationStealth(_owner.resolve(), _partner.resolve());
     _replies.clear();
     std::vector<const Dialog::EntryReply *> inactive;
     std::vector<int> listedIndices;

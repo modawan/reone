@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <glm/vec3.hpp>
 
 namespace reone {
@@ -25,26 +27,69 @@ namespace game {
 
 class Action;
 class Creature;
-class Door;
 class Game;
+class Item;
+class Lock;
 class Object;
-class Party;
-class Placeable;
+struct LockWorkState;
+
+/** How a skill use went, as it is reported. */
+enum class SkillResult {
+    /** A use that failed. */
+    Failure,
+    /** A use that succeeded. */
+    Success,
+    /** Mine work whose roll fell more than 10 short of the DC. */
+    CriticalFailure,
+    /** A take of 20 that fell short. */
+    Take20Failure,
+    /** Work on the creature's own mine. */
+    OwnMine,
+    /** A lock that wants its key, or one a take of 20 cannot reach. */
+    Hopeless
+};
 
 /**
- * If the door is locked and requires a named key, look for that key in the
- * actor's inventory and then the party player's, unlock the door if found, and
- * consume one key when AutoRemoveKey is set. Leaves the door locked otherwise.
+ * A creature reports a skill use to the player it is controlled by: the roll
+ * in the log, unless hopeless, and over the target, for some actions and
+ * results, the action's name and how it went, for five seconds. The log shows
+ * the roll as 0-31, the bonus as -128-127 and the DC as 0-127, a value past
+ * its range wrapping around it.
+ *
+ * @param actionStrRef the name of the action, or 0 for none
+ * @param skillNameStrRef the name of the skill used
  */
-void tryUnlockDoorWithKey(Game &game, Door &door, Object &actor, Party &party);
+void reportSkillUse(Game &game, Creature &actor, const std::shared_ptr<Object> &target,
+                    int actionStrRef, int skillNameStrRef, int roll, int bonus, int dc, SkillResult result);
+
+/**
+ * One of an item the creature used is used up, when its item repository
+ * still holds it; the last one is destroyed. Without an item nothing is used
+ * up.
+ */
+void useUpCarriedItem(Game &game, Creature &actor, const std::shared_ptr<Item> &item);
+
+/**
+ * A key the lock of \p target names, carried by the creature (in the party's
+ * items for a party member) or equipped, locks or unlocks it; an auto-remove
+ * key is used up, and the player's creature is told the key was used. The key
+ * name must match the key's tag exactly, except that a TSL door's key is
+ * found among the carried items by the name in lower case.
+ *
+ * @return whether a key was used
+ */
+bool useCarriedKey(Creature &actor, Object &target, Lock &lock, bool wantLocked);
 
 /**
  * A creature works at a lock from the object's use point: it goes there,
- * turns to the object and works at it for a second and a half, a wait queued
- * before \p action. True once the work is done; \p working records that it
- * has begun. Any other actor works at a lock at once.
+ * turns to the object (for a lock only when it had to walk; an unlock may
+ * then say it begins), and plays the work clip of a door or other lock,
+ * queued before \p action. On every pass a creature out of use range walks
+ * back, and turns to the object again once there.
+ *
+ * @return true once the work is done
  */
-bool workAtLock(Action &action, Object &target, Object &actor, bool &working, float dt);
+bool workAtLock(Action &action, Object &target, Creature &creature, LockWorkState &work, bool unlock, float dt);
 
 /**
  * Clearing the work at a lock gives a creature's pose back to its state once
@@ -59,15 +104,9 @@ void resumePoseAfterLockWork(Object &actor, bool working);
 void signalFailToOpen(Object &target, Object &actor, bool quiet = false);
 
 /**
- * Unlock and open a locked door: with its key the actor opens it; a lock that
- * wants its key refuses anything else.
+ * Lock a door or placeable that is not locked, when the actor can; a
+ * creature trying any other object fails and reports the roll.
  */
-void unlockDoor(Door &door, Object &actor);
-
-/** Unlock a locked placeable; a lock that wants its key refuses the actor. */
-void unlockPlaceable(Placeable &placeable, Object &actor);
-
-/** Lock a door or placeable that is not locked, when the actor can. */
 void lockObject(Object &target, Object &actor);
 
 /**

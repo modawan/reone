@@ -53,7 +53,7 @@ constexpr int kPartyFollowSlots = 3;
 enum class XPSource {
     Plot,
     Combat,
-    Stealth,
+    Stealth, /**< an area's pool; its payer shows the status summary */
     Console,
     Skill, /**< disarming and recovering mines */
     Script /**< a script award naming a creature outside the party, or a class gained */
@@ -314,8 +314,8 @@ public:
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     /** Leaving solo mode ends the party's stealth. */
     void setSoloMode(bool value);
-    /** End stealth for the controlled creature and the other members. */
-    void endStealth();
+    /** End stealth for the controlled creature and the other members; quiet as Creature::setStealthMode. */
+    void endStealth(bool quiet = false);
     /** Members other than the player's own creature. */
     int companionCount() const;
     /** Companions travelling with the party: neither the player character nor a companion standing in for it. */

@@ -23,13 +23,18 @@
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
+#include "reone/game/action/opencontainer.h"
+#include "reone/game/action/opendoor.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/creaturestate.h"
@@ -776,12 +781,9 @@ static Variable SetPlayerRestrictMode(const std::vector<Variable> &args, const R
     // Load
     auto bRestrict = getInt(args, 0);
 
-    // Transform
-    auto restrict = static_cast<bool>(bRestrict);
-
     // Execute
     if (auto area = ctx.game.module()->area()) {
-        area->setPlayerRestrictMode(restrict);
+        area->setPlayerRestrictMode(bRestrict);
     }
     return Variable::ofNull();
 }
@@ -1051,7 +1053,7 @@ static Variable GetPlayerRestrictMode(const std::vector<Variable> &args, const R
     if (!creature || !ctx.game.party().isMember(*creature)) {
         return Variable::ofInt(0);
     }
-    return Variable::ofInt(static_cast<int>(ctx.game.module()->area()->playerRestrictMode()));
+    return Variable::ofInt(ctx.game.module()->area()->playerRestrictMode());
 }
 
 static Variable GetCasterLevel(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3079,6 +3081,9 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
     // wins. With nHideFeedback set, a creature takes the death fade instead.
     oDestroy->setDeleteNoFade(bNoFade != 0);
     oDestroy->setFadeOutTime(static_cast<uint32_t>(static_cast<int>(fDelayUntilFade * 1000.0f)));
+    if (auto mine = dyn_cast<Trigger>(oDestroy.get()); mine && mine->isTrap()) {
+        mine->setMineRemovalFromFade(oDestroy->fadeOutTime());
+    }
     if (auto creature = dyn_cast<Creature>(oDestroy)) {
         // The creature leading hands the lead along the party to the first
         // place naming a creature, dead or alive, and then leaves the party,
@@ -3456,18 +3461,11 @@ static Variable GetHasFeat(const std::vector<Variable> &args, const RoutineConte
     return Variable::ofInt(creature && creature->featRemainingUses(feat) != 0);
 }
 
+// Whether the creature can use the skill; anything else cannot.
 static Variable GetHasSkill(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto nSkill = getInt(args, 0);
-    auto oCreature = getObjectOrCaller(args, 1, ctx);
-
-    // Transform
-    auto skill = static_cast<SkillType>(nSkill);
-    auto creature = checkCreature(oCreature);
-
-    // Execute
-    bool hasSkill = creature->attributes().hasSkill(skill);
-    return Variable::ofInt(static_cast<int>(hasSkill));
+    const int skill = getInt(args, 0);
+    const auto creature = getCreatureOrNull(args, 1, ctx);
+    return Variable::ofInt(creature && creature->canUseSkill(skill));
 }
 
 // A source that is not a creature perceives nothing.
@@ -3784,11 +3782,13 @@ static Variable SetLocked(const std::vector<Variable> &args, const RoutineContex
     auto bLocked = getInt(args, 1);
 
     // Transform
-    auto target = checkDoor(oTarget);
     bool locked = static_cast<bool>(bLocked);
 
     // Execute
-    target->setLocked(locked);
+    // Only a door or placeable takes the flag, and nothing is told of it.
+    if (auto lock = oTarget->findLock()) {
+        lock->get().setLocked(locked);
+    }
     return Variable::ofNull();
 }
 
@@ -3796,19 +3796,10 @@ static Variable GetLocked(const std::vector<Variable> &args, const RoutineContex
     // Load
     auto oTarget = getObject(args, 0, ctx);
 
-    // Transform
-    auto target = checkDoor(oTarget);
-
     // Execute
-    return Variable::ofInt(static_cast<int>(target->isLocked()));
-}
-
-static Variable GetClickingObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    if (const Variable *object = ctx.execution.findArg(ArgKind::ClickingObject)) {
-        return *object;
-    }
-    return Variable::ofObject(kObjectInvalid);
+    // Anything but a door or placeable is never locked.
+    const auto lock = oTarget->findLock();
+    return Variable::ofInt(lock && lock->get().isLocked() ? 1 : 0);
 }
 
 static Variable SetAssociateListenPatterns(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3900,73 +3891,129 @@ static Variable GetBlockingDoor(const std::vector<Variable> &args, const Routine
     return Variable::ofObject(creature ? creature->lastBlockingDoorId() : kObjectInvalid);
 }
 
-static Variable GetIsDoorActionPossible(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oTargetDoor = getObject(args, 0, ctx);
-    auto nDoorAction = getInt(args, 1);
+// The best roll a skill check can take.
+static constexpr int kTake20 = 20;
+// spells.2da row 93, which the knock door action casts and whose uses it asks for.
+static constexpr SpellType kDoorKnockSpellRow = static_cast<SpellType>(93);
 
-    // Transform
-    auto targetDoor = checkDoor(oTargetDoor);
-    auto doorAction = static_cast<DoorAction>(nDoorAction);
-
-    // Execute
-    bool possible = false;
-    switch (doorAction) {
+// What a creature could do with a door or placeable that is not static. It
+// opens a closed one that is unlocked, unlocks one that wants no key when its
+// Security and a take of 20 reach the open-lock DC, bashes one that isn't
+// plot, can always ignore it, and knocks on one that isn't plot and wants no
+// key when it has a class with a use of the knock left.
+static bool isObjectActionPossible(const Creature &caller, const Object &object, const Lock &lock, bool closed,
+                                   DoorAction action, const RoutineContext &ctx) {
+    switch (action) {
     case DoorAction::Open:
-        possible = !targetDoor->isLocked();
-        break;
-    case DoorAction::Bash: {
-        auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
-        possible = caller && canBashDoor(*targetDoor);
-        break;
+        return !lock.isLocked() && closed;
+    case DoorAction::Unlock: {
+        const int rank = caller.getUnopposedSkillRank(SkillType::Security);
+        return lock.isLocked() && !lock.isKeyRequired() && rank > 0 && rank + kTake20 >= lock.unlockDC(ctx.game);
+    }
+    case DoorAction::Bash:
+        return !object.plotFlag();
+    case DoorAction::Ignore:
+        return true;
+    case DoorAction::Knock: {
+        const auto knock = ctx.services.game.spells.get(kDoorKnockSpellRow);
+        return !object.plotFlag() && !lock.isKeyRequired() && knock && caller.hasSpellUsesLeft(*knock, 0);
     }
     default:
-        // UNLOCK, IGNORE, and KNOCK are not implemented.
-        debug(str(boost::format("Unsupported door action: %d") % nDoorAction), LogChannel::Script);
-        break;
+        return false;
     }
-
-    return Variable::ofInt(static_cast<int>(possible));
 }
 
-static Variable DoDoorAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
+// Only a creature asks, and only of a door; anything else is not possible.
+static Variable GetIsDoorActionPossible(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oTargetDoor = getObject(args, 0, ctx);
+    auto targetDoor = std::dynamic_pointer_cast<Door>(getObjectOrNull(args, 0, ctx));
     auto nDoorAction = getInt(args, 1);
 
-    // Transform
-    auto targetDoor = checkDoor(oTargetDoor);
-    auto doorAction = static_cast<DoorAction>(nDoorAction);
-    auto caller = getCaller(ctx);
-
     // Execute
-    switch (doorAction) {
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!caller || !targetDoor || targetDoor->isStatic()) {
+        return Variable::ofInt(0);
+    }
+    const bool closed = (targetDoor->state() == DoorState::Closed && !targetDoor->isOpening()) || targetDoor->isClosing();
+    const bool possible = isObjectActionPossible(*caller, *targetDoor, targetDoor->lock(), closed,
+                                                 static_cast<DoorAction>(nDoorAction), ctx);
+    return Variable::ofInt(possible ? 1 : 0);
+}
+
+// What a creature is told to do with a door or placeable goes before all it
+// was doing: an open, from \p makeOpen, or an unlock followed by that open in
+// one group; \p makeOpen gives none when the object cannot be opened that
+// way. A bash is an ordinary attack order. A knock is an ordinary cast of
+// Knock at the object, from the first class with a use of it left. An ignore
+// changes nothing.
+static void doObjectAction(Creature &caller, const std::shared_ptr<Object> &object, DoorAction action,
+                           const std::function<std::shared_ptr<Action>()> &makeOpen, const RoutineContext &ctx) {
+    // The area and the module take no action.
+    if (object->type() == ObjectType::Area || object->type() == ObjectType::Module) {
+        return;
+    }
+    switch (action) {
     case DoorAction::Open:
-        // Opening is immediate: the routine returns void and the door state,
-        // animation, walkmesh swap and OnOpen event are the same ones a door
-        // opened through OpenDoorAction goes through. Nothing is queued, so a
-        // movement action that was blocked by this door stays in place and
-        // resumes once the door stops obstructing.
-        if (!targetDoor->isLocked()) {
-            targetDoor->open(*caller);
-            targetDoor->onOpen(caller->id());
+        if (auto opening = makeOpen()) {
+            caller.addActionOnTop(std::move(opening));
         }
         break;
-    case DoorAction::Bash: {
-        // Bashing is a sustained attack rather than an immediate state change,
-        // so it goes on top of the queue: whatever the creature was doing stays
-        // behind it instead of being discarded.
-        auto creature = std::dynamic_pointer_cast<Creature>(caller);
-        if (creature && canBashDoor(*targetDoor)) {
-            creature->addActionOnTop(ctx.game.newAction<AttackObjectAction>(targetDoor));
+    case DoorAction::Unlock: {
+        std::vector<std::shared_ptr<Action>> unlockThenOpen {
+            ctx.game.newAction<UnlockObjectAction>(object, nullptr, 0, UnlockObjectAction::Command::ObjectAction)};
+        if (auto opening = makeOpen()) {
+            unlockThenOpen.push_back(std::move(opening));
+        }
+        caller.addGroupOnTop(std::move(unlockThenOpen));
+        break;
+    }
+    case DoorAction::Bash:
+        ctx.game.combat().scheduleAttack(caller, object);
+        break;
+    case DoorAction::Ignore:
+        break;
+    case DoorAction::Knock: {
+        auto knock = ctx.services.game.spells.get(kDoorKnockSpellRow);
+        if (object->plotFlag() || !knock) {
+            break;
+        }
+        const size_t classCount = caller.attributes().classLevels().size();
+        for (size_t classIndex = 0; classIndex < classCount; ++classIndex) {
+            if (!caller.hasSpellUsesLeft(*knock, classIndex)) {
+                continue;
+            }
+            SpellSelection selection;
+            selection.classIndex = static_cast<int>(classIndex);
+            ctx.game.combat().scheduleCast(
+                caller,
+                ctx.game.newAction<CastSpellAtObjectAction>(knock, object, std::nullopt, false, ProjectilePathType::Default,
+                                                            false, std::nullopt, std::nullopt, selection));
+            break;
         }
         break;
     }
     default:
-        debug(str(boost::format("Unsupported door action: %d") % nDoorAction), LogChannel::Script);
+        debug(str(boost::format("Unsupported object action: %d") % static_cast<int>(action)), LogChannel::Script);
         break;
     }
+}
 
+// A creature takes the action on any object; on an invalid one nothing happens.
+static Variable DoDoorAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto targetDoor = getObjectOrNull(args, 0, ctx);
+    auto nDoorAction = getInt(args, 1);
+
+    // Execute
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (caller && targetDoor) {
+        // Only a door opens.
+        auto openDoor = [&]() -> std::shared_ptr<Action> {
+            auto door = std::dynamic_pointer_cast<Door>(targetDoor);
+            return door ? ctx.game.newAction<OpenDoorAction>(std::move(door)) : nullptr;
+        };
+        doObjectAction(*caller, targetDoor, static_cast<DoorAction>(nDoorAction), openDoor, ctx);
+    }
     return Variable::ofNull();
 }
 
@@ -4095,12 +4142,16 @@ static Variable GetLastDisturbed(const std::vector<Variable> &args, const Routin
 
 static Variable GetLastLocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastLocked");
+    // Only a door or placeable remembers who locked it.
+    const auto lock = getCaller(ctx)->findLock();
+    return Variable::ofObject(lock ? lock->get().lastLockedBy() : kObjectInvalid);
 }
 
 static Variable GetLastUnlocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastUnlocked");
+    // Only a door or placeable remembers who unlocked it.
+    const auto lock = getCaller(ctx)->findLock();
+    return Variable::ofObject(lock ? lock->get().lastUnlockedBy() : kObjectInvalid);
 }
 
 static Variable GetInventoryDisturbType(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5109,26 +5160,34 @@ static Variable GetSoloMode(const std::vector<Variable> &args, const RoutineCont
     return Variable::ofInt(static_cast<int>(solo));
 }
 
+// The stealth experience routines act on the controlled creature's area: a
+// getter gives 0 and a setter does nothing while it is in none.
+static std::optional<std::reference_wrapper<Area>> controlledCreatureArea(const RoutineContext &ctx) {
+    auto leader = ctx.game.party().getLeader();
+    return leader ? leader->spatialArea() : std::nullopt;
+}
+
 static Variable GetMaxStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofInt(ctx.game.module()->area()->maxStealthXP());
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? static_cast<int>(area->get().maxStealthXP()) : 0);
 }
 
 static Variable SetMaxStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nMax = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    ctx.game.module()->area()->setMaxStealthXP(nMax);
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setMaxStealthXP(static_cast<uint32_t>(nMax));
+    }
     return Variable::ofNull();
 }
 
 static Variable GetCurrentStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    int xp = ctx.game.module()->area()->currentStealthXP();
-    return Variable::ofInt(xp);
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? static_cast<int>(area->get().currentStealthXP()) : 0);
 }
 
 static Variable GetNumStackedItems(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5173,10 +5232,10 @@ static Variable SetCurrentStealthXP(const std::vector<Variable> &args, const Rou
     // Load
     auto nCurrent = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    ctx.game.module()->area()->setCurrentStealthXP(nCurrent);
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setCurrentStealthXP(static_cast<uint32_t>(nCurrent));
+    }
     return Variable::ofNull();
 }
 
@@ -5191,35 +5250,29 @@ static Variable AwardStealthXP(const std::vector<Variable> &args, const RoutineC
     // Load
     auto oTarget = getObjectOrNull(args, 0, ctx);
 
-    // Execute: a creature's area pays out its stealth experience once, and
-    // stealth experience is then off there.
-    auto area = ctx.game.module()->area();
-    if (!oTarget || !isa<Creature>(oTarget)) {
-        return Variable::ofNull();
+    // Execute: the target creature's own area pays out its stealth experience.
+    auto *creature = oTarget ? dyn_cast<Creature>(oTarget.get()) : nullptr;
+    auto targetArea = creature ? creature->spatialArea() : std::nullopt;
+    if (targetArea) {
+        targetArea->get().awardStealthXP();
     }
-    if (!area->isStealthXPEnabled() || area->currentStealthXP() == 0) {
-        return Variable::ofNull();
-    }
-    ctx.game.party().awardXP(area->currentStealthXP(), XPSource::Stealth);
-    area->setCurrentStealthXP(0);
-    area->setStealthXPEnabled(false);
     return Variable::ofNull();
 }
 
 static Variable GetStealthXPEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofInt(ctx.game.module()->area()->isStealthXPEnabled() ? 1 : 0);
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? area->get().stealthXPEnabled() : 0);
 }
 
 static Variable SetStealthXPEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto bEnabled = getInt(args, 0);
 
-    // Transform
-    bool enabled = static_cast<bool>(bEnabled);
-
     // Execute
-    ctx.game.module()->area()->setStealthXPEnabled(enabled);
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setStealthXPEnabled(bEnabled);
+    }
     return Variable::ofNull();
 }
 
@@ -5370,17 +5423,19 @@ static Variable GetSubRace(const std::vector<Variable> &args, const RoutineConte
 
 static Variable GetStealthXPDecrement(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetStealthXPDecrement");
+    auto area = controlledCreatureArea(ctx);
+    return Variable::ofInt(area ? static_cast<int>(area->get().stealthXPDecrement()) : 0);
 }
 
 static Variable SetStealthXPDecrement(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nDecrement = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetStealthXPDecrement");
+    if (auto area = controlledCreatureArea(ctx)) {
+        area->get().setStealthXPDecrement(static_cast<uint32_t>(nDecrement));
+    }
+    return Variable::ofNull();
 }
 
 static Variable DuplicateHeadAppearance(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5743,52 +5798,49 @@ static Variable GetTrapDetectDC(const std::vector<Variable> &args, const Routine
 
 static Variable GetLockKeyRequired(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockKeyRequired");
+    // Anything but a door or placeable needs no key.
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofInt(lock && lock->get().isKeyRequired() ? 1 : 0);
 }
 
 static Variable GetLockKeyTag(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockKeyTag");
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofString(lock ? lock->get().keyName() : "");
 }
 
 static Variable GetLockLockable(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockLockable");
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofInt(lock && lock->get().isLockable() ? 1 : 0);
 }
 
 static Variable GetLockUnlockDC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oObject = getObject(args, 0, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetLockUnlockDC");
+    // Anything but a door or placeable has no DC.
+    const auto lock = oObject->findLock();
+    return Variable::ofInt(lock ? lock->get().unlockDC(ctx.game) : 0);
 }
 
 static Variable GetLockLockDC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetLockLockDC");
+    const auto lock = oObject ? oObject->findLock() : std::nullopt;
+    return Variable::ofInt(lock ? lock->get().closeDC() : 0);
 }
 
 static Variable GetPCLevellingUp(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5832,26 +5884,39 @@ static Variable GetPlaceableIllumination(const std::vector<Variable> &args, cons
     return Variable::ofInt(placeable ? placeable->lightState() : 0);
 }
 
+// The placeable object actions are the door actions' rules, asked by a creature.
 static Variable GetIsPlaceableObjectActionPossible(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlaceable = getObject(args, 0, ctx);
+    auto placeable = std::dynamic_pointer_cast<Placeable>(getObjectOrNull(args, 0, ctx));
     auto nPlaceableAction = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetIsPlaceableObjectActionPossible");
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!caller || !placeable || placeable->isStatic()) {
+        return Variable::ofInt(0);
+    }
+    const bool possible = isObjectActionPossible(*caller, *placeable, placeable->lock(), placeable->isClosed(),
+                                                 static_cast<DoorAction>(nPlaceableAction), ctx);
+    return Variable::ofInt(possible ? 1 : 0);
 }
 
 static Variable DoPlaceableObjectAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlaceable = getObject(args, 0, ctx);
+    auto oPlaceable = getObjectOrNull(args, 0, ctx);
     auto nPlaceableAction = getInt(args, 1);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("DoPlaceableObjectAction");
+    // Execute: an ignore does nothing to a placeable.
+    auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    const auto action = static_cast<DoorAction>(nPlaceableAction);
+    if (!caller || !oPlaceable || action == DoorAction::Ignore) {
+        return Variable::ofNull();
+    }
+    // The placeable routine opens anything by using it.
+    auto use = [&]() -> std::shared_ptr<Action> {
+        return ctx.game.newAction<OpenContainerAction>(oPlaceable);
+    };
+    doObjectAction(*caller, oPlaceable, action, use, ctx);
+    return Variable::ofNull();
 }
 
 static Variable GetFirstPC(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5884,8 +5949,8 @@ static Variable GetIsTrapped(const std::vector<Variable> &args, const RoutineCon
     // Load
     auto oObject = getObjectOrNull(args, 0, ctx);
 
-    // Execute
-    return visitTrap(oObject, Variable::ofInt(0), [](auto &trap) { return Variable::ofInt(trap.isTrapped() ? 1 : 0); });
+    // Execute: the trap flag as it is kept.
+    return visitTrap(oObject, Variable::ofInt(0), [](auto &trap) { return Variable::ofInt(trap.trapFlag()); });
 }
 
 static Variable SetEffectIcon(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5933,15 +5998,18 @@ static Variable SetTrapDisabled(const std::vector<Variable> &args, const Routine
     const auto caller = getOptionalObject(getCallerOrNull(ctx));
     const Event disarmed {static_cast<int>(SavedSignalEventType::Disarmed)};
 
-    // Execute: the trap is disarmed by the caller once the calling script is
-    // done; a mine's trigger goes a moment later.
-    if (auto trigger = std::dynamic_pointer_cast<Trigger>(oTrap); trigger && trigger->isTrap()) {
-        ctx.game.queueScriptEvent(*trigger, caller, disarmed);
-        ctx.game.postObjectDestruction(*trigger, kObjectInvalid, kDisarmedMineDestroyDelay);
-    } else if (auto door = std::dynamic_pointer_cast<Door>(oTrap); door && door->isTrapped()) {
-        ctx.game.queueScriptEvent(*door, caller, disarmed);
-    } else if (auto placeable = std::dynamic_pointer_cast<Placeable>(oTrap); placeable && placeable->isTrapped()) {
-        ctx.game.queueScriptEvent(*placeable, caller, disarmed);
+    // Execute: a trap whose flag is exactly 1 is told the caller disarmed it
+    // once the calling script is done; a mine also goes a moment later,
+    // quietly.
+    const auto trap = oTrap ? oTrap->findTrap() : std::nullopt;
+    auto *mine = dyn_cast<Trigger>(oTrap.get());
+    const bool trapped = mine ? mine->isTrap() : trap && trap->get().trapFlag() == 1;
+    if (!trapped) {
+        return Variable::ofNull();
+    }
+    ctx.game.queueScriptEvent(*oTrap, caller, disarmed);
+    if (mine) {
+        ctx.game.postObjectDestruction(*oTrap, caller ? caller->get().id() : kObjectInvalid, kDisarmedMineDestroyDelay, true);
     }
     return Variable::ofNull();
 }
@@ -8047,9 +8115,10 @@ static Variable DetonateMine(const std::vector<Variable> &args, const RoutineCon
     // Load
     auto oMine = getObjectOrNull(args, 0, ctx);
 
-    // Execute: the mine is removed without running any script.
+    // Execute: the mine goes with its explosion, without running any script.
     if (auto trigger = std::dynamic_pointer_cast<Trigger>(oMine)) {
-        ctx.game.module()->area()->destroyObject(*trigger);
+        trigger->setMineRemoval(MineRemoval::Explosion);
+        ctx.game.postObjectDestruction(*trigger, getCaller(ctx)->id(), 0.0f, true);
     }
     return Variable::ofNull();
 }
@@ -8188,16 +8257,21 @@ static Variable RemoveEffectByExactMatch(const std::vector<Variable> &args, cons
     return Variable::ofNull();
 }
 
+// Moves a creature's base skill rank by the amount; only creatures and the
+// skills of the skill table are adjusted.
 static Variable AdjustCreatureSkills(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-    auto nSkill = getInt(args, 1);
-    auto nAmount = getInt(args, 2);
-
-    // Transform
+    auto creature = getCreatureOrNull(args, 0, ctx);
+    const auto skill = static_cast<SkillType>(getInt(args, 1));
+    const int amount = getInt(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("AdjustCreatureSkills");
+    if (!creature || !ctx.services.game.skills.get(skill)) {
+        return Variable::ofNull();
+    }
+    auto &attributes = creature->attributes();
+    attributes.setSkillRank(skill, attributes.getSkillRank(skill) + amount);
+    return Variable::ofNull();
 }
 
 static Variable GetSkillRankBase(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -8707,7 +8781,7 @@ void Routines::registerMainKotorRoutines() {
     insert(535, "GetTrapDisarmDC", R_INT, {R_OBJECT}, &GetTrapDisarmDC);
     insert(536, "GetTrapDetectDC", R_INT, {R_OBJECT}, &GetTrapDetectDC);
     insert(537, "GetLockKeyRequired", R_INT, {R_OBJECT}, &GetLockKeyRequired);
-    insert(538, "GetLockKeyTag", R_INT, {R_OBJECT}, &GetLockKeyTag);
+    insert(538, "GetLockKeyTag", R_STRING, {R_OBJECT}, &GetLockKeyTag);
     insert(539, "GetLockLockable", R_INT, {R_OBJECT}, &GetLockLockable);
     insert(540, "GetLockUnlockDC", R_INT, {R_OBJECT}, &GetLockUnlockDC);
     insert(541, "GetLockLockDC", R_INT, {R_OBJECT}, &GetLockLockDC);
@@ -9263,7 +9337,7 @@ void Routines::registerMainTslRoutines() {
     insert(535, "GetTrapDisarmDC", R_INT, {R_OBJECT}, &GetTrapDisarmDC);
     insert(536, "GetTrapDetectDC", R_INT, {R_OBJECT}, &GetTrapDetectDC);
     insert(537, "GetLockKeyRequired", R_INT, {R_OBJECT}, &GetLockKeyRequired);
-    insert(538, "GetLockKeyTag", R_INT, {R_OBJECT}, &GetLockKeyTag);
+    insert(538, "GetLockKeyTag", R_STRING, {R_OBJECT}, &GetLockKeyTag);
     insert(539, "GetLockLockable", R_INT, {R_OBJECT}, &GetLockLockable);
     insert(540, "GetLockUnlockDC", R_INT, {R_OBJECT}, &GetLockUnlockDC);
     insert(541, "GetLockLockDC", R_INT, {R_OBJECT}, &GetLockLockDC);

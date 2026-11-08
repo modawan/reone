@@ -25,6 +25,7 @@
 
 #include "../object.h"
 
+#include "lock.h"
 #include "trap.h"
 
 namespace reone {
@@ -73,23 +74,31 @@ public:
     bool hasInventory() const { return _hasInventory; }
     /** Whether the placeable is destroyed once its inventory is empty. */
     bool dieWhenEmpty() const { return _dieWhenEmpty; }
-    bool isSelectable() const override { return _usable; }
+    /** Whether the placeable's look is searched for its contents (placeables.2da UseSearch). */
+    bool useSearch() const { return _useSearch; }
+    bool isSelectable() const override { return _usable != 0; }
     glm::vec3 getSelectablePosition() const override;
-    bool isUsable() const { return _usable; }
-    /** Whether the placeable has an OnUsed script. */
-    bool hasOnUsedScript() const { return !_onUsed.empty(); }
+    /** Looks at the placeable aim at its appearance's height (placeables.2da CanSeeHeight). */
+    float canSeeHeight() const override { return _canSeeHeight; }
+    /** Whether the placeable can be used: its Useable byte is not 0. */
+    bool isUsable() const { return _usable != 0; }
     void setOnUsedScript(std::string script) { _onUsed = std::move(script); }
     /** Appearances marked hostile in placeables.2da read as hostile objects. */
     bool isHostileAppearance() const { return _hostileAppearance; }
     /** Destruction animation and pending deletion do not change the HP predicate. */
     bool isDead() const override { return !_plot && currentHitPoints() <= 0; }
-    bool isLocked() const { return _locked; }
-    bool isKeyRequired() const { return _keyRequired; }
+    bool isLocked() const { return _lock.isLocked(); }
+    /** Whether nothing can be done with the placeable by a script's object action: its Static byte is not 0. */
+    bool isStatic() const { return _static != 0; }
+    /** Whether the placeable shows its closed state. */
+    bool isClosed() const;
     bool isNotBlastable() const { return _notBlastable; }
-    const std::string &keyName() const { return _keyName; }
-    uint8_t closeLockDC() const { return _closeLockDC; }
-    /** Run the script for being locked. */
-    void onLocked();
+
+    /** The placeable's lock; its locked sound plays where the placeable stands. */
+    Lock &lock() { return _lock; }
+    const Lock &lock() const { return _lock; }
+    std::optional<std::reference_wrapper<Lock>> findLock() override { return std::ref(_lock); }
+    std::optional<std::reference_wrapper<const Lock>> findLock() const override { return std::cref(_lock); }
 
     /**
      * Shows animation \p id for a conversation: as a loop, or once and then
@@ -120,12 +129,14 @@ public:
     bool isTrapped() const { return _trap.isArmed(); }
     /** Whether the object counts among the area's traps; see Trap::countsAsAreaTrap(). */
     bool countsAsAreaTrap() const { return _trap.countsAsAreaTrap(); }
+    /** The trap flag as it is kept; see Trap::trapFlag. */
+    uint8_t trapFlag() const { return _trap.trapFlag(); }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
     int trapBaseType() const { return _trap.type(); }
-    const std::string &trapKeyTag() const { return _keyName; }
+    const std::string &trapKeyTag() const { return _lock.keyName(); }
     int trapDetectDC() const { return _trap.detectDC(_game); }
     int trapDisarmDC() const { return _trap.disarmDC(_game); }
     const Trap &trap() const { return _trap; }
@@ -137,10 +148,6 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** An armed trap goes off on the caller; forced firing skips the standing test. */
     void triggerTrap(const std::shared_ptr<Creature> &caller, bool force);
-    /** The trap is disarmed by \p disarmerId. */
-    void disarmTrap(uint32_t disarmerId) { _trap.disarm(*this, disarmerId); }
-    /** A disarm signal from \p disarmerId disarms the trap; it still counts among the area's traps. */
-    void disarmTrapOnSignal(uint32_t disarmerId) { _trap.disarmOnSignal(*this, disarmerId); }
     /** Arm a set mine; the linked mine trigger marks the trap in the world (TSL). */
     void armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                  const std::shared_ptr<Trigger> &linkedMine,
@@ -156,7 +163,7 @@ public:
      * light colour in placeables.2da.
      */
     int lightState() const;
-    /** Turns the light on or off; one whose appearance has no light is left as it is. */
+    /** Turns the light on or off, and shows it so; one whose appearance has no light is left as it is. */
     void setLightState(int state);
     Faction faction() const { return _faction; }
     void setFaction(Faction faction) { _faction = faction; }
@@ -193,7 +200,7 @@ public:
     void runEndDialogScript();
     void update(float dt) override;
 
-    void setLocked(bool locked) { _locked = locked; }
+    void setLocked(bool locked) { _lock.setLocked(locked); }
 
     // Body bags
 
@@ -283,6 +290,7 @@ private:
     void updateHeartbeat();
     void acquireItemsFrom(Object &source);
     void updateBodyBagPresentation();
+    void showLight();
     void updateOpenStateAnimation();
     /**
      * Shows animation \p id as a loop. A corpse keeps its pose.
@@ -293,19 +301,19 @@ private:
 
     // Serializable
     resource::LocString _locName;
-    bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
-    uint8_t _openLockDC {0};
-    std::string _keyName;
     Trap _trap {Trap::Carrier::Placeable};
-    bool _usable {false};
+    Lock _lock {LockDifficulty::None};
+    /** The Useable byte as read; any value but 0 makes the placeable usable. */
+    uint8_t _usable {0};
     bool _hostileAppearance {false};
     bool _preciseUse {false};
     /** The armour type of the appearance's sound type; a blank sound type sounds as the first. */
     std::string _soundArmorType;
     /** The sound the placeable plays when it opens; none for a blank sound type. */
     std::string _openedSound;
-    bool _static {false};
+    /** The Static byte as read; any value but 0 makes the placeable static, and only 1 makes it plot. */
+    uint8_t _static {0};
     bool _notBlastable {false};
     bool _groundPile {false};
     uint32_t _appearance {0};
@@ -315,12 +323,9 @@ private:
     uint8_t _fort {0};
     uint8_t _will {0};
     uint8_t _ref {0};
-    bool _lockable {false};
-    bool _locked {false};
     uint32_t _lastEnteredId {script::kObjectInvalid};
     bool _hasInventory {false};
-    bool _keyRequired {false};
-    uint8_t _closeLockDC {0};
+    bool _useSearch {false};
     bool _partyInteract {false};
     uint16_t _portraitId {kNoPortraitId};
     std::string _portrait;
@@ -334,16 +339,15 @@ private:
     std::string _onDeath;
     std::string _onInvDisturbed;
     std::string _onFailToOpen;
-    std::string _onLock;
     std::string _onMeleeAttacked;
     std::string _onOpen;
     std::string _onSpellCastAt;
-    std::string _onUnlock;
     std::string _onUsed;
     std::string _onDialog;
     std::string _onEndDialogue;
 
-    int32_t _animation {-1};
+    /** The placeable's state clip (animations.2da), 10000 showing none. */
+    int _animation {10000};
     bool _isBodyBag {false};
     bool _isBodyBagVisible {true};
     bool _isCorpse {false};
@@ -357,6 +361,8 @@ private:
     /** The animation whose loop the model shows; -1 while it shows none of its own. */
     int _shownAnimation {-1};
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
+    /** The placeable light its appearance carries, if any. */
+    std::shared_ptr<scene::SceneNode> _light;
 
     // Scripts
 

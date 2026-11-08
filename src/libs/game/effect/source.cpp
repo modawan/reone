@@ -76,84 +76,24 @@ int EffectSourceSlots::total() const {
     return sum;
 }
 
-void EffectModifierReducer::addIncrease(
-    EffectSourceKey source, int subtype, int amount) {
-    add(_increases, source, subtype, amount);
+EffectBonusReducer EffectBonusReducer::forAbility(bool tsl) {
+    return EffectBonusReducer {getAbilityEffectIncreaseCap(tsl), getAbilityEffectDecreaseCap(tsl), true, getEffectSourceCapacity(tsl)};
 }
 
-void EffectModifierReducer::addDecrease(
-    EffectSourceKey source, int subtype, int amount) {
-    add(_decreases, source, subtype, amount);
+EffectBonusReducer EffectBonusReducer::forSkill(bool tsl) {
+    return EffectBonusReducer {getSkillEffectCap(tsl), getSkillEffectCap(tsl), false, getEffectSourceCapacity(tsl)};
 }
 
-int EffectModifierReducer::totalIncrease(int cap) const {
-    return cappedTotal(_increases, cap);
+void EffectBonusReducer::addIncrease(EffectSourceKey source, int amount) {
+    _increases.add(source, amount);
 }
 
-int EffectModifierReducer::totalDecrease(int cap) const {
-    return cappedTotal(_decreases, cap);
+void EffectBonusReducer::addDecrease(EffectSourceKey source, int amount) {
+    _decreases.add(source, amount, _decreasesAddUp);
 }
 
-void EffectModifierReducer::add(
-    Values &values,
-    EffectSourceKey source,
-    int subtype,
-    int amount) {
-    if (amount <= 0) {
-        return;
-    }
-    Key key {source, subtype};
-    auto it = values.find(key);
-    if (it == values.end() || amount > it->second) {
-        values.insert_or_assign(key, amount);
-    }
-}
-
-int EffectModifierReducer::cappedTotal(const Values &values, int cap) {
-    int result = 0;
-    for (const auto &[key, amount] : values) {
-        result = std::min(cap, result + amount);
-        if (result == cap) {
-            break;
-        }
-    }
-    return result;
-}
-
-void AbilityEffectReducer::addIncrease(EffectSourceKey source, int amount) {
-    if (amount <= 0) {
-        return;
-    }
-    if (source.kind == EffectSourceKind::Independent) {
-        _increases.independent += amount;
-        return;
-    }
-    auto &value = _increases.bySource[source];
-    value = std::max(value, amount);
-}
-
-void AbilityEffectReducer::addDecrease(EffectSourceKey source, int amount) {
-    if (amount <= 0) {
-        return;
-    }
-    if (source.kind == EffectSourceKind::Independent) {
-        _decreases.independent += amount;
-        return;
-    }
-    _decreases.bySource[source] += amount;
-}
-
-int AbilityEffectReducer::Direction::total() const {
-    int sum = independent;
-    for (const auto &[source, amount] : bySource) {
-        sum += amount;
-    }
-    return sum;
-}
-
-int AbilityEffectReducer::total() const {
-    return std::min(_increases.total(), getAbilityEffectIncreaseCap(_tsl)) -
-           std::min(_decreases.total(), getAbilityEffectDecreaseCap(_tsl));
+int EffectBonusReducer::total() const {
+    return std::min(_increases.total(), _increaseCap) - std::min(_decreases.total(), _decreaseCap);
 }
 
 } // namespace game
