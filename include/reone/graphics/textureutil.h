@@ -26,6 +26,12 @@ namespace graphics {
 void convertGridTextureToArray(Texture &texture, int numX, int numY);
 
 /**
+ * Unpacks the DXT1 or DXT5 \p layer of a \p width by \p height image into
+ * RGB8 or RGBA8 pixels, the format of which it stores in \p dstFormat.
+ */
+void decompressLayer(int width, int height, Texture::Layer &layer, PixelFormat srcFormat, PixelFormat &dstFormat);
+
+/**
  * The frame a cycling texture shows \p time seconds into its clock: its
  * frames in turn at their rate, over and over. Any other texture shows its
  * first frame.
