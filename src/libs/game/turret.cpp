@@ -734,16 +734,7 @@ bool Turret::loadPlayer() {
     }
 
     loadGunBanks(spec.gunBanks, *_turretRoot, player->gunBanks);
-    player->scripts = {spec.scripts.onCreate,
-                       spec.scripts.onHeartbeat,
-                       spec.scripts.onDamage,
-                       spec.scripts.onDeath,
-                       spec.scripts.onFire,
-                       spec.scripts.onHitBullet,
-                       spec.scripts.onHitFollower,
-                       spec.scripts.onHitObstacle,
-                       spec.scripts.onTrackLoop,
-                       spec.scripts.onAnimEvent};
+    player->scripts = spec.scripts;
     registerActor(*player);
     loadFollower(*player, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
                  spec.numLoops, spec.invincePeriod, spec.sounds.death, spec.sounds.engine);
@@ -787,16 +778,7 @@ void Turret::loadEnemies() {
         }
         enemy->trackNode->attach(kModelHookName, *root);
         loadGunBanks(spec.gunBanks, *root, enemy->gunBanks);
-        enemy->scripts = {spec.scripts.onCreate,
-                          spec.scripts.onHeartbeat,
-                          spec.scripts.onDamage,
-                          spec.scripts.onDeath,
-                          spec.scripts.onFire,
-                          spec.scripts.onHitBullet,
-                          spec.scripts.onHitFollower,
-                          spec.scripts.onHitObstacle,
-                          spec.scripts.onTrackLoop,
-                          spec.scripts.onAnimEvent};
+        enemy->scripts = spec.scripts;
         registerActor(*enemy);
         loadFollower(*enemy, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
                      spec.numLoops, spec.invincePeriod, spec.sounds.death, spec.sounds.engine);
@@ -831,14 +813,14 @@ void Turret::loadObstacles() {
 }
 
 void Turret::loadObstacleScripts() {
-    // The area names the scripts of the first obstacle with each name.
+    // The area names the scripts of the first obstacle with each name, whose
+    // creation script then runs.
     for (const auto &spec : _spec.obstacles) {
         auto named = actorByName(spec.name);
         auto obstacle = named ? this->obstacle(named->id()) : nullptr;
         if (obstacle) {
-            obstacle->onHeartbeat = spec.onHeartbeat;
-            obstacle->onHitBullet = spec.onHitBullet;
-            obstacle->onHitFollower = spec.onHitFollower;
+            obstacle->scripts = spec.scripts;
+            runScript(obstacle->scripts.onCreate, *obstacle);
         }
     }
 }
@@ -1159,7 +1141,7 @@ void Turret::update(float dt) {
     }
     for (size_t i = _obstacles.size(); i-- > 0;) {
         if (i < _obstacles.size() && _obstacles[i]->listed) {
-            runScript(_obstacles[i]->onHeartbeat, *_obstacles[i]);
+            runScript(_obstacles[i]->scripts.onHeartbeat, *_obstacles[i]);
         }
     }
     if (!_active) {
@@ -1676,7 +1658,7 @@ void Turret::updateExplosions() {
 
 void Turret::onBulletHit(Actor &actor, bool apply) {
     auto follower = dynamic_cast<Follower *>(&actor);
-    const auto &script = follower ? follower->scripts.onHitBullet : static_cast<Obstacle &>(actor).onHitBullet;
+    const auto &script = follower ? follower->scripts.onHitBullet : static_cast<Obstacle &>(actor).scripts.onHitBullet;
     if (!apply && !script.empty()) {
         runScript(script, actor);
         return;

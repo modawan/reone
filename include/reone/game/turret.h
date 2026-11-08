@@ -405,19 +405,6 @@ public:
         uint32_t id() const;
     };
 
-    struct FollowerScripts {
-        std::string onCreate;
-        std::string onHeartbeat;
-        std::string onDamage;
-        std::string onDeath;
-        std::string onFire;
-        std::string onHitBullet;
-        std::string onHitFollower;
-        std::string onHitObstacle;
-        std::string onTrackLoop;
-        std::string onAnimEvent;
-    };
-
     /** The volume, frequency and random frequency of an engine or death sound. */
     struct SoundSettings {
         int volume {0};
@@ -429,7 +416,7 @@ public:
     struct Follower : Actor {
         bool player {false};
         bool trigger {false};
-        FollowerScripts scripts;
+        MinigameFollowerScriptSpec scripts;
         std::shared_ptr<scene::ModelSceneNode> trackNode;
         std::string trackAnimation;
         /** Where the track's animation was at the last update, to tell when it goes round. */
@@ -484,9 +471,7 @@ public:
     };
 
     struct Obstacle : Actor {
-        std::string onHeartbeat;
-        std::string onHitBullet;
-        std::string onHitFollower;
+        MinigameObstacleScriptSpec scripts;
         bool listed {true};
     };
 
