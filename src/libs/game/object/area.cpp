@@ -99,7 +99,8 @@ static constexpr float kDefaultFieldOfView = 75.0f;
 // second, other creatures every four seconds.
 static constexpr float kLeaderPerceptionPass = 0.2f;
 static constexpr float kPerceptionPass = 4.0f;
-// Squared thickness of a door or other object both sounds run into.
+// Squared thickness of a door or other object both sounds run into, or of
+// anything only one of them runs into.
 static constexpr float kSharedObstacleThickness2 = 0.16f;
 // Listen penalties: for any obstacle where the area routes sound around obstacles,
 // and for each whole metre of obstacle elsewhere.
@@ -3868,11 +3869,11 @@ bool Area::isEyeLineClear(const glm::vec3 &from, const glm::vec3 &to,
 }
 
 // Sound is cast both ways between the eyes. A door or other object hit both
-// ways is thin. Otherwise the thickness of what lies between runs from the
-// object the sound first met, or the point it met, to where it met something
-// coming back: that object again when the way back met an object; a way that
-// met nothing counts from the world's origin. Where the area routes sound
-// around obstacles, any obstacle costs 2; elsewhere each whole metre costs 5.
+// ways is thin, and so is anything met only one way. Otherwise the thickness
+// of what lies between runs between where the two ways met something: the
+// object's position when a way met an object, else the point it met. Where
+// the area routes sound around obstacles, any obstacle costs 2; elsewhere
+// each whole metre costs 5.
 int Area::soundOcclusion(const Creature &listener, const Creature &source, const glm::vec3 &listenerEye,
                          const glm::vec3 &sourceEye) const {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
@@ -3886,14 +3887,12 @@ int Area::soundOcclusion(const Creature &listener, const Creature &source, const
     const Object *forwardObject = forwardHit ? hitObject(forward) : nullptr;
     const Object *backwardObject = backwardHit ? hitObject(backward) : nullptr;
     float thickness2 = 0.0f;
-    if (forwardObject && forwardObject == backwardObject) {
-        thickness2 = kSharedObstacleThickness2;
-    } else {
-        const glm::vec3 forwardHitPoint = forwardHit ? forward.intersection : glm::vec3(0.0f);
-        const glm::vec3 backwardHitPoint = backwardHit ? backward.intersection : glm::vec3(0.0f);
-        const glm::vec3 forwardPoint = forwardObject ? forwardObject->position() : forwardHitPoint;
-        const glm::vec3 backwardPoint = backwardObject && forwardObject ? forwardObject->position() : backwardHitPoint;
+    if (forwardHit && backwardHit && !(forwardObject && forwardObject == backwardObject)) {
+        const glm::vec3 forwardPoint = forwardObject ? forwardObject->position() : forward.intersection;
+        const glm::vec3 backwardPoint = backwardObject ? backwardObject->position() : backward.intersection;
         thickness2 = glm::distance2(forwardPoint, backwardPoint);
+    } else if (forwardHit || backwardHit) {
+        thickness2 = kSharedObstacleThickness2;
     }
     if (thickness2 <= 0.0f) {
         return 0;
