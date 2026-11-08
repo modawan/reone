@@ -1295,6 +1295,17 @@ int Area::getRoomForceRating(const glm::vec3 &position) const {
     return found != _roomForceRatings.end() ? found->second : 0;
 }
 
+void Area::playRoomAnimation(const std::string &roomName, int animation) {
+    auto room = _rooms.find(boost::to_lower_copy(roomName));
+    if (room == _rooms.end()) {
+        return;
+    }
+    // Loops are numbered from 00; a number reads as unsigned and 16 bits wide.
+    auto name = str(boost::format("scriptloop%02u") % static_cast<uint16_t>(animation));
+    int flags = _game.isTSL() ? AnimationFlags::loop : AnimationFlags::loopOverlay;
+    room->second->model()->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
+}
+
 int Area::getSurfaceMaterial(const glm::vec3 &position) const {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto room = sceneGraph.findRoomWalkmesh(position);

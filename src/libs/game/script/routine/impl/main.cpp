@@ -7040,7 +7040,8 @@ static Variable PlayRoomAnimation(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PlayRoomAnimation");
+    ctx.game.module()->area()->playRoomAnimation(sRoom, nAnimation);
+    return Variable::ofNull();
 }
 
 static Variable ShowGalaxyMap(const std::vector<Variable> &args, const RoutineContext &ctx) {
