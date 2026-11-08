@@ -237,7 +237,6 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         } else if (door) {
             door->setStateAnimation(_animation);
         } else if (!_shown && animation) {
-            animation->source.script = true;
             creature->playScriptAnimation(*animation, _speed);
         }
         _shown = true;

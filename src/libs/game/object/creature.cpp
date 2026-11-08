@@ -529,9 +529,6 @@ static constexpr int kForceResistedAnimationId = 10145;
 static constexpr int kWeaponFlourishAnimationId = 10158;
 static constexpr int kWeaponDrawAnimationId = 10246;
 static constexpr int kDamageFlinchAnimationId = 10302;
-// The activate gesture a script's ANIMATION_FIREFORGET_ACTIVATE plays, which
-// lights the lightsabers in the hands.
-static constexpr int kFireForgetActivateAnimationId = 10127;
 static constexpr int kWeaponDrawMilliseconds = 1500;
 
 static std::string formatCombatAnimation(const std::string &format, CreatureWieldType wield, int variant) {
@@ -3272,9 +3269,7 @@ void Creature::animateFireAndForget(float dt) {
 // The first queued clip starts. One that waited is sped up to end on time,
 // and runs for at least 50 ms; one given no speed plays at its natural speed.
 // A layer plays at its natural speed over the loop, so its time only paces
-// the queue. A swing starting carries its attack to its hit. A script's
-// activate gesture starting lights the lightsabers in the hands, and unlike a
-// weapon draw out of combat leaves them lit.
+// the queue. A swing starting carries its attack to its hit.
 void Creature::playTopFireForgetAnimation() {
     // A world-space animation of an animated cutscene holds the creature.
     if (holdsCutsceneAnimation()) {
@@ -3311,10 +3306,6 @@ void Creature::playTopFireForgetAnimation() {
     setAnimationSource(entry.source);
     if (entry.attack) {
         _swingAttack = entry.attack;
-    }
-    if (entry.source.script && entry.source.id == kFireForgetActivateAnimationId) {
-        _lightsaberIdlePowerDownPending = false;
-        setLightsabersPowered(true, true);
     }
 }
 
@@ -9241,9 +9232,12 @@ void Creature::onEventSignalled(const std::string &name) {
         playSwingSound("parry", 2);
         return;
     }
+    // A draw lights the lightsabers it brings out. Outside combat they go out
+    // again eight seconds later, unless a conversation is running: a weapon
+    // brought out during one stays lit until combat state comes and goes.
     if (name == "draw_weapon") {
         setLightsabersPowered(true, true);
-        if (!_combatState.active) {
+        if (!_combatState.active && !_game.isConversationActive()) {
             _lightsaberIdlePowerDownPending = true;
             _lightsaberIdlePowerDownTimer.reset(8.0f);
         }
