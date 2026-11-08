@@ -251,7 +251,7 @@ bool MeshSceneNode::isTransparent() const {
 }
 
 bool MeshSceneNode::writesBlendedDepth() const {
-    if (_projectedBeam || !_nodeTextures.diffuse) {
+    if (_projectedBeam) {
         return false;
     }
     if (_sceneGraph.isForceSightEnabled() && _model.forceSightStyle() != ModelSceneNode::ForceSightStyle::Grey) {
