@@ -519,7 +519,7 @@ bool ListBox::selectAdjacentItem(bool next, bool repeat) {
 }
 
 void ListBox::takeKeyboard() {
-    if (_selectedItemIndex >= 0 || _items.empty()) {
+    if (!_itemsInteractive || _selectedItemIndex >= 0 || _items.empty()) {
         return;
     }
     _selectedItemIndex = 0;

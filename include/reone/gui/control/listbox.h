@@ -121,7 +121,8 @@ public:
     /**
      * The list takes the keyboard. With no row selected, its first row is
      * selected silently and scrolled into view; in a list that selects on
-     * click, the row is then chosen as a click on it chooses it.
+     * click, the row is then chosen as a click on it chooses it. A list whose
+     * rows take no pointer input selects no row.
      */
     void takeKeyboard();
     /**
