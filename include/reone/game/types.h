@@ -505,6 +505,15 @@ enum class Ability {
     Charisma = 5
 };
 
+/** The most credits, components or chemicals a creature or the party holds. */
+constexpr int kMaxHeldCount = 999999999;
+
+/** TSL: the two counts the crafting stations make items from and break items down into. */
+enum class CraftingCount {
+    Components,
+    Chemicals
+};
+
 enum class SkillType {
     Invalid = -1,
     ComputerUse = 0,

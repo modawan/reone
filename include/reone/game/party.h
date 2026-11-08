@@ -31,6 +31,7 @@
 
 #include "reone/game/galaxymapstate.h"
 #include "reone/game/runtimeref.h"
+#include "reone/game/types.h"
 #include "reone/input/event.h"
 
 namespace reone {
@@ -537,6 +538,16 @@ public:
 
     // END Credits
 
+    /** TSL: a creature's components or chemicals, the party's for a party member, its own otherwise. */
+    int creatureCount(const Creature &creature, CraftingCount count) const;
+    /**
+     * TSL: components or chemicals a creature gains, up to kMaxHeldCount. The
+     * creature the player controls is told the change. Returns the change.
+     */
+    int addCreatureCount(Creature &creature, CraftingCount count, int amount);
+    /** TSL: sets a creature's components or chemicals, up to kMaxHeldCount. */
+    void setCreatureCount(Creature &creature, CraftingCount count, int value);
+
     /**
      * Credits, chemicals (TSL), components (TSL) and pazaak cards a creature
      * acquires are counted, not kept.
@@ -801,6 +812,10 @@ private:
      */
     void joinRosterFaction(const RosterIdentity &identity, Creature &creature) const;
     void transferInventory(Creature &creature);
+    /** TSL: the party's components or chemicals. */
+    int partyCount(CraftingCount count) const;
+    /** TSL: sets the party's components or chemicals. */
+    void setPartyCount(CraftingCount count, int value);
 
     void saveLeaderAttackTarget();
     void onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound = true);

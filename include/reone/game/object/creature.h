@@ -2274,6 +2274,16 @@ public:
     void takeGold(int amount);
 
     int gold() const { return _gold; }
+    /** TSL: the components or chemicals the creature holds itself, which count while it is outside the party. */
+    int craftingCount(CraftingCount count) const;
+    /** TSL: sets the components or chemicals the creature holds itself, up to kMaxHeldCount. */
+    void setCraftingCount(CraftingCount count, int value);
+    /**
+     * The creature holds no credits, components or chemicals of its own. A
+     * creature read as a party member keeps none of the counts its record
+     * holds: the player record a module starts with is read so.
+     */
+    void clearHeldCounts();
 
     // END Gold
 
@@ -2901,6 +2911,10 @@ private:
 
     uint32_t _footstepType {0};
     int _gold {0}; /**< aka credits */
+    /** TSL: the components the creature holds itself. */
+    int _components {0};
+    /** TSL: the chemicals the creature holds itself. */
+    int _chemicals {0};
     std::string _envmap;
     /** The appearance's death visual and the body node it goes off at. */
     std::optional<int> _deathVisual;

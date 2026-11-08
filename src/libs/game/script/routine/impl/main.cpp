@@ -3659,13 +3659,11 @@ static Variable GetCreatureTalentBest(const std::vector<Variable> &args, const R
 }
 
 static Variable GetGoldPieceValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oItem = getObject(args, 0, ctx);
-
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("GetGoldPieceValue");
+    const auto item = std::dynamic_pointer_cast<Item>(getObjectOrNull(args, 0, ctx));
+    if (!item) {
+        return Variable::ofInt(0);
+    }
+    return Variable::ofInt(item->cost(ctx.game.baseItemCostMultiplier(item->baseItemType())));
 }
 
 static Variable GetIsPlayableRacialType(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4831,19 +4829,20 @@ static Variable SpeakOneLinerConversation(const std::vector<Variable> &args, con
 }
 
 static Variable GetGold(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oTarget = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
-    auto creature = checkCreature(oTarget);
-
-    // Execute
-    // Credits are a single party-shared pool in KOTOR; party members (incl. the
-    // PC speaker / leader) report the party total.
-    if (creature && ctx.game.party().isMember(*creature)) {
-        return Variable::ofInt(ctx.game.party().gold());
+    const auto target = getObjectOrNull(args, 0, ctx);
+    // A party member's credits are the party's.
+    if (const auto creature = std::dynamic_pointer_cast<Creature>(target)) {
+        return Variable::ofInt(ctx.game.party().creatureGold(*creature));
     }
-    return Variable::ofInt(creature->gold());
+    // A placeable's are the stack of the first credits item it holds.
+    if (std::dynamic_pointer_cast<Placeable>(target)) {
+        for (const auto &item : target->items()) {
+            if (item->itemType() == Item::kCreditsItemType) {
+                return Variable::ofInt(item->stackSize());
+            }
+        }
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetLastRespawnButtonPresser(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7331,14 +7330,30 @@ static Variable SetFadeUntilScript(const std::vector<Variable> &args, const Rout
     return Variable::ofNull();
 }
 
-static Variable GetItemComponent(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetItemComponent");
+// The four crafting count routines take no argument and act on the caller.
+
+/** A creature caller's components or chemicals; none for any other caller. */
+static Variable callerCraftingCount(const RoutineContext &ctx, CraftingCount count) {
+    const auto creature = std::dynamic_pointer_cast<Creature>(getCallerOrNull(ctx));
+    return Variable::ofInt(creature ? ctx.game.party().creatureCount(*creature, count) : 0);
 }
 
-static Variable GetItemComponentPieceValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetItemComponentPieceValue");
+/** What an item caller is worth in components or chemicals; none for any other caller. */
+static Variable callerCraftingValue(const RoutineContext &ctx, CraftingCount count) {
+    const auto item = std::dynamic_pointer_cast<Item>(getCallerOrNull(ctx));
+    if (!item) {
+        return Variable::ofInt(0);
+    }
+    const float multiplier = ctx.game.baseItemCostMultiplier(item->baseItemType());
+    return Variable::ofInt(count == CraftingCount::Components ? item->componentValue(multiplier) : item->chemicalValue(multiplier));
+}
+
+static Variable GetItemComponent(const std::vector<Variable> &, const RoutineContext &ctx) {
+    return callerCraftingCount(ctx, CraftingCount::Components);
+}
+
+static Variable GetItemComponentPieceValue(const std::vector<Variable> &, const RoutineContext &ctx) {
+    return callerCraftingValue(ctx, CraftingCount::Components);
 }
 
 static Variable ShowChemicalUpgradeScreen(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7351,14 +7366,12 @@ static Variable ShowChemicalUpgradeScreen(const std::vector<Variable> &args, con
     throw RoutineNotImplementedException("ShowChemicalUpgradeScreen");
 }
 
-static Variable GetChemicals(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetChemicals");
+static Variable GetChemicals(const std::vector<Variable> &, const RoutineContext &ctx) {
+    return callerCraftingCount(ctx, CraftingCount::Chemicals);
 }
 
-static Variable GetChemicalPieceValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetChemicalPieceValue");
+static Variable GetChemicalPieceValue(const std::vector<Variable> &, const RoutineContext &ctx) {
+    return callerCraftingValue(ctx, CraftingCount::Chemicals);
 }
 
 static Variable GetSpellForcePointCost(const std::vector<Variable> &args, const RoutineContext &ctx) {

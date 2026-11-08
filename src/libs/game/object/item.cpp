@@ -69,6 +69,20 @@ int Item::cost(float baseCostMultiplier) const {
     return value < 2 ? 1 : value;
 }
 
+int Item::componentValue(float baseCostMultiplier) const {
+    static constexpr int kCostPerComponent = 20;
+    return std::max(cost(baseCostMultiplier) / kCostPerComponent, 1);
+}
+
+int Item::chemicalValue(float baseCostMultiplier) const {
+    static constexpr int kCostPerChemical = 2;
+    return std::max(cost(baseCostMultiplier) / kCostPerChemical, 1);
+}
+
+bool Item::hasInstalledUpgrade() const {
+    return std::any_of(_upgradeSlots.begin(), _upgradeSlots.end(), [](const std::optional<int> &slot) { return slot.has_value(); });
+}
+
 void Item::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> uti(_services.resource.gffs.get(resRef, ResType::Uti));
     if (uti) {
@@ -143,6 +157,19 @@ void Item::deserializeAll(
     gff.readBool(_stolen, "Stolen");
     gff.readWord(_stackSize, "StackSize");
     gff.readDword(_upgrades, "Upgrades");
+    if (_game.isTSL()) {
+        // A record without an upgrade level takes it from the item's upgrades.
+        auto level = static_cast<uint8_t>(_upgrades);
+        gff.readByte(level, "UpgradeLevel");
+        _upgradeLevel = level;
+        // A slot the record leaves out, or gives a negative row, is empty, even
+        // when an earlier read filled it.
+        for (size_t slot = 0; slot < _upgradeSlots.size(); ++slot) {
+            int32_t row = kSavedEmptyUpgradeSlot;
+            gff.readInt(row, "UpgradeSlot" + std::to_string(slot));
+            _upgradeSlots[slot] = row >= 0 ? std::optional<int> {row} : std::nullopt;
+        }
+    }
 
     gff.readBool(_identified, "Identified");
     gff.readByte(_modelVariation, "ModelVariation");
@@ -353,6 +380,8 @@ void Item::clone(const Item &from) {
     _stolen = from._stolen;
     _stackSize = from._stackSize;
     _upgrades = from._upgrades;
+    _upgradeLevel = from._upgradeLevel;
+    _upgradeSlots = from._upgradeSlots;
     _identified = from._identified;
     _modelVariation = from._modelVariation;
     _bodyVariation = from._bodyVariation;

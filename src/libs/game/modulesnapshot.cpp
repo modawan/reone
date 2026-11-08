@@ -1068,6 +1068,21 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newByte("Stolen", item._stolen));
     put(*result, Gff::Field::newWord("StackSize", item._stackSize));
     put(*result, Gff::Field::newDword("Upgrades", item._upgrades));
+    if (_game.isTSL()) {
+        put(*result, Gff::Field::newByte("UpgradeLevel", static_cast<uint8_t>(item._upgradeLevel)));
+        // An empty slot is saved as kSavedEmptyUpgradeSlot. A slot holding
+        // upgrade.2da row 0 is left out, so that upgrade comes back from a
+        // save as an empty slot.
+        for (size_t slot = 0; slot < item._upgradeSlots.size(); ++slot) {
+            const auto label = "UpgradeSlot" + std::to_string(slot);
+            const int row = item._upgradeSlots[slot].value_or(Item::kSavedEmptyUpgradeSlot);
+            if (row != 0) {
+                put(*result, Gff::Field::newInt(label, row));
+            } else {
+                removeSaveField(*result, label);
+            }
+        }
+    }
     put(*result, Gff::Field::newByte("Identified", item._identified));
     put(*result, Gff::Field::newByte("ModelVariation", item._modelVariation));
     put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
@@ -1185,6 +1200,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     }
     put(record, Gff::Field::newDword("Experience", static_cast<uint32_t>(creature._xp)));
     put(record, Gff::Field::newInt("JoiningXP", creature._joiningXP));
+    // A record holds the creature's own counts, never the party's.
+    put(record, Gff::Field::newDword("Gold", static_cast<uint32_t>(creature._gold)));
+    if (_game.isTSL()) {
+        put(record, Gff::Field::newDword("ItemComponent", static_cast<uint32_t>(creature._components)));
+        put(record, Gff::Field::newDword("Chemicals", static_cast<uint32_t>(creature._chemicals)));
+    }
     put(record, Gff::Field::newByte("GoodEvil", creature._goodEvil));
     // A field label holds sixteen characters, so the base alignment's is cut short.
     if (_game.isTSL()) {

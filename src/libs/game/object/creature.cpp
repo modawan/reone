@@ -9295,6 +9295,19 @@ void Creature::takeGold(int amount) {
     _gold -= amount;
 }
 
+int Creature::craftingCount(CraftingCount count) const {
+    return count == CraftingCount::Components ? _components : _chemicals;
+}
+
+void Creature::setCraftingCount(CraftingCount count, int value) {
+    (count == CraftingCount::Components ? _components : _chemicals) =
+        std::min(value, kMaxHeldCount);
+}
+
+void Creature::clearHeldCounts() {
+    _gold = _components = _chemicals = 0;
+}
+
 glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt) {
     glm::vec3 desiredForce = glm::normalize(next - _position);
     glm::vec3 keepoutForce = computeKeepoutForce(uni, _position);
@@ -11070,6 +11083,19 @@ void Creature::deserializeAll(
         _xp = static_cast<int>(experience);
     }
     gff.readInt(_joiningXP, "JoiningXP");
+    // The credits, components and chemicals the creature holds itself; a
+    // record never holds the party's. Each is a signed count, held up to
+    // kMaxHeldCount as when it is set.
+    auto readHeldCount = [&gff](int &count, std::string_view label) {
+        auto value = static_cast<uint32_t>(count);
+        gff.readDword(value, label);
+        count = std::min(static_cast<int>(value), kMaxHeldCount);
+    };
+    readHeldCount(_gold, "Gold");
+    if (_game.isTSL()) {
+        readHeldCount(_components, "ItemComponent");
+        readHeldCount(_chemicals, "Chemicals");
+    }
 
     gff.readResRef(_onNotice, "ScriptOnNotice");
     gff.readResRef(_onSpellAt, "ScriptSpellAt");

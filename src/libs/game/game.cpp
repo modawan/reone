@@ -2494,6 +2494,9 @@ void Game::publishPartyRuntimeState(
     }
 
     auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
+    // The player record a module starts with is read as a party member's: the
+    // party's counts are its counts, and it keeps none of the record's own.
+    modulePlayer->clearHeldCounts();
     modulePlayer->captureSaveRecord(
         *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
     if (modulePlayer->tag().empty()) {

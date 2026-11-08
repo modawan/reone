@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <array>
 #include <limits>
+#include <optional>
 
 #include "reone/audio/clip.h"
 #include "reone/audio/source.h"
@@ -91,6 +93,11 @@ public:
 
     /** The template of a stack of credits. */
     static constexpr char kCreditsResRef[] = "g_i_credits001";
+
+    /** TSL: the upgrade slots of an item. */
+    static constexpr int kUpgradeSlotCount = 6;
+    /** TSL: the upgrade.2da row an empty upgrade slot is saved with. */
+    static constexpr int kSavedEmptyUpgradeSlot = -1;
 
     /** Who a base item is limited to (baseitems.2da DroidOrHuman). */
     enum class DroidOrHuman {
@@ -248,6 +255,10 @@ public:
     int baseItemType() const { return _baseItem; }
     /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
     int cost(float baseCostMultiplier) const;
+    /** TSL: what the item is worth in components at a workbench: a twentieth of its cost, at least 1. */
+    int componentValue(float baseCostMultiplier) const;
+    /** TSL: what the item is worth in chemicals at a lab station: half its cost, at least 1. */
+    int chemicalValue(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
     /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
     int storePanelSort() const { return _storePanelSort; }
@@ -335,6 +346,12 @@ public:
      */
     int armorValue(bool installedUpgradesOnly) const;
     uint32_t upgrades() const { return _upgrades; }
+    /** TSL: the item's upgrade level. */
+    int upgradeLevel() const { return _upgradeLevel; }
+    /** TSL: the upgrade.2da row installed in each of the item's slots; none when a slot is empty. */
+    const std::array<std::optional<int>, kUpgradeSlotCount> &upgradeSlots() const { return _upgradeSlots; }
+    /** TSL: whether any of the item's slots holds an upgrade. */
+    bool hasInstalledUpgrade() const;
 
     /** Latches set by applying an item property, which removing it does not clear. */
     void enableSniperBonus() { _sniperBonus = true; }
@@ -379,6 +396,8 @@ private:
     bool _stolen {false};
     uint16_t _stackSize {1};
     uint32_t _upgrades {0};
+    int _upgradeLevel {0};
+    std::array<std::optional<int>, kUpgradeSlotCount> _upgradeSlots {};
     bool _identified {true};
     bool _infinite {false};
     uint8_t _modelVariation {0};
