@@ -98,3 +98,33 @@ TEST(Pathfinder, should_find_shortest_path) {
         0, 7, 6, 5};
     EXPECT_EQ(astarPath.faces, expectedPath);
 }
+
+// A flat room's box has no height. A position a few centimetres above or below
+// its floor, within the lift of the downward cast, still lies on the floor and
+// a path leaves from it; a position half a metre up does not.
+TEST(Pathfinder, a_position_just_off_a_flat_floor_lies_on_it) {
+    Pathfinder pf;
+    pf.uni.vertices = {
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 2.0f, 0.0f},
+        {10.0f, 2.0f, 0.0f},
+        {10.0f, 0.0f, 0.0f},
+    };
+    pf.uni.faces = {
+        {{0, 1, 2}},
+        {{0, 2, 3}},
+    };
+    pf.uni.rooms = {{0, 2, {0.0f, 0.0f, 0.0f}, {10.0f, 2.0f, 0.0f}}};
+    for (Uniface &face : pf.uni.faces) {
+        for (uint32_t i = 0; i < 3; ++i) {
+            face.adjecent[i] = UINT32_MAX;
+        }
+    }
+    uniwalkFinalize(pf.uni);
+
+    const glm::vec3 dest {9.0f, 1.0f, 0.0f};
+    EXPECT_TRUE(pathExists(pf, glm::vec3(1.0f, 1.0f, 0.0f), dest));
+    EXPECT_TRUE(pathExists(pf, glm::vec3(1.0f, 1.0f, 0.05f), dest));
+    EXPECT_TRUE(pathExists(pf, glm::vec3(1.0f, 1.0f, -0.05f), dest));
+    EXPECT_FALSE(pathExists(pf, glm::vec3(1.0f, 1.0f, 0.5f), dest));
+}
