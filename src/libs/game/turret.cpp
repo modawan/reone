@@ -91,6 +91,18 @@ std::string gunBankHookName(uint32_t bankId) {
     return str(boost::format("gunbank%u") % bankId);
 }
 
+// The first of a follower's models that carries a gun bank's hook: the hook
+// is not always on the follower's first model.
+ModelSceneNode *gunBankMount(const std::vector<std::shared_ptr<ModelSceneNode>> &models, uint32_t bankId) {
+    const auto hook = gunBankHookName(bankId);
+    for (const auto &model : models) {
+        if (model->getNodeByName(hook)) {
+            return model.get();
+        }
+    }
+    return nullptr;
+}
+
 glm::vec3 transformOrigin(const glm::mat4 &transform) {
     return glm::vec3(transform[3]);
 }
@@ -532,7 +544,7 @@ std::shared_ptr<ModelSceneNode> Turret::loadTrack(const std::string &resRef,
 }
 
 void Turret::loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
-                          ModelSceneNode &mount,
+                          const std::vector<std::shared_ptr<ModelSceneNode>> &models,
                           std::vector<GunBank> &out) {
     for (const auto &spec : specs) {
         GunBank bank;
@@ -554,8 +566,9 @@ void Turret::loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
         bank.spec.inaccuracy = glm::max(0.0f, bank.spec.inaccuracy);
         bank.timer = TurretGunTimer(bullet.rateOfFire);
         bank.modelNode = loadModel(spec.gunModelResRef);
-        if (bank.modelNode) {
-            mount.attach(gunBankHookName(spec.bankId), *bank.modelNode);
+        auto mount = gunBankMount(models, spec.bankId);
+        if (bank.modelNode && mount) {
+            mount->attach(gunBankHookName(spec.bankId), *bank.modelNode);
         }
         out.push_back(std::move(bank));
     }
@@ -730,7 +743,7 @@ bool Turret::loadPlayer() {
         }
     }
 
-    loadGunBanks(spec.gunBanks, *_turretRoot, player->gunBanks);
+    loadGunBanks(spec.gunBanks, player->models, player->gunBanks);
     player->scripts = spec.scripts;
     registerActor(*player);
     loadFollower(*player, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
@@ -774,7 +787,7 @@ void Turret::loadEnemies() {
             continue;
         }
         enemy->trackNode->attach(kModelHookName, *root);
-        loadGunBanks(spec.gunBanks, *root, enemy->gunBanks);
+        loadGunBanks(spec.gunBanks, enemy->models, enemy->gunBanks);
         enemy->scripts = spec.scripts;
         registerActor(*enemy);
         loadFollower(*enemy, spec.hitPoints, spec.maxHitPoints, spec.sphereRadius,
@@ -1348,8 +1361,8 @@ void Turret::updateEnemyFire(Follower &enemy, float dt) {
     for (auto &bank : enemy.gunBanks) {
         bank.timer.update(dt);
         glm::mat4 mount = root.absoluteTransform();
-        if (auto hook = root.getNodeByName(gunBankHookName(bank.spec.bankId))) {
-            mount = hook->absoluteTransform();
+        if (auto mountModel = gunBankMount(enemy.models, bank.spec.bankId)) {
+            mount = mountModel->getNodeByName(gunBankHookName(bank.spec.bankId))->absoluteTransform();
         }
         if (!targetable) {
             continue;
@@ -1841,17 +1854,19 @@ int Turret::Follower::gunBankCount() const {
 
 void Turret::setGunModel(Follower &follower, GunBank &gunBank, const std::string &resRef) {
     gunBank.spec.gunModelResRef = resRef;
-    if (follower.models.empty()) {
+    auto mount = gunBankMount(follower.models, gunBank.spec.bankId);
+    if (!mount) {
         return;
     }
     auto model = loadModel(resRef);
     if (!model) {
         return;
     }
-    auto &mount = *follower.models.front();
     const auto hook = gunBankHookName(gunBank.spec.bankId);
-    clearHook(follower.models.front(), hook);
-    mount.attach(hook, *model);
+    if (auto hookNode = mount->getNodeByName(hook)) {
+        hookNode->removeAllChildren();
+    }
+    mount->attach(hook, *model);
     gunBank.modelNode = std::move(model);
 }
 

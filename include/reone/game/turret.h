@@ -337,8 +337,9 @@ bool rayIntersectsSphere(const glm::vec3 &origin,
  *
  * Player models are split by the .are "RotatingModel" flag: flagged models (the
  * gun, the HUD panes) follow the aim, the rest (the Ebon Hawk hull) stay fixed
- * in the track frame. Gun banks mount on the rotating group's "gunbankN" hooks
- * and spawn bullets from the gun model's "bullethook0".
+ * in the track frame. Gun banks mount on the "gunbankN" hooks of whichever of
+ * the actor's models carries them, and spawn bullets from the gun model's
+ * "bullethook0".
  *
  * The module's scripts drive it. The player, each enemy and each obstacle of
  * the area layout is an object its scripts run as and the SWMG routines take.
@@ -706,8 +707,9 @@ private:
      * "die" animation still plays on top. Safe to call twice.
      */
     void detachFromTrack(Follower &follower);
+    /** Mounts each bank's gun on the first of \p models that carries the bank's hook. */
     void loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
-                      scene::ModelSceneNode &mount,
+                      const std::vector<std::shared_ptr<scene::ModelSceneNode>> &models,
                       std::vector<GunBank> &out);
 
     // Simulation
