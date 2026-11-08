@@ -325,6 +325,8 @@ static const char *screenName(Game::Screen screen) {
         return "Conversation";
     case Game::Screen::Container:
         return "Container";
+    case Game::Screen::Store:
+        return "Store";
     case Game::Screen::PartySelection:
         return "PartySelection";
     case Game::Screen::SaveLoad:
@@ -354,6 +356,7 @@ static bool pausesWorld(Game::Screen screen) {
     case Game::Screen::CharacterGeneration:
     case Game::Screen::InGameMenu:
     case Game::Screen::Container:
+    case Game::Screen::Store:
     case Game::Screen::PartySelection:
     case Game::Screen::SaveLoad:
     case Game::Screen::GalaxyMap:
@@ -2060,6 +2063,7 @@ void Game::retireRuntimeSession() {
     _dialog.reset();
     _computer.reset();
     _container.reset();
+    _storeGUI.reset();
     _partySelect.reset();
 
     if (_map) {
@@ -3194,6 +3198,7 @@ bool Game::hasModalPanel() const {
     switch (_screen) {
     case Screen::InGameMenu:
     case Screen::Container:
+    case Screen::Store:
     case Screen::PartySelection:
     case Screen::SaveLoad:
     case Screen::PazaakWager:
@@ -8042,6 +8047,31 @@ void Game::closeContainer(const Object &container) {
     }
 }
 
+void Game::openStore(const std::shared_ptr<Store> &store) {
+    if (!_module || _screen == Screen::InGameMenu || _dialogUnderWay || !_storeGUI) {
+        return;
+    }
+    stopMovement();
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    _storeGUI->open(store);
+    if (_screen != Screen::Store) {
+        _storeUnderneath = _screen;
+    }
+    changeScreen(Screen::Store);
+    if (auto clip = _services.game.guiSounds.getPanelAdded()) {
+        _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    }
+}
+
+void Game::closeStore() {
+    if (_storeUnderneath == Screen::InGame) {
+        openInGame();
+    } else {
+        changeScreen(_storeUnderneath);
+    }
+}
+
 void Game::openPartySelection(const PartySelectionContext &ctx) {
     stopMovement();
     setRelativeMouseMode(false);
@@ -8994,6 +9024,9 @@ void Game::loadInGameMenus() {
     if (!_container) {
         _container = tryLoadGUI<ContainerGUI>();
     }
+    if (!_storeGUI) {
+        _storeGUI = tryLoadGUI<StoreGUI>();
+    }
     if (!_partySelect) {
         _partySelect = tryLoadGUI<PartySelection>();
     }
@@ -9067,6 +9100,8 @@ GameGUI *Game::getScreenGUI() const {
         return _conversation;
     case Screen::Container:
         return _container.get();
+    case Screen::Store:
+        return _storeGUI.get();
     case Screen::PartySelection:
         return _partySelect.get();
     case Screen::SaveLoad:
@@ -9599,6 +9634,14 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
 void Game::closeMessagePopup() {
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->close();
+    }
+}
+
+static constexpr int kExamineCloseStrRef = 1582;
+
+void Game::showExamineBox(const std::string &message) {
+    if (showMessagePopup(message)) {
+        _confirmPopup->setConfirmText(_services.resource.strings.getText(kExamineCloseStrRef));
     }
 }
 

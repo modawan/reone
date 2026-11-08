@@ -48,6 +48,7 @@
 #include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
 #include "reone/game/projectiles.h"
@@ -1161,6 +1162,8 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         receiveItemEvent(event, savedEvent.caller);
     } else if (target.get() == this && type == Signal::ModuleLoaded) {
         receiveLoadedSignal(!event.integers.empty() && event.integers[0] != 0);
+    } else if (auto store = dyn_cast<Store>(target); store && type == Signal::InventoryOpened) {
+        store->onOpened(callerId());
     } else if (encounter && (type == Signal::Heartbeat || type == Signal::Entered || type == Signal::Exited ||
                              type == Signal::EncounterExhausted)) {
         if (type == Signal::Heartbeat) {

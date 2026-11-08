@@ -51,6 +51,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/sound.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routine/argutil.h"
@@ -626,10 +627,16 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
     item->setDropable(true);
     const std::string name = item->localizedName();
     // The object answered is the stack now holding the item, or none when the
-    // item was counted instead of kept.
-    auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
-    ctx.game.party().noteItemReceived(*item, *receiver, nullptr);
-    auto held = receiver->addItem(item);
+    // item was counted instead of kept. A store takes it in by its own rule,
+    // answering the item it filed, or none.
+    std::shared_ptr<Item> held;
+    if (auto store = dyn_cast<Store>(oTarget)) {
+        held = store->acquireItem(item);
+    } else {
+        auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
+        ctx.game.party().noteItemReceived(*item, *receiver, nullptr);
+        held = receiver->addItem(item);
+    }
     // An item created on a party member is reported in the status summary,
     // unless the script hides it.
     if (ctx.game.party().isMember(*oTarget) && !nHideMessage) {
@@ -4412,17 +4419,28 @@ static Variable GetHasSpell(const std::vector<Variable> &args, const RoutineCont
     return Variable::ofInt(creature && spell && creature->hasAffordableSpell(*spell));
 }
 
+// The bonuses stay on the store, each held to -100 to 100, and the store is
+// shown. Its open event comes from the player's creature, whether or not the
+// store could be shown.
 static Variable OpenStore(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oStore = getObject(args, 0, ctx);
-    auto oPC = getObject(args, 1, ctx);
+    auto oStore = getObjectOrNull(args, 0, ctx);
     auto nBonusMarkUp = getIntOrElse(args, 2, 0);
     auto nBonusMarkDown = getIntOrElse(args, 3, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("OpenStore");
+    auto store = oStore ? dyn_cast<Store>(oStore) : nullptr;
+    if (!store) {
+        return Variable::ofNull();
+    }
+    store->setBonusMarks(nBonusMarkUp, nBonusMarkDown);
+    ctx.game.openStore(store);
+    auto opener = ctx.game.party().getLeader();
+    ctx.game.queueScriptEvent(
+        *store,
+        opener ? std::optional<std::reference_wrapper<const Object>>(*opener) : std::nullopt,
+        Event(static_cast<int>(SavedSignalEventType::InventoryOpened)));
+    return Variable::ofNull();
 }
 
 // Any object with a faction names the faction to step through; only
