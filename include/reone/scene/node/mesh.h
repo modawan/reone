@@ -120,7 +120,7 @@ private:
     };
 
     struct SaberMesh {
-        glm::mat4 transform {1.0f};
+        glm::mat4 drawnTransform {1.0f};
         glm::mat4 prevTransform {1.0f};
         float trailSpan {0.0f};
     } _saber;

@@ -175,18 +175,17 @@ void MeshSceneNode::updateDanglyAnimation(float dt, const ModelNode::Danglymesh 
     _dangly.prevWorldPos = std::move(worldPos);
 }
 
-// A frame's trail starts where the blade was drawn the frame before. The pose
-// here is not yet final, since the body has moved but the arm has not swung;
-// it is kept only for a blade that is not drawn this frame.
+// A frame's trail starts where the blade was last drawn. Its pose for the frame
+// is final only once it is drawn: by now the body has moved, but the arm has
+// not yet swung.
 void MeshSceneNode::updateSaberAnimation(float dt) {
-    _saber.prevTransform = _saber.transform;
-    _saber.transform = _absTransform;
+    _saber.prevTransform = _saber.drawnTransform;
     _saber.trailSpan = kSaberTrailLife / glm::max(dt, kSaberMinFrameTime);
 }
 
 // The blur sweeps the blade over its last 12 ms of movement, behind it and as
-// far ahead, at any frame rate; a frame counts as at least 1 ms, so one that
-// took no time leaves a finite trail. A jump of more than a unit leaves none.
+// far ahead, at any frame rate. A frame counts as at least 1 ms, as the first
+// after a load takes none. A jump of more than a unit leaves no trail.
 glm::mat4 MeshSceneNode::saberTrailEnd() const {
     glm::vec3 jump = _absTransform[3] - _saber.prevTransform[3];
     if (glm::length(jump) > 1.0f) {
@@ -512,7 +511,7 @@ void MeshSceneNode::drawWithMaterial(IRenderPass &pass, Material &material) {
                         _absTransformInv,
                         positions);
     } else if (_modelNode.isSaberMesh()) {
-        _saber.transform = _absTransform;
+        _saber.drawnTransform = _absTransform;
         pass.drawSaber(*mesh->mesh,
                        material,
                        _absTransform,
