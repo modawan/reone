@@ -54,16 +54,17 @@ public:
         _resRef = guiResRef("confirm");
     }
 
-    /** Shows an OK box, in the given colours or the layout's. */
+    /** Shows an OK box, in the given colours or in those it has. */
     void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr,
               std::function<void()> onConfirm = {},
-              std::optional<PopupColors> colors = std::nullopt);
-    /** Shows an OK/Cancel box, in the given colours or the layout's. */
+              const std::optional<PopupColors> &colors = std::nullopt);
+    /** Shows an OK/Cancel box, in the given colours or in those it has. */
     void showConfirm(
         const std::string &message,
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {},
-        std::optional<PopupColors> colors = std::nullopt);
+        const std::optional<PopupColors> &colors = std::nullopt);
+    /** Closes the box; in TSL a box shown closes in the interface green and the highlight colour. */
     void hide();
     /** Close as its key would: cancelled when it offers Cancel, otherwise confirmed. */
     void close();
@@ -79,23 +80,11 @@ private:
         std::shared_ptr<gui::ListBox> LB_MESSAGE;
     };
 
-    /** The colours the layout gives the frame, the buttons and the message. */
-    struct LayoutColors {
-        glm::vec3 frame {1.0f};
-        glm::vec3 okBorder {1.0f};
-        glm::vec3 okText {1.0f};
-        glm::vec3 cancelBorder {1.0f};
-        glm::vec3 cancelText {1.0f};
-        glm::vec3 message {1.0f};
-    };
-
     Controls _controls;
     bool _visible {false};
     std::function<void()> _onConfirm;
     std::function<void()> _onCancel;
     std::string _defaultConfirmText;
-    /** The layout's own colours, each control's, put back for a box without colours of its own. */
-    LayoutColors _layoutColors;
 
     std::shared_ptr<gui::Control> _icon;
     /** The message shown, its tokens resolved. */
@@ -113,8 +102,8 @@ private:
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
-    /** Draws the box in the given colours, or in the layout's when none are given. */
-    void applyColors(const std::optional<PopupColors> &colors);
+    /** Draws the frame and the buttons' borders, and the message's and the buttons' text, in the given colours. */
+    void applyColors(const PopupColors &colors);
 
     /**
      * Shows a message, with OK and, when asked for, Cancel.
@@ -122,7 +111,7 @@ private:
      * @param message the message; its tokens are resolved
      * @param icon the icon shown above the message, if any
      * @param allowCancel whether Cancel is offered
-     * @param colors the colours the box is drawn in; none for the layout's
+     * @param colors the colours the box is drawn in; none for those it has
      */
     void open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel,
               const std::optional<PopupColors> &colors);

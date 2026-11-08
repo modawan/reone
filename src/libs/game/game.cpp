@@ -723,6 +723,13 @@ void Game::initTables() {
         _feedbackTexts.push_back(feedback->getIntOpt(row, "strref"));
     }
 
+    // What the lab station makes, which the workbench leaves out of its
+    // breakdown. A missing table, as in KotOR, has no rows.
+    _chemicalCreate = tsl ? twoDas.get("chemicalcreate") : nullptr;
+    if (!_chemicalCreate) {
+        _chemicalCreate = TwoDA::Builder().build();
+    }
+
     // A missing gender table has no rows.
     _genderLetters.clear();
     if (auto genders = twoDas.get("gender")) {
@@ -2036,6 +2043,7 @@ void Game::retireRuntimeSession() {
     _fadeArrivalModule.reset();
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
+    _stationReturnScreens.clear();
     _lastRenderedSceneOutput = nullptr;
 
     abortPazaak();
@@ -2526,7 +2534,14 @@ void Game::publishPartyRuntimeState(
         return;
     }
 
-    auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
+    // The player's record is read as a party member's.
+    const auto &playerRecord = *players.front();
+    auto modulePlayer = newObjectFromRecord<Creature>(
+        playerRecord, moduleIdentityContext,
+        [&playerRecord, &moduleIdentityContext](Creature &creature) {
+            creature.deserializeAsPartyMember(playerRecord, moduleIdentityContext);
+        },
+        std::string(kSceneMain), *this, _services);
     modulePlayer->captureSaveRecord(
         *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
     if (modulePlayer->tag().empty()) {
@@ -2546,8 +2561,6 @@ void Game::publishPartyRuntimeState(
     }
 
     _party.setPlayer(modulePlayer);
-    // The record's own counts are dropped before its creature joins the party.
-    _party.readPlayerAsMember();
     _party.setActualPlayer(actualPlayer);
     if (partyState.controlledNpc != -1 &&
         !_party.bindRosterCreature(
@@ -8320,6 +8333,9 @@ void Game::openGalaxyMap(int initialPlanet) {
         // The travel script this panel dispatched must not reopen it.
         return;
     }
+    if (!canPanelTakeScreenFrom(_screen)) {
+        return;
+    }
     openPanelScreen(_galaxyMap, Screen::GalaxyMap, [initialPlanet](GalaxyMap &map) {
         // The panel decides what the routine's planet means: K2 has to record
         // where the party already is before anything can move the selection.
@@ -8327,17 +8343,42 @@ void Game::openGalaxyMap(int initialPlanet) {
     });
 }
 
-// A workbench is also opened from a conversation.
+// A workbench is also opened from a conversation, which waits under it.
 void Game::openUpgradeScreen(UpgradeScreenRequest request) {
-    openPanelScreen(_upgradeSelection, Screen::UpgradeSelection, [&request](UpgradeSelectionGUI &workbench) {
+    // Each opening makes the workbench afresh; one already open is left as it is.
+    if (_stationReturnScreens.count(Screen::UpgradeSelection) == 0) {
+        _upgradeSelection.reset();
+    }
+    openStationScreen(_upgradeSelection, Screen::UpgradeSelection, [&request](UpgradeSelectionGUI &workbench) {
         workbench.open(std::move(request));
     });
 }
 
 void Game::openLabStation(std::shared_ptr<Creature> character) {
-    openPanelScreen(_labStation, Screen::LabStation, [&character](LabStationPanel &station) {
+    openStationScreen(_labStation, Screen::LabStation, [&character](LabStationPanel &station) {
         station.open(character);
     });
+}
+
+void Game::closeStation(Screen station) {
+    auto found = _stationReturnScreens.find(station);
+    // A station closed already has nothing to return to.
+    if (found == _stationReturnScreens.end()) {
+        return;
+    }
+    const Screen underneath = found->second;
+    _stationReturnScreens.erase(found);
+    // A conversation that a reply's script ended under the station is gone.
+    const bool conversationGone = underneath == Screen::Conversation && !_conversation->isOpen();
+    if (underneath == Screen::InGame || conversationGone) {
+        openInGame();
+        return;
+    }
+    changeScreen(underneath);
+}
+
+bool Game::holdsConversation() const {
+    return pausesWorld(_screen);
 }
 
 void Game::serializePazaakPartyTable(resource::Gff &ptGff) const {
@@ -9690,7 +9731,7 @@ bool Game::showMessagePopup(
     const std::string &message,
     std::shared_ptr<Texture> icon,
     std::function<void()> onConfirm,
-    std::optional<PopupColors> colors) {
+    const std::optional<PopupColors> &colors) {
     if (!_confirmPopup) {
         _confirmPopup = tryLoadGUI<ConfirmPopup>();
     }
@@ -9729,7 +9770,7 @@ bool Game::showConfirmPopup(
     const std::string &message,
     std::function<void()> onConfirm,
     std::function<void()> onCancel,
-    std::optional<PopupColors> colors) {
+    const std::optional<PopupColors> &colors) {
     if (!_confirmPopup) {
         _confirmPopup = tryLoadGUI<ConfirmPopup>();
     }

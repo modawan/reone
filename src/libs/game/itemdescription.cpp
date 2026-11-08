@@ -79,6 +79,10 @@ constexpr int kSkillsStrRef = 41936;
 constexpr int kVulnerabilityStrRef = 41898;
 constexpr int kForceResistanceStrRef = 41930;
 constexpr int kUseLimitationStrRef = 41934;
+/** The header of an upgrade row's keyed properties. */
+constexpr int kKeyedHeaderStrRef = 1545;
+/** The attack bonus an enhancement names. */
+constexpr int kEnhancementAttackStrRef = 375;
 
 // The damage kinds of a weapon, named in this order.
 constexpr std::pair<int, int> kDamageTypeNames[] {
@@ -237,6 +241,42 @@ public:
         return text;
     }
 
+    /**
+     * The properties keyed to an upgrade row, active or not: a header, then a
+     * line for each property in ascending order, every line ending in a line
+     * break; nothing when no property is keyed to it. An enhancement names its
+     * attack and damage bonus, and an enhancement of no bonus an empty line.
+     */
+    std::string buildKeyedText(int row) const {
+        std::vector<std::string> lines;
+        for (const auto &property : _item.properties()) {
+            if (property.upgradeType != row) {
+                continue;
+            }
+            if (type(property) == static_cast<int>(ItemProperty::EnhancementBonus)) {
+                std::string line;
+                if (property.costValue > 0) {
+                    const auto bonus = " +" + std::to_string(property.costValue);
+                    line = gui(kEnhancementAttackStrRef) + bonus + ", " + gui(kDamageStrRef) + bonus;
+                }
+                lines.push_back(std::move(line));
+                continue;
+            }
+            if (auto line = keyedPropertyLine(property)) {
+                lines.push_back(std::move(*line));
+            }
+        }
+        if (lines.empty()) {
+            return "";
+        }
+        std::sort(lines.begin(), lines.end());
+        std::string text = gui(kKeyedHeaderStrRef) + ":\n";
+        for (const auto &line : lines) {
+            text += line + "\n";
+        }
+        return text;
+    }
+
 private:
     const Item &_item;
     const Game &_game;
@@ -321,6 +361,58 @@ private:
             }
         }
         return strings;
+    }
+
+    /**
+     * A keyed property's line: its name, a colon when it has a subtype,
+     * cost or parameter table, then the names of its subtype, cost and
+     * parameter, each after a space and joined by commas. A subtype's own
+     * cost or parameter table replaces the property's; the physical damage
+     * kinds are named as one. None when the property has no name or its
+     * subtype table does not load.
+     */
+    std::optional<std::string> keyedPropertyLine(const Item::PropertyEntry &property) const {
+        auto definitions = requiredTable("itempropdef");
+        const int kind = type(property);
+        const auto nameStrRef = definitions->getIntOpt(kind, "name");
+        if (!nameStrRef) {
+            return std::nullopt;
+        }
+        const auto subtypeResRef = definitions->getString(kind, "subtyperesref");
+        int costTableIndex = definitions->getIntOpt(kind, "costtableresref").value_or(0);
+        auto paramTableIndex = definitions->getIntOpt(kind, "param1resref");
+        std::string line = gui(*nameStrRef);
+        if (!subtypeResRef.empty() || costTableIndex != 0 || paramTableIndex) {
+            line += ":";
+        }
+        if (!subtypeResRef.empty()) {
+            const auto subtypes = _services.resource.twoDas.get(boost::to_lower_copy(subtypeResRef));
+            if (!subtypes) {
+                return std::nullopt;
+            }
+            const int subtype = property.subtype;
+            if (const int subtypeCostTable = subtypes->getIntOpt(subtype, "costtableresref").value_or(0); subtypeCostTable != 0) {
+                costTableIndex = subtypeCostTable;
+            }
+            if (const auto subtypeParamTable = subtypes->getIntOpt(subtype, "param1resref")) {
+                paramTableIndex = subtypeParamTable;
+            }
+            const bool physical = kind == static_cast<int>(ItemProperty::DamageBonus) && subtype <= kLastPhysicalDamageSubtype;
+            line += " " + gui(physical ? kPhysicalDamageStrRef : subtypes->getIntOpt(subtype, "name").value_or(-1));
+            if (costTableIndex != 0 || paramTableIndex) {
+                line += ",";
+            }
+        }
+        if (costTableIndex != 0) {
+            line += " " + gui(costTable(costTableIndex)->getIntOpt(property.costValue, "name").value_or(-1));
+            if (paramTableIndex) {
+                line += ",";
+            }
+        }
+        if (paramTableIndex) {
+            line += " " + gui(paramTable(*paramTableIndex)->getIntOpt(property.paramValue, "name").value_or(-1));
+        }
+        return line;
     }
 
     // The damage a damage cost value adds, as {minimum, maximum}. A row
@@ -1149,6 +1241,10 @@ std::string buildItemPropertyLines(
     ServicesView &services,
     const std::function<bool(const Item::PropertyEntry &)> &include) {
     return ItemDescriptionBuilder(item, game, services).buildPropertyLines(include);
+}
+
+std::string buildKeyedPropertyText(const Item &item, int row, const Game &game, ServicesView &services) {
+    return ItemDescriptionBuilder(item, game, services).buildKeyedText(row);
 }
 
 } // namespace game

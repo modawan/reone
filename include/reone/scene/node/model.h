@@ -245,6 +245,8 @@ public:
     // Attachments
 
     void attach(const std::string &parentName, SceneNode &node);
+    /** Takes the node off the part it is attached to; a node not attached to this model stays where it is. */
+    void detach(SceneNode &node);
 
     SceneNode *getAttachment(const std::string &parentName);
 

@@ -444,14 +444,14 @@ public:
     void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
 
     /**
-     * Show a message box dismissed with OK, in the given colours or the
-     * layout's. False when the popup cannot be loaded.
+     * Show a message box dismissed with OK, in the given colours or in those
+     * the box has. False when the popup cannot be loaded.
      */
     bool showMessagePopup(
         const std::string &message,
         std::shared_ptr<graphics::Texture> icon = nullptr,
         std::function<void()> onConfirm = {},
-        std::optional<PopupColors> colors = std::nullopt);
+        const std::optional<PopupColors> &colors = std::nullopt);
     /**
      * TSL: a script's message box, showing \p text with the icon
      * \p iconResRef when it names one. Play pauses while it shows, unless it
@@ -459,14 +459,14 @@ public:
      */
     void showScriptMessageBox(const std::string &text, const std::string &iconResRef = "");
     /**
-     * Show a Yes/No message box, in the given colours or the layout's. False
-     * when the popup cannot be loaded.
+     * Show a Yes/No message box, in the given colours or in those the box
+     * has. False when the popup cannot be loaded.
      */
     bool showConfirmPopup(
         const std::string &message,
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {},
-        std::optional<PopupColors> colors = std::nullopt);
+        const std::optional<PopupColors> &colors = std::nullopt);
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
     /**
@@ -604,12 +604,20 @@ public:
     bool isTravelScriptRunning() const;
     /** KotOR: the map's return to base closes the menu and runs its script. */
     void returnToBase();
-    /** Whether a panel a script opens (the galaxy map, a workbench, a lab station) may take the screen over from the given one. */
+    /** Whether the galaxy map may take the screen over from the given one. */
     static bool canPanelTakeScreenFrom(Screen screen);
-    /** Opens a workbench's upgrade-selection screen for a script's request, unless the screen can't be taken over. */
+    /** Opens a workbench's upgrade-selection screen for a script's request over whatever is shown, unless a workbench is open. */
     void openUpgradeScreen(UpgradeScreenRequest request);
-    /** TSL: opens a lab station for the creature, unless the screen can't be taken over. */
+    /** TSL: opens a lab station for the creature over whatever is shown, unless a lab station is open. */
     void openLabStation(std::shared_ptr<Creature> character);
+    /**
+     * Closes the open crafting station shown as \p station: the screen it was
+     * opened over comes back, or the world when that was a conversation that
+     * has ended meanwhile.
+     */
+    void closeStation(Screen station);
+    /** Whether a conversation's next step waits: a screen that pauses the world is shown over it. */
+    bool holdsConversation() const;
 
     // KotOR I Pazaak lifecycle
 
@@ -922,6 +930,8 @@ public:
     bool requestTutorialWindow(int id, std::function<void()> onClosed);
     /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
     std::optional<int> feedbackTextStrRef(int row) const;
+    /** ChemicalCreate: what the lab station makes. It has no rows when the table is missing, as in KotOR. */
+    std::shared_ptr<resource::TwoDA> chemicalCreate() const { return _chemicalCreate; }
     /**
      * The gender letter worn and held item models are named with: the first
      * letter of the gender.2da GENDER cell of the leader's gender, or M with
@@ -1753,6 +1763,8 @@ private:
     std::vector<std::optional<int>> _feedbackTexts;
     /** The trap types of traps.2da, by row. */
     std::vector<TrapTypeRow> _trapTypes;
+    /** ChemicalCreate, read at start-up. */
+    std::shared_ptr<resource::TwoDA> _chemicalCreate;
     /** The first letter of each gender.2da row's GENDER cell; none where blank. */
     std::vector<std::optional<char>> _genderLetters;
 
@@ -2080,6 +2092,8 @@ private:
     bool _runningReturnScript {false};
     std::unique_ptr<UpgradeSelectionGUI> _upgradeSelection;
     std::unique_ptr<LabStationPanel> _labStation;
+    /** The screen each open crafting station was opened over, by the station's screen. */
+    std::map<Screen, Screen> _stationReturnScreens;
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
@@ -2234,6 +2248,21 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         Args &&...args) {
+        return newObjectFromRecord<T>(
+            gff, identityContext,
+            [&gff, &identityContext](T &object) { object.deserialize(gff, identityContext); },
+            std::forward<Args>(args)...);
+    }
+    /**
+     * An object made from a record: \p read reads the record into it once
+     * the record's saved identity is registered.
+     */
+    template <class T, class Read, class... Args>
+    inline std::shared_ptr<T> newObjectFromRecord(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        Read &&read,
+        Args &&...args) {
         std::vector<std::shared_ptr<Object>> noObsolete;
         std::shared_ptr<T> object;
         replaceRuntimeObjectGraph(
@@ -2244,7 +2273,7 @@ private:
                     registerSavedObjectIdentity(
                         savedObjectId(gff), object, identityContext);
                 }
-                object->deserialize(gff, identityContext);
+                read(*object);
             },
             []() noexcept {});
         return object;
@@ -2413,27 +2442,41 @@ private:
 
     /**
      * Gives the screen to a panel a script opens, loading the panel on first
-     * use; prepare readies it first. The screen stays as it is when it can't be
-     * taken over or the panel won't load.
+     * use; prepare readies it first. The screen stays as it is when the panel
+     * won't load.
+     * @return whether the panel took the screen
      */
     template <class T, class Prepare>
-    void openPanelScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
-        if (!canPanelTakeScreenFrom(_screen)) {
-            return;
-        }
+    bool openPanelScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
         if (!panel) {
             panel = tryLoadGUI<T>();
         }
         if (!panel) {
             // A panel that will not load must not take the screen away from
             // whatever is on it.
-            return;
+            return false;
         }
         stopMovement();
         setRelativeMouseMode(false);
         setCursorType(resource::CursorType::Default);
         prepare(*panel);
         changeScreen(screen);
+        return true;
+    }
+
+    /**
+     * Opens a crafting station's panel as \p screen over whatever is shown,
+     * remembering that screen for its close, unless the station is open.
+     */
+    template <class T, class Prepare>
+    void openStationScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
+        if (_stationReturnScreens.count(screen) > 0) {
+            return;
+        }
+        const Screen underneath = _screen;
+        if (openPanelScreen(panel, screen, prepare)) {
+            _stationReturnScreens[screen] = underneath;
+        }
     }
 
     // END GUI

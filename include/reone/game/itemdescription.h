@@ -46,6 +46,15 @@ std::string buildItemPropertyLines(
     ServicesView &services,
     const std::function<bool(const Item::PropertyEntry &)> &include);
 
+/**
+ * The item's properties keyed to an upgrade row, as a workbench names a slot's
+ * row: a header and the properties' lines in ascending order, each ending in a
+ * line break; empty when no property is keyed to the row.
+ *
+ * @param row the upgrade row the properties are keyed to
+ */
+std::string buildKeyedPropertyText(const Item &item, int row, const Game &game, ServicesView &services);
+
 } // namespace game
 
 } // namespace reone

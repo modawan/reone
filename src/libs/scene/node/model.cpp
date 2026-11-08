@@ -185,6 +185,17 @@ void ModelSceneNode::attach(const std::string &parentName, SceneNode &node) {
     computeAABB();
 }
 
+void ModelSceneNode::detach(SceneNode &node) {
+    for (auto it = _attachments.begin(); it != _attachments.end(); ++it) {
+        if (it->second == &node) {
+            _nodeByName.at(it->first)->removeChild(node);
+            _attachments.erase(it);
+            computeAABB();
+            return;
+        }
+    }
+}
+
 ModelNodeSceneNode *ModelSceneNode::getNodeByNumber(uint16_t number) {
     auto it = _nodeByNumber.find(number);
     return it != _nodeByNumber.end() ? it->second : nullptr;

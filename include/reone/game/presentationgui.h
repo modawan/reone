@@ -160,6 +160,8 @@ protected:
     virtual void configureControls() {}
     void onClick(const std::string &control) override;
     void onSelectionChanged(const std::string &control, bool selected) override;
+    /** Entering a control, or a list's row, plays the enter sound. */
+    void onEntered(const std::string &control) override;
 
     std::string guiResRef(const std::string &base) const;
 

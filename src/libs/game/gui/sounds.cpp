@@ -30,7 +30,8 @@ namespace game {
 
 /**
  * The guisounds.2da rows of the error, checkbox, full-screen panel shown and
- * taken away, action-menu use, action-menu scroll and inventory add sounds.
+ * taken away, action-menu use, action-menu scroll, inventory add and upgrade
+ * sounds.
  */
 static constexpr int kErrorSoundRow = 2;
 static constexpr int kCheckboxCheckSoundRow = 3;
@@ -39,6 +40,7 @@ static constexpr int kPanelRemovedSoundRow = 5;
 static constexpr int kActionMenuUseSoundRow = 6;
 static constexpr int kActionMenuScrollSoundRow = 7;
 static constexpr int kInventoryAddSoundRow = 9;
+static constexpr int kUpgradeSoundRow = 16;
 
 void GUISounds::init() {
     std::shared_ptr<TwoDA> sounds(_twoDas.get("guisounds"));
@@ -53,8 +55,6 @@ void GUISounds::init() {
     // An item chosen for, or cleared from, an equipment slot.
     loadSound(*sounds, "Inventory_Select", _inventorySelect);
     loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
-    // A workbench's upgrades assembled.
-    loadSound(*sounds, "Upgrade", _upgrade);
     // TSL only: the light and dark side stings.
     loadSound(*sounds, "DarkSide", _darkSide);
     loadSound(*sounds, "LightSide", _lightSide);
@@ -67,6 +67,8 @@ void GUISounds::init() {
     _panelAdded = _audioClips.get(sounds->getString(kPanelAddedSoundRow, "soundresref"));
     _panelRemoved = _audioClips.get(sounds->getString(kPanelRemovedSoundRow, "soundresref"));
     _inventoryAdd = _audioClips.get(sounds->getString(kInventoryAddSoundRow, "soundresref"));
+    // A workbench's upgrades assembled.
+    _upgrade = _audioClips.get(sounds->getString(kUpgradeSoundRow, "soundresref"));
 }
 
 void GUISounds::loadSound(const TwoDA &twoDa, const std::string &label, std::shared_ptr<AudioClip> &sound) {

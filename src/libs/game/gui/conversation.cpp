@@ -179,6 +179,7 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
 
     _paused = false;
     _endReached = false;
+    _open = true;
     _dialog = dialog;
     _owner = owner;
     _partner = listener;
@@ -495,6 +496,7 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     _replies.clear();
     stopVoice();
     resetEntryFade();
+    _open = false;
     onFinish();
     if (_generation != generation) {
         return;
@@ -544,6 +546,7 @@ void Conversation::cleanupForModuleTransition() {
     _game.setLeaderAnswersInDialog(false);
     _paused = false;
     _entryEnded = true;
+    _open = false;
     if (!_dialog) {
         return;
     }
@@ -1214,7 +1217,11 @@ void Conversation::pickReply(int index) {
         finish();
         return;
     }
-    if (!_endEntryTimer.elapsed() || isWaiting()) {
+    // The next entry waits for the reply's own hold and for a screen the
+    // reply's script opened that pauses the world, such as a station or party
+    // selection, to close; a reply leading nowhere has ended the conversation
+    // regardless.
+    if (_game.holdsConversation() || !_endEntryTimer.elapsed() || isWaiting()) {
         _pendingEntry = entryIdx;
         return;
     }
@@ -1342,19 +1349,14 @@ bool Conversation::acceptsSkip() const {
     return !_entryEnded || (_autoPickFirstReply && _pendingEntry);
 }
 
-// The row under a resting pointer is selected, with the sound of a newly
-// selected row.
+// The row under a resting pointer is selected; the list sounds a newly
+// selected row as it does for any move of the pointer.
 void Conversation::selectReplyUnderPointer() {
-    const auto list = replyList();
-    if (!list) {
+    if (!replyList()) {
         return;
     }
-    const int selected = list->selectedItemIndex();
     const glm::ivec2 pointer = _game.pointerPosition();
     _gui->handle(input::Event::newMouseMotion({pointer.x, pointer.y, 0.0f, 0.0f}));
-    if (list->selectedItemIndex() != selected) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
-    }
 }
 
 // A skip takes effect only in a skippable conversation and, in TSL, on an

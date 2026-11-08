@@ -44,6 +44,7 @@ constexpr char kSceneClassSelect[] = "classselect";
 constexpr char kScenePortraitSelect[] = "portraitselect";
 constexpr char kSceneCharacter[] = "character";
 constexpr char kSceneUpgrade[] = "upgrade";
+constexpr char kSceneUpgradeLightsaber[] = "upgradelightsaber";
 
 constexpr glm::vec3 kGUIColorBase = glm::vec3(0.0f, 0.639216f, 0.952941f);
 constexpr glm::vec3 kGUIColorHilight = glm::vec3(0.980392f, 1.0f, 0.0f);
@@ -84,6 +85,10 @@ constexpr glm::vec3 kTSLColorUpgradeText = glm::vec3(0.0f, 0.66f, 0.98f);
 constexpr glm::vec3 kTSLColorUpgradeBorder = glm::vec3(0.0f, 0.33f, 0.5f);
 /** The text colour of an entry that can't be chosen on TSL's crafting screens. */
 constexpr glm::vec3 kTSLColorDisabledText = glm::vec3(0.4f, 0.4f, 0.3f);
+/** TSL's interface green: frames, and the colour a message box takes when it closes. */
+constexpr glm::vec3 kTSLColorNewGreen = glm::vec3(0.05f, 0.35f, 0.27f);
+/** The border of a TSL crafting entry no table row names. */
+constexpr glm::vec3 kTSLColorDarkGold = glm::vec3(0.31f, 0.25f, 0.09f);
 
 enum class BackgroundType {
     None,
@@ -531,8 +536,13 @@ enum class Ability {
 /** The most credits, components or chemicals a creature or the party holds. */
 constexpr int kMaxHeldCount = 999999999;
 
-/** TSL: the two counts the crafting stations make items from and break items down into. */
-enum class CraftingCount {
+/**
+ * The counts a creature holds itself, and the party holds for its members:
+ * credits, and TSL's components and chemicals, which the crafting stations
+ * make items from and break items down into.
+ */
+enum class HeldCount {
+    Credits,
     Components,
     Chemicals
 };

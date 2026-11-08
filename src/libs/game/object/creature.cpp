@@ -1415,8 +1415,9 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     // deserialize the same data twice, doubling accumulated class levels.
     deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
     restoreSerializedVitality();
+    deserializeHeldCounts(*utc);
     deserializeOwnedItemsAndEquipment(*utc, SerializedIdentityContext::templateResource(resRef), false);
-    countLoadedItems();
+    countLoadedItems(false);
     updateTransform();
     loadAppearance();
     // A creature that comes into the world in stealth shows it arriving.
@@ -5446,21 +5447,21 @@ void Creature::removeDisguiseAppearance() {
 // she has turned to the dark side, and in any other armour the appearance
 // whose models fit the player's armour.
 static constexpr char kHandmaidenTag[] = "handmaiden";
-static constexpr char kHandmaidenClothingVariation = 'b';
+static constexpr int kHandmaidenClothingVariation = 1;
 static constexpr int kHandmaidenAppearance = 454;
 static constexpr int kHandmaidenDarkAppearance = 669;
 static constexpr int kHandmaidenArmouredAppearance = 638;
 static constexpr int kHandmaidenDarkAlignment = 40;
 // Body variations past L use the L models.
-static constexpr char kLastArmourModelVariation = 'l';
+static constexpr int kLastArmourModelVariation = 11;
 
 void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
     if (!_game.isTSL()) {
         return;
     }
-    char variation = 'a';
-    if (armour && !armour->baseBodyVariation().empty()) {
-        variation = std::min(armour->baseBodyVariation().front(), kLastArmourModelVariation);
+    int variation = 0;
+    if (armour) {
+        variation = std::min(armour->baseBodyVariation(), kLastArmourModelVariation);
     }
     if (armour && boost::iequals(_tag, kHandmaidenTag)) {
         if (variation == kHandmaidenClothingVariation) {
@@ -5474,11 +5475,7 @@ void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
             changeAppearance(kHandmaidenArmouredAppearance);
         }
     }
-    // A variation before A has no model column.
-    if (variation < 'a') {
-        return;
-    }
-    const int appearance = _armourAppearances[variation - 'a'];
+    const int appearance = _armourAppearances[variation];
     if (appearance != 0 && appearance != _appearance) {
         changeAppearance(appearance);
     }
@@ -9287,21 +9284,33 @@ void Creature::onEventSignalled(const std::string &name) {
     }
 }
 
-void Creature::giveGold(int amount) {
-    _gold += amount;
-}
-
 void Creature::takeGold(int amount) {
     _gold -= amount;
 }
 
-int Creature::craftingCount(CraftingCount count) const {
-    return count == CraftingCount::Components ? _components : _chemicals;
+int Creature::heldCount(HeldCount count) const {
+    switch (count) {
+    case HeldCount::Credits:
+        return _gold;
+    case HeldCount::Components:
+        return _components;
+    default:
+        return _chemicals;
+    }
 }
 
-void Creature::setCraftingCount(CraftingCount count, int value) {
-    (count == CraftingCount::Components ? _components : _chemicals) =
-        std::min(value, kMaxHeldCount);
+void Creature::setHeldCount(HeldCount count, int value) {
+    switch (count) {
+    case HeldCount::Credits:
+        _gold = value;
+        break;
+    case HeldCount::Components:
+        _components = value;
+        break;
+    default:
+        _chemicals = value;
+        break;
+    }
 }
 
 void Creature::clearHeldCounts() {
@@ -10702,9 +10711,8 @@ CreaturePresentation Creature::presentation() const {
     result.gender = static_cast<int>(_gender);
     result.appearance = _appearance;
     auto body = getEquippedItem(InventorySlots::body);
-    if (body && !body->baseBodyVariation().empty()) {
-        auto variation = boost::to_lower_copy(body->baseBodyVariation());
-        result.bodyVariation = variation.front() - 'a';
+    if (body) {
+        result.bodyVariation = body->baseBodyVariation();
         result.textureVariation = body->textureVariation();
     }
     return result;
@@ -10735,8 +10743,7 @@ std::string Creature::getBodyModelName() const {
         if (_presentation) {
             column += static_cast<char>('a' + _presentation->bodyVariation);
         } else if (bodyItem) {
-            std::string baseBodyVar(bodyItem->baseBodyVariation());
-            column += baseBodyVar;
+            column += static_cast<char>('a' + bodyItem->baseBodyVariation());
         } else {
             column += "a";
         }
@@ -10766,8 +10773,7 @@ std::string Creature::getBodyTextureName() const {
         if (_presentation) {
             column += static_cast<char>('a' + _presentation->bodyVariation);
         } else if (bodyItem) {
-            std::string baseBodyVar(bodyItem->baseBodyVariation());
-            column += baseBodyVar;
+            column += static_cast<char>('a' + bodyItem->baseBodyVariation());
         } else {
             column += "a";
         }
@@ -10878,6 +10884,19 @@ std::string Creature::getWeaponModelName(int slot) const {
 void Creature::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, false);
+}
+
+void Creature::deserializeAsPartyMember(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, true);
+}
+
+void Creature::deserializeRecord(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    bool partyMember) {
     std::string templateRes;
     std::shared_ptr<Gff> utc;
     if (!identityContext.isSerializedState() &&
@@ -10887,15 +10906,21 @@ void Creature::deserialize(
             deserializeAll(
                 *utc,
                 SerializedIdentityContext::templateResource(templateRes));
+            deserializeHeldCounts(*utc);
         }
     }
     // An entry placed from a template gives only where the creature stands
-    // and which way it faces, each missing value being 0.
+    // and which way it faces, each missing value being 0, and the creature
+    // keeps the template's counts; a party member's record holds none of its
+    // own.
     if (utc) {
         _position = glm::vec3(gff.getFloat("XPosition"), gff.getFloat("YPosition"), gff.getFloat("ZPosition"));
         setFacing(-glm::atan(gff.getFloat("XOrientation"), gff.getFloat("YOrientation")));
     } else {
         deserializeAll(gff, identityContext);
+        if (!partyMember) {
+            deserializeHeldCounts(gff);
+        }
     }
 
     // Vitality is rebuilt from the record before equipment is worn, so worn
@@ -10907,7 +10932,7 @@ void Creature::deserialize(
     } else {
         deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     }
-    countLoadedItems();
+    countLoadedItems(partyMember);
     // A reloaded corpse lies, without dying again, in the dead pose it was
     // saved in; one saved in no dead pose lies in the second.
     if (_dead) {
@@ -11075,19 +11100,6 @@ void Creature::deserializeAll(
         _xp = static_cast<int>(experience);
     }
     gff.readInt(_joiningXP, "JoiningXP");
-    // The credits, components and chemicals the creature holds itself; a
-    // record never holds the party's. Each is a signed count, held up to
-    // kMaxHeldCount as when it is set.
-    auto readHeldCount = [&gff](int &count, std::string_view label) {
-        auto value = static_cast<uint32_t>(count);
-        gff.readDword(value, label);
-        count = std::min(static_cast<int>(value), kMaxHeldCount);
-    };
-    readHeldCount(_gold, "Gold");
-    if (_game.isTSL()) {
-        readHeldCount(_components, "ItemComponent");
-        readHeldCount(_chemicals, "Chemicals");
-    }
 
     gff.readResRef(_onNotice, "ScriptOnNotice");
     gff.readResRef(_onSpellAt, "ScriptSpellAt");
@@ -11355,7 +11367,23 @@ void Creature::forceEquipClothing() {
     _game.finishEquip(*this, InventorySlots::body, clothing);
 }
 
-void Creature::countLoadedItems() {
+// The credits, components and chemicals the creature holds itself; a record
+// never holds the party's. Each is a signed count, held up to kMaxHeldCount as
+// when it is set.
+void Creature::deserializeHeldCounts(const resource::Gff &gff) {
+    auto readHeldCount = [&gff](int &count, std::string_view label) {
+        auto value = static_cast<uint32_t>(count);
+        gff.readDword(value, label);
+        count = std::min(static_cast<int>(value), kMaxHeldCount);
+    };
+    readHeldCount(_gold, "Gold");
+    if (_game.isTSL()) {
+        readHeldCount(_components, "ItemComponent");
+        readHeldCount(_chemicals, "Chemicals");
+    }
+}
+
+void Creature::countLoadedItems(bool partyMember) {
     std::vector<std::shared_ptr<Item>> counted;
     for (const auto &item : _items) {
         if (_game.party().isCountedItem(*item)) {
@@ -11387,7 +11415,11 @@ void Creature::countLoadedItems() {
             _itemAttributes = std::move(keptAttributes);
         });
     for (const auto &item : counted) {
-        _game.party().acquireCountedItem(*this, *item);
+        if (partyMember) {
+            _game.party().acquireCountedItemAsPlayer(*this, *item);
+        } else {
+            _game.party().acquireCountedItem(*this, *item);
+        }
     }
 }
 

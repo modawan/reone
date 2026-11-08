@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <limits>
 #include <optional>
 #include <set>
@@ -100,6 +101,13 @@ public:
     static constexpr int kUpgradeSlotCount = 6;
     /** TSL: the upgrade.2da row an empty upgrade slot is saved with. */
     static constexpr int kSavedEmptyUpgradeSlot = -1;
+    /**
+     * The upgrade.2da rows an item can have installed, 0 to 254: a property's
+     * upgrade type is a byte whose 255 keys it to no upgrade.
+     */
+    static constexpr int kUpgradeRowCount = 255;
+    /** The installed rows a record's Upgrades field holds, one bit each: rows 0 to 31. */
+    static constexpr int kRecordedUpgradeBits = 32;
 
     /** Who a base item is limited to (baseitems.2da DroidOrHuman). */
     enum class DroidOrHuman {
@@ -172,6 +180,11 @@ public:
     /** Reads the item's template; false when there is none. */
     bool loadFromBlueprint(const std::string &resRef);
     /**
+     * Makes a new item whose template is missing what such an item is: base
+     * item 30 in model variation 1, droppable, its tag, name and cost left empty.
+     */
+    void loadBlank();
+    /**
      * Reads a saved item record whole. Any other entry that names a template
      * (see entryTemplate) is that template with the entry's Dropable flag,
      * when it has one; an entry naming none is a whole item record.
@@ -201,7 +214,8 @@ public:
     /**
      * The item's model, named by its class and model variation. A base item
      * whose models differ by gender also names the given gender letter
-     * between the two; without a letter, no gender is named.
+     * between the two; without a letter, no gender is named. The name is
+     * cut to the length of a resource name.
      */
     std::string modelResRef(std::optional<char> genderLetter = std::nullopt) const;
 
@@ -237,7 +251,12 @@ public:
     /** A mine kit: a trap-kit base item carrying a usable Trap property. */
     bool isMineKit() const;
 
-    const std::string &baseBodyVariation() const { return _baseBodyVariation; }
+    /**
+     * The body variation of a body item's base item, 0 for the first (A): a
+     * single upper-case letter names one, KotOR's from A to J and TSL's from
+     * A to Z, and anything else, a blank cell included, names the first.
+     */
+    int baseBodyVariation() const { return _baseBodyVariation; }
     const std::string &itemClass() const { return _itemClass; }
     const std::string &localizedName() const { return _localizedName.str(); }
     float attackRange() const { return _attackRange; }
@@ -271,11 +290,22 @@ public:
     const std::string &description() const { return _description.str(); }
     const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
-    /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
+    /**
+     * The item's value: none when its plot value is exactly 1, else its added
+     * cost, a signed number, scaled by its base item and held within an int,
+     * and 1 when that is 0 or 1. KotOR raises a negative cost to 0; TSL keeps
+     * it negative.
+     */
     int cost(float baseCostMultiplier) const;
-    /** TSL: what the item is worth in components at a workbench: a twentieth of its cost, at least 1. */
+    /**
+     * TSL: what the item is worth in components at a workbench: a twentieth
+     * of its cost, and 1 below a cost of 20.
+     */
     int componentValue(float baseCostMultiplier) const;
-    /** TSL: what the item is worth in chemicals at a lab station: half its cost, at least 1. */
+    /**
+     * TSL: what the item is worth in chemicals at a lab station: half its
+     * cost, and 1 below a cost of 2.
+     */
     int chemicalValue(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
     /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
@@ -334,10 +364,12 @@ public:
     /** The On Hit properties in force, each with its save, chance and duration. */
     std::vector<ItemOnHitProperty> itemOnHitProperties() const;
 
-    /** Whether the item's upgrades leave the property in force. */
+    /**
+     * Whether the item's upgrades leave the property in force: one keyed to no
+     * upgrade always is, and one keyed to an upgrade.2da row while that row is
+     * installed.
+     */
     bool isPropertyActive(const PropertyEntry &property) const;
-    /** Whether the installed \p upgrades leave a property of \p upgradeType in force. */
-    static bool isPropertyActive(const std::set<int> &upgrades, int upgradeType);
 
     /** Codes 2 to 6: the property costs charges a use. */
     static constexpr bool isChargedUse(int costValue) {
@@ -363,11 +395,14 @@ public:
      * a bonus tied to an upgrade that is not installed is left out.
      */
     int armorValue(bool installedUpgradesOnly) const;
-    /** The upgrade.2da rows installed: a property of one of their upgrade types is in force. */
-    const std::set<int> &upgrades() const { return _upgrades; }
-    /** KotOR: installs or removes an upgrade.2da row. */
+    /** The installed upgrade.2da rows, one bit each. */
+    const std::bitset<kUpgradeRowCount> &upgrades() const { return _upgrades; }
+    /** KotOR: installs or removes an upgrade.2da row; a row past the rows an item can have does nothing. */
     void setUpgradeInstalled(int row, bool installed);
-    void setUpgrades(std::set<int> upgrades) { _upgrades = std::move(upgrades); }
+    /** Whether an upgrade.2da row is installed. */
+    bool isUpgradeInstalled(int row) const { return row >= 0 && row < kUpgradeRowCount && _upgrades.test(static_cast<size_t>(row)); }
+    /** Replaces the installed rows with another item's. */
+    void setUpgrades(const std::bitset<kUpgradeRowCount> &upgrades) { _upgrades = upgrades; }
     /** TSL: the item's upgrade level. */
     int upgradeLevel() const { return _upgradeLevel; }
     /** TSL: the upgrade.2da row installed in each of the item's slots; none when a slot is empty. */
@@ -386,6 +421,7 @@ public:
     void removeUpgrade(const Item &upgrade, int slot);
     /** Whether the item is marked stolen. */
     bool stolen() const { return _stolen; }
+    /** Marks the item stolen or not. */
     void setStolen(bool stolen) { _stolen = stolen; }
     /** TSL: whether any of the item's slots holds an upgrade. */
     bool hasInstalledUpgrade() const;
@@ -432,8 +468,14 @@ private:
     uint32_t _addCost {0};
     bool _stolen {false};
     uint16_t _stackSize {1};
-    std::set<int> _upgrades;
+    /** The installed upgrade.2da rows, each row its own bit. */
+    std::bitset<kUpgradeRowCount> _upgrades;
+    /**
+     * TSL: the item's upgrade level. An item at level 0 takes no upgrades; an
+     * upgrade fits an item whose level is at least its own.
+     */
     int _upgradeLevel {0};
+    /** TSL: the upgrade.2da row installed in each of the item's slots; none when a slot is empty. */
     std::array<std::optional<int>, kUpgradeSlotCount> _upgradeSlots {};
     bool _identified {true};
     bool _infinite {false};
@@ -456,7 +498,8 @@ private:
     // fallback preserves behavior for incomplete custom/test tables.
     uint16_t _maxStackSize {std::numeric_limits<uint16_t>::max()};
 
-    std::string _baseBodyVariation;
+    /** The base item's body variation, read when the base item loads; 0 for the first. */
+    int _baseBodyVariation {0};
     std::string _itemClass;
 
     std::shared_ptr<graphics::Texture> _icon;
@@ -508,8 +551,6 @@ private:
 
     /** Whether a property used once in so many minutes may be used again. */
     bool isUseIntervalOver(const PropertyEntry &property) const;
-    /** The installed upgrades as saved: a bit for each upgrade.2da row. */
-    uint32_t savedUpgrades() const;
 
     // Blueprint
     /**
@@ -523,6 +564,8 @@ private:
         bool completeRecord);
     void deserializeProperties(const resource::Gff &gff);
     void deserializeBase(const resource::Gff &gff);
+    /** Reads the base item's row of baseitems.2da. */
+    void loadBaseItem();
     void loadAmmunitionType();
     // END Blueprint
 };

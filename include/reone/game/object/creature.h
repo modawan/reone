@@ -553,6 +553,15 @@ public:
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /**
+     * Reads the record of the creature under control as a party member's: it
+     * keeps none of the credits, components or chemicals the record holds,
+     * and the counted items it carries become the party's, the player told
+     * each gain.
+     */
+    void deserializeAsPartyMember(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     /**
      * Invalidate state that only exists while this retained creature inhabits
@@ -2270,19 +2279,18 @@ public:
 
     // Gold
 
-    void giveGold(int amount);
     void takeGold(int amount);
 
     int gold() const { return _gold; }
-    /** TSL: the components or chemicals the creature holds itself, which count while it is outside the party. */
-    int craftingCount(CraftingCount count) const;
-    /** TSL: sets the components or chemicals the creature holds itself, up to kMaxHeldCount. */
-    void setCraftingCount(CraftingCount count, int value);
+    /** A count the creature holds itself, which counts while it is outside the party. */
+    int heldCount(HeldCount count) const;
+    /** Sets a count the creature holds itself. */
+    void setHeldCount(HeldCount count, int value);
     /**
      * The creature holds no credits, components or chemicals of its own. A
      * creature read as a party member keeps none of the counts its record
      * holds: the creature under control is read so whenever the party enters
-     * a module from a save or from another module.
+     * a module from another module.
      */
     void clearHeldCounts();
 
@@ -3318,9 +3326,23 @@ private:
     // END Animation
 
     // Blueprint
+    /**
+     * Reads a record and, when it names one, the template it is placed from.
+     *
+     * @param partyMember whether the record is read as a party member's
+     */
+    void deserializeRecord(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        bool partyMember);
     void deserializeAll(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /**
+     * The credits, components and chemicals a record says the creature holds
+     * itself, each a signed count held up to kMaxHeldCount.
+     */
+    void deserializeHeldCounts(const resource::Gff &gff);
     void deserializeName(const resource::Gff &gff);
     void deserializeSoundSet(const resource::Gff &gff);
     void deserializeAttributes(const resource::Gff &gff);
@@ -3358,8 +3380,14 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         bool placedTemplate);
-    /** Credits, chemicals, components and pazaak cards read into the inventory are acquired as counts. */
-    void countLoadedItems();
+    /**
+     * Credits, chemicals, components and pazaak cards read into the inventory
+     * are acquired as counts.
+     *
+     * @param partyMember whether the creature's record is read as a party
+     *        member's: its counts are then the party's
+     */
+    void countLoadedItems(bool partyMember);
     /**
      * Appends the effects \p item worn in \p slot gives; with
      * \p onlyDeferredEffects, only its armour class and disguise effects.

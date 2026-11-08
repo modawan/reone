@@ -382,6 +382,9 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
             }
         }
     }
+    // A companion already in the world that isn't travelling with the party
+    // hands the party its own counts and carried items as it takes control.
+    const bool wasListed = nNPC != kNpcPlayer && party.isMember(nNPC);
     // Every other companion travelling with the party leaves it, last first,
     // and its creature is taken out of the world. One the party refuses to
     // let go stays with it, and alive.
@@ -398,6 +401,9 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
         }
     }
     party.setControlledMember(nNPC, creature);
+    if (nNPC != kNpcPlayer && resident && !wasListed) {
+        party.takeControlFromWorld(*creature);
+    }
 
     if (area) {
         if (!resident) {
@@ -3761,7 +3767,7 @@ static Variable GiveGoldToCreature(const std::vector<Variable> &args, const Rout
     if (nGP <= 0 || !creature) {
         return Variable::ofNull();
     }
-    ctx.game.party().addCreatureGold(*creature, nGP);
+    ctx.game.party().addCreatureCount(*creature, HeldCount::Credits, nGP);
     if (ctx.game.party().isMember(*creature)) {
         ctx.game.submitStatusSummary(StatusSummaryCategory::Credits, nGP);
     }
@@ -4835,7 +4841,7 @@ static Variable GetGold(const std::vector<Variable> &args, const RoutineContext 
     const auto target = getObjectOrNull(args, 0, ctx);
     // A party member's credits are the party's.
     if (const auto creature = std::dynamic_pointer_cast<Creature>(target)) {
-        return Variable::ofInt(ctx.game.party().creatureGold(*creature));
+        return Variable::ofInt(ctx.game.party().creatureCount(*creature, HeldCount::Credits));
     }
     // A placeable's are the stack of the first credits item it holds.
     if (std::dynamic_pointer_cast<Placeable>(target)) {
@@ -5111,7 +5117,7 @@ static Variable TakeGoldFromCreature(const std::vector<Variable> &args, const Ro
     }
 
     auto &party = ctx.game.party();
-    const int amount = std::min(nAmount, party.creatureGold(*creatureToTakeFrom));
+    const int amount = std::min(nAmount, party.creatureCount(*creatureToTakeFrom, HeldCount::Credits));
     auto caller = getCaller(ctx);
     // Neither an area nor the module takes gold.
     if (amount <= 0 || caller->type() == ObjectType::Area || caller->type() == ObjectType::Module) {
@@ -5121,7 +5127,7 @@ static Variable TakeGoldFromCreature(const std::vector<Variable> &args, const Ro
     party.removeCreatureGold(*creatureToTakeFrom, amount);
     if (!bDestroy) {
         if (auto *creature = dyn_cast<Creature>(caller.get())) {
-            party.addCreatureGold(*creature, amount);
+            party.addCreatureCount(*creature, HeldCount::Credits, amount);
         } else if (auto *placeable = dyn_cast<Placeable>(caller.get()); placeable && placeable->hasInventory()) {
             placeable->addItem(Item::kCreditsResRef, amount);
         } else if (auto *item = dyn_cast<Item>(caller.get()); item && item->isContainer()) {
@@ -5158,10 +5164,9 @@ static Variable SetPlotFlag(const std::vector<Variable> &args, const RoutineCont
     auto nPlotFlag = getInt(args, 1);
 
     // Transform
-    bool plotFlag = static_cast<bool>(nPlotFlag);
 
     // Execute
-    oTarget->setPlotFlag(plotFlag);
+    oTarget->setPlotFlag(nPlotFlag);
     return Variable::ofNull();
 }
 
@@ -7336,27 +7341,27 @@ static Variable SetFadeUntilScript(const std::vector<Variable> &args, const Rout
 // The four crafting count routines take no argument and act on the caller.
 
 /** A creature caller's components or chemicals; none for any other caller. */
-static Variable callerCraftingCount(const RoutineContext &ctx, CraftingCount count) {
+static Variable callerCraftingCount(const RoutineContext &ctx, HeldCount count) {
     const auto creature = std::dynamic_pointer_cast<Creature>(getCallerOrNull(ctx));
     return Variable::ofInt(creature ? ctx.game.party().creatureCount(*creature, count) : 0);
 }
 
 /** What an item caller is worth in components or chemicals; none for any other caller. */
-static Variable callerCraftingValue(const RoutineContext &ctx, CraftingCount count) {
+static Variable callerCraftingValue(const RoutineContext &ctx, HeldCount count) {
     const auto item = std::dynamic_pointer_cast<Item>(getCallerOrNull(ctx));
     if (!item) {
         return Variable::ofInt(0);
     }
     const float multiplier = ctx.game.baseItemCostMultiplier(item->baseItemType());
-    return Variable::ofInt(count == CraftingCount::Components ? item->componentValue(multiplier) : item->chemicalValue(multiplier));
+    return Variable::ofInt(count == HeldCount::Components ? item->componentValue(multiplier) : item->chemicalValue(multiplier));
 }
 
 static Variable GetItemComponent(const std::vector<Variable> &, const RoutineContext &ctx) {
-    return callerCraftingCount(ctx, CraftingCount::Components);
+    return callerCraftingCount(ctx, HeldCount::Components);
 }
 
 static Variable GetItemComponentPieceValue(const std::vector<Variable> &, const RoutineContext &ctx) {
-    return callerCraftingValue(ctx, CraftingCount::Components);
+    return callerCraftingValue(ctx, HeldCount::Components);
 }
 
 static Variable ShowChemicalUpgradeScreen(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7366,11 +7371,11 @@ static Variable ShowChemicalUpgradeScreen(const std::vector<Variable> &args, con
 }
 
 static Variable GetChemicals(const std::vector<Variable> &, const RoutineContext &ctx) {
-    return callerCraftingCount(ctx, CraftingCount::Chemicals);
+    return callerCraftingCount(ctx, HeldCount::Chemicals);
 }
 
 static Variable GetChemicalPieceValue(const std::vector<Variable> &, const RoutineContext &ctx) {
-    return callerCraftingValue(ctx, CraftingCount::Chemicals);
+    return callerCraftingValue(ctx, HeldCount::Chemicals);
 }
 
 static Variable GetSpellForcePointCost(const std::vector<Variable> &args, const RoutineContext &ctx) {

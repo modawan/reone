@@ -146,9 +146,11 @@ void Door::deserializeAll(
     gff.readShort(_currentHitPoints, "CurrentHP");
     // An Invulnerable flag takes precedence over Plot, an explicit zero
     // included.
-    if (!gff.readBool(_plot, "Invulnerable")) {
-        gff.readBool(_plot, "Plot");
+    bool plot = plotFlag();
+    if (!gff.readBool(plot, "Invulnerable")) {
+        gff.readBool(plot, "Plot");
     }
+    _plot = plot;
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), false);
     gff.readByte(_secretDoorDC, "SecretDoorDC");

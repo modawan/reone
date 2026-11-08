@@ -243,6 +243,7 @@ bool GUI::handle(const input::Event &event) {
         if (_selection) {
             auto ctrlCoords = controlCoordinates(_selection->get(), event.motion.x, event.motion.y);
             _selection->get().handleMouseMotion(ctrlCoords.x, ctrlCoords.y);
+            enterListSelection(_selection->get());
         }
         break;
     }
@@ -261,7 +262,9 @@ bool GUI::handle(const input::Event &event) {
                 debug("Control clicked: " + control->get().tag(), LogChannel::GUI);
                 onClick(control->get().tag());
                 auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
-                return control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
+                const bool handled = control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
+                enterListSelection(control->get());
+                return handled;
             }
         }
         break;
@@ -302,7 +305,7 @@ bool GUI::handleKeyUp(input::KeyCode key) {
 void GUI::updateSelection(int screenX, int screenY) {
     auto control = findControlAt(
         screenX, screenY,
-        [](const auto &control) { return control.isSelectable(); });
+        [](const auto &control) { return control.isSelectable() && control.isSelectedOnHover(); });
     if ((!_selection && !control) ||
         (_selection && control && _selection->get().id() == control->get().id())) {
         return;
@@ -315,6 +318,16 @@ void GUI::updateSelection(int screenX, int screenY) {
     if (control) {
         control->get().setSelected(true);
         onSelectionChanged(control->get().tag(), true);
+        // A list is entered row by row, as the pointer moves its selection.
+        if (control->get().type() != ControlType::ListBox) {
+            onEntered(control->get().tag());
+        }
+    }
+}
+
+void GUI::enterListSelection(Control &control) {
+    if (control.type() == ControlType::ListBox && static_cast<ListBox &>(control).takeSelectionEntered()) {
+        onEntered(control.tag());
     }
 }
 

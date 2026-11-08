@@ -158,7 +158,9 @@ void Placeable::deserializeAll(
         _name = _locName.str();
     }
     gff.readEnum(_faction, "Faction");
-    gff.readBool(_plot, "Plot");
+    bool plot = plotFlag();
+    gff.readBool(plot, "Plot");
+    _plot = plot;
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), true);
     _trap.deserialize(gff);

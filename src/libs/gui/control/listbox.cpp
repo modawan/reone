@@ -81,6 +81,7 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
         for (auto &line : lines) {
             Item item;
             item.text = line;
+            item.textLine = true;
             item._textLines = std::vector<std::string> {line};
             _items.push_back(std::move(item));
         }
@@ -88,6 +89,7 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
 
     if (!text.empty() && text.back() == '\n') {
         Item item;
+        item.textLine = true;
         item._textLines = std::vector<std::string> {""};
         _items.push_back(std::move(item));
     }
@@ -112,6 +114,7 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
         _scrollBar->load(*controlStruct.SCROLLBAR);
     }
     _leftScrollBar = controlStruct.LEFTSCROLLBAR != 0;
+    _looping = controlStruct.LOOPING != 0;
 }
 
 bool ListBox::handleKeyDown(input::KeyCode key) {
@@ -143,15 +146,28 @@ bool ListBox::handleMouseMotion(int x, int y) {
     if (_selectionMode == SelectionMode::OnHover) {
         const int index = getItemIndex(y);
         if (index != -1 || !_keepsSelection) {
-            _selectedItemIndex = index;
+            selectByPointer(index);
         }
     } else if (_selectionMode == SelectionMode::OnHoverKept) {
         int itemIdx = getDrawnItemIndex(x, y);
         if (itemIdx != -1) {
-            _selectedItemIndex = itemIdx;
+            selectByPointer(itemIdx);
         }
     }
     return false;
+}
+
+void ListBox::selectByPointer(int index) {
+    if (index != _selectedItemIndex && index != -1 && !_items[index].textLine) {
+        _selectionEntered = true;
+    }
+    _selectedItemIndex = index;
+}
+
+bool ListBox::takeSelectionEntered() {
+    const bool entered = _selectionEntered;
+    _selectionEntered = false;
+    return entered;
 }
 
 // The drawn row under a point, or -1. Rows below the drawn ones, the space
@@ -260,7 +276,7 @@ bool ListBox::handleClick(int x, int y, int clicks) {
         return false;
 
     if (_selectionMode == SelectionMode::OnClick || _selectionMode == SelectionMode::OnHoverKept) {
-        _selectedItemIndex = itemIdx;
+        selectByPointer(itemIdx);
     }
     if (_onItemClick) {
         _onItemClick(_items[itemIdx].tag);
@@ -324,6 +340,11 @@ void ListBox::render(const glm::ivec2 &screenSize,
             protoBorderColor = _protoItem->border().color;
             _protoItem->setBorderColor(*item.borderColor);
         }
+        std::optional<glm::vec3> protoHilightColor;
+        if (item.hilightColor) {
+            protoHilightColor = _protoItem->hilight().color;
+            _protoItem->setHilightColor(*item.hilightColor);
+        }
 
         auto toggle = item.on ? std::dynamic_pointer_cast<ToggleButton>(_protoItem) : nullptr;
         bool originalOn = toggle && toggle->isOn();
@@ -333,7 +354,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
 
         auto imageButton = std::dynamic_pointer_cast<ImageButton>(_protoItem);
         if (imageButton) {
-            imageButton->render(itemOffset, item._textLines, item.iconText, item.iconTexture, item.iconFrame, pass);
+            imageButton->render(itemOffset, item._textLines, item.iconText, item.iconTexture, item.iconFrame, pass, item.iconTextColor);
         } else if (shouldRenderItemIconsForButtonProto()) {
             renderItemWithButtonProtoIcon(screenSize, itemOffset, item, pass);
         } else {
@@ -347,6 +368,9 @@ void ListBox::render(const glm::ivec2 &screenSize,
         _protoItem->setBorderAlpha(originalFrameAlpha);
         if (protoBorderColor) {
             _protoItem->setBorderColor(*protoBorderColor);
+        }
+        if (protoHilightColor) {
+            _protoItem->setHilightColor(*protoHilightColor);
         }
         if (toggle) {
             toggle->setOn(originalOn);
@@ -469,6 +493,26 @@ void ListBox::setSelectionMode(SelectionMode mode) {
 
 void ListBox::setSelectedItemIndex(int index) {
     _selectedItemIndex = index >= 0 && index < getItemCount() ? index : -1;
+}
+
+bool ListBox::selectAdjacentItem(bool next) {
+    const int count = getItemCount();
+    if (count == 0) {
+        return false;
+    }
+    int index = 0;
+    if (_selectedItemIndex >= 0) {
+        index = _selectedItemIndex + (next ? 1 : -1);
+        if (index < 0 || index >= count) {
+            if (!_looping) {
+                return false;
+            }
+            index = index < 0 ? count - 1 : 0;
+        }
+    }
+    _selectedItemIndex = index;
+    scrollToItem(index);
+    return true;
 }
 
 void ListBox::setItemsInteractive(bool interactive) {
@@ -827,7 +871,7 @@ void ListBox::renderItemWithButtonProtoIcon(
         glm::vec3 position(0.0f);
         position.x = static_cast<float>(iconPosition.x + iconSize.x);
         position.y = static_cast<float>(iconPosition.y + iconSize.y - 0.5f * _protoItem->text().font->height() * _protoItem->scale());
-        _protoItem->text().font->render(item.iconText, position, _protoItem->text().color, TextGravity::LeftCenter, _protoItem->scale());
+        _protoItem->text().font->render(item.iconText, position, item.iconTextColor.value_or(_protoItem->text().color), TextGravity::LeftCenter, _protoItem->scale());
     }
 }
 

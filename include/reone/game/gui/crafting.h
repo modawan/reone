@@ -83,11 +83,11 @@ struct UpgradeScreenRequest {
 class CraftingPanel : public GameGUI {
 public:
     /** A panel making items from, and breaking them into, the given count; breakdown yields by the given skill. */
-    CraftingPanel(Game &game, ServicesView &services, CraftingCount count, SkillType breakdownSkill);
+    CraftingPanel(Game &game, ServicesView &services, HeldCount count, SkillType breakdownSkill);
 
-    /** Escape closes the panel. */
+    /** Escape closes the panel; Return or keypad Enter chooses the selected entry, and Up and Down move the selection. */
     bool handle(const input::Event &event) override;
-    /** Describes the entry the pointer is on. */
+    /** Describes the selected entry. */
     void update(float dt) override;
 
 protected:
@@ -134,9 +134,22 @@ protected:
     struct Creatable {
         /** The template item the entry makes a copy of. */
         std::shared_ptr<Item> item;
-        /** None when no row names the item: it is shown, and cannot be made. */
+        /** None when no row names the item: it is shown, and takes its list position's row and availability. */
         std::optional<int> row;
         /** The leader's rank in the row's skill reaches the row's requirement. */
+        bool available {false};
+    };
+
+    /**
+     * What a position of the create list holds while the panel is open: the
+     * row and availability of the last entry shown there that a row named. An
+     * entry no row names takes the position's; a position no such entry has
+     * filled has no row and is unavailable.
+     */
+    struct CreateSlot {
+        /** The table row the position's entry is described and made by. */
+        std::optional<int> row;
+        /** Whether the position's entry can be made. */
         bool available {false};
     };
 
@@ -178,10 +191,13 @@ protected:
 
     /** Binds both stations' controls, colours the lists and wires the buttons. */
     void onGUILoaded() override;
+    /** Clicking the lists is silent. */
+    void onClick(const std::string &control) override;
 
     /**
-     * Opens the create view for a character. The count shown is the
-     * character's; the breakdown factor is fixed by whoever opens the panel.
+     * Opens the create view for a character. A negative party count is
+     * reset to none first. The count shown is the character's; the breakdown
+     * factor is fixed by whoever opens the panel.
      */
     void openFor(const std::shared_ptr<Creature> &character, float breakdownFactor);
     /** The share of a full breakdown the creature's skill gives, at most all. */
@@ -195,8 +211,10 @@ protected:
     virtual std::string skillColumn() const = 0;
     /** Whether a create row also asks for a level and an alignment. */
     virtual bool checksLevelAndAlignment() const = 0;
-    /** The item tag a create row answers to. */
+    /** The item tag a create row answers to; empty when its cells are blank. */
     virtual std::string rowTag(const resource::TwoDA &table, int row) const = 0;
+    /** Whether a create row whose template is missing stocks a blank item. */
+    virtual bool stocksMissingTemplates() const = 0;
     /** What an item is worth at this station. */
     virtual int itemValue(const Item &item) const = 0;
     /** The character's items the breakdown list offers under the current filter, in order. */
@@ -208,7 +226,7 @@ protected:
 
 private:
     /** The count the stations make items from and break them into. */
-    CraftingCount _count;
+    HeldCount _count;
     /** The skill whose ranks set the breakdown factor. */
     SkillType _breakdownSkill;
     /** The creature whose inventory the breakdown view lists. */
@@ -219,8 +237,12 @@ private:
     int _shownCount {0};
     /** The view shown. */
     View _view {View::Create};
+    /** The station's stock under the current group, in list order: what the create list is built from. */
+    std::vector<std::shared_ptr<Item>> _stock;
     /** The create list's entries, by list row. */
     std::vector<Creatable> _creatable;
+    /** The create list's positions, by list row, since the panel opened. */
+    std::vector<CreateSlot> _createSlots;
     /** The breakdown list's items, by list row. */
     std::vector<RuntimeObjectRef<Item>> _breakable;
     /** The list row described; none while the list is empty. */
@@ -230,22 +252,37 @@ private:
 
     /** The list of the current view. */
     gui::ListBox &currentList() const;
+    /** Makes or breaks down the entry at \p row of \p list, with the create list's click. */
+    void choose(const gui::ListBox &list, int row);
     /** Shows a view: its strings, controls and freshly built list. */
     void showView(View view);
     /** Highlights the current filter of each view. */
     void colourFilters();
 
     /**
-     * Stocks the create view from the station's table under the current group.
+     * Stocks the station from its table under the current group.
      *
      * @return false when a blank cell ended the table, which stocks only the rows before it
      */
     bool restockCreatable();
-    /** Builds the create list from the stock. */
+    /**
+     * Builds the create list from the stock, however it was stocked, and
+     * records the row and availability each stocked item gives its list
+     * position.
+     */
     void showCreateList();
-    /** Adds a template item to the create list, joining an identical entry; plot items are left out. */
+    /**
+     * Adds a template item to the stock; plot items are left out. The latest
+     * stocked item with the item's tag takes one more when identical to it;
+     * otherwise identical stocked items, latest first, take what their stacks
+     * have room for, and the rest is stocked on its own.
+     */
     void addCreatable(const std::shared_ptr<Item> &item);
-    /** Finds the row an entry answers to and whether the leader can make it; false when that row has no skill. */
+    /**
+     * Finds the row an entry answers to and whether the leader can make it.
+     * False drops the entry: a row with blank tag cells is met first, or the
+     * row found has no skill (the entry still names that row).
+     */
     bool matchRow(Creatable &creatable, const resource::TwoDA &table, const Creature &leader) const;
     /** Builds the breakdown list, choosing the given row or the nearest one left. */
     void fillBreakdownList(int keepRow);
@@ -256,8 +293,13 @@ private:
 
     /** Describes a row of the current list. */
     void describe(int row);
-    /** Shows an entry's cost, stock, skill requirement and item. */
-    void describeCreatable(const Creatable &creatable);
+    /**
+     * Shows an entry's cost and, by its position's row, the skill line, stock,
+     * skill requirement and item. A position with no row, or a row with a
+     * blank skill, shows the cost alone; a row with a blank requirement leaves
+     * the description as it was.
+     */
+    void describeCreatable(const Creatable &creatable, const CreateSlot &slot);
     /** Shows what breaking the item down yields, how many there are, and the item. */
     void describeBreakable(const Item &item);
     /** How many of the item the party holds. */
@@ -267,7 +309,11 @@ private:
 
     /** Makes the entry, or breaks the item down, of a row of the current list. */
     void act(int row);
-    /** Makes an entry, refusing what the leader can't make or the count can't pay, and asking first above the threshold. */
+    /**
+     * Makes an entry, refusing a position that is unavailable or what the
+     * count can't pay, and asking first above the threshold. An entry left
+     * from a previous group makes nothing.
+     */
     void create(int row);
     /** Pays for an entry and gives the leader a copy of it. */
     void finishCreate(int row);
@@ -311,8 +357,6 @@ private:
 
     /** ItemCreate, read when the panel loads. */
     std::shared_ptr<resource::TwoDA> _itemCreate;
-    /** ChemicalCreate, read when the panel loads: what the lab station makes, which the breakdown leaves out. */
-    std::shared_ptr<resource::TwoDA> _chemicalCreate;
     /**
      * The table the create list is built from while the panel is open:
      * ItemCreate, or the table a script named, none when that does not exist.
@@ -320,13 +364,14 @@ private:
     std::shared_ptr<resource::TwoDA> _createTable;
     /**
      * The table of items the breakdown leaves out while the panel is open:
-     * ChemicalCreate, or TutChemCreate when a script named a table.
+     * ChemicalCreate (what the lab station makes), or TutChemCreate when a
+     * script named a table, none when TutChemCreate does not exist.
      */
     std::shared_ptr<resource::TwoDA> _excludedTable;
     /** Runs when the panel closes, told whether a key closed it. */
     std::function<void(bool)> _onClose;
 
-    /** Binds the create and breakdown filters and reads the station's tables. */
+    /** Binds the create and breakdown filters and reads ItemCreate. */
     void onGUILoaded() override;
 
     /** ItemCreate, or the table a script named, which lists nothing when it does not exist. */
@@ -337,6 +382,8 @@ private:
     bool checksLevelAndAlignment() const override { return true; }
     /** The row's OverrideTag, else its template. */
     std::string rowTag(const resource::TwoDA &table, int row) const override;
+    /** A row whose template is missing stocks nothing. */
+    bool stocksMissingTemplates() const override { return false; }
     /** The item's component value. */
     int itemValue(const Item &item) const override;
     /** The character's items under the filter, leaving out plot items, worthless ones and what the lab station makes. */
@@ -368,15 +415,10 @@ private:
         Grenades
     };
 
-    /** ChemicalCreate, read when the panel loads. */
-    std::shared_ptr<resource::TwoDA> _chemicalCreate;
-    /** baseitems.2da, read when the panel loads: the breakdown list follows its store order. */
-    std::shared_ptr<resource::TwoDA> _baseItems;
-
-    /** Binds the create filters and reads the station's tables. */
+    /** Binds the create filters. */
     void onGUILoaded() override;
 
-    /** ChemicalCreate. */
+    /** ChemicalCreate, read at start-up. */
     std::shared_ptr<resource::TwoDA> createTable() const override;
     /** A row's skill requirement is in "skillLevel". */
     std::string skillColumn() const override { return "skillLevel"; }
@@ -384,11 +426,13 @@ private:
     bool checksLevelAndAlignment() const override { return false; }
     /** The row's template. */
     std::string rowTag(const resource::TwoDA &table, int row) const override;
+    /** A row whose template is missing stocks a blank item. */
+    bool stocksMissingTemplates() const override { return true; }
     /** The item's chemical value. */
     int itemValue(const Item &item) const override;
     /** The character's items the station makes, apart from one group, by their base items' store order. */
     std::vector<std::shared_ptr<Item>> listBreakable(const std::shared_ptr<Creature> &character) const override;
-    /** Back to the game. */
+    /** Back to the screen the station was opened over. */
     void close(bool escape) override;
 };
 
@@ -418,7 +462,7 @@ public:
     /** Loads panel upgradeitems. */
     UpgradeItemsPanel(Game &game, ServicesView &services);
 
-    /** Escape goes back. */
+    /** Escape goes back; Return or keypad Enter picks the selected item, and Up and Down move the selection. */
     bool handle(const input::Event &event) override;
     /** Describes the item the pointer is on. */
     void update(float dt) override;
@@ -428,6 +472,8 @@ public:
               const std::shared_ptr<Item> &selected,
               std::function<void(const UpgradableItem &)> onPick,
               std::function<void()> onBack);
+    /** Empties the list and its description. */
+    void clear();
 
 private:
     /** The screen's own controls. */
@@ -470,11 +516,16 @@ public:
 
     /** Escape closes a list, else cancels. */
     bool handle(const input::Event &event) override;
-    /** Describes the list entry the pointer is on, and turns an item playing no animation. */
+    /** Describes the list entry the pointer is on, and turns an item standing on no hook of the light model. */
     void update(float dt) override;
 
-    /** Whether the panel opens for the item: a lightsaber's tag must name its colour in upcrystals.2da. */
-    bool opensFor(const Item &item, UpgradableType type) const;
+    /**
+     * Builds both 3D views afresh, each with its room and light model, which
+     * then stay while the workbench is open: items are swapped in them, and
+     * the light model's turn carries on from one item to the next.
+     */
+    void build3DViews();
+
     /**
      * Opens for an item taken out of its place. wearer is the creature that
      * wore it, none when it was carried, which KotOR asks about before an
@@ -490,7 +541,7 @@ public:
     const resource::TwoDA &upgradeTable() const { return *_upgradeTable; }
 
 protected:
-    /** KotOR's Assemble plays the upgrade sound in place of the click. */
+    /** Assemble plays the upgrade sound in place of the click. */
     void onClick(const std::string &control) override;
     /** Pointing at a slot describes it. */
     void onSelectionChanged(const std::string &control, bool selected) override;
@@ -516,9 +567,9 @@ private:
         std::optional<int> row;
         /** The template of that row, which is the tag of its upgrade. */
         std::string tag;
-        /** The slot's button, showing its upgrade or its empty icon. */
+        /** The slot's button. */
         std::shared_ptr<gui::Button> button;
-        /** The label under the slot's button. */
+        /** The label under the slot's button, showing its upgrade or its empty icon, dimmed while the party has nothing for it. */
         std::shared_ptr<gui::Label> label;
     };
 
@@ -540,9 +591,18 @@ private:
 
     /** An armour look: the model armour is shown in, and its texture's name before the variation. */
     struct ArmourLook {
+        /** The model armour of this look is shown in. */
         std::string model;
         /** Blank for a look that keeps the model's own texture. */
         std::string texture;
+    };
+
+    /** A 3D view: the scene it shows and the light model whose hooks hold the camera and the item. */
+    struct ItemView {
+        /** The scene the view's control shows. */
+        std::string sceneName;
+        /** The light model, standing in the scene's room. */
+        std::shared_ptr<scene::ModelSceneNode> light;
     };
 
     /** The panel's controls; KotOR alone has the lightsaber description and the upgrade count, TSL alone OK. */
@@ -577,6 +637,10 @@ private:
     std::shared_ptr<resource::TwoDA> _crystalTable;
     /** The model and texture of each armour look, in look order: appearance.2da row 137's. */
     std::vector<ArmourLook> _armourLooks;
+    /** The 3D view of every item but a lightsaber. */
+    ItemView _itemView {kSceneUpgrade};
+    /** The 3D view of a lightsaber. */
+    ItemView _lightsaberView {kSceneUpgradeLightsaber};
     /** The item shown in the 3D view; none while the panel is closed or when the item's model does not load. */
     std::shared_ptr<scene::ModelSceneNode> _itemModel;
     /** The texture an armour is drawn with in the 3D view; none for other items. */
@@ -613,20 +677,26 @@ private:
     int firstRowWithTemplateOf(int row) const;
     /** The list describing the item: a KotOR lightsaber has one of its own. */
     gui::ListBox &itemDescription() const;
-    /** The upcrystals.2da row listing the lightsaber's colour; none when no row does. */
+    /** The upcrystals.2da row listing the lightsaber's colour with a template; none when no row does. */
     std::optional<int> crystalRow(const Item &item) const;
     /** The inventory upgrades come from and go back to. */
     std::shared_ptr<Object> partyInventory() const;
-    /** Puts the upgrades the item holds in their slots, and dims a slot the party has no upgrade for. */
+    /** Puts the upgrades the item holds in their slots, and dims or lights each slot by the upgrades the party has for it. */
     void placeInstalledUpgrades();
     /** Shows the slots, closing a list. */
     void showSlots();
-    /** Lists a slot's choices. */
+    /** Closes the open list and describes the slot it was for. */
+    void closeList();
+    /** Lists a slot's choices, hiding the slots and their texts. */
     void showList(int slot);
-    /** Shows each slot's upgrade, or its empty icon, and describes the item. */
+    /** Shows each slot's upgrade, or its empty icon, and describes the item; TSL lights the slots holding an upgrade. */
     void refreshSlots();
     /** Shows the item in its 3D view: on opening and after the colour changes. */
     void refresh3D();
+    /** The 3D view of the item's kind. */
+    ItemView &shownView();
+    /** Takes the shown item out of its 3D view. */
+    void removeShownItem();
     /** The model the 3D view shows the item in. */
     std::string viewedModelName() const;
     /** Describes a slot and what it holds. */
@@ -666,7 +736,11 @@ public:
 
     /** Loads every panel. */
     void init() override;
-    /** Input goes to the panel open over the screen; otherwise Escape closes the screen. */
+    /**
+     * Input goes to the panel open over the screen; otherwise Escape closes
+     * the screen, and in TSL Return or keypad Enter upgrades the selected item
+     * and Up and Down move the selection.
+     */
     bool handle(const input::Event &event) override;
     /** The panel open over the screen is updated in place of TSL's description of the list. */
     void update(float dt) override;
@@ -677,7 +751,7 @@ public:
     void open(UpgradeScreenRequest request);
 
 protected:
-    /** KotOR: pointing at a kind button makes it the kind Upgrade Items opens. */
+    /** KotOR: pointing at a control takes the hilight from the active kind button, and leaving Upgrade Items gives back its text colour. */
     void onSelectionChanged(const std::string &control, bool selected) override;
 
 private:
@@ -710,7 +784,7 @@ private:
         bool offHand {false};
         /** The item came from the script; closing its panel closes the workbench. */
         bool direct {false};
-        /** A script's item the party doesn't carry, upgraded where it is; none otherwise. */
+        /** A script's item the party doesn't carry, not a stack, upgraded where it is; none otherwise. */
         RuntimeObjectRef<Item> leftInPlace;
         /** The item's kind, whose list KotOR shows again. */
         UpgradableType type {UpgradableType::Lightsaber};
@@ -741,8 +815,8 @@ private:
     std::vector<KindButton> _kindButtons;
     /** KotOR: the kinds the party has an item of. */
     std::set<UpgradableType> _kindsHeld;
-    /** KotOR: the kind Upgrade Items opens, the last pointed at; none when the party has no item of that kind. */
-    std::optional<UpgradableType> _hoveredKind;
+    /** KotOR: the kind Upgrade Items opens, the last taken up; none when the party has no item of that kind. */
+    std::optional<UpgradableType> _activeKind;
     /** TSL's filter buttons and the filter each one picks. */
     std::vector<std::pair<UpgradeFilter, std::shared_ptr<gui::Button>>> _filterButtons;
     /** TSL: the filter the list shows. */
@@ -756,7 +830,7 @@ private:
 
     /** TSL's creation panel. */
     std::unique_ptr<ItemCreationPanel> _creation;
-    /** KotOR's list of the items of a kind. */
+    /** KotOR's list of the items of a kind, drawn under the upgrade panel; TSL only draws it, empty. */
     std::unique_ptr<UpgradeItemsPanel> _items;
     /** The upgrade panel, in both games. */
     std::unique_ptr<ItemUpgradePanel> _upgrade;
@@ -783,27 +857,27 @@ private:
     std::vector<UpgradableItem> upgradableItems(std::optional<UpgradableType> kind) const;
     /** KotOR offers each kind the party has an item of. */
     void showKinds();
-    /** KotOR: Upgrade Items takes up the kind pointed at, showing whether the party has an item of it. */
+    /** KotOR: the kind's button becomes the active one, and Upgrade Items takes up the kind, showing whether the party has an item of it. */
     void describeKind(UpgradableType kind);
     /** TSL lists the items of the filter. */
     void populate();
     /** KotOR lists the items of a kind, the row holding selected chosen. */
     void openItems(UpgradableType kind, const std::shared_ptr<Item> &selected);
-    /**
-     * Takes the item out of its place and opens the upgrade panel for it.
-     *
-     * @return false, leaving the item in place, when the panel refuses it
-     */
-    bool beginUpgrade(const UpgradableItem &entry, bool direct);
+    /** Takes the item out of its place and opens the upgrade panel for it. */
+    void beginUpgrade(const UpgradableItem &entry, bool direct);
     /** The upgrade panel closed with the item as it ends. */
     void finishUpgrade(std::shared_ptr<Item> item);
-    /** Returns the item to where it was, or the stack it joined. */
+    /**
+     * Returns the item to where it was, worn again when its wearer can wear
+     * it, with the other hand's weapon; returns the item, or the stack it
+     * joined.
+     */
     std::shared_ptr<Item> putBack(const std::shared_ptr<Item> &item);
     /** Opens the creation panel over the screen. */
     void openCreation();
     /** The creation panel closed: with creation all there is, the workbench closes too. */
     void onCreationClosed(bool escape);
-    /** Back to the game. */
+    /** Back to the screen the workbench was opened over. */
     void close();
 };
 

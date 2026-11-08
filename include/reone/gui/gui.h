@@ -47,6 +47,11 @@ public:
 
     virtual void onClick(const std::string &control) = 0;
     virtual void onSelectionChanged(const std::string &control, bool selected) = 0;
+    /**
+     * The pointer came onto \p control or, for a list, moved its selection to
+     * another of its rows.
+     */
+    virtual void onEntered(const std::string &control) = 0;
 };
 
 /**
@@ -345,6 +350,12 @@ private:
         }
     }
 
+    void onEntered(const std::string &control) {
+        if (_eventListener) {
+            _eventListener->onEntered(control);
+        }
+    }
+
     void positionRelativeToCenter(Control &control);
     void scaleRelativeToCenter(Control &control);
     void applyControlLayout(Control &control);
@@ -354,6 +365,8 @@ private:
     glm::ivec2 controlCoordinates(const Control &control, int screenX, int screenY) const;
     float scaledFactor() const;
     void updateSelection(int screenX, int screenY);
+    /** A list the pointer acted on is entered when the pointer moved its selection to another row. */
+    void enterListSelection(Control &control);
 
     void renderBackground(scene::IRenderPass &pass);
 

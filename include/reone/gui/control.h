@@ -159,11 +159,15 @@ public:
 
     bool isVisible() const { return _visible; }
     bool isSelectable() const { return _selectable; }
+    /** Whether pointing at the control selects it; one that isn't is selected only by its screen. */
+    bool isSelectedOnHover() const { return _selectedOnHover; }
     bool isSelected() const { return _selected; }
     bool isDisabled() const { return _disabled; }
     bool isHilightOverBorder() const { return _hilightOverBorder; }
 
     int id() const { return _id; }
+    /** The kind of control this is. */
+    ControlType type() const { return _type; }
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
     const Extent &authoredExtent() const { return _authoredExtent; }
@@ -208,6 +212,8 @@ public:
     void setExtentTop(int top);
     virtual void setSelected(bool selected);
     void setSelectable(bool selectable);
+    /** Sets whether pointing at the control selects it. */
+    void setSelectedOnHover(bool selectedOnHover) { _selectedOnHover = selectedOnHover; }
     void setHeight(int height);
     void setHilight(Border hilight);
     /** The hilight and the text take \p color while the control is selected. */
@@ -306,6 +312,7 @@ protected:
     bool _selectable {false};
     /** Whether this control is a list's prototype, drawn once for each row. */
     bool _isProtoItem {false};
+    bool _selectedOnHover {true};
     bool _sharpenBorderFillAlpha {false};
     /** Seconds the control has been updated while shown, which runs its fills that cycle through frames. */
     float _textureTime {0.0f};

@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <limits>
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -35,6 +37,7 @@
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/resources.h"
+#include "reone/resource/resref.h"
 #include "reone/resource/strings.h"
 
 using namespace reone::audio;
@@ -54,6 +57,10 @@ static constexpr int kDefaultOnHitDifficultyClass = 20;
 // The baseitems.2da model type of an item drawn as its wearer's body model.
 static constexpr int kBodyModelType = 1;
 
+// The last letter that names a base item's body variation in each game.
+static constexpr char kK1LastBodyVariation = 'J';
+static constexpr char kTSLLastBodyVariation = 'Z';
+
 // The seconds an On Hit state lasts per iprp_onhitdur round: KotOR, then TSL.
 static constexpr float kOnHitStateSecondsPerRoundK1 = 6.0f;
 static constexpr float kOnHitStateSecondsPerRoundTSL = 3.0f;
@@ -62,21 +69,29 @@ static constexpr float kOnHitStateSecondsPerRoundTSL = 3.0f;
 static constexpr int kOnHitDurationParameterTable = 1;
 
 int Item::cost(float baseCostMultiplier) const {
-    if (plotFlag()) {
+    if (plotValue() == 1) {
         return 0;
     }
-    const auto value = static_cast<int>(static_cast<float>(_addCost) * baseCostMultiplier);
-    return value < 2 ? 1 : value;
+    const float scaled = static_cast<float>(static_cast<int32_t>(_addCost)) * baseCostMultiplier;
+    // KotOR raises a negative cost to 0; TSL keeps it.
+    const float kept = _game.isTSL() ? scaled : std::max(scaled, 0.0f);
+    const auto value = static_cast<int>(std::clamp<double>(
+        kept,
+        std::numeric_limits<int>::min(),
+        std::numeric_limits<int>::max()));
+    return value == 0 || value == 1 ? 1 : value;
 }
 
 int Item::componentValue(float baseCostMultiplier) const {
     static constexpr int kCostPerComponent = 20;
-    return std::max(cost(baseCostMultiplier) / kCostPerComponent, 1);
+    const int value = cost(baseCostMultiplier);
+    return value < kCostPerComponent ? 1 : value / kCostPerComponent;
 }
 
 int Item::chemicalValue(float baseCostMultiplier) const {
     static constexpr int kCostPerChemical = 2;
-    return std::max(cost(baseCostMultiplier) / kCostPerChemical, 1);
+    const int value = cost(baseCostMultiplier);
+    return value < kCostPerChemical ? 1 : value / kCostPerChemical;
 }
 
 void Item::addUpgrade(const Item &upgrade, int slot) {
@@ -116,19 +131,9 @@ void Item::removeUpgrade(const Item &upgrade, int slot) {
 }
 
 void Item::setUpgradeInstalled(int row, bool installed) {
-    if (installed) {
-        _upgrades.insert(row);
-    } else {
-        _upgrades.erase(row);
+    if (row >= 0 && row < kUpgradeRowCount) {
+        _upgrades.set(static_cast<size_t>(row), installed);
     }
-}
-
-uint32_t Item::savedUpgrades() const {
-    uint32_t saved = 0;
-    for (int row : _upgrades) {
-        saved |= uint32_t {1} << row;
-    }
-    return saved;
 }
 
 std::string Item::modelResRef(std::optional<char> genderLetter) const {
@@ -137,7 +142,7 @@ std::string Item::modelResRef(std::optional<char> genderLetter) const {
         resRef += '_';
         resRef += *genderLetter;
     }
-    return resRef + str(boost::format("_%03d") % static_cast<int>(_modelVariation));
+    return ResRef {resRef + str(boost::format("_%03d") % static_cast<int>(_modelVariation))}.value();
 }
 
 bool Item::hasInstalledUpgrade() const {
@@ -151,6 +156,14 @@ bool Item::loadFromBlueprint(const std::string &resRef) {
     }
     deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
     return true;
+}
+
+void Item::loadBlank() {
+    static constexpr int kBlankBaseItem = 30;
+    _baseItem = kBlankBaseItem;
+    _modelVariation = 1;
+    _dropable = true;
+    loadBaseItem();
 }
 
 std::optional<std::string> Item::entryTemplate(const resource::Gff &entry) {
@@ -218,18 +231,25 @@ void Item::deserializeAll(
     gff.readDword(_addCost, "AddCost");
     gff.readBool(_stolen, "Stolen");
     gff.readWord(_stackSize, "StackSize");
-    // The upgrades are saved as a bit for each upgrade.2da row installed.
-    auto savedUpgrades = this->savedUpgrades();
-    gff.readDword(savedUpgrades, "Upgrades");
-    _upgrades.clear();
-    for (int row = 0; row < std::numeric_limits<uint32_t>::digits; ++row) {
-        if ((savedUpgrades >> row) & 1) {
-            _upgrades.insert(row);
+    // Upgrades holds rows 0 to 31, a bit each, and UpgradeRows any row past
+    // them; each replaces what it holds when the record has it.
+    uint32_t recorded = 0;
+    if (gff.readDword(recorded, "Upgrades")) {
+        for (int row = 0; row < kRecordedUpgradeBits; ++row) {
+            _upgrades.set(static_cast<size_t>(row), (recorded >> row) & 1u);
+        }
+    }
+    if (gff.has("UpgradeRows")) {
+        for (int row = kRecordedUpgradeBits; row < kUpgradeRowCount; ++row) {
+            _upgrades.reset(static_cast<size_t>(row));
+        }
+        for (const auto &entry : gff.getList("UpgradeRows")) {
+            setUpgradeInstalled(entry->getInt("Row", -1), true);
         }
     }
     if (_game.isTSL()) {
-        // A record without an upgrade level takes it from the item's upgrades.
-        auto level = static_cast<uint8_t>(savedUpgrades);
+        // A record without an upgrade level keeps the level the item has.
+        auto level = static_cast<uint8_t>(_upgradeLevel);
         gff.readByte(level, "UpgradeLevel");
         _upgradeLevel = level;
         // A slot the record leaves out, or gives a negative row, is empty, even
@@ -328,7 +348,10 @@ void Item::deserializeBase(const resource::Gff &gff) {
     if (!gff.readInt(_baseItem, "BaseItem")) {
         return;
     }
+    loadBaseItem();
+}
 
+void Item::loadBaseItem() {
     auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
     _itemType = baseItems->getInt(_baseItem, "itemtype", 0);
     _storePanelSort = baseItems->getInt(_baseItem, "storepanelsort", 0);
@@ -400,7 +423,10 @@ void Item::deserializeBase(const resource::Gff &gff) {
 
     std::string iconResRef;
     if (isEquippable(InventorySlots::body)) {
-        _baseBodyVariation = boost::to_lower_copy(baseItems->getString(_baseItem, "bodyvar"));
+        const auto bodyVariation = baseItems->getString(_baseItem, "bodyvar");
+        const char lastBodyVariation = _game.isTSL() ? kTSLLastBodyVariation : kK1LastBodyVariation;
+        const bool named = bodyVariation.size() == 1 && bodyVariation[0] >= 'A' && bodyVariation[0] <= lastBodyVariation;
+        _baseBodyVariation = named ? bodyVariation[0] - 'A' : 0;
         iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_textureVariation);
     } else if (isEquippable(InventorySlots::rightWeapon)) {
         iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
@@ -885,7 +911,7 @@ std::pair<int, int> Item::monsterDamageDice() const {
 }
 
 bool Item::isPropertyActive(const PropertyEntry &property) const {
-    return isPropertyActive(_upgrades, property.upgradeType);
+    return property.upgradeType == PropertyEntry::kNoUpgrade || isUpgradeInstalled(property.upgradeType);
 }
 
 bool Item::hasActiveProperty(ItemProperty type) const {
@@ -983,10 +1009,6 @@ std::vector<ItemOnHitProperty> Item::itemOnHitProperties() const {
         result.push_back(value);
     }
     return result;
-}
-
-bool Item::isPropertyActive(const std::set<int> &upgrades, int upgradeType) {
-    return upgradeType == PropertyEntry::kNoUpgrade || upgrades.count(upgradeType) > 0;
 }
 
 } // namespace game

@@ -1067,20 +1067,34 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newDword("AddCost", item._addCost));
     put(*result, Gff::Field::newByte("Stolen", item._stolen));
     put(*result, Gff::Field::newWord("StackSize", item._stackSize));
-    put(*result, Gff::Field::newDword("Upgrades", item.savedUpgrades()));
+    // Upgrades holds the installed rows 0 to 31, a bit each; a row past them
+    // is listed in UpgradeRows, which a record has only when such a row is
+    // installed.
+    uint32_t recordedUpgrades = 0;
+    std::vector<std::shared_ptr<Gff>> upgradeRows;
+    for (int row = 0; row < Item::kUpgradeRowCount; ++row) {
+        if (!item._upgrades.test(static_cast<size_t>(row))) {
+            continue;
+        }
+        if (row < Item::kRecordedUpgradeBits) {
+            recordedUpgrades |= uint32_t {1} << row;
+        } else {
+            upgradeRows.push_back(Gff::Builder().type(0).field(Gff::Field::newInt("Row", row)).build());
+        }
+    }
+    put(*result, Gff::Field::newDword("Upgrades", recordedUpgrades));
+    if (upgradeRows.empty()) {
+        removeSaveField(*result, "UpgradeRows");
+    } else {
+        put(*result, Gff::Field::newList("UpgradeRows", std::move(upgradeRows)));
+    }
     if (_game.isTSL()) {
         put(*result, Gff::Field::newByte("UpgradeLevel", static_cast<uint8_t>(item._upgradeLevel)));
-        // An empty slot is saved as kSavedEmptyUpgradeSlot. A slot holding
-        // upgrade.2da row 0 is left out, so that upgrade comes back from a
-        // save as an empty slot.
+        // Every slot is saved, an empty one as kSavedEmptyUpgradeSlot, so an
+        // upgrade of upgrade.2da row 0 comes back from a save as well.
         for (size_t slot = 0; slot < item._upgradeSlots.size(); ++slot) {
-            const auto label = "UpgradeSlot" + std::to_string(slot);
             const int row = item._upgradeSlots[slot].value_or(Item::kSavedEmptyUpgradeSlot);
-            if (row != 0) {
-                put(*result, Gff::Field::newInt(label, row));
-            } else {
-                removeSaveField(*result, label);
-            }
+            put(*result, Gff::Field::newInt("UpgradeSlot" + std::to_string(slot), row));
         }
     }
     put(*result, Gff::Field::newByte("Identified", item._identified));
