@@ -427,8 +427,6 @@ public:
         std::string engineSound;
         std::shared_ptr<audio::AudioSource> engineSource;
         std::array<SoundSettings, 2> sounds;
-        /** Whether a script has set the engine sound's volume; until then it plays at full volume. */
-        bool engineVolumeSet {false};
 
         int hitPoints {100};
         int maxHitPoints {0};

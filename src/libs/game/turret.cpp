@@ -620,8 +620,8 @@ void Turret::go(Follower &follower) {
 }
 
 // A follower's engine loops where the follower is while its track plays, and
-// stops when the track does. Until a script sets its volume it plays at full
-// volume.
+// stops when the track does, at the engine sound's volume out of 127, which
+// is none until a script sets one.
 void Turret::startEngineSound(Follower &follower) {
     if (follower.engineSound.empty() || (follower.engineSource && follower.engineSource->isPlaying())) {
         return;
@@ -635,9 +635,7 @@ void Turret::startEngineSound(Follower &follower) {
         position = transformOrigin(follower.models.front()->absoluteTransform());
     }
     follower.engineSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, true, position);
-    if (follower.engineSource && follower.engineVolumeSet) {
-        follower.engineSource->setGainScale(glm::clamp(follower.sounds[0].volume / 127.0f, 0.0f, 1.0f));
-    }
+    follower.engineSource->setGainScale(glm::clamp(follower.sounds[0].volume / 127.0f, 0.0f, 1.0f));
 }
 
 void Turret::stopEngineSound(Follower &follower) {
@@ -653,7 +651,6 @@ void Turret::setSoundVolume(Follower &follower, int sound, int volume) {
     }
     follower.sounds[sound].volume = volume;
     if (sound == 0) {
-        follower.engineVolumeSet = true;
         if (follower.engineSource) {
             follower.engineSource->setGainScale(glm::clamp(volume / 127.0f, 0.0f, 1.0f));
         }
