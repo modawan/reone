@@ -17,14 +17,16 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
+
+#include "object/item.h"
 
 namespace reone {
 
 namespace game {
 
 class Game;
-class Item;
 struct ServicesView;
 
 /**
@@ -33,6 +35,16 @@ struct ServicesView;
  * followed by its description, or a placeholder when it has none.
  */
 std::string buildItemDescription(const Item &item, const Game &game, ServicesView &services);
+
+/**
+ * A line for each property of the item that include chooses, active or not:
+ * its name, subtype and cost, as a workbench lists an upgrade's properties.
+ */
+std::string buildItemPropertyLines(
+    const Item &item,
+    const Game &game,
+    ServicesView &services,
+    const std::function<bool(const Item::PropertyEntry &)> &include);
 
 } // namespace game
 

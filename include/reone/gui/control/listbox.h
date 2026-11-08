@@ -31,6 +31,8 @@ class ListBox : public Control {
 public:
     enum class SelectionMode {
         OnHover,
+        /** The row under the pointer is selected and stays so when the pointer leaves the rows. */
+        OnHoverKept,
         OnClick
     };
 
@@ -45,6 +47,8 @@ public:
         std::optional<glm::vec3> frameColor;
         /** The opacity of the row's frames while the row is not selected. */
         std::optional<float> frameAlpha;
+        /** The row's border colour in place of the prototype's. */
+        std::optional<glm::vec3> borderColor;
         /** A row drawn through a toggle-button prototype shows this state. */
         std::optional<bool> on;
         bool invalid {false};
@@ -236,6 +240,7 @@ private:
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;
+    int getDrawnItemIndex(int x, int y) const;
     bool shouldRenderItemIconsForButtonProto() const;
     void renderItemWithButtonProtoIcon(
         const glm::ivec2 &screenSize,

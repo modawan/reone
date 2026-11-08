@@ -20,6 +20,7 @@
 #include <array>
 #include <limits>
 #include <optional>
+#include <set>
 
 #include "reone/audio/clip.h"
 #include "reone/audio/source.h"
@@ -64,6 +65,7 @@ public:
     static constexpr int kLastBodyItemType = 38;
     /** Double-bladed, short and ordinary lightsabers, the first of three item types. */
     static constexpr int kDoubleLightsaberItemType = 39;
+    static constexpr int kShortLightsaberItemType = 40;
     static constexpr int kLightsaberItemType = 41;
     static constexpr int kPazaakCardItemType = 42;
     static constexpr int kPazaakSideboardItemType = 43;
@@ -122,6 +124,11 @@ public:
         static constexpr uint8_t kNoUpgrade = 0xff;
         /** The saved uses per day of a property that records none. */
         static constexpr int kUnrecordedUsesPerDay = 255;
+        /**
+         * TSL: the saved PropUpgrade of a property no upgrade added. A property
+         * an upgrade added is saved with its slot plus one.
+         */
+        static constexpr int kSavedNoPropUpgrade = 0xff;
 
         uint8_t chanceAppear {0};
         uint8_t costTable {0};
@@ -131,6 +138,8 @@ public:
         uint16_t propertyName {0};
         uint16_t subtype {0};
         uint8_t upgradeType {kNoUpgrade};
+        /** TSL: the upgrade slot whose upgrade added the property; none for a property of the item's own. */
+        std::optional<int> upgradeSlot;
         /** The uses left today of a property used so many times a day; none when not recorded. */
         std::optional<int> usesPerDay;
         bool usable {true};
@@ -160,7 +169,8 @@ public:
         return from->type() == ObjectType::Item;
     }
 
-    void loadFromBlueprint(const std::string &resRef);
+    /** Reads the item's template; false when there is none. */
+    bool loadFromBlueprint(const std::string &resRef);
     /**
      * Reads a saved item record whole. Any other entry that names a template
      * (see entryTemplate) is that template with the entry's Dropable flag,
@@ -188,6 +198,12 @@ public:
     void powerDown(glm::vec3 position, bool transition);
     void updatePoweredSoundPosition(glm::vec3 position);
     bool isPowered() const { return _isPowered; }
+    /**
+     * The item's model, named by its class and model variation. A base item
+     * whose models differ by gender also names the given gender letter
+     * between the two; without a letter, no gender is named.
+     */
+    std::string modelResRef(std::optional<char> genderLetter = std::nullopt) const;
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
@@ -234,6 +250,8 @@ public:
     int damageFlags() const { return _damageFlags; }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
+    /** Whether the base item plays its powered animation. */
+    bool isPoweredItem() const { return _poweredItem; }
     int numDice() const { return _numDice; }
     /** The dice of the first Monster Damage property as {count, sides}; {0, 0} without one. */
     std::pair<int, int> monsterDamageDice() const;
@@ -318,8 +336,8 @@ public:
 
     /** Whether the item's upgrades leave the property in force. */
     bool isPropertyActive(const PropertyEntry &property) const;
-    /** Whether \p upgrades leave a property of \p upgradeType in force. */
-    static bool isPropertyActive(uint32_t upgrades, int upgradeType);
+    /** Whether the installed \p upgrades leave a property of \p upgradeType in force. */
+    static bool isPropertyActive(const std::set<int> &upgrades, int upgradeType);
 
     /** Codes 2 to 6: the property costs charges a use. */
     static constexpr bool isChargedUse(int costValue) {
@@ -345,11 +363,30 @@ public:
      * a bonus tied to an upgrade that is not installed is left out.
      */
     int armorValue(bool installedUpgradesOnly) const;
-    uint32_t upgrades() const { return _upgrades; }
+    /** The upgrade.2da rows installed: a property of one of their upgrade types is in force. */
+    const std::set<int> &upgrades() const { return _upgrades; }
+    /** KotOR: installs or removes an upgrade.2da row. */
+    void setUpgradeInstalled(int row, bool installed);
+    void setUpgrades(std::set<int> upgrades) { _upgrades = std::move(upgrades); }
     /** TSL: the item's upgrade level. */
     int upgradeLevel() const { return _upgradeLevel; }
     /** TSL: the upgrade.2da row installed in each of the item's slots; none when a slot is empty. */
     const std::array<std::optional<int>, kUpgradeSlotCount> &upgradeSlots() const { return _upgradeSlots; }
+    /** TSL: installs an upgrade.2da row in a slot, or empties the slot. */
+    void setUpgradeSlot(int slot, std::optional<int> row) { _upgradeSlots[slot] = row; }
+    /**
+     * TSL: the upgrade's properties, apart from its use properties, are added
+     * to the item, marked as the slot's.
+     */
+    void addUpgrade(const Item &upgrade, int slot);
+    /**
+     * TSL: takes off the properties a slot's upgrade added, counted against
+     * the upgrade taken out.
+     */
+    void removeUpgrade(const Item &upgrade, int slot);
+    /** Whether the item is marked stolen. */
+    bool stolen() const { return _stolen; }
+    void setStolen(bool stolen) { _stolen = stolen; }
     /** TSL: whether any of the item's slots holds an upgrade. */
     bool hasInstalledUpgrade() const;
 
@@ -395,7 +432,7 @@ private:
     uint32_t _addCost {0};
     bool _stolen {false};
     uint16_t _stackSize {1};
-    uint32_t _upgrades {0};
+    std::set<int> _upgrades;
     int _upgradeLevel {0};
     std::array<std::optional<int>, kUpgradeSlotCount> _upgradeSlots {};
     bool _identified {true};
@@ -444,6 +481,8 @@ private:
     bool _doorSabering {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;
     bool _poweredItem {false};
+    /** The base item's models differ by gender. */
+    bool _genderSpecific {false};
     bool _isPowered {false};
     std::shared_ptr<audio::AudioClip> _powerUpSound;
     std::shared_ptr<audio::AudioClip> _powerDownSound;
@@ -469,6 +508,8 @@ private:
 
     /** Whether a property used once in so many minutes may be used again. */
     bool isUseIntervalOver(const PropertyEntry &property) const;
+    /** The installed upgrades as saved: a bit for each upgrade.2da row. */
+    uint32_t savedUpgrades() const;
 
     // Blueprint
     /**

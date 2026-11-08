@@ -80,6 +80,12 @@ void ConfirmPopup::onGUILoaded() {
         if (callback) callback();
     });
     _defaultConfirmText = _controls.BTN_OK->text().text;
+    _layoutColors.frame = _gui->rootControl().border().color;
+    _layoutColors.okBorder = _controls.BTN_OK->border().color;
+    _layoutColors.okText = _controls.BTN_OK->text().color;
+    _layoutColors.cancelBorder = _controls.BTN_CANCEL->border().color;
+    _layoutColors.cancelText = _controls.BTN_CANCEL->text().color;
+    _layoutColors.message = _controls.LB_MESSAGE->protoItem().text().color;
     _controls.LB_MESSAGE->setItemsInteractive(false);
     // The message is one block of text that scrolls a line at a time.
     _controls.LB_MESSAGE->setTextLineRows(true);
@@ -110,13 +116,25 @@ void ConfirmPopup::onGUILoaded() {
     }
 }
 
+void ConfirmPopup::applyColors(const std::optional<PopupColors> &colors) {
+    const auto &layout = _layoutColors;
+    _gui->rootControl().setBorderColor(colors ? colors->border : layout.frame);
+    _controls.BTN_OK->setBorderColor(colors ? colors->border : layout.okBorder);
+    _controls.BTN_OK->setTextColor(colors ? colors->text : layout.okText);
+    _controls.BTN_CANCEL->setBorderColor(colors ? colors->border : layout.cancelBorder);
+    _controls.BTN_CANCEL->setTextColor(colors ? colors->text : layout.cancelText);
+    _controls.LB_MESSAGE->protoItem().setTextColor(colors ? colors->text : layout.message);
+}
+
 void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon,
-                        std::function<void()> onConfirm) {
-    open(message, std::move(icon), false);
+                        std::function<void()> onConfirm, std::optional<PopupColors> colors) {
+    open(message, std::move(icon), false, colors);
     _onConfirm = std::move(onConfirm);
 }
 
-void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel) {
+void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel,
+                        const std::optional<PopupColors> &colors) {
+    applyColors(colors);
     _onConfirm = {};
     _onCancel = {};
     _controls.BTN_CANCEL->setVisible(allowCancel);
@@ -299,8 +317,9 @@ void ConfirmPopup::layoutMessage() {
 void ConfirmPopup::showConfirm(
     const std::string &message,
     std::function<void()> onConfirm,
-    std::function<void()> onCancel) {
-    open(message, nullptr, true);
+    std::function<void()> onCancel,
+    std::optional<PopupColors> colors) {
+    open(message, nullptr, true, colors);
     _onConfirm = std::move(onConfirm);
     _onCancel = std::move(onCancel);
 }

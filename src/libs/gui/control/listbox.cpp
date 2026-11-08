@@ -137,13 +137,38 @@ bool ListBox::handleKeyDown(input::KeyCode key) {
 }
 
 bool ListBox::handleMouseMotion(int x, int y) {
-    if (_itemsInteractive && _selectionMode == SelectionMode::OnHover) {
+    if (!_itemsInteractive) {
+        return false;
+    }
+    if (_selectionMode == SelectionMode::OnHover) {
         const int index = getItemIndex(y);
         if (index != -1 || !_keepsSelection) {
             _selectedItemIndex = index;
         }
+    } else if (_selectionMode == SelectionMode::OnHoverKept) {
+        int itemIdx = getDrawnItemIndex(x, y);
+        if (itemIdx != -1) {
+            _selectedItemIndex = itemIdx;
+        }
     }
     return false;
+}
+
+// The drawn row under a point, or -1. Rows below the drawn ones, the space
+// beside the rows and the scroll bar are no row.
+int ListBox::getDrawnItemIndex(int x, int y) const {
+    if (!_protoItem) {
+        return -1;
+    }
+    if (_scrollBar && _scrollBar->isVisible() && _scrollBar->extent().contains(x, y)) {
+        return -1;
+    }
+    const Control::Extent &protoExtent = _protoItem->extent();
+    if (x < protoExtent.left || x >= protoExtent.left + protoExtent.width) {
+        return -1;
+    }
+    int itemIdx = getItemIndex(y);
+    return itemIdx < _itemOffset + _slotCount ? itemIdx : -1;
 }
 
 int ListBox::getItemIndex(int y) const {
@@ -230,11 +255,11 @@ bool ListBox::handleClick(int x, int y, int clicks) {
     if (!_itemsInteractive)
         return false;
 
-    int itemIdx = getItemIndex(y);
+    int itemIdx = _selectionMode == SelectionMode::OnHoverKept ? getDrawnItemIndex(x, y) : getItemIndex(y);
     if (itemIdx == -1)
         return false;
 
-    if (_selectionMode == SelectionMode::OnClick) {
+    if (_selectionMode == SelectionMode::OnClick || _selectionMode == SelectionMode::OnHoverKept) {
         _selectedItemIndex = itemIdx;
     }
     if (_onItemClick) {
@@ -294,6 +319,11 @@ void ListBox::render(const glm::ivec2 &screenSize,
         if (item.frameAlpha) {
             _protoItem->setBorderAlpha(*item.frameAlpha);
         }
+        std::optional<glm::vec3> protoBorderColor;
+        if (item.borderColor) {
+            protoBorderColor = _protoItem->border().color;
+            _protoItem->setBorderColor(*item.borderColor);
+        }
 
         auto toggle = item.on ? std::dynamic_pointer_cast<ToggleButton>(_protoItem) : nullptr;
         bool originalOn = toggle && toggle->isOn();
@@ -315,6 +345,9 @@ void ListBox::render(const glm::ivec2 &screenSize,
         _protoItem->setBorderColorOverride(originalFrameColor);
         _protoItem->setUseBorderColorOverride(originalUsesFrameColor);
         _protoItem->setBorderAlpha(originalFrameAlpha);
+        if (protoBorderColor) {
+            _protoItem->setBorderColor(*protoBorderColor);
+        }
         if (toggle) {
             toggle->setOn(originalOn);
         }

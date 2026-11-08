@@ -1036,6 +1036,19 @@ void Party::transferInventory(Creature &creature) {
     }
 }
 
+void Party::readPlayerAsMember() {
+    _player->clearHeldCounts();
+}
+
+void Party::formAgainOnModuleLoad() {
+    readPlayerAsMember();
+    for (const auto &member : _members) {
+        if (member.npc != kNpcPlayer && member.creature != _player) {
+            transferInventory(*member.creature);
+        }
+    }
+}
+
 void Party::joinRosterFaction(const RosterIdentity &identity, Creature &creature) const {
     if (identity.kind == RosterKind::Puppet) {
         creature.setFaction(Faction::PartyPuppet);

@@ -49,6 +49,7 @@
 #include "gui/confirmpopup.h"
 #include "gui/container.h"
 #include "gui/conversation.h"
+#include "gui/crafting.h"
 #include "gui/credits.h"
 #include "gui/deathdisplay.h"
 #include "gui/dialog.h"
@@ -212,6 +213,8 @@ public:
         PartySelection,
         SaveLoad,
         GalaxyMap,
+        UpgradeSelection,
+        LabStation,
         SwoopRace,
         PazaakWager,
         PazaakSetup,
@@ -440,22 +443,30 @@ public:
     bool isDialogUnderWay() const { return _dialogUnderWay; }
     void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
 
-    /** Show a message box dismissed with OK. False when the popup cannot be loaded. */
+    /**
+     * Show a message box dismissed with OK, in the given colours or the
+     * layout's. False when the popup cannot be loaded.
+     */
     bool showMessagePopup(
         const std::string &message,
         std::shared_ptr<graphics::Texture> icon = nullptr,
-        std::function<void()> onConfirm = {});
+        std::function<void()> onConfirm = {},
+        std::optional<PopupColors> colors = std::nullopt);
     /**
      * TSL: a script's message box, showing \p text with the icon
      * \p iconResRef when it names one. Play pauses while it shows, unless it
      * is paused already or a conversation is under way.
      */
     void showScriptMessageBox(const std::string &text, const std::string &iconResRef = "");
-    /** Show a message box answered Yes or No. False when the popup cannot be loaded. */
+    /**
+     * Show a Yes/No message box, in the given colours or the layout's. False
+     * when the popup cannot be loaded.
+     */
     bool showConfirmPopup(
         const std::string &message,
         std::function<void()> onConfirm,
-        std::function<void()> onCancel = {});
+        std::function<void()> onCancel = {},
+        std::optional<PopupColors> colors = std::nullopt);
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
     /**
@@ -587,13 +598,18 @@ public:
      */
     std::shared_ptr<Creature> spawnPuppet(int puppet, const glm::vec3 &position, float facing);
     void openSaveLoad(SaveLoadMode mode);
+    /** Opens the galaxy map on the planet, unless the screen can't be taken over or its travel script is running. */
     void openGalaxyMap(int initialPlanet);
     /** Whether a map's travel script is running: the galaxy map's, or the return to base. */
     bool isTravelScriptRunning() const;
     /** KotOR: the map's return to base closes the menu and runs its script. */
     void returnToBase();
-    /** Whether the galaxy map may take the screen over from the given one. */
-    static bool canOpenGalaxyMapFrom(Screen screen);
+    /** Whether a panel a script opens (the galaxy map, a workbench, a lab station) may take the screen over from the given one. */
+    static bool canPanelTakeScreenFrom(Screen screen);
+    /** Opens a workbench's upgrade-selection screen for a script's request, unless the screen can't be taken over. */
+    void openUpgradeScreen(UpgradeScreenRequest request);
+    /** TSL: opens a lab station for the creature, unless the screen can't be taken over. */
+    void openLabStation(std::shared_ptr<Creature> character);
 
     // KotOR I Pazaak lifecycle
 
@@ -906,6 +922,12 @@ public:
     bool requestTutorialWindow(int id, std::function<void()> onClosed);
     /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
     std::optional<int> feedbackTextStrRef(int row) const;
+    /**
+     * The gender letter worn and held item models are named with: the first
+     * letter of the gender.2da GENDER cell of the leader's gender, or M with
+     * no leader. A blank cell, or a row outside the table, names none.
+     */
+    std::optional<char> itemModelGenderLetter() const;
     /**
      * The traps.2da row of a trap type. A type outside the table reads as a
      * blank row, as every 2DA row outside its table does.
@@ -1731,6 +1753,8 @@ private:
     std::vector<std::optional<int>> _feedbackTexts;
     /** The trap types of traps.2da, by row. */
     std::vector<TrapTypeRow> _trapTypes;
+    /** The first letter of each gender.2da row's GENDER cell; none where blank. */
+    std::vector<std::optional<char>> _genderLetters;
 
     // END Tables
 
@@ -2054,6 +2078,8 @@ private:
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;
     bool _runningReturnScript {false};
+    std::unique_ptr<UpgradeSelectionGUI> _upgradeSelection;
+    std::unique_ptr<LabStationPanel> _labStation;
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
@@ -2383,6 +2409,31 @@ private:
             error(str(boost::format("Error loading GUI: %s") % std::string(e.what())));
             return nullptr;
         }
+    }
+
+    /**
+     * Gives the screen to a panel a script opens, loading the panel on first
+     * use; prepare readies it first. The screen stays as it is when it can't be
+     * taken over or the panel won't load.
+     */
+    template <class T, class Prepare>
+    void openPanelScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
+        if (!canPanelTakeScreenFrom(_screen)) {
+            return;
+        }
+        if (!panel) {
+            panel = tryLoadGUI<T>();
+        }
+        if (!panel) {
+            // A panel that will not load must not take the screen away from
+            // whatever is on it.
+            return;
+        }
+        stopMovement();
+        setRelativeMouseMode(false);
+        setCursorType(resource::CursorType::Default);
+        prepare(*panel);
+        changeScreen(screen);
     }
 
     // END GUI

@@ -56,6 +56,8 @@ public:
     virtual std::shared_ptr<audio::AudioClip> getCheckboxCheck() const = 0;
     /** The sound of an item chosen for an equipment slot. */
     virtual std::shared_ptr<audio::AudioClip> getInventorySelect() const = 0;
+    /** An item's upgrades assembled at a workbench. */
+    virtual std::shared_ptr<audio::AudioClip> getUpgrade() const = 0;
     /** The sound of an item cleared from an equipment slot. */
     virtual std::shared_ptr<audio::AudioClip> getInventoryDrop() const = 0;
     /** TSL: the sting of a light (true) or dark side shift on the status summary. */
@@ -89,6 +91,7 @@ public:
     std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return _questCompleteNotify; }
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return _checkboxCheck; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return _inventorySelect; }
+    std::shared_ptr<audio::AudioClip> getUpgrade() const override { return _upgrade; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return _inventoryDrop; }
     std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const override {
         return light ? _lightSide : _darkSide;
@@ -111,6 +114,7 @@ private:
     std::shared_ptr<audio::AudioClip> _actionMenuScroll;
     std::shared_ptr<audio::AudioClip> _checkboxCheck;
     std::shared_ptr<audio::AudioClip> _inventorySelect;
+    std::shared_ptr<audio::AudioClip> _upgrade;
     std::shared_ptr<audio::AudioClip> _inventoryDrop;
     std::shared_ptr<audio::AudioClip> _inventoryAdd;
     std::shared_ptr<audio::AudioClip> _panelAdded;

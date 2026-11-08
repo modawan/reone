@@ -486,6 +486,19 @@ public:
     void respawnVacantFollowers();
     /** Rebuilding the party drops the entries that name nothing. */
     void removeVacantMembers();
+    /**
+     * The creature under control is read as a party member's as the party
+     * enters a module from a save or from another module: it holds no counts
+     * of its own. The party has a player then.
+     */
+    void readPlayerAsMember();
+    /**
+     * Forms the party again in a module it is carried into from another: the
+     * player is read as a party member's, and every other member but the
+     * player character hands the party its own credits, components,
+     * chemicals and carried items again.
+     */
+    void formAgainOnModuleLoad();
     std::shared_ptr<Creature> rosterCreature(
         const RosterIdentity &identity) const;
     std::shared_ptr<Creature> rosterCreature(

@@ -2281,7 +2281,8 @@ public:
     /**
      * The creature holds no credits, components or chemicals of its own. A
      * creature read as a party member keeps none of the counts its record
-     * holds: the player record a module starts with is read so.
+     * holds: the creature under control is read so whenever the party enters
+     * a module from a save or from another module.
      */
     void clearHeldCounts();
 

@@ -333,6 +333,10 @@ static const char *screenName(Game::Screen screen) {
         return "SaveLoad";
     case Game::Screen::GalaxyMap:
         return "GalaxyMap";
+    case Game::Screen::UpgradeSelection:
+        return "UpgradeSelection";
+    case Game::Screen::LabStation:
+        return "LabStation";
     case Game::Screen::SwoopRace:
         return "SwoopRace";
     case Game::Screen::PazaakWager:
@@ -360,6 +364,8 @@ static bool pausesWorld(Game::Screen screen) {
     case Game::Screen::PartySelection:
     case Game::Screen::SaveLoad:
     case Game::Screen::GalaxyMap:
+    case Game::Screen::UpgradeSelection:
+    case Game::Screen::LabStation:
         return true;
     default:
         return false;
@@ -717,6 +723,15 @@ void Game::initTables() {
         _feedbackTexts.push_back(feedback->getIntOpt(row, "strref"));
     }
 
+    // A missing gender table has no rows.
+    _genderLetters.clear();
+    if (auto genders = twoDas.get("gender")) {
+        for (int row = 0; row < genders->getRowCount(); ++row) {
+            const auto letter = genders->getString(row, "GENDER");
+            _genderLetters.push_back(letter.empty() ? std::nullopt : std::optional<char>(letter.front()));
+        }
+    }
+
     _trapTypes = Trap::readTypes(twoDas);
     _areaMusic.init(isTSL());
     if (isTSL()) {
@@ -730,6 +745,15 @@ void Game::initTables() {
 
 std::optional<int> Game::feedbackTextStrRef(int row) const {
     return row >= 0 && row < static_cast<int>(_feedbackTexts.size()) ? _feedbackTexts[row] : std::nullopt;
+}
+
+std::optional<char> Game::itemModelGenderLetter() const {
+    const auto leader = _party.getLeader();
+    if (!leader) {
+        return 'M';
+    }
+    const auto row = static_cast<size_t>(leader->gender());
+    return row < _genderLetters.size() ? _genderLetters[row] : std::nullopt;
 }
 
 const TrapTypeRow &Game::trapType(int type) const {
@@ -1745,6 +1769,10 @@ bool Game::loadPreparedModule(
 
     bool loaded = false;
 
+    // The party comes from the module being left, rather than from a save or
+    // a new game.
+    const bool partyCarriedOver = _module && !initialSaveRestore;
+
     const auto sourceScreen = _screen;
     bool commitStarted = false;
     try {
@@ -1757,7 +1785,8 @@ bool Game::loadPreparedModule(
                                  &sourceWorkingState,
                                  &partyTransitionState,
                                  &commitStarted,
-                                 &loaded]() {
+                                 &loaded,
+                                 partyCarriedOver]() {
             try {
                 commitStarted = true;
                 _globalFade.request(GlobalFade::Direction::Out);
@@ -1855,8 +1884,12 @@ bool Game::loadPreparedModule(
                 destination->signalLoaded();
 
                 // The party is formed anew in the destination: a place that names
-                // no one does not come along, and the first member there leads.
+                // no one does not come along, the first member there leads, and
+                // a party carried over is formed again from its members.
                 _party.removeVacantMembers();
+                if (partyCarriedOver) {
+                    _party.formAgainOnModuleLoad();
+                }
                 signalPartyEquipment();
                 destination->loadParty(entry, preservesSavedPlacement(context));
                 if (!stillCurrent()) {
@@ -2494,9 +2527,6 @@ void Game::publishPartyRuntimeState(
     }
 
     auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
-    // The player record a module starts with is read as a party member's: the
-    // party's counts are its counts, and it keeps none of the record's own.
-    modulePlayer->clearHeldCounts();
     modulePlayer->captureSaveRecord(
         *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
     if (modulePlayer->tag().empty()) {
@@ -2516,6 +2546,8 @@ void Game::publishPartyRuntimeState(
     }
 
     _party.setPlayer(modulePlayer);
+    // The record's own counts are dropped before its creature joins the party.
+    _party.readPlayerAsMember();
     _party.setActualPlayer(actualPlayer);
     if (partyState.controlledNpc != -1 &&
         !_party.bindRosterCreature(
@@ -3203,6 +3235,8 @@ bool Game::hasModalPanel() const {
     case Screen::Container:
     case Screen::Store:
     case Screen::PartySelection:
+    case Screen::UpgradeSelection:
+    case Screen::LabStation:
     case Screen::SaveLoad:
     case Screen::PazaakWager:
     case Screen::PazaakSetup:
@@ -8253,7 +8287,7 @@ void Game::openSaveLoad(SaveLoadMode mode) {
     changeScreen(Screen::SaveLoad);
 }
 
-bool Game::canOpenGalaxyMapFrom(Screen screen) {
+bool Game::canPanelTakeScreenFrom(Screen screen) {
     switch (screen) {
     case Screen::None:
     case Screen::InGame:
@@ -8282,28 +8316,28 @@ void Game::returnToBase() {
 }
 
 void Game::openGalaxyMap(int initialPlanet) {
-    if (!canOpenGalaxyMapFrom(_screen)) {
-        return;
-    }
-    if (_galaxyMap && _galaxyMap->isRunningTravelScript()) {
+    if (isTravelScriptRunning()) {
         // The travel script this panel dispatched must not reopen it.
         return;
     }
-    if (!_galaxyMap) {
-        _galaxyMap = tryLoadGUI<GalaxyMap>();
-    }
-    if (!_galaxyMap) {
-        // A panel that will not load must not take the screen away from
-        // whatever is on it.
-        return;
-    }
-    stopMovement();
-    setRelativeMouseMode(false);
-    setCursorType(CursorType::Default);
-    // The panel decides what the routine's planet means: K2 has to record
-    // where the party already is before anything can move the selection.
-    _galaxyMap->prepare(initialPlanet);
-    changeScreen(Screen::GalaxyMap);
+    openPanelScreen(_galaxyMap, Screen::GalaxyMap, [initialPlanet](GalaxyMap &map) {
+        // The panel decides what the routine's planet means: K2 has to record
+        // where the party already is before anything can move the selection.
+        map.prepare(initialPlanet);
+    });
+}
+
+// A workbench is also opened from a conversation.
+void Game::openUpgradeScreen(UpgradeScreenRequest request) {
+    openPanelScreen(_upgradeSelection, Screen::UpgradeSelection, [&request](UpgradeSelectionGUI &workbench) {
+        workbench.open(std::move(request));
+    });
+}
+
+void Game::openLabStation(std::shared_ptr<Creature> character) {
+    openPanelScreen(_labStation, Screen::LabStation, [&character](LabStationPanel &station) {
+        station.open(character);
+    });
 }
 
 void Game::serializePazaakPartyTable(resource::Gff &ptGff) const {
@@ -9111,6 +9145,10 @@ GameGUI *Game::getScreenGUI() const {
         return _saveLoad.get();
     case Screen::GalaxyMap:
         return _galaxyMap.get();
+    case Screen::UpgradeSelection:
+        return _upgradeSelection.get();
+    case Screen::LabStation:
+        return _labStation.get();
     case Screen::SwoopRace:
         return nullptr; // race skeleton has no HUD yet
     case Screen::PazaakWager:
@@ -9651,7 +9689,8 @@ void Game::showExamineBox(const std::string &message) {
 bool Game::showMessagePopup(
     const std::string &message,
     std::shared_ptr<Texture> icon,
-    std::function<void()> onConfirm) {
+    std::function<void()> onConfirm,
+    std::optional<PopupColors> colors) {
     if (!_confirmPopup) {
         _confirmPopup = tryLoadGUI<ConfirmPopup>();
     }
@@ -9661,7 +9700,7 @@ bool Game::showMessagePopup(
     // The popup takes all input, key and button releases included, so the
     // steering and mouse-look held when it opens stop now.
     stopMovement();
-    _confirmPopup->show(message, std::move(icon), std::move(onConfirm));
+    _confirmPopup->show(message, std::move(icon), std::move(onConfirm), colors);
     return true;
 }
 
@@ -9689,7 +9728,8 @@ void Game::releaseMessageBoxPause() {
 bool Game::showConfirmPopup(
     const std::string &message,
     std::function<void()> onConfirm,
-    std::function<void()> onCancel) {
+    std::function<void()> onCancel,
+    std::optional<PopupColors> colors) {
     if (!_confirmPopup) {
         _confirmPopup = tryLoadGUI<ConfirmPopup>();
     }
@@ -9697,7 +9737,7 @@ bool Game::showConfirmPopup(
         return false;
     }
     stopMovement();
-    _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel));
+    _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel), colors);
     return true;
 }
 

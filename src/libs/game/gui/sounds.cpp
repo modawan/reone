@@ -53,6 +53,8 @@ void GUISounds::init() {
     // An item chosen for, or cleared from, an equipment slot.
     loadSound(*sounds, "Inventory_Select", _inventorySelect);
     loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
+    // A workbench's upgrades assembled.
+    loadSound(*sounds, "Upgrade", _upgrade);
     // TSL only: the light and dark side stings.
     loadSound(*sounds, "DarkSide", _darkSide);
     loadSound(*sounds, "LightSide", _lightSide);
@@ -85,6 +87,7 @@ void GUISounds::deinit() {
     _actionMenuScroll.reset();
     _checkboxCheck.reset();
     _inventorySelect.reset();
+    _upgrade.reset();
     _inventoryDrop.reset();
     _inventoryAdd.reset();
     _panelAdded.reset();

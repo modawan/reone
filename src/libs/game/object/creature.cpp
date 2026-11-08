@@ -10863,10 +10863,7 @@ std::string Creature::getMaskModelName() const {
         return "";
     }
 
-    std::string modelName(boost::to_lower_copy(headItem->itemClass()));
-    modelName += str(boost::format("_%03d") % headItem->modelVariation());
-
-    return modelName;
+    return headItem->modelResRef(_game.itemModelGenderLetter());
 }
 
 std::string Creature::getWeaponModelName(int slot) const {
@@ -10875,12 +10872,7 @@ std::string Creature::getWeaponModelName(int slot) const {
         return "";
     }
 
-    std::string modelName(bodyItem->itemClass());
-    boost::to_lower(modelName);
-
-    modelName += str(boost::format("_%03d") % bodyItem->modelVariation());
-
-    return modelName;
+    return bodyItem->modelResRef(_game.itemModelGenderLetter());
 }
 
 void Creature::deserialize(

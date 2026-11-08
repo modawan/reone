@@ -4176,17 +4176,20 @@ static Variable GetInventoryDisturbItem(const std::vector<Variable> &args, const
 }
 
 static Variable ShowUpgradeScreen(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oItem = getObjectOrNull(args, 0, ctx);
-    auto oCharacter = getObjectOrNull(args, 1, ctx);
-    auto nDisableItemCreation = getIntOrElse(args, 2, 0);
-    auto nDisableUpgrade = getIntOrElse(args, 3, 0);
-    auto sOverride2DA = getStringOrElse(args, 4, "");
-
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("ShowUpgradeScreen");
+    // An item, when one is named, must be an item.
+    const auto oItem = std::dynamic_pointer_cast<Item>(getObjectOrNull(args, 0, ctx));
+    if (args[0].objectId != kObjectInvalid && !oItem) {
+        return Variable::ofNull();
+    }
+    const auto oCharacter = getObjectOrNull(args, 1, ctx);
+    UpgradeScreenRequest request;
+    request.item = oItem;
+    request.character = oCharacter ? checkCreature(oCharacter) : ctx.game.party().player();
+    request.disableItemCreation = getIntOrElse(args, 2, 0) != 0;
+    request.disableUpgrade = getIntOrElse(args, 3, 0) != 0;
+    request.itemCreateTable = getStringOrElse(args, 4, "");
+    ctx.game.openUpgradeScreen(std::move(request));
+    return Variable::ofNull();
 }
 
 static Variable VersusAlignmentEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7357,13 +7360,9 @@ static Variable GetItemComponentPieceValue(const std::vector<Variable> &, const 
 }
 
 static Variable ShowChemicalUpgradeScreen(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto oCharacter = getObject(args, 0, ctx);
-
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("ShowChemicalUpgradeScreen");
+    const auto oCharacter = getObjectOrNull(args, 0, ctx);
+    ctx.game.openLabStation(oCharacter ? checkCreature(oCharacter) : ctx.game.party().player());
+    return Variable::ofNull();
 }
 
 static Variable GetChemicals(const std::vector<Variable> &, const RoutineContext &ctx) {

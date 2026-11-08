@@ -203,6 +203,40 @@ public:
         return _text + description;
     }
 
+    // A line for each property chosen, from its name, subtype and cost.
+    std::string buildPropertyLines(const std::function<bool(const Item::PropertyEntry &)> &include) const {
+        std::string text;
+        for (const auto &property : _item.properties()) {
+            if (!include(property)) {
+                continue;
+            }
+            const auto strings = propertyStrings(type(property), property.subtype, property.costValue, std::nullopt);
+            std::string line;
+            if (!strings.name.empty() && !strings.subtype.empty()) {
+                line = strings.name + (strings.name.back() == '+' ? "" : ": ") + strings.subtype;
+                if (!strings.cost.empty()) {
+                    line += ", " + strings.cost;
+                }
+            } else if (!strings.name.empty()) {
+                line = strings.name;
+                if (!strings.cost.empty()) {
+                    line += ": " + strings.cost;
+                }
+            } else if (!strings.subtype.empty()) {
+                line = strings.subtype;
+                if (!strings.cost.empty()) {
+                    line += " " + strings.cost;
+                }
+            } else {
+                line = strings.cost;
+            }
+            if (!line.empty()) {
+                text += line + "\n";
+            }
+        }
+        return text;
+    }
+
 private:
     const Item &_item;
     const Game &_game;
@@ -1107,6 +1141,14 @@ private:
 
 std::string buildItemDescription(const Item &item, const Game &game, ServicesView &services) {
     return ItemDescriptionBuilder(item, game, services).build();
+}
+
+std::string buildItemPropertyLines(
+    const Item &item,
+    const Game &game,
+    ServicesView &services,
+    const std::function<bool(const Item::PropertyEntry &)> &include) {
+    return ItemDescriptionBuilder(item, game, services).buildPropertyLines(include);
 }
 
 } // namespace game

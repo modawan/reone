@@ -1067,7 +1067,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newDword("AddCost", item._addCost));
     put(*result, Gff::Field::newByte("Stolen", item._stolen));
     put(*result, Gff::Field::newWord("StackSize", item._stackSize));
-    put(*result, Gff::Field::newDword("Upgrades", item._upgrades));
+    put(*result, Gff::Field::newDword("Upgrades", item.savedUpgrades()));
     if (_game.isTSL()) {
         put(*result, Gff::Field::newByte("UpgradeLevel", static_cast<uint8_t>(item._upgradeLevel)));
         // An empty slot is saved as kSavedEmptyUpgradeSlot. A slot holding
@@ -1092,7 +1092,25 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newByte("NewItem", item._newlyAcquired));
     std::vector<std::shared_ptr<Gff>> properties;
     for (const auto &property : item._properties) {
-        properties.push_back(Gff::Builder().type(0).field(Gff::Field::newByte("ChanceAppear", property.chanceAppear)).field(Gff::Field::newByte("CostTable", property.costTable)).field(Gff::Field::newWord("CostValue", property.costValue)).field(Gff::Field::newByte("Param1", property.paramTable)).field(Gff::Field::newByte("Param1Value", property.paramValue)).field(Gff::Field::newWord("PropertyName", property.propertyName)).field(Gff::Field::newWord("Subtype", property.subtype)).field(Gff::Field::newByte("UpgradeType", property.upgradeType)).field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay))).field(Gff::Field::newByte("Useable", property.usable)).field(Gff::Field::newDword("UsedDay", property.usedDay)).field(Gff::Field::newDword("UsedTime", property.usedTime)).build());
+        Gff::Builder record;
+        record.type(0)
+            .field(Gff::Field::newByte("ChanceAppear", property.chanceAppear))
+            .field(Gff::Field::newByte("CostTable", property.costTable))
+            .field(Gff::Field::newWord("CostValue", property.costValue))
+            .field(Gff::Field::newByte("Param1", property.paramTable))
+            .field(Gff::Field::newByte("Param1Value", property.paramValue))
+            .field(Gff::Field::newWord("PropertyName", property.propertyName))
+            .field(Gff::Field::newWord("Subtype", property.subtype))
+            .field(Gff::Field::newByte("UpgradeType", property.upgradeType))
+            .field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay)))
+            .field(Gff::Field::newByte("Useable", property.usable))
+            .field(Gff::Field::newDword("UsedDay", property.usedDay))
+            .field(Gff::Field::newDword("UsedTime", property.usedTime));
+        if (_game.isTSL()) {
+            const int propUpgrade = property.upgradeSlot ? *property.upgradeSlot + 1 : Item::PropertyEntry::kSavedNoPropUpgrade;
+            record.field(Gff::Field::newWord("PropUpgrade", static_cast<uint16_t>(propUpgrade)));
+        }
+        properties.push_back(record.build());
     }
     put(*result, Gff::Field::newList("PropertiesList", std::move(properties)));
     return result;

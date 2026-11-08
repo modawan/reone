@@ -43,6 +43,7 @@ constexpr char kSceneCharGen[] = "chargen";
 constexpr char kSceneClassSelect[] = "classselect";
 constexpr char kScenePortraitSelect[] = "portraitselect";
 constexpr char kSceneCharacter[] = "character";
+constexpr char kSceneUpgrade[] = "upgrade";
 
 constexpr glm::vec3 kGUIColorBase = glm::vec3(0.0f, 0.639216f, 0.952941f);
 constexpr glm::vec3 kGUIColorHilight = glm::vec3(0.980392f, 1.0f, 0.0f);
@@ -61,6 +62,28 @@ constexpr glm::vec3 kTravelOpenBorderColor {1.0f, 1.0f, 1.0f};
 constexpr glm::vec3 kTravelRefusedTextColor {0.0f, 0.33f, 0.49f};
 constexpr glm::vec3 kTravelRefusedBorderColor {0.35f, 0.35f, 0.35f};
 constexpr glm::vec3 kTSLTravelRefusedTextColor {0.4f, 0.4f, 0.3f};
+
+/** KotOR's in-game screens show plain values in blue. */
+constexpr glm::vec3 kK1ColorBlue = glm::vec3(0.0f, 0.66f, 0.98f);
+/** KotOR: a workbench button's text with nothing to act on. */
+constexpr glm::vec3 kK1ColorDisabledText = glm::vec3(0.0f, 0.33f, 0.49f);
+/** KotOR: a workbench button's frame with something to act on. */
+constexpr glm::vec3 kK1ColorEnabledIcon = glm::vec3(1.0f);
+/** KotOR: a workbench button's frame with nothing to act on. */
+constexpr glm::vec3 kK1ColorDisabledIcon = glm::vec3(0.35f);
+/** KotOR's in-game screens light the active entry in yellow. */
+constexpr glm::vec3 kK1ColorYellow = glm::vec3(0.98f, 1.0f, 0.0f);
+
+/** The colour of lowered values on TSL's in-game screens. */
+constexpr glm::vec3 kTSLColorRed = glm::vec3(0.74f, 0.11f, 0.0f);
+/** The colour of the active entry's text on TSL's in-game screens. */
+constexpr glm::vec3 kTSLColorNewHighlight = glm::vec3(0.7f, 0.7f, 0.6f);
+/** The text colour of the entries on TSL's crafting screens. */
+constexpr glm::vec3 kTSLColorUpgradeText = glm::vec3(0.0f, 0.66f, 0.98f);
+/** The border colour of the entries on TSL's crafting screens. */
+constexpr glm::vec3 kTSLColorUpgradeBorder = glm::vec3(0.0f, 0.33f, 0.5f);
+/** The text colour of an entry that can't be chosen on TSL's crafting screens. */
+constexpr glm::vec3 kTSLColorDisabledText = glm::vec3(0.4f, 0.4f, 0.3f);
 
 enum class BackgroundType {
     None,

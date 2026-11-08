@@ -173,19 +173,18 @@ void MainMenu::refreshScene() {
     if (!model) return;
     auto environment = sceneGraph.newModel(*model, ModelUsage::GUI);
     if (!environment) return;
-    SceneInitializer(sceneGraph)
+    SceneInitializer initializer {sceneGraph};
+    initializer
         .aspect(extent.width / static_cast<float>(extent.height))
         .depth(0.1f, 10000.0f)
         .perspective(glm::radians(22.7259998f))
         .modelScale(1.0f)
         .prewarmEmitters()
-        .modelSupplier([environment](ISceneGraph &) { return environment; })
-        .invoke();
+        .modelSupplier([environment](ISceneGraph &) { return environment; });
     if (auto room = _services.resource.models.get("gui3d_room")) {
-        sceneGraph.clear();
-        sceneGraph.addRoot(sceneGraph.newModel(*room, ModelUsage::Room));
-        sceneGraph.addRoot(environment);
+        initializer.room(sceneGraph.newModel(*room, ModelUsage::Room));
     }
+    initializer.invoke();
     // mainmenu03 also has a character-local camerahook. Select the scene's
     // direct child by number, avoiding the duplicate-name lookup entirely.
     if (auto camera = sceneGraph.camera()) {

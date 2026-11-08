@@ -79,16 +79,78 @@ int Item::chemicalValue(float baseCostMultiplier) const {
     return std::max(cost(baseCostMultiplier) / kCostPerChemical, 1);
 }
 
+void Item::addUpgrade(const Item &upgrade, int slot) {
+    for (const auto &property : upgrade._properties) {
+        if (isUseProperty(property.propertyName)) {
+            continue;
+        }
+        auto added = property;
+        added.upgradeSlot = slot;
+        _properties.push_back(added);
+    }
+}
+
+// The count is the upgrade's: an upgrade with no passive properties takes
+// none off; otherwise the properties the slot's upgrade added go, and of the
+// item's other passive properties only the first n - m stay, n being the
+// passive properties the item held and m the upgrade's.
+void Item::removeUpgrade(const Item &upgrade, int slot) {
+    const auto passive = [](const PropertyEntry &property) { return !isUseProperty(property.propertyName); };
+    const auto taken = std::count_if(upgrade._properties.begin(), upgrade._properties.end(), passive);
+    if (taken == 0) {
+        return;
+    }
+    const auto held = std::count_if(_properties.begin(), _properties.end(), passive);
+    _properties.erase(std::remove_if(_properties.begin(), _properties.end(), [&](const PropertyEntry &property) {
+                          return passive(property) && property.upgradeSlot == slot;
+                      }),
+                      _properties.end());
+    auto excess = std::count_if(_properties.begin(), _properties.end(), passive) - (held - taken);
+    for (auto it = _properties.end(); excess > 0 && it != _properties.begin();) {
+        --it;
+        if (passive(*it)) {
+            it = _properties.erase(it);
+            --excess;
+        }
+    }
+}
+
+void Item::setUpgradeInstalled(int row, bool installed) {
+    if (installed) {
+        _upgrades.insert(row);
+    } else {
+        _upgrades.erase(row);
+    }
+}
+
+uint32_t Item::savedUpgrades() const {
+    uint32_t saved = 0;
+    for (int row : _upgrades) {
+        saved |= uint32_t {1} << row;
+    }
+    return saved;
+}
+
+std::string Item::modelResRef(std::optional<char> genderLetter) const {
+    auto resRef = boost::to_lower_copy(_itemClass);
+    if (_genderSpecific && genderLetter) {
+        resRef += '_';
+        resRef += *genderLetter;
+    }
+    return resRef + str(boost::format("_%03d") % static_cast<int>(_modelVariation));
+}
+
 bool Item::hasInstalledUpgrade() const {
     return std::any_of(_upgradeSlots.begin(), _upgradeSlots.end(), [](const std::optional<int> &slot) { return slot.has_value(); });
 }
 
-void Item::loadFromBlueprint(const std::string &resRef) {
+bool Item::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> uti(_services.resource.gffs.get(resRef, ResType::Uti));
-    if (uti) {
-        deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
-        return;
+    if (!uti) {
+        return false;
     }
+    deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
+    return true;
 }
 
 std::optional<std::string> Item::entryTemplate(const resource::Gff &entry) {
@@ -156,10 +218,18 @@ void Item::deserializeAll(
     gff.readDword(_addCost, "AddCost");
     gff.readBool(_stolen, "Stolen");
     gff.readWord(_stackSize, "StackSize");
-    gff.readDword(_upgrades, "Upgrades");
+    // The upgrades are saved as a bit for each upgrade.2da row installed.
+    auto savedUpgrades = this->savedUpgrades();
+    gff.readDword(savedUpgrades, "Upgrades");
+    _upgrades.clear();
+    for (int row = 0; row < std::numeric_limits<uint32_t>::digits; ++row) {
+        if ((savedUpgrades >> row) & 1) {
+            _upgrades.insert(row);
+        }
+    }
     if (_game.isTSL()) {
         // A record without an upgrade level takes it from the item's upgrades.
-        auto level = static_cast<uint8_t>(_upgrades);
+        auto level = static_cast<uint8_t>(savedUpgrades);
         gff.readByte(level, "UpgradeLevel");
         _upgradeLevel = level;
         // A slot the record leaves out, or gives a negative row, is empty, even
@@ -172,7 +242,15 @@ void Item::deserializeAll(
     }
 
     gff.readBool(_identified, "Identified");
-    gff.readByte(_modelVariation, "ModelVariation");
+    // A record without a model variation gives its first model part, and
+    // with neither the item keeps the variation it had; a variation so taken
+    // that is 0 is 1.
+    if (!gff.readByte(_modelVariation, "ModelVariation")) {
+        gff.readByte(_modelVariation, "ModelPart1");
+        if (_modelVariation == 0) {
+            _modelVariation = 1;
+        }
+    }
     gff.readByte(_textureVariation, "TextureVar");
     gff.readByte(_bodyVariation, "BodyVariation");
     gff.readBool(_dropable, "Dropable");
@@ -205,6 +283,15 @@ void Item::deserializeProperties(const resource::Gff &gff) {
         prop->readByte(usesPerDay, "UsesPerDay");
         if (usesPerDay != PropertyEntry::kUnrecordedUsesPerDay) {
             entry.usesPerDay = usesPerDay;
+        }
+        if (_game.isTSL()) {
+            // A property an upgrade added is marked with its slot plus one;
+            // any other mark names no slot.
+            uint16_t propUpgrade = PropertyEntry::kSavedNoPropUpgrade;
+            prop->readWord(propUpgrade, "PropUpgrade");
+            if (propUpgrade >= 1 && propUpgrade <= kUpgradeSlotCount) {
+                entry.upgradeSlot = propUpgrade - 1;
+            }
         }
         prop->readBool(entry.usable, "Useable");
         prop->readDword(entry.usedDay, "UsedDay");
@@ -300,6 +387,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
         static_cast<int>(std::numeric_limits<uint16_t>::max())));
 
     _poweredItem = baseItems->getInt(_baseItem, "powereditem") != 0;
+    _genderSpecific = baseItems->getInt(_baseItem, "genderspecific") != 0;
     if (_poweredItem) {
         auto loadSound = [this, &baseItems](const char *column) {
             auto resRef = boost::to_lower_copy(baseItems->getString(_baseItem, column));
@@ -415,6 +503,7 @@ void Item::clone(const Item &from) {
     _equipped = from._equipped;
     _ammunitionType = from._ammunitionType;
     _poweredItem = from._poweredItem;
+    _genderSpecific = from._genderSpecific;
     _isPowered = from._isPowered;
     _powerUpSound = from._powerUpSound;
     _powerDownSound = from._powerDownSound;
@@ -896,11 +985,8 @@ std::vector<ItemOnHitProperty> Item::itemOnHitProperties() const {
     return result;
 }
 
-bool Item::isPropertyActive(uint32_t upgrades, int upgradeType) {
-    if (upgradeType == PropertyEntry::kNoUpgrade) {
-        return true;
-    }
-    return (upgrades & (uint32_t {1} << upgradeType)) != 0;
+bool Item::isPropertyActive(const std::set<int> &upgrades, int upgradeType) {
+    return upgradeType == PropertyEntry::kNoUpgrade || upgrades.count(upgradeType) > 0;
 }
 
 } // namespace game
