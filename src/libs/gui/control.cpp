@@ -76,7 +76,6 @@ void Control::Extent::getCenter(int &x, int &y) const {
 void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
     loadExtent(gui.EXTENT);
     loadBorder(gui.BORDER);
-    _tintBorderFill = _gui.tintBorderFills();
     _isProtoItem = protoItem;
     // A button's text pulses while the button is selected, and so does an
     // image button's where the GUI says so.
@@ -166,7 +165,7 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
 void Control::updateTextLines() {
     _textLines.clear();
     if (_text.font && !_text.text.empty()) {
-        _textLines = breakText(_text.text, *_text.font, _extent.width, _scale);
+        _textLines = breakText(_text.text, *_text.font, textExtent().width, _scale);
     }
 }
 
@@ -225,7 +224,12 @@ void Control::render(const glm::ivec2 &screenSize,
     if (!_visible) {
         return;
     }
-    glm::ivec2 size(_extent.width, _extent.height);
+    const Extent borderArea = borderExtent();
+    const glm::ivec2 borderOffset(offset.x + borderArea.left - _extent.left, offset.y + borderArea.top - _extent.top);
+    const glm::ivec2 borderSize(borderArea.width, borderArea.height);
+    const Extent textArea = textExtent();
+    const glm::ivec2 textOffset(offset.x + textArea.left - _extent.left, offset.y + textArea.top - _extent.top);
+    const glm::ivec2 textSize(textArea.width, textArea.height);
 
     // The borders this control is currently showing, in the order they stack:
     // its own border, its HILIGHT border, or - where the hilight is authored to
@@ -243,15 +247,15 @@ void Control::render(const glm::ivec2 &screenSize,
     renderControlLayers(
         ArrayRef<const Border *>(borderStorage.data(), borderCount),
         !_sceneName.empty() && _gui.sceneRenderEnabled(),
-        [this, &offset, &size, &pass](const Border &border, BorderRenderPart part) {
-            renderBorder(border, offset, size, pass, part);
+        [this, &borderOffset, &borderSize, &pass](const Border &border, BorderRenderPart part) {
+            renderBorder(border, borderOffset, borderSize, pass, part);
         },
         [this, &screenSize, &offset, &pass]() {
             renderScene(screenSize, offset, pass);
         },
-        [this, &offset, &size, &pass]() {
+        [this, &textOffset, &textSize, &pass]() {
             if (!_textLines.empty()) {
-                renderText(_textLines, offset, size, pass);
+                renderText(_textLines, textOffset, textSize, pass);
             }
         });
 }
@@ -320,7 +324,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 position,
                 drawSize,
-                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), fillAlpha),
+                glm::vec4(color, fillAlpha),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default,
                 frame);
@@ -491,7 +495,12 @@ void Control::renderText(const std::vector<std::string> &lines,
     glm::vec3 linePosition(0.0f);
     const auto &hilight = shownHilight();
     const bool pulsing = _text.pulsing || (_selected && _text.hilightPulsing);
-    glm::vec4 color {(_selected && hilight) ? hilight->color : _text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    glm::vec4 color {_text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    if (_selected && _text.selectedColor) {
+        color = glm::vec4(*_text.selectedColor, color.a);
+    } else if (_selected && hilight) {
+        color = glm::vec4(hilight->color, color.a);
+    }
 
     for (auto &line : lines) {
         linePosition.x = static_cast<float>(position.x + offset.x);
@@ -723,7 +732,8 @@ void Control::setHilightColor(glm::vec3 color) {
     if (!_hilight) {
         _hilight = std::make_shared<Border>();
     }
-    _hilight->color = std::move(color);
+    _hilight->color = color;
+    _text.selectedColor = color;
 }
 
 void Control::setHilightPulsing(bool frame, bool fill) {

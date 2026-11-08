@@ -48,8 +48,6 @@ static constexpr int kStrRefTotalRank = 41904;
 void AbilitiesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
-    tintK2InGameFooter();
-    tintK2InGameHeader();
     turnK1PartyArrowRight();
 
     _controls.BTN_SKILLS->setDisabled(true);
@@ -73,18 +71,13 @@ void AbilitiesMenu::onGUILoaded() {
         updateK2FilterButton(_controls.BTN_SKILLS, true);
         updateK2FilterButton(_controls.BTN_POWERS, false);
         updateK2FilterButton(_controls.BTN_FEATS, false);
-        _controls.LB_ABILITY->setTintBorderFill(true);
-        _controls.LB_DESC->setTintBorderFill(true);
-        _controls.LB_DESC_FEATS->setTintBorderFill(true);
-        _controls.LBL_INFOBG->setTintBorderFill(true);
-        _controls.LBL_NAME->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_ABILITIES);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
         enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
-        protoItem.setTintBorderFill(true);
     }
+    useK1ListEntryColors(protoItem);
     // The active row's frames pulse; TSL's icon frame is white.
     protoItem.setHilightPulsing(true, false);
     if (_game.isTSL()) {

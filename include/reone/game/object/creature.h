@@ -634,6 +634,14 @@ public:
     void talkOnce(const std::shared_ptr<graphics::LipAnimation> &animation);
     /** The talking head blends out. */
     void stopTalking();
+    /**
+     * A conversation puts away the items in the creature's hands, or gives
+     * them back. An item equipped into a hand while it is put away shows at
+     * once; the other hand stays put away.
+     */
+    void setHandItemsPutAwayForConversation(bool putAway);
+    /** A conversation puts away the item on the creature's head, or gives it back. */
+    void setHeadItemPutAwayForConversation(bool putAway);
 
     bool isSelectable() const override;
     int effectState() const { return _effectState; }
@@ -2878,6 +2886,10 @@ private:
     bool _damageFlinchHeld {false};            /**< flinched since another animation was chosen */
     std::optional<std::string> _castAnimation; /**< held by a cast or an item use */
     bool _equipmentHidden {false};             /**< an animation that hides equipped items put the hand weapons away */
+    bool _rightHandPutAwayForConversation {false};
+    bool _leftHandPutAwayForConversation {false};
+    bool _headItemPutAwayForConversation {false};
+    bool _handWeaponsStripped {false}; /**< the body gave its weapons up to its bag */
     SpellCastVisuals _spellCastVisuals;
     SpecialAttackVisuals _specialAttackVisuals;
     bool _disableInjuredAnim {false};
@@ -3119,6 +3131,15 @@ private:
      * them back and takes away the creature's thrown lightsaber still in flight.
      */
     void presentEquippedItems(const std::string &clip);
+    /**
+     * The hands of \p body show their items unless an animation or a
+     * conversation has put them away, or the body has given its weapons up.
+     */
+    void presentHandItems(scene::ModelSceneNode &body) const;
+    /** The hand that \p slot holds is no longer put away for a conversation. */
+    void bringOutHandForConversation(int slot);
+    /** The head of \p body shows its item unless a conversation has put it away. */
+    void presentHeadItem(scene::ModelSceneNode &body) const;
     /**
      * A new clip is shown; any but the plain pause restarts the fidget time.
      * A world-space cut clip plays with the model at the world origin and

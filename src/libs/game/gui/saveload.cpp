@@ -138,6 +138,9 @@ void SaveLoad::onGUILoaded() {
     _controls.LB_GAMES->protoItem().setUseBorderColorOverride(true);
     _controls.LB_GAMES->protoItem().setBorderColorOverride(_baseColor);
     _controls.LB_GAMES->protoItem().setHilightColor(_hilightColor);
+    if (_controls.CB_CLOUDSAVE) {
+        _controls.CB_CLOUDSAVE->showAsCheckBox(_baseColor, _hilightColor);
+    }
     _controls.LB_GAMES->setOnItemClick([this](const std::string &tag) {
         _selectedSaveSlot.reset();
         if (tag != "new") {

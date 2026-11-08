@@ -198,7 +198,7 @@ void PBRRenderPass::drawSaber(Mesh &mesh,
                               Material &material,
                               const glm::mat4 &transform,
                               const glm::mat4 &transformInv,
-                              const glm::vec4 &displacement) {
+                              const glm::mat4 &trailEnd) {
     withMaterialAppliedToContext(material, [&](auto &program) {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
@@ -207,7 +207,7 @@ void PBRRenderPass::drawSaber(Mesh &mesh,
             locals.modelInv = transformInv;
             applyMaterialToLocals(material, locals);
         });
-        program.setUniform("uSaberDisplacement", displacement);
+        program.setUniform("uSaberTrailEnd", trailEnd);
         mesh.draw(_statistic);
     });
 }

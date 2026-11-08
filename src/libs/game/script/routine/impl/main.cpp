@@ -43,6 +43,7 @@
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
+#include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/sound.h"
 #include "reone/game/object/trigger.h"
@@ -621,7 +622,9 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
     const std::string name = item->localizedName();
     // The object answered is the stack now holding the item, or none when the
     // item was counted instead of kept.
-    auto held = ctx.game.party().sharedInventoryReceiver(oTarget)->addItem(item);
+    auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
+    ctx.game.party().noteItemReceived(*item, *receiver, nullptr);
+    auto held = receiver->addItem(item);
     // An item created on a party member is reported in the status summary,
     // unless the script hides it.
     if (ctx.game.party().isMember(*oTarget) && !nHideMessage) {
@@ -6105,14 +6108,31 @@ static Variable MusicBackgroundGetBattleTrack(const std::vector<Variable> &args,
     return Variable::ofInt(oArea ? oArea->ambientAudio().musicBattle : 0);
 }
 
+// 570: "Returns TRUE for creatures and stores, and checks to see if an item or
+// placeable object is a container. Returns FALSE for all other object types."
 static Variable GetHasInventory(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto oObject = getObjectOrNull(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetHasInventory");
+    bool result = false;
+    if (oObject) {
+        switch (oObject->type()) {
+        case ObjectType::Creature:
+        case ObjectType::Store:
+            result = true;
+            break;
+        case ObjectType::Placeable:
+            result = static_cast<const Placeable &>(*oObject).hasInventory();
+            break;
+        case ObjectType::Item:
+            result = static_cast<const Item &>(*oObject).isContainer();
+            break;
+        default:
+            break;
+        }
+    }
+    return Variable::ofInt(result ? 1 : 0);
 }
 
 static Variable GetStrRefSoundDuration(const std::vector<Variable> &args, const RoutineContext &ctx) {

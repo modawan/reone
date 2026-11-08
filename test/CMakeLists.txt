@@ -78,6 +78,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
+    ${TESTS_SOURCE_DIR}/game/inventoryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/worldtime.cpp
     ${TESTS_SOURCE_DIR}/game/savedruntime.cpp
     ${TESTS_SOURCE_DIR}/game/saveprovenance.cpp

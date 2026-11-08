@@ -1396,6 +1396,17 @@ std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Obj
     return receiver;
 }
 
+void Party::noteItemReceived(Item &item, const Object &receiver, const Object *source) const {
+    const auto holder = actualPlayer();
+    if (!holder || holder->id() != receiver.id()) {
+        return;
+    }
+    if (source && (source->id() == holder->id() || isMember(*source))) {
+        return;
+    }
+    item.setNewlyAcquired(true);
+}
+
 std::shared_ptr<Creature> Party::getLeader() const {
     return !_members.empty() ? _members[0].creature : nullptr;
 }

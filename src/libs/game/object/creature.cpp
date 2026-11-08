@@ -3251,18 +3251,58 @@ void Creature::stopOverlayLoop() {
 }
 
 void Creature::presentEquippedItems(const std::string &clip) {
-    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     const bool hides = _services.game.animations.hidesEquippedItems(clip);
     if (!hides && (!_equipmentHidden || _game.isConversationActive())) {
         return;
     }
-    for (const auto *hand : {&g_rightHandNode, &g_leftHandNode})
-        if (auto *weapon = model->getAttachment(*hand)) {
-            weapon->setEnabled(!hides);
-        }
     _equipmentHidden = hides;
+    presentHandItems(*std::static_pointer_cast<ModelSceneNode>(_sceneNode));
     if (!hides) {
         _services.game.projectiles.dropThrownLightsaber(*this);
+    }
+}
+
+void Creature::presentHandItems(ModelSceneNode &body) const {
+    const bool shown = !_equipmentHidden && !_handWeaponsStripped;
+    if (auto *item = body.getAttachment(g_rightHandNode)) {
+        item->setEnabled(shown && !_rightHandPutAwayForConversation);
+    }
+    if (auto *item = body.getAttachment(g_leftHandNode)) {
+        item->setEnabled(shown && !_leftHandPutAwayForConversation);
+    }
+}
+
+void Creature::bringOutHandForConversation(int slot) {
+    if (slot == InventorySlots::rightWeapon) {
+        _rightHandPutAwayForConversation = false;
+    } else if (slot == InventorySlots::leftWeapon) {
+        _leftHandPutAwayForConversation = false;
+    }
+}
+
+void Creature::presentHeadItem(ModelSceneNode &body) const {
+    auto *head = static_cast<ModelSceneNode *>(body.getAttachment(g_headHookNode));
+    if (!head) {
+        return;
+    }
+    if (auto *item = head->getAttachment(g_maskHookNode)) {
+        item->setEnabled(!_headItemPutAwayForConversation);
+    }
+}
+
+// A creature without a model has no items to show.
+void Creature::setHandItemsPutAwayForConversation(bool putAway) {
+    _rightHandPutAwayForConversation = putAway;
+    _leftHandPutAwayForConversation = putAway;
+    if (auto body = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
+        presentHandItems(*body);
+    }
+}
+
+void Creature::setHeadItemPutAwayForConversation(bool putAway) {
+    _headItemPutAwayForConversation = putAway;
+    if (auto body = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
+        presentHeadItem(*body);
     }
 }
 
@@ -5421,6 +5461,7 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     item->setEquipped(true);
     item->setOwner(_id);
     replaceEffectState(std::move(replacementEffects));
+    bringOutHandForConversation(slot);
 
     updateEquipmentPresentation();
     if (_sceneNode && _combatState.active &&
@@ -5491,6 +5532,7 @@ bool Creature::replaceEquipment(
     item->setOwner(_id);
     displacedReceiver.addItem(previous);
     replaceEffectState(std::move(replacementEffects));
+    bringOutHandForConversation(slot);
     updateEquipmentPresentation();
     if (previous->itemType() == Item::kStealthUnitItemType && _stealthMode) {
         toggleStealth();
@@ -5579,14 +5621,9 @@ std::vector<std::shared_ptr<Item>> Creature::dropableItems() const {
 }
 
 void Creature::stripHandWeapons() {
-    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
-    for (const auto *hand : {&g_rightHandNode, &g_leftHandNode}) {
-        if (auto weapon = model->getAttachment(*hand)) {
-            weapon->setEnabled(false);
-        }
-    }
     // Stripped weapons stay away whatever the body shows next.
-    _equipmentHidden = false;
+    _handWeaponsStripped = true;
+    presentHandItems(*std::static_pointer_cast<ModelSceneNode>(_sceneNode));
 }
 
 std::shared_ptr<Item> Creature::getEquippedItem(int slot) const {
@@ -10489,6 +10526,10 @@ void Creature::finalizeModel(ModelSceneNode &body) {
             }
         }
     }
+
+    // A rebuilt body keeps whatever its hands and head have put away.
+    presentHandItems(body);
+    presentHeadItem(body);
 }
 
 CreaturePresentation Creature::presentation() const {

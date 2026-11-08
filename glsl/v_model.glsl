@@ -57,12 +57,6 @@ void main() {
     } else if (isFeatureEnabled(FEATURE_DANGLY)) {
         fragPos = uDanglyPositions[gl_VertexID];
 
-    } else if (isFeatureEnabled(FEATURE_SABER)) {
-        float signum = 2.0 * (gl_VertexID / 88) - 1.0;
-        float hdist = ((gl_VertexID % 88) / 4) / 21.0;
-        float vdist = (gl_VertexID % 4) / 3.0;
-        fragPos = vec4(P.xyz + 0.5 * signum * hdist * vdist * uSaberDisplacement.xyz, 1.0);
-
     } else {
         fragPos = P;
     }
@@ -72,6 +66,18 @@ void main() {
     }
 
     fragPosWorld = uModel * fragPos;
+
+    if (isFeatureEnabled(FEATURE_SABER)) {
+        // Each side of the blade is a strip of rows of four along its core,
+        // from the blade now to an end of its trail, then a half-blade at that
+        // end. The second side runs back to the trail's end; the first runs as
+        // far ahead.
+        float trail = min((gl_VertexID % 88) / 4, 20) / 20.0;
+        if (gl_VertexID < 88) {
+            trail = -trail;
+        }
+        fragPosWorld = mix(fragPosWorld, uSaberTrailEnd * fragPos, trail);
+    }
 
     mat3 normalMatrix = transpose(mat3(uModelInv));
     fragNormalWorld = normalize(normalMatrix * N.xyz);

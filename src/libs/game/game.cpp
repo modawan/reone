@@ -9021,7 +9021,7 @@ float Game::baseItemCostMultiplier(int baseItem) const {
 
 void Game::changeScreen(Screen screen) {
     if (_screen == Screen::InGameMenu && screen != Screen::InGameMenu && _inGame) {
-        _inGame->closeEquipment();
+        _inGame->leaveTab(InGameMenuTab::None);
     }
     auto gui = getScreenGUI();
     if (gui) {
