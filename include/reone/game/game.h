@@ -1913,10 +1913,23 @@ private:
     /** A script's message box paused play, and resumes it when it closes. */
     bool _messageBoxPausedGame {false};
     void releaseMessageBoxPause();
+    /**
+     * Whether the tutorial window opened after the other message box, which
+     * it is then drawn over and takes the input before.
+     */
+    bool _tutorialPopupOnTop {true};
+
+    /** Whether the tutorial window is open and over the other message box, or that box is closed. */
+    bool isTutorialPopupOver() const;
+    /** The other message box, about to be shown, goes over the tutorial window unless it is shown already. */
+    void putMessagePopupOnTop();
 
     bool isTutorialWindowValid(int id) const;
     void commitTutorialWindow();
+    /** Opens the tutorial window on its first page; false when it cannot be shown. */
     bool showTutorialPage();
+    /** Turns the open tutorial window to its next page; false when none follows. */
+    bool showNextTutorialPage();
     void finishTutorialWindow(bool takeAction);
 
     // END Tutorial windows
@@ -2086,6 +2099,8 @@ private:
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
+    /** The tutorial window's own message box, drawn over the other message box when it opened after it. */
+    std::unique_ptr<ConfirmPopup> _tutorialPopup;
     std::unique_ptr<ConfirmPopup> _deathMessage;
     std::unique_ptr<DeathDisplay> _deathDisplay;
     /** The closing credits, while they are up. */

@@ -27,6 +27,7 @@ namespace reone {
 
 namespace graphics {
 
+class Font;
 class Texture;
 
 }
@@ -63,9 +64,28 @@ public:
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {},
         const std::optional<PopupColors> &colors = std::nullopt);
+    /**
+     * Shows an OK box with pages, in the colours it has. OK, and closing the
+     * box as its key would, first turn to the next page, which replaces the
+     * message while the box stays open; the box closes and confirms only when
+     * no page follows.
+     *
+     * @param message the first page
+     * @param icon the icon shown above every page, if any
+     * @param nextPage turns to the next page; false when none follows
+     * @param onConfirm called when the box closes
+     */
+    void showPages(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+                   std::function<bool()> nextPage, std::function<void()> onConfirm = {});
+    /** Replaces the message of the box shown, which stays open; its tokens are resolved. */
+    void setMessage(const std::string &message);
+    /** Shows \p icon above the message, in place of any icon shown; the box is laid out again. */
+    void setIcon(std::shared_ptr<graphics::Texture> icon);
+    /** Sets the font the message is drawn in, from the next message laid out. */
+    void setMessageFont(std::shared_ptr<graphics::Font> font);
     /** Closes the box; in TSL a box shown closes in the interface green and the highlight colour. */
     void hide();
-    /** Close as its key would: cancelled when it offers Cancel, otherwise confirmed. */
+    /** Close as its key would: a box with pages turns to its next page; otherwise cancelled when it offers Cancel, or confirmed. */
     void close();
     /** Relabel OK until the next show; the box is laid out again for the new label. */
     void setConfirmText(const std::string &text);
@@ -83,6 +103,8 @@ private:
     bool _visible {false};
     std::function<void()> _onConfirm;
     std::function<void()> _onCancel;
+    /** Turns a box with pages to its next page; false when none follows. */
+    std::function<bool()> _nextPage;
     std::string _defaultConfirmText;
 
     std::shared_ptr<gui::Control> _icon;

@@ -1077,7 +1077,8 @@ bool Game::handle(const input::Event &event) {
     // releasing one lets it go. While a menu, the credits or a popup holds
     // the input, a Shift is taken only when its keymap row lets menus take
     // it; otherwise the key stays as it was when the menu opened.
-    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible());
+    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible()) ||
+                                (_tutorialPopup && _tutorialPopup->isVisible());
     if ((event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
         (event.key.code == input::KeyCode::LeftShift || event.key.code == input::KeyCode::RightShift) &&
         (!menuHoldsInput || _menusTakeAlternateActions[event.key.code == input::KeyCode::LeftShift ? 0 : 1])) {
@@ -1096,7 +1097,9 @@ bool Game::handle(const input::Event &event) {
         _credits->handle(event);
         return true;
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
+    // The message box opened last is over the other and takes the input first.
+    auto &popup = isTutorialPopupOver() ? _tutorialPopup : _confirmPopup;
+    if (popup && popup->isVisible()) {
         // The drawn pointer keeps following the mouse while the popup takes
         // the input.
         if (event.type == input::EventType::MouseMotion) {
@@ -1105,7 +1108,7 @@ bool Game::handle(const input::Event &event) {
                    event.button.button == input::MouseButton::Left) {
             _pointer->setPressed(event.type == input::EventType::MouseButtonDown);
         }
-        _confirmPopup->handle(event);
+        popup->handle(event);
         return true;
     }
 
@@ -1433,6 +1436,9 @@ void Game::update(float frameTime) {
     }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
+    }
+    if (_tutorialPopup && _tutorialPopup->isVisible()) {
+        _tutorialPopup->update(dt);
     }
     // The credits run in real time and hold still while the game is paused.
     if (_credits) {
@@ -2322,9 +2328,7 @@ void Game::resetGame() {
     _nearestObjects.clear();
     _tutorialPending.reset();
     if (_tutorial) {
-        if (_confirmPopup) {
-            _confirmPopup->hide();
-        }
+        _tutorialPopup->hide();
         finishTutorialWindow(false);
     }
     retireRuntimeSession();
@@ -3397,7 +3401,7 @@ void Game::updateTemporaryDeath() {
 
 bool Game::hasModalPanel() const {
     if (_screen == Screen::InGame) {
-        return _confirmPopup && _confirmPopup->isVisible();
+        return (_confirmPopup && _confirmPopup->isVisible()) || (_tutorialPopup && _tutorialPopup->isVisible());
     }
     // These exclusive screens own input instead of the world. The complete
     // modal stack of the GUI manager is not exposed to scripts.
@@ -4795,9 +4799,15 @@ void Game::renderGUI() {
             gui->render();
         }
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
-        _confirmPopup->render();
-    }
+    // The message box opened last is drawn over the other.
+    const bool tutorialOver = isTutorialPopupOver();
+    const auto renderPopup = [](const std::unique_ptr<ConfirmPopup> &popup) {
+        if (popup && popup->isVisible()) {
+            popup->render();
+        }
+    };
+    renderPopup(tutorialOver ? _confirmPopup : _tutorialPopup);
+    renderPopup(tutorialOver ? _tutorialPopup : _confirmPopup);
     // The credits cover everything, the fade included, and hide the pointer.
     // The pointer also hides while the mouse turns the camera.
     if (_credits) {
@@ -6235,6 +6245,7 @@ void Game::showSoloModeQuery(bool forStealth) {
             setPaused(false);
         }
     };
+    putMessagePopupOnTop();
     _confirmPopup->showConfirm(
         _services.resource.strings.getText(strRef),
         [this, forStealth, restorePause]() {
@@ -6474,19 +6485,45 @@ bool Game::showTutorialPage() {
         }
     }
 
-    auto text = getInterfaceText(*message);
-    if (!showMessagePopup(text, std::move(icon), [this, hasNext]() {
-            if (hasNext) {
-                ++_tutorialPage;
-                if (showTutorialPage()) {
-                    return;
-                }
-            }
-            finishTutorialWindow(true);
-        })) {
+    if (!_tutorialPopup) {
+        _tutorialPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_tutorialPopup) {
         return false;
     }
-    _confirmPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    if (_tutorialPopup->isVisible()) {
+        // A window open takes the new tutorial in place: its first page, and
+        // its icon only when it has one, the old icon staying otherwise.
+        if (icon) {
+            _tutorialPopup->setIcon(std::move(icon));
+        }
+        _tutorialPopup->setMessage(getInterfaceText(*message));
+    } else {
+        // The popup takes all input, so the steering and mouse-look held when
+        // it opens stop now. It opens over the other message box.
+        stopMovement();
+        _tutorialPopupOnTop = true;
+        // The window's pages turn in place; it closes after the last.
+        _tutorialPopup->setMessageFont(_services.resource.fonts.get(guiFontName("fnt_d16x16")));
+        _tutorialPopup->showPages(
+            getInterfaceText(*message), std::move(icon),
+            [this]() { return showNextTutorialPage(); },
+            [this]() { finishTutorialWindow(true); });
+    }
+    _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    return true;
+}
+
+bool Game::showNextTutorialPage() {
+    const auto &tutorial = _tutorials[_tutorial->id];
+    auto message = tutorialMessage(tutorial.messages, _tutorialPage + 1);
+    if (!message) {
+        return false;
+    }
+    ++_tutorialPage;
+    const bool hasNext = tutorialMessage(tutorial.messages, _tutorialPage + 1).has_value();
+    _tutorialPopup->setMessage(getInterfaceText(*message));
+    _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
     return true;
 }
 
@@ -9320,6 +9357,7 @@ void Game::changeScreen(Screen screen) {
     }
     releaseMessageBoxPause();
     if (_tutorial) {
+        _tutorialPopup->hide();
         finishTutorialWindow(false);
     }
     _screen = screen;
@@ -9923,9 +9961,29 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
     }
 }
 
+bool Game::isTutorialPopupOver() const {
+    return _tutorialPopup && _tutorialPopup->isVisible() &&
+           (_tutorialPopupOnTop || !_confirmPopup || !_confirmPopup->isVisible());
+}
+
+// A message box shown again while it is open keeps its place.
+void Game::putMessagePopupOnTop() {
+    if (!_confirmPopup->isVisible()) {
+        _tutorialPopupOnTop = false;
+    }
+}
+
 void Game::closeMessagePopup() {
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->close();
+    }
+    // A tutorial window closes whatever pages it has left, and the action it
+    // interrupted is not taken.
+    if (_tutorialPopup && _tutorialPopup->isVisible()) {
+        _tutorialPopup->hide();
+        if (_tutorial) {
+            finishTutorialWindow(false);
+        }
     }
 }
 
@@ -9951,6 +10009,7 @@ bool Game::showMessagePopup(
     // The popup takes all input, key and button releases included, so the
     // steering and mouse-look held when it opens stop now.
     stopMovement();
+    putMessagePopupOnTop();
     _confirmPopup->show(message, std::move(icon), std::move(onConfirm), colors);
     return true;
 }
@@ -9988,6 +10047,7 @@ bool Game::showConfirmPopup(
         return false;
     }
     stopMovement();
+    putMessagePopupOnTop();
     _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel), colors);
     return true;
 }

@@ -64,6 +64,9 @@ static constexpr int kSellLimitCap = 250;
 /** The party members whose equipped items count as on hand. */
 static constexpr int kOnHandPartySize = 3;
 
+/** TSL's store message boxes: a dark gold frame, the message in the highlight colour. */
+static const PopupColors kTSLStorePopupColors {kTSLColorDarkGold, kTSLColorNewHighlight};
+
 void StoreGUI::onGUILoaded() {
     bindControls();
     loadBackground(BackgroundType::Menu);
@@ -394,6 +397,10 @@ std::shared_ptr<Item> StoreGUI::selectedItem(const ListBox &list) const {
     return itemOfRow(list.getItemAt(index).tag);
 }
 
+std::optional<PopupColors> StoreGUI::popupColors() const {
+    return isTSL() ? std::optional<PopupColors>(kTSLStorePopupColors) : std::nullopt;
+}
+
 static int leaderLevel(const Party &party) {
     auto leader = party.getLeader();
     return leader ? leader->attributes().getAggregateLevel() : 0;
@@ -410,7 +417,7 @@ void StoreGUI::offerToBuy(const std::shared_ptr<Item> &item) {
     // KotOR says so in its examine box.
     if (static_cast<uint32_t>(_game.party().gold()) < price) {
         if (isTSL()) {
-            _game.showMessagePopup(_game.getInterfaceText(kNotEnoughCreditsStrRef));
+            _game.showMessagePopup(_game.getInterfaceText(kNotEnoughCreditsStrRef), nullptr, {}, popupColors());
         } else {
             _game.showExamineBox(_game.getInterfaceText(kNotEnoughCreditsStrRef));
         }
@@ -426,7 +433,9 @@ void StoreGUI::offerToBuy(const std::shared_ptr<Item> &item) {
                 if (auto item = offered.resolve()) {
                     buy(item);
                 }
-            });
+            },
+            {},
+            popupColors());
         return;
     }
     buy(item);
@@ -452,18 +461,20 @@ void StoreGUI::offerToSell(const std::shared_ptr<Item> &item) {
         if (auto leader = _game.party().getLeader()) {
             for (const auto &[slot, equipped] : leader->equipment()) {
                 if (equipped == item && (leader->equipSlotsLocked() & equipmentSlotMask(slot)) != 0) {
-                    _game.showMessagePopup(_game.getInterfaceText(kCannotBeSoldStrRef));
+                    _game.showMessagePopup(_game.getInterfaceText(kCannotBeSoldStrRef), nullptr, {}, popupColors());
                     return;
                 }
             }
         }
-        _game.showConfirmPopup(_game.getInterfaceText(kConfirmSellEquippedStrRef), sellOffered);
+        _game.showConfirmPopup(_game.getInterfaceText(kConfirmSellEquippedStrRef), sellOffered, {}, popupColors());
         return;
     }
     if (static_cast<uint32_t>(store->sellPrice(*item)) > static_cast<uint32_t>(limit)) {
         _game.showConfirmPopup(
             _game.getInterfaceText(kConfirmSellAbovePriceStrRef, {{0, std::to_string(limit)}}),
-            sellOffered);
+            sellOffered,
+            {},
+            popupColors());
         return;
     }
     sell(item);

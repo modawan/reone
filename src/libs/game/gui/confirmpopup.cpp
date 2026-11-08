@@ -75,6 +75,10 @@ void ConfirmPopup::onGUILoaded() {
         if (callback) callback();
     });
     _controls.BTN_OK->setOnClick([this]() {
+        // A box with pages stays open while a page follows.
+        if (_nextPage && _nextPage()) {
+            return;
+        }
         auto callback = std::move(_onConfirm);
         hide();
         if (callback) callback();
@@ -133,6 +137,7 @@ void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Te
     }
     _onConfirm = {};
     _onCancel = {};
+    _nextPage = {};
     _controls.BTN_CANCEL->setVisible(allowCancel);
     _controls.BTN_OK->setTextMessage(_defaultConfirmText);
     _hasIcon = static_cast<bool>(icon);
@@ -320,6 +325,29 @@ void ConfirmPopup::showConfirm(
     _onCancel = std::move(onCancel);
 }
 
+void ConfirmPopup::showPages(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+                             std::function<bool()> nextPage, std::function<void()> onConfirm) {
+    open(message, std::move(icon), false, std::nullopt);
+    _nextPage = std::move(nextPage);
+    _onConfirm = std::move(onConfirm);
+}
+
+void ConfirmPopup::setMessage(const std::string &message) {
+    _message = _game.substituteCustomTokens(message);
+    layoutMessage();
+}
+
+void ConfirmPopup::setIcon(std::shared_ptr<graphics::Texture> icon) {
+    _hasIcon = true;
+    _icon->setBorderFill(std::move(icon));
+    _icon->setVisible(true);
+    layoutMessage();
+}
+
+void ConfirmPopup::setMessageFont(std::shared_ptr<graphics::Font> font) {
+    _controls.LB_MESSAGE->protoItem().setTextFont(std::move(font));
+}
+
 // OK is sized to its label, so the box is laid out again.
 void ConfirmPopup::setConfirmText(const std::string &text) {
     _controls.BTN_OK->setTextMessage(text);
@@ -335,9 +363,13 @@ void ConfirmPopup::hide() {
     _visible = false;
     _onConfirm = {};
     _onCancel = {};
+    _nextPage = {};
 }
 
 void ConfirmPopup::close() {
+    if (_nextPage && _nextPage()) {
+        return;
+    }
     auto callback = _controls.BTN_CANCEL->isVisible() ? std::move(_onCancel) : std::move(_onConfirm);
     hide();
     if (callback) {
