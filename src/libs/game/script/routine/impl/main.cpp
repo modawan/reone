@@ -45,7 +45,6 @@
 #include "reone/game/event.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
-#include "reone/game/menupresentation.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
@@ -7167,10 +7166,6 @@ static Variable ResetDialogState(const std::vector<Variable> &args, const Routin
     ctx.game.setDialogUnderWay(false);
     return Variable::ofNull();
 }
-
-// The good/evil value runs from 0, the dark side, to 100, the light side.
-static constexpr int kMinGoodEvil = 0;
-static constexpr int kMaxGoodEvil = 100;
 
 static Variable SetGoodEvilValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load

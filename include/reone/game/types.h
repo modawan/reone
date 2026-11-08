@@ -28,6 +28,10 @@ constexpr int kEngineTypeInvalid = -1;
 constexpr float kDefaultFollowDistance = 5.0f;
 constexpr char kObjectTagPlayer[] = "player";
 constexpr int kNumClasses = 6;
+/** The good/evil value of pure evil, the dark side's end. */
+constexpr int kMinGoodEvil = 0;
+/** The good/evil value of pure good, the light side's end. */
+constexpr int kMaxGoodEvil = 100;
 
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;

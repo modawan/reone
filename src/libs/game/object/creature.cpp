@@ -6100,7 +6100,9 @@ void Creature::playSound(SoundSetEntry entry, bool positional) {
         group,
         1.0f,
         false,
-        std::move(position));
+        std::move(position),
+        std::nullopt,
+        0.0f);
 }
 
 void Creature::setPresent(bool present) {
@@ -7392,7 +7394,6 @@ Alignment Creature::alignment() const {
 
 namespace {
 
-constexpr int kMaxGoodEvil = 100;
 constexpr char kPlayerAlignmentGlobal[] = "G_PC_Align_Val";
 
 // Mastery of a side of the Force strengthens influence by the level held in
@@ -7426,12 +7427,12 @@ int influenceAlignment(int base, int influence, int charismaBonus, float factor,
     const float push = static_cast<float>(playerAlignment - 50) / 50.0f * pull;
     const float value = push <= 0.0f
                             ? static_cast<float>(base) * (1.0f + push)
-                            : static_cast<float>(base) + static_cast<float>(100 - base) * push;
-    if (value > 100.0f) {
-        return 100;
+                            : static_cast<float>(base) + static_cast<float>(kMaxGoodEvil - base) * push;
+    if (value > static_cast<float>(kMaxGoodEvil)) {
+        return kMaxGoodEvil;
     }
-    if (value < 0.0f) {
-        return 0;
+    if (value < static_cast<float>(kMinGoodEvil)) {
+        return kMinGoodEvil;
     }
     return static_cast<int>(value);
 }
@@ -7440,7 +7441,7 @@ int influenceAlignment(int base, int influence, int charismaBonus, float factor,
 
 void Creature::modifyAlignment(int shift, bool dontModifyNPCs) {
     const auto clampGoodEvil = [](int value) {
-        return std::clamp(value, 0, kMaxGoodEvil);
+        return std::clamp(value, kMinGoodEvil, kMaxGoodEvil);
     };
     const auto shifted = [&]() {
         return clampGoodEvil(_goodEvil + shift);
@@ -7471,7 +7472,7 @@ void Creature::updatePureGoodEvilPowers() {
     if (_goodEvil == kMaxGoodEvil) {
         removePureAlignmentPowers(false);
         addPureAlignmentPowers(true);
-    } else if (_goodEvil == 0) {
+    } else if (_goodEvil == kMinGoodEvil) {
         removePureAlignmentPowers(true);
         addPureAlignmentPowers(false);
     } else {
@@ -7507,7 +7508,7 @@ void Creature::recomputeInfluenceAlignment() {
     }
     // Kreia's alignment is her own, whatever her influence.
     if (boost::iequals(_tag, "kreia")) {
-        _goodEvil = std::clamp(_baseCNPCAlignment, 0, kMaxGoodEvil);
+        _goodEvil = std::clamp(_baseCNPCAlignment, kMinGoodEvil, kMaxGoodEvil);
         return;
     }
     // Influence belongs to a companion's roster slot, and its base to the

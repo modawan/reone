@@ -1188,6 +1188,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     return result;
 }
 
+// The single player's community name is the talk table's first string, and
+// the single player is the primary one, whichever creature it controls.
+void ModuleSnapshotBuilder::writePlayerEntry(Gff &record, const Creature &player) const {
+    put(record, Gff::Field::newCExoString("Mod_CommntyName", _game._services.resource.strings.getText(0)));
+    put(record, Gff::Field::newByte("Mod_IsPrimaryPlr", 1));
+    put(record, Gff::Field::newCExoLocString("Mod_FirstName", player._firstName.id(), player._firstName.str()));
+    put(record, Gff::Field::newCExoLocString("Mod_LastName", player._lastName.id(), player._lastName.str()));
+}
+
 void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &creature) const {
     putTransform(record, creature);
     const auto direction = glm::vec3(
@@ -2049,9 +2058,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
     auto player = writeCreature(
-        *modulePlayer, 4, ids.objectId(*modulePlayer), ids, false);
-    put(*player, Gff::Field::newByte(
-        "Mod_IsPrimaryPlr", modulePlayer == _game._party.actualPlayer()));
+        *modulePlayer, kPlayerEntryStructType, ids.objectId(*modulePlayer), ids, false);
+    writePlayerEntry(*player, *modulePlayer);
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
 
     std::vector<std::shared_ptr<Gff>> limbo;
