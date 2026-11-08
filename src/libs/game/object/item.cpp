@@ -150,6 +150,7 @@ void Item::deserializeAll(
     gff.readByte(_bodyVariation, "BodyVariation");
     gff.readBool(_dropable, "Dropable");
     gff.readBool(_nonEquippable, "NonEquippable");
+    gff.readBool(_newlyAcquired, "NewItem");
 
     deserializeProperties(gff);
     deserializeBase(gff);
@@ -358,6 +359,7 @@ void Item::clone(const Item &from) {
     _textureVariation = from._textureVariation;
     _dropable = from._dropable;
     _nonEquippable = from._nonEquippable;
+    _newlyAcquired = from._newlyAcquired;
     // END Serializable
 
     _requiredFeats = from._requiredFeats;

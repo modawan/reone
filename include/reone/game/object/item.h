@@ -52,6 +52,8 @@ public:
     static constexpr int kCreditsItemType = 23;
     static constexpr int kStimItemType = 25;
     static constexpr int kDroidRepairItemType = 26;
+    /** Security spikes, which add to an unlock and offer themselves on a locked object's menu. */
+    static constexpr int kSecuritySpikeItemType = 27;
     static constexpr int kTrapKitItemType = 28;
     /** Body armour of armour classes 4 to 9, the first of six item types. */
     static constexpr int kArmorClass4ItemType = 31;
@@ -202,6 +204,9 @@ public:
     /** Bit per subrace that cannot equip the base item. */
     uint32_t deniedSubraces() const { return _deniedSubraces; }
     bool isIdentified() const { return _identified; }
+    /** The party took the item in and has not yet looked at it in the inventory. */
+    bool isNewlyAcquired() const { return _newlyAcquired; }
+    void setNewlyAcquired(bool newlyAcquired) { _newlyAcquired = newlyAcquired; }
     bool isEquipped() const { return _equipped; }
     bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
     /** Whether the base item is a ranged weapon (baseitems.2da RangedWeapon). */
@@ -377,6 +382,7 @@ private:
     uint8_t _textureVariation {0};
     bool _dropable {false};
     bool _nonEquippable {false};
+    bool _newlyAcquired {false};
     // END Serializable
 
     uint32_t _ownerId {script::kObjectInvalid};

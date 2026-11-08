@@ -39,6 +39,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/system/logutil.h"
@@ -51,10 +52,6 @@ using namespace reone::scene;
 namespace reone {
 
 namespace game {
-
-// Reputations: hostile up to this one, friendly from the other.
-static constexpr int kHighestHostileReputation = 10;
-static constexpr int kLowestFriendReputation = 90;
 
 // The animations and times round entries start with.
 static constexpr int kCastEntryAnimation = 10017;
@@ -189,7 +186,7 @@ static bool isItemUse(Action &command) {
 }
 
 static bool isHostileForContinuation(const Creature &source, const Creature &target) {
-    return source.getReputationToward(target) <= kHighestHostileReputation;
+    return source.getReputationToward(target) <= kHighestEnemyReputation;
 }
 
 std::shared_ptr<Creature> Combat::findNearestEnemy(

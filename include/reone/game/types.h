@@ -32,6 +32,11 @@ constexpr int kNumClasses = 6;
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;
 
+/** The name of the Security skill, which also names its use on a lock in the log and the target menu. */
+constexpr int kSecurityStrRef = 329;
+/** The name of recovering a mine, in the log and the target menu. */
+constexpr int kRecoverActionStrRef = 1531;
+
 constexpr char kSceneMain[] = "main";
 constexpr char kSceneMainMenu[] = "mainmenu";
 constexpr char kSceneCharGen[] = "chargen";
@@ -42,6 +47,8 @@ constexpr char kSceneCharacter[] = "character";
 constexpr glm::vec3 kGUIColorBase = glm::vec3(0.0f, 0.639216f, 0.952941f);
 constexpr glm::vec3 kGUIColorHilight = glm::vec3(0.980392f, 1.0f, 0.0f);
 constexpr glm::vec3 kGUIColorDisabled = glm::vec3(0.0f, 0.349020f, 0.549020f);
+/** KotOR's colour for what the player has not looked at yet: a new item or quest. */
+constexpr glm::vec3 kGUIColorNew = glm::vec3(0.95f, 0.0f, 0.85f);
 
 constexpr glm::vec3 kTSLGUIColorBase = glm::vec3(0.192157f, 0.768627f, 0.647059f);
 constexpr glm::vec3 kTSLGUIColorHilight = glm::vec3(0.768627f, 0.768627f, 0.686275f);
@@ -509,6 +516,9 @@ enum class SkillType {
     Security = 6,
     TreatInjury = 7
 };
+
+/** A skill effect on this skill applies to every skill. */
+constexpr int kAllSkills = 255;
 
 enum class FeatType {
     Invalid = 0,

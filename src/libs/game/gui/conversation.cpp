@@ -277,6 +277,70 @@ void Conversation::releaseDialogParticipants(const std::shared_ptr<Object> &dial
             object->setIsInConversation(false);
         }
     }
+    auto unequipped = std::move(_unequippedCreatures);
+    _unequippedCreatures.clear();
+    for (const auto &reference : unequipped) {
+        if (const auto creature = reference.resolve()) {
+            creature->setHandItemsPutAwayForConversation(false);
+            creature->setHeadItemPutAwayForConversation(false);
+        }
+    }
+}
+
+void Conversation::unequipEntryParticipants() {
+    if (!_dialog->unequipItems && !_dialog->unequipHeadItem) {
+        return;
+    }
+    unequipNodeParticipant(currentEntrySpeaker());
+    if (!_currentEntry->listener.empty()) {
+        unequipNodeParticipant(resolveParticipantObject(_currentEntry->listener, ParticipantSite::Speaker));
+    }
+    unequipNodeParticipant(_game.party().player());
+    unequipNodeAnimationParticipants(*_currentEntry);
+}
+
+void Conversation::unequipReplyParticipants() {
+    if (!_dialog->unequipItems && !_dialog->unequipHeadItem) {
+        return;
+    }
+    for (const auto *reply : _replies) {
+        if (!reply->listener.empty()) {
+            unequipNodeParticipant(resolveParticipantObject(reply->listener, ParticipantSite::Speaker));
+        }
+        unequipNodeAnimationParticipants(*reply);
+    }
+}
+
+void Conversation::unequipNodeAnimationParticipants(const Dialog::EntryReply &node) {
+    for (const auto &animation : node.animations) {
+        unequipNodeParticipant(resolveParticipantObject(animation.participant, ParticipantSite::Animation));
+    }
+}
+
+// Only a creature holds items to put away, and a participant who is not
+// there holds none. A creature's items are put away the first time a line
+// involves it, and not again: an item equipped into its hands later in the
+// conversation shows.
+void Conversation::unequipNodeParticipant(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return;
+    }
+    auto creature = dyn_cast<Creature>(object);
+    if (!creature) {
+        return;
+    }
+    const auto found = std::find_if(_unequippedCreatures.begin(), _unequippedCreatures.end(),
+                                    [&](const auto &ref) { return ref.resolve() == creature; });
+    if (found != _unequippedCreatures.end()) {
+        return;
+    }
+    _unequippedCreatures.emplace_back(creature);
+    if (_dialog->unequipItems) {
+        creature->setHandItemsPutAwayForConversation(true);
+    }
+    if (_dialog->unequipHeadItem) {
+        creature->setHeadItemPutAwayForConversation(true);
+    }
 }
 
 // An object's end-dialogue script: a creature's or a placeable's. Other
@@ -508,6 +572,7 @@ void Conversation::loadEntry(int index, bool start) {
     if (start) {
         _game.areaMusic().playDialogAmbientTrack(_dialog->ambientTrack);
     }
+    _game.endConversationStealth(_owner.resolve(), _partner.resolve());
     _currentEntry = &_dialog->getEntry(index);
     // An entry keeps the camera angle it is given while the conversation lasts.
     const int drawnAngle = drawCameraAngle();
@@ -605,6 +670,7 @@ void Conversation::loadEntry(int index, bool start) {
     // journal entry and plot experience follow.
     setMessage(entryText);
     logEntryLine(entryText);
+    unequipEntryParticipants();
     // An entry whose sound takes a variation number keeps the number drawn
     // the first time it shows while the conversation lasts.
     std::string sound = _currentEntry->sound;
@@ -1014,6 +1080,7 @@ static std::string getParsedReplyText(const Dialog::EntryReply &reply, const Gam
 void Conversation::loadReplies() {
     auto generation = _generation;
     auto dialog = _dialog;
+    _game.endConversationStealth(_owner.resolve(), _partner.resolve());
     _replies.clear();
     std::vector<const Dialog::EntryReply *> inactive;
     std::vector<int> listedIndices;
@@ -1056,6 +1123,7 @@ void Conversation::loadReplies() {
     // reply with a holding condition leads nowhere.
     _endReached = _replies.empty() || (activeCount == 1ll && _replies.front()->entries.empty());
 
+    unequipReplyParticipants();
     refreshReplies();
 }
 

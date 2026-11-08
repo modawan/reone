@@ -22,11 +22,14 @@
 #include <cstdlib>
 #include <iterator>
 
+#include "reone/game/action/playanimation.h"
 #include "reone/game/animations.h"
+#include "reone/game/animationutil.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/heal.h"
 #include "reone/game/effect/visual.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -56,11 +59,7 @@ static constexpr float kMineUseRangeExtra = 0.25f;
 static constexpr float kSetMineUseRangeExtra = 0.5f;
 static constexpr int kDisarmActionStrRef = 1529;
 static constexpr int kSetMineActionStrRef = 1530;
-static constexpr int kRecoverActionStrRef = 1531;
 static constexpr int kExamineActionStrRef = 1532;
-static constexpr int kSkillSuccessStrRef = 1392;
-static constexpr int kSkillFailureStrRef = 1393;
-static constexpr int kSkillReportStrRef = 1408;
 static constexpr int kDemolitionsNameStrRef = 324;
 // A disarm against a DC above this always fails.
 static constexpr int kHighestDisarmableDC = 35;
@@ -71,29 +70,29 @@ static constexpr int kSkillXPPerLevel = 10;
 static constexpr int kHardSkillXPPerLevel = 15;
 static constexpr int kHardSkillDCMargin = 20;
 static constexpr int kTreatInjuryNameStrRef = 330;
-// Animation rows for the mine work.
-static constexpr int kGetFromGroundAnimation = 40;
-static constexpr int kGetFromTableAnimation = 41;
-static constexpr int kUnlockDoorAnimation = 47;
-static constexpr int kUnlockContainerAnimation = 48;
-static constexpr int kDisableMineAnimation = 51;
-static constexpr int kSetMineAnimation = 52;
 // Set-mine blast bonus by trap type, starting at type 4.
 static constexpr int kMineBlastBonus[] = {3, 9, 0, 3, 9, 0, 0, 0, 0, 0, 0, 3, 9, 0, 0, 9, 12, 9, 12, 0, 0, 9, 12};
+
+// The skill report.
+static constexpr int kSkillSuccessStrRef = 1392;
+static constexpr int kSkillFailureStrRef = 1393;
+static constexpr int kTake20FailureStrRef = 1519;
+static constexpr int kHopelessStrRef = 1370;
+static constexpr int kSkillReportStrRef = 1408;
+static constexpr float kOverheadSeconds = 5.0f;
+// A text over a target this long or longer leaves out the action's name.
+static constexpr size_t kOverheadNameLimit = 21;
+// The log shows the roll as 0-31, the bonus as -128-127 and the DC as 0-127;
+// a value past its range wraps around it.
+static constexpr int kReportedRollRange = 32;
+static constexpr int kReportedBonusRange = 256;
+static constexpr int kReportedDCRange = 128;
 
 enum class MineWork {
     Disarm,
     Recover,
     Flag,
     Examine
-};
-
-enum SkillResult {
-    SkillFailure = 0,
-    SkillSuccess = 1,
-    SkillCriticalFailure = 2,
-    SkillTake20Failure = 3,
-    SkillOwnMine = 4
 };
 
 static MineWork mineWork(int subSkill) {
@@ -123,11 +122,6 @@ static bool isTrapKit(const Item &item) {
     return property && property->get().type() == ItemProperty::Trap;
 }
 
-// Demolitions is used as the skills table allows.
-static bool canUseDemolitions(const Creature &creature, bool tsl) {
-    return canUseSkill(creature.services().game.skills, SkillType::Demolitions, creature.attributes(), tsl);
-}
-
 // Mines set by the actor, or by a party member or PC while the actor is one, are its own.
 static bool isOwnMine(Game &game, const Creature &actor, const Trigger &trap, bool creatorOnly) {
     auto creator = trap.trapCreator();
@@ -151,9 +145,6 @@ bool UseSkillAction::setsMine() const {
 uint32_t UseSkillAction::serializedActionId() const {
     auto type = SavedActionType::Invalid;
     switch (_skill) {
-    case SkillType::Security:
-        type = SavedActionType::OpenLock;
-        break;
     case SkillType::TreatInjury:
         type = SavedActionType::Heal;
         break;
@@ -186,7 +177,7 @@ uint32_t UseSkillAction::serializedActionId() const {
 void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
     auto area = _game.module()->area();
     const bool setMine = setsMine();
-    if ((!setMine && !_target) || !canUseDemolitions(actor, _game.isTSL())) {
+    if ((!setMine && !_target) || !actor.canUseSkill(SkillType::Demolitions)) {
         complete();
         return;
     }
@@ -204,10 +195,10 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
                 refused = trigger->isTrap() && !trigger->trapDisarmable();
             }
             if (auto *door = dyn_cast<Door>(_target.get())) {
-                refused = door->isTrapped() && !door->trapDisarmable();
+                refused = door->trapFlag() == 1 && !door->trapDisarmable();
             }
             if (auto *placeable = dyn_cast<Placeable>(_target.get())) {
-                refused = placeable->isTrapped() && !placeable->trapDisarmable();
+                refused = placeable->trapFlag() == 1 && !placeable->trapDisarmable();
             }
             if (refused) {
                 complete();
@@ -234,37 +225,31 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
             }
             actor.turnToward(*_target);
         }
-        // Work at it for a while.
-        int animation = kSetMineAnimation;
+        // Work at it for a while: the work clip goes before the action.
+        const bool trigger = _target && _target->type() == ObjectType::Trigger;
+        const bool door = _target && _target->type() == ObjectType::Door;
+        const bool onObject = door || (_target && _target->type() == ObjectType::Placeable);
+        // KotOR sets a mine on a door or placeable with the get-from-table clip.
+        auto clip = !_game.isTSL() && onObject ? WorkAnimation::GetFromTable : WorkAnimation::SetMine;
         if (!setMine) {
-            const MineWork work = mineWork(_subSkill);
-            const bool trigger = _target->type() == ObjectType::Trigger;
-            const bool door = _target->type() == ObjectType::Door;
-            switch (work) {
+            switch (mineWork(_subSkill)) {
             case MineWork::Disarm:
-                animation = trigger ? kDisableMineAnimation : door ? kUnlockDoorAnimation
-                                                                   : kUnlockContainerAnimation;
+                clip = trigger ? WorkAnimation::DisarmTrigger : door ? WorkAnimation::DisarmDoor
+                                                                     : WorkAnimation::DisarmContainer;
                 break;
             case MineWork::Recover:
-                animation = trigger ? kDisableMineAnimation : kGetFromTableAnimation;
+                clip = trigger ? WorkAnimation::RecoverTrigger : WorkAnimation::GetFromTable;
                 break;
             default:
-                animation = trigger ? kGetFromGroundAnimation : kGetFromTableAnimation;
+                clip = trigger ? WorkAnimation::GetFromGround : WorkAnimation::GetFromTable;
                 break;
             }
         }
-        actor.playAnimation(
-            _services.game.animations.getNameById(animation),
-            scene::AnimationProperties::fromFlags(scene::AnimationFlags::loop));
-        _workTime = setMine ? kSetMineWorkTime : kMineWorkTime;
+        actor.addActionBefore(*this, _game.newAction<PlayAnimationAction>(
+                                         static_cast<int>(clip), 1.0f, setMine ? kSetMineWorkTime : kMineWorkTime));
         _phase = 1;
         return;
     }
-    _workTime -= dt;
-    if (_workTime > 0.0f) {
-        return;
-    }
-    actor.resumeStateDrivenAnimation();
     if (setMine) {
         resolveSetMine(actor);
     } else {
@@ -273,26 +258,103 @@ void UseSkillAction::executeDemolitions(Creature &actor, float dt) {
     complete();
 }
 
-void UseSkillAction::reportSkill(Creature &actor, int actionStrRef, int roll, int rank, int dc, int result) const {
+// Which results of which actions show over the target, by the text shown.
+static std::optional<int> overheadTextStrRef(bool tsl, int actionStrRef, SkillResult result) {
+    const bool mineWork = actionStrRef == kDisarmActionStrRef || actionStrRef == kRecoverActionStrRef;
+    const bool setOrUnlock = (tsl && actionStrRef == kSetMineActionStrRef) || actionStrRef == kSecurityStrRef;
+    switch (result) {
+    case SkillResult::Failure:
+        return mineWork || setOrUnlock ? std::optional<int> {kSkillFailureStrRef} : std::nullopt;
+    case SkillResult::Success:
+        return mineWork ? std::optional<int> {kSkillSuccessStrRef} : std::nullopt;
+    case SkillResult::Take20Failure:
+        return mineWork || setOrUnlock ? std::optional<int> {kTake20FailureStrRef} : std::nullopt;
+    case SkillResult::Hopeless:
+        return actionStrRef == kSecurityStrRef ? std::optional<int> {kHopelessStrRef} : std::nullopt;
+    default:
+        return std::nullopt;
+    }
+}
+
+// A value as the log shows it: wrapped into a range of the given size that
+// starts at first.
+static int reportedValue(int value, int range, int first) {
+    return ((value - first) % range + range) % range + first;
+}
+
+void reportSkillUse(Game &game, Creature &actor, const std::shared_ptr<Object> &target,
+                    int actionStrRef, int skillNameStrRef, int roll, int bonus, int dc, SkillResult result) {
     // Told only to the controlling player.
-    if (_game.party().getLeader().get() != &actor) {
+    if (game.party().getLeader().get() != &actor) {
         return;
     }
-    auto &strings = _services.resource.strings;
-    const bool success = result == SkillSuccess || result == SkillOwnMine;
-    _game.setCustomToken(0, actor.name());
-    _game.setCustomToken(1, _game.getFeedbackText(success ? kSkillSuccessStrRef : kSkillFailureStrRef));
-    _game.setCustomToken(2, actionStrRef ? strings.getText(actionStrRef) : "");
-    _game.setCustomToken(3, std::to_string(roll + rank));
-    _game.setCustomToken(4, std::to_string(roll));
-    _game.setCustomToken(5, rank < 0 ? "-" : "+");
-    _game.setCustomToken(6, strings.getText(_skill == SkillType::TreatInjury ? kTreatInjuryNameStrRef : kDemolitionsNameStrRef));
-    _game.setCustomToken(7, std::to_string(std::abs(rank)));
-    _game.setCustomToken(8, std::to_string(dc));
-    _game.messageLog().add(
-        MessageLog::kFeedbackMessageType,
-        MessageLog::Style::Normal,
-        _game.getFeedbackText(kSkillReportStrRef));
+    auto &strings = game.services().resource.strings;
+    const std::string actionName = actionStrRef ? strings.getText(actionStrRef) : "";
+    if (result != SkillResult::Hopeless) {
+        const int shownRoll = reportedValue(roll, kReportedRollRange, 0);
+        const int shownBonus = reportedValue(bonus, kReportedBonusRange, -kReportedBonusRange / 2);
+        const bool success = result == SkillResult::Success || result == SkillResult::OwnMine;
+        game.setCustomToken(0, actor.name());
+        game.setCustomToken(1, game.getFeedbackText(success ? kSkillSuccessStrRef : kSkillFailureStrRef));
+        game.setCustomToken(2, actionName);
+        game.setCustomToken(3, std::to_string(shownRoll + shownBonus));
+        game.setCustomToken(4, std::to_string(shownRoll));
+        game.setCustomToken(5, shownBonus < 0 ? "-" : "+");
+        game.setCustomToken(6, strings.getText(skillNameStrRef));
+        game.setCustomToken(7, std::to_string(std::abs(shownBonus)));
+        game.setCustomToken(8, std::to_string(reportedValue(dc, kReportedDCRange, 0)));
+        game.messageLog().add(
+            MessageLog::kFeedbackMessageType,
+            MessageLog::Style::Normal,
+            game.getFeedbackText(kSkillReportStrRef));
+    }
+    if (!target) {
+        return;
+    }
+    const auto textStrRef = overheadTextStrRef(game.isTSL(), actionStrRef, result);
+    if (!textStrRef) {
+        return;
+    }
+    const std::string text = strings.getText(*textStrRef);
+    std::string overhead = actionName + " *" + text + "*";
+    if (overhead.size() >= kOverheadNameLimit) {
+        overhead = "*" + text + "*";
+    }
+    target->setFeedbackText(std::move(overhead), kOverheadSeconds);
+}
+
+void useUpCarriedItem(Game &game, Creature &actor, const std::shared_ptr<Item> &item) {
+    if (!item) {
+        return;
+    }
+    auto repository = game.getObjectById(actor.itemRepositoryOwner().id());
+    bool last = false;
+    if (repository->removeItem(item, last) && last) {
+        game.destroyRuntimeObjectGraph(item);
+    }
+}
+
+void UseSkillAction::reportSkill(Creature &actor, const std::shared_ptr<Object> &target, int actionStrRef, int roll, int rank, int dc, SkillResult result) const {
+    reportSkillUse(_game, actor, target, actionStrRef,
+                   _skill == SkillType::TreatInjury ? kTreatInjuryNameStrRef : kDemolitionsNameStrRef,
+                   roll, rank, dc, result);
+}
+
+void UseSkillAction::signalDisarmed(Object &trap, Creature &actor) {
+    _game.queueScriptEvent(trap, actor, Event(static_cast<int>(SavedSignalEventType::Disarmed)));
+}
+
+// A door or placeable disarmed or recovered by skill leaves the area's traps at
+// once; the disarm signal that follows leaves that as it is.
+void UseSkillAction::leaveAreaTraps() {
+    if (auto trap = _target->findTrap()) {
+        trap->get().leaveAreaTraps();
+    }
+}
+
+void UseSkillAction::removeDisarmedMine(Trigger &mine, Creature &actor) {
+    mine.setMineRemoval(MineRemoval::Disarmed);
+    _game.postObjectDestruction(mine, actor.id(), 0.0f, true);
 }
 
 void UseSkillAction::resolveMine(Creature &actor) {
@@ -301,7 +363,6 @@ void UseSkillAction::resolveMine(Creature &actor) {
     const bool take20 = !actor.isInCombat();
     const int roll = take20 ? 20 : randomInt(1, 20);
     const int total = roll + rank;
-    auto area = _game.module()->area();
     auto actorPtr = std::dynamic_pointer_cast<Creature>(_game.getObjectById(actor.id()));
     auto *trigger = dyn_cast<Trigger>(_target.get());
     auto *door = dyn_cast<Door>(_target.get());
@@ -321,7 +382,8 @@ void UseSkillAction::resolveMine(Creature &actor) {
         if (!_game.isTSL() || !_game.party().isMember(actor)) {
             return;
         }
-        const int level = _game.party().player()->attributes().getAggregateLevel();
+        // The level is the controlled creature's.
+        const int level = _game.party().getLeader()->attributes().getAggregateLevel();
         _game.party().awardXP(level * (dc >= level + kHardSkillDCMargin ? kHardSkillXPPerLevel : kSkillXPPerLevel), XPSource::Skill);
     };
     auto recoverItem = [&]() {
@@ -331,39 +393,40 @@ void UseSkillAction::resolveMine(Creature &actor) {
             return;
         }
         if (auto receiver = _game.party().sharedInventoryReceiver(actorPtr)) {
-            receiver->addItem(resRef);
+            auto kit = _game.newItemFromBlueprint(resRef);
+            kit->setDropable(true);
+            _game.party().noteItemReceived(*kit, *receiver, nullptr);
+            receiver->addItem(kit);
         }
     };
 
     switch (work) {
     case MineWork::Disarm: {
         if (trigger && isOwnMine(_game, actor, *trigger, false)) {
-            trigger->disarmTrap(actor.id());
-            area->destroyObject(*trigger);
+            signalDisarmed(*trigger, actor);
+            removeDisarmedMine(*trigger, actor);
             // The award compares against an unset DC; it takes the lower rate.
             awardXP(0);
-            reportSkill(actor, kDisarmActionStrRef, roll, rank, disarmDC, SkillOwnMine);
+            reportSkill(actor, _target, kDisarmActionStrRef, roll, rank, disarmDC, SkillResult::OwnMine);
             return;
         }
         // A disarm DC is at least 1.
         const int dc = std::max(1, disarmDC);
         const bool success = dc <= autoFailDC && total >= dc;
-        int result = success ? SkillSuccess : take20        ? SkillTake20Failure
-                                          : total < dc - 10 ? SkillCriticalFailure
-                                                            : SkillFailure;
+        SkillResult result = success ? SkillResult::Success : take20        ? SkillResult::Take20Failure
+                                                          : total < dc - 10 ? SkillResult::CriticalFailure
+                                                                            : SkillResult::Failure;
         if (success) {
+            signalDisarmed(*_target, actor);
             if (trigger) {
-                trigger->disarmTrap(actor.id());
-                area->destroyObject(*trigger);
-            } else if (door) {
-                door->disarmTrap(actor.id());
+                removeDisarmedMine(*trigger, actor);
             } else {
-                placeable->disarmTrap(actor.id());
+                leaveAreaTraps();
             }
             awardXP(dc);
         }
         if (!success) {
-            actor.playSound(resource::SoundSetEntry::UnlockSuccess);
+            actor.playSound(resource::SoundSetEntry::UnlockFailed);
         }
         if (!success && total < dc - 10) {
             if (trigger) {
@@ -374,28 +437,28 @@ void UseSkillAction::resolveMine(Creature &actor) {
                 placeable->triggerTrap(actorPtr, false);
             }
         }
-        reportSkill(actor, kDisarmActionStrRef, roll, rank, dc, result);
+        reportSkill(actor, _target, kDisarmActionStrRef, roll, rank, dc, result);
         return;
     }
     case MineWork::Recover: {
         if (trigger && isOwnMine(_game, actor, *trigger, false)) {
-            area->destroyObject(*trigger);
+            removeDisarmedMine(*trigger, actor);
             recoverItem();
-            reportSkill(actor, kRecoverActionStrRef, roll, rank, disarmDC + 10, SkillOwnMine);
+            reportSkill(actor, _target, kRecoverActionStrRef, roll, rank, disarmDC + 10, SkillResult::OwnMine);
             return;
         }
         const int dc = std::max(1, disarmDC + 10);
         const bool success = total >= dc;
-        int result = success ? SkillSuccess : take20        ? SkillTake20Failure
-                                          : total < dc - 10 ? SkillCriticalFailure
-                                                            : SkillFailure;
+        SkillResult result = success ? SkillResult::Success : take20        ? SkillResult::Take20Failure
+                                                          : total < dc - 10 ? SkillResult::CriticalFailure
+                                                                            : SkillResult::Failure;
         if (success) {
+            // A recovered mine goes untold; a door or placeable is told it was disarmed.
             if (trigger) {
-                area->destroyObject(*trigger);
-            } else if (door) {
-                door->disarmTrap(actor.id());
+                removeDisarmedMine(*trigger, actor);
             } else {
-                placeable->disarmTrap(actor.id());
+                signalDisarmed(*_target, actor);
+                leaveAreaTraps();
             }
             recoverItem();
             awardXP(dc);
@@ -408,13 +471,13 @@ void UseSkillAction::resolveMine(Creature &actor) {
                 placeable->triggerTrap(actorPtr, false);
             }
         }
-        reportSkill(actor, kRecoverActionStrRef, roll, rank, dc, result);
+        reportSkill(actor, _target, kRecoverActionStrRef, roll, rank, dc, result);
         return;
     }
     case MineWork::Flag: {
         if (trigger && isOwnMine(_game, actor, *trigger, true)) {
             detection.flagged = true;
-            reportSkill(actor, 0, roll, rank, disarmDC, SkillOwnMine);
+            reportSkill(actor, _target, 0, roll, rank, disarmDC, SkillResult::OwnMine);
             return;
         }
         const int dc = std::max(1, disarmDC - 5);
@@ -422,21 +485,21 @@ void UseSkillAction::resolveMine(Creature &actor) {
         if (success) {
             detection.flagged = true;
         }
-        reportSkill(actor, 0, roll, rank, dc,
-                    success ? SkillSuccess : take20        ? SkillTake20Failure
-                                         : total < dc - 10 ? SkillCriticalFailure
-                                                           : SkillFailure);
+        reportSkill(actor, _target, 0, roll, rank, dc,
+                    success ? SkillResult::Success : take20        ? SkillResult::Take20Failure
+                                                 : total < dc - 10 ? SkillResult::CriticalFailure
+                                                                   : SkillResult::Failure);
         return;
     }
     case MineWork::Examine: {
         const int dc = std::max(1, disarmDC - 7);
         const bool own = trigger && isOwnMine(_game, actor, *trigger, true);
         const bool success = own || total >= dc;
-        reportSkill(actor, kExamineActionStrRef, roll, rank, dc,
-                    own ? SkillOwnMine : success       ? SkillSuccess
-                                     : take20          ? SkillTake20Failure
-                                     : total < dc - 10 ? SkillCriticalFailure
-                                                       : SkillFailure);
+        reportSkill(actor, _target, kExamineActionStrRef, roll, rank, dc,
+                    own ? SkillResult::OwnMine : success       ? SkillResult::Success
+                                             : take20          ? SkillResult::Take20Failure
+                                             : total < dc - 10 ? SkillResult::CriticalFailure
+                                                               : SkillResult::Failure);
         return;
     }
     }
@@ -469,17 +532,17 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
     const bool take20 = _game.isTSL() ? !(actor.isInCombat() && !hasTarget) : !actor.isInCombat();
     const int roll = take20 ? 20 : randomInt(1, 20);
     const int total = roll + rank;
-    int result;
+    SkillResult result;
     if (total >= setDC) {
-        result = SkillSuccess;
+        result = SkillResult::Success;
     } else if (take20) {
-        result = SkillTake20Failure;
+        result = SkillResult::Take20Failure;
     } else if (total >= setDC - 10) {
-        result = SkillFailure;
+        result = SkillResult::Failure;
     } else {
-        result = SkillCriticalFailure;
+        result = SkillResult::CriticalFailure;
     }
-    const bool planted = result == SkillSuccess || result == SkillCriticalFailure;
+    const bool planted = result == SkillResult::Success || result == SkillResult::CriticalFailure;
     const int detectDC = row.detectDCMod.value_or(0) + total;
     const int disarmDC = row.disarmDCMod.value_or(0) + total;
 
@@ -498,7 +561,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
                     linked = area->spawnMine(trapType, _target->position(), actorPtr, actor.faction(), detectDC, disarmDC, rank);
                     linked->hideLinkedMine();
                 }
-                const bool blast = _game.isTSL() && result != SkillCriticalFailure;
+                const bool blast = _game.isTSL() && result != SkillResult::CriticalFailure;
                 if (door) {
                     door->armMine(trapType, detectDC, disarmDC, rank, linked, actorPtr, blastBonus, blast);
                 } else {
@@ -519,7 +582,7 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
             }
         }
         // A critical failure sets the mine off on its setter.
-        if (result == SkillCriticalFailure) {
+        if (result == SkillResult::CriticalFailure) {
             if (groundMine) {
                 groundMine->enterMine(actorPtr, true);
             } else if (auto *door = dyn_cast<Door>(_target.get())) {
@@ -529,10 +592,11 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
             }
         }
     }
-    actor.playSound(result == SkillSuccess ? resource::SoundSetEntry::DisarmMine : resource::SoundSetEntry::UnlockSuccess);
+    actor.playSound(result == SkillResult::Success ? resource::SoundSetEntry::LayMine : resource::SoundSetEntry::UnlockFailed);
     actor.interruptActivities(true);
     actor.removeCombatInvisibilityEffects();
-    reportSkill(actor, kSetMineActionStrRef, roll, rank, setDC, result);
+    // A mine set on the ground reports over no target.
+    reportSkill(actor, onObject ? _target : nullptr, kSetMineActionStrRef, roll, rank, setDC, result);
 }
 
 // END Demolitions
@@ -624,16 +688,10 @@ void UseSkillAction::resolveHeal(Creature &actor, Creature &target) {
         complete();
         return;
     }
-    reportSkill(actor, kTreatInjuryNameStrRef, roll, rank, dc,
-                total >= dc ? SkillSuccess : take20 ? SkillTake20Failure
-                                                    : SkillFailure);
-
-    auto repository = _game.getObjectById(actor.itemRepositoryOwner().id());
-    auto item = _itemUsed;
-    bool last = false;
-    if (repository->removeItem(item, last) && last) {
-        _game.destroyRuntimeObjectGraph(item);
-    }
+    reportSkill(actor, _target, kTreatInjuryNameStrRef, roll, rank, dc,
+                total >= dc ? SkillResult::Success : take20 ? SkillResult::Take20Failure
+                                                            : SkillResult::Failure);
+    useUpCarriedItem(_game, actor, _itemUsed);
 
     auto actorPtr = _game.getObjectById(actor.id());
     auto heal = _game.newEffect<HealEffect>(total);
@@ -658,10 +716,9 @@ static SavedActionParameter savedObject(const std::shared_ptr<Object> &object) {
 }
 
 // A mine is known by the target alone, the kind of work being the action
-// itself; setting one keeps the kit, the target and where the mine goes; an
-// unlock keeps the target and the item used on the lock; a heal keeps the
-// patient, the item, an unused integer, and whether the healer may still walk
-// up to the patient.
+// itself; setting one keeps the kit, the target and where the mine goes; a
+// heal keeps the patient, the item, an unused integer, and whether the healer
+// may still walk up to the patient.
 std::optional<SavedActionRecord> UseSkillAction::saveFacingState() const {
     std::vector<SavedActionParameter> parameters;
     switch (_skill) {
@@ -672,9 +729,6 @@ std::optional<SavedActionRecord> UseSkillAction::saveFacingState() const {
         } else {
             parameters = {savedObject(_target)};
         }
-        break;
-    case SkillType::Security:
-        parameters = {savedObject(_target), savedObject(_itemUsed), {kSavedIntegerParameter, int32_t {0}}};
         break;
     case SkillType::TreatInjury: {
         const bool mayApproach = _phase != TreatInjuryReady && _phase != TreatInjuryWork;
@@ -706,9 +760,6 @@ std::shared_ptr<Action> UseSkillAction::restore(const SavedActionRecord &record,
         }
         return game.newAction<UseSkillAction>(SkillType::Demolitions, object(1), 0, std::move(kit));
     }
-    case SavedActionType::OpenLock:
-        return game.newAction<UseSkillAction>(SkillType::Security, object(0), 0,
-                                              std::dynamic_pointer_cast<Item>(object(1)));
     default: {
         assert(record.type() == SavedActionType::Heal);
         auto action = game.newAction<UseSkillAction>(SkillType::TreatInjury, object(0), 0,
@@ -721,12 +772,9 @@ std::shared_ptr<Action> UseSkillAction::restore(const SavedActionRecord &record,
     }
 }
 
-// Clearing a mine's work or the work at a lock gives the pose back to the
-// creature's state; a one-shot still running plays on.
+// Clearing a mine's work gives the pose back to the creature's state; a
+// one-shot still running plays on.
 bool UseSkillAction::cancel(std::shared_ptr<Action> self, Object &actor) {
-    if (_skill == SkillType::Security) {
-        resumePoseAfterLockWork(actor, _workingAtLock);
-    }
     if (_skill == SkillType::Demolitions && _phase == 1) {
         if (auto *creature = dyn_cast<Creature>(&actor)) {
             creature->refreshPauseAnimation();
@@ -748,37 +796,6 @@ bool UseSkillAction::cancel(std::shared_ptr<Action> self, Object &actor) {
 
 void UseSkillAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     switch (_skill) {
-    case SkillType::Security: {
-        if (!_target) {
-            warn("ActionExecutor: unsupported Security target: null");
-            complete();
-            return;
-        }
-        if (_target->type() == ObjectType::Door) {
-            if (!workAtLock(*this, *_target, actor, _workingAtLock, dt)) {
-                return;
-            }
-            unlockDoor(static_cast<Door &>(*_target), actor);
-            complete();
-            return;
-        }
-        if (_target->type() == ObjectType::Placeable) {
-            if (!workAtLock(*this, *_target, actor, _workingAtLock, dt)) {
-                return;
-            }
-            auto &placeable = static_cast<Placeable &>(*_target);
-            unlockPlaceable(placeable, actor);
-            if (placeable.hasInventory() && !placeable.isLocked()) {
-                placeable.openInventory(actor);
-            }
-            complete();
-            return;
-        }
-
-        warn("ActionExecutor: unsupported Security target: " + std::to_string(_target->id()));
-        complete();
-        return;
-    }
     case SkillType::Demolitions: {
         auto *creature = dyn_cast<Creature>(&actor);
         if (!creature) {

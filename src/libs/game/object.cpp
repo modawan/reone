@@ -23,6 +23,10 @@
 #include <typeinfo>
 #include <vector>
 
+#include <boost/algorithm/string.hpp>
+
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/action/castspell.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usefeat.h"
@@ -30,15 +34,22 @@
 #include "reone/game/effect/damage.h"
 #include "reone/game/effect/damageresistance.h"
 #include "reone/game/equipmentrules.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/lock.h"
 #include "reone/game/object/module.h"
 #include "reone/game/room.h"
+#include "reone/game/savedruntime.h"
+#include "reone/game/script/runner.h"
 #include "reone/game/script/savedsituation.h"
+#include "reone/resource/di/services.h"
 #include "reone/resource/gff.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/scripts.h"
+#include "reone/resource/strings.h"
 #include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 
@@ -347,11 +358,24 @@ void Object::runActions() {
     executeActionsIfAble(0.0f);
 }
 
+// Actions run in turn for as long as each ends at once. An action still under
+// way ends the run, as does a walk to a point or a jump, a move made by the
+// action, or a run of 64 actions.
 void Object::executeActionsIfAble(float dt) {
-    // An action that can no longer be cleared runs on whatever holds the object.
-    const auto current = getCurrentAction();
-    if (!isDead() && (takesUpActions() || (current && !current->isClearable()))) {
-        executeActions(dt);
+    static constexpr int kMaxActionsPerUpdate = 64;
+    for (int run = 1;; ++run) {
+        // An action that can no longer be cleared runs on whatever holds the object.
+        const auto current = getCurrentAction();
+        if (isDead() || !(takesUpActions() || (current && !current->isClearable()))) {
+            return;
+        }
+        if (!executeActions(dt)) {
+            return;
+        }
+        removeCompletedActions();
+        if (_actions.nodes.empty() || run == kMaxActionsPerUpdate) {
+            return;
+        }
     }
 }
 
@@ -1067,6 +1091,13 @@ void Object::updateStampedHeartbeat(const std::string &script, bool runnable) {
     }
     const bool running = _heartbeatTime != 0 && runnable;
     stampHeartbeat();
+    // A lock takes the PC level on a running heartbeat, whether or not the
+    // object has a script.
+    if (running) {
+        if (auto objectLock = findLock()) {
+            objectLock->get().takePCLevel(_game);
+        }
+    }
     // The script may drop itself while it runs.
     const std::string resRef = script;
     if (running && !resRef.empty()) {
@@ -1140,6 +1171,14 @@ void Object::addActionOnTop(std::shared_ptr<Action> action, std::optional<int> g
     }
     _actions.nodes.push_front(node);
     action->onQueued(*this);
+}
+
+void Object::addGroupOnTop(std::vector<std::shared_ptr<Action>> actions) {
+    std::optional<int> group;
+    for (auto action = actions.rbegin(); action != actions.rend(); ++action) {
+        addActionOnTop(std::move(*action), group);
+        group = _actions.lastGroup();
+    }
 }
 
 bool Object::addActionBefore(const Action &parent, std::shared_ptr<Action> action) {
@@ -1281,7 +1320,9 @@ void Object::removeCompletedActions() {
     }
 }
 
-void Object::executeActions(float dt) {
+// Runs the action at the front of the queue; true when it has ended and the
+// next may run now.
+bool Object::executeActions(float dt) {
     if (_actions.nodes.empty()) {
         _spellScriptContext.clearActiveTarget();
         if (auto *creature = dyn_cast<Creature>(this)) {
@@ -1290,13 +1331,13 @@ void Object::executeActions(float dt) {
             creature->resetAttemptedMovementTarget();
             creature->resetBlockingCreature();
         }
-        return;
+        return false;
     }
     auto node = _actions.nodes.front();
     auto action = node->action;
     auto *creature = dyn_cast<Creature>(this);
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
-        return;
+        return false;
     }
     const bool refused = creature && !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
@@ -1312,8 +1353,9 @@ void Object::executeActions(float dt) {
         if (!action->isCompleted()) {
             action->complete();
         }
-        return;
+        return true;
     }
+    const glm::vec3 position {_position};
     _executingActionNode = node;
     try {
         action->execute(action, *this, dt);
@@ -1322,14 +1364,23 @@ void Object::executeActions(float dt) {
         throw;
     }
     _executingActionNode.reset();
+    if (!action->isCompleted()) {
+        return false;
+    }
     // An action that completes behind the actions it queued ahead of itself
-    // leaves the queue now; one still in front leaves with the next update.
-    if (action->isCompleted()) {
-        auto &nodes = _actions.nodes;
-        const auto position = std::find(nodes.begin(), nodes.end(), node);
-        if (position != nodes.end() && position != nodes.begin()) {
-            nodes.erase(position);
-        }
+    // leaves the queue now.
+    auto &nodes = _actions.nodes;
+    const auto queued = std::find(nodes.begin(), nodes.end(), node);
+    if (queued != nodes.end() && queued != nodes.begin()) {
+        nodes.erase(queued);
+    }
+    switch (node->type()) {
+    case SavedActionType::MoveToPoint:
+    case SavedActionType::JumpToLocation:
+    case SavedActionType::JumpToObject:
+        return false;
+    default:
+        return _position == position;
     }
 }
 
@@ -1583,7 +1634,9 @@ void Object::handOverItem(const std::shared_ptr<Item> &item, Object &other) {
         creature->itemAttributes().removeItem(item);
     }
     item->clearOwner();
-    _game.party().sharedInventoryReceiver(_game.getObjectById(other.id()))->addItem(item);
+    auto receiver = _game.party().sharedInventoryReceiver(_game.getObjectById(other.id()));
+    _game.party().noteItemReceived(*item, *receiver, this);
+    receiver->addItem(item);
 }
 
 int Object::damageImmunity(int flags) const {
@@ -2165,6 +2218,126 @@ void Object::setFeedbackText(std::string text, float duration) {
         _feedbackText.clear();
     }
 }
+
+static constexpr int kLockedTextStrRef = 1439;
+static constexpr int kLockedLogStrRef = 1437;
+static constexpr float kLockedTextSeconds = 5.0f;
+
+void Object::presentLocked(const Lock &lock, float soundHeight) {
+    if (!lock.lockedSound().empty()) {
+        if (auto clip = _services.resource.audioClips.get(lock.lockedSound())) {
+            _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, 1.0f, false,
+                                       _position + glm::vec3 {0.0f, 0.0f, soundHeight});
+        }
+    }
+    setFeedbackText(_services.resource.strings.getText(kLockedTextStrRef), kLockedTextSeconds);
+    _game.addFeedbackMessage(kLockedLogStrRef);
+}
+
+// Lock
+
+// TSL's standard DC to open a lock, before the difficulty shift.
+static constexpr int kStandardUnlockDC = 21;
+// A lock scaled to the PC level asks this much more than the level.
+static constexpr int kPCLevelUnlockBonus = 7;
+// An open-lock DC counts from 0 to 255; a count past 255 starts again from 0.
+static constexpr int kUnlockDCRange = 256;
+static constexpr int kUnlockedEvent = static_cast<int>(SavedSignalEventType::Unlocked);
+
+void Lock::deserialize(const resource::Gff &gff, bool tsl, bool placeable) {
+    if (placeable) {
+        _locked = false;
+        _lockable = false;
+        _keyRequired = false;
+        _autoRemoveKey = false;
+        _keyName.clear();
+        _openDC = 0;
+        _closeDC = 0;
+        _difficulty = LockDifficulty::None;
+        _difficultyModifier = 0;
+        _onLock.clear();
+        _onUnlock.clear();
+    } else if (tsl) {
+        _openDC = 0;
+        _pcLevelAtSpawn = 0;
+    }
+    gff.readBool(_locked, "Locked");
+    gff.readBool(_lockable, "Lockable");
+    gff.readBool(_keyRequired, "KeyRequired");
+    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
+    gff.readString(_keyName, "KeyName");
+    uint8_t dc = 0;
+    if (gff.readByte(dc, "OpenLockDC")) {
+        _openDC = dc;
+    }
+    if (gff.readByte(dc, "CloseLockDC")) {
+        _closeDC = dc;
+    }
+    gff.readResRef(_onLock, "OnLock");
+    gff.readResRef(_onUnlock, "OnUnlock");
+    if (!tsl) {
+        return;
+    }
+    uint8_t difficulty = 0;
+    if (gff.readByte(difficulty, "OpenLockDiff")) {
+        _difficulty = static_cast<LockDifficulty>(difficulty);
+    }
+    int8_t modifier = 0;
+    if (gff.readChar(modifier, "OpenLockDiffMod")) {
+        _difficultyModifier = modifier;
+    }
+    uint8_t level = 0;
+    if (gff.readByte(level, "PCLevelAtSpawn")) {
+        _pcLevelAtSpawn = level;
+    }
+}
+
+int Lock::unlockDC(const Game &game) const {
+    if (!game.isTSL()) {
+        return _openDC;
+    }
+    const int shift = game.trapDifficultyModifier();
+    int dc = 0;
+    if (_difficulty == LockDifficulty::Set) {
+        dc = std::max(0, _openDC + shift);
+    } else {
+        dc = kStandardUnlockDC + shift + _difficultyModifier;
+        if (_difficulty == LockDifficulty::ScaledToPCLevel) {
+            dc += _pcLevelAtSpawn + kPCLevelUnlockBonus;
+        }
+    }
+    return (dc % kUnlockDCRange + kUnlockDCRange) % kUnlockDCRange;
+}
+
+void Lock::takePCLevel(Game &game) {
+    if (game.isTSL() && _pcLevelAtSpawn == 0) {
+        _pcLevelAtSpawn = game.getGlobalNumber("G_PC_LEVEL");
+    }
+}
+
+void Lock::onLocked(Object &owner, uint32_t lockerId) {
+    _lastLockedBy = lockerId;
+    if (!_onLock.empty()) {
+        owner.game().scriptRunner().run(_onLock, owner.id());
+    }
+}
+
+void Lock::signalUnlocked(Object &owner, const std::shared_ptr<Creature> &unlocker) const {
+    std::optional<std::reference_wrapper<const Object>> caller;
+    if (unlocker) {
+        caller = *unlocker;
+    }
+    owner.game().queueScriptEvent(owner, caller, Event(kUnlockedEvent));
+}
+
+void Lock::onUnlocked(Object &owner, uint32_t unlockerId) {
+    _lastUnlockedBy = unlockerId;
+    if (!_onUnlock.empty()) {
+        owner.game().scriptRunner().run(_onUnlock, owner.id());
+    }
+}
+
+// END Lock
 
 } // namespace game
 

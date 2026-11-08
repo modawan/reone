@@ -356,8 +356,9 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
 
 // A layer goes on top of the other layers and removes nothing. A layer already
 // running the same animation is moved on top and goes on from where it is; one
-// that has finished and is blending out starts over and blends back in from
-// its current weight.
+// that has finished and is blending out blends back in from its current
+// weight, a loop asked for again going on from where it is and anything else
+// starting over.
 void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     const size_t layers = layerCount();
     for (size_t i = 0; i < layers; ++i) {
@@ -367,8 +368,10 @@ void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> li
         AnimationChannel running = std::move(_animChannels[i]);
         _animChannels.erase(_animChannels.begin() + static_cast<std::ptrdiff_t>(i));
         if (running.finished) {
-            running.time = 0.0f;
-            running.stateByNodeNumber.clear();
+            if (!(running.properties.flags & AnimationFlags::loop) || !(properties.flags & AnimationFlags::loop)) {
+                running.time = 0.0f;
+                running.stateByNodeNumber.clear();
+            }
             running.finished = false;
         }
         running.lipAnim = std::move(lipAnim);

@@ -148,7 +148,7 @@ static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, c
                               const std::shared_ptr<Creature> &leader) {
     static constexpr uint32_t kObjectMineTypes = 0x679c1f8;
     static constexpr int kLastObjectMineType = 26;
-    if (!game.isTSL() || !leader->attributes().hasSkill(SkillType::Demolitions)) {
+    if (!game.isTSL() || !leader->canUseSkill(SkillType::Demolitions)) {
         return;
     }
     if (area.playerRestrictMode()) {
@@ -178,11 +178,47 @@ static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, c
     }
 }
 
+// Security spikes the leader may use on a lock, after the Security entry
+// (TSL only), read from the items it carries as the menu is built.
+static void addSecuritySpikeActions(std::vector<ContextAction> &actions, const Creature &leader) {
+    for (const auto &item : leader.itemRepositoryOwner().items()) {
+        if (item->itemType() == Item::kSecuritySpikeItemType && item->hasActiveProperty(ItemProperty::SecuritySpike)) {
+            actions.emplace_back(SkillType::Security, 0, item);
+        }
+    }
+}
+
+// The item targeting spells.2da gives a power used on a container.
+static constexpr uint32_t kContainerItemTargeting = 2;
+
+// The leader's plot items with a cast-spell power in force that is used on a
+// container, in the order the party holds them, read as the menu is built.
+static void addContainerPlotItemActions(std::vector<ContextAction> &actions, ServicesView &services, const Creature &leader) {
+    for (const auto &item : leader.itemRepositoryOwner().items()) {
+        if (!item->plotFlag()) {
+            continue;
+        }
+        const auto &properties = item->properties();
+        auto power = std::find_if(properties.begin(), properties.end(), [&item](const Item::PropertyEntry &property) {
+            return property.type() == ItemProperty::ActivateItem && item->isPropertyActive(property);
+        });
+        if (power == properties.end()) {
+            continue;
+        }
+        // A power with no spells.2da row offers nothing.
+        auto spell = services.game.spells.get(static_cast<SpellType>(power->subtype));
+        if (spell && spell->itemTargeting == kContainerItemTargeting) {
+            actions.emplace_back(item, std::move(spell));
+            actions.back().containerUse = true;
+        }
+    }
+}
+
+// A locked container is offered Security even when its lock wants a key.
 static bool canUseSecurityOnPlaceable(const Placeable &placeable, const Creature &actor) {
     return placeable.hasInventory() &&
            placeable.isLocked() &&
-           !placeable.isKeyRequired() &&
-           actor.attributes().hasSkill(SkillType::Security);
+           actor.canUseSkill(SkillType::Security);
 }
 
 // Standing toward the placeable plays no part in whether it can be bashed.
@@ -630,21 +666,9 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     if (!_game.party().getLeader()->isCommandable()) {
         return;
     }
-    if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
-        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-        if (door->isLocked()) {
-            tryUnlockDoorWithKey(_game, *door, *partyLeader, _game.party());
-        }
-        if (door->isLocked()) {
-            signalFailToOpen(*door, *partyLeader);
-            return;
-        }
-        door->setLastEnteredId(partyLeader->id());
-        if (_game.party().admitTraveller(*partyLeader)) {
-            _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
-        }
-        return;
-    }
+    // The click opens a closed door; travel through a linked one follows as
+    // the leader steps into its outline or a walk to it comes within use
+    // range.
     if (!door->isOpen()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         partyLeader->addAction(_game.newAction<OpenDoorAction>(door));
@@ -652,33 +676,19 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     }
 }
 
-// A placeable's default action is an order: it clears the leader's actions
-// unless the leader is busy, and then follows them.
+// A placeable's default action is a use, given as an order: it clears the
+// leader's actions unless the leader is busy, and then follows them. A use
+// starts no conversation of its own; the placeable's used script may, and in
+// KotOR 129 of the 130 conversation placeables with an OnUsed script do,
+// many choosing between dialogs, as the Taris sewer force field's
+// k_ptar_startconv does between its computer and Mission's tar05_ff_dlg2.
 void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     if (!partyLeader->isCommandable() || !_game.canClick()) {
         return;
     }
-
-    if (placeable->hasInventory()) {
-        partyLeader->clearOrdersUnlessBusy();
-        if (!placeable->isLocked()) {
-            partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-        }
-    } else if (!placeable->conversation().empty() && !placeable->hasOnUsedScript()) {
-        // A placeable with a dialog and no used script talks when clicked.
-        // One with a used script is used, and the script decides: in KotOR
-        // 129 of the 130 conversation placeables with an OnUsed script start
-        // the conversation from it, many choosing between dialogs, as the
-        // Taris sewer force field's k_ptar_startconv does between its
-        // computer and Mission's tar05_ff_dlg2.
-        partyLeader->clearOrdersUnlessBusy();
-        _game.setDialogUnderWay(true);
-        partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
-    } else {
-        partyLeader->clearOrdersUnlessBusy();
-        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-    }
+    partyLeader->clearOrdersUnlessBusy();
+    partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
 }
 
 static constexpr uint32_t kBodyBagDelayMilliseconds = 500;
@@ -1126,29 +1136,24 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else if (placeable->isUsable()) {
             placeable->runOnUsed(savedEvent.caller.boundObject());
         }
-    } else if (type == Signal::Disarmed && (isa<Trigger>(target.get()) || doorOrPlaceable)) {
-        // A trigger, door or placeable is disarmed by the caller; a door or
-        // placeable still counts among the area's traps.
-        if (auto trigger = dyn_cast<Trigger>(target)) {
-            trigger->disarmTrap(callerId());
-        } else if (auto door = dyn_cast<Door>(target)) {
-            door->disarmTrapOnSignal(callerId());
+    } else if (auto lock = target->findLock(); lock && (type == Signal::Locked || type == Signal::Unlocked)) {
+        // A door or placeable that was locked or unlocked remembers who did
+        // it and runs its script for that.
+        if (type == Signal::Locked) {
+            lock->get().onLocked(*target, callerId());
         } else {
-            placeable->disarmTrapOnSignal(callerId());
+            lock->get().onUnlocked(*target, callerId());
         }
-    } else if (type == Signal::Locked && doorOrPlaceable) {
-        // A locked door or placeable runs its script for being locked.
-        if (auto door = dyn_cast<Door>(target)) {
-            door->onLocked();
-        } else {
-            placeable->onLocked();
-        }
+    } else if (auto trap = target->findTrap(); trap && type == Signal::Disarmed) {
+        // A trap told it was disarmed remembers who did it and runs its disarm script.
+        trap->get().receiveDisarmSignal(*target, callerId());
     } else if (type == Signal::FailToOpen && doorOrPlaceable) {
-        // A door or placeable that failed to open for its caller runs its
-        // script for that; the first integer quiets a door's locked line.
+        // A door, or in TSL a placeable, that failed to open for its caller
+        // runs its script for that; the first integer quiets a door's locked
+        // line. A KotOR placeable takes no notice.
         if (auto door = dyn_cast<Door>(target)) {
             door->onFailToOpen(callerId(), !event.integers.empty() && event.integers[0] != 0);
-        } else {
+        } else if (_game.isTSL()) {
             placeable->onFailToOpen(callerId());
         }
     } else if (target.get() == this && (type == Signal::ItemActivated || type == Signal::ItemAcquired ||
@@ -1186,10 +1191,19 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else {
             dyn_cast<Door>(target)->receiveClick(subject(), event.integers.empty() ? std::nullopt : std::optional<int>(event.integers[0]));
         }
-    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && type == Signal::Entered) {
-        // A trigger hears its own entry again; its second integer is the
-        // number of the transition it carries.
-        trigger->receiveEntered(subject(), event.integers[1]);
+    } else if (auto trigger = dyn_cast<Trigger>(target); trigger && (type == Signal::Entered || type == Signal::Exited)) {
+        // A trigger hears an entry or a departure of its first object. An
+        // entry's first integer lets a mine fire on anyone, and its second is
+        // the number of the transition it carries; an integer the event lacks
+        // is 0.
+        const auto integer = [&event](size_t index) {
+            return index < event.integers.size() ? event.integers[index] : 0;
+        };
+        if (type == Signal::Entered) {
+            trigger->receiveEntered(subject(), integer(1), integer(0) != 0);
+        } else {
+            trigger->receiveExited(subject());
+        }
     } else if (type == Signal::Conversation && (isa<Creature>(target.get()) || doorOrPlaceable)) {
         // A conversation event reaches creatures, placeables and doors only;
         // the caller is the one who spoke.
@@ -1523,9 +1537,6 @@ void Module::receivePlayerDeathEvent(const SavedObjectReference &caller) {
     _game.scriptRunner().run(_info.onPlayerDeath, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
-// A standing of at most this is hostile.
-static constexpr int kHighestHostileReputation = 10;
-
 // The usable items of the party's shared inventory, which the player carries
 // for whoever leads.
 static const ItemAttributes &partyItemAttributes(Game &game, const std::shared_ptr<Creature> &leader) {
@@ -1613,8 +1624,11 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         } else if (!playerRestricted && canBashDoor(*door)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
-        if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
+        if (door->isLocked() && !door->lock().isKeyRequired() && leader->canUseSkill(SkillType::Security)) {
             actions.push_back(ContextAction(SkillType::Security));
+            if (_game.isTSL()) {
+                addSecuritySpikeActions(actions, *leader);
+            }
         }
         if (door->isLocked()) {
             addMineKitActions(actions, _game, *_area, leader);
@@ -1627,13 +1641,24 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (canUseSecurityOnPlaceable(*placeable, *leader)) {
-            actions.push_back(ContextAction(SkillType::Security));
+            // In TSL plot items used on a container take the place of
+            // Security and the spikes.
+            const size_t offered = actions.size();
+            if (_game.isTSL()) {
+                addContainerPlotItemActions(actions, _services, *leader);
+            }
+            if (actions.size() == offered) {
+                actions.push_back(ContextAction(SkillType::Security));
+                if (_game.isTSL()) {
+                    addSecuritySpikeActions(actions, *leader);
+                }
+            }
         }
         // A hostile placeable without an inventory that regards the leader as
         // an enemy takes the hostile power menu and, in TSL, the hostile item
         // list in place of its own mine kits (which only TSL has).
         const bool hostileTarget = placeable->isHostileAppearance() && !placeable->hasInventory() &&
-                                   leader->getReputationFrom(placeable->faction()) <= kHighestHostileReputation;
+                                   leader->getReputationFrom(placeable->faction()) <= kHighestEnemyReputation;
         if (hostileTarget) {
             for (auto &power : leader->powerMenuActions(*object, true)) {
                 actions.push_back(std::move(power));
@@ -1655,7 +1680,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         if (!trigger->isTrap()) {
             break;
         }
-        if (leader->attributes().hasSkill(SkillType::Demolitions)) {
+        if (leader->canUseSkill(SkillType::Demolitions)) {
             if (trigger->isTrapHostileTo(*leader)) {
                 actions.push_back(ContextAction(SkillType::Demolitions));
             }

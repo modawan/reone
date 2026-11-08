@@ -719,32 +719,36 @@ static Variable ActionUseFeat(const std::vector<Variable> &args, const RoutineCo
 static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nSkill = getInt(args, 0);
-
-    // Stealth is used at once rather than queued, by a creature in an area,
-    // and only on a target that exists.
-    if (static_cast<SkillType>(nSkill) == SkillType::Stealth) {
-        auto creature = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
-        if (creature && creature->spatialArea() && getObjectOrNull(args, 1, ctx)) {
-            creature->useStealthSkill();
-        }
-        return Variable::ofNull();
-    }
-
-    auto oTarget = getObject(args, 1, ctx);
     auto nSubSkill = getIntOrElse(args, 2, 0);
-    auto oItemUsed = getObjectOrNull(args, 3, ctx);
+    auto oTarget = getObjectOrNull(args, 1, ctx);
+    // The item is optional: only healing and a spike on a lock use one.
+    auto itemUsed = std::dynamic_pointer_cast<Item>(getObjectOrNull(args, 3, ctx));
 
     // Transform
     auto skill = static_cast<SkillType>(nSkill);
-    // The item is optional: only setting a mine and healing use one.
-    auto itemUsed = std::dynamic_pointer_cast<Item>(oItemUsed);
 
     // Execute
-    if (refusesCommand(ctx)) {
+    // A skill is used by a creature in an area, on a target that exists.
+    auto creature = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!creature || !creature->spatialArea() || !oTarget) {
         return Variable::ofNull();
     }
-    auto action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
-    getCaller(ctx)->addAction(std::move(action));
+    // A subskill passed as the skill queues nothing, though a creature that
+    // cannot use Demolitions is told so.
+    const bool subSkillId = nSkill >= static_cast<int>(SubSkill::FlagTrap) && nSkill <= static_cast<int>(SubSkill::ExamineTrap);
+    if (subSkillId) {
+        creature->admitSkillUse(SkillType::Demolitions);
+        return Variable::ofNull();
+    }
+    // Mine work goes by the subskill and never sets a mine.
+    if (skill == SkillType::Demolitions) {
+        itemUsed.reset();
+    }
+    auto action = creature->useSkill(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
+    if (!action || refusesCommand(ctx)) {
+        return Variable::ofNull();
+    }
+    creature->addAction(std::move(action));
     return Variable::ofNull();
 }
 
@@ -958,7 +962,7 @@ static Variable ActionUnlockObject(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    if (refusesCommand(ctx)) {
+    if (!UnlockObjectAction::admits(*getCaller(ctx))) {
         return Variable::ofNull();
     }
     auto action = ctx.game.newAction<UnlockObjectAction>(std::move(oTarget));
@@ -973,7 +977,7 @@ static Variable ActionLockObject(const std::vector<Variable> &args, const Routin
     // Transform
 
     // Execute
-    if (refusesCommand(ctx)) {
+    if (!LockObjectAction::admits(*getCaller(ctx))) {
         return Variable::ofNull();
     }
     auto action = ctx.game.newAction<LockObjectAction>(std::move(oTarget));

@@ -641,8 +641,9 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     ASSERT_EQ(e2Creature.savedEffects().size(), 1);
     ASSERT_EQ(e2Creature.savedActionQueue().actions.size(), 1);
 
+    ASSERT_TRUE(git->findStruct("AreaProperties"));
     EXPECT_TRUE(git->findStruct("AreaProperties")->getBool("Unescapable"));
-    EXPECT_EQ(are->getUint("StealthXPCurrent"), 30u);
+    EXPECT_EQ(git->findStruct("AreaProperties")->getUint("StealthXPCurrent"), 30u);
     EXPECT_EQ(are->getString("FutureArea"), "preserve-area");
     EXPECT_EQ(git->getString("FutureGit"), "preserve-git");
     EXPECT_EQ(git->getList("Creature List").size(), 0);

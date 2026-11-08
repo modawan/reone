@@ -24,6 +24,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/doorsaber.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/di/services.h"
@@ -116,9 +117,6 @@ static bool isKnownHostileTrap(const TrappedObject &object, const Creature &lead
            (detection.flagged || detection.isDetectedBy(leader.id()));
 }
 
-// A placeable regarding the leader at this standing or less is hostile to it.
-static constexpr int kHighestHostileReputation = 10;
-
 // The hover reticle is hostile for a hostile creature, for a door or placeable
 // whose trap is hostile to the leader and known to it, and for a placeable of
 // a hostile appearance that regards the leader at 10 or less.
@@ -131,7 +129,7 @@ static bool isHoverHostile(const Object &object, const Creature &leader, const M
     case ObjectType::Placeable: {
         const auto &placeable = static_cast<const Placeable &>(object);
         return isKnownHostileTrap(placeable, leader) ||
-               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestHostileReputation);
+               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestEnemyReputation);
     }
     default:
         return false;
@@ -330,6 +328,35 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         order = [this, leader, selectedObject, feat = ctxAction.feat]() { _game.sendAttack(*leader, selectedObject, feat); };
         break;
     case ActionType::UseSkill:
+        if (ctxAction.skill == SkillType::Security) {
+            // Security, alone or with a spike, first clears the leader's
+            // orders on a door, and with a spike on any lock; Security alone
+            // on a door also delays the next autopause. A leader that can be
+            // commanded then clears its actions unless busy and, when the
+            // object is still locked, works at the lock, or is told it cannot
+            // use the skill.
+            const bool door = selectedObject->type() == ObjectType::Door;
+            if (ctxAction.item || door) {
+                _game.combat().clearAllOrders(*leader);
+            }
+            if (door && !ctxAction.item) {
+                _game.delayNextEnemyAutoPause();
+            }
+            order = [this, leader, selectedObject, item = ctxAction.item]() {
+                if (!leader->isCommandable()) {
+                    return;
+                }
+                leader->clearOrdersUnlessBusy();
+                const auto lock = selectedObject->findLock();
+                if (!lock || !lock->get().isLocked() || !UnlockObjectAction::admits(*leader)) {
+                    return;
+                }
+                auto action = _game.newAction<UnlockObjectAction>(selectedObject, item);
+                action->setUserAction(true);
+                leader->addAction(action);
+            };
+            break;
+        }
         if (ctxAction.item) {
             // Setting a mine on a door or placeable.
             if (!area->playerCanSetMines()) {
@@ -341,19 +368,18 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
                 break;
             }
         }
-        // Security on a door first clears the leader's orders, as the
-        // player's controls clear them, and delays the next autopause.
-        if (ctxAction.skill == SkillType::Security && selectedObject->type() == ObjectType::Door) {
-            _game.combat().clearAllOrders(*leader);
-            _game.delayNextEnemyAutoPause();
+        // Setting a mine is the use of its kit, which clears the leader's
+        // actions unless the leader is busy, then follows them. The other mine
+        // work is a use of the skill.
+        if (ctxAction.item) {
+            queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
+            order = [leader, queued = std::move(order)]() {
+                leader->clearOrdersUnlessBusy();
+                queued();
+            };
+        } else if (auto action = leader->useSkill(ctxAction.skill, selectedObject, ctxAction.subSkill)) {
+            queue(std::move(action));
         }
-        // Security and mine work clear the leader's actions unless the leader
-        // is busy, then follow them.
-        queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
-        order = [leader, queued = std::move(order)]() {
-            leader->clearOrdersUnlessBusy();
-            queued();
-        };
         break;
     case ActionType::DoorSaber: {
         // The door saber first clears the leader's orders, as the player's
@@ -376,6 +402,15 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
             order = [this, leader, item = ctxAction.item, selectedObject]() {
                 _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
                                   selectedObject->position());
+            };
+            break;
+        }
+        if (ctxAction.containerUse) {
+            // A plot item used on a locked container goes out as the use of
+            // its first power on the container.
+            order = [this, leader, item = ctxAction.item, selectedObject]() {
+                _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
+                                  menuItemLocation(*leader, *selectedObject));
             };
             break;
         }
@@ -506,7 +541,8 @@ void SelectionOverlay::update(float dt) {
                         _actionSlots[0].actions.push_back(action);
                         break;
                     case ActionType::UseSkill:
-                        if (action.item) {
+                        // Mine kits take the third column; spikes follow Security.
+                        if (action.item && action.skill == SkillType::Demolitions) {
                             _actionSlots[2].actions.push_back(action);
                         } else if (action.skill == SkillType::Demolitions && action.subSkill == 0) {
                             _actionSlots[0].actions.push_back(action);
@@ -517,7 +553,8 @@ void SelectionOverlay::update(float dt) {
                     case ActionType::CastSpellAtObject: {
                         // Items other than a droid's item powers, and powers
                         // against a mine, take the third column.
-                        if ((action.item && !action.equipmentPower) || selectedObject->type() == ObjectType::Trigger) {
+                        if ((action.item && !action.equipmentPower && !action.containerUse) ||
+                            selectedObject->type() == ObjectType::Trigger) {
                             _actionSlots[2].actions.push_back(action);
                         } else {
                             _actionSlots[1].actions.push_back(action);

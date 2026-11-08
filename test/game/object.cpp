@@ -2188,12 +2188,12 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
     auto destroyedAction = game.newAction<UnlockObjectAction>(destroyed);
     auto unsupportedTarget = game.newCreature();
     auto unsupportedAction = game.newAction<UnlockObjectAction>(unsupportedTarget);
-    // A placeable works at a lock at once, so the unsupported target is
-    // reached on the first tick.
+    // A placeable works at a lock at once, so the destroyed and unsupported
+    // targets are reached on the first tick.
     auto worker = game.newPlaceable();
 
     EXPECT_NO_THROW(missingAction->execute(missingAction, *actor, 0.0f));
-    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *actor, 0.0f));
+    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *worker, 0.0f));
     EXPECT_NO_THROW(unsupportedAction->execute(unsupportedAction, *worker, 0.0f));
 
     EXPECT_TRUE(missingAction->isCompleted());
@@ -3323,8 +3323,9 @@ TEST(DoorLifecycle, should_not_block_the_doorway_until_the_close_completes) {
     EXPECT_EQ("closed", doorPose(*door));
 }
 
-// D. Closing part way through an opening. The superseded opening must never
-// complete afterwards and hand the doorway over.
+// D. Closing part way through an opening. The close waits for the opening to
+// play out and then swings shut with closing2; the superseded opening never
+// hands the doorway over.
 TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3338,14 +3339,18 @@ TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     door->close();
     EXPECT_FALSE(door->isOpening());
     EXPECT_TRUE(door->isClosing());
+    EXPECT_EQ("opening2", doorPose(*door));
     EXPECT_TRUE(doorwayBlocks(*door));
 
-    // Past where the original opening would have completed, and on past where
-    // the close completes. The doorway is never handed over at any point.
-    for (int i = 0; i < 5; ++i) {
+    // Through the end of the opening and the whole close. The doorway is
+    // never handed over at any point.
+    for (int i = 0; i < 6; ++i) {
         stepDoor(*door, 0.4f);
         EXPECT_TRUE(doorwayBlocks(*door)) << "step " << i;
         EXPECT_FALSE(door->isOpen()) << "step " << i;
+        if (i == 2) {
+            EXPECT_EQ("closing2", doorPose(*door));
+        }
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());
@@ -3353,8 +3358,9 @@ TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     EXPECT_EQ("closed", doorPose(*door));
 }
 
-// E. Reopening part way through a close. The superseded close must never
-// complete afterwards and seal the doorway.
+// E. Reopening part way through a close. The opening waits for the close to
+// play out, and the door then stands open to the new side; the superseded
+// close never seals the doorway.
 TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3368,15 +3374,20 @@ TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     door->open();
     EXPECT_FALSE(door->isClosing());
     EXPECT_TRUE(door->isOpening());
+    EXPECT_EQ("closing1", doorPose(*door));
     EXPECT_FALSE(doorwayBlocks(*door));
     EXPECT_TRUE(door->isOpen());
 
-    // Past where the original close would have completed, and on past where the
-    // reopening completes. The doorway is never sealed at any point.
-    for (int i = 0; i < 5; ++i) {
+    // Through the end of the close and the whole opening. The doorway is
+    // never sealed at any point.
+    for (int i = 0; i < 6; ++i) {
         stepDoor(*door, 0.4f);
         EXPECT_FALSE(doorwayBlocks(*door)) << "step " << i;
         EXPECT_TRUE(door->isOpen()) << "step " << i;
+        if (i == 2) {
+            EXPECT_EQ("opening2", doorPose(*door));
+            EXPECT_EQ(DoorState::Opened2, door->state());
+        }
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());
@@ -4917,6 +4928,10 @@ TEST(BlockingDoorRoutines, unlocked_door_is_openable_and_door_action_open_opens_
         {script::Variable::ofObject(fixture.door->id()),
          script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
         execution);
+    ASSERT_EQ(ActionType::OpenDoor, npc->actions().front()->type());
+    npc->setPosition(fixture.door->position());
+    auto open = npc->actions().front();
+    open->execute(open, *npc, 0.0f);
 
     // Opened, and the OnOpen event fired, exactly as for any other open.
     EXPECT_TRUE(fixture.door->isOpen());
@@ -4935,6 +4950,9 @@ TEST(BlockingDoorRoutines, door_action_open_leaves_the_same_state_as_open_door_a
         {script::Variable::ofObject(routineFixture.door->id()),
          script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
         execution);
+    routineNpc->setPosition(routineFixture.door->position());
+    auto routineOpen = routineNpc->actions().front();
+    routineOpen->execute(routineOpen, *routineNpc, 0.0f);
 
     BlockedDoorFixture actionFixture;
     auto actionNpc = actionFixture.addCreature("k_def_blocked01");
@@ -5003,7 +5021,8 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
     EXPECT_EQ(0, bashPossible());
     fixture.door->setPlotFlag(false);
 
-    // The movement the creature was blocked on stays queued behind the bash.
+    // The bash is an attack on the creature's round; in KotOR its dispatcher
+    // goes behind the movement the creature was blocked on, which stays.
     auto movement = fixture.game.newAction<MoveToPointAction>(kFarDestination);
     npc->addAction(movement);
 
@@ -5012,12 +5031,13 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
          script::Variable::ofInt(static_cast<int>(DoorAction::Bash))},
         execution);
 
+    EXPECT_TRUE(fixture.game.combat().hasScheduled(*npc));
     ASSERT_EQ(2, npc->actions().size());
-    EXPECT_EQ(ActionType::AttackObject, npc->actions().front()->type());
-    EXPECT_EQ(movement, npc->actions().back());
+    EXPECT_EQ(movement, npc->actions().front());
+    EXPECT_EQ(ActionType::CombatDispatch, npc->actions().back()->type());
 }
 
-TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothing) {
+TEST(BlockingDoorRoutines, door_actions_without_their_requirements_report_impossible) {
     BlockedDoorFixture fixture(true);
     auto npc = fixture.addCreature("k_def_blocked01");
     Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
@@ -5030,7 +5050,7 @@ TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothin
             {script::Variable::ofObject(fixture.door->id()),
              script::Variable::ofInt(static_cast<int>(action))},
             execution);
-        EXPECT_EQ(0, possible.intValue);
+        EXPECT_EQ(action == DoorAction::Ignore ? 1 : 0, possible.intValue);
 
         routines.get(338).invoke(
             {script::Variable::ofObject(fixture.door->id()),
@@ -5040,7 +5060,8 @@ TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothin
 
     EXPECT_FALSE(fixture.door->isOpen());
     EXPECT_TRUE(fixture.door->isLocked());
-    EXPECT_TRUE(npc->actions().empty());
+    ASSERT_EQ(2u, npc->actions().size());
+    EXPECT_EQ(ActionType::OpenLock, npc->actions().front()->type());
 }
 
 TEST(BlockingDoorRoutines, are_registered_for_both_kotor_and_tsl) {

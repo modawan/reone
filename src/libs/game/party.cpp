@@ -661,10 +661,10 @@ void Party::setSoloMode(bool value) {
     _solo = value;
 }
 
-void Party::endStealth() {
+void Party::endStealth(bool quiet) {
     for (const auto &member : _members) {
         if (member.creature) {
-            member.creature->setStealthMode(false);
+            member.creature->setStealthMode(false, quiet);
         }
     }
 }
@@ -894,8 +894,6 @@ void Party::awardXP(int amount, XPSource source) {
         _game.submitStatusSummary(StatusSummaryCategory::PlotXP, amount);
         break;
     case XPSource::Stealth:
-        _game.submitStatusSummary(StatusSummaryCategory::StealthXP, amount);
-        break;
     case XPSource::Combat:
     case XPSource::Skill:
     case XPSource::Script:
@@ -1394,6 +1392,17 @@ std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Obj
         return actualPlayer();
     }
     return receiver;
+}
+
+void Party::noteItemReceived(Item &item, const Object &receiver, const Object *source) const {
+    const auto holder = actualPlayer();
+    if (!holder || holder->id() != receiver.id()) {
+        return;
+    }
+    if (source && (source->id() == holder->id() || isMember(*source))) {
+        return;
+    }
+    item.setNewlyAcquired(true);
 }
 
 std::shared_ptr<Creature> Party::getLeader() const {

@@ -1,1 +1,1 @@
-uniform vec4 uSaberDisplacement;
+uniform mat4 uSaberTrailEnd;

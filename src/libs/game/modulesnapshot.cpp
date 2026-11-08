@@ -1074,6 +1074,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
     put(*result, Gff::Field::newByte("Dropable", item._dropable));
     put(*result, Gff::Field::newByte("NonEquippable", item._nonEquippable));
+    put(*result, Gff::Field::newByte("NewItem", item._newlyAcquired));
     std::vector<std::shared_ptr<Gff>> properties;
     for (const auto &property : item._properties) {
         properties.push_back(Gff::Builder().type(0).field(Gff::Field::newByte("ChanceAppear", property.chanceAppear)).field(Gff::Field::newByte("CostTable", property.costTable)).field(Gff::Field::newWord("CostValue", property.costValue)).field(Gff::Field::newByte("Param1", property.paramTable)).field(Gff::Field::newByte("Param1Value", property.paramValue)).field(Gff::Field::newWord("PropertyName", property.propertyName)).field(Gff::Field::newWord("Subtype", property.subtype)).field(Gff::Field::newByte("UpgradeType", property.upgradeType)).field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay))).field(Gff::Field::newByte("Useable", property.usable)).field(Gff::Field::newDword("UsedDay", property.usedDay)).field(Gff::Field::newDword("UsedTime", property.usedTime)).build());
@@ -1269,9 +1270,9 @@ void ModuleSnapshotBuilder::writeCreatureAttributes(Gff &record, const Creature 
         auto skill = static_cast<size_t>(index) < oldSkills.size()
                          ? oldSkills[static_cast<size_t>(index)]->deepCopy()
                          : emptyRecord(0);
+        // A rank is saved held within -127 to 127.
         put(*skill, Gff::Field::newByte(
-            "Rank", creature._attributes.getSkillRank(
-                        static_cast<SkillType>(index))));
+                        "Rank", static_cast<uint8_t>(std::clamp(creature._attributes.getSkillRank(static_cast<SkillType>(index)), -127, 127))));
         skills.push_back(std::move(skill));
     }
     put(record, Gff::Field::newList("SkillList", std::move(skills)));
@@ -1400,6 +1401,14 @@ void ModuleSnapshotBuilder::writeCreaturePerception(
     put(record, Gff::Field::newList("PerceptionList", std::move(perceptions)));
 }
 
+// TSL keeps how a lock's DC to open it is counted: the kind, its modifier and
+// the PC level the object took.
+static void putLockDifficulty(Gff &record, const Lock &lock) {
+    put(record, Gff::Field::newByte("OpenLockDiff", static_cast<uint32_t>(lock.difficulty())));
+    put(record, Gff::Field::newChar("OpenLockDiffMod", lock.difficultyModifier()));
+    put(record, Gff::Field::newByte("PCLevelAtSpawn", lock.pcLevelAtSpawn()));
+}
+
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     const Door &door, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(door, ResType::Utd, 8);
@@ -1413,12 +1422,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     put(*result, Gff::Field::newByte("GenericType", door._genericType));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(door._faction)));
     put(*result, Gff::Field::newByte("OpenState", static_cast<uint8_t>(door._state)));
-    put(*result, Gff::Field::newByte("Locked", door._locked));
-    put(*result, Gff::Field::newByte("Lockable", door._lockable));
+    put(*result, Gff::Field::newByte("Locked", door.lock().isLocked()));
+    put(*result, Gff::Field::newByte("Lockable", door.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
     put(*result, Gff::Field::newShort("CurrentHP", door._currentHitPoints));
     put(*result, Gff::Field::newByte("Dead", door.isDead()));
-    put(*result, Gff::Field::newByte("TrapFlag", door.isTrapped()));
+    put(*result, Gff::Field::newByte("TrapFlag", door.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", door.trapBaseType()));
     put(*result, Gff::Field::newByte("TrapDisarmable", door.trapDisarmable()));
     put(*result, Gff::Field::newByte("TrapDetectable", door.trapDetectable()));
@@ -1429,10 +1438,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     if (_game.isTSL()) {
         put(*result, Gff::Field::newInt("OwnerDemolitions", door.ownerDemolitionsSkill()));
     }
-    put(*result, Gff::Field::newByte("KeyRequired", door._keyRequired));
-    put(*result, Gff::Field::newByte("AutoRemoveKey", door._autoRemoveKey));
-    put(*result, Gff::Field::newByte("OpenLockDC", door._openLockDC));
-    put(*result, Gff::Field::newByte("CloseLockDC", door._closeLockDC));
+    put(*result, Gff::Field::newByte("KeyRequired", door.lock().isKeyRequired()));
+    put(*result, Gff::Field::newByte("AutoRemoveKey", door.lock().isAutoRemoveKey()));
+    put(*result, Gff::Field::newByte("OpenLockDC", door.lock().openDC()));
+    if (_game.isTSL()) {
+        putLockDifficulty(*result, door.lock());
+    }
+    put(*result, Gff::Field::newByte("CloseLockDC", door.lock().closeDC()));
     put(*result, Gff::Field::newByte("LinkedToFlags", door._linkedToFlags));
     put(*result, Gff::Field::newCExoString("LinkedTo", door._linkedTo));
     put(*result, Gff::Field::newResRef("LinkedToModule", door._linkedToModule));
@@ -1449,14 +1461,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newInt("Animation", placeable._animation));
     put(*result, Gff::Field::newByte("Open", placeable._open));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(placeable._faction)));
-    put(*result, Gff::Field::newByte("Locked", placeable._locked));
-    put(*result, Gff::Field::newByte("Lockable", placeable._lockable));
+    put(*result, Gff::Field::newByte("Locked", placeable.lock().isLocked()));
+    put(*result, Gff::Field::newByte("Lockable", placeable.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", placeable._hitPoints));
     put(*result, Gff::Field::newShort("CurrentHP", placeable._currentHitPoints));
     put(*result, Gff::Field::newByte("Dead", placeable.isDead()));
     put(*result, Gff::Field::newByte("Useable", placeable._usable));
+    put(*result, Gff::Field::newByte("Static", placeable._static));
     put(*result, Gff::Field::newByte("HasInventory", placeable._hasInventory));
-    put(*result, Gff::Field::newByte("TrapFlag", placeable.isTrapped()));
+    put(*result, Gff::Field::newByte("TrapFlag", placeable.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", placeable.trapBaseType()));
     put(*result, Gff::Field::newByte("TrapDisarmable", placeable.trapDisarmable()));
     put(*result, Gff::Field::newByte("TrapDetectable", placeable.trapDetectable()));
@@ -1466,6 +1479,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("TrapOneShot", placeable.trapOneShot()));
     if (_game.isTSL()) {
         put(*result, Gff::Field::newInt("OwnerDemolitions", placeable.ownerDemolitionsSkill()));
+        putLockDifficulty(*result, placeable.lock());
     }
     // A portrait ID naming a row is saved in place of the portrait resref.
     if (placeable._portraitId != Placeable::kNoPortraitId) {
@@ -1480,12 +1494,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
         put(*result, Gff::Field::newDword("Appearance", placeable._appearance));
         put(*result, Gff::Field::newCExoLocString("LocName", placeable._locName.id(), placeable._locName.str()));
         put(*result, Gff::Field::newCExoLocString("Description", placeable._description.id(), placeable._description.str()));
-        put(*result, Gff::Field::newByte("OpenLockDC", placeable._openLockDC));
+        put(*result, Gff::Field::newByte("OpenLockDC", placeable.lock().openDC()));
         put(*result, Gff::Field::newByte("Hardness", placeable._hardness));
         put(*result, Gff::Field::newByte("Fort", placeable._fort));
         put(*result, Gff::Field::newByte("Will", placeable._will));
         put(*result, Gff::Field::newByte("Ref", placeable._ref));
-        put(*result, Gff::Field::newByte("Static", placeable._static));
         put(*result, Gff::Field::newByte("PartyInteract", placeable._partyInteract));
         put(*result, Gff::Field::newByte("BodyBag", placeable._bodyBagId));
         put(*result, Gff::Field::newByte("DieWhenEmpty", placeable._dieWhenEmpty));
@@ -1750,10 +1763,6 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
         result = emptyRecord(std::numeric_limits<uint32_t>::max());
     }
     put(*result, Gff::Field::newCExoString("Tag", area._tag));
-    put(*result, Gff::Field::newByte("StealthXPEnabled", area._stealthXPEnabled));
-    put(*result, Gff::Field::newDword("StealthXPMax", static_cast<uint32_t>(std::max(0, area._maxStealthXP))));
-    put(*result, Gff::Field::newDword("StealthXPCurrent", static_cast<uint32_t>(std::max(0, area._currentStealthXP))));
-    put(*result, Gff::Field::newDword("StealthXPLoss", static_cast<uint32_t>(std::max(0, area._stealthXPDecrement))));
     return result;
 }
 
@@ -1783,10 +1792,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     put(*result, Gff::Field::newByte("TransPendNextID", area._transitionPendingNextId));
     put(*result, Gff::Field::newByte("TransPendCurrID", area._transitionPendingCurrentId));
 
-    // The area properties carry the music and ambient sound settings, then the
-    // area flags and the fog colour; what is playing is not saved.
+    // The area properties carry the music and ambient sound settings and the
+    // stealth experience, then the area flags and the fog colour; what is
+    // playing is not saved. Whether stealth experience is paid is saved as on
+    // or off.
     const auto &audio = area._ambientAudio;
-    auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).build();
+    auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).field(Gff::Field::newDword("StealthXPMax", area._maxStealthXP)).field(Gff::Field::newDword("StealthXPCurrent", area._currentStealthXP)).field(Gff::Field::newDword("StealthXPLoss", area._stealthXPDecrement)).field(Gff::Field::newByte("StealthXPEnabled", area.isStealthXPEnabled() ? 1 : 0)).build();
     put(*properties, Gff::Field::newByte("Unescapable", area._unescapable));
     if (_game.isTSL()) {
         put(*properties, Gff::Field::newByte("DisableTransit", area._transitDisabled));

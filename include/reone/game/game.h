@@ -491,6 +491,12 @@ public:
      */
     std::shared_ptr<Object> selectNearestObject(int direction);
     void setKeepStealthInDialog(bool value) { _keepStealthInDialog = value; }
+    /**
+     * A conversation showing an entry or its replies quietly ends the stealth
+     * of its \p owner and \p listener, those that are creatures, a computer
+     * conversation's too. In TSL stealth kept in dialog stays.
+     */
+    void endConversationStealth(const std::shared_ptr<Object> &owner, const std::shared_ptr<Object> &listener);
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
