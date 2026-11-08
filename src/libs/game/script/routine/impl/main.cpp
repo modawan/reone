@@ -4499,15 +4499,18 @@ static Variable JumpToObject(const std::vector<Variable> &args, const RoutineCon
 
 static Variable SetMapPinEnabled(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oMapPin = getObject(args, 0, ctx);
+    auto oMapPin = getObjectOrNull(args, 0, ctx);
     auto nEnabled = getInt(args, 1);
 
     // Transform
-    auto mapPin = checkWaypoint(oMapPin);
+    auto mapPin = oMapPin ? dyn_cast<Waypoint>(oMapPin) : nullptr;
     auto enabled = static_cast<bool>(nEnabled);
 
-    // Execute
-    mapPin->setMapNoteEnabled(enabled);
+    // Execute: only a waypoint carries a map pin; anything else is left as
+    // it is.
+    if (mapPin) {
+        mapPin->setMapNoteEnabled(enabled);
+    }
     return Variable::ofNull();
 }
 

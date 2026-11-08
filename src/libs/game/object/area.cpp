@@ -266,6 +266,7 @@ void Area::load(
     }
     loadStealthXP(areParsed.StealthXPMax, currentStealthXP, areParsed.StealthXPLoss, areParsed.StealthXPEnabled);
     loadARE(areParsed);
+    loadMap(are);
     loadLYT();
     loadGIT(git, identityContext);
     loadVIS();
@@ -295,7 +296,6 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadCameraStyle(are);
     loadAmbientColor(are);
     loadScripts(are);
-    loadMap(are);
     loadHearing(are);
     loadGrass(are);
     loadFog(are);
@@ -341,13 +341,13 @@ void Area::loadScripts(const resource::generated::ARE &are) {
     _onUserDefined = are.OnUserDefined;
 }
 
-void Area::loadMap(const resource::generated::ARE &are) {
+void Area::loadMap(const resource::Gff &are) {
     // An area carries a map only when its map image exists. Without one its
     // map settings go unread.
     const std::string image(AreaMapState::imageResRef(_name));
     if (_services.resource.textures.get(image, TextureUsage::AreaMap)) {
-        _mapState.load(_game.gameId(), are.Map);
-    } else if (are.Map.MapResX != 0) {
+        _mapState.load(_game.gameId(), _name, are);
+    } else if (auto map = are.findStruct("Map"); map && map->getInt("MapResX") != 0) {
         warn(str(boost::format("Area %s carries no map: its map image %s is missing") % _name % image));
     }
     _game.map().load(_name);

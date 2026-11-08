@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "reone/resource/parser/gff/are.h"
 #include "reone/resource/types.h"
 
 namespace reone {
@@ -43,15 +42,17 @@ namespace game {
  *   its map settings.
  * - The `Map` struct of the area file:
  *   - `MapResX` is the exploration grid's width in cells. It is capped at
- *     kMaxGridWidth, and 0 means the area carries no map. The grid's height
- *     follows the canvas's proportions. A grid one cell wide is fully
- *     explored as soon as the party arrives.
- *   - `MapPt1X/Y` and `MapPt2X/Y` are two reference points on the map, as
- *     fractions of the canvas measured from its top left. The canvas is the
- *     part of the image the game shows.
+ *     kMaxGridWidth. 0 means the area carries no map, and so does a negative
+ *     width. The grid's height follows the canvas's proportions. A grid one
+ *     cell wide is fully explored as soon as the party arrives.
+ *   - `MapPt1X/Y` and `MapPt2X/Y` are two reference points on the map,
+ *     measured from the canvas's top left. A float is a fraction of the
+ *     canvas, and an integer is a canvas pixel. The canvas is the part of
+ *     the image the game shows.
  *   - `WorldPt1X/Y` and `WorldPt2X/Y` are the world positions of those two
  *     points. The two points must differ along both axes, both on the map and
- *     in the world, since each axis takes its scale from them.
+ *     in the world, since each axis takes its scale from them. Points that
+ *     share a row or column leave the area with no map.
  *   - `NorthAxis` sets which world axis runs across the map: world x for 0
  *     and 1, world y for 2 and 3. The reference points set each axis's scale
  *     and direction. Within each pair, only the party leader's arrow differs,
@@ -80,11 +81,13 @@ public:
     static std::string imageResRef(const std::string &area);
 
     /**
-     * Takes on \p map, sizing the exploration grid and leaving it unexplored.
+     * Takes on the map settings of \p are, the file of the area named
+     * \p area, sizing the exploration grid and leaving it unexplored.
      * An area whose map asks for no grid carries no map at all: it has no
-     * position on the map, nothing to explore, and nothing to save.
+     * position on the map, nothing to explore, and nothing to save. So does
+     * one whose map settings can place nothing, which is logged.
      */
-    void load(resource::GameID gameId, const resource::generated::ARE_Map &map);
+    void load(resource::GameID gameId, const std::string &area, const resource::Gff &are);
 
     bool isLoaded() const { return !_explored.empty(); }
 

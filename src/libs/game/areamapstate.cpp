@@ -18,6 +18,7 @@
 #include "reone/game/areamapstate.h"
 
 #include "reone/resource/gff.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::resource;
 
@@ -47,41 +48,70 @@ std::string AreaMapState::imageResRef(const std::string &area) {
     return "lbl_map" + area;
 }
 
-void AreaMapState::load(GameID gameId, const resource::generated::ARE_Map &map) {
+/**
+ * A map point coordinate in canvas pixels. A float is a fraction of the
+ * canvas; any other type is a pixel already.
+ */
+static float mapPointCoordinate(const Gff &map, const std::string &name, int canvasSize) {
+    if (map.fieldType(name) == Gff::FieldType::Float) {
+        return std::floor(map.getFloat(name) * canvasSize + 0.5f);
+    }
+    return static_cast<float>(map.getInt(name));
+}
+
+void AreaMapState::load(GameID gameId, const std::string &area, const Gff &are) {
     *this = AreaMapState();
 
-    if (map.MapResX == 0) {
+    auto map = are.findStruct("Map");
+    const int gridWidth = map ? map->getInt("MapResX") : 0;
+    if (gridWidth == 0) {
         // The area carries no map.
+        return;
+    }
+    if (gridWidth < 0) {
+        warn(str(boost::format("Area %s carries no map: its map grid width is negative") % area));
         return;
     }
 
     const bool tsl = gameId == GameID::TSL;
-    _canvasWidth = tsl ? kTSLCanvasWidth : kKotorCanvasWidth;
-    _canvasHeight = tsl ? kTSLCanvasHeight : kKotorCanvasHeight;
+    const int canvasWidth = tsl ? kTSLCanvasWidth : kKotorCanvasWidth;
+    const int canvasHeight = tsl ? kTSLCanvasHeight : kKotorCanvasHeight;
 
-    _gridWidth = map.MapResX > kMaxGridWidth ? kMaxGridWidth : map.MapResX;
-    _gridHeight = std::max(1, _gridWidth * _canvasHeight / _canvasWidth);
-    _explored.assign(static_cast<size_t>(_gridWidth + 1) * (_gridHeight + 1), false);
-
-    _northAxis = map.NorthAxis;
-
-    // The authored points are fractions of the canvas; measure them in its
-    // pixels so that a world point converts straight into a map position.
     const glm::vec2 mapPoint1(
-        std::floor(map.MapPt1X * _canvasWidth + 0.5f),
-        std::floor(map.MapPt1Y * _canvasHeight + 0.5f));
+        mapPointCoordinate(*map, "MapPt1X", canvasWidth),
+        mapPointCoordinate(*map, "MapPt1Y", canvasHeight));
     const glm::vec2 mapPoint2(
-        std::floor(map.MapPt2X * _canvasWidth + 0.5f),
-        std::floor(map.MapPt2Y * _canvasHeight + 0.5f));
+        mapPointCoordinate(*map, "MapPt2X", canvasWidth),
+        mapPointCoordinate(*map, "MapPt2Y", canvasHeight));
 
     // Both reference points are turned the same way the map turns world
     // space, which leaves a straight fit along each axis.
+    _northAxis = map->getInt("NorthAxis");
     const glm::vec2 worldPoint1(
-        orientToMap(glm::vec2(map.WorldPt1X, map.WorldPt1Y)));
+        orientToMap(glm::vec2(map->getFloat("WorldPt1X"), map->getFloat("WorldPt1Y"))));
     const glm::vec2 worldPoint2(
-        orientToMap(glm::vec2(map.WorldPt2X, map.WorldPt2Y)));
+        orientToMap(glm::vec2(map->getFloat("WorldPt2X"), map->getFloat("WorldPt2Y"))));
 
-    _worldPerPixel = (worldPoint2 - worldPoint1) / (mapPoint2 - mapPoint1);
+    // Each axis takes its scale from how far apart the reference points lie
+    // along it, so points level along an axis leave the map nothing to place.
+    const glm::vec2 mapSpan(mapPoint2 - mapPoint1);
+    const glm::vec2 worldSpan(worldPoint2 - worldPoint1);
+    if (mapSpan.x == 0.0f || mapSpan.y == 0.0f ||
+        worldSpan.x == 0.0f || worldSpan.y == 0.0f) {
+        *this = AreaMapState();
+        warn(str(boost::format(
+                     "Area %s carries no map: its map reference points share a row or column") %
+                 area));
+        return;
+    }
+
+    _canvasWidth = canvasWidth;
+    _canvasHeight = canvasHeight;
+    _gridWidth = std::min(gridWidth, kMaxGridWidth);
+    _gridHeight = std::max(1, _gridWidth * _canvasHeight / _canvasWidth);
+    _explored.assign(static_cast<size_t>(_gridWidth + 1) * (_gridHeight + 1), false);
+
+    _worldPerPixel = worldSpan / mapSpan;
     _worldBase = worldPoint1 - mapPoint1 * _worldPerPixel;
 }
 
@@ -168,7 +198,9 @@ void AreaMapState::setExplored(const glm::vec2 &world, int radius) {
     if (!point) {
         return;
     }
-    // A whole cell at a time, out to a diamond of the given radius.
+    // A whole cell at a time, out to a diamond of the given radius. A diamond
+    // as wide as the grid and as tall again already reaches every cell.
+    radius = std::min(radius, _gridWidth + _gridHeight);
     const int cellWidth = _canvasWidth / _gridWidth;
     const int cellHeight = _canvasHeight / _gridHeight;
 

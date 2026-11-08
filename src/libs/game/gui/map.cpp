@@ -99,6 +99,10 @@ void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingA
     if (!isLoaded()) {
         return;
     }
+    // The minimap follows the party leader, so without one it shows nothing.
+    if (mode == Mode::Minimap && !_game.party().getLeader()) {
+        return;
+    }
     const glm::vec4 rect(mapRect(mode, bounds, scale));
     _services.graphics.context.withBlendMode(BlendMode::Normal, [&]() {
         renderScissored(bounds, [&]() {
@@ -274,7 +278,11 @@ void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsi
             ShaderProgramId::mvpIcon);
     }
 
+    // A party with no leader has no arrow.
     auto leader = party.getLeader();
+    if (!leader) {
+        return;
+    }
     auto mapPos = state->toMapPosition(glm::vec2(leader->position()));
     if (!mapPos) {
         return;

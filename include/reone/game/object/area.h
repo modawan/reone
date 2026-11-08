@@ -1178,7 +1178,7 @@ private:
     void loadCameraStyle(const resource::generated::ARE &are);
     void loadAmbientColor(const resource::generated::ARE &are);
     void loadScripts(const resource::generated::ARE &are);
-    void loadMap(const resource::generated::ARE &are);
+    void loadMap(const resource::Gff &are);
     /**
      * Stealth experience as the area file or the saved area properties give
      * it: the maximum, then the pool, which starts full unless given and
