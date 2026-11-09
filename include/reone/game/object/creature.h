@@ -842,8 +842,18 @@ public:
     bool canMove() const { return canExecuteActions() && (_effectAIStateMask & kAIStateMove) != 0; }
     bool canAttack() const {
         constexpr int kAttackBits = kAIStateAttack | kAIStateAct;
-        return canExecuteActions() && (_effectAIStateMask & kAttackBits) == kAttackBits;
+        return canExecuteActions() && !isBodyHeld() && (_effectAIStateMask & kAttackBits) == kAttackBits;
     }
+    /** Whether a stun, paralysis or sleep holds the creature's body. */
+    bool isBodyHeld() const;
+    /**
+     * Whether the action is one done with the body while the body is held:
+     * an attack, a power, a use of an item, an object, a door, a trap, a
+     * lock, a skill, a feat or a talent, or a handling of items. Such an
+     * action waits until the body is free; what is said, played, walked or
+     * scripted is not held.
+     */
+    bool waitsForBody(const Action &action) const;
     bool isMovementRestricted() const { return _movementRestricted || !canMove(); }
     bool movementLockedByAction() const { return _movementRestricted; }
     /** Whether the AI state lets the creature take \p action. */

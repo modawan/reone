@@ -1372,6 +1372,11 @@ bool Object::executeActions(float dt) {
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
         return false;
     }
+    // What a creature does with its body waits while a stun, paralysis or
+    // sleep holds it; the rest of the queue waits behind it.
+    if (creature && creature->waitsForBody(*action)) {
+        return false;
+    }
     const bool refused = creature && !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
     // ends the creature's combat modes.

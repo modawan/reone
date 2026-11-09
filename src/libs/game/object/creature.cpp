@@ -2018,9 +2018,61 @@ bool Creature::keepsItemsInOrder() const {
 }
 
 // A Force push holds only the creature's moves, through its AI state.
+// So does every other state: a creature acts while it is neither dead nor
+// down, and what a state keeps it from doing, its AI state keeps it from. A
+// stun, paralysis or sleep also holds the body, and what the creature does
+// with it waits (waitsForBody).
 bool Creature::canExecuteActions() const {
-    return !_dead && !isTemporarilyDead() && !hasEffect(EffectType::Stunned) &&
-           !isImmobilizingState(static_cast<CreatureState>(_effectState));
+    return !_dead && !isTemporarilyDead();
+}
+
+bool Creature::isBodyHeld() const {
+    return hasEffect(EffectType::Stunned) || isImmobilizingState(static_cast<CreatureState>(_effectState));
+}
+
+bool Creature::waitsForBody(const Action &action) const {
+    if (!isBodyHeld()) {
+        return false;
+    }
+    switch (action.combatAction().type()) {
+    case ActionType::PickUpItem:
+    case ActionType::DropItem:
+    case ActionType::PutDownItem:
+    case ActionType::AttackObject:
+    case ActionType::CastSpell:
+    case ActionType::CastSpellAtObject:
+    case ActionType::CastSpellAtLocation:
+    case ActionType::ItemCastSpell:
+    case ActionType::CounterSpell:
+    case ActionType::OpenDoor:
+    case ActionType::CloseDoor:
+    case ActionType::DoorSaber:
+    case ActionType::DisableTrap:
+    case ActionType::RecoverTrap:
+    case ActionType::FlagTrap:
+    case ActionType::ExamineTrap:
+    case ActionType::SetTrap:
+    case ActionType::OpenLock:
+    case ActionType::Lock:
+    case ActionType::UseObject:
+    case ActionType::OpenContainer:
+    case ActionType::AnimalEmpathy:
+    case ActionType::Taunt:
+    case ActionType::Heal:
+    case ActionType::PickPocket:
+    case ActionType::EquipItem:
+    case ActionType::UnequipItem:
+    case ActionType::SwitchWeapons:
+    case ActionType::GiveItem:
+    case ActionType::TakeItem:
+    case ActionType::UseFeat:
+    case ActionType::UseSkill:
+    case ActionType::UseTalentOnObject:
+    case ActionType::UseTalentAtLocation:
+        return true;
+    default:
+        return false;
+    }
 }
 
 // The commands a party member at zero vitality still carries out; it fails
@@ -2059,6 +2111,10 @@ bool Creature::permitsAction(const Action &action) const {
     const Action &command = action.combatAction();
     if (isTemporarilyDead()) {
         return runsWhileDown(static_cast<SavedActionType>(command.serializedActionId()));
+    }
+    // What is done with a held body is refused where it cannot wait.
+    if (waitsForBody(action)) {
+        return false;
     }
     // A walk to a point, or one heading for an object, fails a creature that
     // cannot move unless its goal is a trigger or a linked door already in
