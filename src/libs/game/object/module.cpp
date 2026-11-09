@@ -1718,14 +1718,14 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
     auto &keybinds = game().options().game.activeKeybinds();
 
-    if (event.axis == input::GamepadAxis::LeftTrigger || event.axis == input::GamepadAxis::RightTrigger) {
+    if (keybinds.cycleTargetLeft.check(event.axis) || keybinds.cycleTargetRight.check(event.axis)) {
         _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
             return false;
         }
-        _game.selectNearestObject(event.axis == input::GamepadAxis::LeftTrigger ? 0 : 1);
+        _game.selectNearestObject(event.axis == keybinds.cycleTargetLeft.gamepadAxis ? 0 : 1);
         // In combat mode a new target may pause play, whether or not one was found.
-        if (_game.clientCombatMode()) {
+        if (_game.partyCombatMode()) {
             _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
         }
         return true;
@@ -1733,35 +1733,6 @@ bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event)
 }
 
 bool Module::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
-    auto &keybinds = game().options().game.activeKeybinds();
-
-    if (keybinds.pause.check(event.button)) {
-        _game.pressPauseKey();
-        return true;
-    }
-    if (keybinds.toggleStealth.check(event.button)) {
-        _game.requestStealth();
-        return true;
-    }
-    if (keybinds.clearOneAction.check(event.button)) {
-        _game.clearOneAction();
-        return true;
-    }
-    if (keybinds.cancelCombat.check(event.button)) {
-        _game.cancelCombat();
-        return true;
-    }
-    if (keybinds.defaultAction.check(event.button)) {
-        if (auto selected = _area->selectedObject()) {
-            onObjectClick(selected, false);
-        }
-        return true;
-    }
-    
-    return false;
-}
-
-bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event)  {
     auto &keybinds = game().options().game.activeKeybinds();
 
     if (keybinds.pause.check(event.button)) {
@@ -1782,19 +1753,23 @@ bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event)  {
         }
         return true;
     } else if (keybinds.cycleTargetLeft.check(event.button) || keybinds.cycleTargetRight.check(event.button)) {
-        // Either key ends the choice of a party member to use an item on.
         _game.cancelPartyItemTarget();
         if (_game.cameraType() != CameraType::ThirdPerson) {
             return false;
         }
-        _game.selectNearestObject(keybinds.cycleTargetLeft.check(event.button) ? 0 : 1);
+        _game.selectNearestObject(event.button == keybinds.cycleTargetLeft.gamepadButton ? 0 : 1);
         // In combat mode a new target may pause play, whether or not one was found.
-        if (_game.clientCombatMode()) {
+        if (_game.partyCombatMode()) {
             _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
         }
         return true;
     }
+    
+    return false;
+}
 
+bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event)  {
+    auto &keybinds = game().options().game.activeKeybinds();
 
     return false;
 }
