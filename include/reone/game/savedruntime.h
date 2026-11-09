@@ -249,8 +249,6 @@ enum class SavedActionType : uint32_t {
     CloseDoor = 21,
     /** A turn of the third-person camera. */
     OrientCamera = 22,
-    /** A sound played where the object stands. */
-    PlaySound = 23,
     StartConversation = 24,
     DisarmMine = 25,
     RecoverMine = 26,

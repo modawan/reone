@@ -41,7 +41,6 @@
 #include "reone/game/action/orientcamera.h"
 #include "reone/game/action/pickupitem.h"
 #include "reone/game/action/playanimation.h"
-#include "reone/game/action/playsound.h"
 #include "reone/game/action/putdownitem.h"
 #include "reone/game/action/randomwalk.h"
 #include "reone/game/action/resumeconversation.h"
@@ -1316,7 +1315,6 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::FacePoint, &hasParameters<Type::Float, Type::Float, Type::Float>, &ChangeFacingAction::restore},
     {SavedActionType::OrientCamera, &hasParameters<Type::Integer, Type::Float, Type::Float, Type::Float, Type::Integer>,
      &OrientCameraAction::restore},
-    {SavedActionType::PlaySound, &hasParameters<Type::String>, &PlaySoundAction::restore},
     {SavedActionType::Appear, &hasParameters<>, &AppearAction::restore},
     {SavedActionType::Follow,
      &hasParameters<Type::Object, Type::Integer, Type::Float, Type::Float, Type::Integer, Type::Float, Type::Float>,

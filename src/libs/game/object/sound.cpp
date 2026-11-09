@@ -184,16 +184,6 @@ void Sound::setActive(bool active) {
     _active = active;
 }
 
-void Sound::fadeAndStop(float seconds) {
-    auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
-    if (_looping) {
-        sceneNode.fadeOutSound(seconds);
-    } else {
-        sceneNode.stopSound();
-    }
-    setActive(false);
-}
-
 } // namespace game
 
 } // namespace reone

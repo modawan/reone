@@ -30,7 +30,6 @@
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/playanimation.h"
-#include "reone/game/action/playsound.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/classes.h"
@@ -714,13 +713,10 @@ static Variable PlaySound(const std::vector<Variable> &args, const RoutineContex
     // Load
     auto sSoundName = getString(args, 0);
 
+    // Transform
+
     // Execute
-    // The caller plays the sound as its next action, when it takes commands.
-    auto caller = getCaller(ctx);
-    if (caller->isCommandable()) {
-        caller->addAction(ctx.game.newAction<PlaySoundAction>(sSoundName));
-    }
-    return Variable::ofNull();
+    throw RoutineNotImplementedException("PlaySound");
 }
 
 static Variable GetSpellTargetObject(const std::vector<Variable> &, const RoutineContext &ctx) {
@@ -7112,11 +7108,9 @@ static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const 
     auto fSeconds = getFloat(args, 1);
 
     // Transform
-    auto sound = checkSound(oSound);
 
     // Execute
-    sound->fadeAndStop(fSeconds);
-    return Variable::ofNull();
+    throw RoutineNotImplementedException("SoundObjectFadeAndStop");
 }
 
 static Variable SetAreaFogColor(const std::vector<Variable> &args, const RoutineContext &ctx) {

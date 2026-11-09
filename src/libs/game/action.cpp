@@ -89,9 +89,6 @@ uint32_t Action::serializedActionId() const {
     case ActionType::OrientCamera:
         type = SavedActionType::OrientCamera;
         break;
-    case ActionType::PlaySound:
-        type = SavedActionType::PlaySound;
-        break;
     case ActionType::Appear:
         type = SavedActionType::Appear;
         break;

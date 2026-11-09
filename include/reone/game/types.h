@@ -1094,7 +1094,6 @@ enum class ActionType {
     DoorSaber = 0x1029,
     ChangeFacing = 0x102a,
     OrientCamera = 0x102b,
-    PlaySound = 0x102c,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe

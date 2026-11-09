@@ -49,11 +49,6 @@ public:
     bool isSoundPlaying() const;
     /** Stops and releases the sound, if one is playing. */
     void stopSound();
-    /**
-     * Fades the playing sound out over \p seconds, then stops it. The fade
-     * plays out whether the sound stays audible or not; a new sound ends it.
-     */
-    void fadeOutSound(float seconds);
 
     int priority() const { return _priority; }
     float maxDistance() const { return _maxDistance; }
@@ -79,12 +74,6 @@ private:
     std::optional<bool> _audible;
 
     std::shared_ptr<audio::AudioSource> _source;
-
-    struct FadeOut {
-        float elapsed {0.0f};
-        float length {0.0f};
-    };
-    std::optional<FadeOut> _fadeOut;
 };
 
 } // namespace scene

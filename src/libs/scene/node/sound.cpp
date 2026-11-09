@@ -30,21 +30,9 @@ namespace scene {
 
 void SoundSceneNode::update(float dt) {
     SceneNode::update(dt);
-    if (!_fadeOut) {
-        return;
-    }
-    _fadeOut->elapsed += dt;
-    if (_fadeOut->elapsed >= _fadeOut->length) {
-        stopSound();
-        return;
-    }
-    _source->setGainScale(1.0f - _fadeOut->elapsed / _fadeOut->length);
 }
 
 void SoundSceneNode::playSound(const std::string &resRef, float gain, bool positional, bool loop) {
-    if (_fadeOut) {
-        stopSound();
-    }
     auto clip = _resourceSvc.audioClips.get(resRef);
     std::optional<glm::vec3> position;
     if (positional) {
@@ -63,17 +51,9 @@ bool SoundSceneNode::isSoundPlaying() const {
 }
 
 void SoundSceneNode::stopSound() {
-    _fadeOut.reset();
     if (_source) {
         _source->stop();
         _source.reset();
-    }
-}
-
-// Only a playing sound fades.
-void SoundSceneNode::fadeOutSound(float seconds) {
-    if (_source) {
-        _fadeOut = FadeOut {0.0f, seconds};
     }
 }
 
@@ -81,7 +61,7 @@ void SoundSceneNode::setAudible(bool audible) {
     if (_audible == audible) {
         return;
     }
-    if (!audible && !_fadeOut) {
+    if (!audible) {
         stopSound();
     }
     _audible = audible;

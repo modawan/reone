@@ -72,11 +72,6 @@ public:
     float fixedVariance() const { return _fixedVariance; }
 
     void setActive(bool active);
-    /**
-     * Stops the sound: a looping sound fades out over \p seconds, any other
-     * stops at once.
-     */
-    void fadeAndStop(float seconds);
     void setFixedVariance(float variance) { _fixedVariance = variance; }
     void setPitchVariation(float variation) { _pitchVariation = variation; }
 
