@@ -21,11 +21,16 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/audio/source.h"
 #include "reone/game/action/appear.h"
 #include "reone/game/animations.h"
 #include "reone/game/camerastyles.h"
@@ -69,6 +74,7 @@
 #include "reone/resource/provider/walkmeshes.h"
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
+#include "reone/scene/animeventlistener.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
@@ -267,7 +273,9 @@ void Area::load(
     loadStealthXP(areParsed.StealthXPMax, currentStealthXP, areParsed.StealthXPLoss, areParsed.StealthXPEnabled);
     loadARE(areParsed);
     loadMap(are);
+    loadPartSounds(are);
     loadLYT();
+    attachPartSounds();
     loadGIT(git, identityContext);
     loadVIS();
 }
@@ -689,6 +697,134 @@ void Area::loadAreaEffects(const resource::Gff &gff, const SerializedIdentityCon
     }
 }
 
+namespace {
+
+/** A room model's omen events start its part sounds. */
+class PartSoundEventListener : public scene::IAnimationEventListener {
+public:
+    PartSoundEventListener(std::function<void(const std::string &)> play) :
+        _play(std::move(play)) {
+    }
+
+    void onEventSignalled(const std::string &name) override { _play(name); }
+
+private:
+    std::function<void(const std::string &)> _play;
+};
+
+} // namespace
+
+void Area::loadPartSounds(const resource::Gff &are) {
+    _partSounds.clear();
+    // An interior has no weather.
+    static constexpr uint32_t kInteriorAreaFlag = 1;
+    if ((are.getUint("Flags") & kInteriorAreaFlag) == 0) {
+        _chanceRain = are.getInt("ChanceRain");
+        _chanceSnow = are.getInt("ChanceSnow");
+        _chanceLightning = are.getInt("ChanceLightning");
+    }
+    for (auto &room : are.getList("Rooms")) {
+        const std::string roomName = boost::to_lower_copy(room->getString("RoomName"));
+        if (room->getInt("DisableWeather") != 0) {
+            _weatherlessRooms.insert(roomName);
+        }
+        for (auto &part : room->getList("PartSounds")) {
+            PartSound partSound;
+            partSound.roomName = roomName;
+            partSound.part = boost::to_lower_copy(part->getString("ModelPart"));
+            partSound.omenEvent = part->getString("OmenEvent");
+            partSound.resRef = boost::to_lower_copy(part->getString("Sound"));
+            _partSounds.push_back(std::move(partSound));
+        }
+    }
+}
+
+// A part sound of a room the layout has, on a part its model has, plays in
+// the room sounds' group, at full volume within 20 m and heard out to 150 m.
+// One without an omen event starts at once; the others wait for theirs.
+void Area::attachPartSounds() {
+    std::map<const scene::ModelSceneNode *, bool> listened;
+    for (auto &partSound : _partSounds) {
+        auto room = _rooms.find(partSound.roomName);
+        if (room == _rooms.end() || !room->second->model() || !room->second->model()->getNodeByName(partSound.part)) {
+            continue;
+        }
+        partSound.roomModel = room->second->model();
+        if (!partSound.omenEvent.empty() && !listened[partSound.roomModel.get()]) {
+            listened[partSound.roomModel.get()] = true;
+            const auto *roomModel = partSound.roomModel.get();
+            auto listener = std::make_unique<PartSoundEventListener>([this, roomModel](const std::string &event) {
+                playPartSounds(*roomModel, event);
+            });
+            partSound.roomModel->setAnimationEventListener(*listener);
+            _partSoundListeners.push_back(std::move(listener));
+        }
+    }
+    for (auto &partSound : _partSounds) {
+        if (partSound.roomModel && partSound.omenEvent.empty()) {
+            playPartSounds(*partSound.roomModel, "");
+        }
+    }
+}
+
+void Area::playPartSounds(const scene::ModelSceneNode &roomModel, const std::string &event) {
+    static constexpr float kPartSoundFullVolumeDistance = 20.0f;
+    static constexpr float kPartSoundCutoffDistance = 150.0f;
+    for (auto &partSound : _partSounds) {
+        if (partSound.roomModel.get() != &roomModel || !boost::iequals(partSound.omenEvent, event) ||
+            (partSound.source && partSound.source->isPlaying())) {
+            continue;
+        }
+        auto node = partSound.roomModel->getNodeByName(partSound.part);
+        partSound.source = _services.audio.mixer.play(
+            _services.resource.audioClips.get(partSound.resRef), audio::AudioType::Sound, kRoomSoundGroup, 1.0f, true,
+            node->origin(), audio::SoundDistances {kPartSoundFullVolumeDistance, kPartSoundCutoffDistance});
+    }
+}
+
+void Area::updatePartSounds() {
+    for (auto &partSound : _partSounds) {
+        if (partSound.source) {
+            partSound.source->setPosition(partSound.roomModel->getNodeByName(partSound.part)->origin());
+        }
+    }
+}
+
+// The weather follows the first chance the area has of rain, then snow, then
+// lightning, which brings rain.
+void Area::updateWeather(float dt) {
+    static constexpr uint32_t kWeatherRollMilliseconds = 300000;
+    if (!_game.isTSL()) {
+        return;
+    }
+    const auto elapsed = static_cast<uint32_t>(dt * 1000.0f);
+    if (_weatherTimer > elapsed) {
+        _weatherTimer -= elapsed;
+    } else {
+        const int roll = randomInt(0, 99);
+        const int chance = _chanceRain != 0 ? _chanceRain : (_chanceSnow != 0 ? _chanceSnow : _chanceLightning);
+        if (chance != 0) {
+            _weatherOn = roll < chance;
+        }
+        _weatherTimer = kWeatherRollMilliseconds;
+    }
+    if (!_weatherOn || _chanceLightning == 0) {
+        return;
+    }
+    auto leader = _game.party().getLeader();
+    if (leader && leader->room() && _weatherlessRooms.count(leader->room()->name()) != 0) {
+        return;
+    }
+    if (_lightningDelay > dt) {
+        _lightningDelay -= dt;
+        return;
+    }
+    _lightningDelay = randomInt(0, 4999) / 1000.0f + 5.0f;
+    if (randomInt(0, 99) < _chanceLightning) {
+        _game.areaMusic().thunder(randomInt(0, 1) == 0);
+    }
+}
+
 void Area::loadLYT() {
     auto layout = _services.resource.layouts.get(_name);
     if (!layout) {
@@ -827,6 +963,14 @@ void Area::initCameras(const glm::vec3 &entryPosition, float entryFacing) {
 }
 
 Area::~Area() {
+    for (auto &partSound : _partSounds) {
+        if (partSound.source) {
+            partSound.source->stop();
+        }
+        if (partSound.roomModel) {
+            partSound.roomModel->clearAnimationEventListener();
+        }
+    }
     for (Object *object : _objectsByX) {
         if (object->_spatialArea == this) {
             object->_spatialArea = nullptr;
@@ -1461,6 +1605,7 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     }
     if (auto creature = dyn_cast<Creature>(object)) {
         creature->stopRollingFootstep();
+        creature->stopLoopingSounds();
     }
     // Only a body standing in the area stays behind it.
     const bool resident = isObjectResident(*object);
@@ -2713,6 +2858,7 @@ bool Area::handleKeyDown(const input::KeyEvent &event) {
 
 void Area::update(float dt) {
     doDestroyObjects();
+    updatePartSounds();
     updateReleasedPresentation(dt);
     updateObjectSelection();
 
@@ -2726,6 +2872,7 @@ void Area::update(float dt) {
     if (held()) {
         return;
     }
+    updateWeather(dt);
 
     // A creature placed since the last update runs its creation script first,
     // even when a time stop holds it.

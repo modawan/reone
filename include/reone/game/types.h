@@ -557,6 +557,10 @@ constexpr int kMusicSoundGroup = 2;
 constexpr int kAreaWideAmbientSoundGroup = 4;
 /** The sound priority group of looping positional ambients. */
 constexpr int kLoopingPositionalAmbientSoundGroup = 5;
+/** The sound priority group of the controlled creature's own loops: its creature loop and a lit light source. */
+constexpr int kLoopingPlayerSoundGroup = 6;
+/** The sound priority group of other creatures' loops. */
+constexpr int kLoopingNonPlayerSoundGroup = 7;
 /** The sound priority group of the controlled creature's sound set. */
 constexpr int kPlayerChatSoundGroup = 8;
 /** The sound priority group of conversation voices and other players' creatures' chat. */
@@ -594,6 +598,8 @@ constexpr int kSingleShotPositionalSoundGroup = 22;
 constexpr int kDefaultSoundGroup = 23;
 /** The sound priority group of the minigame enemies' sounds. */
 constexpr int kMinigameEnemySoundGroup = 24;
+/** The sound priority group of the sounds rooms loop where parts of their models are. */
+constexpr int kRoomSoundGroup = 25;
 /** The sound priority group of barked lines, which every sound mode pauses. */
 constexpr int kBarkSoundGroup = 26;
 

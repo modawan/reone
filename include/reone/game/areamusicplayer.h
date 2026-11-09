@@ -158,6 +158,11 @@ public:
      * out over its usual fade, then nothing restarts.
      */
     void fadeOutSounds();
+    /**
+     * TSL: lightning strikes, and while the ambient loop plays its thunder is
+     * heard everywhere, close or distant.
+     */
+    void thunder(bool close);
 
     /**
      * A conversation shows its first entry: the track a conversation started

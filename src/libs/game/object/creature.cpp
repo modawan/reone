@@ -1528,6 +1528,15 @@ void Creature::loadAppearanceSoundSet(int row) {
     _appearanceSoundSet.fallHard = boost::to_lower_copy(soundSets->getString(row, "fallhard"));
     _appearanceSoundSet.fallMetal = boost::to_lower_copy(soundSets->getString(row, "fallmetal"));
     _appearanceSoundSet.fallWater = boost::to_lower_copy(soundSets->getString(row, "fallwater"));
+    // A new appearance drops the old appearance's loop.
+    _appearanceSoundSet.looping = boost::to_lower_copy(soundSets->getString(row, "looping"));
+    if (_loopingSoundResRef != _appearanceSoundSet.looping) {
+        if (_loopingSound) {
+            _loopingSound->stop();
+            _loopingSound.reset();
+        }
+        _loopingSoundResRef.clear();
+    }
 }
 
 void Creature::loadAppearance() {
@@ -2512,6 +2521,7 @@ void Creature::update(float dt) {
     updateRegeneration(dt);
     updateLightsaberSoundPositions();
     updateRollingFootstep();
+    updateLoopingSounds();
     updateStealthXPTimer();
 }
 
@@ -6106,6 +6116,7 @@ void Creature::stopVoiceAndFootsteps() {
     _audioSourceVoice.reset();
     _audioSourceFootstep.reset();
     stopRollingFootstep();
+    stopLoopingSounds();
 }
 
 void Creature::runAttackedScript(uint32_t attackerId) {
@@ -9397,6 +9408,65 @@ void Creature::updateRollingFootstep() {
     }
     _rollingFootstep->setPosition(_position);
     _rollingFootstep->setPitch(*pitch);
+}
+
+// The appearance's loop is the controlled creature's own group's when it
+// starts, and every other creature's otherwise. The light source loops at a
+// tenth of full volume, in the controlled creature's group.
+void Creature::updateLoopingSounds() {
+    static constexpr float kLoopingSoundHeight = 1.5f;
+    static constexpr char kLightSourceSound[] = "al_cv_firetorch1";
+    static constexpr float kLightSourceGain = 10.0f / 127.0f;
+    static constexpr int kLightSourceItemType = 29;
+    if (!isPresent()) {
+        return;
+    }
+    const bool controlled = _game.party().getLeader().get() == this;
+    const glm::vec3 position = _position + glm::vec3(0.0f, 0.0f, kLoopingSoundHeight);
+    if (!_appearanceSoundSet.looping.empty() && !_loopingSound && _loopingSoundResRef.empty()) {
+        _loopingSoundResRef = _appearanceSoundSet.looping;
+        _loopingSound = _services.audio.mixer.play(
+            _services.resource.audioClips.get(_loopingSoundResRef), AudioType::Sound,
+            controlled ? kLoopingPlayerSoundGroup : kLoopingNonPlayerSoundGroup, 1.0f, true, position);
+    }
+    if (_loopingSound) {
+        _loopingSound->setPosition(position);
+    }
+    auto held = getEquippedItem(InventorySlots::leftWeapon);
+    const bool lit = controlled && held && held->itemType() == kLightSourceItemType;
+    if (!lit) {
+        if (_lightSourceSound) {
+            _lightSourceSound->stop();
+            _lightSourceSound.reset();
+        }
+        return;
+    }
+    // It sounds where the light source is in the hand.
+    glm::vec3 lightPosition = _position;
+    if (auto *body = dynamic_cast<ModelSceneNode *>(_sceneNode.get())) {
+        if (auto *light = body->getAttachment(g_leftHandNode)) {
+            lightPosition = light->origin();
+        }
+    }
+    if (!_lightSourceSound) {
+        _lightSourceSound = _services.audio.mixer.play(
+            _services.resource.audioClips.get(kLightSourceSound), AudioType::Sound, kLoopingPlayerSoundGroup,
+            kLightSourceGain, true, lightPosition);
+    }
+    if (_lightSourceSound) {
+        _lightSourceSound->setPosition(lightPosition);
+    }
+}
+
+// A creature that comes back starts its loop again.
+void Creature::stopLoopingSounds() {
+    _loopingSoundResRef.clear();
+    for (auto *source : {&_loopingSound, &_lightSourceSound}) {
+        if (*source) {
+            (*source)->stop();
+            source->reset();
+        }
+    }
 }
 
 void Creature::stopRollingFootstep() {

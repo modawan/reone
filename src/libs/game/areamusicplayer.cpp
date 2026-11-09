@@ -501,6 +501,19 @@ void AreaMusicPlayer::setNight(bool night) {
     }
 }
 
+// One of two thunderclaps or two distant rolls, at random, while the area's
+// ambient sound is on, whether or not its loop could play.
+void AreaMusicPlayer::thunder(bool close) {
+    if (!_started || !_ambientOn) {
+        return;
+    }
+    static const std::array<std::string, 2> kClose {"as_wt_thundercl1", "as_wt_thundercl2"};
+    static const std::array<std::string, 2> kDistant {"as_wt_thunderds1", "as_wt_thunderds2"};
+    const auto &sounds = close ? kClose : kDistant;
+    _services.audio.mixer.play(_services.resource.audioClips.get(sounds[randomInt(0, 1)]), AudioType::Sound,
+                               kSingleShotGlobalSoundGroup);
+}
+
 // Nothing restarts after the fades.
 void AreaMusicPlayer::fadeOutSounds() {
     if (!_started) {

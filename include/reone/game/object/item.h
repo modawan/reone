@@ -221,6 +221,12 @@ public:
     void powerDown(glm::vec3 position, bool transition, bool audible);
     /** Starts the hum of a powered item at \p position, unless it is humming already. */
     void startPoweredSound(glm::vec3 position);
+    /**
+     * Plays the sound of the item put down, picked up or taken off: the
+     * inventorysnds.2da row its base item's inventory sound type names, heard
+     * everywhere in the GUI's group.
+     */
+    void playDropSound() const;
     /** Stops the hum; the item stays powered. */
     void stopPoweredSound();
     void updatePoweredSoundPosition(glm::vec3 position);

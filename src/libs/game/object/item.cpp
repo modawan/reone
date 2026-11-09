@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <limits>
 
+#include <boost/algorithm/string/case_conv.hpp>
+
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/combattables.h"
@@ -882,6 +884,23 @@ void Item::setIdentified(bool value) {
 
 void Item::setEquipped(bool equipped) {
     _equipped = equipped;
+}
+
+// Armour takes its row too: the game's armour material class is never set.
+void Item::playDropSound() const {
+    auto baseItems = _services.resource.twoDas.get("baseitems");
+    auto sounds = _services.resource.twoDas.get("inventorysnds");
+    if (!baseItems || !sounds) {
+        return;
+    }
+    const int row = baseItems->getInt(_baseItem, "invsoundtype", -1);
+    if (row < 0 || row >= sounds->getRowCount()) {
+        return;
+    }
+    const std::string resRef = boost::to_lower_copy(sounds->getString(row, "inventorysound"));
+    if (!resRef.empty()) {
+        _services.audio.mixer.play(_services.resource.audioClips.get(resRef), audio::AudioType::Sound, kGuiSoundGroup);
+    }
 }
 
 bool Item::isMineKit() const {
