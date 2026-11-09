@@ -460,6 +460,9 @@ SaveResult Game::executeSave(SaveRequest request) {
         bool &value;
         ~Guard() { value = false; }
     } guard {_saveInProgress};
+    // Every sound waits while the save is written; the next update gives the
+    // screen its own sound mode again.
+    applySoundMode();
 
     std::optional<ByteBuffer> screenshot;
     if (request.captureScreenshot && _saveSeams.captureScreenshot) {

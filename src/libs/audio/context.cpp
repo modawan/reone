@@ -57,6 +57,10 @@ void Context::setListenerPosition(glm::vec3 position) {
     _listenerPosition = std::move(position);
 }
 
+void Context::setListenerGain(float gain) {
+    alListenerf(AL_GAIN, gain);
+}
+
 } // namespace audio
 
 } // namespace reone

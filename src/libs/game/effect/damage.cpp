@@ -930,9 +930,11 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
     object.clearAllActions(true);
     if (placeable) {
         placeable->enterDestroyedState();
+        placeable->playDestroyedSound();
     }
     if (door) {
         door->enterDestroyedState();
+        door->playDestroyedSound();
         // A door linked to another door or to a waypoint destroys the door of
         // that tag in its area too.
         if (door->isLinked()) {

@@ -23,6 +23,9 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
+#include "reone/audio/source.h"
 #include "reone/game/d20/spell.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
@@ -39,6 +42,7 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 
 using namespace reone::resource;
 
@@ -244,10 +248,23 @@ bool AreaOfEffect::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
     return shape::crossesOutline(glm::vec2(from), glm::vec2(to), _corners);
 }
 
+AreaOfEffect::~AreaOfEffect() {
+    if (_durationSound) {
+        _durationSound->stop();
+    }
+}
+
 void AreaOfEffect::update(float dt) {
+    if (!_soundsStarted) {
+        startSounds();
+    }
     updateStampedHeartbeat(_onHeartbeat);
     if (isCarried() && _shape == Shape::Circle) {
         followCarrier();
+    }
+    // The duration loop goes where the effect goes.
+    if (_durationSound) {
+        _durationSound->setPosition(soundPosition());
     }
     if (_durationType == DurationType::Temporary) {
         if (_remainingDuration <= dt) {
@@ -352,6 +369,31 @@ void AreaOfEffect::receiveEnteredSignal(const std::shared_ptr<Object> &entering)
 void AreaOfEffect::receiveExitedSignal(const std::shared_ptr<Object> &exiting) {
     _lastLeft = referenceTo(exiting);
     _game.scriptRunner().run(_onExit, _id);
+}
+
+glm::vec3 AreaOfEffect::soundPosition() const {
+    return _position + glm::vec3(0.0f, 0.0f, kEffectSoundHeight);
+}
+
+// The sounds are the vfx_persistent row's: a blank cell plays none.
+void AreaOfEffect::startSounds() {
+    _soundsStarted = true;
+    auto table = getRequiredTwoDA(_services.resource.twoDas, "vfx_persistent");
+    auto clip = [&](const char *column) {
+        const auto name = boost::to_lower_copy(table->getString(_areaEffectId, column));
+        return name.empty() ? nullptr : _services.resource.audioClips.get(name);
+    };
+    _services.audio.mixer.play(clip("soundimpact"), audio::AudioType::Sound, kAreaOfEffectSoundGroup, 1.0f, false, soundPosition());
+    _durationSound = _services.audio.mixer.play(clip("soundduration"), audio::AudioType::Sound, kAreaOfEffectSoundGroup, 1.0f, true, soundPosition());
+    _cessationSound = clip("soundcessation");
+}
+
+void AreaOfEffect::stopSounds() {
+    _services.audio.mixer.play(_cessationSound, audio::AudioType::Sound, kAreaOfEffectSoundGroup, 1.0f, false, soundPosition());
+    if (_durationSound) {
+        _durationSound->stop();
+        _durationSound.reset();
+    }
 }
 
 void AreaOfEffect::destroy() {

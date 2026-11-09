@@ -246,7 +246,12 @@ int Engine::run() {
         if (quit) {
             break;
         }
-        if (!_window->isInFocus() && !_options.graphics.headless) {
+        // Sounds wait while the window has lost focus.
+        const bool unfocused = !_options.graphics.headless && !_window->isInFocus();
+        if (!_options.graphics.headless) {
+            _services->audio.mixer.setFocusLost(unfocused);
+        }
+        if (unfocused) {
             std::this_thread::sleep_for(std::chrono::milliseconds {100});
             continue;
         }

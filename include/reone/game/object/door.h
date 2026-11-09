@@ -222,6 +222,8 @@ public:
 
     /** The door takes its destroyed pose. */
     void enterDestroyedState();
+    /** The sound of the door's destruction, as its death swing plays it. */
+    void playDestroyedSound();
     /**
      * Shows animation \p id on the door until its open state next changes: a
      * looping row as a loop, after the swing from the loop shown (a closed
@@ -331,6 +333,10 @@ private:
     /** Seconds until a door whose lock a mine blew swings open, while it is due. */
     std::optional<float> _mineOpenDelay;
     std::string _soundArmorType;
+    /** The sounds of the door's opening, closing and death swings. */
+    std::string _openedSound;
+    std::string _closedSound;
+    std::string _destroyedSound;
 
     // Walkmeshes
 
@@ -413,6 +419,8 @@ private:
     void playQueuedSwing();
     /** The waiting swing, if any, or else the one playing. */
     DoorTransition latestTransition() const { return _queuedTransition.value_or(_transition); }
+    /** The sound a swing of animations.2da row \p swingRow plays, 1.5 m above the door. */
+    void playSwingSound(int swingRow);
     /**
      * The door stands where its latest swing leads, though a swing may still
      * play, and moves the creatures it no longer leaves room for.

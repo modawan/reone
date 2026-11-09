@@ -1453,9 +1453,14 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     if (auto creature = dyn_cast<Creature>(object); creature && creature->isEncounterCreature() && !creature->hasLeftEncounter()) {
         creature->leaveEncounter();
     }
-    // An area of effect that goes runs OnExit at once for those still inside.
+    // An area of effect that goes runs OnExit at once for those still inside,
+    // and ends its sounds.
     if (auto areaOfEffect = dyn_cast<AreaOfEffect>(object)) {
         areaOfEffect->releaseOccupants();
+        areaOfEffect->stopSounds();
+    }
+    if (auto creature = dyn_cast<Creature>(object)) {
+        creature->stopRollingFootstep();
     }
     // Only a body standing in the area stays behind it.
     const bool resident = isObjectResident(*object);
@@ -1562,6 +1567,8 @@ void Area::releaseEffectModel(std::shared_ptr<ModelSceneNode> model) {
     }
 }
 
+// The visual's model plays its impact at the point and its impact sound
+// above it.
 void Area::presentVisualAt(int visualEffectId, const glm::vec3 &position) {
     const auto found = _services.game.visualEffects.get(visualEffectId);
     if (!found) {
@@ -1577,7 +1584,8 @@ void Area::presentVisualAt(int visualEffectId, const glm::vec3 &position) {
         _presentedVisuals.push_back(std::move(model));
     }
     if (desc.soundImpact) {
-        _services.audio.mixer.play(desc.soundImpact, audio::AudioType::Sound, 1.0f, false, position);
+        const glm::vec3 soundPosition {position + glm::vec3 {0.0f, 0.0f, kEffectSoundHeight}};
+        _services.audio.mixer.play(desc.soundImpact, audio::AudioType::Sound, kSpellEffectSoundGroup, 1.0f, false, soundPosition);
     }
 }
 
@@ -1651,7 +1659,7 @@ void Area::presentMineRemoval(Trigger &mine) {
     // A trap type with a blank explosion sound goes off silently.
     if (explosion && !mine.trapExplosionSound().empty()) {
         _services.audio.mixer.play(_services.resource.audioClips.get(mine.trapExplosionSound()),
-                                   audio::AudioType::Sound, 1.0f, false, mine.trapModelPosition());
+                                   audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, mine.trapModelPosition());
     }
     auto model = mine.releaseTrapModel();
     model->setPickable(false);
@@ -4103,8 +4111,8 @@ void Area::updatePerceptionPair(
     }
 }
 
-// How far each talk volume carries. Talk and silent shout carry the farthest.
-static constexpr float kTalkRange = 1000.0f;
+// How far each other talk volume carries. Talk and silent shout carry
+// kTalkRange, the farthest.
 static constexpr float kWhisperRange = 3.0f;
 static constexpr float kShoutRange = 250.0f;
 static constexpr float kSilentTalkRange = 35.0f;

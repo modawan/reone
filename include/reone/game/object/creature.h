@@ -630,6 +630,8 @@ public:
      * again when the player perceives it again.
      */
     void setPresent(bool present) override;
+    /** Ends the creature's rolling footstep loop. */
+    void stopRollingFootstep();
     /** The leader is in the creature's area within 30 m, where it hears the creature's voice. */
     bool isHeardByLeader() const;
 
@@ -2950,6 +2952,8 @@ private:
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
+    /** The loop a rolling footstep type plays while the creature walks or runs. */
+    std::shared_ptr<audio::AudioSource> _rollingFootstep;
     bool _lightsaberIdlePowerDownPending {false};
     Timer _lightsaberIdlePowerDownTimer;
     PoweredHands _poweredHands;
@@ -3038,6 +3042,9 @@ private:
     /** Forgets an incoming attacker that is gone or dead, and the round's attackers. */
     void releaseRoundAttackers();
     void updateLightsaberSoundPositions();
+    void updateRollingFootstep();
+    /** The footstep group of the controlled creature, or of a creature of the creature's size. */
+    int footstepSoundGroup() const;
 
     void runDeathScript();
     void runDamagedScript();

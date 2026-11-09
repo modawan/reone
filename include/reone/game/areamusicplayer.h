@@ -57,13 +57,8 @@ public:
         _services(services) {
     }
 
-    /**
-     * Reads the music, ambient sound and priority group tables once, at start-up.
-     *
-     * @param tsl whether the title is TSL, which reads the PC volumes of the
-     *            priority groups and plays the music group louder
-     */
-    void init(bool tsl);
+    /** Reads the music and ambient sound tables once, at start-up. */
+    void init();
 
     /**
      * What hands over the playing load-screen music when the background
@@ -79,7 +74,13 @@ public:
      * start; whether each is on starts from what the area asks for.
      */
     void load(std::shared_ptr<const Area> area);
-    /** Begin playing what the loaded area asks for. */
+    /**
+     * Begin playing, or play again, what the player last had on: the battle
+     * music, else the background music, and the ambient loop; what is off
+     * fades out. Music and an ambient loop that a stop turned off stay off.
+     * In TSL background music that has to start the loading screen's track
+     * carries that music on.
+     */
     void start();
     /** Fade out the music, end the ambient loop and forget the pending restart and battle state. */
     void stopSounds();
@@ -148,11 +149,6 @@ public:
     /** The conversation's track fades out. */
     void fadeDialogAmbientTrack();
 
-    /** The gain of streamed music, menu music included: its priority group's volume as a share of the loudest. */
-    float musicGroupGain() const { return _musicGroupGain; }
-    /** The gain of the area-wide ambient priority group, which the credits music plays in too. */
-    float ambientGroupGain() const { return _ambientGroupGain; }
-
 private:
     /** An ambientmusic.2da row: the track and the stingers that may end it. */
     struct Track {
@@ -171,12 +167,6 @@ private:
     std::vector<Track> _tracks;
     /** The ambientsound.2da sounds, by row; empty for none. */
     std::vector<std::string> _ambientTracks;
-    /** The volume of the streamed music priority group, as a share of the loudest. */
-    float _musicGroupGain {0.0f};
-    /** The volume of the stinger priority group, as a share of the loudest. */
-    float _stingerGroupGain {0.0f};
-    /** The volume of the area-wide ambient priority group, as a share of the loudest. */
-    float _ambientGroupGain {0.0f};
 
     // END Tables
 

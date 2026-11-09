@@ -211,6 +211,7 @@ void CombatTables::init(ITwoDAs &twoDas, GameID gameId) {
             }
         }
         _weaponSounds.push_back(std::move(sounds));
+        _weaponSoundPitchOffsets.push_back(weaponSounds->getFloat(row, "pitchoffset", 0.0f));
     }
 
     auto bodyBags = getRequiredTwoDA(twoDas, "bodybag");
@@ -363,6 +364,10 @@ const std::string &CombatTables::weaponSound(int row, const std::string &column)
     }
     auto sound = _weaponSounds[row].find(boost::to_lower_copy(column));
     return sound != _weaponSounds[row].end() ? sound->second : kNoSound;
+}
+
+float CombatTables::weaponSoundPitchOffset(int row) const {
+    return row >= 0 && row < static_cast<int>(_weaponSoundPitchOffsets.size()) ? _weaponSoundPitchOffsets[row] : 0.0f;
 }
 
 BodyBagRow CombatTables::bodyBag(int row) const {

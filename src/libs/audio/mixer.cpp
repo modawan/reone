@@ -15,22 +15,134 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/audio/clip.h"
 #include "reone/audio/mixer.h"
+
+#include <algorithm>
+#include <cmath>
+
+#include "reone/audio/clip.h"
+#include "reone/audio/context.h"
+#include "reone/system/randomutil.h"
 
 namespace reone {
 
 namespace audio {
 
+// A fade between silence and full gain takes half a second.
+static constexpr std::chrono::milliseconds kMuteFadeTime {500};
+
 void AudioMixer::render() {
+    renderFade();
+    const glm::vec3 listener {_context.listenerPosition()};
     for (auto it = _sources.begin(); it != _sources.end();) {
         auto &source = it->source;
         source->render();
-        if (!source->isPlaying()) {
+        if (!source->isPlaying() || !updateRange(*it, listener)) {
+            release(*it);
             it = _sources.erase(it);
         } else {
             ++it;
         }
+    }
+    applyChanges(_arbiter.update());
+}
+
+bool AudioMixer::heldBySlot(const ActiveSource &active) const {
+    if (!active.slotId) {
+        return false;
+    }
+    const auto slot = _arbiter.slot(*active.slotId);
+    return slot && *slot != SourceSlot::Playing;
+}
+
+void AudioMixer::release(ActiveSource &active) {
+    if (active.slotId) {
+        _arbiter.remove(*active.slotId);
+        active.slotId.reset();
+    }
+}
+
+void AudioMixer::syncArbiter() {
+    for (auto &active : _sources) {
+        if (!active.slotId) {
+            continue;
+        }
+        if (!active.source->isPlaying()) {
+            release(active);
+            continue;
+        }
+        _arbiter.setOwned(*active.slotId, active.source->isOwned());
+    }
+}
+
+void AudioMixer::applyChanges(const std::vector<SlotChange> &changes) {
+    for (const auto &change : changes) {
+        auto it = std::find_if(_sources.begin(), _sources.end(), [&change](const ActiveSource &active) {
+            return active.slotId == change.id;
+        });
+        if (it == _sources.end()) {
+            continue;
+        }
+        switch (change.kind) {
+        case SlotChange::Kind::Stop:
+            it->slotId.reset();
+            it->source->stop();
+            break;
+        case SlotChange::Kind::Wait:
+            it->source->pause();
+            break;
+        case SlotChange::Kind::Start:
+            resumeIfFree(*it);
+            break;
+        }
+    }
+}
+
+// Only a source that is playing is tested: one a mode, the window's focus or
+// a movie holds paused is left as it is. Beyond its distance a one-shot ends,
+// and a looping source waits paused until the listener comes back within it.
+bool AudioMixer::updateRange(ActiveSource &active, const glm::vec3 &listener) {
+    if (active.modePaused || active.focusPaused || active.movieHeld) {
+        return true;
+    }
+    if (active.source->isWithinRange(listener)) {
+        if (active.outOfRange) {
+            active.outOfRange = false;
+            // Back within range, a loop in a group needs room and a voice
+            // again; the arbiter starts it when it has them.
+            if (active.slotId) {
+                _arbiter.enterRange(*active.slotId);
+            } else {
+                resumeIfFree(active);
+            }
+        }
+        return true;
+    }
+    if (!active.source->isLooping()) {
+        active.source->stop();
+        return false;
+    }
+    if (!active.outOfRange) {
+        active.source->pause();
+        active.outOfRange = true;
+        if (active.slotId) {
+            _arbiter.leaveRange(*active.slotId);
+        }
+    }
+    return true;
+}
+
+void AudioMixer::renderFade() {
+    if (!_fadeStart) {
+        return;
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - *_fadeStart;
+    const float fraction = std::clamp(
+        std::chrono::duration<float>(elapsed).count() / std::chrono::duration<float>(kMuteFadeTime).count(),
+        0.0f, 1.0f);
+    _context.setListenerGain(_muted ? 1.0f - fraction : fraction);
+    if (fraction >= 1.0f) {
+        _fadeStart.reset();
     }
 }
 
@@ -42,6 +154,7 @@ void AudioMixer::stop(AudioType type) {
         }
 
         it->source->stop();
+        release(*it);
         it = _sources.erase(it);
     }
 }
@@ -49,8 +162,15 @@ void AudioMixer::stop(AudioType type) {
 void AudioMixer::stopAll() {
     for (auto &source : _sources) {
         source.source->stop();
+        release(source);
     }
     _sources.clear();
+}
+
+void AudioMixer::resumeIfFree(ActiveSource &active) {
+    if (!active.modePaused && !active.focusPaused && !active.movieHeld && !active.outOfRange && !heldBySlot(active)) {
+        active.source->resume();
+    }
 }
 
 void AudioMixer::setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSource> &playingThrough) {
@@ -59,42 +179,235 @@ void AudioMixer::setSoundsHeldForMovie(bool held, const std::shared_ptr<AudioSou
     }
     _soundsHeldForMovie = held;
     for (auto &active : _sources) {
-        if (active.type == AudioType::Movie || active.source == playingThrough) {
-            continue;
-        }
         if (held) {
+            if (active.type == AudioType::Movie || active.source == playingThrough) {
+                continue;
+            }
             active.source->pause();
-        } else {
-            active.source->resume();
+            active.movieHeld = true;
+        } else if (active.movieHeld) {
+            active.movieHeld = false;
+            resumeIfFree(active);
         }
     }
 }
 
+void AudioMixer::pauseSources(const std::set<int> &keptGroups) {
+    _modeKeptGroups = keptGroups;
+    for (auto &active : _sources) {
+        if (active.type == AudioType::Movie || active.modePaused) {
+            continue;
+        }
+        if (active.group && keptGroups.count(*active.group) > 0) {
+            continue;
+        }
+        active.source->pause();
+        active.modePaused = true;
+    }
+}
+
+void AudioMixer::resumeSources() {
+    _modeKeptGroups.reset();
+    for (auto &active : _sources) {
+        if (!active.modePaused) {
+            continue;
+        }
+        active.modePaused = false;
+        resumeIfFree(active);
+    }
+}
+
+void AudioMixer::setPriorityGroups(std::vector<PriorityGroup> groups) {
+    _arbiter.setPriorityGroups(std::move(groups));
+}
+
+void AudioMixer::setStreamedGroups(std::set<int> groups) {
+    _streamedGroups = std::move(groups);
+}
+
+// A group the table has no row for takes a blank row.
+PriorityGroup AudioMixer::priorityGroup(int group) const {
+    return _arbiter.priorityGroup(group);
+}
+
+// Losing focus pauses every source but an unstreamed one playing in a group
+// the sound mode in force keeps; streams and movie audio wait with the rest.
+void AudioMixer::setFocusLost(bool lost) {
+    if (_focusLost == lost) {
+        return;
+    }
+    _focusLost = lost;
+    for (auto &active : _sources) {
+        if (lost) {
+            const bool kept = _modeKeptGroups && active.group && _modeKeptGroups->count(*active.group) > 0 &&
+                              _streamedGroups.count(*active.group) == 0 && !active.modePaused;
+            if (kept) {
+                continue;
+            }
+            active.source->pause();
+            active.focusPaused = true;
+        } else if (active.focusPaused) {
+            active.focusPaused = false;
+            resumeIfFree(active);
+        }
+    }
+}
+
+void AudioMixer::setMuted(bool muted) {
+    if (_muted == muted) {
+        return;
+    }
+    _muted = muted;
+    _fadeStart = std::chrono::steady_clock::now();
+}
+
+void AudioMixer::waitForFade() {
+    while (_fadeStart) {
+        render();
+        std::this_thread::sleep_for(std::chrono::milliseconds {1});
+    }
+}
+
+void AudioMixer::waitForSourceFade(const std::shared_ptr<AudioSource> &source, uint32_t fadeMilliseconds, uint32_t heardMilliseconds) {
+    using namespace std::chrono;
+    const auto start = steady_clock::now();
+    const milliseconds heard {heardMilliseconds};
+    for (auto elapsed = milliseconds {0}; elapsed < heard; elapsed = duration_cast<milliseconds>(steady_clock::now() - start)) {
+        if (source) {
+            source->setGainScale(1.0f - static_cast<float>(elapsed.count()) / fadeMilliseconds);
+        }
+        render();
+        std::this_thread::sleep_for(milliseconds {1});
+    }
+    if (source) {
+        source->stop();
+    }
+}
+
+void AudioMixer::setVolume(AudioType type, int volume) {
+    switch (type) {
+    case AudioType::Music:
+        _options.musicVolume = volume;
+        _musicVolume.reset();
+        break;
+    case AudioType::Voice:
+        _options.voiceVolume = volume;
+        break;
+    case AudioType::Sound:
+        _options.soundVolume = volume;
+        break;
+    case AudioType::Movie:
+        _options.movieVolume = volume;
+        break;
+    }
+    applyVolume(type);
+}
+
+void AudioMixer::setMusicVolume(float volume) {
+    _musicVolume = volume;
+    applyVolume(AudioType::Music);
+}
+
+void AudioMixer::applyVolume(AudioType type) {
+    for (auto &active : _sources) {
+        if (active.type == type) {
+            active.source->setGain(gainByType(type, active.gain, active.positional, active.group));
+        }
+    }
+}
+
+// A source takes its group's volume, in its gain, and, unless it has its own,
+// its group's distances before it starts. Under a sound mode it starts paused
+// unless the mode keeps its group; movie audio plays on under a mode. A source
+// free to play that starts out of range is held or dropped as render would. A
+// source in a group then needs room and a voice from the arbiter. A source not
+// played is handed back without an OpenAL source.
 std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
                                               AudioType type,
+                                              std::optional<int> group,
                                               float gain,
                                               bool loop,
-                                              std::optional<glm::vec3> position) {
+                                              std::optional<glm::vec3> position,
+                                              std::optional<SoundDistances> distances,
+                                              std::optional<float> pitchVariance) {
     if (!clip || clip->getFrameCount() == 0) {
         return nullptr;
     }
 
+    const bool positional = position.has_value();
+    float variance = 0.0f;
+    if (group) {
+        const PriorityGroup row = priorityGroup(*group);
+        if (!distances) {
+            distances = SoundDistances {row.fullVolumeDistance, row.cutoffDistance};
+        }
+        variance = row.playbackVariance;
+    }
+    const bool held = (_soundsHeldForMovie && type != AudioType::Movie) ||
+                      (_modeKeptGroups && type != AudioType::Movie && !(group && _modeKeptGroups->count(*group) > 0)) ||
+                      _focusLost;
+    const bool inRange = held || !position || !distances ||
+                         AudioSource::isWithinRange(*position, distances->cutoffDistance, _context.listenerPosition());
     auto source = std::make_shared<AudioSource>(
         std::move(clip),
-        gainByType(type, gain),
+        gainByType(type, gain, positional, group),
         loop,
         std::move(position));
+
+    ActiveSource active {source, type, group};
+    active.gain = gain;
+    active.positional = positional;
+    active.movieHeld = _soundsHeldForMovie && type != AudioType::Movie;
+    active.modePaused = _modeKeptGroups && type != AudioType::Movie && !(group && _modeKeptGroups->count(*group) > 0);
+    active.focusPaused = _focusLost;
+    if (group) {
+        syncArbiter();
+        ArbitedSource arbited;
+        arbited.group = *group;
+        arbited.looping = loop;
+        arbited.streamed = _streamedGroups.count(*group) > 0;
+        arbited.positional = positional;
+        Admission admission = _arbiter.admit(arbited, inRange);
+        if (!admission.id) {
+            return source;
+        }
+        applyChanges(admission.changes);
+        active.slotId = admission.id;
+        active.outOfRange = admission.slot == SourceSlot::Away;
+    } else if (!inRange) {
+        if (!loop) {
+            return source;
+        }
+        active.outOfRange = true;
+    }
+
     source->init();
-    if (_soundsHeldForMovie && type != AudioType::Movie) {
+    if (distances) {
+        source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);
+    }
+    // The pitch strays at random: on one source in two up by up to the
+    // variance, on the other down by up to half of it.
+    if (pitchVariance) {
+        variance = std::clamp(*pitchVariance, 0.0f, 1.0f);
+    }
+    if (variance > 0.0f) {
+        const bool up = randomInt(0, 1) == 1;
+        const float stray = randomFloat(0.0f, variance);
+        source->setPitch(up ? 1.0f + stray : 1.0f - 0.5f * stray);
+    }
+    if (active.movieHeld || active.modePaused || active.focusPaused || active.outOfRange || heldBySlot(active)) {
         source->startPaused();
     } else {
         source->play();
     }
-    _sources.push_back(ActiveSource {source, type});
+    _sources.push_back(std::move(active));
     return source;
 }
 
-float AudioMixer::gainByType(AudioType type, float gain) const {
+// The volume of a positional sound rises steeply at first.
+static constexpr float kPositionalGainExponent = 0.6f;
+
+float AudioMixer::gainByType(AudioType type, float gain, bool positional, std::optional<int> group) const {
     if (_options.muted) {
         return 0.0f;
     }
@@ -116,7 +429,23 @@ float AudioMixer::gainByType(AudioType type, float gain) const {
         volume = 85.0f;
         break;
     }
-    return gain * (volume / 100.0f);
+    float slider = type == AudioType::Music && _musicVolume ? *_musicVolume : volume / static_cast<float>(AudioOptions::kMaxVolume);
+    // A sound in a priority group plays at the group's share of the loudest
+    // volume, taken with the slider.
+    if (group) {
+        slider *= priorityGroup(*group).volume / static_cast<float>(kMaxVolume);
+    }
+    const float bias = _options.bias2D3D;
+    if (positional) {
+        if (bias < 1.0f) {
+            slider *= bias;
+        }
+        return std::pow(slider * gain, kPositionalGainExponent);
+    }
+    if (bias > 1.0f) {
+        slider *= 2.0f - bias;
+    }
+    return slider * gain;
 }
 
 } // namespace audio

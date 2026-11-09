@@ -719,6 +719,7 @@ void Item::update(float dt) {
     refreshSpellReadiness();
 }
 
+// A shot is a combat sound; its impact where the bolt ends is a projectile's.
 void Item::playShotSound(int variant, glm::vec3 position) {
     if (!_ammunitionType) {
         return;
@@ -728,6 +729,7 @@ void Item::playShotSound(int variant, glm::vec3 position) {
         _audioSource = _services.audio.mixer.play(
             std::move(clip),
             AudioType::Sound,
+            kCombatSoundGroup,
             1.0f,
             false,
             std::move(position));
@@ -743,39 +745,51 @@ void Item::playImpactSound(int variant, glm::vec3 position) {
         _services.audio.mixer.play(
             std::move(clip),
             AudioType::Sound,
+            kProjectileSoundGroup,
             1.0f,
             false,
             std::move(position));
     }
 }
 
-void Item::powerUp(glm::vec3 position, bool transition) {
+// The power sounds and the hum are one-shot global sounds by group, though
+// they play where the item is.
+void Item::powerUp(glm::vec3 position, bool transition, bool audible) {
     if (!_poweredItem || _isPowered) {
         return;
     }
     _isPowered = true;
+    if (!audible) {
+        return;
+    }
     if (transition && _powerUpSound) {
-        _services.audio.mixer.play(_powerUpSound, AudioType::Sound, 1.0f, false, position);
+        _services.audio.mixer.play(_powerUpSound, AudioType::Sound, kSingleShotGlobalSoundGroup, 1.0f, false, position);
     }
-    if (_poweredAudioSource) {
-        _poweredAudioSource->stop();
-    }
-    if (_poweredSound) {
-        _poweredAudioSource = _services.audio.mixer.play(_poweredSound, AudioType::Sound, 1.0f, true, position);
-    }
+    stopPoweredSound();
+    startPoweredSound(position);
 }
 
-void Item::powerDown(glm::vec3 position, bool transition) {
+void Item::powerDown(glm::vec3 position, bool transition, bool audible) {
     if (!_poweredItem || !_isPowered) {
         return;
     }
     _isPowered = false;
+    stopPoweredSound();
+    if (audible && transition && _powerDownSound) {
+        _services.audio.mixer.play(_powerDownSound, AudioType::Sound, kSingleShotGlobalSoundGroup, 1.0f, false, position);
+    }
+}
+
+void Item::startPoweredSound(glm::vec3 position) {
+    if (_isPowered && _poweredSound && !_poweredAudioSource) {
+        _poweredAudioSource = _services.audio.mixer.play(_poweredSound, AudioType::Sound, kSingleShotGlobalSoundGroup, 1.0f, true, position);
+    }
+}
+
+void Item::stopPoweredSound() {
     if (_poweredAudioSource) {
         _poweredAudioSource->stop();
         _poweredAudioSource.reset();
-    }
-    if (transition && _powerDownSound) {
-        _services.audio.mixer.play(_powerDownSound, AudioType::Sound, 1.0f, false, position);
     }
 }
 

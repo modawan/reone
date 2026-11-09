@@ -1391,7 +1391,8 @@ void Turret::playSound(const std::string &resRef) {
     if (!clip) {
         return;
     }
-    _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    // The minigame's sounds stay in the default group, 23.
+    _services.audio.mixer.play(std::move(clip), AudioType::Sound, kDefaultSoundGroup);
 }
 
 bool Turret::handle(const input::Event &event) {

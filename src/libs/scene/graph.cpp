@@ -17,7 +17,9 @@
 
 #include "reone/scene/graph.h"
 
+#include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
+#include "reone/audio/source.h"
 #include "reone/graphics/camera/perspective.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
@@ -49,7 +51,6 @@ namespace reone {
 namespace scene {
 
 static constexpr int kMaxFlareLights = 4;
-static constexpr int kMaxSoundCount = 4;
 
 static constexpr float kShadowFadeSpeed = 2.0f;
 
@@ -282,45 +283,14 @@ void SceneGraph::updateFlareLights() {
     });
 }
 
+// A sound is audible while it is enabled and, when positional, within its
+// maximum distance of the listener, as when it plays. Which audible sounds
+// play is the mixer's to share out, by their groups and the voices.
 void SceneGraph::updateSounds() {
-    std::vector<std::pair<SoundSceneNode *, float>> distances;
-    glm::vec3 cameraPos(_activeCamera->localTransform()[3]);
-
-    // For each sound, calculate its distance to the camera
+    const glm::vec3 listener {_audioSvc.context.listenerPosition()};
     for (auto &root : _soundRoots) {
-        if (!root->isEnabled()) {
-            continue;
-        }
-        float dist2 = root->getSquareDistanceTo(cameraPos);
-        float maxDist2 = root->maxDistance() * root->maxDistance();
-        if (root->isPositional() && dist2 > maxDist2) {
-            continue;
-        }
-        distances.push_back(std::make_pair(root.get(), dist2));
-    }
-
-    // Take up to N most closest sounds to the camera
-    sort(distances.begin(), distances.end(), [](auto &left, auto &right) {
-        int leftPriority = left.first->priority();
-        int rightPriority = right.first->priority();
-        if (leftPriority < rightPriority) {
-            return true;
-        }
-        if (leftPriority > rightPriority) {
-            return false;
-        }
-        return left.second < right.second;
-    });
-    if (distances.size() > kMaxSoundCount) {
-        distances.erase(distances.begin() + kMaxSoundCount, distances.end());
-    }
-
-    // A sound is audible exactly when it is among the closest, so one that
-    // stays audible keeps playing.
-    for (auto &root : _soundRoots) {
-        bool audible = std::any_of(distances.begin(), distances.end(), [&root](auto &pair) {
-            return pair.first == root.get();
-        });
+        const bool audible = root->isEnabled() &&
+                             (!root->isPositional() || audio::AudioSource::isWithinRange(root->origin(), root->maxDistance(), listener));
         root->setAudible(audible);
     }
 }

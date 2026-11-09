@@ -38,12 +38,19 @@ void SoundSceneNode::playSound(const std::string &resRef, float gain, bool posit
     if (positional) {
         position = origin();
     }
+    // The node's own distances take the place of its group's.
     _source = _audioSvc.mixer.play(
         std::move(clip),
         AudioType::Sound,
+        _priorityGroup,
         gain,
         loop,
-        std::move(position));
+        std::move(position),
+        SoundDistances {_minDistance, _maxDistance});
+    // The node keeps its sounds, so a full group that interrupts stops one.
+    if (_source) {
+        _source->setOwned(true);
+    }
 }
 
 bool SoundSceneNode::isSoundPlaying() const {

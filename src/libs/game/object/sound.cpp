@@ -17,10 +17,11 @@
 
 #include "reone/game/object/sound.h"
 
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
-#include "reone/resource/2da.h"
+#include "reone/game/game.h"
 #include "reone/resource/di/services.h"
-#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/scene/di/services.h"
@@ -99,17 +100,23 @@ void Sound::deserializeAll(
         }
     }
 
-    if (gff.readByte(_priorityId, "Priority")) {
-        std::shared_ptr<TwoDA> priorityGroups(_services.resource.twoDas.get("prioritygroups"));
-        _priority = priorityGroups->getInt(_priorityId, "priority");
-    }
+    gff.readByte(_priorityId, "Priority");
 }
 
+// A looping sound object is an ambient, positional or area-wide; any other
+// is a one-shot, positional or heard everywhere.
 void Sound::loadAppearance() {
+    int group;
+    if (_looping) {
+        group = _positional ? kLoopingPositionalAmbientSoundGroup : kAreaWideAmbientSoundGroup;
+    } else {
+        group = _positional ? kSingleShotPositionalSoundGroup : kSingleShotGlobalSoundGroup;
+    }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = sceneGraph.newSound();
     sceneNode->setEnabled(_active);
-    sceneNode->setPriority(_priority);
+    sceneNode->setPriorityGroup(group);
+    sceneNode->setMinDistance(_minDistance);
     sceneNode->setMaxDistance(_maxDistance);
     sceneNode->setPositional(_positional);
     _sceneNode = std::move(sceneNode);
@@ -155,9 +162,9 @@ void Sound::update(float dt) {
             _timeout += clip->duration();
         }
     }
+    // A volume above the loudest plays at the loudest.
     if (audible) {
-        float gain = _volume / 127.0f;
-        sceneNode.playSound(sounds[_soundIdx], gain, _positional, continuous);
+        sceneNode.playSound(sounds[_soundIdx], std::min(int {_volume}, kMaxVolume) / static_cast<float>(kMaxVolume), _positional, continuous);
     }
 }
 

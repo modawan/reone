@@ -647,6 +647,11 @@ public:
      * loading-screen table gives the module named \p moduleName.
      */
     void setLoadMusicForModule(const std::string &moduleName);
+    /**
+     * A script's music volume, from 0 to 1, in place of the music volume the
+     * options keep, until that is next set.
+     */
+    void setMusicVolume(float volume);
     /** Stops the loading-screen music; the track stays set for the next loading screen. */
     void stopLoadMusic();
     /**
@@ -1743,6 +1748,18 @@ private:
         std::string icon;
     };
 
+    /**
+     * How the world's sounds play: as usual, under a menu over the module or
+     * a loading screen with music, under the player's pause, or all paused
+     * while a save is written or a loading screen without music is up.
+     */
+    enum class SoundMode {
+        Playing,
+        Menu,
+        PlayerPause,
+        AllPaused
+    };
+
     resource::GameID _gameId;
     std::filesystem::path _path;
     OptionsView &_options;
@@ -1838,6 +1855,8 @@ private:
     CameraType _cameraType {CameraType::ThirdPerson};
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
+    /** The sound mode the world's sounds were last paused or resumed for. */
+    SoundMode _soundMode {SoundMode::Playing};
     int _motionBlurPrograms {0};
     bool _autoPaused {false};
     PauseReason _pauseReason {PauseReason::Other};
@@ -2300,9 +2319,21 @@ private:
     bool loadParty();
     void loadNextModule();
     void playMusic(const std::string &resRef);
+    /**
+     * Pauses the world's sounds for the sound mode the game is in now, and
+     * resumes them when it leaves it.
+     */
+    void applySoundMode();
+    /** Resumes the sounds a sound mode paused. */
+    void liftSoundMode();
     /** Starts, or resumes, the loading-screen music, as a loading screen does when it is shown. */
     void startLoadMusic();
-    /** Hands the playing loading-screen music over to the background music when it asks for the same track. */
+    /**
+     * Gives up the loading-screen music to the background music when both
+     * are the track \p resRef.
+     *
+     * @return the loading-screen music, no longer looping, or none
+     */
     std::shared_ptr<audio::AudioSource> takeLoadMusic(const std::string &resRef);
     void toggleInGameCameraType();
     void enterFreeLook();

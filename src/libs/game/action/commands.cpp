@@ -17,10 +17,12 @@
 
 #include <cmath>
 
+#include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/playsound.h"
 #include "reone/game/action/surrendertoenemies.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/animationutil.h"
@@ -31,9 +33,12 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/party.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/savedsituation.h"
+#include "reone/resource/di/services.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/resref.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
 #include "reone/script/program.h"
@@ -269,7 +274,7 @@ void PlayAnimationAction::playDueWorkSound() {
     _workSoundDue.reset();
     const auto sound = workSound(_animation, _game.isTSL());
     if (auto clip = _services.resource.audioClips.get(sound->resRef)) {
-        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup);
     }
 }
 
@@ -312,6 +317,37 @@ std::optional<SavedActionRecord> AppearAction::saveFacingState() const {
 
 std::shared_ptr<Action> AppearAction::restore(const SavedActionRecord &record, Game &game) {
     return game.newAction<AppearAction>();
+}
+
+// The sound plays once, at the actor; from a waypoint, store or encounter it
+// plays without a place. It is heard only while the leader stands in the
+// actor's area within talk range, and the action ends at once either way.
+void PlaySoundAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    const auto leader = _game.party().getLeader();
+    const bool heard = leader && actor.spatialArea() && leader->sharesSpatialArea(actor) &&
+                       leader->getSquareDistanceTo(actor) <= Area::kTalkRange * Area::kTalkRange;
+    if (heard) {
+        if (auto clip = _services.resource.audioClips.get(resource::ResRef {_sound}.value())) {
+            const auto type = actor.type();
+            const bool placeless = type == ObjectType::Waypoint || type == ObjectType::Store || type == ObjectType::Encounter;
+            _services.audio.mixer.play(
+                std::move(clip),
+                audio::AudioType::Sound,
+                kScriptedPlaySoundGroup,
+                1.0f,
+                false,
+                placeless ? std::nullopt : std::make_optional(actor.position()));
+        }
+    }
+    complete();
+}
+
+std::optional<SavedActionRecord> PlaySoundAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::PlaySound, {{kSavedStringParameter, _sound}});
+}
+
+std::shared_ptr<Action> PlaySoundAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<PlaySoundAction>(record.stringParameter(0));
 }
 
 void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

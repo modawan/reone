@@ -64,6 +64,9 @@ using ObjectList = std::vector<std::shared_ptr<Object>>;
 
 class Area : public Object {
 public:
+    /** How far talk carries: the farthest any talk volume reaches. */
+    static constexpr float kTalkRange = 1000.0f;
+
     struct Grass {
         std::shared_ptr<graphics::Texture> texture;
         float density {0.0f};

@@ -168,6 +168,11 @@ private:
 
     void attachPresentation(ActiveProjectile &active, Game &game, ServicesView &services, bool restoring);
     void startLeg(ActiveProjectile &active, Game &game, ServicesView &services, bool restoring = false);
+    /**
+     * Starts the projectile's flight sound, if it has one, looping above it
+     * from when it sets out until it first arrives.
+     */
+    void startFlightSound(ActiveProjectile &active, ServicesView &services);
 };
 
 } // namespace game

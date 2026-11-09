@@ -60,7 +60,6 @@ public:
 
     glm::vec3 getPosition() const;
 
-    int priority() const { return _priority; }
     float maxDistance() const { return _maxDistance; }
     float minDistance() const { return _minDistance; }
     bool continuous() const { return _continuous; }
@@ -103,7 +102,6 @@ private:
     float _elevation {0.0f};
     // END Serializable
 
-    int _priority {0};
     int _soundIdx {-1};
     float _timeout {0.0f};
     std::vector<std::string> _sounds;

@@ -27,6 +27,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/object/area.h"
 #include "reone/game/twodautil.h"
+#include "reone/game/types.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
@@ -50,18 +51,8 @@ static constexpr uint32_t kMusicRetryMilliseconds = 10000;
 static constexpr uint32_t kTrackChangeRestartMilliseconds = 1;
 static constexpr uint32_t kAmbientFadeMilliseconds = 6000;
 static constexpr uint32_t kDialogAmbientFadeMilliseconds = 500;
-static constexpr int kStingerPriorityGroup = 1;
-static constexpr int kMusicPriorityGroup = 2;
-static constexpr int kAreaWideAmbientPriorityGroup = 4;
-static constexpr int kMaxVolume = 127;
-// TSL plays the streamed music group louder than its table volume.
-static constexpr float kTslMusicGroupBoost = 1.4f;
 
-// Music, battle music and menu music play at the volume of the streamed music
-// priority group, stingers at the stinger group's and the area-wide ambient
-// loop at the area-wide ambient group's. A group without a volume plays at the
-// loudest.
-void AreaMusicPlayer::init(bool tsl) {
+void AreaMusicPlayer::init() {
     auto &twoDas = _services.resource.twoDas;
 
     auto music = getRequiredTwoDA(twoDas, "ambientmusic");
@@ -80,16 +71,6 @@ void AreaMusicPlayer::init(bool tsl) {
     for (int row = 0; row < sounds->getRowCount(); ++row) {
         _ambientTracks.push_back(boost::to_lower_copy(sounds->getString(row, "resource")));
     }
-
-    auto groups = getRequiredTwoDA(twoDas, "prioritygroups");
-    const std::string volumeColumn {tsl ? "volume_pc" : "volume"};
-    auto groupGain = [&](int group, float boost) {
-        auto volume = groups->getIntOpt(group, volumeColumn);
-        return (volume ? static_cast<int>(*volume * boost) : kMaxVolume) / static_cast<float>(kMaxVolume);
-    };
-    _musicGroupGain = groupGain(kMusicPriorityGroup, tsl ? kTslMusicGroupBoost : 1.0f);
-    _stingerGroupGain = groupGain(kStingerPriorityGroup, 1.0f);
-    _ambientGroupGain = groupGain(kAreaWideAmbientPriorityGroup, 1.0f);
 }
 
 // A row outside a table reads as blank, as every 2DA row outside its table does.
@@ -162,7 +143,7 @@ void AreaMusicPlayer::playDialogAmbientTrack(const std::string &resRef) {
     }
     _dialogAmbientFadeEnd.reset();
     if (!resRef.empty()) {
-        _dialogAmbient = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Sound, _ambientGroupGain);
+        _dialogAmbient = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Sound, kAreaWideAmbientSoundGroup);
     }
 }
 
@@ -186,7 +167,7 @@ bool AreaMusicPlayer::playTrack(const std::string &resRef, bool takeLoadMusic) {
             return true;
         }
     }
-    _music = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, _musicGroupGain);
+    _music = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, kMusicSoundGroup);
     _fadeEnd.reset();
     _playingResRef = resRef;
     return static_cast<bool>(_music);
@@ -204,7 +185,7 @@ void AreaMusicPlayer::playStinger(const Track &track) {
     }
     int count = track.stingers[1].empty() ? 1 : (track.stingers[2].empty() ? 2 : 3);
     const std::string &resRef = track.stingers[randomInt(0, count - 1)];
-    _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, _stingerGroupGain);
+    _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, kStingerSoundGroup);
 }
 
 // The delay is taken from the area as it is entered; a delay of zero repeats
@@ -221,6 +202,8 @@ void AreaMusicPlayer::load(std::shared_ptr<const Area> area) {
     _ambientFailed = false;
 }
 
+// What plays is what the player last had: the area's settings as it was
+// entered, as changed since.
 void AreaMusicPlayer::start() {
     _started = true;
     if (_battleOn) {
@@ -353,7 +336,7 @@ void AreaMusicPlayer::switchAmbientSound(bool play) {
     if (!isAmbientPlaying()) {
         _ambient = _services.audio.mixer.play(
             _services.resource.audioClips.get(ambientTrack(_area->ambientAudio().ambientSoundDay)),
-            AudioType::Sound, _ambientGroupGain, true);
+            AudioType::Sound, kAreaWideAmbientSoundGroup, 1.0f, true);
         _ambientFadeEnd.reset();
         _ambientFailed = !_ambient;
         if (_ambient) {

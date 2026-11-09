@@ -246,6 +246,11 @@ public:
      * table or there is no such column.
      */
     virtual const std::string &weaponSound(int row, const std::string &column) const = 0;
+    /**
+     * How far a weapon's sounds stray in pitch (weaponsounds.2da
+     * PitchOffset); zero for a blank cell or a row outside the table.
+     */
+    virtual float weaponSoundPitchOffset(int row) const = 0;
 
     /** A body bag; blank outside bodybag.2da. */
     virtual BodyBagRow bodyBag(int row) const = 0;
@@ -306,6 +311,7 @@ public:
     uint32_t experienceThreshold(int levelRow) const override;
     float killExperience(int row, int column) const override;
     const std::string &weaponSound(int row, const std::string &column) const override;
+    float weaponSoundPitchOffset(int row) const override;
     BodyBagRow bodyBag(int row) const override;
     float fractionalChallengeMinimum(int row) const override;
     std::optional<int> encounterDifficulty(int row) const override;
@@ -362,6 +368,8 @@ private:
     std::vector<std::vector<float>> _killExperience;
     /** By row, then by column; blank cells are left out. */
     std::vector<std::unordered_map<std::string, std::string>> _weaponSounds;
+    /** weaponsounds.2da's pitch offset by row. */
+    std::vector<float> _weaponSoundPitchOffsets;
     /** bodybag.2da, by row. */
     std::vector<BodyBagRow> _bodyBags;
     /** fractionalcr.2da's minimum, by row. */

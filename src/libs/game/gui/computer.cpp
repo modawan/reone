@@ -152,7 +152,8 @@ void ComputerGUI::setPresentation(Presentation presentation) {
 
 void ComputerGUI::playHum() {
     stopHum();
-    _hum = _services.audio.mixer.play(_humClip, AudioType::Sound, kHumGain, true);
+    // The hum stays in the default group, 23, which no sound mode keeps.
+    _hum = _services.audio.mixer.play(_humClip, AudioType::Sound, kDefaultSoundGroup, kHumGain, true);
 }
 
 void ComputerGUI::stopHum() {

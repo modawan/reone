@@ -141,6 +141,9 @@ uint32_t Action::serializedActionId() const {
     case ActionType::CloseDoor:
         type = SavedActionType::CloseDoor;
         break;
+    case ActionType::PlaySound:
+        type = SavedActionType::PlaySound;
+        break;
     case ActionType::StartConversation:
         type = SavedActionType::StartConversation;
         break;

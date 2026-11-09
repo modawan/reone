@@ -50,7 +50,6 @@ public:
     /** Stops and releases the sound, if one is playing. */
     void stopSound();
 
-    int priority() const { return _priority; }
     float maxDistance() const { return _maxDistance; }
     /** A positional sound is heard only within its maximum distance; any other is heard everywhere. */
     bool isPositional() const { return _positional; }
@@ -58,7 +57,10 @@ public:
     /** The scene has told whether the sound is audible at least once. */
     bool isAudibilityKnown() const { return _audible.has_value(); }
 
-    void setPriority(int priority) { _priority = priority; }
+    /** The priority group the node's sounds play in. */
+    void setPriorityGroup(int group) { _priorityGroup = group; }
+    /** Within this distance of the listener the node's positional sounds play at full volume. */
+    void setMinDistance(float distance) { _minDistance = distance; }
     void setMaxDistance(float distance) { _maxDistance = distance; }
     /**
      * @param positional whether the sound is heard only within its maximum
@@ -68,7 +70,10 @@ public:
     void setAudible(bool audible);
 
 private:
-    int _priority {0};
+    /** The priority group its owner gives the node before any of its sounds plays. */
+    int _priorityGroup {0};
+    /** Within this distance of the listener a positional sound plays at full volume. */
+    float _minDistance {0.0f};
     float _maxDistance {0.0f};
     bool _positional {true};
     std::optional<bool> _audible;
