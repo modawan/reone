@@ -63,6 +63,8 @@ private:
     bool _leftPressedInMouseLook {false};
     bool _walk {false};
     bool _moving {false};
+    // Time left until the next drive update clears the leader's orders.
+    float _driveUpdateDelay {0.0f};
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
