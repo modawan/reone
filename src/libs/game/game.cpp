@@ -1316,37 +1316,29 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
         return true;
     }
 
-    switch (event.code) {
-    case input::KeyCode::F4:
+    auto keybinds = options().game.activeKeybinds();
+
+    if (keybinds.quickSave.check(event.code)) {
         if (_screen == Screen::InGame) {
             requestQuickSave();
             return true;
         }
-        break;
-
-    case input::KeyCode::Minus:
+    }
+    else if (event.code == input::KeyCode::Minus) {
         if (_options.game.developer && _gameSpeed > 1.0f) {
             _gameSpeed = glm::max(1.0f, _gameSpeed - 1.0f);
             return true;
         }
-        break;
-
-    case input::KeyCode::Equals:
+    } else if (event.code == input::KeyCode::Equals) {
         if (_options.game.developer && _gameSpeed < 8.0f) {
             _gameSpeed = glm::min(8.0f, _gameSpeed + 1.0f);
             return true;
         }
-        break;
-
-    case input::KeyCode::V:
+    } else if (event.code == input::KeyCode::V) {
         if (_options.game.developer && _screen == Screen::InGame) {
             toggleInGameCameraType();
             return true;
         }
-        break;
-
-    default:
-        break;
     }
 
     return false;
