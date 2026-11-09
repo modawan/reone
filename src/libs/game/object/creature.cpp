@@ -4561,9 +4561,11 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
                      : randomInt(0, 1) == 1 ? DeathPose::Dead1
                                             : DeathPose::Dead;
     }
-    // The dead stop listening and lose every AI capability.
+    // The dead stop listening, lose every AI capability and put out the
+    // lightsabers in their hands.
     _listening = false;
     _effectAIStateMask = kAIStateNone;
+    setLightsabersPowered(false, true);
     _currentHitPoints = std::min(-11, static_cast<int>(_currentHitPoints));
     if (!partyDeath) {
         if (!_livingName) {
@@ -9238,9 +9240,13 @@ void Creature::onEventSignalled(const std::string &name) {
         playSwingSound("parry", 2);
         return;
     }
+    // A draw lights the lightsabers it brings out. Outside combat they go out
+    // again eight seconds later, unless a conversation is running: a weapon
+    // brought out during one stays lit until combat comes and goes, a script
+    // puts it out, or its holder dies.
     if (name == "draw_weapon") {
         setLightsabersPowered(true, true);
-        if (!_combatState.active) {
+        if (!_combatState.active && !_game.isConversationActive()) {
             _lightsaberIdlePowerDownPending = true;
             _lightsaberIdlePowerDownTimer.reset(8.0f);
         }
