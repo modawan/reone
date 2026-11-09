@@ -9375,11 +9375,21 @@ std::shared_ptr<Creature> Game::getConsoleLeader() {
 }
 
 // An unknown code is rejected, since an item without a template arrives blank.
+// So is a size the base item does not stack to, since an item stores its size
+// unchecked.
 void Game::addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize) {
     if (!_services.resource.gffs.get(resRef, ResType::Uti)) {
         throw std::runtime_error("Unknown item: " + resRef);
     }
-    _party.sharedInventoryReceiver(receiver)->addItem(resRef, stackSize);
+    auto item = newItemFromBlueprint(resRef);
+    const int maxStackSize = item->maxStackSize();
+    if (stackSize < 1 || stackSize > maxStackSize) {
+        destroyRuntimeObjectGraph(item);
+        throw std::runtime_error(str(boost::format("Stack size must be from 1 to %d") % maxStackSize));
+    }
+    item->setStackSize(stackSize);
+    item->setDropable(true);
+    _party.sharedInventoryReceiver(receiver)->addItem(item);
 }
 
 std::shared_ptr<Area> Game::getConsoleArea() {
