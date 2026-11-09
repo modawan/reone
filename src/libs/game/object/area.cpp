@@ -1280,6 +1280,17 @@ bool Area::testRoomSurface(const glm::vec2 &point, Collision &outCollision) cons
     return nearest.has_value();
 }
 
+// A room the area lacks plays nothing.
+void Area::playRoomAnimation(const std::string &roomName, int animation) {
+    auto room = _rooms.find(boost::to_lower_copy(roomName));
+    if (room == _rooms.end()) {
+        return;
+    }
+    std::string name("scriptloop" + std::string(animation < 10 ? "0" : "") + std::to_string(animation));
+    int flags = _game.isTSL() ? AnimationFlags::loop : AnimationFlags::loopOverlay;
+    room->second->model()->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
+}
+
 int Area::getRoomForceRating(const glm::vec3 &position) const {
     if (!_game.isTSL() || _roomForceRatings.empty()) {
         return 0;

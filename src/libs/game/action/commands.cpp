@@ -21,6 +21,7 @@
 #include "reone/game/action/appear.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/playsound.h"
 #include "reone/game/action/surrendertoenemies.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/animationutil.h"
@@ -312,6 +313,22 @@ std::optional<SavedActionRecord> AppearAction::saveFacingState() const {
 
 std::shared_ptr<Action> AppearAction::restore(const SavedActionRecord &record, Game &game) {
     return game.newAction<AppearAction>();
+}
+
+// Away from any area nobody hears the sound.
+void PlaySoundAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    if (actor.spatialArea()) {
+        _services.audio.mixer.play(_services.resource.audioClips.get(_sound), audio::AudioType::Sound, 1.0f, false, actor.position());
+    }
+    complete();
+}
+
+std::optional<SavedActionRecord> PlaySoundAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::PlaySound, {{kSavedStringParameter, _sound}});
+}
+
+std::shared_ptr<Action> PlaySoundAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<PlaySoundAction>(record.stringParameter(0));
 }
 
 void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

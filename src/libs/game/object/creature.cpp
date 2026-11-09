@@ -1980,6 +1980,7 @@ static bool runsWhileDown(SavedActionType type) {
     switch (type) {
     case SavedActionType::SpeakString:
     case SavedActionType::OrientCamera:
+    case SavedActionType::PlaySound:
     case SavedActionType::StartConversation:
     case SavedActionType::DisarmMine:
     case SavedActionType::RecoverMine:

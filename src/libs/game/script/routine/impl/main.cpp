@@ -30,6 +30,7 @@
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/playsound.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/classes.h"
@@ -713,10 +714,13 @@ static Variable PlaySound(const std::vector<Variable> &args, const RoutineContex
     // Load
     auto sSoundName = getString(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlaySound");
+    // The caller plays the sound as its next action, when it takes commands.
+    auto caller = getCaller(ctx);
+    if (caller->isCommandable()) {
+        caller->addAction(ctx.game.newAction<PlaySoundAction>(sSoundName));
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetSpellTargetObject(const std::vector<Variable> &, const RoutineContext &ctx) {
@@ -7037,10 +7041,9 @@ static Variable PlayRoomAnimation(const std::vector<Variable> &args, const Routi
     auto sRoom = getString(args, 0);
     auto nAnimation = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlayRoomAnimation");
+    ctx.game.module()->area()->playRoomAnimation(sRoom, nAnimation);
+    return Variable::ofNull();
 }
 
 static Variable ShowGalaxyMap(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7109,9 +7112,11 @@ static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const 
     auto fSeconds = getFloat(args, 1);
 
     // Transform
+    auto sound = checkSound(oSound);
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectFadeAndStop");
+    sound->fadeAndStop(fSeconds);
+    return Variable::ofNull();
 }
 
 static Variable SetAreaFogColor(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7696,19 +7701,19 @@ static Variable QueueMovie(const std::vector<Variable> &args, const RoutineConte
     auto nSkippable = getIntOrElse(args, 1, 1);
 
     // Transform
+    auto movie = boost::to_lower_copy(sMovie);
 
     // Execute
-    throw RoutineNotImplementedException("QueueMovie");
+    ctx.game.queueMovie(movie, nSkippable != 0);
+    return Variable::ofNull();
 }
 
 static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto nAllowSkips = getIntOrElse(args, 0, 1);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlayMovieQueue");
+    // Each queued movie keeps the skip setting it was queued with, whatever
+    // nAllowSkips says.
+    ctx.game.playMovieQueue();
+    return Variable::ofNull();
 }
 
 static Variable YavinHackDoorClose(const std::vector<Variable> &args, const RoutineContext &ctx) {
