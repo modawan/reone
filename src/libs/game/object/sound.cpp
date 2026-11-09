@@ -17,6 +17,8 @@
 
 #include "reone/game/object/sound.h"
 
+#include <algorithm>
+
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
@@ -27,6 +29,7 @@
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/sound.h"
+#include "reone/system/randomutil.h"
 
 using namespace reone::audio;
 using namespace reone::resource;
@@ -58,6 +61,9 @@ void Sound::deserialize(
     deserializeAll(gff, identityContext);
     loadAppearance();
     updateTransform();
+    // A list with an interval waits one before its first sound, so that the
+    // area's sounds don't all start together.
+    _timeout = nextInterval();
 }
 
 void Sound::deserializeAll(
@@ -93,7 +99,12 @@ void Sound::deserializeAll(
     gff.readFloat(_position[1], "YPosition");
     gff.readFloat(_position[2], "ZPosition");
 
-    for (auto &soundGff : gff.getList("Sounds")) {
+    // An instance's own list takes the place of its template's.
+    const auto soundList = gff.getList("Sounds");
+    if (!soundList.empty()) {
+        _sounds.clear();
+    }
+    for (auto &soundGff : soundList) {
         std::string sound;
         if (soundGff->readResRef(sound, "Sound")) {
             _sounds.push_back(sound);
@@ -122,49 +133,144 @@ void Sound::loadAppearance() {
     _sceneNode = std::move(sceneNode);
 }
 
+// Times 1 plays by day and at dawn, 2 at night and at dusk, 3 always; 0
+// plays in the hours its Hours mask sets.
+bool Sound::playsAtThisTime() const {
+    switch (_times) {
+    case 0:
+        return (_hours >> _game.worldTimeHour() & 1) != 0;
+    case 1:
+        return !_game.isNightTime();
+    case 2:
+        return _game.isNightTime();
+    default:
+        return true;
+    }
+}
+
+// No interval means none, whatever its variation.
+float Sound::nextInterval() const {
+    if (_interval == 0) {
+        return 0.0f;
+    }
+    int interval = static_cast<int>(_interval);
+    if (_intervalVrtn != 0) {
+        interval += randomInt(-static_cast<int>(_intervalVrtn), static_cast<int>(_intervalVrtn) - 1);
+    }
+    return std::max(0, interval) / 1000.0f;
+}
+
+// A volume above the loudest plays at the loudest.
+float Sound::nextGain() const {
+    int volume = _volume;
+    if (_volumeVrtn != 0) {
+        volume += randomInt(-static_cast<int>(_volumeVrtn), static_cast<int>(_volumeVrtn) - 1);
+    }
+    return std::clamp(volume, 0, kMaxVolume) / static_cast<float>(kMaxVolume);
+}
+
+// A fixed variance from 0.5 to 2 is the pitch, and the pitch variation is
+// then not used; otherwise the variation strays the pitch at random, up by up
+// to the variation or down by up to half of it.
+float Sound::nextPitch() const {
+    if (_fixedVariance >= 0.5f && _fixedVariance <= 2.0f) {
+        return _fixedVariance;
+    }
+    const float variance = std::clamp(_pitchVariation, 0.0f, 1.0f);
+    if (variance <= 0.0f) {
+        return 1.0f;
+    }
+    const float stray = randomFloat(0.0f, variance);
+    return randomInt(0, 1) == 1 ? 1.0f + stray : 1.0f - 0.5f * stray;
+}
+
 void Sound::update(float dt) {
     Object::update(dt);
     if (!_active) {
         return;
     }
     auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
-    // Only an audible sound is heard, and one that stops being audible is
-    // stopped by the scene. A continuous clip loops while it is audible and
-    // waits while it is not. Any other clip keeps its own schedule, heard or
-    // not: the next one is due its length and the interval after it starts.
-    // Nothing starts before the scene has first told whether the sound is
-    // audible.
-    const bool audible = sceneNode.auidible();
-    const bool continuous = _sounds.size() == 1 && _continuous;
-    if (!sceneNode.isAudibilityKnown() || (continuous && (!audible || sceneNode.isSoundPlaying()))) {
+    // Out of its time the sound stops and waits.
+    if (!playsAtThisTime()) {
+        sceneNode.stopSound();
         return;
     }
+    if (_sounds.empty()) {
+        setActive(false);
+        return;
+    }
+    // A looping sound object plays its first sound as one loop, and so does a
+    // single continuous sound with no interval and no random position. The
+    // loop plays while it is audible and waits while it is not. Nothing
+    // starts before the scene has first told whether the sound is audible.
+    const bool loops = _looping || (_sounds.size() == 1 && _continuous && !_randomPosition && _interval == 0);
+    const bool audible = sceneNode.auidible();
+    if (!sceneNode.isAudibilityKnown()) {
+        return;
+    }
+    // A loop that fails to play ends the sound object.
+    if (loops) {
+        if (audible && !sceneNode.isSoundPlaying()) {
+            if (!_services.resource.audioClips.get(_sounds.front())) {
+                setActive(false);
+                return;
+            }
+            sceneNode.playSound(_sounds.front(), std::min(int {_volume}, kMaxVolume) / static_cast<float>(kMaxVolume),
+                                _positional, true);
+        }
+        return;
+    }
+    // Any other plays its list in order, heard or not: the next sound is due
+    // the length of the last and an interval after it starts. A continuous
+    // list starts again, reshuffled when random; any other ends, and with it
+    // the sound object.
     if (_timeout > 0.0f) {
         _timeout = glm::max(0.0f, _timeout - dt);
         return;
     }
-    const std::vector<std::string> &sounds = _sounds;
-    int soundCount = static_cast<int>(sounds.size());
-    if (sounds.empty()) {
+    const int count = static_cast<int>(_sounds.size());
+    if (_restartList) {
+        _restartList = false;
+        _soundIdx = 0;
+    } else if (_soundIdx < count - 1) {
+        ++_soundIdx;
+    } else if (_continuous) {
+        if (_random) {
+            std::vector<std::string> shuffled;
+            while (!_sounds.empty()) {
+                const int index = randomInt(0, static_cast<int>(_sounds.size()) - 1);
+                shuffled.push_back(std::move(_sounds[index]));
+                _sounds.erase(_sounds.begin() + index);
+            }
+            _sounds = std::move(shuffled);
+        }
+        _soundIdx = 0;
+    } else {
         setActive(false);
         return;
-    } else if (++_soundIdx >= soundCount) {
-        if (_looping) {
-            _soundIdx = 0;
-        } else {
+    }
+    // A sound that fails to play leaves the list, unless it is the last one,
+    // which ends the sound object.
+    auto clip = _services.resource.audioClips.get(_sounds[_soundIdx]);
+    if (!clip) {
+        if (count < 2) {
             setActive(false);
             return;
         }
-    }
-    _timeout = _interval / 1000.0f;
-    if (!continuous) {
-        if (auto clip = _services.resource.audioClips.get(sounds[_soundIdx])) {
-            _timeout += clip->duration();
+        _sounds.erase(_sounds.begin() + _soundIdx);
+        if (_soundIdx > 0) {
+            --_soundIdx;
+        } else {
+            _restartList = true;
         }
+        return;
     }
-    // A volume above the loudest plays at the loudest.
+    _timeout = clip->duration();
+    if (_continuous || _soundIdx < count - 1) {
+        _timeout += nextInterval();
+    }
     if (audible) {
-        sceneNode.playSound(sounds[_soundIdx], std::min(int {_volume}, kMaxVolume) / static_cast<float>(kMaxVolume), _positional, continuous);
+        sceneNode.playSound(_sounds[_soundIdx], nextGain(), _positional, false, nextPitch());
     }
 }
 
@@ -175,7 +281,7 @@ void Sound::updateTransform() {
     }
     glm::mat4 transform(_transform);
     transform *= glm::translate(glm::vec3(0.0f, 0.0f, _elevation));
-    _sceneNode->setLocalTransform(_transform);
+    _sceneNode->setLocalTransform(transform);
 }
 
 void Sound::setActive(bool active) {
@@ -185,8 +291,10 @@ void Sound::setActive(bool active) {
     if (_sceneNode) {
         _sceneNode->setEnabled(active);
     }
+    // An activated sound object starts its list again.
     if (active) {
         _timeout = 0.0f;
+        _restartList = true;
     }
     _active = active;
 }

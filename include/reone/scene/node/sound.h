@@ -44,7 +44,11 @@ public:
 
     void update(float dt) override;
 
-    void playSound(const std::string &resRef, float gain, bool positional, bool loop);
+    /**
+     * @param pitch the sound's pitch, in place of its group's playback
+     *        variance; none takes the group's
+     */
+    void playSound(const std::string &resRef, float gain, bool positional, bool loop, std::optional<float> pitch = std::nullopt);
 
     bool isSoundPlaying() const;
     /** Stops and releases the sound, if one is playing. */

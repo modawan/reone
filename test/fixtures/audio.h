@@ -74,6 +74,7 @@ public:
     MOCK_METHOD(void, waitForSourceFade, (const std::shared_ptr<AudioSource> &, uint32_t, uint32_t), (override));
     MOCK_METHOD(void, setVolume, (AudioType, int), (override));
     MOCK_METHOD(void, setMusicVolume, (float), (override));
+    MOCK_METHOD(void, setDucked, (bool, const std::set<int> &), (override));
     MOCK_METHOD(std::shared_ptr<AudioSource>, play, (std::shared_ptr<AudioClip>, AudioType, std::optional<int>, float, bool, std::optional<glm::vec3>, std::optional<SoundDistances>, std::optional<float>), (override));
 };
 

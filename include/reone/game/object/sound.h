@@ -103,7 +103,19 @@ private:
     // END Serializable
 
     int _soundIdx {-1};
+    /** The next sound is the list's first. */
+    bool _restartList {true};
+    /** Seconds until the next sound: what is left of the playing one, then the interval. */
     float _timeout {0.0f};
+
+    /** Whether the part of the day, or the hour, lets the sound play. */
+    bool playsAtThisTime() const;
+    /** The interval before the next sound, varied at random by up to the interval variation either way. */
+    float nextInterval() const;
+    /** The volume for the next sound, varied at random by up to the volume variation either way. */
+    float nextGain() const;
+    /** The pitch for the next one-shot: the fixed variance, strayed by the pitch variation. */
+    float nextPitch() const;
     std::vector<std::string> _sounds;
 
     void deserializeAll(

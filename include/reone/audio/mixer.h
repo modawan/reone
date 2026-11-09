@@ -99,6 +99,11 @@ public:
      * once. The options are not changed.
      */
     virtual void setMusicVolume(float volume) = 0;
+    /**
+     * Ducks music and the sounds of \p groups to a fifth of their volume, or
+     * lifts the ducking. Sources already playing take it at once.
+     */
+    virtual void setDucked(bool ducked, const std::set<int> &groups) = 0;
 
     /**
      * Starts a source in its priority group: the group's volume scales its
@@ -155,6 +160,7 @@ public:
     void waitForSourceFade(const std::shared_ptr<AudioSource> &source, uint32_t fadeMilliseconds, uint32_t heardMilliseconds) override;
     void setVolume(AudioType type, int volume) override;
     void setMusicVolume(float volume) override;
+    void setDucked(bool ducked, const std::set<int> &groups) override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -204,6 +210,9 @@ private:
     bool _muted {false};
     /** The music's volume a script set, while it stands in for the options'. */
     std::optional<float> _musicVolume;
+    /** Music and the sounds of _duckedGroups play ducked. */
+    bool _ducked {false};
+    std::set<int> _duckedGroups;
     /** When the fade setMuted began started; none once it has ended. */
     std::optional<std::chrono::steady_clock::time_point> _fadeStart;
 

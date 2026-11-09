@@ -32,7 +32,7 @@ void SoundSceneNode::update(float dt) {
     SceneNode::update(dt);
 }
 
-void SoundSceneNode::playSound(const std::string &resRef, float gain, bool positional, bool loop) {
+void SoundSceneNode::playSound(const std::string &resRef, float gain, bool positional, bool loop, std::optional<float> pitch) {
     auto clip = _resourceSvc.audioClips.get(resRef);
     std::optional<glm::vec3> position;
     if (positional) {
@@ -46,10 +46,14 @@ void SoundSceneNode::playSound(const std::string &resRef, float gain, bool posit
         gain,
         loop,
         std::move(position),
-        SoundDistances {_minDistance, _maxDistance});
+        SoundDistances {_minDistance, _maxDistance},
+        pitch ? std::optional<float>(0.0f) : std::nullopt);
     // The node keeps its sounds, so a full group that interrupts stops one.
     if (_source) {
         _source->setOwned(true);
+    }
+    if (_source && pitch) {
+        _source->setPitch(*pitch);
     }
 }
 

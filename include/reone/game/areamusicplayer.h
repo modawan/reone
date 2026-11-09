@@ -58,7 +58,14 @@ public:
     }
 
     /** Reads the music and ambient sound tables once, at start-up. */
-    void init();
+    void init(bool tsl);
+
+    /**
+     * Night falls (dusk and night) or day breaks (dawn and day). Music and an
+     * ambient loop playing for the other part of the day start again with
+     * this part's track; the ambient loop takes this part's volume.
+     */
+    void setNight(bool night);
 
     /**
      * What hands over the playing load-screen music when the background
@@ -92,8 +99,15 @@ public:
     void stopSoundsForMovie();
     /** Stop for the area being left; nothing plays until the next area is loaded and started. */
     void unload();
-    /** Advance the fades, repeat ended tracks and restart an ended ambient loop. */
-    void update();
+    /**
+     * Advance the fades, repeat ended tracks and restart an ended ambient loop.
+     *
+     * @param clockRuns whether the gap before a track repeats counts down; it
+     *        does not while every sound waits
+     */
+    void update(bool clockRuns = true);
+    /** The window has lost focus: the gap before a track repeats does not count down. */
+    void holdClock();
 
     /** The area turned its background music on or off. */
     void playMusic(const Area &area, bool play);
@@ -133,10 +147,17 @@ public:
     void playAmbientSound(const Area &area, bool play);
     /** The area set its ambient day track: the loop fades out and the new one follows. */
     void ambientDayTrackChanged(const Area &area);
-    /** The area set its ambient night track. There is no night; the ambient loop is turned on again. */
+    /** The area set its ambient night track: at night the loop fades out and the new one follows. */
     void ambientNightTrackChanged(const Area &area);
     /** The area set its ambient day volume. */
     void ambientDayVolumeChanged(const Area &area);
+    /** The area set its ambient night volume. */
+    void ambientNightVolumeChanged(const Area &area);
+    /**
+     * The end credits roll: the music fades out and the ambient loop fades
+     * out over its usual fade, then nothing restarts.
+     */
+    void fadeOutSounds();
 
     /**
      * A conversation shows its first entry: the track a conversation started
@@ -159,6 +180,9 @@ private:
     };
 
     ServicesView &_services;
+    bool _tsl {false};
+    /** Dusk or night: the night tracks and the night ambient volume are in use. */
+    bool _night {false};
     std::function<std::shared_ptr<audio::AudioSource>(const std::string &)> _loadMusicHandover;
 
     // Tables
@@ -201,6 +225,8 @@ private:
     uint32_t _countdown {0};
     /** The clock time of the last update, in milliseconds. */
     uint32_t _lastUpdateTime {0};
+    /** The stinger playing, if any; a new one cuts it. */
+    std::shared_ptr<audio::AudioSource> _stinger;
     /** The music track playing or fading, if any. */
     std::shared_ptr<audio::AudioSource> _music;
     /** The sound of the music track last started. */
@@ -221,8 +247,14 @@ private:
     const Track &battleTrack() const;
     /** The sound of the ambientsound.2da row \p row; empty for a row outside the table. */
     const std::string &ambientTrack(int row) const;
-    /** The area's ambient volume as a share of the loudest. */
+    /** The area's ambient volume for the part of the day, as a share of the loudest. */
     float ambientVolumeScale() const;
+    /** The background music's row for the part of the day. */
+    int musicTrackRow() const;
+    /** The ambient loop's row for the part of the day. */
+    int ambientTrackRow() const;
+    /** The background music's sound for the part of the day; empty for none. */
+    std::string backgroundTrack() const;
 
     /** Whether music sounds, a fading track until its fade ends. */
     bool isMusicPlaying();

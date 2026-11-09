@@ -475,6 +475,24 @@ void Game::liftSoundMode() {
     _soundMode = SoundMode::Playing;
 }
 
+bool Game::isNightTime() const {
+    if (!_module) {
+        return false;
+    }
+    const auto &info = _module->info();
+    const int hour = static_cast<int>(worldTimeHour());
+    if (info.dawnHour == info.duskHour || hour == info.dawnHour) {
+        return false;
+    }
+    if (hour == info.duskHour) {
+        return true;
+    }
+    if (info.dawnHour < info.duskHour) {
+        return hour < info.dawnHour || hour > info.duskHour;
+    }
+    return hour >= info.duskHour && hour <= info.dawnHour;
+}
+
 void Game::setMusicVolume(float volume) {
     _services.audio.mixer.setMusicVolume(volume);
 }
@@ -864,7 +882,7 @@ void Game::initTables() {
                                              kLargeCreatureVocalizationSoundGroup,
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
-    _areaMusic.init();
+    _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
             return takeLoadMusic(resRef);
@@ -1233,6 +1251,9 @@ void Game::update(float frameTime) {
     // transition, if any, has been made.
     _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie), nullptr);
     applySoundMode();
+    // TSL ducks music and the ambients while a conversation is on.
+    static const std::set<int> kDuckedSoundGroups {kAreaWideAmbientSoundGroup, kLoopingPositionalAmbientSoundGroup};
+    _services.audio.mixer.setDucked(isTSL() && isConversationActive(), kDuckedSoundGroups);
     syncPartyCombatMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
@@ -3467,7 +3488,7 @@ void Game::startCreditSequence(bool transparentBackground, const std::string &mu
     }
     _credits = std::make_unique<CreditsGUI>(*this, _services, transparentBackground, music);
     _credits->init();
-    _areaMusic.stopSounds();
+    _areaMusic.fadeOutSounds();
 }
 
 void Game::hurryDeathSequence() {
@@ -4837,6 +4858,7 @@ void Game::settleFadeArrival() {
         // The area's music and ambient loop start on arrival, after the enter
         // script and any movie it plays. Menu music keeps them suspended.
         if (_musicResRef.empty()) {
+            _areaMusic.setNight(isNightTime());
             _areaMusic.start();
         }
         stopLoadMusic();
@@ -5132,7 +5154,8 @@ void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 col
 }
 
 void Game::updateMusic() {
-    _areaMusic.update();
+    _areaMusic.setNight(isNightTime());
+    _areaMusic.update(_soundMode != SoundMode::AllPaused);
     if (_musicResRef.empty()) {
         return;
     }

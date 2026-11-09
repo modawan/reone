@@ -308,6 +308,16 @@ void AudioMixer::setMusicVolume(float volume) {
     applyVolume(AudioType::Music);
 }
 
+void AudioMixer::setDucked(bool ducked, const std::set<int> &groups) {
+    if (_ducked == ducked && _duckedGroups == groups) {
+        return;
+    }
+    _ducked = ducked;
+    _duckedGroups = groups;
+    applyVolume(AudioType::Music);
+    applyVolume(AudioType::Sound);
+}
+
 void AudioMixer::applyVolume(AudioType type) {
     for (auto &active : _sources) {
         if (active.type == type) {
@@ -318,10 +328,11 @@ void AudioMixer::applyVolume(AudioType type) {
 
 // A source takes its group's volume, in its gain, and, unless it has its own,
 // its group's distances before it starts. Under a sound mode it starts paused
-// unless the mode keeps its group; movie audio plays on under a mode. A source
-// free to play that starts out of range is held or dropped as render would. A
-// source in a group then needs room and a voice from the arbiter. A source not
-// played is handed back without an OpenAL source.
+// unless the mode keeps its group; movie audio plays on under a mode. Range is
+// tested first: a source that starts out of range is dropped when it is a
+// one-shot, held when it loops, whatever else holds it. A source in a group
+// then needs room and a voice from the arbiter. A source not played is handed
+// back without an OpenAL source.
 std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
                                               AudioType type,
                                               std::optional<int> group,
@@ -343,10 +354,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
         }
         variance = row.playbackVariance;
     }
-    const bool held = (_soundsHeldForMovie && type != AudioType::Movie) ||
-                      (_modeKeptGroups && type != AudioType::Movie && !(group && _modeKeptGroups->count(*group) > 0)) ||
-                      _focusLost;
-    const bool inRange = held || !position || !distances ||
+    const bool inRange = !position || !distances ||
                          AudioSource::isWithinRange(*position, distances->cutoffDistance, _context.listenerPosition());
     auto source = std::make_shared<AudioSource>(
         std::move(clip),
@@ -434,6 +442,11 @@ float AudioMixer::gainByType(AudioType type, float gain, bool positional, std::o
     // volume, taken with the slider.
     if (group) {
         slider *= priorityGroup(*group).volume / static_cast<float>(kMaxVolume);
+    }
+    // Ducked sounds play at a fifth of their volume.
+    static constexpr float kDuckingFactor = 0.2f;
+    if (_ducked && (type == AudioType::Music || (group && _duckedGroups.count(*group) != 0))) {
+        slider *= kDuckingFactor;
     }
     const float bias = _options.bias2D3D;
     if (positional) {

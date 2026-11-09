@@ -3375,6 +3375,7 @@ void Area::setAmbientSoundNightVolume(int volume) {
         return;
     }
     _ambientAudio.ambientSoundNightVolume = volume;
+    _game.areaMusic().ambientNightVolumeChanged(*this);
 }
 
 std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location, bool appear) {

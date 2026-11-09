@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -52,7 +53,11 @@ static constexpr uint32_t kTrackChangeRestartMilliseconds = 1;
 static constexpr uint32_t kAmbientFadeMilliseconds = 6000;
 static constexpr uint32_t kDialogAmbientFadeMilliseconds = 500;
 
-void AreaMusicPlayer::init() {
+// KotOR never starts this night track.
+static constexpr char kKotorSkippedNightTrack[] = "mus_area_townint";
+
+void AreaMusicPlayer::init(bool tsl) {
+    _tsl = tsl;
     auto &twoDas = _services.resource.twoDas;
 
     auto music = getRequiredTwoDA(twoDas, "ambientmusic");
@@ -89,8 +94,21 @@ const std::string &AreaMusicPlayer::ambientTrack(int row) const {
 }
 
 float AreaMusicPlayer::ambientVolumeScale() const {
-    const int volume = _area->ambientAudio().ambientSoundDayVolume;
+    const auto &audio = _area->ambientAudio();
+    const int volume = _night ? audio.ambientSoundNightVolume : audio.ambientSoundDayVolume;
     return std::min(volume, kMaxVolume) / static_cast<float>(kMaxVolume);
+}
+
+int AreaMusicPlayer::musicTrackRow() const {
+    return _night ? _area->ambientAudio().musicNight : _area->ambientAudio().musicDay;
+}
+
+int AreaMusicPlayer::ambientTrackRow() const {
+    return _night ? _area->ambientAudio().ambientSoundNight : _area->ambientAudio().ambientSoundDay;
+}
+
+std::string AreaMusicPlayer::backgroundTrack() const {
+    return track(musicTrackRow()).resRef;
 }
 
 // A fading track sounds until its fade ends.
@@ -179,13 +197,17 @@ void AreaMusicPlayer::fadeAndStop() {
     }
 }
 
+// One stinger plays at a time: a new one cuts the last.
 void AreaMusicPlayer::playStinger(const Track &track) {
     if (!_started || track.stingers[0].empty()) {
         return;
     }
     int count = track.stingers[1].empty() ? 1 : (track.stingers[2].empty() ? 2 : 3);
     const std::string &resRef = track.stingers[randomInt(0, count - 1)];
-    _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, kStingerSoundGroup);
+    if (_stinger) {
+        _stinger->stop();
+    }
+    _stinger = _services.audio.mixer.play(_services.resource.audioClips.get(resRef), AudioType::Music, kStingerSoundGroup);
 }
 
 // The delay is taken from the area as it is entered; a delay of zero repeats
@@ -264,17 +286,23 @@ void AreaMusicPlayer::unload() {
     _area.reset();
 }
 
-// There is no time of day, so the day track is the background music. Before
-// arrival the request is kept for the start.
+// The background music is the track for the part of the day: the night track
+// at dusk and at night, else the day track. KotOR never starts its town
+// interior night track. Before arrival the request is kept for the start.
 void AreaMusicPlayer::switchMusic(bool play) {
     if (!_started) {
         _musicOn = play;
         return;
     }
     if (play) {
+        const std::string resRef = backgroundTrack();
+        if (!_tsl && _night && boost::iequals(resRef, kKotorSkippedNightTrack)) {
+            _musicOn = true;
+            return;
+        }
         if (!isMusicPlaying()) {
             _countdown = 0;
-            if (!playTrack(track(_area->ambientAudio().musicDay).resRef, true)) {
+            if (!playTrack(resRef, true)) {
                 _countdown = kMusicRetryMilliseconds;
             }
         }
@@ -335,7 +363,7 @@ void AreaMusicPlayer::switchAmbientSound(bool play) {
     }
     if (!isAmbientPlaying()) {
         _ambient = _services.audio.mixer.play(
-            _services.resource.audioClips.get(ambientTrack(_area->ambientAudio().ambientSoundDay)),
+            _services.resource.audioClips.get(ambientTrack(ambientTrackRow())),
             AudioType::Sound, kAreaWideAmbientSoundGroup, 1.0f, true);
         _ambientFadeEnd.reset();
         _ambientFailed = !_ambient;
@@ -408,30 +436,92 @@ void AreaMusicPlayer::playAmbientSound(const Area &area, bool play) {
     }
 }
 
-// A new track waits for the old one to fade out; update() starts it.
+// A new track for the part of the day it is waits for the old one to fade
+// out; update() starts it. A track for the other part waits for it.
 void AreaMusicPlayer::ambientDayTrackChanged(const Area &area) {
-    if (plays(area)) {
+    if (plays(area) && !_night) {
         switchAmbientSound(false);
         _ambientOn = true;
     }
 }
 
 void AreaMusicPlayer::ambientNightTrackChanged(const Area &area) {
-    if (plays(area)) {
-        switchAmbientSound(true);
+    if (plays(area) && _night) {
+        switchAmbientSound(false);
+        _ambientOn = true;
     }
 }
 
 void AreaMusicPlayer::ambientDayVolumeChanged(const Area &area) {
-    if (plays(area) && isAmbientPlaying() && !_ambientFadeEnd) {
+    if (plays(area) && !_night && isAmbientPlaying() && !_ambientFadeEnd) {
         _ambient->setGainScale(ambientVolumeScale());
     }
+}
+
+void AreaMusicPlayer::ambientNightVolumeChanged(const Area &area) {
+    if (plays(area) && _night && isAmbientPlaying() && !_ambientFadeEnd) {
+        _ambient->setGainScale(ambientVolumeScale());
+    }
+}
+
+// The background music playing the other part's track starts again with this
+// part's; battle music plays on. The ambient loop of another track fades out
+// and this part's follows; the same loop takes this part's volume.
+void AreaMusicPlayer::setNight(bool night) {
+    if (_night == night) {
+        return;
+    }
+    if (!_area) {
+        _night = night;
+        return;
+    }
+    const std::string previousMusic = backgroundTrack();
+    const std::string previousAmbient = ambientTrack(ambientTrackRow());
+    _night = night;
+    if (!_started) {
+        return;
+    }
+    // A loop that failed is tried again with this part's track.
+    if (previousAmbient != ambientTrack(ambientTrackRow())) {
+        _ambientFailed = false;
+    }
+    if (!_battleOn && _musicOn && isMusicPlaying() && !_fadeEnd && _playingResRef == previousMusic &&
+        previousMusic != backgroundTrack()) {
+        switchMusic(false);
+        switchMusic(true);
+        _countdown = kTrackChangeRestartMilliseconds;
+    }
+    if (_ambientOn && isAmbientPlaying() && !_ambientFadeEnd) {
+        if (previousAmbient != ambientTrack(ambientTrackRow())) {
+            switchAmbientSound(false);
+            _ambientOn = true;
+        } else {
+            _ambient->setGainScale(ambientVolumeScale());
+        }
+    }
+}
+
+// Nothing restarts after the fades.
+void AreaMusicPlayer::fadeOutSounds() {
+    if (!_started) {
+        return;
+    }
+    switchMusic(false);
+    _battleOn = false;
+    _countdown = 0;
+    switchAmbientSound(false);
 }
 
 // A track that ends is repeated after a gap: one second for battle music,
 // the music delay for background music. Music is on only while an area is
 // loaded.
-void AreaMusicPlayer::update() {
+// The repeat gap counts only while the clock runs: not while every sound
+// waits, nor while the window has lost focus.
+void AreaMusicPlayer::holdClock() {
+    _lastUpdateTime = _services.system.clock.millis();
+}
+
+void AreaMusicPlayer::update(bool clockRuns) {
     isDialogAmbientPlaying();
     // An ambient loop that is on but has ended, after a fade or a track
     // change, starts again.
@@ -442,6 +532,10 @@ void AreaMusicPlayer::update() {
         return;
     }
     uint32_t now = _services.system.clock.millis();
+    if (!clockRuns) {
+        _lastUpdateTime = now;
+        return;
+    }
     if (_countdown > 0) {
         uint32_t elapsed = now - _lastUpdateTime;
         if (_countdown > elapsed) {

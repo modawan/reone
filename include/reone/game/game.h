@@ -652,6 +652,8 @@ public:
      * options keep, until that is next set.
      */
     void setMusicVolume(float volume);
+    /** The window has lost focus: the area music's repeat gap does not count down. */
+    void holdMusicClock() { _areaMusic.holdClock(); }
     /** Stops the loading-screen music; the track stays set for the next loading screen. */
     void stopLoadMusic();
     /**
@@ -1458,6 +1460,12 @@ public:
     uint32_t worldTimeHour() const {
         return worldTimeOfDay() / (millisecondsPerWorldDay() / 24u);
     }
+    /**
+     * Whether it is dusk or night in the module, from the hour of the world
+     * clock against the module's dawn and dusk hours. Equal hours are day all
+     * day; the dawn hour is dawn and the dusk hour dusk.
+     */
+    bool isNightTime() const;
     /**
      * SetTime: the world clock moves on to the time of day, into the next day
      * when that time is already past. Any negative field leaves it alone.

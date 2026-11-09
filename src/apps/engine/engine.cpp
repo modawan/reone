@@ -252,6 +252,7 @@ int Engine::run() {
             _services->audio.mixer.setFocusLost(unfocused);
         }
         if (unfocused) {
+            _game->holdMusicClock();
             std::this_thread::sleep_for(std::chrono::milliseconds {100});
             continue;
         }
