@@ -5908,10 +5908,14 @@ void Game::setRelativeMouseMode(bool relative) {
 }
 
 // In play the cursor is also held while the mouse turns the camera, unless a
-// popup takes the input. A popup over a minigame, which holds the cursor,
-// frees it until the popup closes.
+// popup takes the input. A turret holds it for aiming whenever it is on
+// screen, a conversation over it having freed it or not; a popup over it frees
+// it until the popup closes.
 bool Game::relativeMouseMode() const {
     const bool popup = _confirmPopup && _confirmPopup->isVisible();
+    if (_screen == Screen::Turret) {
+        return !popup;
+    }
     return (_relativeMouseMode && !popup) || isMouseLooking();
 }
 
@@ -7873,7 +7877,6 @@ void Game::openTurret() {
     }
 
     _cameraType = CameraType::FirstPerson;
-    setRelativeMouseMode(true);
     changeScreen(Screen::Turret);
 
     // Every started session is a lifecycle session. A session started in
