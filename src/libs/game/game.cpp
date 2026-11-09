@@ -876,7 +876,7 @@ void Game::initConsole() {
         registerConsoleCommand("turretstate", "print the current turret aim/health/enemy state", &Game::consoleTurretState);
         registerConsoleCommand("finishturret", "deal the turret's remaining enemies, or that many, a hit that takes all their hit points", &Game::consoleFinishTurret);
         registerConsoleCommand("turretaim", "aim the turret at a pitch and yaw in degrees", &Game::consoleTurretAim);
-        registerConsoleCommand("turretfire", "hold the turret's trigger down (1, the default) or let it go (0)", &Game::consoleTurretFire);
+        registerConsoleCommand("turretfire", "press the turret's trigger once", &Game::consoleTurretFire);
         registerConsoleCommand("showimgui", "open imgui demo", &Game::consoleShowImGui);
     }
 }
@@ -10782,12 +10782,12 @@ void Game::consoleTurretAim(const ConsoleArgs &args) {
 }
 
 void Game::consoleTurretFire(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 0, 1, "[0|1]");
+    consoleCheckUsage(args, 0, 0, "");
     if (!_turret.isActive()) {
         _console.printLine("turret: not active");
         return;
     }
-    _turret.setFiring(args.get<int>(1).value_or(1) != 0);
+    _turret.pullTrigger();
 }
 
 void Game::consoleStopTurret(const ConsoleArgs &args) {

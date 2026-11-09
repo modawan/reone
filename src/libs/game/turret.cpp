@@ -843,7 +843,6 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
     _areaName = areaName;
     _camera = camera;
     _elapsed = 0.0f;
-    _firing = false;
     _trackPlaying = false;
     _speed = kDefaultSpeed;
     _trackResRef = _spec.player.trackResRef;
@@ -923,7 +922,6 @@ void Turret::stop() {
     _camera = nullptr;
     _pitchRate.reset();
     _yawRate.reset();
-    _firing = false;
     detachAll();
 }
 
@@ -1162,9 +1160,6 @@ void Turret::update(float dt) {
         for (auto &bank : _player->gunBanks) {
             bank.timer.update(dt);
         }
-        if (_firing && !_player->dying) {
-            fire();
-        }
     }
     for (auto &enemy : _enemies) {
         if (!enemy->dying) {
@@ -1339,6 +1334,16 @@ void Turret::fire() {
     if (fired && _turretRoot) {
         _turretRoot->playAnimation("fire");
     }
+}
+
+// Each press of the trigger fires every gun bank once; a bank still waiting
+// out its time between shots stays silent. Holding the trigger down fires no
+// more, and nothing fires while the game is paused.
+void Turret::pullTrigger() {
+    if (_game.isPaused() || !_player || _player->dying) {
+        return;
+    }
+    fire();
 }
 
 // An enemy's gun turns toward the player's aim point, as far as the bank's
@@ -1735,7 +1740,6 @@ void Turret::onDeath(Follower &follower, bool apply) {
     stopEngineSound(follower);
     if (follower.player) {
         _trackPlaying = false;
-        _firing = false;
         if (follower.trackNode && !follower.trackAnimation.empty()) {
             follower.trackNode->setAnimationSpeed(follower.trackAnimation, 0.0f);
         }
@@ -2031,9 +2035,9 @@ bool Turret::handleKeyDown(const input::KeyEvent &event) {
         _yawRate.setDirection(-1);
         return true;
     case input::KeyCode::Space:
-        // Fire input is dropped while paused.
-        if (!_game.isPaused()) {
-            _firing = true;
+        // A held key does not fire again.
+        if (!event.repeat) {
+            pullTrigger();
         }
         return true;
     case input::KeyCode::Escape:
@@ -2075,7 +2079,6 @@ bool Turret::handleKeyUp(const input::KeyEvent &event) {
         }
         return true;
     case input::KeyCode::Space:
-        _firing = false;
         return true;
     default:
         return false;
@@ -2106,15 +2109,16 @@ bool Turret::handleMouseMotion(const input::MouseMotionEvent &event) {
     return true;
 }
 
+// The left mouse button fires, and in TSL the right one too.
 bool Turret::handleMouseButton(const input::MouseButtonEvent &event) {
-    if (event.button != input::MouseButton::Left) {
+    const bool fireButton = event.button == input::MouseButton::Left ||
+                            (_game.isTSL() && event.button == input::MouseButton::Right);
+    if (!fireButton) {
         return false;
     }
-    // Fire input is dropped while paused; a release still stops firing.
-    if (event.pressed && _game.isPaused()) {
-        return true;
+    if (event.pressed) {
+        pullTrigger();
     }
-    _firing = event.pressed;
     return true;
 }
 

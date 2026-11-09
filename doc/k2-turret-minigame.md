@@ -186,7 +186,7 @@ key is backquote.
 | `stopturret` | stop the turret and go back where `startturretgame` came from (Escape only pauses) |
 | `turretstate` | print the aim, hit points, enemies, obstacles, bullets and track |
 | `turretaim <pitch> <yaw>` | point the gun at an aim in degrees, kept inside the tunnel |
-| `turretfire [0\|1]` | hold the trigger down, or let it go |
+| `turretfire` | press the trigger once |
 | `finishturret [count]` | deal that many enemies still flying, all by default, a hit that takes every hit point they have |
 | `runscript <script> [Caller:<id>]` | run an authored script, as the object with that id |
 | `info` | print the selected object's id, or the party leader's when nothing is selected |
@@ -223,7 +223,8 @@ leave.
 ### By hand, in each encounter
 
 **421DXN - Ebon Hawk over Dxun.** From `003EBO`, `startturretgame 421dxn`. The
-Dxun backdrop animates. Both barrels fire parallel along the aim. The compass
+Dxun backdrop animates. Each press of the trigger fires both barrels once,
+parallel along the aim; holding it down fires no more. The compass
 turns with the yaw; the six radar contacts light once the wing starts moving and
 go out as fighters die; each hit steps the gauge down a band and plays a burst
 on the hull, and the alarm starts at state 3. Bolts that hit explode on the

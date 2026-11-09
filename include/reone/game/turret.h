@@ -570,8 +570,8 @@ public:
     float farClip() const { return _farClip; }
     void setCameraClip(float nearClip, float farClip);
     bool trackPlaying() const { return _trackPlaying; }
-    /** Holds the player's trigger down, or lets it go, as the fire button does. */
-    void setFiring(bool firing) { _firing = firing; }
+    /** Presses the player's trigger once, as the fire button does. */
+    void pullTrigger();
 
     // Diagnostics
 
@@ -663,7 +663,6 @@ private:
     float _farClip {0.0f};
     bool _trackPlaying {false};
     float _elapsed {0.0f};
-    bool _firing {false};
 
     // Loading
 
