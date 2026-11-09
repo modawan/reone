@@ -84,6 +84,39 @@ public:
         glm::vec2 normal {0.0f};
     };
 
+    /** How a walker swept along a segment meets a face. */
+    enum class ContactKind {
+        /** The walker meets an edge of the face side on. */
+        Edge,
+        /** The walker meets a corner of the face, an upright edge, or an edge it runs along. */
+        Corner,
+        /** The walker starts over the face. */
+        StartInside
+    };
+
+    /** Where a walker swept along a segment first meets a face. */
+    struct Contact {
+        ContactKind kind {ContactKind::Edge};
+        /**
+         * How far along the level segment the walker stops short of the face,
+         * from 0 at its start to its length.
+         */
+        float distance {0.0f};
+        /**
+         * The level normal of the face where the walker meets it, in the
+         * walkmesh's own coordinates; for a walker starting over a face, or
+         * running along one of its edges, the direction back along the
+         * segment.
+         */
+        glm::vec3 normal {0.0f};
+    };
+
+    /** The heights a level walk spans over the walkable faces it crosses. */
+    struct HeightBand {
+        float low {0.0f};
+        float high {0.0f};
+    };
+
     /**
      * @return index of the face that the ray intersects, distance from the
      * origin point to the intersection, and an error code if there is no
@@ -116,6 +149,38 @@ public:
      * Coordinates are the walkmesh's own.
      */
     std::optional<PerimeterCrossing> findPerimeterCrossing(const glm::vec2 &from, const glm::vec2 &to, float after) const;
+
+    /**
+     * Where a walker of the given radius, swept along the level segment
+     * between two points, first meets a face of one of the given materials
+     * that spans part of the height band [minZ, maxZ]. The walker covers the
+     * strip of its radius either side of the segment, from its start to its
+     * end, and the disc of its radius round its end. A walker starting over a
+     * face meets it at once; a face counts as under the start only when its
+     * front faces up. Empty when the walker meets none. Coordinates are the
+     * walkmesh's own.
+     */
+    std::optional<Contact> sweep(
+        const std::set<uint32_t> &materials,
+        const glm::vec3 &from,
+        const glm::vec3 &to,
+        float radius,
+        float minZ,
+        float maxZ) const;
+
+    /**
+     * The heights a level walk from one point toward another spans over the
+     * walkable faces of an area walkmesh, until it reaches its end or leaves
+     * the walkable faces. The walk starts on the highest face of the given
+     * materials over or under the start, one tried once more shifted 0.001
+     * toward the end when none lies there, and goes from face to face across
+     * their shared edges. The band holds the height at the start and at every
+     * edge it crosses, and at the end when the walk reaches it. Empty when no
+     * face lies at the start, or the walk cannot be followed: it crosses more
+     * than 512 faces, or leaves a face by no edge that it can be found to
+     * cross. Coordinates are the walkmesh's own.
+     */
+    std::optional<HeightBand> walkBand(const std::set<uint32_t> &surfaces, const glm::vec3 &from, const glm::vec3 &to) const;
 
     /**
      * Whether a face's material is one of a set of surface materials, the
@@ -154,6 +219,13 @@ public:
     std::vector<uint32_t> materials;
     /** The perimeter of the walkable faces of an area walkmesh, as edge loops. */
     std::vector<PerimeterEdge> perimeter;
+    /**
+     * For each edge of each walkable face of an area walkmesh, three to a
+     * face, the edge of another walkable face it is shared with, as three
+     * times that face plus the edge's place in it; -1 for none. Walkable faces
+     * come first in an area walkmesh.
+     */
+    std::vector<int> adjacency;
 
     /**
      * The two points a door or placeable is used from, each given twice: as

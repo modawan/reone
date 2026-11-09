@@ -373,20 +373,41 @@ public:
      */
     std::optional<std::reference_wrapper<const Creature>> findBlockingCreature(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const;
     /**
-     * Whether the creature can walk straight from one point to another. A
-     * walk from no room leaves the rooms at once; otherwise only what stands
-     * before the point where the walk runs out of the rooms counts, a door or
-     * placeable wall at that point included, and with nothing there it leaves
-     * them at that point. The walk is settled room by room: a creature in an
-     * earlier room stops it before a wall in a later one. When only another creature
-     * stands in the way, that creature is reported. The point where the walk
-     * is stopped, by a wall, by that creature or by leaving the rooms, is
-     * reported too, and the door, when a door's wall stops it. The normal
-     * there is the wall's or the room edge's, or for a creature the way out
-     * from its centre through that point. The ignored creature never stands
-     * in the way.
+     * Whether the creature can walk straight from one point to another. The
+     * walk is followed over the rooms it passes (see ISceneGraph::walkRooms),
+     * and settled in each room before the next, with the creature's personal
+     * space swept along it. In a room it is stopped first by the room's
+     * walls, between the heights the walk spans there less a tenth and those
+     * plus the creature's height and a tenth; then by the nearest wall of a
+     * door or placeable, between heights a thousand units further out; then
+     * by another creature. A walk from no room leaves the rooms at once, and
+     * one entering a room where no walkable face lies, or whose faces it
+     * cannot be followed across (see graphics::Walkmesh::walkBand), is
+     * stopped there. A walk that runs out of the rooms with nothing in its way leaves them
+     * where it does. When only another creature stands in the way, that
+     * creature is reported. The point where the walk is stopped, short of a
+     * wall, by that creature or by leaving the rooms, is reported too, and the
+     * door, when a door's wall stops it. The normal there is the wall's or the
+     * room edge's, or for a creature the way out from its centre through that
+     * point. The ignored creature never stands in the way.
      */
     DirectLineTest testDirectLine(
+        const Creature &mover,
+        const glm::vec3 &from,
+        const glm::vec3 &to,
+        std::optional<std::reference_wrapper<const Creature>> ignored = std::nullopt) const;
+    /**
+     * Whether a walking creature, or a driven leader, can take a step from
+     * one point to another. Walls are found by a thin level line just above
+     * the ground. A walk from no room leaves the rooms at once; otherwise
+     * only what stands before the point where the walk runs out of the rooms
+     * counts, a door or placeable wall within the creature's personal space of
+     * that point included, and with nothing there it leaves them at that
+     * point. The walk is settled room by room: a creature in an earlier room
+     * stops it before a wall in a later one. What is reported is as for
+     * testDirectLine.
+     */
+    DirectLineTest testWalkStep(
         const Creature &mover,
         const glm::vec3 &from,
         const glm::vec3 &to,
@@ -1152,6 +1173,21 @@ private:
      * @return whether a wall stands along the walk
      */
     bool findWalkLineWall(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to, scene::Collision &outCollision) const;
+
+    /** A door or placeable wall a swept walker meets (see findStaticWallContact). */
+    struct StaticWallContact {
+        std::reference_wrapper<const Object> object;
+        graphics::Walkmesh::Contact contact;
+    };
+
+    /**
+     * The nearest wall, as it stands, of a door or placeable that the
+     * creature's personal space, swept along the level line between two
+     * points, meets between two heights. The contact's normal is in world
+     * coordinates.
+     */
+    std::optional<StaticWallContact> findStaticWallContact(
+        const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
 
     bool findCreatureCollision(
         const Creature &creature,

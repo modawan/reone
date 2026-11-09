@@ -93,6 +93,33 @@ struct RoomFace {
     glm::vec3 normal {0.0f};
 };
 
+/** How a level walk through the rooms ends (see ISceneGraph::walkRooms). */
+enum class RoomWalkEnd {
+    /** It reaches its end in a room. */
+    Dest,
+    /** It starts where no room lies. */
+    OffRooms,
+    /** It crosses a perimeter edge leading into no room. */
+    Edge,
+    /** It is about to enter one room more than it may. */
+    RoomLimit
+};
+
+/** The stretch of a level walk over one room (see ISceneGraph::walkRooms). */
+struct RoomStretch {
+    std::shared_ptr<WalkmeshSceneNode> room;
+    /** How far along the walk it enters the room, from 0 at its start to 1 at its end. */
+    float from {0.0f};
+    /**
+     * The heights it spans over the room's walkable faces, from where it
+     * enters the room on toward the walk's end (see
+     * graphics::Walkmesh::walkBand); empty when no face lies where it enters,
+     * or the walk cannot be followed across the faces, and when the heights
+     * were not asked for.
+     */
+    std::optional<graphics::Walkmesh::HeightBand> band;
+};
+
 class IAnimationEventListener;
 class IRenderPass;
 class IRenderPipelineFactory;
@@ -160,6 +187,22 @@ public:
      */
     virtual bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
                               std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const = 0;
+    /**
+     * How a level walk from origin to dest passes through the rooms. It
+     * starts in the room found under origin and passes from room to room
+     * across the perimeter edges that lead into another. The stretches are
+     * the rooms it passes over, in order, each with the heights the walk
+     * spans there when they are asked for. The collision, when the walk does not reach dest, names
+     * the room it ends in, none when it starts off the rooms, the point it
+     * ends at, and the level normal there: the crossed edge's for an edge
+     * leading into no room, otherwise back along the walk.
+     *
+     * @param maxRooms how many rooms the walk may pass over, when limited
+     * @param withBands whether each stretch is given the heights the walk
+     *        spans there
+     */
+    virtual RoomWalkEnd walkRooms(const glm::vec3 &origin, const glm::vec3 &dest, std::optional<int> maxRooms, bool withBands,
+                                  std::vector<RoomStretch> &outStretches, Collision &outCollision) const = 0;
 
     virtual ModelSceneNode *pickModelAt(int x, int y, IUser *except = nullptr) const = 0;
     virtual std::optional<std::reference_wrapper<ModelSceneNode>> pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const = 0;
@@ -357,6 +400,8 @@ public:
     std::optional<RoomFace> findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const override;
     bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
                       std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const override;
+    RoomWalkEnd walkRooms(const glm::vec3 &origin, const glm::vec3 &dest, std::optional<int> maxRooms, bool withBands,
+                          std::vector<RoomStretch> &outStretches, Collision &outCollision) const override;
 
     ModelSceneNode *pickModelAt(int x, int y, IUser *except = nullptr) const override;
     std::optional<std::reference_wrapper<ModelSceneNode>> pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const override;

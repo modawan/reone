@@ -9761,7 +9761,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         const float step = std::min(pacedStep, endsOnPoint ? glm::length(toLast) : getDistanceTo(stepLimit));
         const glm::vec3 stepEnd {_position.x + dir.x * step, _position.y + dir.y * step, _position.z};
         const glm::vec2 stepDir {glm::normalize(glm::vec2(dir))};
-        const auto test = area.testDirectLine(*this, _position, stepEnd);
+        const auto test = area.testWalkStep(*this, _position, stepEnd);
         const Area::DirectLine line = test.result;
         const auto &door = test.door;
 

@@ -995,65 +995,90 @@ std::optional<RoomFace> SceneGraph::findRoomFace(const WalkmeshSceneNode &room, 
     return RoomFace {face.material, point.z, glm::vec3 {room.absoluteTransform() * glm::vec4(face.normal, 0.0f)}};
 }
 
-bool SceneGraph::testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
-                              std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const {
+RoomWalkEnd SceneGraph::walkRooms(const glm::vec3 &origin, const glm::vec3 &dest, std::optional<int> maxRooms, bool withBands,
+                                  std::vector<RoomStretch> &outStretches, Collision &outCollision) const {
     // A perimeter crossing this close to where the walk entered a room, or to
     // where it ends, is that point itself.
     static constexpr float kPerimeterTolerance = 1e-4f;
-    // Blocking faces are looked for this far beyond the heights the walk spans.
-    static constexpr float kBandMargin = 0.1f;
 
     const glm::vec3 line {dest - origin};
     const glm::vec2 level {line};
     const float length = glm::length(level);
+    const glm::vec3 back {length > 0.0f ? glm::vec3(-level / length, 0.0f) : glm::vec3(0.0f)};
     auto room = findRoomWalkmesh(origin);
     if (!room) {
         outCollision.user = nullptr;
         outCollision.intersection = origin;
-        outCollision.normal = length > 0.0f ? glm::vec3(-level / length, 0.0f) : glm::vec3(0.0f);
-        return true;
+        outCollision.normal = back;
+        return RoomWalkEnd::OffRooms;
     }
-    if (length <= kPerimeterTolerance) {
-        return false;
-    }
-    const float tolerance = kPerimeterTolerance / length;
+    const float tolerance = length > kPerimeterTolerance ? kPerimeterTolerance / length : 1.0f;
     float entered = 0.0f;
     for (int rooms = 1;; ++rooms) {
         const glm::vec3 entry {origin + line * entered};
         if (maxRooms && rooms > *maxRooms) {
             outCollision.user = room->user();
             outCollision.intersection = entry;
-            outCollision.normal = glm::vec3(-level / length, 0.0f);
-            return true;
+            outCollision.normal = back;
+            return RoomWalkEnd::RoomLimit;
         }
         const glm::mat4 &toLocal = room->absoluteTransformInverse();
+        const glm::vec3 localEntry {toLocal * glm::vec4(entry, 1.0f)};
+        const glm::vec3 localDest {toLocal * glm::vec4(dest, 1.0f)};
+        std::optional<graphics::Walkmesh::HeightBand> band;
+        if (withBands) {
+            band = room->walkmesh().walkBand(_walkcheckSurfaces, localEntry, localDest);
+        }
+        if (band) {
+            const float shift = localEntry.z - entry.z;
+            band->low -= shift;
+            band->high -= shift;
+        }
+        outStretches.push_back(RoomStretch {room, entered, band});
+        if (length <= kPerimeterTolerance) {
+            return RoomWalkEnd::Dest;
+        }
         const auto crossing = room->walkmesh().findPerimeterCrossing(
             glm::vec2(toLocal * glm::vec4(origin, 1.0f)),
-            glm::vec2(toLocal * glm::vec4(dest, 1.0f)),
+            glm::vec2(localDest),
             entered + tolerance);
         if (!crossing || crossing->fraction >= 1.0f - tolerance) {
-            return false;
+            return RoomWalkEnd::Dest;
         }
         const int next = crossing->transition;
         if (next >= 0 && next < static_cast<int>(_roomWalkmeshes.size()) && _roomWalkmeshes[next]) {
             room = _roomWalkmeshes[next];
             entered = crossing->fraction;
-            outCrossings.push_back(entered);
             continue;
         }
-        const glm::vec3 exit {origin + line * crossing->fraction};
-        const glm::vec3 localExit {toLocal * glm::vec4(exit, 1.0f)};
-        const float shift = localExit.z - exit.z;
-        const float minZ = std::min(entry.z, exit.z) - kBandMargin + shift;
-        const float maxZ = std::max(entry.z, exit.z) + height + kBandMargin + shift;
-        if (room->walkmesh().hasFaceWithin(_blockingSurfaces, localExit, localExit, radius, minZ, maxZ)) {
-            return false;
-        }
         outCollision.user = room->user();
-        outCollision.intersection = exit;
+        outCollision.intersection = origin + line * crossing->fraction;
         outCollision.normal = room->absoluteTransform() * glm::vec4(crossing->normal, 0.0f, 0.0f);
-        return true;
+        return RoomWalkEnd::Edge;
     }
+}
+
+bool SceneGraph::testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
+                              std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const {
+    // Blocking faces are looked for this far beyond the heights the walk spans.
+    static constexpr float kBandMargin = 0.1f;
+
+    std::vector<RoomStretch> stretches;
+    const RoomWalkEnd end = walkRooms(origin, dest, maxRooms, /*withBands=*/false, stretches, outCollision);
+    for (size_t i = 1; i < stretches.size(); ++i) {
+        outCrossings.push_back(stretches[i].from);
+    }
+    if (end != RoomWalkEnd::Edge) {
+        return end != RoomWalkEnd::Dest;
+    }
+    const auto &room = stretches.back().room;
+    const glm::vec3 entry {origin + (dest - origin) * stretches.back().from};
+    const glm::vec3 exit {outCollision.intersection};
+    const glm::vec3 localExit {room->absoluteTransformInverse() * glm::vec4(exit, 1.0f)};
+    const float shift = localExit.z - exit.z;
+    const float minZ = std::min(entry.z, exit.z) - kBandMargin + shift;
+    const float maxZ = std::max(entry.z, exit.z) + height + kBandMargin + shift;
+    return !room->walkmesh().hasFaceWithin(_blockingSurfaces, localExit, localExit, radius, minZ, maxZ);
 }
 
 ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {

@@ -537,16 +537,16 @@ static void stepDriven(Game &game, Area &area, const std::shared_ptr<Creature> &
     const glm::vec2 back {-dir};
     glm::vec2 previousNormal {0.0f};
     for (int attempt = 1;; ++attempt) {
-        auto line = area.testDirectLine(*creature, creature->position(), target);
+        auto line = area.testWalkStep(*creature, creature->position(), target);
         if (line.result == Area::DirectLine::CreatureBlocked) {
             creature->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), creature->position(), target, dir);
-            line = area.testDirectLine(*creature, creature->position(), target);
+            line = area.testWalkStep(*creature, creature->position(), target);
             if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(creature->position(), *creature)) {
                 if (auto spot = area.computeSafeLocation(creature->position(), kDriveNudgeRadius, *creature, true)) {
                     creature->setPosition(*spot);
                     area.determineObjectRoom(*creature);
                 }
-                line = area.testDirectLine(*creature, creature->position(), target);
+                line = area.testWalkStep(*creature, creature->position(), target);
             }
         }
         if (line.result == Area::DirectLine::Clear) {
