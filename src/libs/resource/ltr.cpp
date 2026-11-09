@@ -17,6 +17,8 @@
 
 #include "reone/resource/ltr.h"
 
+#include <algorithm>
+
 #include "reone/system/randomutil.h"
 
 namespace reone {
@@ -27,77 +29,119 @@ static const std::vector<char> g_letters {
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
     'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '\'', '-'};
 
-std::string Ltr::randomName(int maxLength) const {
+static constexpr int kMaxFailures = 5;
+static constexpr int kLengthRoll = 12;
+static constexpr int kMinBacktrackLength = 4;
+
+/** The index in the letter tables of a letter of a drawn name. */
+static int letterIndex(char letter) {
+    if (letter == '\'') {
+        return 26;
+    }
+    if (letter == '-') {
+        return 27;
+    }
+    return letter - 'a';
+}
+
+// The first letter whose cumulative probability exceeds a random draw, or
+// count when there is none.
+static int drawLetter(const std::vector<float> &probabilities, int count) {
+    float probability = randomFloat(0.0f, 1.0f);
+    int letter = 0;
+    while (letter < count && !(probabilities[letter] > probability)) {
+        ++letter;
+    }
+    return letter;
+}
+
+Ltr::Opening Ltr::drawOpening() const {
+    // Any opening letter missing draws all three again. A table that can open
+    // a name ends this with probability one.
+    while (true) {
+        int first = drawLetter(_singleLetters.start, _letterCount);
+        if (first == _letterCount) {
+            continue;
+        }
+        int second = drawLetter(_doubleLetters[first].start, _letterCount);
+        if (second == _letterCount) {
+            continue;
+        }
+        int third = drawLetter(_tripleLetters[first][second].start, _letterCount);
+        if (third == _letterCount) {
+            continue;
+        }
+        return Opening {first, second, third};
+    }
+}
+
+std::string Ltr::drawName(int maxLength) const {
     std::string name;
+    int first = 0;
+    int second = 0;
+    int failures = 0;
+    bool restart = true;
 
-    float probability;
-    int firstLetterIdx = 0;
-    int secondLetterIdx = 0;
-
-    // First three letters
-
-    probability = randomFloat(0.0f, 1.0f);
-    for (int i = 0; i < _letterCount; ++i) {
-        if (_singleLetters.start[i] > probability) {
-            name += toupper(g_letters[i]);
-            firstLetterIdx = i;
-            break;
+    // Each step adds a middle letter, drops one, ends the name or fails the
+    // attempt. A name of 11 letters takes no middle letter, as the roll
+    // never exceeds its length, so an attempt ends with probability one; the
+    // fifth failed attempt ends the draw.
+    while (true) {
+        if (restart) {
+            const Opening opening = drawOpening();
+            name = {g_letters[opening.first], g_letters[opening.second], g_letters[opening.third]};
+            first = opening.second;
+            second = opening.third;
+            restart = false;
         }
-    }
 
-    probability = randomFloat(0.0f, 1.0f);
-    for (int i = 0; i < _letterCount; ++i) {
-        if (_doubleLetters[firstLetterIdx].start[i] > probability) {
-            name += g_letters[i];
-            secondLetterIdx = i;
-            break;
-        }
-    }
+        // A middle letter while the roll exceeds the length, unless the name
+        // is one letter short of its limit
+        int roll = randomInt(0, kLengthRoll - 1);
+        int length = static_cast<int>(name.size());
+        bool middle = roll > length && !(maxLength != 0 && length == maxLength - 1);
 
-    probability = randomFloat(0.0f, 1.0f);
-    for (int i = 0; i < _letterCount; ++i) {
-        if (_tripleLetters[firstLetterIdx][secondLetterIdx].start[i] > probability) {
-            name += g_letters[i];
-            firstLetterIdx = secondLetterIdx;
-            secondLetterIdx = i;
-            break;
-        }
-    }
+        const LetterSet &set = _tripleLetters[first][second];
+        int letter = drawLetter(middle ? set.mid : set.end, _letterCount);
 
-    // END First three letters
-
-    if (maxLength < 4)
-        return name;
-
-    // Middle letters
-
-    int length = randomInt(0, maxLength - 3);
-    for (int i = 0; i < length; ++i) {
-        probability = randomFloat(0.0f, 1.0f);
-        for (int j = 0; j < _letterCount; ++j) {
-            if (_tripleLetters[firstLetterIdx][secondLetterIdx].mid[j] > probability) {
-                name += g_letters[j];
-                firstLetterIdx = secondLetterIdx;
-                secondLetterIdx = j;
+        if (letter < _letterCount) {
+            name += g_letters[letter];
+            first = second;
+            second = letter;
+            if (!middle) {
                 break;
             }
+            continue;
         }
+        if (middle && length >= kMinBacktrackLength) {
+            name.pop_back();
+            first = letterIndex(name[name.size() - 2]);
+            second = letterIndex(name[name.size() - 1]);
+            continue;
+        }
+        if (++failures == kMaxFailures) {
+            return "";
+        }
+        restart = true;
     }
 
-    // END Middle letters
+    name[0] = static_cast<char>(toupper(name[0]));
+    return name;
+}
 
-    // Final letter
-
-    probability = randomFloat(0.0f, 1.0f);
-    for (int i = 0; i < _letterCount; ++i) {
-        if (_tripleLetters[firstLetterIdx][secondLetterIdx].end[i] > probability) {
-            name += g_letters[i];
-            break;
-        }
+std::string Ltr::randomName(int maxLength, const std::vector<std::string> &filter) const {
+    auto isFiltered = [&filter](const std::string &name) {
+        return std::any_of(filter.begin(), filter.end(), [&name](const std::string &filtered) {
+            return boost::iequals(filtered, name);
+        });
+    };
+    // A filtered name is drawn again, with no length limit, until one is not
+    // filtered. A filter that leaves any name the table draws ends this with
+    // probability one. A failed draw is empty and is not filtered.
+    std::string name(drawName(maxLength));
+    while (!name.empty() && isFiltered(name)) {
+        name = drawName(0);
     }
-
-    // END Final letter
-
     return name;
 }
 

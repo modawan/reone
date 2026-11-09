@@ -48,6 +48,10 @@ public:
     /** The sound of an action menu scrolling to another entry. */
     virtual std::shared_ptr<audio::AudioClip> getActionMenuScroll() const = 0;
     virtual std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const = 0;
+    /** The notice of a new or advanced quest on the status summary. */
+    virtual std::shared_ptr<audio::AudioClip> getQuestNewNotify() const = 0;
+    /** The notice of a completed quest on the status summary. */
+    virtual std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const = 0;
     /** The click of a toggle button. */
     virtual std::shared_ptr<audio::AudioClip> getCheckboxCheck() const = 0;
     /** The sound of an item chosen for an equipment slot. */
@@ -56,6 +60,11 @@ public:
     virtual std::shared_ptr<audio::AudioClip> getInventoryDrop() const = 0;
     /** TSL: the sting of a light (true) or dark side shift on the status summary. */
     virtual std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const = 0;
+    /** The sound of an item taken into an inventory. */
+    virtual std::shared_ptr<audio::AudioClip> getInventoryAdd() const { return nullptr; }
+    /** The sounds of a full-screen panel shown and taken away. */
+    virtual std::shared_ptr<audio::AudioClip> getPanelAdded() const { return nullptr; }
+    virtual std::shared_ptr<audio::AudioClip> getPanelRemoved() const { return nullptr; }
 };
 
 class GUISounds : public IGUISounds, boost::noncopyable {
@@ -76,12 +85,17 @@ public:
     std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return _actionUnavailable; }
     std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return _actionMenuScroll; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return _onLevelUpNotify; }
+    std::shared_ptr<audio::AudioClip> getQuestNewNotify() const override { return _questNewNotify; }
+    std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return _questCompleteNotify; }
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return _checkboxCheck; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return _inventorySelect; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return _inventoryDrop; }
     std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const override {
         return light ? _lightSide : _darkSide;
     }
+    std::shared_ptr<audio::AudioClip> getInventoryAdd() const override { return _inventoryAdd; }
+    std::shared_ptr<audio::AudioClip> getPanelAdded() const override { return _panelAdded; }
+    std::shared_ptr<audio::AudioClip> getPanelRemoved() const override { return _panelRemoved; }
 
 private:
     resource::AudioClips &_audioClips;
@@ -90,12 +104,17 @@ private:
     std::shared_ptr<audio::AudioClip> _onClick;
     std::shared_ptr<audio::AudioClip> _onEnter;
     std::shared_ptr<audio::AudioClip> _onLevelUpNotify;
+    std::shared_ptr<audio::AudioClip> _questNewNotify;
+    std::shared_ptr<audio::AudioClip> _questCompleteNotify;
     std::shared_ptr<audio::AudioClip> _actionAccepted;
     std::shared_ptr<audio::AudioClip> _actionUnavailable;
     std::shared_ptr<audio::AudioClip> _actionMenuScroll;
     std::shared_ptr<audio::AudioClip> _checkboxCheck;
     std::shared_ptr<audio::AudioClip> _inventorySelect;
     std::shared_ptr<audio::AudioClip> _inventoryDrop;
+    std::shared_ptr<audio::AudioClip> _inventoryAdd;
+    std::shared_ptr<audio::AudioClip> _panelAdded;
+    std::shared_ptr<audio::AudioClip> _panelRemoved;
     std::shared_ptr<audio::AudioClip> _darkSide;
     std::shared_ptr<audio::AudioClip> _lightSide;
 

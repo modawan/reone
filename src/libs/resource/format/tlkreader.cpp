@@ -60,7 +60,11 @@ void TlkReader::loadStrings() {
             text = _tlk.readStringAt(_stringsOffset + stringOffset, stringSize);
         }
 
-        strings.push_back(TalkTable::String {std::move(text), std::move(soundResRef)});
+        if (!(flags & StringFlags::soundLengthPresent)) {
+            soundLength = 0.0f;
+        }
+
+        strings.push_back(TalkTable::String {std::move(text), std::move(soundResRef), soundLength});
     }
 
     _table = std::make_unique<TalkTable>(std::move(strings), _languageId);

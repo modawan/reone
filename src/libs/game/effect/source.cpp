@@ -36,6 +36,10 @@ EffectSourceKey getEffectSourceKey(const EffectInstance &effect) {
             };
         }
     }
+    return getEffectSpellKey(effect);
+}
+
+EffectSourceKey getEffectSpellKey(const EffectInstance &effect) {
     if (effect.spellId != std::numeric_limits<uint32_t>::max()) {
         return {
             EffectSourceKind::Spell,
@@ -45,84 +49,51 @@ EffectSourceKey getEffectSourceKey(const EffectInstance &effect) {
     return {EffectSourceKind::Independent, effect.id};
 }
 
-void EffectModifierReducer::addIncrease(
-    EffectSourceKey source, int subtype, int amount) {
-    add(_increases, source, subtype, amount);
-}
-
-void EffectModifierReducer::addDecrease(
-    EffectSourceKey source, int subtype, int amount) {
-    add(_decreases, source, subtype, amount);
-}
-
-int EffectModifierReducer::totalIncrease(int cap) const {
-    return cappedTotal(_increases, cap);
-}
-
-int EffectModifierReducer::totalDecrease(int cap) const {
-    return cappedTotal(_decreases, cap);
-}
-
-void EffectModifierReducer::add(
-    Values &values,
-    EffectSourceKey source,
-    int subtype,
-    int amount) {
-    if (amount <= 0) {
-        return;
-    }
-    Key key {source, subtype};
-    auto it = values.find(key);
-    if (it == values.end() || amount > it->second) {
-        values.insert_or_assign(key, amount);
-    }
-}
-
-int EffectModifierReducer::cappedTotal(const Values &values, int cap) {
-    int result = 0;
-    for (const auto &[key, amount] : values) {
-        result = std::min(cap, result + amount);
-        if (result == cap) {
-            break;
+void EffectSourceSlots::add(EffectSourceKey source, int amount, bool addsUp) {
+    if (source.kind != EffectSourceKind::Independent) {
+        auto it = _bySource.find(source);
+        if (it != _bySource.end()) {
+            it->second = addsUp ? it->second + amount : std::max(it->second, amount);
+            return;
         }
     }
-    return result;
-}
-
-void AbilityEffectReducer::addIncrease(EffectSourceKey source, int amount) {
-    if (amount <= 0) {
+    if (_sources == _capacity) {
         return;
     }
+    ++_sources;
     if (source.kind == EffectSourceKind::Independent) {
-        _increases.independent += amount;
-        return;
+        _independent += amount;
+    } else {
+        _bySource.emplace(source, amount);
     }
-    auto &value = _increases.bySource[source];
-    value = std::max(value, amount);
 }
 
-void AbilityEffectReducer::addDecrease(EffectSourceKey source, int amount) {
-    if (amount <= 0) {
-        return;
-    }
-    if (source.kind == EffectSourceKind::Independent) {
-        _decreases.independent += amount;
-        return;
-    }
-    _decreases.bySource[source] += amount;
-}
-
-int AbilityEffectReducer::Direction::total() const {
-    int sum = independent;
-    for (const auto &[source, amount] : bySource) {
+int EffectSourceSlots::total() const {
+    int sum = _independent;
+    for (const auto &[source, amount] : _bySource) {
         sum += amount;
     }
     return sum;
 }
 
-int AbilityEffectReducer::total() const {
-    return std::min(_increases.total(), getAbilityEffectIncreaseCap(_tsl)) -
-           std::min(_decreases.total(), getAbilityEffectDecreaseCap(_tsl));
+EffectBonusReducer EffectBonusReducer::forAbility(bool tsl) {
+    return EffectBonusReducer {getAbilityEffectIncreaseCap(tsl), getAbilityEffectDecreaseCap(tsl), true, getEffectSourceCapacity(tsl)};
+}
+
+EffectBonusReducer EffectBonusReducer::forSkill(bool tsl) {
+    return EffectBonusReducer {getSkillEffectCap(tsl), getSkillEffectCap(tsl), false, getEffectSourceCapacity(tsl)};
+}
+
+void EffectBonusReducer::addIncrease(EffectSourceKey source, int amount) {
+    _increases.add(source, amount);
+}
+
+void EffectBonusReducer::addDecrease(EffectSourceKey source, int amount) {
+    _decreases.add(source, amount, _decreasesAddUp);
+}
+
+int EffectBonusReducer::total() const {
+    return std::min(_increases.total(), _increaseCap) - std::min(_decreases.total(), _decreaseCap);
 }
 
 } // namespace game

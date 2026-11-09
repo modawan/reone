@@ -53,6 +53,9 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    std::vector<SavedActionRecord> rangeCheckCommands(const Object &actor) const override {
+        return _action ? _action->rangeCheckCommands(actor) : std::vector<SavedActionRecord> {};
+    }
     uint32_t serializedActionId() const override {
         return _action ? _action->serializedActionId() : Action::serializedActionId();
     }

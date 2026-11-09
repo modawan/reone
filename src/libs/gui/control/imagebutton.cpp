@@ -87,17 +87,15 @@ void ImageButton::renderIcon(
     if (!iconFrame && !iconTexture)
         return;
 
-    glm::vec3 color(1.0f);
-    if (_selected && _hilight) {
-        color = _hilight->color;
-    } else if (_border) {
-        color = _border->color;
-    }
+    // The icon frame and the count take the colour the frames show, and the
+    // icon frame their opacity while the button is not selected.
+    const glm::vec3 color = _border ? getBorderColor() : glm::vec3(1.0f);
 
     if (iconFrame) {
         auto frameColor = color;
-        auto frameAlpha = 1.0f;
+        auto frameAlpha = _border ? _border->alpha : 1.0f;
         if (_selected && _hilight) {
+            frameAlpha = 1.0f;
             frameColor = _iconFrameHilightColor.value_or(color);
             if (_iconFrameHilightPulsing) {
                 frameAlpha = _gui.pulsingAlpha();

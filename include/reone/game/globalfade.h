@@ -22,7 +22,7 @@
 
 namespace reone::game {
 
-/** Transient, client presentation state. Independent of scripts and cameras. */
+/** Transient presentation state. Independent of scripts and cameras. */
 class GlobalFade {
 public:
     enum class Direction { In, Out };

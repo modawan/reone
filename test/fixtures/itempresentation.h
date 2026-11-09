@@ -55,6 +55,8 @@ public:
     std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getQuestNewNotify() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return nullptr; }
@@ -174,6 +176,8 @@ public:
     int begins {0}, ends {0}, nextRequests {0}, previousRequests {0};
     InventoryView readInventory(InventoryFilter) override { return inventory; }
     std::optional<int> useItem(uint64_t) override { return std::nullopt; }
+    void noteItemViewed(uint64_t) override {}
+    void markViewedItemsSeen() override {}
     EquipmentView readEquipmentOverview() override { return equipment; }
     EquipmentView readEquipment(int) override { return equipment; }
     void equip(uint64_t revision, uint64_t handle, int slot) override {

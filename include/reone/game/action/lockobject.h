@@ -23,6 +23,22 @@ namespace reone {
 
 namespace game {
 
+/** How far a creature's work at a lock has gone; none of it is saved. */
+struct LockWorkState {
+    /** It had to walk to the lock since it last turned to it. */
+    bool approached {false};
+    /** It has reached the lock. */
+    bool arrived {false};
+    /** Its work clip is queued. */
+    bool working {false};
+};
+
+/**
+ * Lock a door or placeable (39). A creature walks up, turning to the object
+ * only when it had to walk, and works at it; it then locks it with the key,
+ * or, with no key wanted, by a Security check against the close-lock DC. Any
+ * other object is worked at the same way and fails the check.
+ */
 class LockObjectAction : public Action {
 public:
     LockObjectAction(Game &game, ServicesView &services, std::shared_ptr<Object> target) :
@@ -35,6 +51,12 @@ public:
         return from->type() == ActionType::Lock;
     }
 
+    /**
+     * Whether \p actor takes a lock: not a creature that cannot use Security,
+     * which is told nothing, nor an actor that cannot be commanded.
+     */
+    static bool admits(const Object &actor);
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     /** Clearing the work at the lock gives the pose back to the creature's state. */
     bool cancel(std::shared_ptr<Action> self, Object &actor) override;
@@ -45,7 +67,7 @@ public:
 
 private:
     std::shared_ptr<Object> _target;
-    bool _working {false};
+    LockWorkState _work;
 };
 
 } // namespace game

@@ -378,6 +378,10 @@ std::optional<int> CombatTables::encounterDifficulty(int row) const {
     return rowOrBlank(_encounterDifficulties, row);
 }
 
+int CombatTables::encounterDifficultyCount() const {
+    return static_cast<int>(_encounterDifficulties.size());
+}
+
 const RegenerationRates &CombatTables::regeneration() const {
     return _regeneration;
 }

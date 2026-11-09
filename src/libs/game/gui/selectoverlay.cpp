@@ -17,12 +17,14 @@
 
 #include "reone/game/gui/selectoverlay.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/doorsaber.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/di/services.h"
@@ -62,7 +64,6 @@ static constexpr int kTitleBarWidth = 250;
 static constexpr int kTitleBarPadding = 6;
 static constexpr int kHealthBarHeight = 6;
 static constexpr float kObjectTitleScale = 2.0f / 3.0f;
-static constexpr int kNumActionSlots = 3;
 static constexpr int kActionBarMargin = 3;
 static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
@@ -116,9 +117,6 @@ static bool isKnownHostileTrap(const TrappedObject &object, const Creature &lead
            (detection.flagged || detection.isDetectedBy(leader.id()));
 }
 
-// A placeable regarding the leader at this standing or less is hostile to it.
-static constexpr int kHighestHostileReputation = 10;
-
 // The hover reticle is hostile for a hostile creature, for a door or placeable
 // whose trap is hostile to the leader and known to it, and for a placeable of
 // a hostile appearance that regards the leader at 10 or less.
@@ -131,7 +129,7 @@ static bool isHoverHostile(const Object &object, const Creature &leader, const M
     case ObjectType::Placeable: {
         const auto &placeable = static_cast<const Placeable &>(object);
         return isKnownHostileTrap(placeable, leader) ||
-               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestHostileReputation);
+               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestEnemyReputation);
     }
     default:
         return false;
@@ -139,8 +137,10 @@ static bool isHoverHostile(const Object &object, const Creature &leader, const M
 }
 
 // A slot of two or more entries scrolls to the previous or next one,
-// wrapping, and sounds it.
-static void cycleActionSlot(ActionSlot &slot, bool previous, ActionMenuFeedback &feedback, ServicesView &services) {
+// wrapping, sounds it, and is set to it. A slot showing its first entry
+// because it does not offer the one it is set to scrolls from that first
+// entry.
+static void cycleActionSlot(ActionSlot &slot, std::optional<EntryIdentity> &selection, bool previous, ActionMenuFeedback &feedback, ServicesView &services) {
     if (slot.actions.size() < 2)
         return;
 
@@ -154,6 +154,7 @@ static void cycleActionSlot(ActionSlot &slot, bool previous, ActionMenuFeedback 
     } else if (++slot.indexSelected == slot.actions.size()) {
         slot.indexSelected = 0;
     }
+    selection = EntryIdentity(slot.actions[slot.indexSelected]);
 }
 
 SelectionOverlay::SelectionOverlay(
@@ -244,13 +245,13 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     _game.cancelPartyItemTarget();
     float actionY = event.y - frameY;
     if (actionY < kActionArrowHeight * scale) {
-        cycleActionSlot(slot, true, _feedback, _services);
+        cycleActionSlot(slot, _selections[_selectionGroup][_selectedActionSlot], true, _feedback, _services);
         _game.requestAutoPause(AutoPauseReason::ActionMenu);
         _game.requestTutorialWindow(kActionMenuTutorial);
         return true;
     }
     if (actionY >= (kActionArrowHeight + kActionWidth) * scale) {
-        cycleActionSlot(slot, false, _feedback, _services);
+        cycleActionSlot(slot, _selections[_selectionGroup][_selectedActionSlot], false, _feedback, _services);
         _game.requestAutoPause(AutoPauseReason::ActionMenu);
         _game.requestTutorialWindow(kActionMenuTutorial);
         return true;
@@ -284,7 +285,7 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     // clears the leader's actions, before the entry's order arrives.
     const bool hostileCreature = _selectedHostile && selectedObject->type() == ObjectType::Creature;
     const bool bash = ctxAction.type == ActionType::AttackObject && selectedObject->type() != ObjectType::Creature;
-    const bool inCombatMode = leader->clientCombatMode();
+    const bool inCombatMode = leader->partyCombatMode();
     if (!inCombatMode) {
         _game.combat().removeAllScheduled(*leader);
         if (hostileCreature || bash) {
@@ -327,6 +328,35 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         order = [this, leader, selectedObject, feat = ctxAction.feat]() { _game.sendAttack(*leader, selectedObject, feat); };
         break;
     case ActionType::UseSkill:
+        if (ctxAction.skill == SkillType::Security) {
+            // Security, alone or with a spike, first clears the leader's
+            // orders on a door, and with a spike on any lock; Security alone
+            // on a door also delays the next autopause. A leader that can be
+            // commanded then clears its actions unless busy and, when the
+            // object is still locked, works at the lock, or is told it cannot
+            // use the skill.
+            const bool door = selectedObject->type() == ObjectType::Door;
+            if (ctxAction.item || door) {
+                _game.combat().clearAllOrders(*leader);
+            }
+            if (door && !ctxAction.item) {
+                _game.delayNextEnemyAutoPause();
+            }
+            order = [this, leader, selectedObject, item = ctxAction.item]() {
+                if (!leader->isCommandable()) {
+                    return;
+                }
+                leader->clearOrdersUnlessBusy();
+                const auto lock = selectedObject->findLock();
+                if (!lock || !lock->get().isLocked() || !UnlockObjectAction::admits(*leader)) {
+                    return;
+                }
+                auto action = _game.newAction<UnlockObjectAction>(selectedObject, item);
+                action->setUserAction(true);
+                leader->addAction(action);
+            };
+            break;
+        }
         if (ctxAction.item) {
             // Setting a mine on a door or placeable.
             if (!area->playerCanSetMines()) {
@@ -338,19 +368,18 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
                 break;
             }
         }
-        // Security on a door first clears the leader's orders, as the
-        // player's controls clear them, and delays the next autopause.
-        if (ctxAction.skill == SkillType::Security && selectedObject->type() == ObjectType::Door) {
-            _game.combat().clearAllOrders(*leader);
-            _game.delayNextEnemyAutoPause();
+        // Setting a mine is the use of its kit, which clears the leader's
+        // actions unless the leader is busy, then follows them. The other mine
+        // work is a use of the skill.
+        if (ctxAction.item) {
+            queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
+            order = [leader, queued = std::move(order)]() {
+                leader->clearOrdersUnlessBusy();
+                queued();
+            };
+        } else if (auto action = leader->useSkill(ctxAction.skill, selectedObject, ctxAction.subSkill)) {
+            queue(std::move(action));
         }
-        // Security and mine work clear the leader's actions unless the leader
-        // is busy, then follow them.
-        queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
-        order = [leader, queued = std::move(order)]() {
-            leader->clearOrdersUnlessBusy();
-            queued();
-        };
         break;
     case ActionType::DoorSaber: {
         // The door saber first clears the leader's orders, as the player's
@@ -369,10 +398,19 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         if (ctxAction.equipmentPower) {
             // A droid's item power enters combat mode as a power does, then
             // goes out as the use of the item at the target.
-            leader->setClientCombatMode(true);
+            leader->setPartyCombatMode(true);
             order = [this, leader, item = ctxAction.item, selectedObject]() {
                 _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
                                   selectedObject->position());
+            };
+            break;
+        }
+        if (ctxAction.containerUse) {
+            // A plot item used on a locked container goes out as the use of
+            // its first power on the container.
+            order = [this, leader, item = ctxAction.item, selectedObject]() {
+                _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
+                                  menuItemLocation(*leader, *selectedObject));
             };
             break;
         }
@@ -388,7 +426,7 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
             // A power from the target menu puts the leader into combat mode
             // whether or not it is cast. A caster without a Jedi class casts
             // nothing.
-            leader->setClientCombatMode(true);
+            leader->setPartyCombatMode(true);
             if (!_game.canMenuCast(*leader, *ctxAction.spell)) {
                 order = [this, leader]() { _game.refuseMenuCast(*leader); };
                 break;
@@ -414,9 +452,9 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     default:
         break;
     }
-    if (!leader->clientCombatMode()) {
+    if (!leader->partyCombatMode()) {
         if (!inCombatMode && hostileCreature) {
-            leader->setClientCombatMode(true);
+            leader->setPartyCombatMode(true);
         }
         _game.combat().clearActions(*leader);
     }
@@ -436,7 +474,7 @@ bool SelectionOverlay::handleMouseWheel(const input::MouseWheelEvent &event) {
 
     // A wheel notch over a slot scrolls it like its arrows.
     _game.cancelPartyItemTarget();
-    cycleActionSlot(slot, event.y > 0, _feedback, _services);
+    cycleActionSlot(slot, _selections[_selectionGroup][_selectedActionSlot], event.y > 0, _feedback, _services);
     _game.requestAutoPause(AutoPauseReason::ActionMenu);
     _game.requestTutorialWindow(kActionMenuTutorial);
     return true;
@@ -503,7 +541,8 @@ void SelectionOverlay::update(float dt) {
                         _actionSlots[0].actions.push_back(action);
                         break;
                     case ActionType::UseSkill:
-                        if (action.item) {
+                        // Mine kits take the third column; spikes follow Security.
+                        if (action.item && action.skill == SkillType::Demolitions) {
                             _actionSlots[2].actions.push_back(action);
                         } else if (action.skill == SkillType::Demolitions && action.subSkill == 0) {
                             _actionSlots[0].actions.push_back(action);
@@ -514,7 +553,8 @@ void SelectionOverlay::update(float dt) {
                     case ActionType::CastSpellAtObject: {
                         // Items other than a droid's item powers, and powers
                         // against a mine, take the third column.
-                        if ((action.item && !action.equipmentPower) || selectedObject->type() == ObjectType::Trigger) {
+                        if ((action.item && !action.equipmentPower && !action.containerUse) ||
+                            selectedObject->type() == ObjectType::Trigger) {
                             _actionSlots[2].actions.push_back(action);
                         } else {
                             _actionSlots[1].actions.push_back(action);
@@ -525,22 +565,51 @@ void SelectionOverlay::update(float dt) {
                     }
                 }
             }
-            for (int i = 0; i < kNumActionSlots; ++i) {
-                if (_actionSlots[i].indexSelected >= _actionSlots[i].actions.size()) {
-                    _actionSlots[i].indexSelected = 0;
-                }
-            }
 
             auto selectedCreature = std::dynamic_pointer_cast<Creature>(selectedObject);
+            // While the dead-target hold runs, every creature is shown and
+            // offered as hostile.
             if (selectedCreature) {
-                _selectedHostile = module->isHostileToPartyLeader(*selectedCreature);
+                _selectedHostile = module->isHostileToPartyLeader(*selectedCreature) || _game.isDeadTargetHoldRunning();
+            }
+
+            // Hostile creatures share their column entries; so do the other
+            // creatures and the placeables without an inventory, the doors and
+            // the containers, and the mines.
+            if (selectedCreature) {
+                _selectionGroup = _selectedHostile ? SelectionGroup::HostileCreature : SelectionGroup::OtherCreatureOrFixture;
+            } else if (auto placeable = std::dynamic_pointer_cast<Placeable>(selectedObject)) {
+                _selectionGroup = placeable->hasInventory() ? SelectionGroup::DoorOrContainer : SelectionGroup::OtherCreatureOrFixture;
+            } else if (selectedObject->type() == ObjectType::Door) {
+                _selectionGroup = SelectionGroup::DoorOrContainer;
+            } else if (selectedObject->type() == ObjectType::Trigger) {
+                _selectionGroup = SelectionGroup::Mine;
+            } else {
+                _selectionGroup = SelectionGroup::None;
+            }
+            // Each column stays on the entry it was set to for the group,
+            // across its targets; while it does not offer that entry, it
+            // shows its first.
+            const auto &selections = _selections[_selectionGroup];
+            for (int i = 0; i < kNumActionSlots; ++i) {
+                ActionSlot &slot = _actionSlots[i];
+                slot.indexSelected = 0;
+                if (!selections[i]) {
+                    continue;
+                }
+                auto selected = std::find_if(slot.actions.begin(), slot.actions.end(), [&](const ContextAction &action) {
+                    return EntryIdentity(action) == *selections[i];
+                });
+                if (selected != slot.actions.end()) {
+                    slot.indexSelected = static_cast<size_t>(selected - slot.actions.begin());
+                }
             }
         }
     }
 }
 
-void SelectionOverlay::render() {
-    _services.graphics.context.withBlendMode(BlendMode::Normal, [this]() {
+void SelectionOverlay::render(bool leaderDown) {
+    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, leaderDown]() {
         const float scale = layoutScale();
         if (_hilightedObject) {
             const float size = _hilightedReticleSize * scale;
@@ -550,7 +619,7 @@ void SelectionOverlay::render() {
         if (_selectedObject) {
             auto &texture = _selectedHostile ? *_hostileReticle2 : *_friendlyReticle2;
             renderReticle(texture, _selectedScreenCoords, texture.width() * scale, texture.height() * scale, 1.0f);
-            renderActionBar();
+            renderActionBar(leaderDown);
             renderTitleBar();
             renderHealthBar();
         }
@@ -658,14 +727,14 @@ void SelectionOverlay::renderHealthBar() {
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
-void SelectionOverlay::renderActionBar() {
+void SelectionOverlay::renderActionBar(bool leaderDown) {
     if (!_hasActions)
         return;
 
     for (int i = 0; i < kNumActionSlots; ++i) {
         renderActionFrame(i);
         renderActionArrows(i);
-        renderActionIcon(i);
+        renderActionIcon(i, leaderDown);
     }
 }
 
@@ -746,7 +815,7 @@ bool SelectionOverlay::getActionScreenCoords(int index, float &x, float &y) cons
     return true;
 }
 
-void SelectionOverlay::renderActionIcon(int index) {
+void SelectionOverlay::renderActionIcon(int index, bool leaderDown) {
     const ActionSlot &slot = _actionSlots[index];
     if (slot.indexSelected >= slot.actions.size())
         return;
@@ -764,7 +833,8 @@ void SelectionOverlay::renderActionIcon(int index) {
     transform = glm::translate(transform, glm::vec3(frameX, y, 0.0f));
     transform = glm::scale(transform, glm::vec3(kActionWidth * scale, kActionWidth * scale, 1.0f));
 
-    renderContextActionIcon(action, transform, action.availability.available(), _services);
+    // While the leader is down every entry greys, as on the action bar.
+    renderContextActionIcon(action, transform, action.availability.available() && !leaderDown, _services);
 }
 
 float SelectionOverlay::layoutScale() const {

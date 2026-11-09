@@ -262,7 +262,7 @@ void configureEquipmentEffectTables(TestEngine &engine) {
 TEST(PassiveRegeneration, k1_uses_the_numeric_combat_rows_for_hit_points) {
     TestEngine engine;
     engine.init();
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",

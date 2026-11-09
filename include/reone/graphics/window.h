@@ -53,6 +53,8 @@ public:
     }
 
     void setRelativeMouseMode(bool relative);
+    /** Move the system cursor to \p x, \p y in window coordinates. */
+    void warpMouse(int x, int y);
 
     SDL_Window *sdlWindow() { return _window; };
     SDL_GLContext sdlContext() { return _context; };

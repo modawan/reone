@@ -157,6 +157,7 @@ static constexpr float kForceSightPulsePeriod = 2.048f;
 
 void SceneGraph::update(float dt) {
     _forceSightPhase = std::fmod(_forceSightPhase + dt, kForceSightPulsePeriod);
+    _textureTime += dt;
     if (_updateRoots) {
         for (auto &root : _modelRoots) {
             root->update(dt);
@@ -189,7 +190,7 @@ float SceneGraph::forceSightPulse() const {
 void SceneGraph::cullRoots() {
     const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        if (!root->isEnabled() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
+        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
             root->setCulled(true);
             continue;
         }
@@ -825,6 +826,8 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
     float maxDistance = glm::length(originToDest);
     float minDistance = std::numeric_limits<float>::max();
 
+    // Every room and every object walkmesh is tested, however far the line
+    // runs from its ends.
     for (auto &root : _walkmeshRoots) {
         if (!root->isEnabled()) {
             continue;
@@ -832,16 +835,9 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         glm::vec3 originLocal;
         glm::vec3 dirLocal;
         if (root->walkmesh().isAreaWalkmesh()) {
-            if (!root->walkmesh().contains(origin) &&
-                !root->walkmesh().contains(dest)) {
-                continue;
-            }
             originLocal = origin;
             dirLocal = dir;
         } else {
-            if (root->getSquareDistanceTo(origin) > kMaxCollisionDistanceLineOfSight2) {
-                continue;
-            }
             originLocal = root->absoluteTransformInverse() * glm::vec4 {origin, 1.0f};
             dirLocal = root->absoluteTransformInverse() * glm::vec4 {dir, 0.0f};
         }
@@ -858,6 +854,47 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         minDistance = raycast.distance;
     }
 
+    return minDistance != std::numeric_limits<float>::max();
+}
+
+bool SceneGraph::testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const {
+    const auto originToDest = dest - origin;
+    const float maxDistance = glm::length(originToDest);
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    const auto dir = originToDest / maxDistance;
+    float minDistance = std::numeric_limits<float>::max();
+    for (auto &root : _walkmeshRoots) {
+        if (!root->isEnabled() || !root->walkmesh().isAreaWalkmesh()) {
+            continue;
+        }
+        auto raycast = root->walkmesh().raycast(_lineOfSightSurfaces, origin, dir, maxDistance, /*ignoreBackface=*/false);
+        if (raycast.fail || raycast.distance > minDistance) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + raycast.distance * dir;
+        outCollision.normal = root->walkmesh().normals[raycast.face];
+        outCollision.material = root->walkmesh().materials[raycast.face];
+        minDistance = raycast.distance;
+    }
+    for (auto &root : _modelRoots) {
+        const auto usage = root->usage();
+        if (!root->isEnabled() || (usage != ModelUsage::Creature && usage != ModelUsage::Placeable && usage != ModelUsage::Door) ||
+            std::find(excluded.begin(), excluded.end(), root->user()) != excluded.end()) {
+            continue;
+        }
+        auto share = root->intersectSegment(origin, dest);
+        if (!share || *share * maxDistance > minDistance) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + *share * originToDest;
+        outCollision.normal = -dir;
+        outCollision.material = -1;
+        minDistance = *share * maxDistance;
+    }
     return minDistance != std::numeric_limits<float>::max();
 }
 

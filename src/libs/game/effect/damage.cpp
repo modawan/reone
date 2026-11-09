@@ -61,10 +61,6 @@ static constexpr size_t kResolutionValueCount = 20;
 static constexpr uint16_t kDeathScriptEvent = 10;
 static constexpr uint64_t kDestroyDelayMilliseconds = 2000;
 
-// The doors a destroyed door is linked to: another door or a waypoint.
-static constexpr int kLinkedToDoor = 1;
-static constexpr int kLinkedToWaypoint = 2;
-
 // A dying player character loses or gains a hit point every round.
 static constexpr float kRoundSeconds = 6.0f;
 static constexpr float kMinimumDyingRate = 0.1f;
@@ -765,6 +761,10 @@ EffectApplicationResult DamageEffect::onApply(Object &object, EffectInstance &in
     if (amount > 0 && creature) {
         creature->removeMindTrickEffects();
     }
+    // The damage counts before difficulty, lethal or not.
+    if (application->amount > 0 && creature) {
+        creature->disturbCast(application->amount);
+    }
     // The damage line goes to the party unless the hit that caused it has
     // already told it. A door or container always tells the effect's own
     // amounts.
@@ -776,7 +776,7 @@ EffectApplicationResult DamageEffect::onApply(Object &object, EffectInstance &in
         addDamageFeedback(object.game(), creator, object, application->effectAmounts);
     }
     if (object.isRuntimeLive()) {
-        object.applyDamageEffect(amount, creator, reaction);
+        object.applyDamageEffect(amount, application->amount, creator, reaction);
     }
     return EffectApplicationResult::Applied;
 }
@@ -910,7 +910,8 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
         return EffectApplicationResult::Applied;
     }
     if (auto *creature = dyn_cast<Creature>(&object)) {
-        return creature->applyDeathEffect(instance.boundCreator(), instance.integerParameter(2) != 0, instance)
+        return creature->applyDeathEffect(instance.boundCreator(), instance.integerParameter(0) != 0,
+                                          instance.integerParameter(2) != 0, instance)
                    ? EffectApplicationResult::Applied
                    : EffectApplicationResult::Rejected;
     }
@@ -934,7 +935,7 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
         door->enterDestroyedState();
         // A door linked to another door or to a waypoint destroys the door of
         // that tag in its area too.
-        if (door->linkedToFlags() == kLinkedToDoor || door->linkedToFlags() == kLinkedToWaypoint) {
+        if (door->isLinked()) {
             auto linked = object.spatialArea()->get().getObjectByTag(door->linkedTo());
             auto linkedDoor = std::dynamic_pointer_cast<Door>(linked);
             if (linkedDoor && linkedDoor->state() != DoorState::Destroyed) {

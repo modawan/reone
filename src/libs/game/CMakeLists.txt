@@ -44,6 +44,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/movetopoint.h
     ${GAME_INCLUDE_DIR}/action/opencontainer.h
     ${GAME_INCLUDE_DIR}/action/opendoor.h
+    ${GAME_INCLUDE_DIR}/action/orientcamera.h
     ${GAME_INCLUDE_DIR}/action/pickupitem.h
     ${GAME_INCLUDE_DIR}/action/playanimation.h
     ${GAME_INCLUDE_DIR}/action/putdownitem.h
@@ -299,6 +300,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/selectoverlay.h
     ${GAME_INCLUDE_DIR}/gui/sounds.h
     ${GAME_INCLUDE_DIR}/gui/statussummary.h
+    ${GAME_INCLUDE_DIR}/gui/store.h
     ${GAME_INCLUDE_DIR}/journal.h
     ${GAME_INCLUDE_DIR}/statussummary.h
     ${GAME_INCLUDE_DIR}/location.h
@@ -372,6 +374,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action/doors.cpp
     ${GAME_SOURCE_DIR}/action/items.cpp
     ${GAME_SOURCE_DIR}/action/movement.cpp
+    ${GAME_SOURCE_DIR}/action/orientcamera.cpp
     ${GAME_SOURCE_DIR}/action/usefeat.cpp
     ${GAME_SOURCE_DIR}/action/useskill.cpp
     ${GAME_SOURCE_DIR}/action/usetalent.cpp
@@ -461,6 +464,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/selectoverlay.cpp
     ${GAME_SOURCE_DIR}/gui/sounds.cpp
     ${GAME_SOURCE_DIR}/gui/statussummary.cpp
+    ${GAME_SOURCE_DIR}/gui/store.cpp
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
     ${GAME_SOURCE_DIR}/listenpattern.cpp

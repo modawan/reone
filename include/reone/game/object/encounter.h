@@ -112,11 +112,16 @@ public:
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
     /** Whether a point lies within the encounter's area, in the XY plane. */
     bool contains(const glm::vec3 &point) const;
+    /** Whether the step from \p from to \p to crosses the outline of the encounter's area, in the XY plane. */
+    bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     /**
      * Note where a creature now stands. Entering or leaving the area signals
-     * the encounter when announce is set; entering may start a wave.
+     * the encounter when announce is set; entering may start a wave. A step
+     * from \p from that crosses the outline and ends on the side it began on
+     * signals an entry and an exit: an exit first for a creature inside.
      */
-    void updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce);
+    void updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce,
+                         std::optional<glm::vec3> from = std::nullopt);
     /** Forget a creature leaving the world, without running OnExit. */
     void forgetOccupant(uint32_t objectId) { _occupants.erase(objectId); }
     /**

@@ -386,12 +386,12 @@ TEST(CombatEffectSource, independent_effects_use_canonical_effect_ids) {
     first.id = 10;
     EffectInstance second;
     second.id = 11;
-    EffectModifierReducer reducer;
+    EffectSourceSlots slots {36};
 
-    reducer.addIncrease(getEffectSourceKey(first), 0, 3);
-    reducer.addIncrease(getEffectSourceKey(second), 0, 4);
+    slots.add(getEffectSourceKey(first), 3);
+    slots.add(getEffectSourceKey(second), 4);
 
-    EXPECT_EQ(reducer.totalIncrease(20), 7);
+    EXPECT_EQ(slots.total(), 7);
 }
 
 TEST(CombatEffectSource, one_spell_groups_by_canonical_spell_id) {
@@ -401,12 +401,12 @@ TEST(CombatEffectSource, one_spell_groups_by_canonical_spell_id) {
     EffectInstance stronger;
     stronger.id = 11;
     stronger.spellId = 42;
-    EffectModifierReducer reducer;
+    EffectSourceSlots slots {36};
 
-    reducer.addIncrease(getEffectSourceKey(weaker), 0, 3);
-    reducer.addIncrease(getEffectSourceKey(stronger), 0, 5);
+    slots.add(getEffectSourceKey(weaker), 3);
+    slots.add(getEffectSourceKey(stronger), 5);
 
-    EXPECT_EQ(reducer.totalIncrease(20), 5);
+    EXPECT_EQ(slots.total(), 5);
 }
 
 TEST(CombatEffectSource, item_grouping_uses_exact_runtime_incarnation) {
@@ -427,14 +427,11 @@ TEST(CombatEffectSource, item_grouping_uses_exact_runtime_incarnation) {
     other->setSaveFacingCreator(secondItem);
     target->applyEffect(other, DurationType::Permanent);
 
-    EffectModifierReducer reducer;
+    EffectSourceSlots slots {36};
     for (const EffectInstance &instance : target->effects()) {
-        reducer.addIncrease(
-            getEffectSourceKey(instance),
-            instance.integerParameter(1),
-            instance.integerParameter(0));
+        slots.add(getEffectSourceKey(instance), instance.integerParameter(0));
     }
-    EXPECT_EQ(reducer.totalIncrease(20), 9);
+    EXPECT_EQ(slots.total(), 9);
     EXPECT_EQ(target->effects()[0].boundCreator(), firstItem);
     EXPECT_NE(
         getEffectSourceKey(target->effects()[0]).value,
@@ -570,6 +567,10 @@ TEST(CombatDifficulty, loads_retail_damage_multipliers_once) {
         .row({"13", "Default", ""});
     auto table = std::shared_ptr<TwoDA>(builder.build());
     EXPECT_CALL(twoDas, get("difficultyopt")).WillOnce(Return(table));
+    TwoDA::Builder settingsBuilder;
+    settingsBuilder.columns({"name", "normal"}).row({"MinHP1", ""});
+    auto settings = std::shared_ptr<TwoDA>(settingsBuilder.build());
+    EXPECT_CALL(twoDas, get("diffsettings")).WillOnce(Return(settings));
 
     DifficultyOptions options(twoDas);
     options.init();

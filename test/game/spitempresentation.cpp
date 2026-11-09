@@ -43,7 +43,7 @@ TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_sele
                                                 .row({"2", "armor"})
                                                 .row({"2", "armor"})
                                                 .build());
-    // The game reads its rule tables when it starts; the others are missing.
+    // The tables are read at start-up; the others are missing.
     EXPECT_CALL(engine.resourceModule().twoDas(),
                 get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
                           "excitedduration", "poison", "statescripts", "removefxondeath", "exptable",

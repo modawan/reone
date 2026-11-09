@@ -17,6 +17,7 @@
 
 #include "reone/game/gui/partyselect.h"
 
+#include <array>
 #include <utility>
 
 #include "reone/game/di/services.h"
@@ -51,6 +52,9 @@ static constexpr int kMaxFollowerCount = 2;
 
 static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
+static constexpr int kStrRefCannotChangeHere = 108426;
+static constexpr int kStrRefCannotChangeInCombat = 126692;
+static constexpr int kStrRefCannotChangeWhileUnconscious = 126693;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 // Neither game specifies an in-party colour in the layout. K1 uses green
@@ -77,15 +81,7 @@ void PartySelection::onGUILoaded() {
         // LBL_BAR1 and LBL_BAR2 are not a section-title strip here: they are
         // authored twenty pixels apart with the available-slot count centred
         // between them. Collapsing them the way the in-game menus do strands
-        // the count below the strip, so the bars keep their authored places
-        // and only take the shell tint.
-        tintK2InGameHeader();
-        for (auto &control : {
-                 _controls.LBL_NA0, _controls.LBL_NA1, _controls.LBL_NA2, _controls.LBL_NA3,
-                 _controls.LBL_NA4, _controls.LBL_NA5, _controls.LBL_NA6, _controls.LBL_NA7,
-                 _controls.LBL_NA8, _controls.LBL_NA9, _controls.LBL_NA10, _controls.LBL_NA11}) {
-            control->setTintBorderFill(true);
-        }
+        // the count below the strip, so the bars keep their authored places.
         useK2ShellTitle(_controls.LBL_TITLE);
         for (auto &button : {_controls.BTN_ACCEPT, _controls.BTN_DONE, _controls.BTN_BACK}) {
             enableK2ButtonBodyFill(button);
@@ -113,7 +109,17 @@ void PartySelection::bindEventHandlers() {
                 selectedNpcs.push_back(npc);
             }
         }
+        std::array<bool, kMaxNpcCount> wasMember {};
+        for (int npc = 0; npc < npcCount(); ++npc) {
+            wasMember[npc] = _game.party().isMember(npc);
+        }
         _game.reconcilePartySelection(selectedNpcs);
+        // A companion that left the party goes with the screen.
+        for (int npc = 0; npc < npcCount(); ++npc) {
+            if (wasMember[npc] && !_game.party().isMember(npc)) {
+                _materialized[npc] = true;
+            }
+        }
         releaseMaterialized();
         _game.openInGame();
         if (!_context.exitScript.empty()) {
@@ -169,6 +175,10 @@ void PartySelection::bindEventHandlers() {
 }
 
 void PartySelection::prepare(const PartySelectionContext &ctx) {
+    // In KotOR the screen opens with the player character leading.
+    if (!_game.isTSL()) {
+        _game.party().leadWithPlayerCharacter();
+    }
     _gui->setEventListener(*this);
     bindEventHandlers();
     _game.requestTutorialWindow(kPartySelectionTutorial);
@@ -308,7 +318,29 @@ int PartySelection::npcCount() const {
     return _game.isTSL() ? kTSLNpcCount : kKotorNpcCount;
 }
 
+std::optional<int> PartySelection::partyLockStrRef() const {
+    if (!_game.isTSL() || _context.openedByScript) {
+        return std::nullopt;
+    }
+    const Party &party = _game.party();
+    auto player = party.player();
+    if (_game.module()->area()->isUnescapable() || (player && !player->isPlayerCreated())) {
+        return kStrRefCannotChangeHere;
+    }
+    if (!party.isReadyToTravel()) {
+        return kStrRefCannotChangeWhileUnconscious;
+    }
+    if (party.isInCombat()) {
+        return kStrRefCannotChangeInCombat;
+    }
+    return std::nullopt;
+}
+
 void PartySelection::onAcceptButtonClick() {
+    if (auto lockStrRef = partyLockStrRef()) {
+        _game.showMessagePopup(_services.resource.strings.getText(*lockStrRef));
+        return;
+    }
     if (_selectedNpc == -1)
         return;
 
@@ -329,7 +361,7 @@ void PartySelection::clearSelection() {
 }
 
 // Leaving the screen destroys each companion it brought into being that did
-// not join the party.
+// not join the party, and each that left the party.
 void PartySelection::releaseMaterialized() {
     for (int npc = 0; npc < npcCount(); ++npc) {
         if (_materialized[npc] && !_game.party().isMember(npc)) {

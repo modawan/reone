@@ -194,8 +194,6 @@ const char *argKindToString(ArgKind kind) {
         return "ScriptVar";
     case ArgKind::UserDefinedEventNumber:
         return "UserDefinedEventNumber";
-    case ArgKind::ClickingObject:
-        return "ClickingObject";
     case ArgKind::LastClosedBy:
         return "LastClosedBy";
     case ArgKind::LastOpenedBy:
@@ -222,8 +220,6 @@ const char *argKindToString(ArgKind kind) {
         return "LastAttacker";
     case ArgKind::LastDamager:
         return "LastDamager";
-    case ArgKind::LastDisarmed:
-        return "LastDisarmed";
     case ArgKind::SpellId:
         return "SpellId";
     case ArgKind::SpellLocation:
@@ -273,9 +269,6 @@ Argument Argument::fromString(std::string str) {
     if (kind == "UserDefinedEventNumber") {
         return {ArgKind::UserDefinedEventNumber, Variable::ofInt(std::stoi(value))};
     }
-    if (kind == "ClickingObject") {
-        return {ArgKind::ClickingObject, Variable::ofObject(std::stoul(value))};
-    }
     if (kind == "LastClosedBy") {
         return {ArgKind::LastClosedBy, Variable::ofObject(std::stoul(value))};
     }
@@ -314,9 +307,6 @@ Argument Argument::fromString(std::string str) {
     }
     if (kind == "LastDamager") {
         return {ArgKind::LastDamager, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "LastDisarmed") {
-        return {ArgKind::LastDisarmed, Variable::ofObject(std::stoul(value))};
     }
     if (kind == "SpellId") {
         return {ArgKind::SpellId, Variable::ofInt(std::stoul(value))};
@@ -361,7 +351,6 @@ Argument Argument::fromString(std::string str) {
 void Argument::verify() {
     switch (kind) {
     case ArgKind::Caller:
-    case ArgKind::ClickingObject:
     case ArgKind::LastClosedBy:
     case ArgKind::LastOpenedBy:
     case ArgKind::LastDisturbed:
@@ -369,7 +358,6 @@ void Argument::verify() {
     case ArgKind::LastPerceived:
     case ArgKind::LastUsedBy:
     case ArgKind::LastAttacker:
-    case ArgKind::LastDisarmed:
     case ArgKind::LastDamager: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
             throw std::invalid_argument(toString() + ": expected an object != self");

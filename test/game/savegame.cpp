@@ -1475,19 +1475,21 @@ TEST_P(LoadTransactionFixture, retailShapedTemplateAutosaveRestoresAPlayableFres
                              "Mod_MinPerHour", 2))
                          .build();
     auto spawned = Gff::Builder()
-                       .field(Gff::Field::newCExoString("Tag", "fresh_spawn"))
                        .field(Gff::Field::newResRef(
                            "TemplateResRef", "fresh_spawn"))
-                       .field(Gff::Field::newResRef(
-                           "ScriptSpawn", "spawn_probe"))
-                       .field(Gff::Field::newDword(
-                           "Appearance_Type", 0))
-                       .field(Gff::Field::newWord(
-                           "SoundSetFile", 0xffff))
-                       .field(Gff::Field::newByte("BodyBag", 0xff))
-                       .field(Gff::Field::newByte(
-                           "PerceptionRange", 0xff))
                        .build();
+    auto spawnedTemplate = Gff::Builder()
+                               .field(Gff::Field::newCExoString("Tag", "fresh_spawn"))
+                               .field(Gff::Field::newResRef(
+                                   "ScriptSpawn", "spawn_probe"))
+                               .field(Gff::Field::newDword(
+                                   "Appearance_Type", 0))
+                               .field(Gff::Field::newWord(
+                                   "SoundSetFile", 0xffff))
+                               .field(Gff::Field::newByte("BodyBag", 0xff))
+                               .field(Gff::Field::newByte(
+                                   "PerceptionRange", 0xff))
+                               .build();
     auto startWaypoint = Gff::Builder()
                              .field(Gff::Field::newCExoString(
                                  "Tag", "autosave_start"))
@@ -1507,10 +1509,10 @@ TEST_P(LoadTransactionFixture, retailShapedTemplateAutosaveRestoresAPlayableFres
                          .field(Gff::Field::newList(
                              "WaypointList", {startWaypoint}))
                          .build();
-    // An instance placed from a template needs its template; an empty one is
-    // enough, the instance's own fields overlay it.
+    // An instance placed from a template takes everything but where it
+    // stands from its template.
     ON_CALL(engine.resourceModule().gffs(), get("fresh_spawn", ResType::Utc))
-        .WillByDefault(Return(Gff::Builder().build()));
+        .WillByDefault(Return(spawnedTemplate));
 
     auto &director = engine.resourceModule().director();
     EXPECT_CALL(director, prepareGameLoad(_))

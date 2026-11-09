@@ -17,6 +17,10 @@
 
 #include "reone/game/d20/skills.h"
 
+#include <algorithm>
+
+#include "reone/game/d20/attributes.h"
+#include "reone/game/d20/class.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
@@ -44,9 +48,10 @@ void Skills::init() {
         skill->name = std::move(name);
         skill->description = std::move(description);
         skill->icon = std::move(icon);
-        // The untrained and all-classes flags are the low bits of their cells.
+        // The untrained, all-classes and hostile flags are the low bits of their cells.
         skill->untrained = (skills->getInt(row, "untrained", 0) & 1) != 0;
         skill->allClassesCanUse = (skills->getInt(row, "allclassescanuse", 0) & 1) != 0;
+        skill->hostile = (skills->getInt(row, "hostileskill", 0) & 1) != 0;
         const auto key = skills->getString(row, "keyability");
         if (key == "DEX") {
             skill->keyAbility = Ability::Dexterity;
@@ -66,6 +71,50 @@ void Skills::init() {
 std::shared_ptr<Skill> Skills::get(SkillType type) const {
     auto it = _skills.find(type);
     return it != _skills.end() ? it->second : nullptr;
+}
+
+bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttributes &attributes, bool tsl) {
+    // A skill past the skills table cannot be used.
+    std::shared_ptr<Skill> rules(skills.get(skill));
+    if (!rules) {
+        return false;
+    }
+    // In TSL, the camouflage powers and the personal cloaking shield let a
+    // character use Stealth.
+    if (tsl && skill == SkillType::Stealth &&
+        (attributes.hasSpell(SpellType::ForceCamouflage) ||
+         attributes.hasSpell(SpellType::ImprovedForceCamouflage) ||
+         attributes.hasSpell(SpellType::MasterForceCamouflage) ||
+         attributes.hasFeat(FeatType::PersonalCloakingShield))) {
+        return true;
+    }
+    if (rules->untrained) {
+        const auto &classLevels = attributes.classLevels();
+        return std::any_of(classLevels.begin(), classLevels.end(), [&rules](const auto &classLevel) {
+            return rules->allClassesCanUse || classLevel.first->hasSkills();
+        });
+    }
+    return attributes.getSkillRank(skill) > 0;
+}
+
+bool canCreatureUseSkill(
+    const ISkills &skills,
+    int skill,
+    const CreatureAttributes &attributes,
+    const std::function<bool(FeatType)> &hasFeat,
+    bool tsl) {
+    // A Demolitions sub-skill is looked up as Demolitions, but no class's
+    // skills table lists it, so it is never used untrained.
+    if (skill >= static_cast<int>(SubSkill::FlagTrap) && skill <= static_cast<int>(SubSkill::ExamineTrap)) {
+        const auto rules = skills.get(SkillType::Demolitions);
+        return rules && !rules->untrained && attributes.getSkillRank(SkillType::Demolitions) > 0;
+    }
+    // In TSL, the stealth feat counts for Stealth also when an effect grants it.
+    if (tsl && skill == static_cast<int>(SkillType::Stealth) && skills.get(SkillType::Stealth) &&
+        hasFeat(FeatType::PersonalCloakingShield)) {
+        return true;
+    }
+    return canUseSkill(skills, static_cast<SkillType>(skill), attributes, tsl);
 }
 
 } // namespace game

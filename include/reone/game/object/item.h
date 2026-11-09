@@ -52,6 +52,8 @@ public:
     static constexpr int kCreditsItemType = 23;
     static constexpr int kStimItemType = 25;
     static constexpr int kDroidRepairItemType = 26;
+    /** Security spikes, which add to an unlock and offer themselves on a locked object's menu. */
+    static constexpr int kSecuritySpikeItemType = 27;
     static constexpr int kTrapKitItemType = 28;
     /** Body armour of armour classes 4 to 9, the first of six item types. */
     static constexpr int kArmorClass4ItemType = 31;
@@ -183,6 +185,12 @@ public:
     bool isEquippable() const;
     bool isEquippable(int slot) const;
     bool isStackCompatibleWith(const Item &other) const;
+    /**
+     * Whether \p other is the same item: base item, tag, name, plot flag,
+     * charges, upgrades, stolen flag and model variations alike, its use
+     * properties alike in order, and its other properties alike in order.
+     */
+    bool isIdenticalTo(const Item &other) const;
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }
     bool isDropable() const { return _dropable; }
@@ -196,6 +204,9 @@ public:
     /** Bit per subrace that cannot equip the base item. */
     uint32_t deniedSubraces() const { return _deniedSubraces; }
     bool isIdentified() const { return _identified; }
+    /** The party took the item in and has not yet looked at it in the inventory. */
+    bool isNewlyAcquired() const { return _newlyAcquired; }
+    void setNewlyAcquired(bool newlyAcquired) { _newlyAcquired = newlyAcquired; }
     bool isEquipped() const { return _equipped; }
     bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
     /** Whether the base item is a ranged weapon (baseitems.2da RangedWeapon). */
@@ -212,12 +223,8 @@ public:
     int weaponMaterialType() const { return _weaponMaterialType; }
     /** The base item's armour sound material, lower case. */
     const std::string &armorType() const { return _armorType; }
-    int damageFlags() const {
-        // A zero or missing base-item damage flag selects bludgeoning.
-        return _damageFlags != 0
-                   ? _damageFlags
-                   : static_cast<int>(DamageType::Bludgeoning);
-    }
+    /** The base item's damage flags: without any, Universal in KotOR and Bludgeoning in TSL. */
+    int damageFlags() const { return _damageFlags; }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
     int numDice() const { return _numDice; }
@@ -242,6 +249,8 @@ public:
     /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
     int cost(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
+    /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
+    int storePanelSort() const { return _storePanelSort; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
@@ -345,6 +354,9 @@ public:
     void setDropable(bool dropable);
     void setStackSize(int size);
     void setIdentified(bool value);
+    /** Whether a store holds the item without end: a stack that never runs out. */
+    bool isInfinite() const { return _infinite; }
+    void setInfinite(bool infinite) { _infinite = infinite; }
     void setEquipped(bool equipped);
 
     uint32_t owner() const { return _ownerId; }
@@ -368,11 +380,13 @@ private:
     uint16_t _stackSize {1};
     uint32_t _upgrades {0};
     bool _identified {true};
+    bool _infinite {false};
     uint8_t _modelVariation {0};
     uint8_t _bodyVariation {0};
     uint8_t _textureVariation {0};
     bool _dropable {false};
     bool _nonEquippable {false};
+    bool _newlyAcquired {false};
     // END Serializable
 
     uint32_t _ownerId {script::kObjectInvalid};
@@ -429,6 +443,7 @@ private:
 
     std::optional<SpellType> _activateSpell;
     int _itemType {0};
+    int _storePanelSort {0};
     int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
     std::shared_ptr<audio::AudioSource> _audioSource;

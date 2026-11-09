@@ -34,6 +34,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/shaperules.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -236,6 +237,13 @@ bool AreaOfEffect::contains(const glm::vec3 &point) const {
     return true;
 }
 
+bool AreaOfEffect::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
+    if (_shape == Shape::Circle) {
+        return shape::crossesSphere(from, to, center(), _radius);
+    }
+    return shape::crossesOutline(glm::vec2(from), glm::vec2(to), _corners);
+}
+
 void AreaOfEffect::update(float dt) {
     updateStampedHeartbeat(_onHeartbeat);
     if (isCarried() && _shape == Shape::Circle) {
@@ -272,10 +280,15 @@ void AreaOfEffect::scanOccupants(bool announce) {
     });
 }
 
-void AreaOfEffect::updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce) {
+void AreaOfEffect::updateOccupancy(const std::shared_ptr<Creature> &creature, bool announce, std::optional<glm::vec3> from) {
     const bool inside = contains(creature->position());
     const bool known = _occupants.count(creature->id()) != 0;
     if (inside == known) {
+        // A step that passes through the edge signals both, in the order it
+        // crossed.
+        if (announce && from && crosses(*from, creature->position())) {
+            _game.queuePassage(*this, creature, inside);
+        }
         return;
     }
     if (inside) {
@@ -342,7 +355,7 @@ void AreaOfEffect::receiveExitedSignal(const std::shared_ptr<Object> &exiting) {
 }
 
 void AreaOfEffect::destroy() {
-    _game.postObjectDestruction(*this, std::nullopt, 0.0f, true);
+    _game.postObjectDestruction(*this, script::kObjectInvalid, 0.0f, true);
 }
 
 EffectApplicationResult AreaOfEffectEffect::onApply(Object &object, EffectInstance &instance) {
@@ -365,7 +378,7 @@ EffectApplicationResult AreaOfEffectEffect::onApply(Object &object, EffectInstan
 void AreaOfEffectEffect::onRemove(Object &object, const EffectInstance &instance) {
     if (isa<Creature>(&object)) {
         if (auto areaOfEffect = instance.boundObjectParameter(0)) {
-            object.game().postObjectDestruction(*areaOfEffect, std::nullopt, 0.0f, true);
+            object.game().postObjectDestruction(*areaOfEffect, script::kObjectInvalid, 0.0f, true);
         }
     }
 }

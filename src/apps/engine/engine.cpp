@@ -44,6 +44,16 @@ namespace reone {
 
 static const std::string kMainThreadName {"main"};
 
+// Window coordinates are scaled to screen coordinates by the window scale,
+// a percentage.
+static constexpr int scaleWinCoord(int coord, int winScale) {
+    return coord * 100 / winScale;
+}
+
+static constexpr int unscaleWinCoord(int coord, int winScale) {
+    return coord * winScale / 100;
+}
+
 static constexpr int kProfilerInputTimeIndex = 0;
 static constexpr int kProfilerUpdateTimeIndex = 1;
 static constexpr int kProfilerRenderGraphicsTimeIndex = 2;
@@ -288,6 +298,11 @@ int Engine::run() {
             bool relmouse = _game->relativeMouseMode();
             showCursor(showcur);
             setRelativeMouseMode(relmouse);
+            // The cursor is moved once the mouse is free to go there.
+            if (auto warp = _game->consumePointerWarp()) {
+                _window->warpMouse(unscaleWinCoord(warp->x, _options.graphics.winScale),
+                                   unscaleWinCoord(warp->y, _options.graphics.winScale));
+            }
             _profiler->update(frameTime);
         });
         _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this, &quit]() {
@@ -477,10 +492,6 @@ void Engine::setRelativeMouseMode(bool relative) {
     }
     _window->setRelativeMouseMode(relative);
     _relativeMouseMode = relative;
-}
-
-static constexpr int scaleWinCoord(int coord, int winScale) {
-    return coord * 100 / winScale;
 }
 
 std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent) const {

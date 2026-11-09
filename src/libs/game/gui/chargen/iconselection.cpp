@@ -75,7 +75,6 @@ std::shared_ptr<IconChain> addIconSelectionChain(
         chain->setHilight(sourceList.border());
         chain->setHilightColor(hilightColor);
     }
-    chain->setTintBorderFill(game.isTSL());
     float layoutScale = gui.scale();
     auto scrollBar = sourceList.scrollBarOrNull();
     if (scrollBar) {

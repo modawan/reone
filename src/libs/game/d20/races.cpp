@@ -54,6 +54,7 @@ void Races::init(ITwoDAs &twoDas) {
         }
         // A blank favoured class names none.
         race.favoredClass = races->getInt(row, "favored", kNoFavoredClass) & 0xff;
+        race.playerRace = races->getInt(row, "playerrace", 0) != 0;
 
         std::string featsTable(boost::to_lower_copy(races->getString(row, "featstable")));
         if (featsTable.empty()) {

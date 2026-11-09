@@ -19,6 +19,7 @@
 
 #include <array>
 #include <functional>
+#include <optional>
 
 #include "reone/graphics/aabb.h"
 #include "reone/graphics/walkmesh.h"
@@ -192,6 +193,11 @@ void insertAvoidanceWay(std::vector<glm::vec3> &points, uint32_t &next, int entr
                         const std::vector<glm::vec3> &way);
 
 glm::vec3 computeKeepoutForce(const Uniwalk &uni, const glm::vec3 &position);
+
+/// Height of the walkable face under (x, y) that lies nearest to \p nearZ,
+/// searched over every room of the unified walkmesh. Empty when no face lies
+/// under (x, y).
+std::optional<float> walkmeshElevationAt(const Uniwalk &uni, const glm::vec2 &xy, float nearZ);
 
 } // namespace game
 

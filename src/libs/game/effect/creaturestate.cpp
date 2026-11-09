@@ -128,34 +128,6 @@ bool hasStateSpecificImmunity(const Creature &target, CreatureState state, std::
     return false;
 }
 
-bool hasStateImmunity(const Creature &target, CreatureState state, std::optional<std::reference_wrapper<const Creature>> creator) {
-    if (hasStateSpecificImmunity(target, state, creator)) {
-        return true;
-    }
-    switch (state) {
-    case CreatureState::DroidStun:
-        return target.hasEffectImmunity(ImmunityType::Stun, creator) ||
-               target.hasEffectImmunity(ImmunityType::Dazed, creator);
-    case CreatureState::Choke:
-        return target.hasEffectImmunity(ImmunityType::All, creator);
-    case CreatureState::Horrified:
-        return target.hasEffectImmunity(ImmunityType::MindSpells, creator) ||
-               target.hasEffectImmunity(ImmunityType::Fear, creator);
-    case CreatureState::Whirlwind:
-    case CreatureState::Crush:
-    case CreatureState::DroidConfused:
-    case CreatureState::DroidScramble:
-    case CreatureState::Paralysis:
-    case CreatureState::Knockdown:
-    case CreatureState::ForcePushed:
-    case CreatureState::ForceJumpedOnto:
-    case CreatureState::None:
-        return false;
-    default:
-        return target.hasEffectImmunity(ImmunityType::MindSpells, creator);
-    }
-}
-
 bool hasSlowImmunity(const Creature &target, std::optional<std::reference_wrapper<const Creature>> creator) {
     return target.hasEffectImmunity(ImmunityType::Slow, creator);
 }
@@ -585,7 +557,8 @@ EffectApplicationResult KnockdownEffect::onApply(Object &object, EffectInstance 
         return EffectApplicationResult::Rejected;
     }
     // The dead and the downed keep the record and nothing more.
-    if (creature->isDead() || creature->isTemporarilyDead()) {
+    _holdsRound = !creature->isDead() && !creature->isTemporarilyDead();
+    if (!_holdsRound) {
         return EffectApplicationResult::Retained;
     }
     game.combat().holdKnockedDown(*creature);

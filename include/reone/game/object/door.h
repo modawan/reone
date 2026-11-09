@@ -20,12 +20,15 @@
 #include <array>
 #include <functional>
 #include <optional>
+#include <set>
 
 #include "reone/resource/format/gffreader.h"
+#include "reone/scene/animeventlistener.h"
 #include "reone/scene/node/walkmesh.h"
 
 #include "../object.h"
 
+#include "lock.h"
 #include "trap.h"
 
 namespace reone {
@@ -36,8 +39,11 @@ class Creature;
 class Trigger;
 struct AttackEventFields;
 
-class Door : public Object {
+class Door : public Object, public scene::IAnimationEventListener {
 public:
+    /** How far above the door its locked sound plays. */
+    static constexpr float kLockedSoundHeight = 1.5f;
+
     Door(
         uint32_t id,
         std::string sceneName,
@@ -76,6 +82,12 @@ public:
     void open(std::optional<std::reference_wrapper<const Object>> opener = std::nullopt);
     /** Swings the door shut, and the door it is linked to with it. */
     void close();
+    /**
+     * Shuts the door alone: it blocks the doorway at once, moving no one out
+     * of it, while its leaf swings shut. A door whose type shows no model is
+     * destroyed instead.
+     */
+    void shutAtOnce();
     /** Runs the script for being closed, with the closer as the last to close the door. */
     void onClosed(uint32_t closerId);
 
@@ -88,35 +100,39 @@ public:
 
     /** Transition the door is playing, if any. */
     DoorTransition transition() const { return _transition; }
-    /** The state the door is in or, during a transition, is moving to. */
+    /** The state the door is in or, while it swings or waits to, the state its latest swing leads to. */
     DoorState actionState() const;
 
     /**
-     * True while the door is swinging open. It has not reached its opened pose
-     * yet, so the doorway is still blocking and isOpen is still false.
+     * True while the latest swing the door was given opens it, playing or
+     * waiting. Until the door moves, the doorway still blocks and isOpen is
+     * still false.
      */
-    bool isOpening() const { return _transition == DoorTransition::Opening1 || _transition == DoorTransition::Opening2; }
+    bool isOpening() const {
+        const DoorTransition latest = latestTransition();
+        return latest == DoorTransition::Opening1 || latest == DoorTransition::Opening2;
+    }
 
     /**
-     * True while the door is swinging shut. It has not reached its closed pose
-     * yet, so the doorway is still passable and isOpen is still true.
+     * True while the latest swing the door was given shuts it, playing or
+     * waiting. Until the door moves, the doorway is still passable and isOpen
+     * is still true.
      */
-    bool isClosing() const { return _transition == DoorTransition::Closing; }
+    bool isClosing() const { return latestTransition() == DoorTransition::Closing; }
 
     /** Destruction animation and pending deletion do not change the HP predicate. */
     bool isDead() const override { return !_plot && currentHitPoints() <= 0; }
-    bool isLocked() const { return _locked; }
+    bool isLocked() const { return _lock.isLocked(); }
     bool isStatic() const { return _static; }
-    bool isKeyRequired() const { return _keyRequired; }
-    bool isAutoRemoveKey() const { return _autoRemoveKey; }
     bool isNotBlastable() const { return _notBlastable; }
 
-    const std::string &keyName() const { return _keyName; }
-    uint8_t closeLockDC() const { return _closeLockDC; }
+    /** The door's lock; its locked sound plays a metre and a half above the door. */
+    Lock &lock() { return _lock; }
+    const Lock &lock() const { return _lock; }
+    std::optional<std::reference_wrapper<Lock>> findLock() override { return std::ref(_lock); }
+    std::optional<std::reference_wrapper<const Lock>> findLock() const override { return std::cref(_lock); }
 
     void onOpen(uint32_t triggererId);
-    /** Run the script for being locked. */
-    void onLocked();
     /**
      * The door failed to open for the opener: its script for that runs, and a
      * door still locked tells the opener so, unless quiet or the door is to
@@ -124,13 +140,13 @@ public:
      */
     void onFailToOpen(uint32_t openerId, bool quiet);
     /**
-     * A creature walked up to the door: it becomes the entering object. A door
-     * linked to another module takes the party there when the clicker moves
-     * the party between modules and is neither dead nor a downed member; any
-     * other door runs its click script with the clicker as the clicking
-     * object.
+     * The door is clicked: the clicker becomes the entering object. A door
+     * linked to another module passes the party as Area::passTransition()
+     * says, hearing the click again with the transition's number
+     * (\p transition). Any other door runs its click script with the clicker
+     * as the clicking object.
      */
-    void receiveClick(const std::shared_ptr<Object> &clicker);
+    void receiveClick(const std::shared_ptr<Object> &clicker, std::optional<int> transition = std::nullopt);
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
@@ -148,12 +164,16 @@ public:
     // Traps
 
     bool isTrapped() const { return _trap.isArmed(); }
+    /** Whether the object counts among the area's traps; see Trap::countsAsAreaTrap(). */
+    bool countsAsAreaTrap() const { return _trap.countsAsAreaTrap(); }
+    /** The trap flag as it is kept; see Trap::trapFlag. */
+    uint8_t trapFlag() const { return _trap.trapFlag(); }
     bool trapDisarmable() const { return _trap.isDisarmable(); }
     bool trapDetectable() const { return _trap.isDetectable(); }
     int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
     bool trapOneShot() const { return _trap.isOneShot(); }
     int trapBaseType() const { return _trap.type(); }
-    const std::string &trapKeyTag() const { return _keyName; }
+    const std::string &trapKeyTag() const { return _lock.keyName(); }
     int trapDetectDC() const { return _trap.detectDC(_game); }
     int trapDisarmDC() const { return _trap.disarmDC(_game); }
     const Trap &trap() const { return _trap; }
@@ -165,8 +185,6 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** An armed trap goes off on the caller; forced firing skips the standing test. */
     void triggerTrap(const std::shared_ptr<Creature> &caller, bool force);
-    /** The trap is disarmed by the caller. */
-    void disarmTrap(const Object &caller) { _trap.disarm(*this, caller); }
     /** Arm a set mine; the linked mine trigger marks the trap in the world (TSL). */
     void armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
                  const std::shared_ptr<Trigger> &linkedMine,
@@ -184,9 +202,23 @@ public:
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
     uint8_t linkedToFlags() const { return _linkedToFlags; }
+    /** The door leads to another door or to a waypoint. */
+    bool isLinked() const;
     const std::string &transitionDestin() const { return _transitionDestin.str(); }
     const resource::LocString &transitionDestination() const { return _transitionDestin; }
-    const std::vector<glm::vec3> &linkedTransitionGeometry() const { return _linkedTransitionGeometry; }
+    /** The bounds of the door's closed walkmesh across the ground, as four points in its own frame; none without one. */
+    const std::vector<glm::vec3> &outline() const { return _outline; }
+    /** Whether \p point stands within the door's outline, the bounds of its closed walkmesh, across the ground. */
+    bool isInOutline(const glm::vec3 &point) const;
+    /**
+     * Notes whether \p creature stands within the door's outline. When
+     * \p announce is set, the leader stepping into it clicks the door and
+     * another party member is not counted in it until it leads; otherwise
+     * the creature is only counted.
+     */
+    void updateOutlineOccupancy(const Creature &creature, bool announce);
+    /** Forget a creature leaving the world, clicking nothing. */
+    void forgetOutlineOccupant(uint32_t objectId) { _outlineOccupants.erase(objectId); }
 
     /** The door takes its destroyed pose. */
     void enterDestroyedState();
@@ -216,7 +248,7 @@ public:
      */
     void receiveAttackEvent(uint32_t attackerId, std::optional<std::reference_wrapper<const AttackEventFields>> fields);
 
-    void setLocked(bool locked);
+    void setLocked(bool locked) { _lock.setLocked(locked); }
 
     /** Whether a creature steps right up to the door's use point to use it while it is locked. */
     bool isPreciseUse() const { return _preciseUse; }
@@ -247,8 +279,12 @@ public:
 
     void applyDamageEffect(
         int amount,
+        int dealt,
         const std::shared_ptr<Object> &damager,
         std::optional<DamageReaction> reaction) override;
+
+    /** A swing's "door" event brings the door to where it is swinging. */
+    void onEventSignalled(const std::string &name) override;
 
 private:
     friend class ModuleSnapshotBuilder;
@@ -259,15 +295,10 @@ private:
     uint8_t _appearance {0};
     uint8_t _genericType {0};
     DoorState _state {DoorState::Closed};
-    bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
     uint8_t _fort {0};
     uint8_t _will {0};
     uint8_t _ref {0};
-    std::string _keyName;
-    bool _keyRequired {false};
-    uint8_t _openLockDC {0};
-    uint8_t _closeLockDC {0};
     uint8_t _secretDoorDC {0};
     uint16_t _portraitId {0};
     uint8_t _hardness {0};
@@ -275,19 +306,16 @@ private:
     std::string _onClosed;
     std::string _onDamaged;
     std::string _onDeath;
-    std::string _onLock;
     std::string _onMeleeAttacked;
     std::string _onOpen;
     std::string _onSpellCastAt;
-    std::string _onUnlock;
     std::string _onClick;
     std::string _onFailToOpen;
     std::string _onDialog;
 
     Trap _trap {Trap::Carrier::Door};
-    bool _locked {false};
+    Lock _lock {LockDifficulty::Standard};
     uint32_t _lastEnteredId {script::kObjectInvalid};
-    bool _lockable {false};
     uint8_t _linkedToFlags {0};
     std::string _linkedTo;
     std::string _linkedToModule;
@@ -309,7 +337,9 @@ private:
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen1;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen2;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshClosed;
-    std::vector<glm::vec3> _linkedTransitionGeometry;
+    std::vector<glm::vec3> _outline;
+    /** The creatures counted as standing within the outline. */
+    std::set<uint32_t> _outlineOccupants;
 
     // END Walkmeshes
 
@@ -322,10 +352,16 @@ private:
     /**
      * The transition in flight. It names an animation to wait on and nothing
      * else: collision, pose and the open flag are read off _state alone, and
-     * _state only moves when a transition arrives. A reversal overwrites this,
-     * which is what stops the superseded transition from ever completing.
+     * _state only moves at the swing's door event or its end.
      */
     DoorTransition _transition {DoorTransition::None};
+    /**
+     * A swing given while another swing or a one-shot plays, and the
+     * animations.2da row it plays: it waits for that to end. A later one
+     * replaces it.
+     */
+    std::optional<DoorTransition> _queuedTransition;
+    std::optional<int> _queuedSwingRow;
     /** The loop a script set on the door, and its animation; none while the door shows its resting pose. */
     std::string _stateLoop;
     std::optional<int> _stateLoopAnimation;
@@ -341,7 +377,6 @@ private:
     RuntimeObjectRef<Door> _linkedDoor;
 
     void runDamagedScript();
-    void runDeathScript();
     /** Count down to a set mine's blast at the lock and to the door swinging open after it. */
     void updateMineBlast(float dt);
 
@@ -373,16 +408,23 @@ private:
      */
     std::shared_ptr<Door> linkedDoor();
     void beginTransition(DoorTransition transition);
+    /** Plays the swing of animations.2da row \p swingRow, if any, for \p transition. */
+    void playSwing(DoorTransition transition, std::optional<int> swingRow);
+    void playQueuedSwing();
+    /** The waiting swing, if any, or else the one playing. */
+    DoorTransition latestTransition() const { return _queuedTransition.value_or(_transition); }
     /**
-     * The door arrives where its transition leads. A door that has come to
-     * rest open or shut moves the creatures it no longer leaves room for.
+     * The door stands where its latest swing leads, though a swing may still
+     * play, and moves the creatures it no longer leaves room for.
      */
+    void moveToTransitionTarget();
+    /** The swing ends: the door moves, then plays the waiting swing or comes to rest. */
     void finishTransition();
     bool isTransitionComplete() const;
     static DoorState transitionTarget(DoorTransition transition);
     /** The two use points of a resting state in the world; none for a destroyed door. */
     std::optional<std::array<glm::vec3, 2>> actionPoints(DoorState state) const;
-    void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);
+    void loadOutline(const graphics::Walkmesh &walkmesh);
     void updateTransform() override;
 };
 

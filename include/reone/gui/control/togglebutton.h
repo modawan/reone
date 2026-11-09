@@ -59,12 +59,25 @@ public:
 
     void setOnColor(const glm::vec3 &color);
 
+    /**
+     * The button is drawn as a checkbox: its borders in a box at its left and
+     * its text beside the box, both in \p color, or in \p hilightColor while
+     * the button is selected. All of it still takes clicks.
+     */
+    void showAsCheckBox(const glm::vec3 &color, const glm::vec3 &hilightColor);
+
+    Extent borderExtent() const override;
+    Extent textExtent() const override;
+
 protected:
     const std::shared_ptr<Border> &shownBorder() const override;
     const std::shared_ptr<Border> &shownHilight() const override;
 
 private:
     bool _on {false};
+    bool _checkBox {false};
+    /** How many screen pixels each authored pixel of the layout covers. */
+    float _layoutScale {1.0f};
     std::optional<glm::vec3> _onColor;
     std::shared_ptr<Border> _onBorder;  /**< drawn while on, in place of the border */
     std::shared_ptr<Border> _onHilight; /**< drawn while on, in place of the hilight */

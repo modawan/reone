@@ -28,10 +28,9 @@ namespace reone {
 namespace game {
 
 /**
- * Weapon Finesse makes a weapon's attack use Dexterity. In K1 a lightsaber
- * always qualifies; otherwise, and in TSL for a lightsaber without Finesse:
- * Lightsabers, a stun baton, single sword or double-bladed sword qualifies
- * with Finesse: Melee Weapons.
+ * Weapon Finesse makes a weapon's attack use Dexterity. A lightsaber qualifies
+ * always in K1 and with Finesse: Lightsabers in TSL; a stun baton, single
+ * sword or double-bladed sword qualifies with Finesse: Melee Weapons.
  */
 constexpr bool qualifiesForWeaponFinesse(
     bool tsl,
@@ -40,25 +39,9 @@ constexpr bool qualifiesForWeaponFinesse(
     bool hasFinesseLightsabers,
     bool hasFinesseMeleeWeapons) {
 
-    if (!tsl) {
-        if (lightsaber) {
-            return true;
-        }
-        switch (weaponWield) {
-        case WeaponWield::StunBaton:
-        case WeaponWield::SingleSword:
-        case WeaponWield::DoubleBladedSword:
-            return hasFinesseMeleeWeapons;
-        default:
-            return false;
-        }
+    if (lightsaber) {
+        return !tsl || hasFinesseLightsabers;
     }
-    if (lightsaber && hasFinesseLightsabers) {
-        return true;
-    }
-
-    // TSL falls through to the ordinary wield-category test when a
-    // lightsaber user does not have Finesse: Lightsabers.
     switch (weaponWield) {
     case WeaponWield::StunBaton:
     case WeaponWield::SingleSword:
@@ -501,18 +484,6 @@ constexpr int getEffectiveArmorMaxDexterityBonus(
         return baseMaximum;
     }
     return baseMaximum + itemAdjustment;
-}
-
-/** The TSL Total Defense bonus: 6 with a qualifying class above level 3, else 4. */
-constexpr int getTotalDefenseBonus(
-    bool tsl,
-    bool totalDefense,
-    int highestQualifyingClassLevel) {
-
-    if (!tsl || !totalDefense) {
-        return 0;
-    }
-    return highestQualifyingClassLevel > 3 ? 6 : 4;
 }
 
 /** The TSL attack bonus of the lightsaber form of a lightsaber in the right hand. */

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/togglebutton.h"
@@ -35,6 +37,11 @@ class PartySelection : public GameGUI {
 public:
     PartySelection(Game &game, ServicesView &services);
 
+    /**
+     * Open the screen on the party as it stands, with the companions \p ctx
+     * forces in. In KotOR the screen first hands the lead to the player
+     * character, quietly.
+     */
     void prepare(const PartySelectionContext &ctx);
 
     /** Called whenever the screen is left, however it is left. */
@@ -178,6 +185,14 @@ private:
     gui::ToggleButton &getNpcButton(int npc);
     bool isSupportedNpc(int npc) const;
     int npcCount() const;
+    /**
+     * @return the message a party change is refused with, or none while the
+     * party may change. In TSL a selection a script opened always lets it
+     * change; otherwise the party is held as it is in an unescapable area or
+     * while the first player character is not the one the player created,
+     * then while someone in it is down, then while it is in combat.
+     */
+    std::optional<int> partyLockStrRef() const;
 
     void onAcceptButtonClick();
     void onNpcButtonClick(int npc);

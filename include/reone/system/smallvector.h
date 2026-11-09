@@ -197,8 +197,10 @@ public:
         iterator moveIt = eraseIt + 1;
         size_t moveElements = end() - moveIt;
         if (!moveElements) {
-            // Erase last, nothing to move.
-            resize(_size - 1);
+            // Erase last, nothing to move. Unlike resize(), this does not
+            // require T to be default-constructible.
+            destroy(eraseIt);
+            --_size;
             return;
         }
         destroy(eraseIt);

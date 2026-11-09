@@ -163,6 +163,10 @@ private:
     void showAutoPauseOptions(const AutoPauseOptions &options);
     void showAutoPauseDescription(int strRef);
 
+    /** Every toggle on an options panel, and every row of its option list, is a checkbox drawn in the GUI's colours. */
+    void showCheckBoxes(gui::IGUI &panel);
+    void showCheckBox(gui::Control &control);
+
     void bindControls() {
         _controls.BTN_AUTOPAUSE = findControl<gui::Button>("BTN_AUTOPAUSE");
         _controls.BTN_EXIT = findControl<gui::Button>("BTN_EXIT");

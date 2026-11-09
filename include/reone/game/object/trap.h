@@ -39,14 +39,16 @@ class Creature;
 class Game;
 class Trigger;
 
-/** A trap type (traps.2da). A blank cell, or a type outside the table, has no value. */
+/** A trap type (traps.2da). A blank cell, or a type outside the table, has no value, but for the model. */
 struct TrapTypeRow {
     /** The script that runs when the trap goes off. */
     std::string script;
-    /** The model a trap trigger shows. */
-    std::string model;
+    /** The model a trap trigger shows; v_mnfrag for a blank cell or a type outside the table. */
+    std::string model {"v_mnfrag"};
     /** The trap kit a recovered mine gives back. */
     std::string kitResRef;
+    /** The sound of a mine going off as it is removed; empty when blank. */
+    std::string explosionSound;
     std::optional<int> nameStrRef;
     std::optional<int> setDC;
     std::optional<int> detectDCMod;
@@ -55,6 +57,8 @@ struct TrapTypeRow {
 
 /** The blast of a mine set on a locked object, as it goes off. */
 struct MineBlast {
+    /** The creature that set the mine; none once it is gone. */
+    std::shared_ptr<Creature> setter;
     /** The setter's Demolitions rank. */
     int rank {0};
     /** The blast's check: a share of the rank, the mine's bonus and a roll of 20. */
@@ -120,19 +124,30 @@ public:
     /**
      * The trap goes off on the caller, unless the caller is immune to traps
      * or, without force, is not hostile to it. An armed trap tells the player
-     * when the caller is the controlled creature, runs its script and, when
-     * one-shot, is spent. Either way it is lost from sight and its mine goes.
+     * when the caller is the controlled creature, runs its script, is lost
+     * from sight and, when one-shot, is spent. A door's armed trap takes its
+     * mine with it, a placeable's only when one-shot; an unarmed trap keeps
+     * its mine.
      */
     void spring(Object &owner, Faction faction, const Creature &caller, bool force);
 
     /** An armed trap goes off on the attacker who strikes it from close by. */
     void springOnStrike(Object &owner, Faction faction, uint32_t attackerId);
 
-    /** An armed trap is disarmed by the caller and its script runs; either way it is lost from sight. */
-    void disarm(Object &owner, const Object &caller);
+    /**
+     * The trap is told it was disarmed (script event 24). A trap trigger
+     * remembers who disarmed it and runs its disarm script. An armed trap on a
+     * door or placeable is disarmed, remembers who and runs its disarm script,
+     * and still counts among the area's traps; either way no one is left
+     * having found it, and a mine set on it stays.
+     *
+     * @param owner the object that carries the trap
+     * @param disarmerId the one who disarmed it, or no object
+     */
+    void receiveDisarmSignal(Object &owner, uint32_t disarmerId);
 
-    /** Run the disarm script with the caller as the one who disarmed the trap. */
-    void runDisarmScript(Object &owner, const Object &caller);
+    /** A disarm or recover by skill takes the trap of a door or placeable out of the area's traps. */
+    void leaveAreaTraps() { _leftAreaTraps = true; }
 
     /**
      * Arm a mine set on a door or placeable. A TSL mine stands for the linked
@@ -166,10 +181,19 @@ public:
      */
     std::optional<MineBlast> updateMineBlast(float dt, int rankDivisor, int lockDC);
 
-    /** Report a mine's blast to the player. The mine is spent and its trigger goes. */
+    /** Report a mine's blast at a door to the player, its check in full. The mine is spent. */
     void reportMineBlast(Game &game, const MineBlast &blast);
 
-    bool isArmed() const { return _armed; }
+    /**
+     * Report a mine's blast at a placeable: the setter, when the player
+     * controls it, is told only that a trap went off. The mine is spent.
+     */
+    void reportPlaceableMineBlast(Game &game, const MineBlast &blast);
+
+    /** Whether the trap is armed: its flag is not 0. */
+    bool isArmed() const { return _trapFlag != 0; }
+    /** The trap flag as it is kept: any value but 0 arms the trap, and some rules ask for exactly 1. */
+    uint8_t trapFlag() const { return _trapFlag; }
     bool isDetectable() const { return _detectable; }
     bool isDisarmable() const { return _disarmable; }
     bool isOneShot() const { return _oneShot; }
@@ -177,6 +201,16 @@ public:
     int ownerDemolitionsSkill() const { return _ownerDemolitionsSkill; }
     const std::string &triggeredScript() const { return _triggeredScript; }
     const std::string &disarmScript() const { return _disarmScript; }
+    /** Who last disarmed the trap, kept from the event that says so while the object is loaded; a save does not keep it. */
+    uint32_t disarmer() const { return _disarmer; }
+    /** The TSL mine trigger that marks a mine set on the door or placeable; none once it is gone. */
+    std::shared_ptr<Trigger> linkedMine() const;
+    /**
+     * Whether the trap counts among the area's traps: while armed, and after a
+     * disarm signal disarmed it, until a disarm or recover by skill takes it
+     * out or the area is loaded again. A mine set on it counts again.
+     */
+    bool countsAsAreaTrap() const { return !_leftAreaTraps && (isArmed() || _disarmedOnSignal); }
     TrapDetection &detection() { return _detection; }
     const TrapDetection &detection() const { return _detection; }
 
@@ -200,13 +234,16 @@ private:
         ClampedByte
     };
 
+    /** The kind of object the trap is on, which sets its DC rules and defaults. */
+    Carrier _carrier;
     DCRule _detectRule;
     DCRule _disarmRule;
 
     // Serializable
 
     int _type {0};
-    bool _armed {false};
+    /** The trap flag, kept as read: any value but 0 arms the trap. */
+    uint8_t _trapFlag {0};
     bool _detectable;
     bool _disarmable;
     /** Whether the trap is spent once it goes off; the default depends on the carrier. */
@@ -220,6 +257,12 @@ private:
     // END Serializable
 
     TrapDetection _detection;
+    /** Who last disarmed the trap; none until the event that says so. */
+    uint32_t _disarmer {script::kObjectInvalid};
+    /** Whether a disarm signal disarmed the armed trap. */
+    bool _disarmedOnSignal {false};
+    /** Whether a disarm or recover by skill took the trap out of the area's traps. */
+    bool _leftAreaTraps {false};
 
     // Mine
 
@@ -236,6 +279,10 @@ private:
 
     int shiftedDC(int dc, DCRule rule, const Game &game) const;
     void removeLinkedMine(Game &game);
+    /** A mine that went off is spent: disarmed, lost from sight, and its trigger goes. */
+    void spendMine(Game &game);
+    /** Remembers who disarmed the trap and runs its disarm script. */
+    void recordDisarm(Object &owner, uint32_t disarmerId);
 };
 
 } // namespace game

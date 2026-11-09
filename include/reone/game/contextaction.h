@@ -95,6 +95,8 @@ struct ContextAction {
     PowerMenuStatus availability;
     /** A power of an equipped item in a droid leader's power menu. */
     bool equipmentPower {false};
+    /** A plot item used on a locked container in place of Security: no tutorial, and the middle column. */
+    bool containerUse {false};
     /** A form entry: selecting it makes its power the current form at once. */
     bool form {false};
     /** An implant-mode entry: selecting it switches the implant mode at once. */

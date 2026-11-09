@@ -28,11 +28,17 @@ namespace reone {
 
 namespace game {
 
-/** The guisounds.2da rows of the error, checkbox, action-menu use and action-menu scroll sounds. */
+/**
+ * The guisounds.2da rows of the error, checkbox, full-screen panel shown and
+ * taken away, action-menu use, action-menu scroll and inventory add sounds.
+ */
 static constexpr int kErrorSoundRow = 2;
 static constexpr int kCheckboxCheckSoundRow = 3;
+static constexpr int kPanelAddedSoundRow = 4;
+static constexpr int kPanelRemovedSoundRow = 5;
 static constexpr int kActionMenuUseSoundRow = 6;
 static constexpr int kActionMenuScrollSoundRow = 7;
+static constexpr int kInventoryAddSoundRow = 9;
 
 void GUISounds::init() {
     std::shared_ptr<TwoDA> sounds(_twoDas.get("guisounds"));
@@ -42,6 +48,8 @@ void GUISounds::init() {
     loadSound(*sounds, "Clicked_Default", _onClick);
     loadSound(*sounds, "Entered_Default", _onEnter);
     loadSound(*sounds, "Level_Up_Notify", _onLevelUpNotify);
+    loadSound(*sounds, "Quest_New_Notify", _questNewNotify);
+    loadSound(*sounds, "Quest_Complete_Notify", _questCompleteNotify);
     // An item chosen for, or cleared from, an equipment slot.
     loadSound(*sounds, "Inventory_Select", _inventorySelect);
     loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
@@ -54,6 +62,9 @@ void GUISounds::init() {
     _actionAccepted = _audioClips.get(sounds->getString(kActionMenuUseSoundRow, "soundresref"));
     _actionMenuScroll = _audioClips.get(sounds->getString(kActionMenuScrollSoundRow, "soundresref"));
     _checkboxCheck = _audioClips.get(sounds->getString(kCheckboxCheckSoundRow, "soundresref"));
+    _panelAdded = _audioClips.get(sounds->getString(kPanelAddedSoundRow, "soundresref"));
+    _panelRemoved = _audioClips.get(sounds->getString(kPanelRemovedSoundRow, "soundresref"));
+    _inventoryAdd = _audioClips.get(sounds->getString(kInventoryAddSoundRow, "soundresref"));
 }
 
 void GUISounds::loadSound(const TwoDA &twoDa, const std::string &label, std::shared_ptr<AudioClip> &sound) {
@@ -67,12 +78,17 @@ void GUISounds::deinit() {
     _onClick.reset();
     _onEnter.reset();
     _onLevelUpNotify.reset();
+    _questNewNotify.reset();
+    _questCompleteNotify.reset();
     _actionAccepted.reset();
     _actionUnavailable.reset();
     _actionMenuScroll.reset();
     _checkboxCheck.reset();
     _inventorySelect.reset();
     _inventoryDrop.reset();
+    _inventoryAdd.reset();
+    _panelAdded.reset();
+    _panelRemoved.reset();
     _darkSide.reset();
     _lightSide.reset();
 }

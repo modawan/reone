@@ -47,8 +47,9 @@ public:
     }
 
     /**
-     * An attack that has ended no longer holds its round, which runs out; the
-     * round's one attack is then spent. While the attack runs, it is the round.
+     * An attack holds its round until it has swung; it is then over, and its
+     * round lands its hits over the swing's pause and runs on to its end with
+     * its one attack spent.
      */
     bool holdsCombatRound() const override { return _schedule.holdsCombatRound() && !isCompleted(); }
     bool tookRoundAction() const override { return _schedule.started() && isCompleted(); }
@@ -60,6 +61,10 @@ public:
     int currentCombatAttackType() const override { return _attacks.currentCombatAttackType(); }
     AttackResultType currentCombatAttackResult() const override { return _attacks.currentRangedResult(); }
     std::optional<std::reference_wrapper<AttackBuffer>> combatAttacks() override { return std::ref(_attacks); }
+    void releaseSwingHits(Creature &attacker, int pauseLeftMilliseconds, bool flush) override {
+        releasePhysicalHits(_schedule, _attacks, _game, _services, attacker, _target.resolve(), pauseLeftMilliseconds, flush);
+    }
+    int pauseLeftAtLoadMilliseconds() const override { return _schedule.pauseLeftAtLoadMilliseconds(); }
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** A saved AttackObject command: an attack, or a use of the combat feat it names; none once the target is gone. */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);

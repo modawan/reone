@@ -33,7 +33,7 @@ struct GUI_EXTENT {
 };
 
 struct GUI_BORDER {
-    glm::vec3 COLOR {0.0f};
+    glm::vec3 COLOR {1.0f};
     std::string CORNER;
     int DIMENSION {0};
     std::string EDGE;
@@ -46,7 +46,7 @@ struct GUI_BORDER {
 
 struct GUI_TEXT {
     int ALIGNMENT {0};
-    glm::vec3 COLOR {0.0f};
+    glm::vec3 COLOR {1.0f};
     std::string FONT;
     uint8_t PULSING {0};
     uint32_t STRREF {0};

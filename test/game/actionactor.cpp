@@ -182,11 +182,8 @@ TEST(ActionActor, follow_queued_on_a_placeable_is_dropped) {
     fixture.queueAsCaller(owner, kActionForceFollowObject,
                           {script::Variable::ofObject(target->id()),
                            script::Variable::ofFloat(1.0f)});
-    ASSERT_EQ(1u, owner->actions().size());
-
-    fixture.tick(owner);
-
-    EXPECT_TRUE(owner->actions().front()->isCompleted());
+    // Only a creature follows, so nothing is queued.
+    EXPECT_TRUE(owner->actions().empty());
 }
 
 // MoveToPoint has no routine of its own, so the action is queued directly. The
@@ -242,7 +239,8 @@ TEST(ActionActor, a_creature_actor_completes_a_move_it_has_arrived_at) {
                            script::Variable::ofFloat(1.0f)});
     fixture.tick(walker);
 
-    EXPECT_TRUE(walker->actions().front()->isCompleted());
+    // A move that ends at once leaves the queue in the same update.
+    EXPECT_TRUE(walker->actions().empty());
 }
 
 TEST(ActionActor, a_creature_actor_keeps_moving_to_a_location) {

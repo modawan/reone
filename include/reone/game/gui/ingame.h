@@ -56,8 +56,13 @@ public:
     void render() override;
 
     void openEquipment();
-    /** End the equipment screen's session and forget the character it browsed. */
-    void closeEquipment();
+    /**
+     * The menu leaves its tab for \p next (None when the menu closes): the
+     * equipment screen ends its session, and what the inventory and the
+     * journal showed as new and the player looked at is no longer new. A tab
+     * opened again is not left.
+     */
+    void leaveTab(InGameMenuTab next);
     /** The roster index of the companion the equipment screen browses; -1 for the player or when it browses none. */
     int inventoryCharacter() const;
     /** The character the equipment screen shows: the browsed roster member, or else the leader. */
@@ -76,7 +81,13 @@ public:
     std::shared_ptr<gui::Button> getBtnChange2();
     std::shared_ptr<gui::Button> getBtnChange3();
 
+    /** The tab the menu shows; None before the menu is initialized. */
+    InGameMenuTab activeTab() const;
+
 private:
+    /** End the equipment screen's session and forget the character it browsed. */
+    void closeEquipment();
+
     std::unique_ptr<InGameMenuHost> _host;
     /** The equipment screen's session is open. */
     bool _equipmentOpen {false};
@@ -104,6 +115,14 @@ private:
     void loadOptions();
 
 };
+
+/**
+ * The SUBSCREEN_ID_* constant of nwscript.nss for an in-game menu tab:
+ * equipment 1, inventory 2, character 3, abilities 4, map 5, journal 6,
+ * options 7, messages 8. None and the party selection have no sub-screen id
+ * and give SUBSCREEN_ID_NONE (0).
+ */
+int subScreenId(InGameMenuTab tab);
 
 } // namespace game
 

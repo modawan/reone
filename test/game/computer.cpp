@@ -118,6 +118,9 @@ protected:
         normal = std::make_shared<NiceMock<MockGUI>>();
         camera = std::make_shared<NiceMock<MockGUI>>();
         auto &svc = engine.services();
+        // The camera overlay shows or hides its return label.
+        returnLabel = std::make_shared<Label>(*camera, svc.scene.graphs, svc.graphics, svc.resource);
+        ON_CALL(*camera, findControl("LBL_RETURN")).WillByDefault(Return(returnLabel));
         EXPECT_CALL(*camera, setBackground(_)).Times(0);
         EXPECT_CALL(engine.guiModule().guis(), get(GetParam() == GameID::KotOR ? "computer" : "computer_p", _))
             .WillOnce(Return(normal));
@@ -156,6 +159,7 @@ protected:
     std::shared_ptr<NiceMock<MockGUI>> normal;
     std::shared_ptr<NiceMock<MockGUI>> camera;
     std::shared_ptr<Label> panel;
+    std::shared_ptr<Label> returnLabel;
     std::unique_ptr<TestComputer> computer;
 };
 
