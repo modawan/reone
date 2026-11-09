@@ -715,6 +715,8 @@ public:
     void healForcePoints(int amount);
     /** Adds to the ordinary Force pool without capping it at the maximum. */
     void addCurrentForcePoints(int amount);
+    /** Sets the ordinary Force pool, leaving temporary Force points alone. */
+    void setCurrentForcePoints(int amount) { _currentForce = amount; }
     /** The Force point maximum; none for a droid or a creature without a Force-using class. */
     int maxForcePoints() const;
     void setBodyFuel(bool active) { _bodyFuel = active; }

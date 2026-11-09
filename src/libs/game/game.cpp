@@ -49,6 +49,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/creaturestate.h"
+#include "reone/game/effect/heal.h"
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/gui/hud.h"
@@ -783,7 +784,8 @@ void Game::registerConsoleCommand(std::string name, std::string description, Con
         "spawncreature", "spawncompanion", "setfaction", "setposition",
         "professionaltools", "killroom", "setability", "setskill",
         "addfeat", "removefeat", "addspell", "removespell",
-        "castspellatobject", "opendoor", "closedoor"};
+        "castspellatobject", "opendoor", "closedoor",
+        "giveitem", "heal", "invulnerability", "whereami"};
     bool marksCheatUsed = cheatCommands.count(name) != 0;
     _console.registerCommand(
         name, description,
@@ -823,6 +825,10 @@ void Game::initConsole() {
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
     registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
+    registerConsoleCommand("giveitem", "give an item to the party", &Game::consoleGiveItem);
+    registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
+    registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
+    registerConsoleCommand("whereami", "print the module and the party leader's position", &Game::consoleWhereAmI);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -9368,6 +9374,14 @@ std::shared_ptr<Creature> Game::getConsoleLeader() {
     throw std::runtime_error("No party leader");
 }
 
+// An unknown code is rejected, since an item without a template arrives blank.
+void Game::addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize) {
+    if (!_services.resource.gffs.get(resRef, ResType::Uti)) {
+        throw std::runtime_error("Unknown item: " + resRef);
+    }
+    _party.sharedInventoryReceiver(receiver)->addItem(resRef, stackSize);
+}
+
 std::shared_ptr<Area> Game::getConsoleArea() {
     std::shared_ptr<Module> mod = module();
     if (!mod) {
@@ -9492,10 +9506,7 @@ void Game::consoleKill(const ConsoleArgs &args) {
 
 void Game::consoleAddItem(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 2, "item_tpl [size]");
-    auto object = getConsoleTargetObject();
-    int stackSize = args.get<int>(2).value_or(1);
-    auto receiver = _party.sharedInventoryReceiver(object);
-    receiver->addItem(std::string(args[1].value()), stackSize);
+    addConsoleItem(getConsoleTargetObject(), std::string(args[1].value()), args.get<int>(2).value_or(1));
 }
 
 void Game::consoleGiveXP(const ConsoleArgs &args) {
@@ -9513,6 +9524,46 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     _party.giveGold(args.get<int>(1).value());
     _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
+}
+
+// The item always goes to the party, whatever is selected.
+void Game::consoleGiveItem(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "item_tpl");
+    addConsoleItem(getConsoleLeader(), std::string(args[1].value()), 1);
+}
+
+// Only the leader is healed. The resurrection effect also revives a dead leader
+// that can be raised.
+void Game::consoleHeal(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    leader->applyEffect(newEffect<ResurrectionEffect>(0), DurationType::Permanent);
+    leader->applyEffect(newEffect<HealEffect>(leader->maxHitPoints()), DurationType::Permanent);
+    leader->setCurrentForcePoints(leader->maxForcePoints());
+}
+
+// God mode is the plot flag. The whole party takes the opposite of the
+// leader's flag, so members whose flags differ end up matching.
+void Game::consoleInvulnerability(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    bool invulnerable = !leader->plotFlag();
+    for (const auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->setPlotFlag(invulnerable);
+        }
+    }
+    _console.printLine(invulnerable ? "invulnerability on" : "invulnerability off");
+}
+
+void Game::consoleWhereAmI(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    if (_module) {
+        _console.printLine("module: " + _module->name());
+    }
+    const glm::vec3 &position = leader->position();
+    _console.printLine(str(boost::format("position: (%3.2f, %3.2f, %3.2f)") % position.x % position.y % position.z));
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ
