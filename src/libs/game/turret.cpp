@@ -1825,6 +1825,14 @@ void Turret::playAnimation(Actor &actor, const std::string &name, bool looping, 
         flags |= AnimationFlags::layer;
     }
     for (auto &model : actor.models) {
+        // An animation played once that has played through plays again, as
+        // each hit on the hull bursts anew; one still playing goes on from
+        // where it is.
+        auto base = model->baseAnimationChannel();
+        if (!looping && !overlay && base && base->get().finished && boost::iequals(base->get().anim->name(), name)) {
+            model->restartAnimation(name);
+            continue;
+        }
         model->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
     }
 }
