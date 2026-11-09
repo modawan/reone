@@ -2771,8 +2771,10 @@ private:
      */
     float _walkPace {1.0f};
     float _clipPace {0.0f};
-    /** Unset for a frame that has no step to compare with. */
+    /** Where the walk's current progress check began; unset when there is no step to compare with. */
     std::optional<glm::vec3> _previousPosition;
+    /** Seconds of walking since _previousPosition was taken. */
+    float _progressTime {0.0f};
     PathAvoidance _avoidance;
     // When there is no progress on the path, apply _stuckForce to steer the
     // creature in a random direction until the timer runs out.

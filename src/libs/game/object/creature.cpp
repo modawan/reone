@@ -474,6 +474,13 @@ static constexpr float kRunClipMinimumWalkPace = 0.5f;
 // A walk given no more range than this goes onto its point: it ends on the
 // step that reaches the end of its path.
 static constexpr float kNoMoveRange = 0.001f;
+// How long a path walk is watched before judging whether it is getting
+// anywhere. Arbitrary, but it must span several frames at the highest frame
+// rate played and stay short enough for a blocked creature to react quickly.
+static constexpr float kProgressCheckInterval = 0.1f;
+// A path walk slower than this, in metres a second, is getting nowhere. One
+// centimetre per frame at 60 frames a second.
+static constexpr float kMinimumProgressSpeed = 0.6f;
 // A walk that sets out within a tenth of a metre of its point steps onto it at
 // once, whatever its range.
 static constexpr float kArrivalSnapDistance2 = 0.01f;
@@ -1295,6 +1302,7 @@ void Creature::retireAreaRuntime(
     }
     _pathVelocity = glm::vec3(0.0f);
     _previousPosition = _position;
+    _progressTime = 0.0f;
     _stuckTimer.reset(0.0f);
     _stuckForce = glm::vec3(0.0f);
     setMovementType(MovementType::None);
@@ -9338,7 +9346,18 @@ glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &ne
 
     // If we're not making progress - move in a random direction and
     // hope. If we wander off too far, the path will be recalculated.
-    const bool noProgress = _previousPosition && glm::length2(_position - *_previousPosition) < 0.0001;
+    bool noProgress = false;
+    if (_previousPosition) {
+        _progressTime += dt;
+        if (_progressTime >= kProgressCheckInterval) {
+            noProgress = glm::length(_position - *_previousPosition) < kMinimumProgressSpeed * _progressTime;
+            _previousPosition = _position;
+            _progressTime = 0.0f;
+        }
+    } else {
+        _previousPosition = _position;
+        _progressTime = 0.0f;
+    }
     if (!_stuckTimer.elapsed() || noProgress) {
         // Try to unstuck for some time even if we're moving
         // again. Otherwise desiredForce kicks in again next frame.
@@ -9357,7 +9376,6 @@ glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &ne
     } else {
         _stuckForce = glm::vec3 {0.0f, 0.0f, 0.0f};
     }
-    _previousPosition = _position;
 
     glm::vec3 combinedForce = desiredForce + 0.1f * keepoutForce + _stuckForce;
 
