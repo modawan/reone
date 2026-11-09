@@ -29,6 +29,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/closedoor.h
     ${GAME_INCLUDE_DIR}/action/docommand.h
     ${GAME_INCLUDE_DIR}/action/doorsaber.h
+    ${GAME_INCLUDE_DIR}/action/drive.h
     ${GAME_INCLUDE_DIR}/action/equipitem.h
     ${GAME_INCLUDE_DIR}/action/follow.h
     ${GAME_INCLUDE_DIR}/action/followleader.h
