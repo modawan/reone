@@ -653,7 +653,6 @@ public:
      */
     void setMusicVolume(float volume);
     /** The window has lost focus: the area music's repeat gap does not count down. */
-    void holdMusicClock() { _areaMusic.holdClock(); }
     /** Stops the loading-screen music; the track stays set for the next loading screen. */
     void stopLoadMusic();
     /**
@@ -2407,7 +2406,7 @@ private:
     bool startVideo(const std::string &name, bool streamingMusic);
     bool playNextModuleTransitionMovie();
     void updateMovie(float dt);
-    void updateMusic();
+    void updateMusic(float frameTime);
     void updatePassiveSelection(float frameTime);
     void releaseTargetOnMove(float frameTime);
     void selectPassTarget(TargetPass &pass, const Creature &leader, const Area &area, float frameTime);

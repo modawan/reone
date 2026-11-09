@@ -1214,7 +1214,7 @@ void Game::update(float frameTime) {
         updateMovie(dt);
         return;
     }
-    updateMusic();
+    updateMusic(frameTime);
 
     // Requests made by scripts, console handlers or UI code in the previous
     // update execute only after those call stacks have unwound. This precedes
@@ -5153,9 +5153,9 @@ void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 col
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
-void Game::updateMusic() {
+void Game::updateMusic(float frameTime) {
     _areaMusic.setNight(isNightTime());
-    _areaMusic.update(_soundMode != SoundMode::AllPaused);
+    _areaMusic.update(frameTime, _soundMode != SoundMode::AllPaused);
     if (_musicResRef.empty()) {
         return;
     }

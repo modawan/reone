@@ -528,33 +528,24 @@ void AreaMusicPlayer::fadeOutSounds() {
 // A track that ends is repeated after a gap: one second for battle music,
 // the music delay for background music. Music is on only while an area is
 // loaded.
-// The repeat gap counts only while the clock runs: not while every sound
-// waits, nor while the window has lost focus.
-void AreaMusicPlayer::holdClock() {
-    _lastUpdateTime = _services.system.clock.millis();
-}
-
-void AreaMusicPlayer::update(bool clockRuns) {
+// The repeat gap counts the frame's time, and only while the clock runs: not
+// while every sound waits. Music is presentation: it counts through pauses
+// and menus, where it keeps playing, unlike the world's sounds, which count
+// seconds of play.
+void AreaMusicPlayer::update(float dt, bool clockRuns) {
     isDialogAmbientPlaying();
     // An ambient loop that is on but has ended, after a fade or a track
     // change, starts again.
     if (_started && _ambientOn && !_ambientFailed && !isAmbientPlaying()) {
         switchAmbientSound(true);
     }
-    if (isMusicPlaying()) {
+    if (isMusicPlaying() || !clockRuns) {
         return;
     }
-    uint32_t now = _services.system.clock.millis();
-    if (!clockRuns) {
-        _lastUpdateTime = now;
-        return;
-    }
-    if (_countdown > 0) {
-        uint32_t elapsed = now - _lastUpdateTime;
-        if (_countdown > elapsed) {
-            _countdown -= elapsed;
-        } else {
-            _countdown = 0;
+    if (_countdown > 0.0f) {
+        _countdown -= dt * 1000.0f;
+        if (_countdown <= 0.0f) {
+            _countdown = 0.0f;
             if (_battleOn) {
                 switchBattleMusic(true, battleTrack());
             } else {
@@ -562,9 +553,8 @@ void AreaMusicPlayer::update(bool clockRuns) {
             }
         }
     } else if (_musicOn || _battleOn) {
-        _countdown = _battleOn ? kBattleRepeatGapMilliseconds : _musicDelay;
+        _countdown = static_cast<float>(_battleOn ? kBattleRepeatGapMilliseconds : _musicDelay);
     }
-    _lastUpdateTime = now;
 }
 
 } // namespace game

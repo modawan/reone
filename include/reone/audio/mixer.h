@@ -78,15 +78,6 @@ public:
     virtual void setFocusLost(bool lost) = 0;
     /** Fades every sound out over half a second, or back in. */
     virtual void setMuted(bool muted) = 0;
-    /** Renders the sources until the fade setMuted began has ended. */
-    virtual void waitForFade() = 0;
-    /**
-     * Fades \p source out and then stops it, rendering the sources while the
-     * caller waits. The gain falls at the rate of a fade to silence over
-     * \p fadeMilliseconds, and the source stops once \p heardMilliseconds
-     * have passed. With no source the wait is the same.
-     */
-    virtual void waitForSourceFade(const std::shared_ptr<AudioSource> &source, uint32_t fadeMilliseconds, uint32_t heardMilliseconds) = 0;
     /**
      * Sets the volume of one kind of audio, from 0 to AudioOptions::kMaxVolume,
      * and applies it to the sources of that kind, those already playing and
@@ -156,8 +147,6 @@ public:
     PriorityGroup priorityGroup(int group) const override;
     void setFocusLost(bool lost) override;
     void setMuted(bool muted) override;
-    void waitForFade() override;
-    void waitForSourceFade(const std::shared_ptr<AudioSource> &source, uint32_t fadeMilliseconds, uint32_t heardMilliseconds) override;
     void setVolume(AudioType type, int volume) override;
     void setMusicVolume(float volume) override;
     void setDucked(bool ducked, const std::set<int> &groups) override;

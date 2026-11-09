@@ -251,9 +251,10 @@ int Engine::run() {
         if (!_options.graphics.headless) {
             _services->audio.mixer.setFocusLost(unfocused);
         }
+        // Time spent without focus is not charged to the next frame.
         if (unfocused) {
-            _game->holdMusicClock();
             std::this_thread::sleep_for(std::chrono::milliseconds {100});
+            _ticks = clock.micros();
             continue;
         }
         uint64_t ticks = clock.micros();

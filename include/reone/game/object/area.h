@@ -56,6 +56,7 @@ class AudioSource;
 namespace scene {
 
 class IAnimationEventListener;
+class ModelNodeSceneNode;
 class ModelSceneNode;
 
 } // namespace scene
@@ -909,6 +910,8 @@ private:
         std::string omenEvent;
         std::string resRef;
         std::shared_ptr<scene::ModelSceneNode> roomModel;
+        /** The part of the room model the sound plays at, owned by the model. */
+        scene::ModelNodeSceneNode *partNode {nullptr};
         std::shared_ptr<audio::AudioSource> source;
     };
     /** The rooms' part sounds, from the area file's room list. */
@@ -926,8 +929,8 @@ private:
     std::set<std::string> _weatherlessRooms;
     /** Rain or snow falls. */
     bool _weatherOn {false};
-    /** Milliseconds until the weather is rolled again. */
-    uint32_t _weatherTimer {0};
+    /** Seconds of play until the weather is rolled again. */
+    float _weatherTimer {0.0f};
     /** Seconds until lightning may strike again. */
     float _lightningDelay {0.0f};
 

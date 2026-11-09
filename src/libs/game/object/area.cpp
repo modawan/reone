@@ -746,7 +746,11 @@ void Area::attachPartSounds() {
     std::map<const scene::ModelSceneNode *, bool> listened;
     for (auto &partSound : _partSounds) {
         auto room = _rooms.find(partSound.roomName);
-        if (room == _rooms.end() || !room->second->model() || !room->second->model()->getNodeByName(partSound.part)) {
+        if (room == _rooms.end() || !room->second->model()) {
+            continue;
+        }
+        partSound.partNode = room->second->model()->getNodeByName(partSound.part);
+        if (!partSound.partNode) {
             continue;
         }
         partSound.roomModel = room->second->model();
@@ -775,38 +779,37 @@ void Area::playPartSounds(const scene::ModelSceneNode &roomModel, const std::str
             (partSound.source && partSound.source->isPlaying())) {
             continue;
         }
-        auto node = partSound.roomModel->getNodeByName(partSound.part);
         partSound.source = _services.audio.mixer.play(
             _services.resource.audioClips.get(partSound.resRef), audio::AudioType::Sound, kRoomSoundGroup, 1.0f, true,
-            node->origin(), audio::SoundDistances {kPartSoundFullVolumeDistance, kPartSoundCutoffDistance});
+            partSound.partNode->origin(), audio::SoundDistances {kPartSoundFullVolumeDistance, kPartSoundCutoffDistance});
     }
 }
 
 void Area::updatePartSounds() {
     for (auto &partSound : _partSounds) {
         if (partSound.source) {
-            partSound.source->setPosition(partSound.roomModel->getNodeByName(partSound.part)->origin());
+            partSound.source->setPosition(partSound.partNode->origin());
         }
     }
 }
 
 // The weather follows the first chance the area has of rain, then snow, then
-// lightning, which brings rain.
+// lightning, which brings rain. Its timers count seconds of play, whatever the
+// frame rate: the time left over when one runs out counts toward the next.
 void Area::updateWeather(float dt) {
-    static constexpr uint32_t kWeatherRollMilliseconds = 300000;
+    static constexpr float kWeatherRollSeconds = 300.0f;
     if (!_game.isTSL()) {
         return;
     }
-    const auto elapsed = static_cast<uint32_t>(dt * 1000.0f);
-    if (_weatherTimer > elapsed) {
-        _weatherTimer -= elapsed;
-    } else {
+    _weatherTimer -= dt;
+    if (_weatherTimer <= 0.0f) {
         const int roll = randomInt(0, 99);
         const int chance = _chanceRain != 0 ? _chanceRain : (_chanceSnow != 0 ? _chanceSnow : _chanceLightning);
         if (chance != 0) {
             _weatherOn = roll < chance;
         }
-        _weatherTimer = kWeatherRollMilliseconds;
+        // A stall longer than a whole period rolls once, not once for each.
+        _weatherTimer = _weatherTimer + kWeatherRollSeconds > 0.0f ? _weatherTimer + kWeatherRollSeconds : kWeatherRollSeconds;
     }
     if (!_weatherOn || _chanceLightning == 0) {
         return;
@@ -815,11 +818,12 @@ void Area::updateWeather(float dt) {
     if (leader && leader->room() && _weatherlessRooms.count(leader->room()->name()) != 0) {
         return;
     }
-    if (_lightningDelay > dt) {
-        _lightningDelay -= dt;
+    _lightningDelay -= dt;
+    if (_lightningDelay > 0.0f) {
         return;
     }
-    _lightningDelay = randomInt(0, 4999) / 1000.0f + 5.0f;
+    const float nextDelay = randomInt(0, 4999) / 1000.0f + 5.0f;
+    _lightningDelay = _lightningDelay + nextDelay > 0.0f ? _lightningDelay + nextDelay : nextDelay;
     if (randomInt(0, 99) < _chanceLightning) {
         _game.areaMusic().thunder(randomInt(0, 1) == 0);
     }

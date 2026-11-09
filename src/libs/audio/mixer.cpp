@@ -261,29 +261,6 @@ void AudioMixer::setMuted(bool muted) {
     _fadeStart = std::chrono::steady_clock::now();
 }
 
-void AudioMixer::waitForFade() {
-    while (_fadeStart) {
-        render();
-        std::this_thread::sleep_for(std::chrono::milliseconds {1});
-    }
-}
-
-void AudioMixer::waitForSourceFade(const std::shared_ptr<AudioSource> &source, uint32_t fadeMilliseconds, uint32_t heardMilliseconds) {
-    using namespace std::chrono;
-    const auto start = steady_clock::now();
-    const milliseconds heard {heardMilliseconds};
-    for (auto elapsed = milliseconds {0}; elapsed < heard; elapsed = duration_cast<milliseconds>(steady_clock::now() - start)) {
-        if (source) {
-            source->setGainScale(1.0f - static_cast<float>(elapsed.count()) / fadeMilliseconds);
-        }
-        render();
-        std::this_thread::sleep_for(milliseconds {1});
-    }
-    if (source) {
-        source->stop();
-    }
-}
-
 void AudioMixer::setVolume(AudioType type, int volume) {
     switch (type) {
     case AudioType::Music:

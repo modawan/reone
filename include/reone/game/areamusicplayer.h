@@ -102,12 +102,12 @@ public:
     /**
      * Advance the fades, repeat ended tracks and restart an ended ambient loop.
      *
+     * @param dt the frame's time in seconds, which runs through pauses and
+     *        menus but not through loads or a window without focus
      * @param clockRuns whether the gap before a track repeats counts down; it
      *        does not while every sound waits
      */
-    void update(bool clockRuns = true);
-    /** The window has lost focus: the gap before a track repeats does not count down. */
-    void holdClock();
+    void update(float dt, bool clockRuns = true);
 
     /** The area turned its background music on or off. */
     void playMusic(const Area &area, bool play);
@@ -227,9 +227,7 @@ private:
      */
     uint32_t _musicDelay {0};
     /** Milliseconds until the music track is repeated, retried or handed over. */
-    uint32_t _countdown {0};
-    /** The clock time of the last update, in milliseconds. */
-    uint32_t _lastUpdateTime {0};
+    float _countdown {0.0f};
     /** The stinger playing, if any; a new one cuts it. */
     std::shared_ptr<audio::AudioSource> _stinger;
     /** The music track playing or fading, if any. */

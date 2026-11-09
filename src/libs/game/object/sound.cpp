@@ -221,13 +221,15 @@ void Sound::update(float dt) {
         return;
     }
     // Any other plays its list in order, heard or not: the next sound is due
-    // the length of the last and an interval after it starts. A continuous
-    // list starts again, reshuffled when random; any other ends, and with it
-    // the sound object.
+    // the length of the last and an interval after it starts, counted in
+    // seconds of play whatever the frame rate. A continuous list starts again,
+    // reshuffled when random; any other ends, and with it the sound object.
+    _timeout -= dt;
     if (_timeout > 0.0f) {
-        _timeout = glm::max(0.0f, _timeout - dt);
         return;
     }
+    // How late this sound is; the next is due that much sooner.
+    const float late = _timeout;
     const int count = static_cast<int>(_sounds.size());
     if (_restartList) {
         _restartList = false;
@@ -253,6 +255,8 @@ void Sound::update(float dt) {
     // which ends the sound object.
     auto clip = _services.resource.audioClips.get(_sounds[_soundIdx]);
     if (!clip) {
+        // The next one is tried on the next update, as late as this one.
+        _timeout = late;
         if (count < 2) {
             setActive(false);
             return;
@@ -265,10 +269,13 @@ void Sound::update(float dt) {
         }
         return;
     }
-    _timeout = clip->duration();
+    float next = clip->duration();
     if (_continuous || _soundIdx < count - 1) {
-        _timeout += nextInterval();
+        next += nextInterval();
     }
+    // A stall longer than the whole wait drops the backlog rather than
+    // playing it in a burst.
+    _timeout = next + late > 0.0f ? next + late : next;
     if (audible) {
         sceneNode.playSound(_sounds[_soundIdx], nextGain(), _positional, false, nextPitch());
     }

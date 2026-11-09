@@ -70,8 +70,6 @@ public:
     MOCK_METHOD(PriorityGroup, priorityGroup, (int), (const, override));
     MOCK_METHOD(void, setFocusLost, (bool), (override));
     MOCK_METHOD(void, setMuted, (bool), (override));
-    MOCK_METHOD(void, waitForFade, (), (override));
-    MOCK_METHOD(void, waitForSourceFade, (const std::shared_ptr<AudioSource> &, uint32_t, uint32_t), (override));
     MOCK_METHOD(void, setVolume, (AudioType, int), (override));
     MOCK_METHOD(void, setMusicVolume, (float), (override));
     MOCK_METHOD(void, setDucked, (bool, const std::set<int> &), (override));
