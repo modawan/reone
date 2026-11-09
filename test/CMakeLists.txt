@@ -76,6 +76,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/entrylifecycle.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymap.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
+    ${TESTS_SOURCE_DIR}/game/soundobject.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
     ${TESTS_SOURCE_DIR}/game/inventoryroutines.cpp

@@ -120,6 +120,12 @@ void Sound::update(float dt) {
     if (!_active) {
         return;
     }
+    if (_fade) {
+        advanceFade(dt);
+        if (!_active) {
+            return;
+        }
+    }
     auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
     // Only an audible sound is heard, and one that stops being audible is
     // stopped by the scene. A continuous clip loops while it is audible and
@@ -156,8 +162,63 @@ void Sound::update(float dt) {
         }
     }
     if (audible) {
-        float gain = _volume / 127.0f;
-        sceneNode.playSound(sounds[_soundIdx], gain, _positional, continuous);
+        _playedGain = currentGain();
+        sceneNode.playSound(sounds[_soundIdx], _playedGain, _positional, continuous);
+    }
+}
+
+float Sound::currentGain() const {
+    return _volume / 127.0f * fadeScale();
+}
+
+float Sound::fadeScale() const {
+    if (!_fade || _fade->duration <= 0.0f) {
+        return 1.0f;
+    }
+    return glm::clamp(_fade->remaining / _fade->duration, 0.0f, 1.0f);
+}
+
+void Sound::setVolume(int volume) {
+    _volume = static_cast<uint8_t>(glm::clamp(volume, 0, 127));
+    applyGainToPlayingClip();
+}
+
+void Sound::fadeAndStop(float seconds) {
+    if (!_active || !(seconds > 0.0f)) {
+        setActive(false);
+        return;
+    }
+    _fade = Fade {seconds, seconds};
+}
+
+void Sound::advanceFade(float dt) {
+    if (!_fade) {
+        return;
+    }
+    _fade->remaining -= dt;
+    if (_fade->remaining <= 0.0f) {
+        setActive(false);
+        return;
+    }
+    applyGainToPlayingClip();
+}
+
+// A clip keeps the gain it started with, so a change of volume or a fade
+// scales it from there. A clip started silent cannot be scaled up; a
+// continuous one is stopped so the next update starts it again at the new
+// gain, and any other waits for its next clip.
+void Sound::applyGainToPlayingClip() {
+    if (!_sceneNode) {
+        return;
+    }
+    auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
+    if (!sceneNode.isSoundPlaying()) {
+        return;
+    }
+    if (_playedGain > 0.0f) {
+        sceneNode.setGainScale(currentGain() / _playedGain);
+    } else if (currentGain() > 0.0f && _sounds.size() == 1 && _continuous) {
+        sceneNode.stopSound();
     }
 }
 
@@ -172,6 +233,9 @@ void Sound::updateTransform() {
 }
 
 void Sound::setActive(bool active) {
+    if (!active) {
+        _fade.reset();
+    }
     if (_active == active) {
         return;
     }
