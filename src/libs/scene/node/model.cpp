@@ -684,9 +684,17 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     float length = channelLength(channel);
     bool backwards = channel.properties.speed < 0.0f;
 
-    // Advance time; a channel played backwards runs from its end to its start
+    // Advance time; a channel played backwards runs from its end to its start.
+    // A loop that runs past an end carries the time it ran over into its next
+    // round, up to a whole round.
     float oldTime = channel.time;
-    channel.time = glm::clamp(channel.time + channel.properties.speed * dt, 0.0f, length);
+    const bool loop = channel.properties.flags & AnimationFlags::loop;
+    float time = channel.time + channel.properties.speed * dt;
+    const bool wrapped = loop && (backwards ? time < 0.0f : time > length);
+    if (wrapped) {
+        time = backwards ? glm::max(0.0f, time + length) : glm::min(length, time - length);
+    }
+    channel.time = glm::clamp(time, 0.0f, length);
 
     // A channel blending in reaches full weight over its transition time.
     if (channel.transition) {
@@ -695,10 +703,17 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
         channel.transition = channel.weight < 1.0f;
     }
 
-    // Signal events between previous and current time
+    // Signal events between previous and current time, round the end of a
+    // loop that wrapped
     for (auto &event : channel.anim->events()) {
-        bool passed = backwards ? (event.time < oldTime && event.time >= channel.time)
-                                : (event.time > oldTime && event.time <= channel.time);
+        bool passed;
+        if (wrapped) {
+            passed = backwards ? (event.time < oldTime || event.time >= channel.time)
+                               : (event.time > oldTime || event.time <= channel.time);
+        } else {
+            passed = backwards ? (event.time < oldTime && event.time >= channel.time)
+                               : (event.time > oldTime && event.time <= channel.time);
+        }
         if (passed) {
             signalEvent(event.name);
         }
@@ -710,15 +725,10 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
         computeAnimationStates(channel, channel.time, *_model->rootNode());
     }
 
-    bool lastFrame = channel.time == (backwards ? 0.0f : length);
-    if (lastFrame) {
-        bool loop = channel.properties.flags & AnimationFlags::loop;
-        if (loop) {
-            channel.time = backwards ? length : 0.0f;
-            rearmSingleEmitters(channel.anim->root());
-        } else {
-            channel.finished = true;
-        }
+    if (wrapped) {
+        rearmSingleEmitters(channel.anim->root());
+    } else if (!loop && channel.time == (backwards ? 0.0f : length)) {
+        channel.finished = true;
     }
 
     // A layer blends in over its transition time and, once finished, blends

@@ -631,17 +631,17 @@ TEST(ModelSceneNode, should_play_single_looping_animation) {
     modelSceneNode->playAnimation("some_animation", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
     modelSceneNode->update(1.25f);
 
-    // then
+    // then: the loop carries the time it ran over into its next round
     auto &channels = modelSceneNode->animationChannels();
     EXPECT_EQ(1ll, channels.size());
-    EXPECT_NEAR(0.0f, channels[0].time, 1e-5);
+    EXPECT_NEAR(0.25f, channels[0].time, 1e-5);
     EXPECT_TRUE(!channels[0].finished);
     auto rootSceneNode = modelSceneNode->getNodeByName("root_node");
     EXPECT_TRUE(static_cast<bool>(rootSceneNode));
     auto &rootPosition = rootSceneNode->localTransform()[3];
-    EXPECT_NEAR(1.0f, rootPosition.x, 1e-5);
-    EXPECT_NEAR(2.0f, rootPosition.y, 1e-5);
-    EXPECT_NEAR(3.0f, rootPosition.z, 1e-5);
+    EXPECT_NEAR(0.25f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(0.5f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(0.75f, rootPosition.z, 1e-5);
 }
 
 TEST(ModelSceneNode, should_restart_a_completed_queued_animation_explicitly) {
@@ -793,19 +793,19 @@ TEST(ModelSceneNode, should_play_two_overlayed_animations) {
     modelSceneNode->playAnimation("animation2", nullptr, AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
     modelSceneNode->update(1.25f);
 
-    // then
+    // then: the one-second loop carries the time it ran over into its next round
     auto &channels = modelSceneNode->animationChannels();
     EXPECT_EQ(2ll, channels.size());
     EXPECT_NEAR(1.25f, channels[0].time, 1e-5);
-    EXPECT_NEAR(0.0f, channels[1].time, 1e-5);
+    EXPECT_NEAR(0.25f, channels[1].time, 1e-5);
     EXPECT_TRUE(!channels[0].finished);
     EXPECT_TRUE(!channels[1].finished);
     auto rootSceneNode = modelSceneNode->getNodeByName("root_node");
     EXPECT_TRUE(static_cast<bool>(rootSceneNode));
     auto &rootPosition = rootSceneNode->localTransform()[3];
-    EXPECT_NEAR(1.0f, rootPosition.x, 1e-5);
-    EXPECT_NEAR(2.0f, rootPosition.y, 1e-5);
-    EXPECT_NEAR(3.0f, rootPosition.z, 1e-5);
+    EXPECT_NEAR(0.25f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(0.5f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(0.75f, rootPosition.z, 1e-5);
     auto dummySceneNode = modelSceneNode->getNodeByName("dummy_node");
     EXPECT_TRUE(static_cast<bool>(dummySceneNode));
     auto &dummyPosition = dummySceneNode->localTransform()[3];
