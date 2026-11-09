@@ -125,7 +125,7 @@ public:
         return result;
     }
 
-    bool exists(const std::string& section) const {
+    bool exists(const std::string &section) const {
         for (const auto &line : _lines) {
             if (auto header = sectionHeader(line)) {
                 if (header == section)
