@@ -250,6 +250,9 @@ public:
 
     // User input
 
+    virtual bool handleGamepadButtonDown(const input::GamepadButton button);
+    virtual bool handleGamepadButtonUp(const input::GamepadButton button);
+    virtual bool handleGamepadAxisMotion(const input::GamepadAxis axis, float value);
     virtual bool handleKeyDown(const input::KeyCode key);
     virtual bool handleKeyUp(const input::KeyCode key);
     virtual bool handleMouseMotion(int x, int y);

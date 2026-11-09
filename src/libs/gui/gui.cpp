@@ -282,15 +282,15 @@ bool GUI::handle(const input::Event &event) {
     return false;
 }
 
-bool GUI::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+bool GUI::handleGamepadAxisMotion(const input::GamepadAxis axis, float value) {
     return false;
 }
 
-bool GUI::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+bool GUI::handleGamepadButtonDown(const input::GamepadButton button) {
     return false;
 }
 
-bool GUI::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+bool GUI::handleGamepadButtonUp(const input::GamepadButton button) {
     return false;
 }
 
