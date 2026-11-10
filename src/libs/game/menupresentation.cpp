@@ -175,6 +175,7 @@ public:
         return value;
     }
 
+
     /**
      * Replace these keys of a section. The section's keys are written together
      * at its start, the top level's at the start of the file; a section the
@@ -309,7 +310,6 @@ void MenuPresentation::save(const std::filesystem::path &path) const {
                                  });
     configuration.write(path);
 }
-
 KeybindOptions KeybindOptions::load(const std::filesystem::path &path, const int index) {
     const auto configuration = ConfigurationFile::read(path);
     const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
@@ -333,6 +333,7 @@ void KeybindOptions::save(const std::filesystem::path &path, const int index) co
     configuration.set(kKeybindsSection, values);
     configuration.write(path);
 }
+
 
 FeedbackOptions FeedbackOptions::load(const std::filesystem::path &path) {
     const auto configuration = ConfigurationFile::read(path);

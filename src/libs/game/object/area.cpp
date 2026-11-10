@@ -2849,11 +2849,17 @@ void Area::repositionParty() {
 
 bool Area::handle(const input::Event &event) {
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
     case input::EventType::KeyDown:
         return handleKeyDown(event.key);
     default:
         return false;
     }
+}
+
+bool Area::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
 }
 
 bool Area::handleKeyDown(const input::KeyEvent &event) {

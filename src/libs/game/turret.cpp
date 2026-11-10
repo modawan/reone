@@ -1411,74 +1411,167 @@ bool Turret::handle(const input::Event &event) {
     }
 }
 
-bool Turret::handleKeyDown(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::Up:
-    case input::KeyCode::W:
+bool Turret::handleGamepadButtonDown(const input::GamepadButtonEvent& event) {
+    auto keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveFoward.check(event.button)) {
         _pitchRate.setDirection(1);
         return true;
-    case input::KeyCode::Down:
-    case input::KeyCode::S:
+    } else if (keybinds.mgMoveBackward.check(event.button)) {
         _pitchRate.setDirection(-1);
         return true;
-    case input::KeyCode::Left:
-    case input::KeyCode::A:
+    } else if (keybinds.mgMoveLeft.check(event.button)) {
         _yawRate.setDirection(1);
         return true;
-    case input::KeyCode::Right:
-    case input::KeyCode::D:
+    } else if (keybinds.mgMoveRight.check(event.button)) {
         _yawRate.setDirection(-1);
         return true;
-    case input::KeyCode::Space:
+    } else if (keybinds.mgAction.check(event.button)) {
         // Fire input is dropped while paused.
         if (!_game.isPaused()) {
             _firing = true;
         }
         return true;
-    case input::KeyCode::Escape:
-    case input::KeyCode::Pause:
+    } else if (keybinds.mgPause.check(event.button)) {
+        // Escape pauses the minigame; it does not leave it.
+        _game.pressPauseKey();
+        return true;
+    }
+
+    return false;
+}
+
+bool Turret::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    auto keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveFoward.check(event.button)) {
+        if (_pitchRate.direction() == 1) {
+            _pitchRate.setDirection(0);
+        }
+        return true;
+    } else if (keybinds.mgMoveBackward.check(event.button)) {
+        if (_pitchRate.direction() == -1) {
+            _pitchRate.setDirection(0);
+        }
+        return true;
+    } else if (keybinds.mgMoveLeft.check(event.button)) {
+        if (_yawRate.direction() == 1) {
+            _yawRate.setDirection(0);
+        }
+        return true;
+    } else if (keybinds.mgMoveRight.check(event.button)) {
+        if (_yawRate.direction() == -1) {
+            _yawRate.setDirection(0);
+        }
+        return true;
+    } else if (keybinds.mgAction.check(event.button)) {
+        _firing = false;
+        return true;
+    }
+
+    return false;
+}
+
+bool Turret::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    if (!_active) {
+        return false;
+    }
+    // The mouse does not aim while paused.
+    if (_game.isPaused()) {
+        return true;
+    }
+
+    auto keybinds = _game.options().game.activeKeybinds();
+    bool isHandled = false;
+
+    if (keybinds.mgMoveFoward.check(event.axis)) {
+        if (event.value > 0)
+            _pitchRate.setDirection(1);
+        isHandled = true;
+    } else if (keybinds.mgMoveBackward.check(event.axis)) {
+        if (event.value < 0)
+            _pitchRate.setDirection(-1);
+        isHandled = true;
+    } else {
+        _pitchRate.setDirection(0);
+        isHandled = true;
+    }
+
+    if (keybinds.mgMoveLeft.check(event.axis)) {
+        _yawRate.setDirection(1);
+        isHandled = true;
+    } else if (keybinds.mgMoveRight.check(event.axis)) {
+        _yawRate.setDirection(-1);
+        isHandled = true;
+    } else {
+        _pitchRate.setDirection(0);
+        isHandled = true;
+    }
+
+    return isHandled;
+}
+
+bool Turret::handleKeyDown(const input::KeyEvent &event) {
+    auto keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveFoward.check(event.code)) {
+        _pitchRate.setDirection(1);
+        return true;
+    } else if (keybinds.mgMoveBackward.check(event.code)) {
+        _pitchRate.setDirection(-1);
+        return true;
+    } else if (keybinds.mgMoveLeft.check(event.code)) {
+        _yawRate.setDirection(1);
+        return true;
+    } else if (keybinds.mgMoveRight.check(event.code)) {
+        _yawRate.setDirection(-1);
+        return true;
+    } else if (keybinds.mgAction.check(event.code)) {
+        // Fire input is dropped while paused.
+        if (!_game.isPaused()) {
+            _firing = true;
+        }
+        return true;
+    } else if (keybinds.mgPause.check(event.code)) {
         // Escape pauses the minigame; it does not leave it.
         if (!event.repeat) {
             _game.pressPauseKey();
         }
         return true;
-    default:
-        return false;
     }
+
+    return false;
 }
 
 bool Turret::handleKeyUp(const input::KeyEvent &event) {
-    switch (event.code) {
-    case input::KeyCode::Up:
-    case input::KeyCode::W:
+    auto keybinds = _game.options().game.activeKeybinds();
+
+    if (keybinds.mgMoveFoward.check(event.code)) {
         if (_pitchRate.direction() == 1) {
             _pitchRate.setDirection(0);
         }
         return true;
-    case input::KeyCode::Down:
-    case input::KeyCode::S:
+    } else if (keybinds.mgMoveBackward.check(event.code)) {
         if (_pitchRate.direction() == -1) {
             _pitchRate.setDirection(0);
         }
         return true;
-    case input::KeyCode::Left:
-    case input::KeyCode::A:
+    } else if (keybinds.mgMoveLeft.check(event.code)) {
         if (_yawRate.direction() == 1) {
             _yawRate.setDirection(0);
         }
         return true;
-    case input::KeyCode::Right:
-    case input::KeyCode::D:
+    } else if (keybinds.mgMoveRight.check(event.code)) {
         if (_yawRate.direction() == -1) {
             _yawRate.setDirection(0);
         }
         return true;
-    case input::KeyCode::Space:
+    } else if (keybinds.mgAction.check(event.code)) {
         _firing = false;
         return true;
-    default:
-        return false;
     }
+
+    return false;
 }
 
 bool Turret::handleMouseMotion(const input::MouseMotionEvent &event) {

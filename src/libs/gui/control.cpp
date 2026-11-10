@@ -180,6 +180,18 @@ void Control::updateTransform() {
     _transform = glm::scale(_transform, glm::vec3(_extent.width, _extent.height, 1.0f));
 }
 
+bool Control::handleGamepadButtonDown(const input::GamepadButton button) {
+    return false;
+}
+
+bool Control::handleGamepadButtonUp(const input::GamepadButton button) {
+    return false;
+}
+
+bool Control::handleGamepadAxisMotion(const input::GamepadAxis axis, float value) {
+    return false;
+}
+
 bool Control::handleKeyDown(const input::KeyCode key) {
     return false;
 }

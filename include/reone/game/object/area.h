@@ -1291,6 +1291,7 @@ private:
 
     // User input
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
 
     // END User input

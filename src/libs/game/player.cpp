@@ -118,6 +118,12 @@ bool Player::handle(const input::Event &event) {
         return false;
 
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton);
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion);
     case input::EventType::KeyDown:
         return handleKeyDown(event.key);
     case input::EventType::KeyUp:
@@ -131,20 +137,95 @@ bool Player::handle(const input::Event &event) {
     }
 }
 
+bool Player::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _module.game().options().game.activeKeybinds();
+
+    if (keybinds.changeCharacter.check(event.button)) {
+        std::shared_ptr<Creature> partyLeader(_party.getLeader());
+        partyLeader->flourishWeapons(true);
+    }
+    if (keybinds.moveForward.check(event.button)) {
+        _moveForward = 1.0f;
+        return true;
+    }
+    if (keybinds.moveBackward.check(event.button)) {
+        _moveBackward = 1.0f;
+        return true;
+    }
+    if (keybinds.moveLeft.check(event.button)) {
+        _moveLeft = 1.0f;
+        return true;
+    }
+    if (keybinds.moveRight.check(event.button)) {
+        _moveRight = 1.0f;
+        return true;
+    }
+    if (keybinds.walk.check(event.button)) {
+        _walk = true;
+        return true;
+    }
+    
+    return false;
+}
+
+bool Player::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    auto &keybinds = _module.game().options().game.activeKeybinds();
+
+    if (keybinds.moveForward.check(event.button)) {
+        _moveForward = 0.0f;
+        return true;
+    }
+    if (keybinds.moveBackward.check(event.button)) {
+        _moveBackward = 0.0f;
+        return true;
+    }
+    if (keybinds.moveLeft.check(event.button)) {
+        _moveLeft = 0.0f;
+        return true;
+    }
+    if (keybinds.moveRight.check(event.button)) {
+        _moveRight = 0.0f;
+        return true;
+    }
+    if (keybinds.walk.check(event.button)) {
+        _walk = false;
+        return true;
+    }
+
+    return false;
+}
+
+bool Player::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    auto &keybinds = _module.game().options().game.activeKeybinds();
+    bool handled = false;
+
+    if (keybinds.moveForward.check(event.axis) || keybinds.moveBackward.check(event.axis)) {
+        _moveForward = std::abs(std::min(0.0f, event.value));
+        _moveBackward = std::abs(std::max(0.0f, event.value));
+        handled = true;
+    }
+    if (keybinds.moveLeft.check(event.axis) || keybinds.moveRight.check(event.axis)) {
+        _moveLeft = std::abs(std::min(0.0f, event.value));
+        _moveRight = std::abs(std::max(0.0f, event.value));
+        handled = true;
+    }
+    return handled;
+}
+
 bool Player::handleKeyDown(const input::KeyEvent &event) {
     auto &keybinds = _module.game().options().game.activeKeybinds();
 
     if (keybinds.moveForward.check(event.code)) {
-        _moveForward = true;
+        _moveForward = 1.0f;
         return true;
     } else if (keybinds.moveLeft.check(event.code)) {
-        _moveLeft = true;
+        _moveLeft = 1.0f;
         return true;
     } else if (keybinds.moveBackward.check(event.code)) {
-        _moveBackward = true;
+        _moveBackward = 1.0f;
         return true;
     } else if (keybinds.moveRight.check(event.code)) {
-        _moveRight = true;
+        _moveRight = 1.0f;
         return true;
     } else if (keybinds.flourish.check(event.code)) {
         // The flourish answers the press only; holding the key repeats nothing.
@@ -165,16 +246,16 @@ bool Player::handleKeyUp(const input::KeyEvent &event) {
     auto &keybinds = _module.game().options().game.activeKeybinds();
 
     if (keybinds.moveForward.check(event.code)) {
-        _moveForward = false;
+        _moveForward = 0.0f;
         return true;
     } else if (keybinds.moveLeft.check(event.code)) {
-        _moveLeft = false;
+        _moveLeft = 0.0f;
         return true;
     } else if (keybinds.moveBackward.check(event.code)) {
-        _moveBackward = false;
+        _moveBackward = 0.0f;
         return true;
     } else if (keybinds.moveRight.check(event.code)) {
-        _moveRight = false;
+        _moveRight = 0.0f;
         return true;
     } else if (keybinds.walk.check(event.code)) {
         _walk = false;
@@ -186,7 +267,7 @@ bool Player::handleKeyUp(const input::KeyEvent &event) {
 
 bool Player::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (_camera.isMouseLookMode() && event.button == input::MouseButton::Left) {
-        _moveForward = true;
+        _moveForward = 1;
         _leftPressedInMouseLook = true;
         return true;
     }
@@ -196,7 +277,7 @@ bool Player::handleMouseButtonDown(const input::MouseButtonEvent &event) {
 
 bool Player::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     if (_leftPressedInMouseLook && event.button == input::MouseButton::Left) {
-        _moveForward = false;
+        _moveForward = 0;
         _leftPressedInMouseLook = false;
         return true;
     }
@@ -219,17 +300,12 @@ void Player::update(float dt) {
     float facing = 0.0f;
     bool movement = true;
 
-    if (_moveForward) {
-        facing = _camera.facing();
-    } else if (_moveBackward) {
-        facing = _camera.facing() + glm::pi<float>();
-    } else if (_moveLeft) {
-        facing = _camera.facing() + glm::half_pi<float>();
-    } else if (_moveRight) {
-        facing = _camera.facing() - glm::half_pi<float>();
-    } else {
-        movement = false;
-    }
+    float forward = _moveForward - _moveBackward;
+    float right = _moveLeft - _moveRight;
+    glm::vec2 movementVec(forward, right);
+    facing = movement ? _camera.facing() + std::atan2(right, forward) : _camera.facing();
+    float magnitude = glm::length(movementVec);
+    movement = magnitude > 1e-6f;
 
     if (movement) {
         // Moving by input clears as the player's controls do.
@@ -261,10 +337,10 @@ void Player::update(float dt) {
 
 void Player::stopMovement() {
     _moving = false;
-    _moveForward = false;
-    _moveLeft = false;
-    _moveBackward = false;
-    _moveRight = false;
+    _moveForward = 0;
+    _moveLeft = 0;
+    _moveBackward = 0;
+    _moveRight = 0;
 
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
     if (partyLeader) {
@@ -273,7 +349,7 @@ void Player::stopMovement() {
 }
 
 bool Player::isMovementRequested() const {
-    return _moveForward || _moveLeft || _moveBackward || _moveRight;
+    return _moveForward > 0 || _moveLeft > 0 || _moveBackward > 0 || _moveRight > 0;
 }
 
 } // namespace game

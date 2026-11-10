@@ -232,6 +232,13 @@ void GUI::setBackground(std::shared_ptr<graphics::Texture> texture) {
 
 bool GUI::handle(const input::Event &event) {
     switch (event.type) {
+    case input::EventType::GamepadButtonDown:
+        return handleGamepadButtonDown(event.gamepadButton.button);
+    case input::EventType::GamepadButtonUp:
+        return handleGamepadButtonUp(event.gamepadButton.button);
+    case input::EventType::GamepadAxisMotion:
+        return handleGamepadAxisMotion(event.gamepadAxisMotion.axis, event.gamepadAxisMotion.value);
+
     case input::EventType::KeyDown:
         return handleKeyDown(event.key.code);
 
@@ -278,15 +285,16 @@ bool GUI::handle(const input::Event &event) {
     return false;
 }
 
-bool GUI::handleKeyDown(input::KeyCode key) {
+template <typename Handler>
+bool dispatchToControls(Control &root, Handler &&handler) {
     std::stack<std::reference_wrapper<Control>> controls;
-    controls.push(*_rootControl);
+    controls.push(root);
     while (!controls.empty()) {
         auto &control = controls.top().get();
         controls.pop();
         bool handled = false;
         if (control.isVisible() && !control.isDisabled()) {
-            handled = control.handleKeyDown(key);
+            handled = handler(control);
         }
         if (handled) {
             return true;
@@ -295,11 +303,38 @@ bool GUI::handleKeyDown(input::KeyCode key) {
             controls.push(child);
         }
     }
+
     return false;
 }
 
+bool GUI::handleGamepadAxisMotion(const input::GamepadAxis axis, float value) {
+    return dispatchToControls(*_rootControl, [axis, value](Control &control) {
+        return control.handleGamepadAxisMotion(axis, value);
+    });
+}
+
+bool GUI::handleGamepadButtonDown(const input::GamepadButton button) {
+    return dispatchToControls(*_rootControl, [button](Control &control) {
+        return control.handleGamepadButtonDown(button);
+    });
+}
+
+bool GUI::handleGamepadButtonUp(const input::GamepadButton button) {
+    return dispatchToControls(*_rootControl, [button](Control &control) {
+        return control.handleGamepadButtonUp(button);
+    });
+}
+
+bool GUI::handleKeyDown(input::KeyCode key) {
+    return dispatchToControls(*_rootControl, [key](Control &control) {
+        return control.handleKeyDown(key);
+    });
+}
+
 bool GUI::handleKeyUp(input::KeyCode key) {
-    return false;
+    return dispatchToControls(*_rootControl, [key](Control &control) {
+        return control.handleKeyUp(key);
+    });
 }
 
 void GUI::updateSelection(int screenX, int screenY) {

@@ -471,6 +471,9 @@ private:
 
     // User input
 
+    virtual bool handleGamepadButtonDown(const input::GamepadButton button);
+    virtual bool handleGamepadButtonUp(const input::GamepadButton button);
+    virtual bool handleGamepadAxisMotion(const input::GamepadAxis axis, float value);
     virtual bool handleKeyDown(input::KeyCode key);
     virtual bool handleKeyUp(input::KeyCode key);
 
