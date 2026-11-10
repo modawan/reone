@@ -7,7 +7,16 @@ on:
 
 jobs:
   build:
-    runs-on: macos-26
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-macos
@@ -15,13 +24,16 @@ jobs:
   delete-superseded-ccache:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    strategy:
+      matrix:
+        arch: [ARM64, X64]
     runs-on: ubuntu-latest
     permissions:
       actions: write
       contents: read
-    concurrency: delete-superseded-ccache-macos
+    concurrency: delete-superseded-ccache-macos-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/delete-superseded-ccache
         with:
-          key: ccache-macos-
+          key: ccache-macos-${{ matrix.arch }}-
