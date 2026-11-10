@@ -1544,10 +1544,16 @@ public:
         uint32_t id,
         const SerializedIdentityContext &identityContext) const;
     std::shared_ptr<Object> getObjectBySavedId(uint32_t id) const;
+    /**
+     * Registers the saved identity id for object. assignIdentity false claims
+     * the mapping without renaming the object, for a representation that is
+     * owned by a record in another identity domain.
+     */
     void registerSavedObjectIdentity(
         uint32_t id,
         const std::shared_ptr<Object> &object,
-        const SerializedIdentityContext &identityContext);
+        const SerializedIdentityContext &identityContext,
+        bool assignIdentity = true);
 
     const SaveResourceShadows &saveResourceShadows() const {
         return _saveResourceShadows;
@@ -1670,6 +1676,13 @@ public:
     void deserializeParty(
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,
+        const SerializedIdentityContext &moduleIdentityContext);
+    /**
+     * Lets the party's current representations claim the saved identities a
+     * restored module graph gave the party identities they stand for.
+     */
+    void registerSavedPartyIdentities(
+        const resource::Gff &ifoGff,
         const SerializedIdentityContext &moduleIdentityContext);
     void publishPartyRuntimeState(
         resource::Gff &ifoGff,

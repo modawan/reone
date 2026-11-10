@@ -402,7 +402,9 @@ TEST_F(TslPartySnapshotFixture, retained_npc_and_puppet_are_not_git_creatures) {
         ASSERT_EQ(1u, creatures.size());
         EXPECT_EQ("remote", creatures.front()->getString("Tag"));
         EXPECT_EQ(worldCreature->id(), creatures.front()->getUint("ObjectId"));
-        EXPECT_EQ(puppet->id(), saved.snapshot->ifo->getUint("Mod_NextObjId0"));
+        // The puppet is not a GIT record, but the graph names its identity so
+        // saved values can point at it, so the cursor sits past it.
+        EXPECT_EQ(puppet->id() + 1, saved.snapshot->ifo->getUint("Mod_NextObjId0"));
 
         EXPECT_TRUE(game.party().isPuppet(0));
         EXPECT_EQ(

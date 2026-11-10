@@ -2035,6 +2035,16 @@ bool Game::loadPreparedModule(
                 // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
                 // remains explicit and graph-local; only publication moves ahead
                 // of the entry hooks.
+                //
+                // A restored world names the party's representations by party
+                // identity. The roster is bound on every path by now - rebuilt
+                // from the save on a disk load, carried over on a revisit - so
+                // each one claims its identity before saved values bind
+                // through it.
+                if (restoringSavedWorld) {
+                    registerSavedPartyIdentities(
+                        *ifo, SerializedIdentityContext::moduleGraph(name));
+                }
                 bindSavedRuntimeState();
 
                 restorePartyTransitionState(partyTransitionState);
@@ -2731,6 +2741,46 @@ void Game::publishPartyRuntimeState(
         deserializeJournal(*ptGff);
     } else {
         _party.addMember(kNpcPlayer, actualPlayer);
+    }
+}
+
+void Game::registerSavedPartyIdentities(
+    const resource::Gff &ifoGff,
+    const SerializedIdentityContext &moduleIdentityContext) {
+    auto claim = [&](const resource::Gff &record) {
+        uint32_t kind = 0;
+        if (!record.readDword(kind, "PartyIdKind")) {
+            return;
+        }
+        const int slot = record.getInt("PartyIdSlot");
+        std::shared_ptr<Creature> creature;
+        switch (kind) {
+        case kSavedPartyIdentityCanonicalPlayer:
+            creature = _party.actualPlayer();
+            break;
+        case kSavedPartyIdentityPuppet:
+            creature = _party.rosterCreature({RosterKind::Puppet, slot});
+            break;
+        case kSavedPartyIdentityNpc:
+            creature = _party.rosterCreature({RosterKind::Npc, slot});
+            break;
+        default:
+            break;
+        }
+        // A slot the party no longer holds leaves its identity unclaimed, and
+        // a saved value that names it reads as the invalid object.
+        if (!creature) {
+            return;
+        }
+        registerSavedObjectIdentity(
+            record.getUint("ObjectId"), creature, moduleIdentityContext,
+            /*assignIdentity=*/false);
+    };
+    for (const auto &player : ifoGff.getList("Mod_PlayerList")) {
+        claim(*player);
+    }
+    for (const auto &record : ifoGff.getList("Mod_PartyObjIds")) {
+        claim(*record);
     }
 }
 
@@ -4028,7 +4078,8 @@ void Game::registerObject(
 void Game::registerSavedObjectIdentity(
     uint32_t id,
     const std::shared_ptr<Object> &object,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool assignIdentity) {
     if (!identityContext.hasAuthoritativeObjectIds()) {
         throw ValidationException(
             "Cannot register a non-authoritative saved object identity");
@@ -4074,7 +4125,12 @@ void Game::registerSavedObjectIdentity(
                             ? _stagedRuntimeObjectGraph->savedIdByObject[object.get()]
                             : _savedIdByObject[object.get()];
     canonicalId = id;
-    object->assignSerializedObjectIdentity({identityContext, id});
+    // A roster-bound representation is owned by its own detached record and
+    // keeps that record's identity: the module graph only needs to be able to
+    // reach it by the identity it gave it, not to rename it.
+    if (assignIdentity) {
+        object->assignSerializedObjectIdentity({identityContext, id});
+    }
 }
 
 void Game::registerSavedModuleReferenceTarget(
