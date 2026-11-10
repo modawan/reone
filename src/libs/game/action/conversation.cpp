@@ -69,7 +69,9 @@ static bool isWithinStartDistance(const Object &speaker, const Object &partner) 
 // partner's use point, closing on that point to the use range and a metre;
 // the walk also ends within use range of the partner. Once the walk ends, or
 // finds no way on, the speaker starts the conversation if the partner is
-// within ten metres, or sets off again from where it stands.
+// within ten metres, or sets off again from where it stands. A walk that
+// finds no way halfway heads for the partner's use point instead, and one
+// that finds no way there gives the conversation up.
 bool StartConversationAction::approach(Creature &speaker, float dt) {
     if (!_walkPoint) {
         if (!_approaching) {
@@ -94,7 +96,22 @@ bool StartConversationAction::approach(Creature &speaker, float dt) {
         !speaker.navigationFailed()) {
         return false;
     }
+    // The point halfway can lie off the walkmesh, where no way leads to it;
+    // the walk then heads for the partner's use point. With no way there
+    // either, the partner cannot be reached.
+    if (speaker.navigationFailed() && !isWithinStartDistance(speaker, *_objectToConverse)) {
+        if (_walkingToUsePoint) {
+            _unreachable = true;
+            return false;
+        }
+        const Creature::UseRange use = speaker.useRange(*_objectToConverse);
+        _walkPoint = use.point;
+        _walkRange = use.range + kConversationUseRangeExtra;
+        _walkingToUsePoint = true;
+        return false;
+    }
     _walkPoint.reset();
+    _walkingToUsePoint = false;
     return isWithinStartDistance(speaker, *_objectToConverse);
 }
 
@@ -284,6 +301,11 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         }
         bool reached = _ignoreStartRange || approach(*creatureActor, dt);
 
+        if (_unreachable) {
+            cancel(self, actor);
+            complete();
+            return;
+        }
         if (!reached) {
             return;
         }
