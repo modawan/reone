@@ -51,8 +51,15 @@ public:
 
     MOCK_METHOD(glm::vec3, listenerPosition, (), (const, override));
     MOCK_METHOD(void, setListenerPosition, (glm::vec3), (override));
+    MOCK_METHOD(void, setListenerOrientation, (glm::vec3, glm::vec3), (override));
     MOCK_METHOD(void, setListenerGain, (float), (override));
 };
+
+/**
+ * Has OpenAL Soft open its null backend, which renders nothing, so a real
+ * context needs no sound hardware. Call it before the first context opens.
+ */
+void useNullAudioBackend();
 
 class MockAudioMixer : public IAudioMixer, boost::noncopyable {
 public:
