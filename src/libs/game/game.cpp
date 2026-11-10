@@ -905,6 +905,7 @@ void Game::initTables() {
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
     _services.audio.mixer.setDryGroups({kBarkSoundGroup});
+    _services.audio.mixer.setAmbientGroups({kAreaWideAmbientSoundGroup, kSingleShotGlobalSoundGroup});
     _services.audio.mixer.setObstructionTest([this](const glm::vec3 &source, const glm::vec3 &listener) {
         auto module = _module;
         auto area = module ? module->area() : nullptr;
@@ -2338,7 +2339,8 @@ void Game::retireActiveModuleRuntime() {
 void Game::retireActiveAreaRuntime() {
     _services.game.projectiles.retireAreaRuntime();
     _areaMusic.unload();
-    // The area's rooms go with it.
+    // The area's rooms go with it. The ambient scale carries on into the next
+    // area, which eases it from there.
     _soundRoom = nullptr;
     auto module = _module;
     auto area = module ? module->area() : nullptr;
@@ -2373,6 +2375,9 @@ void Game::retireRuntimeSession() {
         finalizeSaveRequest(request, std::move(cancelled));
     }
     ++_runtimeSessionGeneration;
+    // Sounds played outside a session, the credits' music among them, play
+    // at full.
+    _services.audio.mixer.jumpAmbientScale(1.0f);
     _globalFade.resetSession();
     _fadeArrival.reset();
     _fadeArrivalModule.reset();
@@ -5845,8 +5850,12 @@ void Game::updateEnvironment(const glm::vec3 &cameraPosition) {
     if (!room || room == _soundRoom) {
         return;
     }
+    // Every change of room eases the ambient scale, an area's first room
+    // included.
     _soundRoom = room;
-    const int envAudio = area->roomEnvAudio(*room);
+    const Area::RoomAudio audio = area->roomAudio(*room);
+    _services.audio.mixer.setAmbientScale(audio.ambientScale);
+    const int envAudio = audio.envAudio;
     if (envAudio == _envAudio) {
         return;
     }

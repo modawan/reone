@@ -605,8 +605,14 @@ public:
     int getRoomForceRating(const glm::vec3 &position) const;
     /** The first room whose WalkCheck walkmesh lies under a position, or none. */
     const Room *roomUnder(const glm::vec3 &position) const;
-    /** The room's ARE EnvAudio; 0 for a room without an ARE entry. */
-    int roomEnvAudio(const Room &room) const;
+    /** What an ARE room says of its sound. */
+    struct RoomAudio {
+        int envAudio {0};
+        /** A listed room without an AmbientScale silences its ambience. */
+        float ambientScale {0.0f};
+    };
+    /** The room's ARE sound; EnvAudio 0 and an AmbientScale of 1 for a room without an ARE entry. */
+    RoomAudio roomAudio(const Room &room) const;
     /**
      * Plays a room's numbered script loop, "scriptloopNN", looping on the
      * room's model: over the room's own loops in KotOR, in place of them in
@@ -1024,8 +1030,8 @@ private:
     /** The rooms' walkmeshes by their place in the layout; empty for a room loaded without one. */
     std::vector<std::shared_ptr<scene::WalkmeshSceneNode>> _layoutWalkmeshes;
     std::unordered_map<std::string, int> _roomForceRatings;
-    /** Each ARE room's EnvAudio by lower-case room name. */
-    std::unordered_map<std::string, int> _roomEnvAudio;
+    /** Each ARE room's RoomAudio by lower-case room name. */
+    std::unordered_map<std::string, RoomAudio> _roomAudio;
     resource::Visibility _visibility;
     /** Whether the area's visibility was loaded, so rooms and objects are culled by it. */
     bool _visibilityGraph {false};

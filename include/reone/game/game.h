@@ -2910,9 +2910,9 @@ private:
     bool isDownForSelection(const Creature &creature) const;
     void updateCamera(float dt);
     /**
-     * Renders the environment of the room the leader stands in, or of the
-     * room under the camera while a conversation shot is up. Outside every
-     * room the environment stays as it was.
+     * Renders the environment and ambient scale of the room the leader stands
+     * in, or of the room under the camera while a conversation shot is up.
+     * Outside every room both stay as they were.
      */
     void updateEnvironment(const glm::vec3 &cameraPosition);
     /**

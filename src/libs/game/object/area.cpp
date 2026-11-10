@@ -308,9 +308,9 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadGrass(are);
     loadFog(are);
     loadMiniGame(are);
-    _roomEnvAudio.clear();
+    _roomAudio.clear();
     for (const auto &room : are.Rooms) {
-        _roomEnvAudio.emplace(boost::to_lower_copy(room.RoomName), room.EnvAudio);
+        _roomAudio.emplace(boost::to_lower_copy(room.RoomName), RoomAudio {room.EnvAudio, room.AmbientScale});
     }
     _roomForceRatings.clear();
     if (_game.isTSL()) {
@@ -1568,9 +1568,9 @@ float Area::soundObstruction(const scene::ISceneGraph &sceneGraph, const glm::ve
     return std::min(obstruction, 1.0f);
 }
 
-int Area::roomEnvAudio(const Room &room) const {
-    auto found = _roomEnvAudio.find(boost::to_lower_copy(room.name()));
-    return found != _roomEnvAudio.end() ? found->second : 0;
+Area::RoomAudio Area::roomAudio(const Room &room) const {
+    auto found = _roomAudio.find(boost::to_lower_copy(room.name()));
+    return found != _roomAudio.end() ? found->second : RoomAudio {0, 1.0f};
 }
 
 int Area::getSurfaceMaterial(const glm::vec3 &position) const {

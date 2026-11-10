@@ -61,6 +61,63 @@ void AudioMixer::render() {
     const float seconds = last ? std::chrono::duration<float>(now - *last).count() : 0.0f;
     refreshObstruction(seconds);
     renderObstruction(seconds);
+    renderAmbientScale();
+}
+
+void AudioMixer::setAmbientGroups(std::set<int> groups) {
+    _ambientGroups = std::move(groups);
+}
+
+void AudioMixer::setAmbientScale(float scale) {
+    if (scale == _ambientScaleTo) {
+        return;
+    }
+    _ambientScaleFrom = _ambientScale;
+    _ambientScaleTo = scale;
+    _ambientScaleStart = _clock();
+}
+
+void AudioMixer::jumpAmbientScale(float scale) {
+    _ambientScale = scale;
+    _ambientScaleFrom = scale;
+    _ambientScaleTo = scale;
+    _ambientScaleStart.reset();
+    applyAmbientScale();
+}
+
+// A positional sound that is not streamed plays as a 3D sample, which the
+// ambient scale never reaches.
+bool AudioMixer::isAmbient(bool positional, std::optional<int> group) const {
+    if (!group || _ambientGroups.count(*group) == 0) {
+        return false;
+    }
+    return !positional || _streamedGroups.count(*group) > 0;
+}
+
+// The ambient scale eases to a new room's over a second.
+static constexpr std::chrono::milliseconds kAmbientScaleEaseTime {1000};
+
+void AudioMixer::renderAmbientScale() {
+    if (!_ambientScaleStart) {
+        return;
+    }
+    const auto elapsed = _clock() - *_ambientScaleStart;
+    const float fraction = std::clamp(
+        std::chrono::duration<float>(elapsed).count() / std::chrono::duration<float>(kAmbientScaleEaseTime).count(),
+        0.0f, 1.0f);
+    _ambientScale = _ambientScaleFrom + fraction * (_ambientScaleTo - _ambientScaleFrom);
+    if (fraction >= 1.0f) {
+        _ambientScaleStart.reset();
+    }
+    applyAmbientScale();
+}
+
+void AudioMixer::applyAmbientScale() {
+    for (auto &active : _sources) {
+        if (isAmbient(active.positional, active.group)) {
+            active.source->setGain(gainByType(active.type, active.gain, active.positional, active.group));
+        }
+    }
 }
 
 void AudioMixer::setObstructionTest(ObstructionTest test) {
@@ -557,6 +614,9 @@ float AudioMixer::gainByType(AudioType type, float gain, bool positional, std::o
     // volume, taken with the slider.
     if (group) {
         slider *= priorityGroup(*group).volume / static_cast<float>(kMaxVolume);
+    }
+    if (isAmbient(positional, group)) {
+        slider *= _ambientScale;
     }
     // Ducked sounds play at a fifth of their volume.
     static constexpr float kDuckingFactor = 0.2f;
