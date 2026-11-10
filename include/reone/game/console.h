@@ -18,7 +18,9 @@
 #pragma once
 
 #include <charconv>
+#include <locale>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <type_traits>
 
@@ -49,16 +51,21 @@ public:
         }
 
         std::string_view str = arg.value();
-        const char *begin = str.data();
-        const char *end = str.data() + str.size();
-
-        T value;
-        std::from_chars_result result = std::from_chars(begin, end, value);
-
-        if (result.ec != std::errc {} || result.ptr != end) {
-            return std::optional<T>();
+#if defined(__APPLE__) && defined(_LIBCPP_VERSION)
+        if constexpr (std::is_floating_point_v<T>) {
+            return readFloatingPoint<T>(str);
+        } else
+#endif
+        {
+            T value {};
+            const char *begin = str.data();
+            const char *end = str.data() + str.size();
+            std::from_chars_result result = std::from_chars(begin, end, value);
+            if (result.ec != std::errc {} || result.ptr != end) {
+                return std::optional<T>();
+            }
+            return value;
         }
-        return value;
     }
 
     /**
@@ -78,6 +85,27 @@ public:
 
 protected:
     TokenList _tokens;
+
+#if defined(__APPLE__) && defined(_LIBCPP_VERSION)
+    // Apple's libc++ has no floating-point from_chars on the macOS versions
+    // reone supports, so there those are read through a stream with the
+    // classic locale, which keeps '.' the separator. A leading '+' is refused,
+    // as from_chars refuses it.
+    template <typename T>
+    static std::optional<T> readFloatingPoint(std::string_view str) {
+        if (str.empty() || str.front() == '+') {
+            return std::optional<T>();
+        }
+        std::istringstream stream {std::string(str)};
+        stream.imbue(std::locale::classic());
+        T value {};
+        stream >> value;
+        if (stream.fail() || !stream.eof()) {
+            return std::optional<T>();
+        }
+        return value;
+    }
+#endif
 };
 
 class IConsole {
