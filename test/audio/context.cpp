@@ -4,7 +4,9 @@
 
 #include "../fixtures/audio.h"
 
+#include "reone/audio/clip.h"
 #include "reone/audio/context.h"
+#include "reone/audio/source.h"
 
 #include "al.h"
 #ifdef R_ENABLE_EFX
@@ -76,4 +78,25 @@ TEST(AudioContext, loads_an_environment_s_preset_into_the_reverb) {
     EXPECT_FLOAT_EQ(eaxReverbProperty(effect, AL_EAXREVERB_MODULATION_DEPTH), underwater.flModulationDepth);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
 #endif
+}
+
+TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send) {
+    Context context;
+    if (!openTestContext(context)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
+    auto clip = std::make_shared<AudioClip>();
+    AudioClip::Frame frame;
+    frame.format = AudioFormat::Mono8;
+    frame.sampleRate = 22050;
+    frame.samples.assign(64, 0);
+    clip->add(std::move(frame));
+    AudioSource source(clip, 1.0f, false, glm::vec3(0.0f));
+    source.init();
+    ASSERT_NE(source.alSource(), 0u);
+
+    context.setReverbSend(source, 0.5f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+    context.setReverbSend(source, 0.0f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
 }

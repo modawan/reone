@@ -73,6 +73,14 @@ public:
      * or 2D voices.
      */
     virtual void setStreamedGroups(std::set<int> groups) = 0;
+    /** Sets the priority groups whose sources never reach the reverb, as barks keep dry. */
+    virtual void setDryGroups(std::set<int> groups) = 0;
+    /**
+     * Whether the room's environment reaches unstreamed positional sources.
+     * A room of GENERIC's type keeps them dry. Sources already playing take
+     * it at once.
+     */
+    virtual void setRoomReverb(bool reverb) = 0;
     /** The row of priority group \p group. */
     virtual PriorityGroup priorityGroup(int group) const = 0;
     /**
@@ -151,6 +159,8 @@ public:
     void resumeSources() override;
     void setPriorityGroups(std::vector<PriorityGroup> groups) override;
     void setStreamedGroups(std::set<int> groups) override;
+    void setDryGroups(std::set<int> groups) override;
+    void setRoomReverb(bool reverb) override;
     PriorityGroup priorityGroup(int group) const override;
     void setFocusLost(bool lost) override;
     void setMuted(bool muted) override;
@@ -197,6 +207,9 @@ private:
     /** Shares the groups' room and the voices among the sources in a group. */
     SourceArbiter _arbiter;
     std::set<int> _streamedGroups;
+    std::set<int> _dryGroups;
+    /** See setRoomReverb. */
+    bool _roomReverb {false};
     bool _soundsHeldForMovie {false};
     /** The priority groups the sound mode in force keeps playing; none without a mode. */
     std::optional<std::set<int>> _modeKeptGroups;
@@ -221,6 +234,9 @@ private:
     float gainByType(AudioType type, float gain, bool positional, std::optional<int> group) const;
     /** The sources of \p type take its volume. */
     void applyVolume(AudioType type);
+    /** How much of a source reaches the reverb, as a send gain from 0 to 1. */
+    float reverbSend(const ActiveSource &active) const;
+    bool isStreamed(const ActiveSource &active) const;
     /** Resumes a source that nothing holds paused any more. */
     void resumeIfFree(ActiveSource &active);
     /** The arbiter holds the source back: it waits for room or a voice, or is out of range. */

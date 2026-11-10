@@ -105,6 +105,11 @@ std::optional<audio::Environment> environmentOfEnvAudio(int envAudio) {
     return std::nullopt;
 }
 
+bool envAudioReverberates(int envAudio) {
+    return envAudio > static_cast<int>(audio::Environment::Generic) &&
+           envAudio <= static_cast<int>(audio::Environment::Underwater);
+}
+
 } // namespace game
 
 } // namespace reone

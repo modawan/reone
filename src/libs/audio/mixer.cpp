@@ -235,6 +235,40 @@ void AudioMixer::setStreamedGroups(std::set<int> groups) {
     _streamedGroups = std::move(groups);
 }
 
+void AudioMixer::setDryGroups(std::set<int> groups) {
+    _dryGroups = std::move(groups);
+}
+
+void AudioMixer::setRoomReverb(bool reverb) {
+    if (_roomReverb == reverb) {
+        return;
+    }
+    _roomReverb = reverb;
+    for (auto &active : _sources) {
+        if (active.positional && !isStreamed(active)) {
+            _context.setReverbSend(*active.source, reverbSend(active));
+        }
+    }
+}
+
+bool AudioMixer::isStreamed(const ActiveSource &active) const {
+    return active.group && _streamedGroups.count(*active.group) > 0;
+}
+
+// A wet sound sends a little under half of itself to the reverb.
+static const float kReverbSendFactor = std::pow(0.6f, 5.0f / 3.0f);
+
+// Only positional sounds reach the reverb; 2D sounds stay dry for now.
+float AudioMixer::reverbSend(const ActiveSource &active) const {
+    if (!active.positional || (active.group && _dryGroups.count(*active.group) > 0)) {
+        return 0.0f;
+    }
+    if (isStreamed(active)) {
+        return _options.streamedReverb ? kReverbSendFactor : 0.0f;
+    }
+    return _options.unstreamedReverb && _roomReverb ? kReverbSendFactor : 0.0f;
+}
+
 // A group the table has no row for takes a blank row.
 PriorityGroup AudioMixer::priorityGroup(int group) const {
     return _arbiter.priorityGroup(group);
@@ -379,6 +413,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
     }
 
     source->init();
+    _context.setReverbSend(*source, reverbSend(active));
     if (distances) {
         source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);
     }

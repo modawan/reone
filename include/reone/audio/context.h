@@ -23,6 +23,8 @@ namespace reone {
 
 namespace audio {
 
+class AudioSource;
+
 class IContext {
 public:
     virtual ~IContext() = default;
@@ -41,6 +43,12 @@ public:
      * preset's EAX 2 properties. Does nothing without a reverb.
      */
     virtual void setEnvironment(Environment environment) = 0;
+
+    /**
+     * Sends \p gain, from 0 to 1, of \p source to the reverb; 0 detaches it.
+     * Does nothing without a reverb, or before the source is inited.
+     */
+    virtual void setReverbSend(AudioSource &source, float gain) = 0;
 };
 
 /** The fullest reverb the device renders, which decides how much of an environment is heard. */
@@ -76,6 +84,7 @@ public:
     ReverbTier reverbTier() const { return _reverbTier; }
 
     void setEnvironment(Environment environment) override;
+    void setReverbSend(AudioSource &source, float gain) override;
 
 private:
     /**
@@ -89,6 +98,8 @@ private:
     /** The reverb effect and the slot that renders it; 0 at ReverbTier::None. */
     uint32_t _reverbEffect {0};
     uint32_t _reverbSlot {0};
+    /** The filter a reverb send carries its gain in. */
+    uint32_t _reverbSendFilter {0};
 
     glm::vec3 _listenerPosition {0.0f};
     glm::vec3 _listenerForward {0.0f};

@@ -88,6 +88,8 @@ public:
 
     bool isPlaying() const { return _playing; }
     bool isOwned() const { return _owned; }
+    /** The OpenAL source's name; 0 until init. */
+    uint32_t alSource() const { return _source; }
     /** Whether the source plays its clip over and over. */
     bool isLooping() const { return _loop; }
     /**

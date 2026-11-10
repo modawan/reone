@@ -54,6 +54,7 @@ public:
     MOCK_METHOD(void, setListenerOrientation, (glm::vec3, glm::vec3), (override));
     MOCK_METHOD(void, setListenerGain, (float), (override));
     MOCK_METHOD(void, setEnvironment, (Environment), (override));
+    MOCK_METHOD(void, setReverbSend, (AudioSource &, float), (override));
 };
 
 /**
@@ -77,6 +78,8 @@ public:
     MOCK_METHOD(void, resumeSources, (), (override));
     MOCK_METHOD(void, setPriorityGroups, (std::vector<PriorityGroup>), (override));
     MOCK_METHOD(void, setStreamedGroups, (std::set<int>), (override));
+    MOCK_METHOD(void, setDryGroups, (std::set<int>), (override));
+    MOCK_METHOD(void, setRoomReverb, (bool), (override));
     MOCK_METHOD(PriorityGroup, priorityGroup, (int), (const, override));
     MOCK_METHOD(void, setFocusLost, (bool), (override));
     MOCK_METHOD(void, setMuted, (bool), (override));

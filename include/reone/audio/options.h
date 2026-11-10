@@ -22,8 +22,6 @@ namespace reone {
 namespace audio {
 
 struct AudioOptions {
-    /** The EAX level of sound without EAX, which is all the mixer plays. */
-    static constexpr int kNoEAXLevel = 0;
     /** Each volume is kept from 0 to this, a volume slider's length. */
     static constexpr int kMaxVolume = 100;
     /** The least 2D3D bias. */
@@ -55,6 +53,10 @@ struct AudioOptions {
      */
     int voices2D {24};
     int voices3D {16};
+    /** Streamed positional sounds reach the room's reverb. */
+    bool streamedReverb {true};
+    /** Unstreamed positional sounds reach the room's reverb, where the room has one. */
+    bool unstreamedReverb {true};
 };
 
 } // namespace audio

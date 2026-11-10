@@ -116,6 +116,13 @@ private:
  */
 std::optional<audio::Environment> environmentOfEnvAudio(int envAudio);
 
+/**
+ * Whether a room's EnvAudio lets unstreamed positional sounds into the reverb.
+ * GENERIC's room type keeps them dry, and so do 23 and every value that names
+ * no EAX room type.
+ */
+bool envAudioReverberates(int envAudio);
+
 } // namespace game
 
 } // namespace reone
