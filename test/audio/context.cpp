@@ -7,6 +7,11 @@
 #include "reone/audio/context.h"
 
 #include "al.h"
+#ifdef R_ENABLE_EFX
+#define AL_ALEXT_PROTOTYPES
+#include "efx-presets.h"
+#include "efx.h"
+#endif
 
 using namespace reone;
 using namespace reone::audio;
@@ -39,4 +44,36 @@ TEST(AudioContext, turns_the_listener_to_the_orientation_given) {
     EXPECT_FLOAT_EQ(orientation[1], 1.0f);
     EXPECT_FLOAT_EQ(orientation[2], 0.0f);
     EXPECT_FLOAT_EQ(orientation[5], 1.0f);
+}
+
+#ifdef R_ENABLE_EFX
+static float eaxReverbProperty(ALuint effect, ALenum param) {
+    float value = 0.0f;
+    alGetEffectf(effect, param, &value);
+    return value;
+}
+#endif
+
+TEST(AudioContext, loads_an_environment_s_preset_into_the_reverb) {
+#ifndef R_ENABLE_EFX
+    GTEST_SKIP() << "the OpenAL found has no effects extension";
+#else
+    Context context;
+    if (!openTestContext(context)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
+    ASSERT_EQ(context.reverbTier(), ReverbTier::EaxReverb);
+    // OpenAL Soft names effects per device from 1, and this device holds only the reverb.
+    const ALuint effect = 1;
+    ASSERT_TRUE(alIsEffect(effect));
+    const EFXEAXREVERBPROPERTIES generic = EFX_REVERB_PRESET_GENERIC;
+    EXPECT_FLOAT_EQ(eaxReverbProperty(effect, AL_EAXREVERB_DECAY_TIME), generic.flDecayTime);
+
+    context.setEnvironment(Environment::Underwater);
+
+    const EFXEAXREVERBPROPERTIES underwater = EFX_REVERB_PRESET_UNDERWATER;
+    EXPECT_FLOAT_EQ(eaxReverbProperty(effect, AL_EAXREVERB_GAINHF), underwater.flGainHF);
+    EXPECT_FLOAT_EQ(eaxReverbProperty(effect, AL_EAXREVERB_MODULATION_DEPTH), underwater.flModulationDepth);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+#endif
 }

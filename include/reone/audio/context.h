@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "types.h"
+
 namespace reone {
 
 namespace audio {
@@ -66,6 +68,12 @@ public:
     void setListenerGain(float gain) override;
 
     ReverbTier reverbTier() const { return _reverbTier; }
+
+    /**
+     * Renders \p environment from now on. Standard reverb takes only the
+     * preset's EAX 2 properties. Does nothing at ReverbTier::None.
+     */
+    void setEnvironment(Environment environment);
 
 private:
     /**
