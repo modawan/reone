@@ -214,9 +214,13 @@ void AudioSource::play() {
     _paused = false;
 }
 
+// A source the mixer did not play has no OpenAL source; what is asked of it
+// is kept, or ignored.
 void AudioSource::pause() {
-    alSourcePause(_source);
     _paused = true;
+    if (_source) {
+        alSourcePause(_source);
+    }
 }
 
 // Only a source that is still playing, and paused or created paused, resumes:
@@ -262,6 +266,7 @@ void AudioSource::setPosition(glm::vec3 position) {
     _position = std::move(position);
 }
 
+// A streamed source reads its looping as it queues each frame.
 void AudioSource::setLooping(bool loop) {
     _loop = loop;
     if (_source && !_streaming) {
@@ -270,11 +275,44 @@ void AudioSource::setLooping(bool loop) {
 }
 
 void AudioSource::setGainScale(float scale) {
-    alSourcef(_source, AL_GAIN, _gain * scale);
+    _gainScale = scale;
+    applyGain();
+}
+
+void AudioSource::setGain(float gain) {
+    _gain = gain;
+    applyGain();
+}
+
+void AudioSource::applyGain() {
+    if (_source) {
+        alSourcef(_source, AL_GAIN, _gain * _gainScale);
+    }
+}
+
+// The source falls off with the inverse of its distance from the listener
+// beyond the full-volume distance, the default distance model with a rolloff
+// of one.
+void AudioSource::setDistances(float fullVolumeDistance, float cutoffDistance) {
+    _cutoffDistance = cutoffDistance;
+    if (_source) {
+        alSourcef(_source, AL_REFERENCE_DISTANCE, fullVolumeDistance);
+        alSourcef(_source, AL_MAX_DISTANCE, cutoffDistance);
+    }
+}
+
+bool AudioSource::isWithinRange(const glm::vec3 &listener) const {
+    return !_position || !_cutoffDistance || isWithinRange(*_position, *_cutoffDistance, listener);
+}
+
+bool AudioSource::isWithinRange(const glm::vec3 &position, float cutoffDistance, const glm::vec3 &listener) {
+    return glm::length(listener - position) <= cutoffDistance;
 }
 
 void AudioSource::setPitch(float pitch) {
-    alSourcef(_source, AL_PITCH, pitch);
+    if (_source) {
+        alSourcef(_source, AL_PITCH, pitch);
+    }
 }
 
 } // namespace audio

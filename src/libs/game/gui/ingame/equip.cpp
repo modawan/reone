@@ -302,8 +302,8 @@ void Equipment::confirmCandidateItem(const std::string &item) {
     if (index < 0 || index >= static_cast<int>(_listedItems.size()) || !_listedItems[index].valid) return;
     // Choosing an item or clearing the slot sounds when it is asked for,
     // whatever the outcome.
-    auto clip = item == kNoneItemTag ? _presentation.sounds.getInventoryDrop() : _presentation.sounds.getInventorySelect();
-    _audioSource = _presentation.mixer.play(std::move(clip), audio::AudioType::Sound);
+    auto sound = item == kNoneItemTag ? _presentation.sounds.getInventoryDrop() : _presentation.sounds.getInventorySelect();
+    _audioSource = _presentation.sounds.play(sound);
     _awaitingRevision = _view.revision;
     _backing->equip(_view.revision, _listedItems[index].handle, getInventorySlot(_selectedSlot));
     receiveEquipmentResult();

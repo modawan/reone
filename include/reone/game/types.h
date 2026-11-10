@@ -545,6 +545,74 @@ enum class HeldCount {
     Chemicals
 };
 
+// Sound priority groups
+
+/** The sound priority group of sounds no other sound masks, such as a creature hitting the ground. */
+constexpr int kUnmaskableSoundGroup = 0;
+/** The sound priority group of music stingers, which every pause but a full one keeps playing. */
+constexpr int kStingerSoundGroup = 1;
+/** The sound priority group of music, which every pause but a full one keeps playing. */
+constexpr int kMusicSoundGroup = 2;
+/** The sound priority group of area-wide ambients, which the player's pause keeps playing. */
+constexpr int kAreaWideAmbientSoundGroup = 4;
+/** The sound priority group of looping positional ambients. */
+constexpr int kLoopingPositionalAmbientSoundGroup = 5;
+/** The sound priority group of the controlled creature's own loops: its creature loop and a lit light source. */
+constexpr int kLoopingPlayerSoundGroup = 6;
+/** The sound priority group of other creatures' loops. */
+constexpr int kLoopingNonPlayerSoundGroup = 7;
+/** The sound priority group of the controlled creature's sound set. */
+constexpr int kPlayerChatSoundGroup = 8;
+/** The sound priority group of conversation voices and other players' creatures' chat. */
+constexpr int kNonPlayerChatSoundGroup = 9;
+/** The sound priority group of the sounds scripts play. */
+constexpr int kScriptedPlaySoundGroup = 10;
+/** The sound priority group of the GUI's sounds, which every pause but a full one keeps playing. */
+constexpr int kGuiSoundGroup = 11;
+/** The sound priority group of an area of effect's sounds. */
+constexpr int kAreaOfEffectSoundGroup = 12;
+/** The sound priority group of visual effects', spell casts' and conjuring sounds. */
+constexpr int kSpellEffectSoundGroup = 13;
+/** The sound priority group of a projectile's flight and impact. */
+constexpr int kProjectileSoundGroup = 14;
+/** The sound priority group of combat: swings, hits, shots and bouncing grenades. */
+constexpr int kCombatSoundGroup = 15;
+/** The sound priority group of a large creature's sound set. */
+constexpr int kLargeCreatureVocalizationSoundGroup = 16;
+/** The sound priority group of a medium or small creature's sound set. */
+constexpr int kCreatureVocalizationSoundGroup = 17;
+/** The sound priority group of a large creature's footsteps. */
+constexpr int kLargeCreatureFootstepSoundGroup = 18;
+/** The sound priority group of the controlled creature's footsteps. */
+constexpr int kPlayerFootstepSoundGroup = 19;
+/** The sound priority group of a medium or small creature's footsteps. */
+constexpr int kCreatureFootstepSoundGroup = 20;
+/** The sound priority group of one-shot sounds heard everywhere. */
+constexpr int kSingleShotGlobalSoundGroup = 21;
+/** The sound priority group of one-shot positional sounds. */
+constexpr int kSingleShotPositionalSoundGroup = 22;
+/**
+ * The default sound priority group: the group a sound has until one is set.
+ * The player's minigame sounds stay in it.
+ */
+constexpr int kDefaultSoundGroup = 23;
+/** The sound priority group of the minigame enemies' sounds. */
+constexpr int kMinigameEnemySoundGroup = 24;
+/** The sound priority group of the sounds rooms loop where parts of their models are. */
+constexpr int kRoomSoundGroup = 25;
+/** The sound priority group of barked lines, which every sound mode pauses. */
+constexpr int kBarkSoundGroup = 26;
+
+// END Sound priority groups
+
+/**
+ * How far above its place a spell cast's sound, a conjure's sounds, an area
+ * of effect's sounds, and a visual effect's impact and cessation sounds,
+ * play; a visual at a point also loops its duration sound this high, and a
+ * projectile its flight sound.
+ */
+constexpr float kEffectSoundHeight = 1.5f;
+
 enum class SkillType {
     Invalid = -1,
     ComputerUse = 0,
@@ -1094,6 +1162,7 @@ enum class ActionType {
     DoorSaber = 0x1029,
     ChangeFacing = 0x102a,
     OrientCamera = 0x102b,
+    PlaySound = 0x102c,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe

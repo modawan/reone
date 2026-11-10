@@ -64,12 +64,6 @@ static constexpr int kSellLimitCap = 250;
 /** The party members whose equipped items count as on hand. */
 static constexpr int kOnHandPartySize = 3;
 
-static void playSound(IAudioMixer &mixer, std::shared_ptr<AudioClip> clip) {
-    if (clip) {
-        mixer.play(std::move(clip), AudioType::Sound);
-    }
-}
-
 void StoreGUI::onGUILoaded() {
     bindControls();
     loadBackground(BackgroundType::Menu);
@@ -481,7 +475,7 @@ void StoreGUI::buy(const std::shared_ptr<Item> &item) {
     if (!store || !leader) {
         return;
     }
-    playSound(_presentation.mixer, _presentation.sounds.getInventoryAdd());
+    _presentation.sounds.play(_presentation.sounds.getInventoryAdd());
     const int price = store->buyPrice(*item);
     _game.party().takeGold(price);
     store->sellItem(item, leader);
@@ -505,7 +499,7 @@ void StoreGUI::sell(const std::shared_ptr<Item> &item) {
         (runUnequip(_game, *leader, item, nullptr, true) != EquipmentOperationOutcome::Applied || !item->isRuntimeLive())) {
         return;
     }
-    playSound(_presentation.mixer, _presentation.sounds.getInventoryDrop());
+    _presentation.sounds.play(_presentation.sounds.getInventoryDrop());
     const int price = store->sellPrice(*item);
     _game.party().giveGold(price);
     std::shared_ptr<Item> sold = item;
@@ -557,7 +551,7 @@ void StoreGUI::update(float dt) {
 }
 
 void StoreGUI::close() {
-    playSound(_presentation.mixer, _presentation.sounds.getPanelRemoved());
+    _presentation.sounds.play(_presentation.sounds.getPanelRemoved());
     _game.closeStore();
 }
 

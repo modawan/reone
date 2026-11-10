@@ -25,7 +25,12 @@ class IContext {
 public:
     virtual ~IContext() = default;
 
+    /** Where every positional sound is heard from. */
+    virtual glm::vec3 listenerPosition() const = 0;
+
     virtual void setListenerPosition(glm::vec3 position) = 0;
+    /** Scales the gain of every sound. */
+    virtual void setListenerGain(float gain) = 0;
 };
 
 class Context : public IContext, boost::noncopyable {
@@ -35,7 +40,10 @@ public:
     void init();
     void deinit();
 
+    glm::vec3 listenerPosition() const override { return _listenerPosition; }
+
     void setListenerPosition(glm::vec3 position) override;
+    void setListenerGain(float gain) override;
 
 private:
     ALCdevice *_device {nullptr};

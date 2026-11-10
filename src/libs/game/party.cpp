@@ -146,9 +146,7 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
         // The change-character key sounds the accepted cue whether or not
         // the lead moved.
         selectNextStandingMember();
-        if (auto clip = _game.services().game.guiSounds.getActionAccepted()) {
-            _game.services().audio.mixer.play(std::move(clip), audio::AudioType::Sound);
-        }
+        _game.services().game.guiSounds.play(_game.services().game.guiSounds.getActionAccepted());
         return true;
     }
 

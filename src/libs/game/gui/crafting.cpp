@@ -206,7 +206,7 @@ static bool handleListKey(ServicesView &services, const input::KeyEvent &key, Li
         const bool down = key.code == input::KeyCode::Down;
         const bool sounds = down || list.selectedItemIndex() >= 0;
         if (list.selectAdjacentItem(down) && sounds) {
-            services.audio.mixer.play(services.game.guiSounds.getOnEnter(), AudioType::Sound);
+            services.game.guiSounds.play(services.game.guiSounds.getOnEnter());
         }
         return true;
     }
@@ -255,7 +255,7 @@ void CraftingPanel::choose(const ListBox &list, int row) {
     _acceptRow = row;
     _acceptAction = AcceptAction::ChooseAgain;
     if (&list == _controls.LB_SHOPITEMS.get()) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
     }
     act(row);
 }
@@ -680,7 +680,7 @@ void CraftingPanel::create(int row) {
 void CraftingPanel::finishCreate(int row) {
     const auto &creatable = _creatable[row];
     const auto character = _character.resolve();
-    _services.audio.mixer.play(_services.game.guiSounds.getInventoryAdd(), AudioType::Sound);
+    _services.game.guiSounds.play(_services.game.guiSounds.getInventoryAdd());
     setShownCount(_shownCount - itemValue(*creatable.item));
     _game.party().setCreatureCount(*character, _count, _shownCount);
     // One entry makes one item, however many identical rows the entry stands for.
@@ -730,7 +730,7 @@ void CraftingPanel::finishBreakdown(int row) {
             _game.destroyRuntimeObjectGraph(item);
         }
     }
-    _services.audio.mixer.play(_services.game.guiSounds.getInventoryDrop(), AudioType::Sound);
+    _services.game.guiSounds.play(_services.game.guiSounds.getInventoryDrop());
     setShownCount(_shownCount + gain);
     _game.party().setCreatureCount(*character, _count, _shownCount);
     fillBreakdownList(row);
@@ -1027,7 +1027,7 @@ void UpgradeItemsPanel::onGUILoaded() {
     protoItem.setBorderColor(kK1ColorBlue);
     protoItem.setHilightColor(kK1ColorYellow);
     _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &tag) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
         pick(std::stoi(tag));
     });
     // The buttons never take the keyboard from the list.
@@ -1127,14 +1127,14 @@ bool UpgradeItemsPanel::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown &&
         !event.key.repeat &&
         event.key.code == input::KeyCode::Escape) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
         _onBack();
         return true;
     }
     // The list holds the keyboard; its entry clicks as it is chosen.
     if (event.type == input::EventType::KeyDown &&
         handleListKey(_services, event.key, *_controls.LB_ITEMS, [this](int row) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             pick(row);
         })) {
         return true;
@@ -1373,13 +1373,13 @@ void ItemUpgradePanel::onGUILoaded() {
     if (tsl) {
         _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
         _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &tag) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             pick(std::stoi(tag));
         });
     } else {
         _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnHoverKept);
         _controls.LB_ITEMS->setOnItemClick([this](const std::string &tag) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             pick(std::stoi(tag));
         });
     }
@@ -2189,7 +2189,7 @@ std::shared_ptr<Item> ItemUpgradePanel::giveBack(const std::shared_ptr<Item> &up
 // selection moves, and an entry clicks as it is picked.
 void ItemUpgradePanel::onClick(const std::string &control) {
     if (control == "BTN_ASSEMBLE") {
-        _services.audio.mixer.play(_services.game.guiSounds.getUpgrade(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getUpgrade());
         return;
     }
     if (control == _controls.LB_ITEMS->tag() ||
@@ -2204,7 +2204,7 @@ bool ItemUpgradePanel::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown &&
         !event.key.repeat &&
         event.key.code == input::KeyCode::Escape) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
         if (_listSlot) {
             closeList();
         } else {
@@ -2230,7 +2230,7 @@ bool ItemUpgradePanel::handleActiveControlKey(const input::KeyEvent &key) {
     auto &control = active->get();
     if (&control == _controls.LB_ITEMS.get()) {
         return handleListKey(_services, key, *_controls.LB_ITEMS, [this](int entry) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             pick(entry);
         });
     }
@@ -2243,7 +2243,7 @@ bool ItemUpgradePanel::handleActiveControlKey(const input::KeyEvent &key) {
         return false;
     }
     if (const auto target = _gui->moveTarget(control, *direction)) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
         _gui->selectActiveControl(target->get());
     }
     return true;
@@ -2360,7 +2360,7 @@ void UpgradeSelectionGUI::onGUILoaded() {
         protoItem.setBorderColor(kTSLColorUpgradeBorder);
         protoItem.setHilightColor(kTSLColorUpgradeText);
         list.setOnItemDoubleClick([this](const std::string &tag) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             beginUpgrade(_rows[std::stoi(tag)], false);
         });
         // The list holds the keyboard; the filters and buttons never take it.
@@ -2768,7 +2768,7 @@ void UpgradeSelectionGUI::onCreationClosed(bool escape) {
         return;
     }
     if (escape) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
     }
     _openPanel = OpenPanel::None;
     // What was made or broken down may be upgradable.
@@ -2789,14 +2789,14 @@ bool UpgradeSelectionGUI::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown &&
         !event.key.repeat &&
         event.key.code == input::KeyCode::Escape) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
         close();
         return true;
     }
     // TSL's list holds the keyboard; its entry clicks as it is chosen.
     if (_game.isTSL() && event.type == input::EventType::KeyDown &&
         handleListKey(_services, event.key, *_controls.LB_UPGRADELIST, [this](int row) {
-            _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
             beginUpgrade(_rows[row], false);
         })) {
         return true;
@@ -2828,7 +2828,7 @@ bool UpgradeSelectionGUI::handleKindKey(const input::KeyEvent &key) {
             clickControl(control.tag());
             return true;
         }
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
         if (_kindsHeld.count(kindButton->kind) > 0) {
             openItems(kindButton->kind, nullptr);
         }
@@ -2839,7 +2839,7 @@ bool UpgradeSelectionGUI::handleKindKey(const input::KeyEvent &key) {
         return false;
     }
     if (const auto target = _gui->moveTarget(control, *direction)) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
         const auto kindButton = kindButtonOf(target->get());
         if (kindButton != _kindButtons.end()) {
             describeKind(kindButton->kind);

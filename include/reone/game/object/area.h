@@ -21,6 +21,7 @@
 #include <deque>
 #include <functional>
 #include <optional>
+#include <set>
 
 #include "reone/game/areamapstate.h"
 #include "reone/game/minigame.h"
@@ -46,6 +47,20 @@
 
 namespace reone {
 
+namespace audio {
+
+class AudioSource;
+
+}
+
+namespace scene {
+
+class IAnimationEventListener;
+class ModelNodeSceneNode;
+class ModelSceneNode;
+
+} // namespace scene
+
 namespace game {
 
 const float kHeartbeatInterval = 6.0f;
@@ -64,6 +79,9 @@ using ObjectList = std::vector<std::shared_ptr<Object>>;
 
 class Area : public Object {
 public:
+    /** How far talk carries: the farthest any talk volume reaches. */
+    static constexpr float kTalkRange = 1000.0f;
+
     struct Grass {
         std::shared_ptr<graphics::Texture> texture;
         float density {0.0f};
@@ -881,6 +899,42 @@ private:
     std::string _localizedName;
     AreaMapState _mapState;
     RoomMap _rooms;
+
+    /**
+     * A sound a room loops where a part of its model is: at once, or from the
+     * first time the room's model signals its omen event.
+     */
+    struct PartSound {
+        std::string roomName;
+        std::string part;
+        std::string omenEvent;
+        std::string resRef;
+        std::shared_ptr<scene::ModelSceneNode> roomModel;
+        /** The part of the room model the sound plays at, owned by the model. */
+        scene::ModelNodeSceneNode *partNode {nullptr};
+        std::shared_ptr<audio::AudioSource> source;
+    };
+    /** The rooms' part sounds, from the area file's room list. */
+    std::vector<PartSound> _partSounds;
+    /** The room models' listeners for the omen events of their part sounds. */
+    std::vector<std::unique_ptr<scene::IAnimationEventListener>> _partSoundListeners;
+
+    // TSL weather, as far as its thunder goes
+
+    /** The chances, out of 100, of rain, snow and lightning; none in an interior. */
+    int _chanceRain {0};
+    int _chanceSnow {0};
+    int _chanceLightning {0};
+    /** The rooms where weather is off, by name. */
+    std::set<std::string> _weatherlessRooms;
+    /** Rain or snow falls. */
+    bool _weatherOn {false};
+    /** Seconds of play until the weather is rolled again. */
+    float _weatherTimer {0.0f};
+    /** Seconds until lightning may strike again. */
+    float _lightningDelay {0.0f};
+
+    // END TSL weather
     /**
      * Room lookup is first walkable hit in LYT order, not nearest
      * visible room. Keep that order separately from the name index.
@@ -1052,6 +1106,21 @@ private:
     void init();
 
     void loadLYT();
+    /** Reads the rooms' part sounds from the area file's room list. */
+    void loadPartSounds(const resource::Gff &are);
+    /** Gives each part sound its room's model, and starts those without an omen event. */
+    void attachPartSounds();
+    /** Starts the part sounds of \p roomModel waiting for \p event that are not playing. */
+    void playPartSounds(const scene::ModelSceneNode &roomModel, const std::string &event);
+    /** Keeps each part sound where its part is. */
+    void updatePartSounds();
+    /**
+     * TSL: every five minutes of play the weather is rolled again; while rain
+     * or snow falls with a chance of lightning, lightning may strike every
+     * five to ten seconds, and the thunder of a strike is heard, close or
+     * distant, unless the controlled creature's room has weather off.
+     */
+    void updateWeather(float dt);
     void loadVIS();
     void applySceneProperties();
     void attachRoomToSceneGraph(Room &room);

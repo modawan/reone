@@ -336,7 +336,7 @@ class SpellCastVisuals {
 public:
     ~SpellCastVisuals();
 
-    /** Shows the spell's conjure visuals on \p caster. */
+    /** Shows the spell's conjure visuals on \p caster and plays its conjure sounds. */
     void showConjure(Creature &caster, const Spell &spell);
     /** Shows the spell's cast visuals on \p caster and fades the conjure visuals out. */
     void showCast(Creature &caster, const Spell &spell);

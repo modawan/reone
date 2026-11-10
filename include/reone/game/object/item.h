@@ -214,10 +214,21 @@ public:
     /**
      * Powers the item up or down at \p position. The power-up and power-down
      * sounds play only with the \p transition; the item's lit state and its
-     * hum change either way.
+     * hum change either way. An item the player cannot hear (\p audible
+     * false) plays no power sound and starts no hum.
      */
-    void powerUp(glm::vec3 position, bool transition);
-    void powerDown(glm::vec3 position, bool transition);
+    void powerUp(glm::vec3 position, bool transition, bool audible);
+    void powerDown(glm::vec3 position, bool transition, bool audible);
+    /** Starts the hum of a powered item at \p position, unless it is humming already. */
+    void startPoweredSound(glm::vec3 position);
+    /**
+     * Plays the sound of the item put down, picked up or taken off: the
+     * inventorysnds.2da row its base item's inventory sound type names, heard
+     * everywhere in the GUI's group.
+     */
+    void playDropSound() const;
+    /** Stops the hum; the item stays powered. */
+    void stopPoweredSound();
     void updatePoweredSoundPosition(glm::vec3 position);
     bool isPowered() const { return _isPowered; }
     /**

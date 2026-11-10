@@ -22,6 +22,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "reone/game/gui/sounds.h"
+
 namespace reone {
 
 namespace game {
@@ -843,9 +845,7 @@ void PazaakBoardGUI::playAudio(const std::string &resRef) {
             warn("Pazaak audio cue is unavailable: " + resRef);
             return;
         }
-        auto source = _services.audio.mixer.play(
-            std::move(clip),
-            audio::AudioType::Sound);
+        auto source = playInterfaceSound(_services.audio.mixer, std::move(clip));
         if (!source) {
             warn("Pazaak audio cue failed to start: " + resRef);
             return;

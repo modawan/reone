@@ -121,8 +121,15 @@ struct Spell {
     ProjectilePathType projectilePath {ProjectilePathType::Default};
     std::string projectileSpawn;
     std::string projectileOrientation;
+    /** The sound a projectile of the spell plays while it flies and once where it first arrives. */
+    std::shared_ptr<audio::AudioClip> projectileSound;
     /** The head, hand and ground models shown while conjuring and after the release. */
     std::array<std::string, 3> conjureVisuals;
+    /** The voice a male or female caster of a player race conjures the spell with. */
+    std::shared_ptr<audio::AudioClip> conjureSoundMale;
+    std::shared_ptr<audio::AudioClip> conjureSoundFemale;
+    /** The sound the conjure visuals play. */
+    std::shared_ptr<audio::AudioClip> conjureSoundVisual;
     std::array<std::string, 3> castVisuals;
     /**
      * Target kinds a hostile power menu does not offer the power against.

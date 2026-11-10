@@ -1682,7 +1682,7 @@ TEST(PazaakGUIResources, VerifiedAudioCuesFireOncePerModelEventAndNotOnRefresh) 
     EXPECT_CALL(fixture.engine.resourceModule().audioClips(), get("mgs_playside"))
         .Times(1)
         .WillRepeatedly(Return(clip));
-    EXPECT_CALL(fixture.engine.audioModule().mixer(), play(_, _, _, _, _))
+    EXPECT_CALL(fixture.engine.audioModule().mixer(), play(_, _, _, _, _, _, _, _))
         .Times(5)
         .WillRepeatedly(Return(std::shared_ptr<audio::AudioSource> {}));
     installPazaakGUIResources(fixture.engine, loaded, {}, false);
