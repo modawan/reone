@@ -17,13 +17,12 @@
 
 #pragma once
 
+#include "../decodedcache.h"
 #include "../layout.h"
 
 namespace reone {
 
 namespace resource {
-
-class IResources;
 
 class ILayouts {
 public:
@@ -45,20 +44,17 @@ public:
     }
 
     std::shared_ptr<Layout> get(const std::string &key) override {
-        auto maybeObject = _objects.find(key);
-        if (maybeObject != _objects.end()) {
-            return maybeObject->second;
-        }
-        auto object = doGet(key);
-        return _objects.insert(make_pair(key, std::move(object))).first->second;
+        return _objects.get(key, [this, &key](ResourceReads &reads) {
+            return doGet(key, reads);
+        }).value;
     }
 
 private:
     IResources &_resources;
 
-    std::unordered_map<std::string, std::shared_ptr<Layout>> _objects;
+    DecodedCache<std::string, Layout> _objects;
 
-    std::shared_ptr<Layout> doGet(std::string resRef);
+    std::shared_ptr<Layout> doGet(const std::string &resRef, ResourceReads &reads);
 };
 
 } // namespace resource

@@ -72,7 +72,7 @@ void ResourceModule::init() {
         *_auxResources);
     _audioClips = std::make_unique<AudioClips>(*_resources, *_auxResources);
     _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());
-    _scripts = std::make_unique<Scripts>(*_resources, *_replacements);
+    _scripts = std::make_unique<Scripts>(*_resources);
     _dialogs = std::make_unique<Dialogs>(*_gffs, *_strings, *_twoDas, _gameId);
     _layouts = std::make_unique<Layouts>(*_resources);
     _paths = std::make_unique<Paths>(*_gffs);
@@ -85,13 +85,8 @@ void ResourceModule::init() {
         _graphicsOpt,
         _graphics.services(),
         _script.services(),
-        *_dialogs,
-        *_gffs,
-        *_lips,
-        *_paths,
         *_resources,
         *_auxResources,
-        *_scripts,
         *_twoDas,
         _odysseyRoots);
 

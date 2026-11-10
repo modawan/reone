@@ -36,26 +36,17 @@ void Walkmeshes::clear() {
 }
 
 std::shared_ptr<Walkmesh> Walkmeshes::get(const std::string &resRef, ResType type) {
-    auto lcResRef = boost::to_lower_copy(resRef);
-
-    auto maybeWalkmesh = _cache.find(lcResRef);
-    if (maybeWalkmesh != _cache.end()) {
-        return maybeWalkmesh->second;
-    }
-    auto inserted = _cache.insert(std::make_pair(lcResRef, doGet(lcResRef, type)));
-
-    return inserted.first->second;
-}
-
-std::shared_ptr<Walkmesh> Walkmeshes::doGet(const std::string &resRef, ResType type) {
-    auto res = _resources.find(ResourceId(resRef, type));
-    if (!res) {
-        return nullptr;
-    }
-    auto bwm = MemoryInputStream(res->data);
-    auto reader = BwmReader(bwm);
-    reader.load();
-    return reader.walkmesh();
+    ResourceId id(resRef, type);
+    return _cache.get(id, [this, &id](ResourceReads &reads) -> std::shared_ptr<Walkmesh> {
+        auto res = reads.find(_resources, id);
+        if (!res) {
+            return nullptr;
+        }
+        auto bwm = MemoryInputStream(res->data);
+        auto reader = BwmReader(bwm);
+        reader.load();
+        return reader.walkmesh();
+    }).value;
 }
 
 } // namespace resource

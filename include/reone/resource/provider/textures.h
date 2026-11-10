@@ -19,9 +19,9 @@
 
 #include <utility>
 
-#include "reone/system/cache.h"
-
 #include "reone/graphics/types.h"
+
+#include "../decodedcache.h"
 
 namespace reone {
 
@@ -33,8 +33,6 @@ class Texture;
 } // namespace graphics
 
 namespace resource {
-
-class IResources;
 
 class ITextures {
 public:
@@ -66,9 +64,11 @@ private:
     IResources &_resources;
 
     // Filtering and wrapping depend on the usage, so the usage is part of the key.
-    Cache<std::pair<std::string, graphics::TextureUsage>, graphics::Texture> _cache;
+    using Key = std::pair<std::string, graphics::TextureUsage>;
 
-    std::shared_ptr<graphics::Texture> doGet(const std::string &resRef, graphics::TextureUsage usage);
+    DecodedCache<Key, graphics::Texture, boost::hash<Key>> _cache;
+
+    std::shared_ptr<graphics::Texture> doGet(const std::string &resRef, graphics::TextureUsage usage, ResourceReads &reads);
 };
 
 } // namespace resource

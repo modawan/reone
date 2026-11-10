@@ -48,15 +48,16 @@ std::shared_ptr<Texture> Textures::get(const std::string &resRef, TextureUsage u
         return nullptr;
     }
     const auto lcResRef = boost::to_lower_copy(resRef);
-    return _cache.getOrAdd({lcResRef, usage},
-                           [this, &lcResRef, usage]() { return doGet(lcResRef, usage); });
+    return _cache.get({lcResRef, usage}, [this, &lcResRef, usage](ResourceReads &reads) {
+        return doGet(lcResRef, usage, reads);
+    }).value;
 }
 
-std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage usage) {
+std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage usage, ResourceReads &reads) {
     std::shared_ptr<Texture> texture;
     std::optional<Texture::Features> features;
 
-    auto txiRes = _resources.find(ResourceId(resRef, ResType::Txi));
+    auto txiRes = reads.find(_resources, ResourceId(resRef, ResType::Txi));
     if (txiRes) {
         auto txi = MemoryInputStream(txiRes->data);
         auto txiReader = TxiReader();
@@ -64,7 +65,7 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
         features = txiReader.features();
     }
 
-    auto tgaRes = _resources.find(ResourceId(resRef, ResType::Tga));
+    auto tgaRes = reads.find(_resources, ResourceId(resRef, ResType::Tga));
     if (tgaRes) {
         auto tga = MemoryInputStream(tgaRes->data);
         auto tgaReader = TgaReader(tga, resRef, usage);
@@ -82,7 +83,7 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
     }
 
     if (!texture) {
-        auto tpcRes = _resources.find(ResourceId(resRef, ResType::Tpc));
+        auto tpcRes = reads.find(_resources, ResourceId(resRef, ResType::Tpc));
         if (tpcRes) {
             auto tpc = MemoryInputStream(tpcRes->data);
             auto tpcReader = TpcReader(tpc, resRef, usage);

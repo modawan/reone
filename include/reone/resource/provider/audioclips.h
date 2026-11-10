@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "../resource.h"
+#include "../decodedcache.h"
 #include "../types.h"
 
 namespace reone {
@@ -29,8 +29,6 @@ class AudioClip;
 }
 
 namespace resource {
-
-class IResources;
 
 class IAudioClips {
 public:
@@ -65,26 +63,29 @@ public:
     }
 
     bool hasMp3(const std::string &resRef) override {
-        return findClipData(resRef, ResType::Mp3).has_value();
+        ResourceId id(resRef, ResType::Mp3);
+        return _streamResources.locate(id) || _resources.locate(id);
     }
 
     std::shared_ptr<audio::AudioClip> get(const std::string &key) override {
-        auto maybeObject = _objects.find(key);
-        if (maybeObject != _objects.end()) {
-            return maybeObject->second;
-        }
-        auto object = doGet(key);
-        return _objects.insert(make_pair(key, std::move(object))).first->second;
+        return entry(key).value;
+    }
+
+    /// The cached clip with the lookups it was read from, for a value built from it.
+    const DecodedCache<std::string, audio::AudioClip>::Entry &entry(const std::string &key) {
+        return _objects.get(key, [this, &key](ResourceReads &reads) {
+            return doGet(key, reads);
+        });
     }
 
 private:
     IResources &_resources;
     IResources &_streamResources;
 
-    std::unordered_map<std::string, std::shared_ptr<audio::AudioClip>> _objects;
+    DecodedCache<std::string, audio::AudioClip> _objects;
 
-    std::shared_ptr<audio::AudioClip> doGet(std::string resRef);
-    std::optional<Resource> findClipData(const std::string &resRef, ResType type);
+    std::shared_ptr<audio::AudioClip> doGet(const std::string &resRef, ResourceReads &reads);
+    std::optional<Resource> findClipData(const std::string &resRef, ResType type, ResourceReads &reads);
 };
 
 } // namespace resource

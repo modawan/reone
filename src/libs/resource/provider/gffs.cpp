@@ -25,10 +25,10 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<Gff> Gffs::get(const std::string &resRef, ResType type) {
+const DecodedCache<ResourceId, Gff>::Entry &Gffs::entry(const std::string &resRef, ResType type) {
     ResourceId resId(resRef, type);
-    return _cache.getOrAdd(resId, [this, &resId]() {
-        auto res = _resources.find(resId);
+    return _cache.get(resId, [this, &resId](ResourceReads &reads) {
+        auto res = reads.find(_resources, resId);
         if (!res) {
             return std::shared_ptr<Gff>();
         }
