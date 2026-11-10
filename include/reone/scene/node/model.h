@@ -106,7 +106,7 @@ public:
     };
 
     ModelSceneNode(
-        graphics::Model &model,
+        std::shared_ptr<graphics::Model> model,
         ModelUsage usage,
         ISceneGraph &sceneGraph,
         graphics::GraphicsServices &graphicsSvc,
@@ -118,7 +118,7 @@ public:
             graphicsSvc,
             audioSvc,
             resourceSvc),
-        _model(&model),
+        _model(std::move(model)),
         _usage(usage) {
     }
 
@@ -177,10 +177,10 @@ public:
     ModelUsage usage() const { return _usage; }
     float drawDistance() const { return _drawDistance; }
 
-    void setModel(graphics::Model &model);
+    void setModel(std::shared_ptr<graphics::Model> model);
     void setDrawDistance(float distance) { _drawDistance = distance; }
-    void setMainTexture(graphics::Texture *texture);
-    void setEnvironmentMap(graphics::Texture *texture);
+    void setMainTexture(std::shared_ptr<graphics::Texture> texture);
+    void setEnvironmentMap(std::shared_ptr<graphics::Texture> texture);
     /**
      * Draws a copy of every mesh pushed out along its normals by \p offset,
      * in \p texture, over the model.
@@ -321,7 +321,7 @@ private:
         glm::quat returnFrom {1.0f, 0.0f, 0.0f, 0.0f};
     };
 
-    graphics::Model *_model;
+    std::shared_ptr<graphics::Model> _model;
     ModelUsage _usage;
 
     IAnimationEventListener *_animEventListener {nullptr};

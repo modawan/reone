@@ -57,7 +57,7 @@ TEST(MinigameAnimator, a_pose_sits_under_the_script_layers_and_replaces_the_last
         auto animRoot = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
         animations.push_back(std::make_shared<Animation>(name, 0.0f, 0.0f, "", animRoot, std::vector<Animation::Event>()));
     }
-    Model model("bike", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("bike", 0, rootNode, animations, "", 1.0f);
     ModelSceneNode bike(model, ModelUsage::Placeable, scene, graphicsModule.services(), audioModule.services(), resourceModule.services());
     bike.init();
 

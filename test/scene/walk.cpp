@@ -51,8 +51,8 @@ TEST(SceneWalk, should_test_a_distant_object_walkmesh_whose_geometry_reaches_the
     TestResourceModule resourceModule;
     resourceModule.init();
 
-    Walkmesh walkmesh;
-    walkmesh.vertices = {
+    auto walkmesh = std::make_shared<Walkmesh>();
+    walkmesh->vertices = {
         {12.0f, -1.0f, -1.0f},
         {12.0f, 1.0f, -1.0f},
         {12.0f, 1.0f, 1.0f},
@@ -60,9 +60,9 @@ TEST(SceneWalk, should_test_a_distant_object_walkmesh_whose_geometry_reaches_the
         {12.0f, 1.0f, 1.0f},
         {12.0f, -1.0f, 1.0f},
     };
-    walkmesh.faces = {{0, 2, 1}, {3, 5, 4}};
-    walkmesh.normals = {{-1.0f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}};
-    walkmesh.materials = {0, 0};
+    walkmesh->faces = {{0, 2, 1}, {3, 5, 4}};
+    walkmesh->normals = {{-1.0f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}};
+    walkmesh->materials = {0, 0};
 
     SceneGraph graph(
         "test",

@@ -458,7 +458,7 @@ void PBRRenderPipeline::renderSSAO(float sampleRadius, float bias) {
     _context.useProgram(_shaderRegistry.get(ShaderProgramId::pbrSSAO));
     _context.bindTexture(*_targets.dbGBuffer, TextureUnits::gBufDepth);
     _context.bindTexture(*_targets.cbGBufEyeNormal, TextureUnits::gBufEyeNormal);
-    _context.bindTexture(_textureRegistry.get(TextureName::noiseRg), TextureUnits::noise);
+    _context.bindTexture(*_textureRegistry.get(TextureName::noiseRg), TextureUnits::noise);
     _context.withViewport(glm::ivec4(0, 0, size.x, size.y), [this]() {
         _context.clearColorDepth();
         _meshRegistry.get(MeshName::quadNDC).draw(_statistic);

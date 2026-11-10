@@ -533,12 +533,12 @@ struct FighterFixture {
     std::unique_ptr<SceneGraph> scene;
 
     std::shared_ptr<ModelNode> root;
-    std::unique_ptr<Model> model;
+    std::shared_ptr<Model> model;
     std::shared_ptr<ModelSceneNode> node;
 
-    std::unique_ptr<Model> flareModel;
+    std::shared_ptr<Model> flareModel;
     std::shared_ptr<ModelSceneNode> flare;
-    std::unique_ptr<Model> gunModel;
+    std::shared_ptr<Model> gunModel;
     std::shared_ptr<ModelSceneNode> gun;
 
     FighterFixture() {
@@ -575,28 +575,28 @@ struct FighterFixture {
                                                    glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, root.get());
         root->addChild(gunHook);
 
-        model = std::make_unique<Model>("fighter", 0, root,
+        model = std::make_shared<Model>("fighter", 0, root,
                                         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-        node = makeModelSceneNode(*model);
+        node = makeModelSceneNode(model);
 
         flareModel = makeSimpleModel("fx_ref");
-        flare = makeModelSceneNode(*flareModel);
+        flare = makeModelSceneNode(flareModel);
         node->attach("omenref05", *flare);
 
         gunModel = makeSimpleModel("mgg_null");
-        gun = makeModelSceneNode(*gunModel);
+        gun = makeModelSceneNode(gunModel);
         node->attach("gunbank0", *gun);
     }
 
-    std::unique_ptr<Model> makeSimpleModel(const std::string &name) {
+    std::shared_ptr<Model> makeSimpleModel(const std::string &name) {
         auto modelRoot = std::make_shared<ModelNode>(0, name, glm::vec3(0.0f),
                                                      glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
         modelRoot->setMesh(std::make_shared<ModelNode::TriangleMesh>());
-        return std::make_unique<Model>(name, 0, modelRoot,
+        return std::make_shared<Model>(name, 0, modelRoot,
                                        std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
     }
 
-    std::shared_ptr<ModelSceneNode> makeModelSceneNode(Model &m) {
+    std::shared_ptr<ModelSceneNode> makeModelSceneNode(std::shared_ptr<Model> m) {
         auto n = std::make_shared<ModelSceneNode>(m, ModelUsage::Creature, *scene,
                                                   graphicsModule.services(),
                                                   audioModule.services(),
@@ -617,7 +617,7 @@ namespace {
 
 // A rail carrying a fighter on its "modelhook", the way loadEnemies builds it.
 struct RailFixture : FighterFixture {
-    std::unique_ptr<Model> railModel;
+    std::shared_ptr<Model> railModel;
     std::shared_ptr<ModelSceneNode> rail;
 
     RailFixture() {
@@ -626,9 +626,9 @@ struct RailFixture : FighterFixture {
         auto hook = std::make_shared<ModelNode>(1, "modelhook", glm::vec3(0.0f),
                                                 glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, railRoot.get());
         railRoot->addChild(hook);
-        railModel = std::make_unique<Model>("m12ab_mgt02", 0, railRoot,
+        railModel = std::make_shared<Model>("m12ab_mgt02", 0, railRoot,
                                             std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-        rail = makeModelSceneNode(*railModel);
+        rail = makeModelSceneNode(railModel);
         rail->attach("modelhook", *node);
     }
 
