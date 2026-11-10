@@ -24,3 +24,12 @@ TEST(RoomEnvironment, env_audio_past_23_or_below_0_names_none) {
     EXPECT_EQ(environmentOfEnvAudio(92), std::nullopt);
     EXPECT_EQ(environmentOfEnvAudio(-1), std::nullopt);
 }
+
+TEST(RoomEnvironment, only_room_types_past_generic_reverberate) {
+    EXPECT_FALSE(envAudioReverberates(0));
+    EXPECT_TRUE(envAudioReverberates(1));
+    EXPECT_TRUE(envAudioReverberates(22));
+    EXPECT_FALSE(envAudioReverberates(23));
+    EXPECT_FALSE(envAudioReverberates(40));
+    EXPECT_FALSE(envAudioReverberates(-1));
+}

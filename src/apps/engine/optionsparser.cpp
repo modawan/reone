@@ -83,6 +83,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
         ("voices2d", value<int>()->default_value(options->audio.voices2D), "number of 2D voices, half for streams")             //
         ("voices3d", value<int>()->default_value(options->audio.voices3D), "number of 3D voices")                               //
+        ("envstreaming", value<bool>()->default_value(options->audio.streamedReverb), "reverb streamed 3D sounds")              //
+        ("envnonstreaming", value<bool>()->default_value(options->audio.unstreamedReverb), "reverb unstreamed 3D sounds")       //
         ("logsev", value<int>()->default_value(static_cast<int>(options->logging.severity)), "minimum log severity")            //
         ("logch", value<int>()->default_value(defaultLogChannels), "log channel mask");
 
@@ -134,6 +136,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->audio.movieVolume = vars["movievol"].as<int>();
     options->audio.voices2D = vars["voices2d"].as<int>();
     options->audio.voices3D = vars["voices3d"].as<int>();
+    options->audio.streamedReverb = vars["envstreaming"].as<bool>();
+    options->audio.unstreamedReverb = vars["envnonstreaming"].as<bool>();
     options->logging.severity = static_cast<LogSeverity>(vars["logsev"].as<int>());
 
     std::set<LogChannel> logChannels;

@@ -884,6 +884,7 @@ void Game::initTables() {
                                              kLargeCreatureVocalizationSoundGroup,
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
+    _services.audio.mixer.setDryGroups({kBarkSoundGroup});
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
@@ -5575,6 +5576,7 @@ void Game::updateEnvironment(const glm::vec3 &cameraPosition) {
     if (auto environment = environmentOfEnvAudio(envAudio)) {
         _services.audio.context.setEnvironment(*environment);
     }
+    _services.audio.mixer.setRoomReverb(envAudioReverberates(envAudio));
 }
 
 void Game::updateSceneGraph(float dt) {

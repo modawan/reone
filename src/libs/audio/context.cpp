@@ -17,6 +17,7 @@
 
 #include "reone/audio/context.h"
 
+#include "reone/audio/source.h"
 #include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
 
@@ -159,6 +160,26 @@ void Context::setEnvironment(Environment environment) {
 #endif
 }
 
+void Context::setReverbSend(AudioSource &source, float gain) {
+#ifdef R_ENABLE_EFX
+    const ALuint name = source.alSource();
+    if (_reverbTier == ReverbTier::None || name == 0) {
+        return;
+    }
+    if (gain <= 0.0f) {
+        alSource3i(name, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL);
+        return;
+    }
+    // A source keeps a copy of the filter it is given, so one filter serves
+    // every send.
+    alFilterf(_reverbSendFilter, AL_LOWPASS_GAIN, std::min(gain, 1.0f));
+    alSource3i(name, AL_AUXILIARY_SEND_FILTER, static_cast<ALint>(_reverbSlot), 0, static_cast<ALint>(_reverbSendFilter));
+#else
+    static_cast<void>(source);
+    static_cast<void>(gain);
+#endif
+}
+
 void Context::initReverb() {
 #ifdef R_ENABLE_EFX
     ALCint sends = 0;
@@ -192,6 +213,8 @@ void Context::initReverb() {
             _reverbEffect = 0;
         } else {
             setEnvironment(Environment::Generic);
+            alGenFilters(1, &_reverbSendFilter);
+            alFilteri(_reverbSendFilter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
         }
     }
 #endif
@@ -200,6 +223,10 @@ void Context::initReverb() {
 
 void Context::deinitReverb() {
 #ifdef R_ENABLE_EFX
+    if (_reverbSendFilter) {
+        alDeleteFilters(1, &_reverbSendFilter);
+        _reverbSendFilter = 0;
+    }
     if (_reverbSlot) {
         alDeleteAuxiliaryEffectSlots(1, &_reverbSlot);
         _reverbSlot = 0;
