@@ -572,6 +572,19 @@ SaveResult Game::publishSave(
     return result;
 }
 
+// Entering a module can discard the saved state of a group of modules, each
+// of which is then built afresh when next entered.
+std::set<std::string> Game::modulesDiscardedOnEntering(const std::string &destination) {
+    std::set<std::string> discarded;
+    auto &director = _services.resource.director;
+    if (auto group = director.moduleSaveRules(destination).deleteSaveGroupOnEnter) {
+        for (auto &module : director.saveGroupModules(*group)) {
+            discarded.insert(std::move(module));
+        }
+    }
+    return discarded;
+}
+
 std::shared_ptr<const resource::SaveWorkingState>
 Game::prepareCurrentModuleWorkingState(const std::string &destination) {
     auto committed = _services.resource.director.committedSaveWorkingState();
@@ -584,14 +597,7 @@ Game::prepareCurrentModuleWorkingState(const std::string &destination) {
         auto candidate = resource::SaveWorkingStateCandidate::fromCommitted(
             std::move(committed));
 
-        // Entering a module can discard the saved state of a group of
-        // modules, each of which is then built afresh when next entered.
-        std::set<std::string> discarded;
-        if (auto group = director.moduleSaveRules(destination).deleteSaveGroupOnEnter) {
-            for (auto &module : director.saveGroupModules(*group)) {
-                discarded.insert(std::move(module));
-            }
-        }
+        const auto discarded = modulesDiscardedOnEntering(destination);
 
         // A module left out of saved games, or one the destination discards,
         // is not stored as it is left, so entering it again builds it afresh.

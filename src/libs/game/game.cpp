@@ -1917,9 +1917,12 @@ bool Game::loadPreparedModule(
         }
 
         // Re-entering the same module must inspect the snapshot just captured,
-        // not the previously committed visit. Other destinations are
-        // unaffected because the candidate changed only the source archive.
-        if (boost::iequals(_module->name(), name)) {
+        // not the previously committed visit, and a module that discards its
+        // own saved state on entry is built afresh. Other destinations are
+        // unaffected because the candidate changed only the source archive
+        // and the discarded group.
+        if (boost::iequals(_module->name(), name) ||
+            modulesDiscardedOnEntering(name).count(boost::to_lower_copy(name)) > 0) {
             try {
                 prepared = prepareDestinationModule(
                     name, initialSaveRestore, sourceWorkingState);
@@ -2413,7 +2416,9 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
         if (!prepared.playerInfo ||
             prepared.playerInfo->getList("Mod_PlayerList").empty()) {
             throw ValidationException(
-                "Template-world save restore requires pifo.ifo player state");
+                templateWorld
+                    ? "Template-world save restore requires pifo.ifo player state"
+                    : "Autosave restore requires pifo.ifo player state");
         }
         if (!params) {
             throw ValidationException(

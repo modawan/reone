@@ -2236,6 +2236,8 @@ private:
     void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
     void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
+    /** The modules whose saved state entering \p destination discards. */
+    std::set<std::string> modulesDiscardedOnEntering(const std::string &destination);
     /**
      * The working state as the current module is left for \p destination: the
      * module stored when saves include it, the bound roster records

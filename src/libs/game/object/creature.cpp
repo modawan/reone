@@ -11214,9 +11214,12 @@ void Creature::deserializeRecord(
                      : animation == kDead3AnimationId ? DeathPose::Dead3
                                                       : DeathPose::Dead1;
     } else if (int32_t animation = kPauseAnimationId;
-               gff.readInt(animation, "Animation") && animation != kPauseAnimationId) {
+               gff.readInt(animation, "Animation") && animation != kPauseAnimationId &&
+               animation != kReadyAnimationId && animation != kDamageFlinchAnimationId) {
         // A living creature saved holding another animation takes it up again
-        // once the world it belongs to is published.
+        // once the world it belongs to is published. The pause and the ready
+        // stance follow the creature's state, and a flinch has passed, so a
+        // creature saved in one of them is not held in it.
         _savedScriptLoop = animation;
     }
 

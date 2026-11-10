@@ -629,7 +629,7 @@ The architecture is modestly larger than this project before the E series becaus
 - Control switching retires only the outgoing creature's Area residency; it never retires the Area.
 - Saved references to party representations bind through their party identity on a disk load and on a revisit (§5.1).
 - The module save table's inclusion, delete-group and autosave rules are applied on every module entry (§11.7).
-- A door saved while swinging is saved in the state the swing reaches; a creature saved holding a looping animation takes it up again once its world is published.
+- A door saved while swinging is saved in the state the swing reaches; a creature saved holding a looping animation takes it up again once its world is published. The pause, the ready stance and a flinch follow the creature's state and are never held this way.
 - Ordinary travel reconstructs supported Party action/delay continuation after retiring outgoing live execution state.
 - Party availability mutation does not own or destroy an independently existing runtime creature.
 - Item transfers and equipment replacement now express the displaced ownership receiver explicitly; generic Creature ownership no longer chooses KOTOR Party inventory policy.
