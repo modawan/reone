@@ -601,7 +601,12 @@ float DriveAction::speed(const Creature &creature) const {
 }
 
 void DriveAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // Only a creature drives; a drive on anything else ends at once.
     auto creature = _game.getObjectById<Creature>(actor.id());
+    if (!creature) {
+        complete();
+        return;
+    }
     const bool run = runs(*creature);
     // Driving releases the creature's orientation lock and ends its engaged
     // exchange, and the creature turns at once toward where it is steered.
@@ -630,7 +635,7 @@ static constexpr float kDriveSliceSeconds = 0.4f;
 // still to be worked out, which a drive under way has done.
 std::optional<SavedActionRecord> DriveAction::saveFacingState() const {
     const float degrees = glm::degrees(std::atan2(_direction.y, _direction.x));
-    const int32_t heading = static_cast<int32_t>(degrees < 0.0f ? degrees + 360.0f : degrees) * 10;
+    const int32_t heading = static_cast<int32_t>((degrees < 0.0f ? degrees + 360.0f : degrees) * 10.0f);
     const int32_t slices = static_cast<int32_t>(std::ceil(_timeLeft / kDriveSliceSeconds));
     return SavedActionRecord::command(SavedActionType::Drive, {
                                                                   {kSavedFloatParameter, _start.x},
