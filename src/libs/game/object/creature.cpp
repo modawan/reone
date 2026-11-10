@@ -33,6 +33,7 @@
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/changefacing.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/switchweapons.h"
@@ -2058,11 +2059,11 @@ bool Creature::permitsAction(const Action &action) const {
     }
     // A walk to a point, or one heading for an object, fails a creature that
     // cannot move unless its goal is a trigger or a linked door already in
-    // reach, which it clicks or is blocked by; a walk to a location and a
-    // follow of the leader or of the owner fail it too. A walk to an object
-    // that checks its reach, a move away and a follow of another creature
-    // keep their order: only death or going down ends them. A random walk
-    // asks nothing.
+    // reach, which it clicks or is blocked by; a walk to a location, a
+    // follow of the leader or of the owner and a drive fail it too. A walk to
+    // an object that checks its reach, a move away and a follow of another
+    // creature keep their order: only death or going down ends them. A random
+    // walk asks nothing.
     switch (command.type()) {
     case ActionType::MoveToObject: {
         const auto &move = static_cast<const MoveToObjectAction &>(command);
@@ -2078,6 +2079,7 @@ bool Creature::permitsAction(const Action &action) const {
     case ActionType::MoveToLocation:
     case ActionType::FollowLeader:
     case ActionType::FollowOwner:
+    case ActionType::Drive:
         return canMove();
     case ActionType::RandomWalk:
         return true;
@@ -4372,9 +4374,10 @@ void Creature::setDesiredFacingToward(const glm::vec3 &point) {
 Creature::AnimationUpdater Creature::animationUpdater() const {
     auto &party = _game.party();
     const bool leader = party.getLeader().get() == this;
-    // In a conversation the leader is driven only when it neither speaks nor
-    // listens; in TSL not at all. Nor is it driven after an engaged swing.
-    if (leader && !_engagedExchange && !hasOrdinaryActionsPending() && !isPlayingDialogAnimation() &&
+    // The leader acts freely with nothing queued or under the player's drive.
+    // In a conversation it is driven only when it neither speaks nor listens;
+    // in TSL not at all. Nor is it driven after an engaged swing.
+    if (leader && !_engagedExchange && (!hasOrdinaryActionsPending() || isDriven()) && !isPlayingDialogAnimation() &&
         !(_game.isTSL() ? _game.isConversationActive() : _game.isConversationSpeakerOrListener(*this))) {
         return AnimationUpdater::Drive;
     }
@@ -11978,6 +11981,15 @@ float Creature::walkSpeed() const {
 // However slowed, a run covers at least a metre a second.
 float Creature::runSpeed() const {
     return std::max(kMinimumRunSpeed, _runSpeed * movementRate(true));
+}
+
+bool Creature::isDriven() const {
+    const auto action = getCurrentAction();
+    return action && isa<DriveAction>(action);
+}
+
+float Creature::driveSpeed() const {
+    return isDriven() ? cast<DriveAction>(getCurrentAction())->speed(*this) : 0.0f;
 }
 
 int Creature::maxForcePoints() const {

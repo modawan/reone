@@ -1163,6 +1163,7 @@ enum class ActionType {
     ChangeFacing = 0x102a,
     OrientCamera = 0x102b,
     PlaySound = 0x102c,
+    Drive = 0x102d,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe

@@ -275,6 +275,8 @@ enum class SavedActionType : uint32_t {
     /** A turn to face a point. */
     FacePoint = 49,
     Counterspell = 50,
+    /** The player steering a creature. */
+    Drive = 51,
     Appear = 52,
     PickPocket = 54,
     Follow = 55,

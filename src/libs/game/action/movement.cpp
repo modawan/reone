@@ -19,6 +19,7 @@
 #include <cmath>
 
 #include "reone/game/action/changefacing.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/followowner.h"
@@ -505,6 +506,154 @@ std::optional<SavedActionRecord> MoveToPointAction::saveFacingState() const {
     SavedActionRecord result;
     command.toAction(result);
     return result;
+}
+
+// A driven step is tried at most this many times.
+static constexpr int kDriveTries = 6;
+// How far a driven creature standing where it does not fit looks for a spot
+// that does: square rings out to about a metre.
+static constexpr float kDriveNudgeRadius = -1.01f;
+// Door and placeable walls count this far below and above the driven
+// creature, whatever their height.
+static constexpr float kStaticWallReach = 1000.0f;
+
+// The driven creature steps along a straight line to a point a step ahead. A
+// companion or puppet in the way is pushed aside first; when someone is still
+// in the way and the creature stands where it does not fit, it first moves to
+// the nearest spot that does. A point the creature cannot walk straight to is
+// slid: past a creature, onto the line through where they meet, across the way
+// out from that creature's centre; along a wall, as far along the wall from
+// where the creature stands. The creature steps only to a point it can walk
+// straight to. A step that would bring a door or placeable wall within its
+// personal space is slid round that object, unless it stands that close
+// already. It stays where it is once six lines have failed, or when two
+// meetings in a row turn it opposite ways across its path, as in a corner.
+static void stepDriven(Game &game, Area &area, const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, float step) {
+    static constexpr glm::vec3 kUp {0.0f, 0.0f, 1.0f};
+    const glm::vec3 start {creature->position()};
+    glm::vec3 target {start.x + dir.x * step, start.y + dir.y * step, start.z};
+    const glm::vec2 back {-dir};
+    glm::vec2 previousNormal {0.0f};
+    for (int attempt = 1;; ++attempt) {
+        auto line = area.testDirectLine(*creature, creature->position(), target);
+        if (line.result == Area::DirectLine::CreatureBlocked) {
+            creature->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), creature->position(), target, dir);
+            line = area.testDirectLine(*creature, creature->position(), target);
+            if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(creature->position(), *creature)) {
+                if (auto spot = area.computeSafeLocation(creature->position(), kDriveNudgeRadius, *creature, true)) {
+                    creature->setPosition(*spot);
+                    area.determineObjectRoom(*creature);
+                }
+                line = area.testDirectLine(*creature, creature->position(), target);
+            }
+        }
+        if (line.result == Area::DirectLine::Clear) {
+            const glm::vec3 position {creature->position()};
+            const float minZ = position.z - kStaticWallReach;
+            const float maxZ = position.z + kStaticWallReach;
+            const auto wall = area.findStaticWallAlong(target, target, *creature, minZ, maxZ);
+            if (!wall || area.findStaticWallAlong(position, position, *creature, minZ, maxZ)) {
+                // The room under the step is looked for around height 0.
+                area.stepCreatureTo(creature, glm::vec3(glm::vec2(target), 0.0f), Area::MoveFacing::Keep);
+                return;
+            }
+            // The creature slides across the way out from the object's
+            // centre; heading straight at it, the creature stays where it is.
+            const glm::vec2 away {glm::vec2(position) - glm::vec2(wall->get().position())};
+            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
+            if (glm::length(away) == 0.0f || glm::dot(way, glm::vec2(-away.y, away.x)) == 0.0f) {
+                return;
+            }
+            line.result = Area::DirectLine::Blocked;
+            line.normal = glm::vec3(glm::normalize(away), 0.0f);
+        }
+        if (attempt == kDriveTries) {
+            return;
+        }
+
+        const glm::vec2 across {line.normal};
+        if (attempt > 1) {
+            const float now = glm::dot(back, glm::vec2(-across.y, across.x));
+            const float before = glm::dot(back, glm::vec2(-previousNormal.y, previousNormal.x));
+            if ((now > 0.0f && before < 0.0f) || (now < 0.0f && before > 0.0f)) {
+                return;
+            }
+        }
+        if (line.result == Area::DirectLine::CreatureBlocked) {
+            target -= glm::vec3(across, 0.0f) * glm::dot(across, glm::vec2(target - line.stopPoint));
+        } else {
+            const glm::vec3 position {creature->position()};
+            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
+            const glm::vec2 along {glm::normalize(glm::vec2(glm::cross(kUp, line.normal)))};
+            const glm::vec2 slide {along * (glm::sign(glm::dot(way, along)) * glm::length(way))};
+            target = glm::vec3(position.x + slide.x, position.y + slide.y, position.z);
+        }
+        previousNormal = across;
+    }
+}
+
+bool DriveAction::runs(const Creature &creature) const {
+    return _run && !creature.isRunLimited();
+}
+
+float DriveAction::speed(const Creature &creature) const {
+    return runs(creature) ? creature.runSpeed() : creature.walkSpeed();
+}
+
+void DriveAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // Only a creature drives; a drive on anything else ends at once.
+    auto creature = _game.getObjectById<Creature>(actor.id());
+    if (!creature) {
+        complete();
+        return;
+    }
+    const bool run = runs(*creature);
+    // Driving releases the creature's orientation lock and ends its engaged
+    // exchange, and the creature turns at once toward where it is steered.
+    creature->dropOrientationLock();
+    creature->setEngagedExchange(false);
+    creature->setFacing(-glm::atan(_direction.x, _direction.y));
+    stepDriven(_game, *_game.module()->area(), creature, _direction, speed(*creature) * dt);
+    creature->setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
+    creature->setRunning(run);
+
+    _timeLeft -= dt;
+    if (_timeLeft <= 0.0f) {
+        creature->setMovementType(Creature::MovementType::None);
+        complete();
+    }
+}
+
+// A saved drive keeps its movement as flags, forward at a walk or at a run,
+// and the time it has left as slices of 0.4 seconds.
+static constexpr int32_t kDriveWalkFlags = 1;
+static constexpr int32_t kDriveRunFlags = 3;
+static constexpr float kDriveSliceSeconds = 0.4f;
+
+// A drive is kept as where it was given, its heading in tenths of a degree, a
+// path number, its movement, the slices it has left and whether its way is
+// still to be worked out, which a drive under way has done.
+std::optional<SavedActionRecord> DriveAction::saveFacingState() const {
+    const float degrees = glm::degrees(std::atan2(_direction.y, _direction.x));
+    const int32_t heading = static_cast<int32_t>((degrees < 0.0f ? degrees + 360.0f : degrees) * 10.0f);
+    const int32_t slices = static_cast<int32_t>(std::ceil(_timeLeft / kDriveSliceSeconds));
+    return SavedActionRecord::command(SavedActionType::Drive, {
+                                                                  {kSavedFloatParameter, _start.x},
+                                                                  {kSavedFloatParameter, _start.y},
+                                                                  {kSavedIntegerParameter, heading},
+                                                                  {kSavedIntegerParameter, int32_t {0}},
+                                                                  {kSavedIntegerParameter, _run ? kDriveRunFlags : kDriveWalkFlags},
+                                                                  {kSavedIntegerParameter, slices},
+                                                                  {kSavedIntegerParameter, int32_t {0}},
+                                                              });
+}
+
+std::shared_ptr<Action> DriveAction::restore(const SavedActionRecord &record, Game &game) {
+    const float heading = glm::radians(record.integerParameter(2) / 10.0f);
+    return game.newAction<DriveAction>(glm::vec2(std::cos(heading), std::sin(heading)),
+                                       (record.integerParameter(4) & kDriveRunFlags) == kDriveRunFlags,
+                                       glm::vec2(record.floatParameter(0), record.floatParameter(1)),
+                                       record.integerParameter(5) * kDriveSliceSeconds);
 }
 
 // A creature moving away pauses this long before each leg, less when the
