@@ -9375,6 +9375,11 @@ int Creature::footstepSoundGroup() const {
 // and raised by the type's pitch offset while it runs; any other animation
 // stops it.
 void Creature::updateRollingFootstep() {
+    // An absent creature, or one moving silently in stealth, makes no sound.
+    if (!isPresent() || (_stealthMode && hasSilentMove())) {
+        stopRollingFootstep();
+        return;
+    }
     auto sounds = _footstepType != -1 ? _services.game.footstepSounds.get(_footstepType) : nullptr;
     const std::string resRef = sounds ? rollingFootstepSound(*sounds) : std::string();
     if (resRef.empty()) {
@@ -9467,6 +9472,11 @@ void Creature::stopLoopingSounds() {
             source->reset();
         }
     }
+}
+
+Creature::~Creature() {
+    stopRollingFootstep();
+    stopLoopingSounds();
 }
 
 void Creature::stopRollingFootstep() {

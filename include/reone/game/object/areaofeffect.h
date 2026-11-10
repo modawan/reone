@@ -176,6 +176,8 @@ private:
 
     /** The row's sounds have started, on the first update. */
     bool _soundsStarted {false};
+    /** The effect was restored from a save, so its impact sound has played already. */
+    bool _restored {false};
     std::shared_ptr<audio::AudioSource> _durationSound;
     std::shared_ptr<audio::AudioClip> _cessationSound;
 

@@ -32,6 +32,13 @@ namespace audio {
 class AudioClip;
 class IContext;
 
+/**
+ * A pitch strayed at random by \p variance, taken within 0 to 1: up by up to
+ * the variance on one draw in two, down by up to half of it on the other; 1
+ * without a variance.
+ */
+float randomPitch(float variance);
+
 class IAudioMixer {
 public:
     virtual ~IAudioMixer() = default;

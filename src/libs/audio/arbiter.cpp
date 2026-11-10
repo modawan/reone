@@ -162,6 +162,10 @@ std::vector<SlotChange> SourceArbiter::update() {
 
 bool SourceArbiter::tryStart(Entry &entry, bool retry, std::vector<SlotChange> &changes) {
     const PriorityGroup group = priorityGroup(entry.source.group);
+    // A group that plays none plays nothing, interrupting or not.
+    if (group.maxPlaying <= 0) {
+        return false;
+    }
     if (playingInGroup(entry.source.group) >= group.maxPlaying) {
         if (retry || !group.interrupt) {
             return false;

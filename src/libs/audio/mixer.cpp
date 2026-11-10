@@ -31,6 +31,16 @@ namespace audio {
 // A fade between silence and full gain takes half a second.
 static constexpr std::chrono::milliseconds kMuteFadeTime {500};
 
+float randomPitch(float variance) {
+    const float clamped = std::clamp(variance, 0.0f, 1.0f);
+    if (clamped <= 0.0f) {
+        return 1.0f;
+    }
+    const bool up = randomInt(0, 1) == 1;
+    const float stray = randomFloat(0.0f, clamped);
+    return up ? 1.0f + stray : 1.0f - 0.5f * stray;
+}
+
 void AudioMixer::render() {
     renderFade();
     const glm::vec3 listener {_context.listenerPosition()};
@@ -353,10 +363,12 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
         arbited.streamed = _streamedGroups.count(*group) > 0;
         arbited.positional = positional;
         Admission admission = _arbiter.admit(arbited, inRange);
+        // A sound the admission displaced stops or waits, even when the new
+        // sound finds no voice after all.
+        applyChanges(admission.changes);
         if (!admission.id) {
             return source;
         }
-        applyChanges(admission.changes);
         active.slotId = admission.id;
         active.outOfRange = admission.slot == SourceSlot::Away;
     } else if (!inRange) {
@@ -370,15 +382,11 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
     if (distances) {
         source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);
     }
-    // The pitch strays at random: on one source in two up by up to the
-    // variance, on the other down by up to half of it.
     if (pitchVariance) {
-        variance = std::clamp(*pitchVariance, 0.0f, 1.0f);
+        variance = *pitchVariance;
     }
     if (variance > 0.0f) {
-        const bool up = randomInt(0, 1) == 1;
-        const float stray = randomFloat(0.0f, variance);
-        source->setPitch(up ? 1.0f + stray : 1.0f - 0.5f * stray);
+        source->setPitch(randomPitch(variance));
     }
     if (active.movieHeld || active.modePaused || active.focusPaused || active.outOfRange || heldBySlot(active)) {
         source->startPaused();

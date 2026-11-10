@@ -652,7 +652,6 @@ public:
      * options keep, until that is next set.
      */
     void setMusicVolume(float volume);
-    /** The window has lost focus: the area music's repeat gap does not count down. */
     /** Stops the loading-screen music; the track stays set for the next loading screen. */
     void stopLoadMusic();
     /**

@@ -58,6 +58,7 @@ static constexpr float kMinOrientationLength2 = 1.0e-4f;
 void AreaOfEffect::deserialize(
     const Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    _restored = true;
     deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
@@ -375,7 +376,8 @@ glm::vec3 AreaOfEffect::soundPosition() const {
     return _position + glm::vec3(0.0f, 0.0f, kEffectSoundHeight);
 }
 
-// The sounds are the vfx_persistent row's: a blank cell plays none.
+// The sounds are the vfx_persistent row's: a blank cell plays none. A
+// restored effect starts only its duration loop.
 void AreaOfEffect::startSounds() {
     _soundsStarted = true;
     auto table = getRequiredTwoDA(_services.resource.twoDas, "vfx_persistent");
@@ -383,7 +385,9 @@ void AreaOfEffect::startSounds() {
         const auto name = boost::to_lower_copy(table->getString(_areaEffectId, column));
         return name.empty() ? nullptr : _services.resource.audioClips.get(name);
     };
-    _services.audio.mixer.play(clip("soundimpact"), audio::AudioType::Sound, kAreaOfEffectSoundGroup, 1.0f, false, soundPosition());
+    if (!_restored) {
+        _services.audio.mixer.play(clip("soundimpact"), audio::AudioType::Sound, kAreaOfEffectSoundGroup, 1.0f, false, soundPosition());
+    }
     _durationSound = _services.audio.mixer.play(clip("soundduration"), audio::AudioType::Sound, kAreaOfEffectSoundGroup, 1.0f, true, soundPosition());
     _cessationSound = clip("soundcessation");
 }

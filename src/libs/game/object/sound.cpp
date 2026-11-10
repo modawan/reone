@@ -176,12 +176,7 @@ float Sound::nextPitch() const {
     if (_fixedVariance >= 0.5f && _fixedVariance <= 2.0f) {
         return _fixedVariance;
     }
-    const float variance = std::clamp(_pitchVariation, 0.0f, 1.0f);
-    if (variance <= 0.0f) {
-        return 1.0f;
-    }
-    const float stray = randomFloat(0.0f, variance);
-    return randomInt(0, 1) == 1 ? 1.0f + stray : 1.0f - 0.5f * stray;
+    return audio::randomPitch(_pitchVariation);
 }
 
 void Sound::update(float dt) {

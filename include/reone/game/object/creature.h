@@ -504,6 +504,12 @@ public:
         std::string sceneName,
         Game &game,
         ServicesView &services);
+    /**
+     * The creature's loops end with it: its appearance's and its light
+     * source's loops and its rolling footstep, which the mixer would
+     * otherwise keep playing.
+     */
+    ~Creature();
 
     static bool classof(const Object *from) {
         return from->type() == ObjectType::Creature;
