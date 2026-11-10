@@ -524,6 +524,12 @@ public:
      */
     int getRoomForceRating(const glm::vec3 &position) const;
     /**
+     * Plays a room's numbered script loop, "scriptloopNN", looping on the
+     * room's model: over the room's own loops in KotOR, in place of them in
+     * TSL. A room the area does not have plays nothing.
+     */
+    void playRoomAnimation(const std::string &roomName, int animation);
+    /**
      * The surface material under a point: that of the room's face of any
      * material on the point's vertical (see ISceneGraph::findRoomFace),
      * in the room found under the point (see ISceneGraph::findRoomWalkmesh);
@@ -597,11 +603,6 @@ public:
     AreaMapState &mapState() { return _mapState; }
     const AreaMapState &mapState() const { return _mapState; }
     const RoomMap &rooms() const { return _rooms; }
-    /**
-     * Loops a room's script animation \p animation, "scriptloopNN". TSL's
-     * room plays it alone; KotOR's plays it over what the room plays.
-     */
-    void playRoomAnimation(const std::string &roomName, int animation);
     const Grass &grass() const { return _grass; }
     const glm::vec3 &ambientColor() const { return _ambientColor; }
 

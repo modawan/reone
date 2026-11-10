@@ -7037,6 +7037,8 @@ static Variable PlayRoomAnimation(const std::vector<Variable> &args, const Routi
     auto sRoom = getString(args, 0);
     auto nAnimation = getInt(args, 1);
 
+    // Transform
+
     // Execute
     ctx.game.module()->area()->playRoomAnimation(sRoom, nAnimation);
     return Variable::ofNull();

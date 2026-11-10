@@ -1280,17 +1280,6 @@ bool Area::testRoomSurface(const glm::vec2 &point, Collision &outCollision) cons
     return nearest.has_value();
 }
 
-// A room the area lacks plays nothing.
-void Area::playRoomAnimation(const std::string &roomName, int animation) {
-    auto room = _rooms.find(boost::to_lower_copy(roomName));
-    if (room == _rooms.end()) {
-        return;
-    }
-    std::string name("scriptloop" + std::string(animation < 10 ? "0" : "") + std::to_string(animation));
-    int flags = _game.isTSL() ? AnimationFlags::loop : AnimationFlags::loopOverlay;
-    room->second->model()->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
-}
-
 int Area::getRoomForceRating(const glm::vec3 &position) const {
     if (!_game.isTSL() || _roomForceRatings.empty()) {
         return 0;
@@ -1304,6 +1293,17 @@ int Area::getRoomForceRating(const glm::vec3 &position) const {
     const auto &room = static_cast<const Room &>(*walkmesh->user());
     auto found = _roomForceRatings.find(boost::to_lower_copy(room.name()));
     return found != _roomForceRatings.end() ? found->second : 0;
+}
+
+void Area::playRoomAnimation(const std::string &roomName, int animation) {
+    auto room = _rooms.find(boost::to_lower_copy(roomName));
+    if (room == _rooms.end()) {
+        return;
+    }
+    // Loops are numbered from 00; a number reads as unsigned and 16 bits wide.
+    auto name = str(boost::format("scriptloop%02u") % static_cast<uint16_t>(animation));
+    int flags = _game.isTSL() ? AnimationFlags::loop : AnimationFlags::loopOverlay;
+    room->second->model()->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
 }
 
 int Area::getSurfaceMaterial(const glm::vec3 &position) const {
