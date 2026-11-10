@@ -28,8 +28,6 @@ namespace reone {
 
 namespace game {
 
-// Seconds between drive updates while the player keeps moving the leader.
-static constexpr float kDriveUpdateInterval = 0.5f;
 // A driven step is tried at most this many times.
 static constexpr int kDriveTries = 6;
 // How far a driven leader standing where it does not fit looks for a spot
@@ -234,15 +232,9 @@ void Player::update(float dt) {
     }
 
     if (movement) {
-        // Moving by input clears the leader's orders as it starts and again at
-        // each drive update while it lasts. Orders a script gives the leader in
-        // between, such as a trigger's jump and conversation, are carried out.
-        _driveUpdateDelay -= dt;
-        if (_driveUpdateDelay <= 0.0f) {
-            _module.game().combat().clearAllOrders(*partyLeader);
-            partyLeader->clearPath();
-            _driveUpdateDelay = kDriveUpdateInterval;
-        }
+        // Moving by input clears as the player's controls do.
+        _module.game().combat().clearAllOrders(*partyLeader);
+        partyLeader->clearPath();
         // Moving by input releases the leader's orientation lock and ends its
         // engaged exchange.
         partyLeader->dropOrientationLock();
@@ -259,20 +251,16 @@ void Player::update(float dt) {
         partyLeader->setRunning(run);
         // The driven speed, which the motion blur follows.
         partyLeader->setDriveSpeed(run ? partyLeader->runSpeed() : partyLeader->walkSpeed());
-    } else {
-        _driveUpdateDelay = 0.0f;
-        if (partyLeader->actions().empty()) {
-            partyLeader->setMovementType(Creature::MovementType::None);
-            // A leader coming to a halt under the player's control slows to a
-            // walk first, so it is no longer running.
-            partyLeader->setRunning(false);
-        }
+    } else if (partyLeader->actions().empty()) {
+        partyLeader->setMovementType(Creature::MovementType::None);
+        // A leader coming to a halt under the player's control slows to a walk
+        // first, so it is no longer running.
+        partyLeader->setRunning(false);
     }
 }
 
 void Player::stopMovement() {
     _moving = false;
-    _driveUpdateDelay = 0.0f;
     _moveForward = false;
     _moveLeft = false;
     _moveBackward = false;
