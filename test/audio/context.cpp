@@ -5,18 +5,32 @@
 #include "../fixtures/audio.h"
 
 #include "reone/audio/context.h"
-#include "reone/system/threadutil.h"
 
 #include "al.h"
 
 using namespace reone;
 using namespace reone::audio;
 
-TEST(AudioContext, turns_the_listener_to_the_orientation_given) {
-    useNullAudioBackend();
-    markMainThread();
+TEST(AudioContext, opens_the_fullest_reverb_the_device_renders_and_frees_it) {
+#ifndef R_ENABLE_EFX
+    GTEST_SKIP() << "the OpenAL found has no effects extension";
+#endif
     Context context;
-    context.init();
+    if (!openTestContext(context)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
+    EXPECT_EQ(context.reverbTier(), ReverbTier::EaxReverb);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+
+    context.deinit();
+    EXPECT_EQ(context.reverbTier(), ReverbTier::None);
+}
+
+TEST(AudioContext, turns_the_listener_to_the_orientation_given) {
+    Context context;
+    if (!openTestContext(context)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
 
     context.setListenerOrientation(glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 

@@ -16,7 +16,8 @@
 # Finds OpenAL as the OpenAL::OpenAL target, preferring OpenAL Soft wherever it
 # is installed. On Apple, OpenAL.framework stands in when it is not. Either way
 # the target puts al.h and alc.h on the include path, so sources include those
-# by name.
+# by name. With OpenAL Soft the target also defines R_ENABLE_EFX, as only it
+# has the effects extension.
 
 # Homebrew keeps OpenAL Soft out of its prefix, so the search is told where it is.
 if(APPLE)
@@ -41,6 +42,7 @@ find_package(OpenAL CONFIG QUIET)
 set(OpenAL_FIND_REQUIRED ${OPENAL_FIND_REQUIRED_ASKED})
 set(OpenAL_FIND_QUIETLY ${OPENAL_FIND_QUIETLY_ASKED})
 if(TARGET OpenAL::OpenAL)
+    set_property(TARGET OpenAL::OpenAL APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS R_ENABLE_EFX)
     set(OPENAL_IMPLEMENTATION "OpenAL Soft")
 else()
     find_package(PkgConfig QUIET)
@@ -50,6 +52,7 @@ else()
     if(OPENAL_SOFT_FOUND)
         add_library(OpenAL::OpenAL INTERFACE IMPORTED)
         target_link_libraries(OpenAL::OpenAL INTERFACE PkgConfig::OPENAL_SOFT)
+        target_compile_definitions(OpenAL::OpenAL INTERFACE R_ENABLE_EFX)
         set(OPENAL_IMPLEMENTATION "OpenAL Soft")
     elseif(APPLE)
         # Only the framework is looked for, so OpenAL Soft's library cannot
