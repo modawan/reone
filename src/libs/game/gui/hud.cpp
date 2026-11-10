@@ -766,7 +766,7 @@ void HUD::presentAlignmentShift(const StatusSummaryBatch &batch) {
     if (dark == light) {
         return;
     }
-    _services.audio.mixer.play(_services.game.guiSounds.getAlignmentShift(light > dark), AudioType::Sound);
+    _services.game.guiSounds.play(_services.game.guiSounds.getAlignmentShift(light > dark));
     auto leader = _game.party().getLeader();
     if (!leader->isPlayerCreated()) {
         return;
@@ -781,16 +781,15 @@ void HUD::presentAlignmentShift(const StatusSummaryBatch &batch) {
 }
 
 void HUD::playSummarySounds(const StatusSummaryBatch &batch) {
-    auto &mixer = _services.audio.mixer;
-    const auto &sounds = _services.game.guiSounds;
+    auto &sounds = _services.game.guiSounds;
     if (batch.levelUpSound) {
-        mixer.play(sounds.getOnLevelUpNotify(), AudioType::Sound);
+        sounds.play(sounds.getOnLevelUpNotify());
     }
     if (batch.questNewSound) {
-        mixer.play(sounds.getQuestNewNotify(), AudioType::Sound);
+        sounds.play(sounds.getQuestNewNotify());
     }
     if (batch.questCompleteSound) {
-        mixer.play(sounds.getQuestCompleteNotify(), AudioType::Sound);
+        sounds.play(sounds.getQuestCompleteNotify());
     }
 }
 
@@ -839,8 +838,7 @@ void HUD::resetStatusSummaryPresentation() {
 void HUD::onClick(const std::string &control) {
     // The pause, solo and stealth toggles click like checkboxes.
     if (control == "TB_PAUSE" || control == "TB_SOLO" || control == "TB_STEALTH") {
-        auto clip = _services.game.guiSounds.getCheckboxCheck();
-        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        _audioSource = _services.game.guiSounds.play(_services.game.guiSounds.getCheckboxCheck());
         return;
     }
     // An action slot sounds its own acceptance or rejection, with no click before it.

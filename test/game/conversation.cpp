@@ -214,7 +214,7 @@ protected:
             .WillOnce(Return(nullptr));
         EXPECT_CALL(_engine.resourceModule().audioClips(), get("test_voice"))
             .WillOnce(Return(clip));
-        EXPECT_CALL(static_cast<audio::MockAudioMixer &>(_engine.services().audio.mixer), play(_, AudioType::Voice, _, _, _))
+        EXPECT_CALL(static_cast<audio::MockAudioMixer &>(_engine.services().audio.mixer), play(_, AudioType::Voice, _, _, _, _, _, _))
             .WillOnce(Return(source));
 
         _conversation->start(makeDialog(-1, true), nullptr);

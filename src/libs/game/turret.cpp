@@ -74,6 +74,12 @@ constexpr float kDefaultLateralAcceleration = 60.0f;
 // The player's default speed; its track plays at a hundredth of it.
 constexpr float kDefaultSpeed = 100.0f;
 
+// The player's sounds play in the default group, everyone else's in the
+// minigame enemies' group.
+int soundGroup(bool player) {
+    return player ? kDefaultSoundGroup : kMinigameEnemySoundGroup;
+}
+
 // Mouse aim sensitivity, matching FirstPersonCamera's kMouseMultiplier so the
 // turret aims like the first-person camera.
 const float kMouseAimRadiansPerPixel = glm::pi<float>() / 4000.0f;
@@ -647,7 +653,7 @@ void Turret::startEngineSound(Follower &follower) {
     if (!follower.models.empty()) {
         position = transformOrigin(follower.models.front()->absoluteTransform());
     }
-    follower.engineSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, true, position);
+    follower.engineSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound, soundGroup(follower.player), 1.0f, true, position);
     follower.engineSource->setGainScale(glm::clamp(follower.sounds[0].volume / 127.0f, 0.0f, 1.0f));
 }
 
@@ -887,7 +893,7 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
     // The minigame's own music loops from the start, over the area's.
     if (!_spec.music.empty()) {
         if (auto clip = _services.resource.audioClips.get(_spec.music)) {
-            _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, 1.0f, true);
+            _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, kMusicSoundGroup, 1.0f, true);
         }
     }
     go(*_player);
@@ -1459,8 +1465,9 @@ void Turret::spawnBullet(const GunBank &bank,
     }
     shooter.lastBulletFired = bullet.info;
     _bullets.push_back(std::move(bullet));
+    // Every gun sounds its fire in the default group.
     if (!spec.fireSound.empty()) {
-        playSound(spec.fireSound, shooter.player ? std::nullopt : std::optional<glm::vec3>(shooter.position));
+        playSound(spec.fireSound, kDefaultSoundGroup, shooter.player ? std::nullopt : std::optional<glm::vec3>(shooter.position));
     }
     runScript(shooter.scripts.onFire, shooter);
 }
@@ -1686,7 +1693,7 @@ void Turret::onBulletHit(Actor &actor, bool apply) {
         adjustHitPoints(*follower, -hit.damage);
     }
     if (!hit.collisionSound.empty()) {
-        playSound(hit.collisionSound, position);
+        playSound(hit.collisionSound, soundGroup(follower && follower->player), position);
     }
 }
 
@@ -1752,7 +1759,7 @@ void Turret::onDeath(Follower &follower, bool apply) {
         follower.listed = false;
     }
     if (!follower.deathSound.empty()) {
-        playSound(follower.deathSound);
+        playSound(follower.deathSound, soundGroup(follower.player));
     }
     auto &root = *follower.models.front();
     if (auto dying = root.model().getAnimation("die")) {
@@ -1992,12 +1999,12 @@ void Turret::updateReadyReturns() {
     }
 }
 
-void Turret::playSound(const std::string &resRef, std::optional<glm::vec3> position) {
+void Turret::playSound(const std::string &resRef, int group, std::optional<glm::vec3> position) {
     auto clip = _services.resource.audioClips.get(resRef);
     if (!clip) {
         return;
     }
-    _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, false, position);
+    _services.audio.mixer.play(std::move(clip), AudioType::Sound, group, 1.0f, false, position);
 }
 
 bool Turret::handle(const input::Event &event) {

@@ -634,9 +634,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sou
             return;
         }
         if (sound) {
-            if (auto clip = _services.game.guiSounds.getActionAccepted()) {
-                _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
-            }
+            _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
         }
         if (_game.prepareMenuAttack(*partyLeader, creature)) {
             _game.sendAttack(*partyLeader, creature);

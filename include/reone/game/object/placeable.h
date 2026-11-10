@@ -187,6 +187,8 @@ public:
 
     /** The placeable takes its destroyed pose. */
     void enterDestroyedState();
+    /** The sound of the placeable's destruction, as its death swing plays it. */
+    void playDestroyedSound();
     /** A damaged signal reached the placeable: the damager is recorded and the damaged script runs. */
     void receiveDamagedSignal(const std::shared_ptr<Object> &damager);
     /** A death signal reached the placeable: the killer is recorded and the death script runs. */
@@ -292,6 +294,8 @@ private:
     void updateBodyBagPresentation();
     void showLight();
     void updateOpenStateAnimation();
+    /** The sound a swing of animations.2da row \p swingRow plays, if its row has one. */
+    void playSwingSound(int swingRow);
     /**
      * Shows animation \p id as a loop. A corpse keeps its pose.
      *
@@ -312,6 +316,8 @@ private:
     std::string _soundArmorType;
     /** The sound the placeable plays when it opens; none for a blank sound type. */
     std::string _openedSound;
+    /** The placeableobjsnds.2da row whose sounds the placeable's swings play; none for a blank sound type. */
+    std::optional<int> _soundType;
     /** The Static byte as read; any value but 0 makes the placeable static, and only 1 makes it plot. */
     uint8_t _static {0};
     bool _notBlastable {false};

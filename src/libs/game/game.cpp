@@ -25,6 +25,7 @@
 #include <exception>
 #include <numeric>
 #include <optional>
+#include <set>
 
 #include <chrono>
 #include <thread>
@@ -410,6 +411,94 @@ bool Game::holdsWorld() const {
     return _paused || pausesWorld(_screen);
 }
 
+// The menus over a module keep music, its stingers and the GUI's sounds
+// playing; the player's pause also keeps area-wide ambients.
+static const std::set<int> kMenuKeptSoundGroups {kStingerSoundGroup, kMusicSoundGroup, kGuiSoundGroup};
+static const std::set<int> kPauseKeptSoundGroups {kStingerSoundGroup, kMusicSoundGroup, kGuiSoundGroup,
+                                                  kAreaWideAmbientSoundGroup};
+
+// The screens that pause the world's sounds as a menu over the module.
+static bool isSoundPausingMenu(Game::Screen screen) {
+    switch (screen) {
+    case Game::Screen::InGameMenu:
+    case Game::Screen::SaveLoad:
+    case Game::Screen::PartySelection:
+    case Game::Screen::GalaxyMap:
+    case Game::Screen::CharacterGeneration:
+    case Game::Screen::PazaakWager:
+    case Game::Screen::PazaakSetup:
+    case Game::Screen::PazaakBoard:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Writing a save pauses every sound, music included. A loading screen keeps
+// music, its stingers and the GUI's sounds only when it has loading music,
+// and otherwise pauses every sound too. Other sounds play as usual during a
+// movie and with no module. In TSL a conversation plays on under the
+// player's pause.
+void Game::applySoundMode() {
+    auto mode = SoundMode::Playing;
+    if (_saveInProgress) {
+        mode = SoundMode::AllPaused;
+    } else if (_screen == Screen::Loading) {
+        mode = _loadMusicResRef.empty() ? SoundMode::AllPaused : SoundMode::Menu;
+    } else if (!_movie && _module) {
+        if (isSoundPausingMenu(_screen)) {
+            mode = SoundMode::Menu;
+        } else if (_paused && (_screen != Screen::Conversation || !isTSL())) {
+            mode = SoundMode::PlayerPause;
+        }
+    }
+    if (mode == _soundMode) {
+        return;
+    }
+    liftSoundMode();
+    switch (mode) {
+    case SoundMode::Menu:
+        _services.audio.mixer.pauseSources(kMenuKeptSoundGroups);
+        break;
+    case SoundMode::PlayerPause:
+        _services.audio.mixer.pauseSources(kPauseKeptSoundGroups);
+        break;
+    case SoundMode::AllPaused:
+        _services.audio.mixer.pauseSources({});
+        break;
+    case SoundMode::Playing:
+        break;
+    }
+    _soundMode = mode;
+}
+
+void Game::liftSoundMode() {
+    _services.audio.mixer.resumeSources();
+    _soundMode = SoundMode::Playing;
+}
+
+bool Game::isNightTime() const {
+    if (!_module) {
+        return false;
+    }
+    const auto &info = _module->info();
+    const int hour = static_cast<int>(worldTimeHour());
+    if (info.dawnHour == info.duskHour || hour == info.dawnHour) {
+        return false;
+    }
+    if (hour == info.duskHour) {
+        return true;
+    }
+    if (info.dawnHour < info.duskHour) {
+        return hour < info.dawnHour || hour > info.duskHour;
+    }
+    return hour >= info.duskHour && hour <= info.dawnHour;
+}
+
+void Game::setMusicVolume(float volume) {
+    _services.audio.mixer.setMusicVolume(volume);
+}
+
 static pazaak::HandSelection randomPazaakHandSelection(const pazaak::SideDeck &) {
     std::array<size_t, pazaak::kSideDeckSize> indices;
     std::iota(indices.begin(), indices.end(), 0);
@@ -660,6 +749,46 @@ void Game::init() {
 
 // The number of strings a dialogue token may give, strref1 to strref4.
 static constexpr int kStringTokenStrRefCount = 4;
+// How much louder than its table volume TSL plays the streamed music and the
+// other creatures' chat.
+static constexpr float kTslStreamedGroupBoost = 1.4f;
+
+// The sound priority groups, by row. A blank priority is the first and a
+// blank volume the loudest; the two distances replace the defaults only when
+// both are given, and the playback variance is kept between 0 and 1. A blank
+// maximum lets 255 play at once, and a blank interrupt interrupts. The fade
+// time column is not read: nothing uses it.
+static std::vector<audio::PriorityGroup> readPriorityGroups(resource::ITwoDAs &twoDas, bool tsl) {
+    auto groups = getRequiredTwoDA(twoDas, "prioritygroups");
+    std::vector<audio::PriorityGroup> priorityGroups;
+    for (int row = 0; row < groups->getRowCount(); ++row) {
+        audio::PriorityGroup group;
+        if (auto priority = groups->getIntOpt(row, "priority")) {
+            group.priority = *priority;
+        }
+        if (auto volume = groups->getIntOpt(row, tsl ? "volume_pc" : "volume")) {
+            const bool boosted = tsl && (row == kMusicSoundGroup || row == kNonPlayerChatSoundGroup);
+            group.volume = boosted ? static_cast<int>(*volume * kTslStreamedGroupBoost) : *volume;
+        }
+        // The table's maximum volume distance is where full volume ends, and
+        // its minimum volume distance is where the sound stops.
+        auto fullVolumeDistance = groups->getFloatOpt(row, tsl ? "maxvolumedist_pc" : "maxvolumedist");
+        auto cutoffDistance = groups->getFloatOpt(row, tsl ? "minvolumedist_pc" : "minvolumedist");
+        if (fullVolumeDistance && cutoffDistance) {
+            group.fullVolumeDistance = *fullVolumeDistance;
+            group.cutoffDistance = *cutoffDistance;
+        }
+        group.playbackVariance = std::clamp(groups->getFloatOpt(row, "playbackvariance").value_or(0.0f), 0.0f, 1.0f);
+        if (auto maxPlaying = groups->getIntOpt(row, "maxplaying")) {
+            group.maxPlaying = std::clamp(*maxPlaying, 0, 255);
+        }
+        if (auto interrupt = groups->getIntOpt(row, "interrupt")) {
+            group.interrupt = *interrupt != 0;
+        }
+        priorityGroups.push_back(group);
+    }
+    return priorityGroups;
+}
 
 void Game::initTables() {
     auto &twoDas = _services.resource.twoDas;
@@ -742,6 +871,19 @@ void Game::initTables() {
     }
 
     _trapTypes = Trap::readTypes(twoDas);
+
+    _services.audio.mixer.setPriorityGroups(readPriorityGroups(twoDas, tsl));
+    // Music, ambience and speech stream; the rest play on positional or 2D
+    // voices.
+    _services.audio.mixer.setStreamedGroups({kStingerSoundGroup,
+                                             kMusicSoundGroup,
+                                             kAreaWideAmbientSoundGroup,
+                                             kLoopingPositionalAmbientSoundGroup,
+                                             kPlayerChatSoundGroup,
+                                             kNonPlayerChatSoundGroup,
+                                             kLargeCreatureVocalizationSoundGroup,
+                                             kCreatureVocalizationSoundGroup,
+                                             kBarkSoundGroup});
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
@@ -1082,7 +1224,7 @@ void Game::update(float frameTime) {
         updateMovie(dt);
         return;
     }
-    updateMusic();
+    updateMusic(frameTime);
 
     // Requests made by scripts, console handlers or UI code in the previous
     // update execute only after those call stacks have unwound. This precedes
@@ -1118,6 +1260,10 @@ void Game::update(float frameTime) {
     // Sounds wait while a movie runs and resume once the frame's module
     // transition, if any, has been made.
     _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie), nullptr);
+    applySoundMode();
+    // TSL ducks music and the ambients while a conversation is on.
+    static const std::set<int> kDuckedSoundGroups {kAreaWideAmbientSoundGroup, kLoopingPositionalAmbientSoundGroup};
+    _services.audio.mixer.setDucked(isTSL() && isConversationActive(), kDuckedSoundGroups);
     syncPartyCombatMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
@@ -3069,7 +3215,8 @@ void Game::startLoadMusic() {
     _loadMusic = _services.audio.mixer.play(
         _services.resource.audioClips.get(_loadMusicResRef),
         AudioType::Music,
-        _areaMusic.musicGroupGain(),
+        kMusicSoundGroup,
+        1.0f,
         true);
 }
 
@@ -3103,8 +3250,8 @@ void Game::fadeOutMenuMusic() {
     playMusic("");
 }
 
-// The playing loading music, when it is the track asked for (ignoring case),
-// becomes the background music and plays once through.
+// Loading-screen music of the track asked for (ignoring case) leaves the
+// loading screen and plays on once through as the background music.
 std::shared_ptr<AudioSource> Game::takeLoadMusic(const std::string &resRef) {
     if (!_loadMusic || !boost::iequals(resRef, _loadMusicResRef)) {
         return nullptr;
@@ -3344,7 +3491,7 @@ void Game::startCreditSequence(bool transparentBackground, const std::string &mu
     }
     _credits = std::make_unique<CreditsGUI>(*this, _services, transparentBackground, music);
     _credits->init();
-    _areaMusic.stopSounds();
+    _areaMusic.fadeOutSounds();
 }
 
 void Game::hurryDeathSequence() {
@@ -3440,9 +3587,7 @@ bool Game::handleFreeLookKey(const input::KeyEvent &event) {
         return true;
     case input::KeyCode::Tab:
         exitFreeLook();
-        if (auto clip = _services.game.guiSounds.getActionAccepted()) {
-            _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-        }
+        _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
         return true;
     // The pause key and the menu pages leave free-look and then act.
     case input::KeyCode::Pause:
@@ -4719,6 +4864,7 @@ void Game::settleFadeArrival() {
         // The area's music and ambient loop start on arrival, after the enter
         // script and any movie it plays. Menu music keeps them suspended.
         if (_musicResRef.empty()) {
+            _areaMusic.setNight(isNightTime());
             _areaMusic.start();
         }
         stopLoadMusic();
@@ -5013,8 +5159,9 @@ void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 col
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
-void Game::updateMusic() {
-    _areaMusic.update();
+void Game::updateMusic(float frameTime) {
+    _areaMusic.setNight(isNightTime());
+    _areaMusic.update(frameTime, _soundMode != SoundMode::AllPaused);
     if (_musicResRef.empty()) {
         return;
     }
@@ -5022,7 +5169,7 @@ void Game::updateMusic() {
         return;
     }
     auto clip = _services.resource.audioClips.get(_musicResRef);
-    _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, _areaMusic.musicGroupGain());
+    _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, kMusicSoundGroup);
 }
 
 void Game::loadNextModule() {
@@ -5949,6 +6096,7 @@ void Game::withLoadingScreen(const std::string &moduleName, const std::function<
         _loadScreen->setProgress(0);
     }
     changeScreen(Screen::Loading);
+    applySoundMode();
     render();
     startLoadMusic();
     block();
@@ -6015,9 +6163,7 @@ void Game::pressPauseKey() {
     if (paused && requestTutorialWindow(kPauseTutorial)) {
         return;
     }
-    if (auto clip = _services.game.guiSounds.getActionAccepted()) {
-        _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-    }
+    _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
 }
 
 void Game::pressPauseButton() {
@@ -6068,9 +6214,7 @@ void Game::showSoloModeQuery(bool forStealth) {
     auto leader = _party.getLeader();
     if (isConversationActive() || _module->area()->transitionPending() || !leader || leader->isDead() ||
         leader->currentHitPoints() <= 0 || _party.getSize() <= 1) {
-        if (auto clip = _services.game.guiSounds.getActionUnavailable()) {
-            _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-        }
+        _services.game.guiSounds.play(_services.game.guiSounds.getActionUnavailable());
         return;
     }
     if (!_confirmPopup) {
@@ -8114,9 +8258,7 @@ void Game::openStore(const std::shared_ptr<Store> &store) {
         _storeUnderneath = _screen;
     }
     changeScreen(Screen::Store);
-    if (auto clip = _services.game.guiSounds.getPanelAdded()) {
-        _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-    }
+    _services.game.guiSounds.play(_services.game.guiSounds.getPanelAdded());
 }
 
 void Game::closeStore() {
@@ -9231,7 +9373,7 @@ void Game::startBarkVoice(const std::string &sound, std::optional<glm::vec3> pos
         _barkVoice->stop();
     }
     auto clip = _services.resource.audioClips.get(sound);
-    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, 1.0f, false, position)
+    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, kBarkSoundGroup, 1.0f, false, position)
                       : nullptr;
 }
 

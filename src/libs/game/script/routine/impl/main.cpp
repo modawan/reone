@@ -30,6 +30,7 @@
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/playsound.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/classes.h"
@@ -712,11 +713,15 @@ static Variable SetCameraFacing(const std::vector<Variable> &args, const Routine
 static Variable PlaySound(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sSoundName = getString(args, 0);
+    auto caller = getCallerOrNull(ctx);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("PlaySound");
+    // Execute: the sound is queued on a commandable object placed in the
+    // world; an area or the module plays nothing.
+    if (!caller || isa<Area>(caller) || isa<Module>(caller) || !caller->isCommandable()) {
+        return Variable::ofNull();
+    }
+    caller->addAction(ctx.game.newAction<PlaySoundAction>(std::move(sSoundName)));
+    return Variable::ofNull();
 }
 
 static Variable GetSpellTargetObject(const std::vector<Variable> &, const RoutineContext &ctx) {
@@ -7280,7 +7285,8 @@ static Variable SetMusicVolume(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetMusicVolume");
+    ctx.game.setMusicVolume(std::clamp(fVolume, 0.0f, 1.0f));
+    return Variable::ofNull();
 }
 
 static Variable CreateItemOnFloor(const std::vector<Variable> &args, const RoutineContext &ctx) {

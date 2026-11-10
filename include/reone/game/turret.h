@@ -738,7 +738,7 @@ private:
     void queueAnimationEvent(const Actor &actor, const std::string &modelName, const std::string &event);
     void runAnimationEvents();
     void onAnimationEvent(Actor &actor, const std::string &modelName, const std::string &event);
-    void playSound(const std::string &resRef, std::optional<glm::vec3> position = std::nullopt);
+    void playSound(const std::string &resRef, int group, std::optional<glm::vec3> position = std::nullopt);
     void playThenReady(const std::shared_ptr<scene::ModelSceneNode> &model,
                        const std::string &animation,
                        const std::string &ready);

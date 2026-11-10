@@ -27,6 +27,13 @@
 
 namespace reone {
 
+namespace audio {
+
+class AudioClip;
+class AudioSource;
+
+} // namespace audio
+
 namespace game {
 
 class Creature;
@@ -59,6 +66,8 @@ public:
             game,
             services) {
     }
+
+    ~AreaOfEffect();
 
     static bool classof(const Object *from) {
         return from->type() == ObjectType::AreaOfEffect;
@@ -124,6 +133,8 @@ public:
     void jumpToCarrier();
     /** The area of effect is going: OnExit runs at once for every occupant still inside. */
     void releaseOccupants();
+    /** The area of effect is going: its cessation sound plays and its duration sound stops. */
+    void stopSounds();
 
     /** A creature entered: it is the last to enter and the enter script runs. */
     void receiveEnteredSignal(const std::shared_ptr<Object> &entering);
@@ -163,6 +174,13 @@ private:
     std::set<uint32_t> _occupants;
     std::array<glm::vec2, 4> _corners {};
 
+    /** The row's sounds have started, on the first update. */
+    bool _soundsStarted {false};
+    /** The effect was restored from a save, so its impact sound has played already. */
+    bool _restored {false};
+    std::shared_ptr<audio::AudioSource> _durationSound;
+    std::shared_ptr<audio::AudioClip> _cessationSound;
+
     void setShape(Shape shape, float radiusOrWidth, float length);
     /** A reference to a live object, or an invalid one for none. */
     SavedObjectReference referenceTo(const std::shared_ptr<Object> &object) const;
@@ -171,6 +189,10 @@ private:
     bool isOccupantInside(const Object &object) const;
     void followCarrier();
     void destroy();
+    /** The row's impact sound plays and its duration sound starts looping. */
+    void startSounds();
+    /** Where the sounds of the area of effect play: above its position. */
+    glm::vec3 soundPosition() const;
 };
 
 } // namespace game

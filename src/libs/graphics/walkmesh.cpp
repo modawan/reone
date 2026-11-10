@@ -24,7 +24,7 @@ namespace reone {
 namespace graphics {
 
 Raycast Walkmesh::raycast(
-    std::set<uint32_t> surfaces,
+    const std::set<uint32_t> &surfaces,
     const glm::vec3 &origin,
     const glm::vec3 &dir,
     float maxDistance,
@@ -61,7 +61,7 @@ Raycast Walkmesh::raycast(
 }
 
 Raycast Walkmesh::raycastAABB(
-    std::set<uint32_t> surfaces,
+    const std::set<uint32_t> &surfaces,
     const glm::vec3 &origin,
     const glm::vec3 &dir,
     float maxDistance,
@@ -117,7 +117,7 @@ Raycast Walkmesh::raycastAABB(
 }
 
 Raycast Walkmesh::raycastFace(
-    std::set<uint32_t> surfaces,
+    const std::set<uint32_t> &surfaces,
     const Face &face,
     const glm::vec3 &origin,
     const glm::vec3 &dir,

@@ -47,6 +47,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/orientcamera.h
     ${GAME_INCLUDE_DIR}/action/pickupitem.h
     ${GAME_INCLUDE_DIR}/action/playanimation.h
+    ${GAME_INCLUDE_DIR}/action/playsound.h
     ${GAME_INCLUDE_DIR}/action/putdownitem.h
     ${GAME_INCLUDE_DIR}/action/randomwalk.h
     ${GAME_INCLUDE_DIR}/action/resumeconversation.h

@@ -2232,7 +2232,7 @@ static constexpr float kLockedTextSeconds = 5.0f;
 void Object::presentLocked(const Lock &lock, float soundHeight) {
     if (!lock.lockedSound().empty()) {
         if (auto clip = _services.resource.audioClips.get(lock.lockedSound())) {
-            _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, 1.0f, false,
+            _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false,
                                        _position + glm::vec3 {0.0f, 0.0f, soundHeight});
         }
     }

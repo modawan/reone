@@ -87,12 +87,17 @@ struct Projectiles::ActiveProjectile {
     SavedProjectile saved;
     std::shared_ptr<scene::ModelSceneNode> model;
     std::shared_ptr<scene::ModelSceneNode> flash;
+    /** The sound looping above the projectile until it first arrives. */
+    std::shared_ptr<audio::AudioSource> flightSound;
     ~ActiveProjectile() {
         if (model) {
             model->graph().removeRoot(*model);
         }
         if (flash) {
             flash->graph().removeRoot(*flash);
+        }
+        if (flightSound) {
+            flightSound->stop();
         }
     }
 };
@@ -143,6 +148,26 @@ static std::string spellSpawnNode(const std::string &spawnPoint) {
         return "rhand";
     }
     return "root";
+}
+
+// The sound a projectile flies with: its spell's projectile sound. Only a
+// spell projectile and the first flight of a thrown lightsaber, the one that
+// leaves its thrower's hand, have one, the latter only while the player
+// perceives its thrower; a thrown lightsaber sounds as the Lightsaber Throw
+// power whichever throw sent it.
+static std::shared_ptr<audio::AudioClip> flightSoundClip(const SavedProjectile &projectile, ServicesView &services) {
+    SpellType type;
+    if (projectile.kind == ProjectileKind::Spell) {
+        type = static_cast<SpellType>(projectile.spellId);
+    } else if (projectile.kind == ProjectileKind::LightsaberRoute &&
+               projectile.legs.front().source.boundObject() == projectile.caster.boundObject() &&
+               projectile.caster.boundObject()->isPresent()) {
+        type = SpellType::LightSaberThrow;
+    } else {
+        return nullptr;
+    }
+    const auto spell = services.game.spells.get(type);
+    return spell ? spell->projectileSound : nullptr;
 }
 
 static glm::vec3 throwTargetPosition(const SavedObjectReference &target,
@@ -489,13 +514,14 @@ void Projectiles::startLeg(ActiveProjectile &active, Game &game, ServicesView &s
             }
             // A grenade is silent as it is thrown. Each bounce plays, where it
             // happens, the grenadesnd.2da sound of the surface the grenade
-            // lands on next. The row is that surface's bit (1 << surface), not
-            // its number; a row past the table or with no sound plays nothing.
+            // lands on next, as a combat sound. The row is that surface's bit
+            // (1 << surface), not its number; a row past the table or with no
+            // sound plays nothing.
             if (s.leg > 0 && leg.surface) {
                 const auto row = static_cast<size_t>(1) << *leg.surface;
                 if (row < _grenadeSounds.size() && !_grenadeSounds[row].empty()) {
                     if (auto clip = services.resource.audioClips.get(_grenadeSounds[row])) {
-                        services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, 1.0f, false, s.position);
+                        services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kCombatSoundGroup, 1.0f, false, s.position);
                     }
                 }
             }
@@ -503,6 +529,21 @@ void Projectiles::startLeg(ActiveProjectile &active, Game &game, ServicesView &s
         initializeMotion(s, _burstWentLeft);
     }
     attachPresentation(active, game, services, restoring);
+    if (s.leg == 0) {
+        startFlightSound(active, services);
+    }
+}
+
+void Projectiles::startFlightSound(ActiveProjectile &active, ServicesView &services) {
+    if (auto clip = flightSoundClip(active.saved, services)) {
+        active.flightSound = services.audio.mixer.play(
+            std::move(clip),
+            audio::AudioType::Sound,
+            kProjectileSoundGroup,
+            1.0f,
+            true,
+            active.saved.position + glm::vec3(0.0f, 0.0f, kEffectSoundHeight));
+    }
 }
 
 uint64_t Projectiles::beginSpell(Object &caster, std::optional<std::reference_wrapper<const Object>> target,
@@ -935,6 +976,13 @@ void Projectiles::update(float dt, Game &game, ServicesView &services) {
                 }
                 // Presentation completion never applies gameplay damage.
                 ++s.leg;
+                // On its first arrival the flight sound stops and plays once
+                // where the projectile is.
+                if (active.flightSound) {
+                    active.flightSound->stop();
+                    active.flightSound.reset();
+                    services.audio.mixer.play(flightSoundClip(s, services), audio::AudioType::Sound, kProjectileSoundGroup, 1.0f, false, s.position);
+                }
                 // A bolt is heard once, where its flight ends, whether it hit,
                 // missed or came back deflected.
                 if (s.leg == s.legs.size()) {
@@ -955,6 +1003,9 @@ void Projectiles::update(float dt, Game &game, ServicesView &services) {
         }
         if (active.model) {
             active.model->setLocalTransform(glm::translate(s.position) * glm::mat4_cast(s.orientation));
+        }
+        if (active.flightSound) {
+            active.flightSound->setPosition(s.position + glm::vec3(0.0f, 0.0f, kEffectSoundHeight));
         }
         ++it;
     }
@@ -978,8 +1029,15 @@ void Projectiles::restorePresentations(std::vector<SavedProjectile> records, Gam
         active->saved = std::move(record);
         _nextPresentationId = std::max(_nextPresentationId, active->saved.id + 1);
         _active.push_back(active);
-        // No launch, random draw, payment, damage, reaction or item use on this path.
-        attachPresentation(*active, game, services, true);
+        // A thrown lightsaber shows and sounds nothing until its next leg sets out.
+        if (showsBetweenLegs(active->saved)) {
+            // No launch, random draw, payment, damage, reaction or item use on this path.
+            attachPresentation(*active, game, services, true);
+            // A projectile still on its way to its first arrival flies on with its sound.
+            if (active->saved.released && active->saved.leg == 0) {
+                startFlightSound(*active, services);
+            }
+        }
     }
 }
 void Projectiles::retireAreaRuntime() {

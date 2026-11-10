@@ -85,18 +85,15 @@ void ActionMenuFeedback::reject(PowerUnavailableReason reason, ServicesView &ser
     if (reason != PowerUnavailableReason::None) {
         _remaining = kRejectionDuration;
     }
-    auto clip = services.game.guiSounds.getActionUnavailable();
-    _sound = services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+    _sound = services.game.guiSounds.play(services.game.guiSounds.getActionUnavailable());
 }
 
 void ActionMenuFeedback::accept(ServicesView &services) {
-    auto clip = services.game.guiSounds.getActionAccepted();
-    _sound = services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+    _sound = services.game.guiSounds.play(services.game.guiSounds.getActionAccepted());
 }
 
 void ActionMenuFeedback::scroll(ServicesView &services) {
-    auto clip = services.game.guiSounds.getActionMenuScroll();
-    _sound = services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+    _sound = services.game.guiSounds.play(services.game.guiSounds.getActionMenuScroll());
 }
 
 void ActionMenuFeedback::announce(std::optional<uint32_t> message) {

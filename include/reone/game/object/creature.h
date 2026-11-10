@@ -460,6 +460,8 @@ public:
         std::string fallHard;
         std::string fallMetal;
         std::string fallWater;
+        /** The sound the creature loops wherever it is; empty for none. */
+        std::string looping;
     };
 
     /** The creature's part in combat: whether it fights, how it was drawn in, and its targets. */
@@ -502,6 +504,12 @@ public:
         std::string sceneName,
         Game &game,
         ServicesView &services);
+    /**
+     * The creature's loops end with it: its appearance's and its light
+     * source's loops and its rolling footstep, which the mixer would
+     * otherwise keep playing.
+     */
+    ~Creature();
 
     static bool classof(const Object *from) {
         return from->type() == ObjectType::Creature;
@@ -630,6 +638,10 @@ public:
      * again when the player perceives it again.
      */
     void setPresent(bool present) override;
+    /** Ends the creature's rolling footstep loop. */
+    void stopRollingFootstep();
+    /** Ends the creature's own loop and its light source's. */
+    void stopLoopingSounds();
     /** The leader is in the creature's area within 30 m, where it hears the creature's voice. */
     bool isHeardByLeader() const;
 
@@ -2954,6 +2966,20 @@ private:
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
+    /** The loop a rolling footstep type plays while the creature walks or runs. */
+    std::shared_ptr<audio::AudioSource> _rollingFootstep;
+    /** The appearance's loop, playing since the creature's first update. */
+    std::shared_ptr<audio::AudioSource> _loopingSound;
+    /** The resource _loopingSound plays. */
+    std::string _loopingSoundResRef;
+    /** The loop of a lit light source the controlled creature holds in its left hand. */
+    std::shared_ptr<audio::AudioSource> _lightSourceSound;
+    /**
+     * Starts the appearance's loop once, where the creature is, 1.5 m up, and
+     * follows it there; a light source in the controlled creature's left hand
+     * loops while it holds it.
+     */
+    void updateLoopingSounds();
     bool _lightsaberIdlePowerDownPending {false};
     Timer _lightsaberIdlePowerDownTimer;
     PoweredHands _poweredHands;
@@ -3042,6 +3068,9 @@ private:
     /** Forgets an incoming attacker that is gone or dead, and the round's attackers. */
     void releaseRoundAttackers();
     void updateLightsaberSoundPositions();
+    void updateRollingFootstep();
+    /** The footstep group of the controlled creature, or of a creature of the creature's size. */
+    int footstepSoundGroup() const;
 
     void runDeathScript();
     void runDamagedScript();

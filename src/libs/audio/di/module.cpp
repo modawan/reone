@@ -23,7 +23,7 @@ namespace audio {
 
 void AudioModule::init() {
     _context = std::make_unique<Context>();
-    _mixer = std::make_unique<AudioMixer>(_options);
+    _mixer = std::make_unique<AudioMixer>(_options, *_context);
 
     _context->init();
 
