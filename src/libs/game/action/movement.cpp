@@ -515,9 +515,6 @@ static constexpr int kDriveTries = 6;
 // How far a driven creature standing where it does not fit looks for a spot
 // that does: square rings out to about a metre.
 static constexpr float kDriveNudgeRadius = -1.01f;
-// Door and placeable walls count this far below and above the driven
-// creature, whatever their height.
-static constexpr float kStaticWallReach = 1000.0f;
 
 // The driven creature steps along a straight line to a point a step ahead. A
 // companion or puppet in the way is pushed aside first; when someone is still
@@ -551,12 +548,14 @@ static void stepDriven(Game &game, Area &area, const std::shared_ptr<Creature> &
         }
         if (line.result == Area::DirectLine::Clear) {
             const glm::vec3 position {creature->position()};
-            const float minZ = position.z - kStaticWallReach;
-            const float maxZ = position.z + kStaticWallReach;
-            const auto wall = area.findStaticWallAlong(target, target, *creature, minZ, maxZ);
-            if (!wall || area.findStaticWallAlong(position, position, *creature, minZ, maxZ)) {
-                // The room under the step is looked for around height 0.
-                area.stepCreatureTo(creature, glm::vec3(glm::vec2(target), 0.0f), Area::MoveFacing::Keep);
+            // Door and placeable walls count across the heights
+            // Area::staticWallBand gives for where the creature stands.
+            const auto wallBand = area.staticWallBand(*creature, position.z, position.z);
+            const auto wall = area.findStaticWallAlong(target, target, *creature, wallBand.low, wallBand.high);
+            if (!wall || area.findStaticWallAlong(position, position, *creature, wallBand.low, wallBand.high)) {
+                // The room under the step is looked for from height 0, or
+                // where floors lie over others from the creature's height.
+                area.stepCreatureTo(creature, glm::vec3(glm::vec2(target), area.roomLookupHeight(position.z)), Area::MoveFacing::Keep);
                 return;
             }
             // The creature slides across the way out from the object's

@@ -304,6 +304,33 @@ static std::vector<glm::vec2> circleCrossings(const glm::vec2 &centre, float rad
     return points;
 }
 
+// The faces of a box tree whose boxes meet a level box and a height band, in
+// order.
+template <class Faces>
+static void facesInBox(const Walkmesh::AABB &root, const glm::vec2 &low, const glm::vec2 &high, float minZ, float maxZ, Faces &out) {
+    boost::container::small_vector<const Walkmesh::AABB *, 64> nodes;
+    nodes.push_back(&root);
+    while (!nodes.empty()) {
+        const Walkmesh::AABB *node = nodes.back();
+        nodes.pop_back();
+        const glm::vec3 &boxLow = node->value.min();
+        const glm::vec3 &boxHigh = node->value.max();
+        if (boxHigh.x < low.x || boxLow.x > high.x || boxHigh.y < low.y || boxLow.y > high.y ||
+            boxHigh.z < minZ || boxLow.z > maxZ) {
+            continue;
+        }
+        if (node->faceIdx != -1) {
+            out.push_back(static_cast<uint32_t>(node->faceIdx));
+        }
+        for (const auto &child : {node->left, node->right}) {
+            if (child) {
+                nodes.push_back(child.get());
+            }
+        }
+    }
+    std::sort(out.begin(), out.end());
+}
+
 // The level unit vector of a vector, or none for an upright one.
 static glm::vec2 levelUnit(const glm::vec2 &vector) {
     const float length = glm::length(vector);
@@ -420,27 +447,7 @@ std::optional<Walkmesh::Contact> Walkmesh::sweep(const std::set<uint32_t> &mater
     // walkmesh is looked at whole.
     if (_rootAabb) {
         boost::container::small_vector<uint32_t, 64> candidates;
-        boost::container::small_vector<const AABB *, 64> nodes;
-        nodes.push_back(_rootAabb.get());
-        while (!nodes.empty()) {
-            const AABB *node = nodes.back();
-            nodes.pop_back();
-            const glm::vec3 &low = node->value.min();
-            const glm::vec3 &high = node->value.max();
-            if (high.x < boundsMin.x || low.x > boundsMax.x || high.y < boundsMin.y || low.y > boundsMax.y ||
-                high.z < minZ || low.z > maxZ) {
-                continue;
-            }
-            if (node->faceIdx != -1) {
-                candidates.push_back(static_cast<uint32_t>(node->faceIdx));
-            }
-            for (const auto &child : {node->left, node->right}) {
-                if (child) {
-                    nodes.push_back(child.get());
-                }
-            }
-        }
-        std::sort(candidates.begin(), candidates.end());
+        facesInBox(*_rootAabb, boundsMin, boundsMax, minZ, maxZ, candidates);
         for (const uint32_t index : candidates) {
             if (startsOver(index)) {
                 return starting;
@@ -493,6 +500,12 @@ std::optional<Walkmesh::Contact> Walkmesh::sweep(const std::set<uint32_t> &mater
     return Contact {ContactKind::Edge, clamped(meeting - back), glm::vec3(-unit.y, unit.x, 0.0f)};
 }
 
+// The height of a face's plane over a point; the face is not upright.
+static float planeHeight(const Walkmesh::Face &face, const glm::vec2 &point) {
+    const float distance = -glm::dot(face.normal, face.vertices[0]);
+    return -(face.normal.x * point.x + face.normal.y * point.y + distance) / face.normal.z;
+}
+
 // The height of a face's plane at a point over it, edges included.
 static std::optional<float> heightOver(const Walkmesh::Face &face, const glm::vec2 &point) {
     const glm::vec3 *v = face.vertices;
@@ -503,24 +516,94 @@ static std::optional<float> heightOver(const Walkmesh::Face &face, const glm::ve
     if (!over || face.normal.z == 0.0f) {
         return std::nullopt;
     }
-    const float distance = -glm::dot(face.normal, v[0]);
-    return -(face.normal.x * point.x + face.normal.y * point.y + distance) / face.normal.z;
+    return planeHeight(face, point);
 }
 
-std::optional<Walkmesh::HeightBand> Walkmesh::walkBand(const std::set<uint32_t> &surfaces, const glm::vec3 &from, const glm::vec3 &to) const {
+// A face's unit normal worked out from its corners, whatever the walkmesh
+// holds for it; none for a face with no area.
+static glm::vec3 cornerNormal(const Walkmesh::Face &face) {
+    const glm::vec3 *v = face.vertices;
+    const glm::vec3 normal {glm::cross(v[1] - v[0], v[2] - v[0])};
+    const float length = glm::length(normal);
+    return length > 0.0f ? normal / length : glm::vec3(0.0f);
+}
+
+// Where two faces overlap across the ground, as a convex polygon: the first
+// clipped by each edge of the second. Fewer than three points when they do
+// not overlap.
+static boost::container::small_vector<glm::vec2, 9> levelOverlap(const Walkmesh::Face &a, const Walkmesh::Face &b) {
+    boost::container::small_vector<glm::vec2, 9> polygon {glm::vec2(a.vertices[0]), glm::vec2(a.vertices[1]), glm::vec2(a.vertices[2])};
+    const glm::vec2 corners[3] {glm::vec2(b.vertices[0]), glm::vec2(b.vertices[1]), glm::vec2(b.vertices[2])};
+    const float winding = sideOf(corners[0], corners[1], corners[2]);
+    if (winding == 0.0f) {
+        return {};
+    }
+    const float inward = winding > 0.0f ? 1.0f : -1.0f;
+    for (uint32_t place = 0; place < 3 && polygon.size() >= 3; ++place) {
+        const glm::vec2 &p = corners[place];
+        const glm::vec2 &q = corners[(place + 1) % 3];
+        boost::container::small_vector<glm::vec2, 9> clipped;
+        for (size_t i = 0; i < polygon.size(); ++i) {
+            const glm::vec2 &previous = polygon[(i + polygon.size() - 1) % polygon.size()];
+            const glm::vec2 &current = polygon[i];
+            const float before = inward * sideOf(p, q, previous);
+            const float now = inward * sideOf(p, q, current);
+            if ((before < 0.0f) != (now < 0.0f)) {
+                clipped.push_back(previous + (current - previous) * (before / (before - now)));
+            }
+            if (now >= 0.0f) {
+                clipped.push_back(current);
+            }
+        }
+        polygon = std::move(clipped);
+    }
+    return polygon;
+}
+
+std::optional<Walkmesh::Standing> Walkmesh::standingFace(const std::set<uint32_t> &surfaces, const std::set<uint32_t> &walkable,
+                                                           const glm::vec3 &point, float top, float reach, bool stacked) const {
+    // A face whose normal is at least this near upright lies within 45
+    // degrees of level. The normal is the one the walkmesh holds, as for the
+    // raycast that finds the face.
+    static constexpr float kLevelCosine = 0.7071f;
+
+    const float bottom = top - reach;
+    const auto meet = [&](float from) -> std::optional<Standing> {
+        if (from <= bottom) {
+            return std::nullopt;
+        }
+        const auto found = raycast(surfaces, glm::vec3(glm::vec2(point), from), glm::vec3(0.0f, 0.0f, -1.0f), from - bottom, /*ignoreBackface=*/true);
+        if (found.fail != RAYCAST_OK) {
+            return std::nullopt;
+        }
+        return Standing {found.face, from - found.distance};
+    };
+    const auto first = meet(top);
+    if (!stacked || !first || first->height <= point.z + kFloorHeadroom ||
+        (!hasSurfaceMaterial(walkable, materials[first->face]) && normals[first->face].z < kLevelCosine)) {
+        return first;
+    }
+    // A floor over the point: the face under it at its level, if any, is the
+    // floor it stands on.
+    const auto under = meet(std::min(top, point.z + kFloorHeadroom));
+    return under && under->height >= point.z - kFloorHeadroom ? under : first;
+}
+
+std::optional<Walkmesh::FaceWalk> Walkmesh::walkFaces(const std::set<uint32_t> &surfaces, const std::set<uint32_t> &walkable,
+                                                      const glm::vec3 &from, const glm::vec3 &to, bool stacked) const {
     // The start face is looked for from this high down to as far below.
     static constexpr float kColumnReach = 1000.0f;
     static constexpr float kRetryShift = 0.001f;
     // A walk crossing more faces than this is not followed.
     static constexpr int kMaxFaces = 512;
 
-    const auto faceUnder = [&](const glm::vec2 &point) -> std::optional<uint32_t> {
-        const auto found = raycast(surfaces, glm::vec3(point, kColumnReach), glm::vec3(0.0f, 0.0f, -1.0f), 2.0f * kColumnReach, /*ignoreBackface=*/true);
-        return found.fail == RAYCAST_OK ? std::make_optional(found.face) : std::nullopt;
+    const auto faceUnder = [&](const glm::vec3 &point) -> std::optional<uint32_t> {
+        const auto found = standingFace(surfaces, walkable, point, kColumnReach, 2.0f * kColumnReach, stacked);
+        return found ? std::make_optional(found->face) : std::nullopt;
     };
-    auto face = faceUnder(glm::vec2(from));
+    auto face = faceUnder(from);
     if (!face && to != from) {
-        face = faceUnder(glm::vec2(from) + glm::vec2(glm::normalize(to - from)) * kRetryShift);
+        face = faceUnder(from + glm::vec3(glm::vec2(glm::normalize(to - from)) * kRetryShift, 0.0f));
     }
     if (!face) {
         return std::nullopt;
@@ -529,15 +612,33 @@ std::optional<Walkmesh::HeightBand> Walkmesh::walkBand(const std::set<uint32_t> 
         const size_t slot = 3 * static_cast<size_t>(index) + place;
         return slot < adjacency.size() && adjacency[slot] >= 0 ? adjacency[slot] / 3 : -1;
     };
+    const glm::vec2 line {to - from};
+    const float length2 = glm::dot(line, line);
+    // Where the walk leaves the faces across an edge, by its place in the
+    // perimeter, and the edge's level normal facing back along the walk.
+    const auto exitAcross = [&](uint32_t edge, const glm::vec3 &point) {
+        const auto found = std::find_if(perimeter.begin(), perimeter.end(), [&](const PerimeterEdge &e) { return e.index == edge; });
+        const FaceVertices &corners = faces[edge / 3];
+        const glm::vec2 a {vertices[corners.indices[edge % 3]]};
+        const glm::vec2 b {vertices[corners.indices[(edge % 3 + 1) % 3]]};
+        glm::vec2 normal {levelUnit(glm::vec2((b - a).y, -(b - a).x))};
+        if (glm::dot(normal, line) > 0.0f) {
+            normal = -normal;
+        }
+        return PerimeterCrossing {
+            length2 > 0.0f ? glm::dot(glm::vec2(point - from), line) / length2 : 0.0f,
+            found != perimeter.end() ? found->transition : -1,
+            normal};
+    };
 
     glm::vec3 point {from};
     if (auto height = heightOver(getFace(*face), glm::vec2(from))) {
         point.z = *height;
     }
-    HeightBand band {point.z, point.z};
-    const auto widen = [&band](float height) {
-        band.low = std::min(band.low, height);
-        band.high = std::max(band.high, height);
+    FaceWalk walk {HeightBand {point.z, point.z}, std::nullopt, 0.0f};
+    const auto widen = [&walk](float height) {
+        walk.band.low = std::min(walk.band.low, height);
+        walk.band.high = std::max(walk.band.high, height);
     };
     int current = static_cast<int>(*face);
     for (int crossed = 0; crossed < kMaxFaces; ++crossed) {
@@ -550,30 +651,139 @@ std::optional<Walkmesh::HeightBand> Walkmesh::walkBand(const std::set<uint32_t> 
         }
         if (inside[0] && inside[1] && inside[2]) {
             widen(heightOver(here, glm::vec2(to)).value_or(to.z));
-            return band;
+            return walk;
         }
         // The walk leaves the face across the first edge, last to first, that
         // the end lies beyond and the walk crosses.
-        bool left = false;
-        for (int place = 2; place >= 0 && !left; --place) {
+        std::optional<uint32_t> edge;
+        for (int place = 2; place >= 0 && !edge; --place) {
             if (inside[place]) {
                 continue;
             }
             if (auto crossing = crossingOf(point, to, v[place], v[(place + 1) % 3])) {
+                edge = 3 * static_cast<uint32_t>(current) + static_cast<uint32_t>(place);
                 current = neighbour(static_cast<uint32_t>(current), static_cast<uint32_t>(place));
                 point = *crossing;
-                left = true;
             }
         }
-        if (!left) {
+        if (!edge) {
             return std::nullopt;
         }
         if (current < 0) {
             widen(point.z);
-            return band;
+            walk.exit = exitAcross(*edge, point);
+            walk.exitHeight = point.z;
+            return walk;
         }
     }
     return std::nullopt;
+}
+
+Walkmesh::FloorNormals Walkmesh::floorNormals(const std::set<uint32_t> &floors) const {
+    FloorNormals result(faces.size());
+    for (uint32_t index = 0; index < faces.size(); ++index) {
+        if (!hasSurfaceMaterial(floors, materials[index])) {
+            continue;
+        }
+        const glm::vec3 normal {cornerNormal(getFace(index))};
+        if (normal != glm::vec3(0.0f)) {
+            result[index] = normal;
+        }
+    }
+    return result;
+}
+
+bool Walkmesh::hasFloorOverFloor(const FloorNormals &ownNormals) const {
+    return findFloorOver(ownNormals, *this, ownNormals, std::nullopt);
+}
+
+bool Walkmesh::hasFloorOver(const FloorNormals &ownNormals, const Walkmesh &other, const FloorNormals &otherNormals, const glm::mat4 &toThis) const {
+    return findFloorOver(ownNormals, other, otherNormals, toThis);
+}
+
+bool Walkmesh::findFloorOver(const FloorNormals &ownNormals, const Walkmesh &other, const FloorNormals &otherNormals,
+                             const std::optional<glm::mat4> &toThis) const {
+    // Floors steeper than this, about 84 degrees, are walls in all but their
+    // material, and over them a height is no more than a guess.
+    static constexpr float kSteepestCosine = 0.1f;
+    // Two faces lie over the same ground only where their overlap is at least
+    // this thick, twice its area over its perimeter: floors that only meet
+    // along a line, as at the foot and the top of a wall, or meet in a sliver
+    // where their edges all but line up, do not.
+    static constexpr float kOverlapThickness = 0.01f;
+
+    assert(ownNormals.size() == faces.size() && otherNormals.size() == other.faces.size());
+    const bool itself = !toThis;
+    // Whether two floors, their normals taken from their corners, lie over
+    // the same ground more than kFloorHeadroom apart somewhere. Their planes'
+    // heights differ most at a corner of the overlap.
+    const auto apart = [](const Face &a, const Face &b) {
+        const auto overlap = levelOverlap(a, b);
+        if (overlap.size() < 3) {
+            return false;
+        }
+        // The area is summed from the overlap's first corner, as world
+        // coordinates far from the origin would swamp a thin overlap's.
+        float area = 0.0f;
+        float perimeter = 0.0f;
+        for (size_t i = 0; i < overlap.size(); ++i) {
+            const glm::vec2 p {overlap[i] - overlap[0]};
+            const glm::vec2 q {overlap[(i + 1) % overlap.size()] - overlap[0]};
+            area += p.x * q.y - q.x * p.y;
+            perimeter += glm::length(q - p);
+        }
+        area = std::abs(area) / 2.0f;
+        if (perimeter == 0.0f || 2.0f * area / perimeter < kOverlapThickness) {
+            return false;
+        }
+        for (const glm::vec2 &point : overlap) {
+            if (std::abs(planeHeight(a, point) - planeHeight(b, point)) > kFloorHeadroom) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto steep = [](const glm::vec3 &normal) { return std::abs(normal.z) < kSteepestCosine; };
+    boost::container::small_vector<uint32_t, 64> candidates;
+    for (uint32_t index = 0; index < other.faces.size(); ++index) {
+        if (!otherNormals[index]) {
+            continue;
+        }
+        Face face = other.getFace(index);
+        face.normal = *otherNormals[index];
+        if (!itself) {
+            for (glm::vec3 &corner : face.vertices) {
+                corner = glm::vec3(*toThis * glm::vec4(corner, 1.0f));
+            }
+            face.normal = glm::normalize(glm::vec3(*toThis * glm::vec4(face.normal, 0.0f)));
+        }
+        if (steep(face.normal)) {
+            continue;
+        }
+        const glm::vec3 *v = face.vertices;
+        const glm::vec2 low {std::min({v[0].x, v[1].x, v[2].x}), std::min({v[0].y, v[1].y, v[2].y})};
+        const glm::vec2 high {std::max({v[0].x, v[1].x, v[2].x}), std::max({v[0].y, v[1].y, v[2].y})};
+        candidates.clear();
+        if (_rootAabb) {
+            facesInBox(*_rootAabb, low, high, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), candidates);
+        } else {
+            for (uint32_t near = 0; near < faces.size(); ++near) {
+                candidates.push_back(near);
+            }
+        }
+        for (const uint32_t near : candidates) {
+            // A walkmesh against itself takes each pair of faces once.
+            if ((itself && near <= index) || !ownNormals[near] || steep(*ownNormals[near])) {
+                continue;
+            }
+            Face nearFace = getFace(near);
+            nearFace.normal = *ownNormals[near];
+            if (apart(face, nearFace)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 void Walkmesh::verify() const {

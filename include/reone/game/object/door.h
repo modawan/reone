@@ -208,7 +208,11 @@ public:
     const resource::LocString &transitionDestination() const { return _transitionDestin; }
     /** The bounds of the door's closed walkmesh across the ground, as four points in its own frame; none without one. */
     const std::vector<glm::vec3> &outline() const { return _outline; }
-    /** Whether \p point stands within the door's outline, the bounds of its closed walkmesh, across the ground. */
+    /**
+     * Whether \p point stands within the door's outline, the bounds of its
+     * closed walkmesh, across the ground, and where floors lie over others,
+     * at the level of the door's position (see Area::isAtLevelOf).
+     */
     bool isInOutline(const glm::vec3 &point) const;
     /**
      * Notes whether \p creature stands within the door's outline. When
