@@ -84,6 +84,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
         ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
+        ("forcesoftware", value<bool>()->default_value(options->audio.forceSoftware), "force software sound")                  //
         ("voices2d", value<int>()->default_value(options->audio.voices2D), "number of 2D voices, half for streams")             //
         ("voices3d", value<int>()->default_value(options->audio.voices3D), "number of 3D voices")                               //
         ("envstreaming", value<bool>()->default_value(options->audio.streamedReverb), "reverb streamed 3D sounds")              //
@@ -150,6 +151,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->audio.voiceVolume = vars["voicevol"].as<int>();
     options->audio.soundVolume = vars["soundvol"].as<int>();
     options->audio.movieVolume = vars["movievol"].as<int>();
+    options->audio.forceSoftware = vars["forcesoftware"].as<bool>();
     options->audio.voices2D = vars["voices2d"].as<int>();
     options->audio.voices3D = vars["voices3d"].as<int>();
     options->audio.streamedReverb = vars["envstreaming"].as<bool>();

@@ -37,6 +37,12 @@ public:
 
     virtual std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
 
+    /**
+     * Load a GUI of its own, which the cache does not keep: for a screen that
+     * binds its controls to itself while another screen may load the same GUI.
+     */
+    virtual std::shared_ptr<IGUI> load(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
+
     /** Advances the pulse every GUI shares, once a frame, by dt seconds. */
     virtual void updatePulsingAlpha(float dt) = 0;
 };
@@ -64,6 +70,10 @@ public:
         }
         auto gui = doGet(resRef, preload);
         return _guis.insert(make_pair(resRef, std::move(gui))).first->second;
+    }
+
+    std::shared_ptr<IGUI> load(const std::string &resRef, std::function<void(IGUI &)> preload) override {
+        return doGet(resRef, preload);
     }
 
     void updatePulsingAlpha(float dt) override {

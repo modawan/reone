@@ -397,6 +397,8 @@ private:
     std::optional<std::reference_wrapper<Control>> _selection;
     /** The control holding the keyboard. */
     std::optional<std::reference_wrapper<Control>> _activeControl;
+    /** The control that took the left button's press, until the button is released. */
+    std::optional<std::reference_wrapper<Control>> _pressedControl;
     /** The list the pointer is on has been entered since the pointer came onto it. */
     bool _listEntered {false};
     /** Whether the hilight of a navigable control other than a list follows the keyboard. */

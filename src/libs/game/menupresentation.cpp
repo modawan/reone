@@ -35,6 +35,16 @@ const std::string kGameOptionsSection {"Game Options"};
 const std::string kAutoPauseSection {"Autopause Options"};
 const std::string kKeybindsSectionTemplate {"Keybinds %d"};
 
+// Top-level keys of the sound and graphics options, as the engine reads them
+// at start.
+const std::string kMusicVolumeKey {"musicvol"};
+const std::string kVoiceVolumeKey {"voicevol"};
+const std::string kSoundVolumeKey {"soundvol"};
+const std::string kMovieVolumeKey {"movievol"};
+const std::string kForceSoftwareKey {"forcesoftware"};
+const std::string kShadowsKey {"shadows"};
+const std::string kGrassKey {"grass"};
+
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
 const std::string kMenuGenderKey {"k2-menu-gender"};
@@ -445,6 +455,27 @@ GameplayOptions GameplayOptions::load(const std::filesystem::path &path) {
 void GameplayOptions::save(const std::filesystem::path &path) const {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kCombatMovementKey, combatMovement ? 1 : 0}});
+    configuration.write(path);
+}
+
+void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kMusicVolumeKey, options.musicVolume},
+                                     {kVoiceVolumeKey, options.voiceVolume},
+                                     {kSoundVolumeKey, options.soundVolume},
+                                     {kMovieVolumeKey, options.movieVolume},
+                                     {kForceSoftwareKey, options.forceSoftware ? 1 : 0},
+                                 });
+    configuration.write(path);
+}
+
+void saveGraphicsOptions(const std::filesystem::path &path, const graphics::GraphicsOptions &options) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kShadowsKey, options.shadows ? 1 : 0},
+                                     {kGrassKey, options.grass ? 1 : 0},
+                                 });
     configuration.write(path);
 }
 

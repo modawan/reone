@@ -830,8 +830,8 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
-    Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr);
+    Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr);
     graphics::Walkmesh destinationRoomNodeWalkmesh;
     auto destinationRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
         destinationRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
@@ -920,7 +920,7 @@ TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
-    Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr);
     graphics::Walkmesh savedRoomNodeWalkmesh;
     auto savedRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
         savedRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
@@ -985,7 +985,7 @@ struct PartyTransferHarness {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     StubConsole console;
-    Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr};
     graphics::Walkmesh roomWalkmesh;
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     std::unique_ptr<Game> game;
@@ -1241,7 +1241,7 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     area->add(outgoing);
     area->add(trigger);
     area->add(retained);
-    Room room("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("source", glm::vec3(0.0f), nullptr, nullptr);
     retained->setRoom(&room);
     trigger->addTenant(retained);
     TestGameModule::setAreaRuntimePath(*retained, area->pathfinder());
@@ -2406,7 +2406,7 @@ TEST(RuntimeObjectOwnership, git_shaped_world_item_releases_every_area_edge) {
             EXPECT_EQ(sceneNode.get(), &removed);
         });
     area->add(item);
-    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr);
     item->setRoom(&room);
     trigger->addTenant(item);
     auto receiver = game.newCreature();
@@ -2500,7 +2500,7 @@ TEST(RuntimeObjectOwnership, equip_action_refuses_area_item_and_keeps_its_area_e
     EXPECT_CALL(sceneGraph, addRoot(sceneNode)).Times(1);
     EXPECT_CALL(sceneGraph, removeRoot(A<scene::ModelSceneNode &>())).Times(0);
     area->add(item);
-    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr);
     item->setRoom(&room);
     trigger->addTenant(item);
     auto action = game.newAction<EquipItemAction>(
@@ -3141,7 +3141,7 @@ TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_id
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
-    Room room("partial", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("partial", glm::vec3(0.0f), nullptr, nullptr);
     graphics::Walkmesh roomNodeWalkmesh;
     auto roomNode = std::make_shared<scene::WalkmeshSceneNode>(
         roomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);

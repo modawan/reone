@@ -13,6 +13,8 @@
 #include <optional>
 #include <string>
 
+#include "reone/audio/options.h"
+#include "reone/graphics/options.h"
 #include "reone/input/event.h"
 
 namespace reone {
@@ -104,6 +106,11 @@ void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
 constexpr int kAllPlanetSongs = 0x7ff;
 /** Write the unlocked planet songs into the configuration, keeping every other line. */
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs);
+
+/** Write the sound options' volumes and Force Software into the configuration, keeping every other line. */
+void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options);
+/** Write the graphics options' Shadows and Grass into the configuration, keeping every other line. */
+void saveGraphicsOptions(const std::filesystem::path &path, const graphics::GraphicsOptions &options);
 
 /** How the mouse turns the camera, kept in the configuration's Game Options section. */
 struct MouseOptions {

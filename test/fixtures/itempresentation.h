@@ -148,6 +148,9 @@ public:
         screens[name] = gui;
         return gui;
     }
+    std::shared_ptr<IGUI> load(const std::string &name, std::function<void(IGUI &)> preload) override {
+        return get(name, std::move(preload));
+    }
     PulsingAlpha pulsingAlpha;
     std::unordered_map<std::string, std::shared_ptr<RecordingGUI>> screens;
     // Tags the screens built here do not define.

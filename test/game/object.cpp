@@ -4719,7 +4719,7 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
     fixture.countScriptRuns("k_def_blocked01");
 
     // A wall that is not a door ends the walk all the same, with no report.
-    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr);
     ScopedWalkObstruction obstruction(room);
     EXPECT_TRUE(walkerStep(*fixture.area, *npc, kFarDestination));
 

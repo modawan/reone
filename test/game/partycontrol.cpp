@@ -138,7 +138,7 @@ class PartyControl : public ::testing::TestWithParam<GameID> {};
 class AreaControlHarness : boost::noncopyable {
 public:
     explicit AreaControlHarness(GameID gameId) :
-        _room("control", glm::vec3(0.0f), nullptr, nullptr, nullptr) {
+        _room("control", glm::vec3(0.0f), nullptr, nullptr) {
 
         _engine.init();
         // A creature update searches for mines with its Awareness rank, which

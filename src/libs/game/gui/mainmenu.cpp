@@ -75,7 +75,6 @@ void MainMenu::onGUILoaded() {
     _controls.LBL_BW->setVisible(false);
     _controls.LBL_LUCAS->setVisible(false);
     _controls.BTN_MOVIES->setDisabled(true);
-    _controls.BTN_OPTIONS->setDisabled(true);
 
     if (_controls.BTN_MOREGAMES) {
         _controls.BTN_MOREGAMES->setVisible(false);
@@ -94,6 +93,9 @@ void MainMenu::onGUILoaded() {
     });
     _controls.BTN_LOADGAME->setOnClick([this]() {
         _game.openSaveLoad(SaveLoadMode::LoadFromMainMenu);
+    });
+    _controls.BTN_OPTIONS->setOnClick([this]() {
+        _game.openMainMenuOptions();
     });
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.quit();

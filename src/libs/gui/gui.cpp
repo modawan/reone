@@ -239,6 +239,12 @@ bool GUI::handle(const input::Event &event) {
         return handleKeyUp(event.key.code);
 
     case input::EventType::MouseMotion: {
+        if (_pressedControl) {
+            auto &pressed = _pressedControl->get();
+            auto ctrlCoords = controlCoordinates(pressed, event.motion.x, event.motion.y);
+            pressed.handleMouseDrag(ctrlCoords.x, ctrlCoords.y);
+            return true;
+        }
         updateSelection(event.motion.x, event.motion.y);
         if (_selection) {
             auto ctrlCoords = controlCoordinates(_selection->get(), event.motion.x, event.motion.y);
@@ -250,9 +256,24 @@ bool GUI::handle(const input::Event &event) {
     case input::EventType::MouseButtonDown:
         if (event.button.button == input::MouseButton::Left) {
             _leftMouseDown = true;
+            auto control = findControlAt(
+                event.button.x, event.button.y,
+                [](const auto &control) { return control.isSelectable(); });
+            if (control) {
+                auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
+                if (control->get().handleMouseDown(ctrlCoords.x, ctrlCoords.y)) {
+                    _pressedControl = control;
+                    return true;
+                }
+            }
         }
         break;
     case input::EventType::MouseButtonUp:
+        if (_pressedControl && event.button.button == input::MouseButton::Left) {
+            _leftMouseDown = false;
+            _pressedControl.reset();
+            return true;
+        }
         if (_leftMouseDown && event.button.button == input::MouseButton::Left) {
             _leftMouseDown = false;
             auto control = findControlAt(
@@ -581,6 +602,8 @@ void GUI::renderBackground(IRenderPass &pass) {
 }
 
 void GUI::clearSelection() {
+    // A GUI put away mid-press gives the press up with its selection.
+    _pressedControl.reset();
     if (_selection) {
         _selection->get().setSelected(false);
         onSelectionChanged(_selection->get().tag(), false);
