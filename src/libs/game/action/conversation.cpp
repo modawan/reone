@@ -82,6 +82,12 @@ bool StartConversationAction::approach(Creature &speaker, float dt) {
         }
         const Creature::UseRange use = speaker.useRange(*_objectToConverse);
         _walkPoint = 0.5f * (use.point + speaker.position());
+        // Halfway lies between two heights, which can put the point under
+        // the walkmesh, where no face is found and no path is planned. It is
+        // walked to on the ground at that spot.
+        if (auto module = _game.module(); module && module->area()) {
+            _walkPoint->z = module->area()->groundHeight(*_walkPoint, Area::GroundFace::Locating);
+        }
         _walkRange = use.range + kConversationUseRangeExtra;
     }
     if (!speaker.walkToward(*_objectToConverse, *_walkPoint, true, _walkRange, dt, *_objectToConverse, false) &&

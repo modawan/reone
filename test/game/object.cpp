@@ -4774,6 +4774,57 @@ TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reac
     EXPECT_TRUE(action->isCompleted());
 }
 
+// Give the area a walkmesh of two rooms that a ramp joins: an upper floor at
+// height 0 from x = -12 to 2, and a lower one at height -1 from x = 4 to 12.
+void loadTwoLevelWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    graphics::Walkmesh upper;
+    upper.vertices = {
+        {-12.0f, -5.0f, 0.0f},
+        {-12.0f, 5.0f, 0.0f},
+        {2.0f, 5.0f, 0.0f},
+        {2.0f, -5.0f, 0.0f}};
+    upper.faces = {{{0, 1, 2}}, {{0, 2, 3}}};
+    upper.materials = {0, 0};
+    uniwalkLoadRoom(area.pathfinder().uni, upper, walkable);
+    graphics::Walkmesh lower;
+    lower.vertices = {
+        {2.0f, -5.0f, 0.0f},
+        {2.0f, 5.0f, 0.0f},
+        {4.0f, 5.0f, -1.0f},
+        {4.0f, -5.0f, -1.0f},
+        {12.0f, 5.0f, -1.0f},
+        {12.0f, -5.0f, -1.0f}};
+    lower.faces = {{{0, 1, 2}}, {{0, 2, 3}}, {{3, 2, 4}}, {{3, 4, 5}}};
+    lower.materials = {0, 0, 0, 0};
+    uniwalkLoadRoom(area.pathfinder().uni, lower, walkable);
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// A speaker on the upper floor and its partner on the lower one, more than ten
+// metres apart. The point halfway between them, at the height halfway between
+// theirs, lies half a metre under the upper floor, where the pathfinder finds
+// no face. The speaker walks to the ground there and sets out.
+TEST(CreatureNavigationFailure, a_conversation_approach_between_two_heights_sets_out_on_the_ground) {
+    BlockedDoorFixture fixture;
+    loadTwoLevelWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    speaker->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(10.0f, 0.0f, -1.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "two_heights");
+    speaker->addAction(action);
+    for (int i = 0; i < 30; ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(speaker->navigationFailed());
+    EXPECT_GT(speaker->position().x, -9.0f);
+}
+
 // Steers a creature toward a point far along +x for the given time, moving it
 // at the given speed each frame. Counts the frames its steering turned away
 // from that point, which is what a creature judged stuck does.
