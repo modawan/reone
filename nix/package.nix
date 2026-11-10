@@ -17,6 +17,11 @@
   version ? "0-unstable",
 }:
 
+let
+  # wrapGApp (Linux only, see postFixup) moves the real binary to
+  # .<name>-wrapped and puts a shell script in its place.
+  wxApp = name: if stdenv.hostPlatform.isLinux then ".${name}-wrapped" else name;
+in
 stdenv.mkDerivation {
   pname = "reone";
   inherit version;
@@ -42,21 +47,28 @@ stdenv.mkDerivation {
     cmake
     ninja
     pkg-config
+  ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [
+    # Gives the wx apps their GSettings schemas and GTK modules. wx uses
+    # Cocoa on macOS, where there is nothing to wrap.
     wrapGAppsHook3
   ];
 
   buildInputs = [
-    # sdl3.pc names alsa in Requires.private; without it pkg-config prints
-    # "Package 'alsa' not found" on every SDL3 lookup.
-    alsa-lib
     boost
     ffmpeg
-    libGL
     libmad
     openal
     sdl3
     wxwidgets_3_2
     gtest
+  ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [
+    # sdl3.pc names alsa in Requires.private; without it pkg-config prints
+    # "Package 'alsa' not found" on every SDL3 lookup.
+    alsa-lib
+    # On macOS, find_package(OpenGL) finds the SDK framework instead.
+    libGL
   ];
 
   # Upstream's defaults build every app, the tests and movie playback.
@@ -104,9 +116,10 @@ stdenv.mkDerivation {
     rm -rf $out/lib
   '';
 
-  # Only the wx apps need the GApps wrapper (GSettings schemas, GTK modules).
+  # Only the wx apps need the GApps wrapper (GSettings schemas, GTK modules),
+  # and only on Linux.
   dontWrapGApps = true;
-  postFixup = ''
+  postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
     for exe in launcher toolkit; do
       if [ -e $out/libexec/reone/$exe ]; then
         wrapGApp $out/libexec/reone/$exe
@@ -123,18 +136,22 @@ stdenv.mkDerivation {
     runHook preInstallCheck
 
     expect=(bin/reone libexec/reone/engine share/reone/shaderpack.erf)
-    expect+=(bin/reone-launcher libexec/reone/.launcher-wrapped)
-    expect+=(bin/reone-toolkit libexec/reone/.toolkit-wrapped share/reone/cmudict.dict)
+    expect+=(bin/reone-launcher libexec/reone/${wxApp "launcher"})
+    expect+=(bin/reone-toolkit libexec/reone/${wxApp "toolkit"} share/reone/cmudict.dict)
     expect+=(bin/dataminer bin/gff2json bin/unerf bin/ncsrun)
     for f in "''${expect[@]}"; do
       [ -e "$out/$f" ] || { echo "install check: missing $f"; exit 1; }
     done
 
     # The engine must start from REONE_HOME: links set up, log written
-    # there. With no display and no game data it cannot get far, but a
-    # logged "Engine failure" means the wrapper ran the real binary, options
-    # parsed, and the engine shut down cleanly instead of crashing.
+    # there. SDL's dummy video driver is built on every platform and has no
+    # OpenGL, so SDL_Init succeeds and window creation fails the same way on
+    # Linux and macOS, without reaching for X11 or the macOS window server
+    # from the build sandbox. A logged "Engine failure" then means the
+    # wrapper ran the real binary, options parsed, and the engine shut down
+    # cleanly instead of crashing.
     export REONE_HOME=$TMPDIR/reone-home
+    export SDL_VIDEO_DRIVER=dummy
     status=0
     $out/bin/reone --game "$TMPDIR/no-game" || status=$?
     [ "$status" -ne 0 ] || { echo "install check: engine ran with no game data?"; exit 1; }
@@ -151,7 +168,8 @@ stdenv.mkDerivation {
     description = "Free and open source engine for Star Wars: KotOR and TSL";
     homepage = "https://github.com/modawan/reone";
     license = lib.licenses.gpl3Plus;
-    platforms = lib.platforms.linux;
+    # Not x86_64-darwin: nixpkgs unstable dropped it (see flake.nix).
+    platforms = lib.platforms.linux ++ [ "aarch64-darwin" ];
     mainProgram = "reone";
   };
 }

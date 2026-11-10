@@ -73,7 +73,10 @@
 #include "glm/gtx/norm.hpp"
 #include "glm/gtx/transform.hpp"
 
-#if __APPLE__
+// Use OpenAL Soft's headers whenever they are on the include path (Linux,
+// vcpkg, Nix on macOS), so the declarations match the library being linked.
+// Apple's OpenAL framework is the fallback on macOS.
+#if defined(__APPLE__) && !__has_include("AL/al.h")
 #include "OpenAL/al.h"
 #include "OpenAL/alc.h"
 #else

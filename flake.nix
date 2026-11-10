@@ -6,9 +6,16 @@
   outputs =
     { self, nixpkgs }:
     let
-      # Only x86_64-linux is built and tested (locally and in CI). Add other
-      # systems here once someone has built them.
-      systems = [ "x86_64-linux" ];
+      # x86_64-linux is built and tested locally and in CI. aarch64-darwin is
+      # built in CI only: the macOS job in .github/workflows/build-test-nix.yml
+      # runs the full build whenever that workflow runs (flake, nix/ or
+      # workflow changes, and release tags). Intel Macs are not here: nixpkgs
+      # unstable dropped x86_64-darwin in 26.11, so building for them would
+      # need a second input pinned to a 26.05 branch.
+      systems = [
+        "x86_64-linux"
+        "aarch64-darwin"
+      ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 
       # nixpkgs convention for unreleased builds: 0-unstable-YYYY-MM-DD,
@@ -64,10 +71,13 @@
         system: pkgs: {
           default = pkgs.mkShell {
             inputsFrom = [ self.packages.${system}.reone ];
-            packages = with pkgs; [
-              clang-tools
-              gdb
-            ];
+            packages = [
+              pkgs.clang-tools
+            ]
+            # nixpkgs builds gdb on aarch64-darwin for an x86_64 target, so
+            # it cannot debug an arm64 process; lldb can.
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.gdb ]
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.lldb ];
             # Lets clangd find build/compile_commands.json.
             CMAKE_EXPORT_COMPILE_COMMANDS = "ON";
           };

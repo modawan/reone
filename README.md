@@ -27,7 +27,7 @@ Install [Visual C++ Redistributable](https://aka.ms/vs/16/release/vc_redist.x64.
 
 ### Nix
 
-On x86_64 Linux with [Nix](https://nixos.org) (flakes enabled), the flake builds every application and runs the unit tests:
+On x86_64 Linux or an Apple silicon Mac with [Nix](https://nixos.org) (flakes enabled), the flake builds every application and runs the unit tests:
 
 ```sh
 nix build                                  # entry points in result/bin
@@ -43,7 +43,7 @@ The engine, launcher and toolkit read their files from the current directory, so
 
 On Linux distributions other than NixOS, Nix-built OpenGL programs cannot see the system GPU driver. Run the engine through [nixGL](https://github.com/nix-community/nixGL): `nix run --impure github:nix-community/nixGL -- result/bin/reone --game /path/to/swkotor`.
 
-For development, `nix develop` opens a shell with the same compiler and libraries plus clangd and gdb, then build with CMake and Ninja:
+For development, `nix develop` opens a shell with the same compiler and libraries plus clangd and a debugger (gdb on Linux; on macOS lldb, which uses the debugserver from Xcode or the Command Line Tools), then build with CMake and Ninja:
 
 ```sh
 nix develop
