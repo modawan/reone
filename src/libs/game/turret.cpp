@@ -74,6 +74,11 @@ constexpr float kDefaultLateralAcceleration = 60.0f;
 // The player's default speed; its track plays at a hundredth of it.
 constexpr float kDefaultSpeed = 100.0f;
 
+// The objects' heartbeats run on a fixed tick, sixty a second, whatever the
+// frame rate; a long frame catches up at most four of them.
+constexpr float kHeartbeatTick = 1.0f / 60.0f;
+constexpr int kMaxHeartbeatTicks = 4;
+
 // The player's sounds play in the default group, everyone else's in the
 // minigame enemies' group.
 int soundGroup(bool player) {
@@ -849,6 +854,7 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
     _areaName = areaName;
     _camera = camera;
     _elapsed = 0.0f;
+    _heartbeatTime = 0.0f;
     _trackPlaying = false;
     _speed = kDefaultSpeed;
     _trackResRef = _spec.player.trackResRef;
@@ -1117,10 +1123,10 @@ void Turret::runScript(const std::string &resRef, const Actor &actor) {
     _game.scriptRunner().run(resRef, actor.id());
 }
 
-// Each frame the objects run their heartbeats and count down their
-// invulnerability, the player first, then the enemies and the obstacles, each
-// last to first. Bullets are then checked against them while the player's track
-// plays.
+// Each frame the followers count down their invulnerability and the objects
+// run whatever heartbeats are due, the player first, then the enemies and the
+// obstacles, each last to first. Bullets are then checked against them while
+// the player's track plays.
 void Turret::update(float dt) {
     if (!_active || dt <= 0.0f) {
         return;
@@ -1153,11 +1159,7 @@ void Turret::update(float dt) {
             updateFollower(*_enemies[i], dt);
         }
     }
-    for (size_t i = _obstacles.size(); i-- > 0;) {
-        if (i < _obstacles.size() && _obstacles[i]->listed) {
-            runScript(_obstacles[i]->scripts.onHeartbeat, *_obstacles[i]);
-        }
-    }
+    runHeartbeats(dt);
     if (!_active) {
         return;
     }
@@ -1210,8 +1212,28 @@ void Turret::updateFollower(Follower &follower, float dt) {
     if (follower.engineSource) {
         follower.engineSource->setPosition(follower.position);
     }
-    runScript(follower.scripts.onHeartbeat, follower);
     follower.invincibilityTimer = glm::max(0.0f, follower.invincibilityTimer - dt);
+}
+
+// A heartbeat that ends the minigame stops the ticks still due.
+void Turret::runHeartbeats(float dt) {
+    _heartbeatTime = glm::min(_heartbeatTime + dt, kMaxHeartbeatTicks * kHeartbeatTick);
+    while (_active && _heartbeatTime >= kHeartbeatTick) {
+        _heartbeatTime -= kHeartbeatTick;
+        if (_player) {
+            runScript(_player->scripts.onHeartbeat, *_player);
+        }
+        for (size_t i = _enemies.size(); i-- > 0;) {
+            if (i < _enemies.size() && _enemies[i]->listed) {
+                runScript(_enemies[i]->scripts.onHeartbeat, *_enemies[i]);
+            }
+        }
+        for (size_t i = _obstacles.size(); i-- > 0;) {
+            if (i < _obstacles.size() && _obstacles[i]->listed) {
+                runScript(_obstacles[i]->scripts.onHeartbeat, *_obstacles[i]);
+            }
+        }
+    }
 }
 
 // A track that loops raises a loop event each time it goes round. The scene

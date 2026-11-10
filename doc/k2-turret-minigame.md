@@ -36,9 +36,10 @@ works out what each bolt hits. Everything else is the authored scripts':
   `SWMG_OnDeath()`; `OnHitBullet` with `SWMG_OnBulletHit()`. The Ebon Hawk's
   damage scripts land a hit only while the hull is at or above 2000, which is
   what freezes its hit points just below that.
-* **Heartbeats run on every update**, the player's first, then the enemies' and
-  the obstacles'. The player's keeps the cockpit: the compass from the aim's
-  yaw, and the radar contacts once the wing starts moving.
+* **Heartbeats run sixty times a second**, whatever the frame rate, the
+  player's first, then the enemies' and the obstacles'; a long frame catches up
+  at most four. The player's keeps the cockpit: the compass from the aim's yaw,
+  and the radar contacts once the wing starts moving.
 * **The module's own scripts end the encounter**: the 114 second limit, the
   experience, the plot globals and the move to the next module are all script.
   The turret decides no win or loss.

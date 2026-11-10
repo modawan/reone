@@ -663,6 +663,8 @@ private:
     float _farClip {0.0f};
     bool _trackPlaying {false};
     float _elapsed {0.0f};
+    /** Seconds toward the next heartbeat tick. */
+    float _heartbeatTime {0.0f};
 
     // Loading
 
@@ -718,6 +720,8 @@ private:
     void updatePlayerTransforms();
     void updateCamera();
     void updateFollower(Follower &follower, float dt);
+    /** Runs the objects' heartbeats for each tick of \p dt due. */
+    void runHeartbeats(float dt);
     void checkTrackLoop(Follower &follower);
     void updateEnemyFire(Follower &enemy, float dt);
     void updateDeath(Follower &follower, float dt);
