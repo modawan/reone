@@ -5409,6 +5409,11 @@ void Game::updateCamera(float dt) {
             listenerPosition += kThirdPersonListenerShare * (thirdPerson.targetPosition() - listenerPosition);
         }
         _services.audio.context.setListenerPosition(std::move(listenerPosition));
+        // The listener faces where the camera looks: down its local -Z, with
+        // its local +Y up.
+        const glm::mat4 &cameraTransform = camera->sceneNode()->absoluteTransform();
+        _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
+                                                       glm::normalize(glm::vec3(cameraTransform[1])));
     }
 }
 

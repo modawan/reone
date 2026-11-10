@@ -57,6 +57,16 @@ void Context::setListenerPosition(glm::vec3 position) {
     _listenerPosition = std::move(position);
 }
 
+void Context::setListenerOrientation(glm::vec3 forward, glm::vec3 up) {
+    if (_listenerForward == forward && _listenerUp == up) {
+        return;
+    }
+    const float orientation[] {forward.x, forward.y, forward.z, up.x, up.y, up.z};
+    alListenerfv(AL_ORIENTATION, orientation);
+    _listenerForward = forward;
+    _listenerUp = up;
+}
+
 void Context::setListenerGain(float gain) {
     alListenerf(AL_GAIN, gain);
 }

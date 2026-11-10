@@ -29,6 +29,8 @@ public:
     virtual glm::vec3 listenerPosition() const = 0;
 
     virtual void setListenerPosition(glm::vec3 position) = 0;
+    /** Turns the listener to face \p forward with \p up above it, both unit vectors. */
+    virtual void setListenerOrientation(glm::vec3 forward, glm::vec3 up) = 0;
     /** Scales the gain of every sound. */
     virtual void setListenerGain(float gain) = 0;
 };
@@ -43,6 +45,7 @@ public:
     glm::vec3 listenerPosition() const override { return _listenerPosition; }
 
     void setListenerPosition(glm::vec3 position) override;
+    void setListenerOrientation(glm::vec3 forward, glm::vec3 up) override;
     void setListenerGain(float gain) override;
 
 private:
@@ -50,6 +53,8 @@ private:
     ALCcontext *_context {nullptr};
 
     glm::vec3 _listenerPosition {0.0f};
+    glm::vec3 _listenerForward {0.0f};
+    glm::vec3 _listenerUp {0.0f};
 };
 
 } // namespace audio
