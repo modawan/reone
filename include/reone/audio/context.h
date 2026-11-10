@@ -35,6 +35,12 @@ public:
     virtual void setListenerOrientation(glm::vec3 forward, glm::vec3 up) = 0;
     /** Scales the gain of every sound. */
     virtual void setListenerGain(float gain) = 0;
+
+    /**
+     * Renders \p environment from now on. Standard reverb takes only the
+     * preset's EAX 2 properties. Does nothing without a reverb.
+     */
+    virtual void setEnvironment(Environment environment) = 0;
 };
 
 /** The fullest reverb the device renders, which decides how much of an environment is heard. */
@@ -69,11 +75,7 @@ public:
 
     ReverbTier reverbTier() const { return _reverbTier; }
 
-    /**
-     * Renders \p environment from now on. Standard reverb takes only the
-     * preset's EAX 2 properties. Does nothing at ReverbTier::None.
-     */
-    void setEnvironment(Environment environment);
+    void setEnvironment(Environment environment) override;
 
 private:
     /**

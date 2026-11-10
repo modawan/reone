@@ -308,6 +308,10 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadGrass(are);
     loadFog(are);
     loadMiniGame(are);
+    _roomEnvAudio.clear();
+    for (const auto &room : are.Rooms) {
+        _roomEnvAudio.emplace(boost::to_lower_copy(room.RoomName), room.EnvAudio);
+    }
     _roomForceRatings.clear();
     if (_game.isTSL()) {
         for (const auto &room : are.Rooms) {
@@ -1456,6 +1460,16 @@ void Area::playRoomAnimation(const std::string &roomName, int animation) {
     auto name = str(boost::format("scriptloop%02u") % static_cast<uint16_t>(animation));
     int flags = _game.isTSL() ? AnimationFlags::loop : AnimationFlags::loopOverlay;
     room->second->model()->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
+}
+
+const Room *Area::roomUnder(const glm::vec3 &position) const {
+    auto walkmesh = _services.scene.graphs.get(_sceneName).findRoomWalkmesh(position);
+    return walkmesh ? dynamic_cast<const Room *>(walkmesh->user()) : nullptr;
+}
+
+int Area::roomEnvAudio(const Room &room) const {
+    auto found = _roomEnvAudio.find(boost::to_lower_copy(room.name()));
+    return found != _roomEnvAudio.end() ? found->second : 0;
 }
 
 int Area::getSurfaceMaterial(const glm::vec3 &position) const {
