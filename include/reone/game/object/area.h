@@ -607,6 +607,13 @@ public:
      */
     void playRoomAnimation(const std::string &roomName, int animation);
     /**
+     * How much of a sound at \p source the walls, placeables and doors
+     * between it and \p listener block, from 0 to 1.
+     */
+    float soundObstruction(const glm::vec3 &source, const glm::vec3 &listener) const;
+    /** soundObstruction, through \p sceneGraph's line of sight. */
+    static float soundObstruction(const scene::ISceneGraph &sceneGraph, const glm::vec3 &source, const glm::vec3 &listener);
+    /**
      * The surface material under a point: that of the room's face of any
      * material on the point's vertical (see ISceneGraph::findRoomFace),
      * in the room found under the point (see ISceneGraph::findRoomWalkmesh);

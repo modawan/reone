@@ -18,6 +18,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <set>
 
 #include "arbiter.h"
@@ -38,6 +39,9 @@ class IContext;
  * without a variance.
  */
 float randomPitch(float variance);
+
+/** How much of a sound at a position is blocked from a listener at another, from 0 to 1. */
+using ObstructionTest = std::function<float(const glm::vec3 &source, const glm::vec3 &listener)>;
 
 class IAudioMixer {
 public:
@@ -81,6 +85,11 @@ public:
      * it at once.
      */
     virtual void setRoomReverb(bool reverb) = 0;
+    /**
+     * Sets how positional sources are found obstructed: as each one starts,
+     * and again for a few playing ones each render, in turn.
+     */
+    virtual void setObstructionTest(ObstructionTest test) = 0;
     /** The row of priority group \p group. */
     virtual PriorityGroup priorityGroup(int group) const = 0;
     /**
@@ -161,6 +170,7 @@ public:
     void setStreamedGroups(std::set<int> groups) override;
     void setDryGroups(std::set<int> groups) override;
     void setRoomReverb(bool reverb) override;
+    void setObstructionTest(ObstructionTest test) override;
     PriorityGroup priorityGroup(int group) const override;
     void setFocusLost(bool lost) override;
     void setMuted(bool muted) override;
@@ -210,6 +220,9 @@ private:
     std::set<int> _dryGroups;
     /** See setRoomReverb. */
     bool _roomReverb {false};
+    ObstructionTest _obstructionTest;
+    /** The source whose obstruction is worked out next. */
+    size_t _nextObstructed {0};
     bool _soundsHeldForMovie {false};
     /** The priority groups the sound mode in force keeps playing; none without a mode. */
     std::optional<std::set<int>> _modeKeptGroups;
@@ -237,6 +250,10 @@ private:
     /** How much of a source reaches the reverb, as a send gain from 0 to 1. */
     float reverbSend(const ActiveSource &active) const;
     bool isStreamed(const ActiveSource &active) const;
+    /** Works out how obstructed a positional source is now. */
+    void obstruct(AudioSource &source);
+    /** Works out again how obstructed the next few positional sources are. */
+    void refreshObstruction();
     /** Resumes a source that nothing holds paused any more. */
     void resumeIfFree(ActiveSource &active);
     /** The arbiter holds the source back: it waits for room or a voice, or is out of range. */

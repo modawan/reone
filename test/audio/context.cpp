@@ -80,7 +80,7 @@ TEST(AudioContext, loads_an_environment_s_preset_into_the_reverb) {
 #endif
 }
 
-TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send) {
+TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send_and_obstruction) {
     Context context;
     if (!openTestContext(context)) {
         GTEST_SKIP() << "no OpenAL device opens";
@@ -98,5 +98,14 @@ TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send) {
     context.setReverbSend(source, 0.5f);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
     context.setReverbSend(source, 0.0f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+#ifdef R_ENABLE_EFX
+    EXPECT_TRUE(context.rendersObstruction());
+#else
+    EXPECT_FALSE(context.rendersObstruction());
+#endif
+    context.setObstruction(source, 0.4f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+    context.setObstruction(source, 0.0f);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
 }

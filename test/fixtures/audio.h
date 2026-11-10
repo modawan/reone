@@ -55,6 +55,8 @@ public:
     MOCK_METHOD(void, setListenerGain, (float), (override));
     MOCK_METHOD(void, setEnvironment, (Environment), (override));
     MOCK_METHOD(void, setReverbSend, (AudioSource &, float), (override));
+    MOCK_METHOD(bool, rendersObstruction, (), (const, override));
+    MOCK_METHOD(void, setObstruction, (AudioSource &, float), (override));
 };
 
 /**
@@ -80,6 +82,7 @@ public:
     MOCK_METHOD(void, setStreamedGroups, (std::set<int>), (override));
     MOCK_METHOD(void, setDryGroups, (std::set<int>), (override));
     MOCK_METHOD(void, setRoomReverb, (bool), (override));
+    MOCK_METHOD(void, setObstructionTest, (ObstructionTest), (override));
     MOCK_METHOD(PriorityGroup, priorityGroup, (int), (const, override));
     MOCK_METHOD(void, setFocusLost, (bool), (override));
     MOCK_METHOD(void, setMuted, (bool), (override));

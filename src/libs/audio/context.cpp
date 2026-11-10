@@ -49,7 +49,7 @@ void Context::init() {
         throw std::runtime_error("alcCreateContext failed");
     }
     alcMakeContextCurrent(static_cast<ALCcontext *>(_context));
-    initReverb();
+    initEffects();
 }
 
 static const char *describeReverbTier(ReverbTier tier) {
@@ -180,11 +180,35 @@ void Context::setReverbSend(AudioSource &source, float gain) {
 #endif
 }
 
-void Context::initReverb() {
+void Context::setObstruction(AudioSource &source, float obstruction) {
+#ifdef R_ENABLE_EFX
+    const ALuint name = source.alSource();
+    if (_obstructionFilter == 0 || name == 0) {
+        return;
+    }
+    if (obstruction <= 0.0f) {
+        alSourcei(name, AL_DIRECT_FILTER, AL_FILTER_NULL);
+        return;
+    }
+    // Obstruction dulls a sound's highs, leaving its level and its reverb
+    // alone.
+    const float highs = std::pow(1.0f - std::min(obstruction, 1.0f), 5.0f / 3.0f);
+    alFilterf(_obstructionFilter, AL_LOWPASS_GAIN, 1.0f);
+    alFilterf(_obstructionFilter, AL_LOWPASS_GAINHF, highs);
+    alSourcei(name, AL_DIRECT_FILTER, static_cast<ALint>(_obstructionFilter));
+#else
+    static_cast<void>(source);
+    static_cast<void>(obstruction);
+#endif
+}
+
+void Context::initEffects() {
 #ifdef R_ENABLE_EFX
     ALCint sends = 0;
     if (alcIsExtensionPresent(static_cast<ALCdevice *>(_device), ALC_EXT_EFX_NAME) == ALC_TRUE) {
         alcGetIntegerv(static_cast<ALCdevice *>(_device), ALC_MAX_AUXILIARY_SENDS, 1, &sends);
+        alGenFilters(1, &_obstructionFilter);
+        alFilteri(_obstructionFilter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
     }
     if (sends > 0) {
         alGenEffects(1, &_reverbEffect);
@@ -221,11 +245,15 @@ void Context::initReverb() {
     info(std::string("Audio reverb: ") + describeReverbTier(_reverbTier));
 }
 
-void Context::deinitReverb() {
+void Context::deinitEffects() {
 #ifdef R_ENABLE_EFX
     if (_reverbSendFilter) {
         alDeleteFilters(1, &_reverbSendFilter);
         _reverbSendFilter = 0;
+    }
+    if (_obstructionFilter) {
+        alDeleteFilters(1, &_obstructionFilter);
+        _obstructionFilter = 0;
     }
     if (_reverbSlot) {
         alDeleteAuxiliaryEffectSlots(1, &_reverbSlot);
@@ -242,7 +270,7 @@ void Context::deinitReverb() {
 void Context::deinit() {
     checkMainThread();
     if (_context) {
-        deinitReverb();
+        deinitEffects();
         alcMakeContextCurrent(nullptr);
         alcDestroyContext(static_cast<ALCcontext *>(_context));
         _context = nullptr;

@@ -55,6 +55,38 @@ void AudioMixer::render() {
         }
     }
     applyChanges(_arbiter.update());
+    refreshObstruction();
+}
+
+void AudioMixer::setObstructionTest(ObstructionTest test) {
+    _obstructionTest = std::move(test);
+}
+
+void AudioMixer::obstruct(AudioSource &source) {
+    if (_obstructionTest && _context.rendersObstruction() && source.position()) {
+        _context.setObstruction(source, _obstructionTest(*source.position(), _context.listenerPosition()));
+    }
+}
+
+// Arbitrary, but at least one so every positional source has its turn, and
+// few enough that the rays stay cheap each render.
+static constexpr size_t kObstructionsPerRender = 4;
+
+// Only positional sources within range take a turn; the rest are passed over.
+void AudioMixer::refreshObstruction() {
+    if (!_obstructionTest || !_context.rendersObstruction()) {
+        return;
+    }
+    size_t obstructed = 0;
+    for (size_t step = 0; step < _sources.size() && obstructed < kObstructionsPerRender; ++step) {
+        const size_t index = _nextObstructed % _sources.size();
+        _nextObstructed = index + 1;
+        auto &active = _sources[index];
+        if (active.positional && !active.outOfRange) {
+            obstruct(*active.source);
+            ++obstructed;
+        }
+    }
 }
 
 bool AudioMixer::heldBySlot(const ActiveSource &active) const {
@@ -414,6 +446,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
 
     source->init();
     _context.setReverbSend(*source, reverbSend(active));
+    obstruct(*source);
     if (distances) {
         source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);
     }
