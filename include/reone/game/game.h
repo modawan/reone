@@ -1943,6 +1943,10 @@ private:
     bool _leaderAnswersInDialog {false};
     /** See isDialogUnderWay. */
     bool _dialogUnderWay {false};
+    /** The EnvAudio last rendered: an environment is loaded only when it changes. */
+    std::optional<int> _envAudio;
+    /** The room last rendered, so a room's sound is looked up only when the room changes. */
+    const Room *_soundRoom {nullptr};
     /** The admission of the request to talk a conversation script has still to answer. */
     GlobalFade::DialogTicket _conversationRequest;
     /** See admitConversationRequest. */
@@ -2477,6 +2481,12 @@ private:
     bool isNearestObjectSeen(NearestObject &entry, const Creature &leader, const Area &area);
     bool isDownForSelection(const Creature &creature) const;
     void updateCamera(float dt);
+    /**
+     * Renders the environment of the room the leader stands in, or of the
+     * room under the camera while a conversation shot is up. Outside every
+     * room the environment stays as it was.
+     */
+    void updateEnvironment(const glm::vec3 &cameraPosition);
     /**
      * When the mouse begins turning the camera, remember where the pointer
      * stands; when it stops, put the pointer and the system cursor back there

@@ -2177,6 +2177,8 @@ void Game::retireActiveModuleRuntime() {
 void Game::retireActiveAreaRuntime() {
     _services.game.projectiles.retireAreaRuntime();
     _areaMusic.unload();
+    // The area's rooms go with it.
+    _soundRoom = nullptr;
     auto module = _module;
     auto area = module ? module->area() : nullptr;
     if (area) {
@@ -5497,6 +5499,37 @@ void Game::updateCamera(float dt) {
         const glm::mat4 &cameraTransform = camera->sceneNode()->absoluteTransform();
         _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
                                                        glm::normalize(glm::vec3(cameraTransform[1])));
+        updateEnvironment(camera->sceneNode()->origin());
+    }
+}
+
+void Game::updateEnvironment(const glm::vec3 &cameraPosition) {
+    auto module = _module;
+    auto area = module ? module->area() : nullptr;
+    if (!area) {
+        return;
+    }
+    const bool conversationShot = _dialogUnderWay && (_cameraType == CameraType::Dialog ||
+                                                      _cameraType == CameraType::Static ||
+                                                      _cameraType == CameraType::Animated);
+    const Room *room = nullptr;
+    if (conversationShot) {
+        room = area->roomUnder(cameraPosition);
+    } else if (auto leader = _party.getLeader()) {
+        room = leader->room();
+    }
+    if (!room || room == _soundRoom) {
+        return;
+    }
+    _soundRoom = room;
+    const int envAudio = area->roomEnvAudio(*room);
+    if (envAudio == _envAudio) {
+        return;
+    }
+    _envAudio = envAudio;
+    debug("Room EnvAudio " + std::to_string(envAudio) + " in " + room->name(), LogChannel::Audio);
+    if (auto environment = environmentOfEnvAudio(envAudio)) {
+        _services.audio.context.setEnvironment(*environment);
     }
 }
 
