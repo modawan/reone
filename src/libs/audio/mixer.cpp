@@ -62,6 +62,20 @@ void AudioMixer::render() {
     refreshObstruction(seconds);
     renderObstruction(seconds);
     renderAmbientScale();
+    renderFalloff();
+}
+
+void AudioMixer::renderFalloff() {
+    for (auto &active : _sources) {
+        if (!active.ownFalloff) {
+            continue;
+        }
+        const float falloff = streamedFalloff(active);
+        if (falloff != active.falloff) {
+            active.falloff = falloff;
+            active.source->setGain(sourceGain(active));
+        }
+    }
 }
 
 void AudioMixer::setAmbientGroups(std::set<int> groups) {
@@ -115,7 +129,7 @@ void AudioMixer::renderAmbientScale() {
 void AudioMixer::applyAmbientScale() {
     for (auto &active : _sources) {
         if (isAmbient(active.positional, active.group)) {
-            active.source->setGain(gainByType(active.type, active.gain, active.positional, active.group));
+            active.source->setGain(sourceGain(active));
         }
     }
 }
@@ -490,7 +504,7 @@ void AudioMixer::setDucked(bool ducked, const std::set<int> &groups) {
 void AudioMixer::applyVolume(AudioType type) {
     for (auto &active : _sources) {
         if (active.type == type) {
-            active.source->setGain(gainByType(type, active.gain, active.positional, active.group));
+            active.source->setGain(sourceGain(active));
         }
     }
 }
@@ -534,6 +548,9 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
     ActiveSource active {source, type, group};
     active.gain = gain;
     active.positional = positional;
+    if (positional) {
+        active.distances = distances;
+    }
     active.movieHeld = _soundsHeldForMovie && type != AudioType::Movie;
     active.modePaused = _modeKeptGroups && type != AudioType::Movie && !(group && _modeKeptGroups->count(*group) > 0);
     active.focusPaused = _focusLost;
@@ -561,6 +578,15 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
     }
 
     source->init();
+    // A streamed positional source falls off by its own rule, so OpenAL's
+    // distance attenuation is turned off for it.
+    active.ownFalloff = positional && isStreamed(active) && active.distances &&
+                        active.distances->cutoffDistance > active.distances->fullVolumeDistance;
+    if (active.ownFalloff) {
+        _context.stopDistanceAttenuation(*source);
+        active.falloff = streamedFalloff(active);
+        source->setGain(sourceGain(active));
+    }
     _context.setReverbSend(*source, reverbSend(active));
     if (positional) {
         _context.setAirAbsorption(*source, kAirAbsorptionFactor);
@@ -586,6 +612,31 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
 
 // The volume of a positional sound rises steeply at first.
 static constexpr float kPositionalGainExponent = 0.6f;
+
+float AudioMixer::sourceGain(const ActiveSource &active) const {
+    return gainByType(active.type, active.gain, active.positional, active.group) * active.falloff;
+}
+
+// Right behind the listener a streamed sound plays an eighth quieter.
+static constexpr float kBehindListenerQuietening = 0.125f;
+
+float AudioMixer::streamedFalloff(const ActiveSource &active) const {
+    const SoundDistances &distances = *active.distances;
+    const glm::vec3 toSource {*active.source->position() - _context.listenerPosition()};
+    const float distance = glm::length(toSource);
+    float level = 1.0f;
+    if (distance > distances.fullVolumeDistance) {
+        level *= std::max(0.0f, (distances.cutoffDistance - distance) /
+                                    (distances.cutoffDistance - distances.fullVolumeDistance));
+    }
+    if (distance > 0.0f) {
+        const float facing = glm::dot(toSource / distance, _context.listenerForward());
+        if (facing < 0.0f) {
+            level *= 1.0f + kBehindListenerQuietening * facing;
+        }
+    }
+    return std::pow(level, kPositionalGainExponent);
+}
 
 float AudioMixer::gainByType(AudioType type, float gain, bool positional, std::optional<int> group) const {
     if (_options.muted) {

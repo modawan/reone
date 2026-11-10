@@ -42,6 +42,8 @@ public:
     virtual glm::vec3 listenerPosition() const = 0;
 
     virtual void setListenerPosition(glm::vec3 position) = 0;
+    /** Where the listener faces; zero until it is turned. */
+    virtual glm::vec3 listenerForward() const = 0;
     /** Turns the listener to face \p forward with \p up above it, both unit vectors. */
     virtual void setListenerOrientation(glm::vec3 forward, glm::vec3 up) = 0;
     /** Scales the gain of every sound. */
@@ -58,6 +60,14 @@ public:
      * Does nothing without a reverb, or before the source is inited.
      */
     virtual void setReverbSend(AudioSource &source, float gain) = 0;
+
+    /**
+     * Stops OpenAL quietening \p source with distance, for a source whose
+     * gain carries its own falloff. Its air absorption still follows the
+     * distance wherever sources can each have a distance model; elsewhere
+     * the source is given no rolloff. Does nothing before it is inited.
+     */
+    virtual void stopDistanceAttenuation(AudioSource &source) = 0;
 
     /** Whether setObstruction is heard: the device has the effects extension. */
     virtual bool rendersObstruction() const = 0;
@@ -104,6 +114,7 @@ public:
     glm::vec3 listenerPosition() const override { return _listenerPosition; }
 
     void setListenerPosition(glm::vec3 position) override;
+    glm::vec3 listenerForward() const override { return _listenerForward; }
     void setListenerOrientation(glm::vec3 forward, glm::vec3 up) override;
     void setListenerGain(float gain) override;
 
@@ -111,6 +122,7 @@ public:
 
     void setEnvironment(Environment environment) override;
     void setReverbSend(AudioSource &source, float gain) override;
+    void stopDistanceAttenuation(AudioSource &source) override;
     bool rendersObstruction() const override { return _obstructionFilter != 0; }
     void setObstruction(AudioSource &source, float obstruction) override;
     void setAirAbsorption(AudioSource &source, float factor) override;
@@ -131,6 +143,8 @@ private:
     uint32_t _reverbSendFilter {0};
     /** The filter an obstructed source's direct path goes through. */
     uint32_t _obstructionFilter {0};
+    /** Each source can be given its own distance model. */
+    bool _sourceDistanceModels {false};
 
     glm::vec3 _listenerPosition {0.0f};
     glm::vec3 _listenerForward {0.0f};
