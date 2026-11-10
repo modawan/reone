@@ -58,7 +58,9 @@ static constexpr float kMinOrientationLength2 = 1.0e-4f;
 void AreaOfEffect::deserialize(
     const Gff &gff,
     const SerializedIdentityContext &identityContext) {
-    _restored = true;
+    // An area of effect a module's GIT places is new; one read from a save
+    // has played its impact already.
+    _restored = identityContext.isSerializedState();
     deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
