@@ -1362,6 +1362,13 @@ public:
     /** Plays a script animation: a loop at once, a one-shot through the queue. */
     void playScriptAnimation(const ScriptAnimation &animation, float speed);
     int currentAnimationId() const { return _animationSource.id; }
+    /**
+     * The looping animation a script has the creature hold, as its animation
+     * ID; none while it shows its pause, moves, or talks.
+     */
+    std::optional<int> heldScriptLoop() const;
+    /** Takes up again the loop the creature was saved holding. */
+    void resumeSavedScriptLoop();
     bool isPlayingDialogAnimation() const { return _animationSource.dialog; }
 
     void playAnimation(AnimationType type, scene::AnimationProperties properties = scene::AnimationProperties()) override;
@@ -3012,6 +3019,7 @@ private:
     std::optional<StoredLoop> _storedLoop;
     std::optional<OverlayLoop> _overlayLoop;
     AnimationSource _animationSource;        /**< the clip shown */
+    std::optional<int> _savedScriptLoop;     /**< the loop a load takes up again */
     std::optional<SwingAttack> _swingAttack; /**< the attack of the last swing started */
     bool _weaponDrawPending {false};         /**< a draw waiting for play to resume */
     /**

@@ -4489,6 +4489,7 @@ void Game::publishSavedRuntimeState() {
         if (!actor) {
             continue;
         }
+        actor->resumeSavedScriptLoop();
         for (const auto &action : actor->actions()) {
             const auto &saved = action->originalSavedAction();
             if (saved && saved->round) {

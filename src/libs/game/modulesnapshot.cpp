@@ -1344,10 +1344,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
             return kDeadAnimation;
         }
     };
+    const auto heldLoop = creature.heldScriptLoop();
     put(record, Gff::Field::newInt("Animation",
                                    creature.liesDead()            ? deadAnimation()
                                    : creature._damageFlinchHeld   ? kDamageFlinchAnimation
                                    : creature._combatState.active ? kReadyAnimation
+                                   : heldLoop                     ? *heldLoop
                                                                   : kPauseAnimation));
     put(record, Gff::Field::newByte(
                     "CreatnScrptFird", creature._spawnScriptFired));
