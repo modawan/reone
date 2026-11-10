@@ -218,7 +218,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 else()
     target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 endif()
-target_link_libraries(tests PRIVATE tools json GTest::gmock_main)
+target_link_libraries(tests PRIVATE tools json GTest::gmock_main OpenAL::OpenAL)
 
 if(MSVC)
     target_compile_options(tests PRIVATE /bigobj)
