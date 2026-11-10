@@ -5,7 +5,19 @@ runs:
       - name: Install dependencies
         shell: bash
         run: |-
-            brew install cmake boost sdl3 openal-soft wxwidgets mad pkg-config ffmpeg googletest
+            brew install cmake ninja ccache boost sdl3 openal-soft wxwidgets mad pkg-config ffmpeg googletest
+
+      - name: Configure ccache
+        shell: bash
+        run: echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> $GITHUB_ENV
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: macos
+          max-size: 1G
+          evict-old-files: job
+          save: ${{github.event_name == 'push' && github.ref == 'refs/heads/master'}}
 
       - name: Create Build Environment
         shell: bash
@@ -15,7 +27,9 @@ runs:
       - name: Configure CMake
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Release
+        run: |-
+            cmake $GITHUB_WORKSPACE -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         shell: bash
