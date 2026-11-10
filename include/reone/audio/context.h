@@ -35,10 +35,27 @@ public:
     virtual void setListenerGain(float gain) = 0;
 };
 
+/** The fullest reverb the device renders, which decides how much of an environment is heard. */
+enum class ReverbTier {
+    /** No effects extension or no auxiliary send: every sound is dry. */
+    None,
+    /** EFX's standard reverb, which carries EAX 2's properties. */
+    Reverb,
+    /** EFX's EAX reverb, which carries EAX 3's properties. */
+    EaxReverb
+};
+
 class Context : public IContext, boost::noncopyable {
 public:
     ~Context() { deinit(); }
 
+    /**
+     * Opens the default device and makes its context current, then sets up
+     * the reverb slot at the fullest tier the device takes.
+     *
+     * Throws std::runtime_error when the device or context cannot be opened.
+     * A device without effects is not an error: its tier is ReverbTier::None.
+     */
     void init();
     void deinit();
 
@@ -48,6 +65,8 @@ public:
     void setListenerOrientation(glm::vec3 forward, glm::vec3 up) override;
     void setListenerGain(float gain) override;
 
+    ReverbTier reverbTier() const { return _reverbTier; }
+
 private:
     /**
      * OpenAL's device and context. They are held opaque so that this header
@@ -56,9 +75,17 @@ private:
     void *_device {nullptr};
     void *_context {nullptr};
 
+    ReverbTier _reverbTier {ReverbTier::None};
+    /** The reverb effect and the slot that renders it; 0 at ReverbTier::None. */
+    uint32_t _reverbEffect {0};
+    uint32_t _reverbSlot {0};
+
     glm::vec3 _listenerPosition {0.0f};
     glm::vec3 _listenerForward {0.0f};
     glm::vec3 _listenerUp {0.0f};
+
+    void initReverb();
+    void deinitReverb();
 };
 
 } // namespace audio

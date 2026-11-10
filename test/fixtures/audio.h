@@ -56,10 +56,12 @@ public:
 };
 
 /**
- * Has OpenAL Soft open its null backend, which renders nothing, so a real
- * context needs no sound hardware. Call it before the first context opens.
+ * Opens \p context for a test that needs a real one. OpenAL Soft opens its
+ * null backend, which renders nothing, so no sound hardware is needed; any
+ * other OpenAL opens its default device. Returns false when no device opens,
+ * and the test should then skip.
  */
-void useNullAudioBackend();
+bool openTestContext(Context &context);
 
 class MockAudioMixer : public IAudioMixer, boost::noncopyable {
 public:
