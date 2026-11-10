@@ -85,6 +85,9 @@ public:
     MOCK_METHOD(void, setRoomReverb, (bool), (override));
     MOCK_METHOD(void, setObstructionTest, (ObstructionTest), (override));
     MOCK_METHOD(void, invalidateObstruction, (), (override));
+    MOCK_METHOD(void, setAmbientGroups, (std::set<int>), (override));
+    MOCK_METHOD(void, setAmbientScale, (float), (override));
+    MOCK_METHOD(void, jumpAmbientScale, (float), (override));
     MOCK_METHOD(PriorityGroup, priorityGroup, (int), (const, override));
     MOCK_METHOD(void, setFocusLost, (bool), (override));
     MOCK_METHOD(void, setMuted, (bool), (override));

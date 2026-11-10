@@ -8,6 +8,8 @@
 #include "reone/audio/context.h"
 #include "reone/audio/mixer.h"
 
+#include "al.h"
+
 using namespace reone;
 using namespace reone::audio;
 
@@ -255,4 +257,45 @@ TEST_F(ReverbSendTest, an_invalidation_spreads_its_tests_over_the_renders_that_f
         render();
     }
     EXPECT_EQ(tests, 20);
+}
+
+TEST(AudioMixer, ambient_scale_eases_the_ambient_groups_2d_and_streamed_sources_over_a_second) {
+    Context openAL;
+    if (!openTestContext(openAL)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
+    AudioOptions options;
+    NiceMock<MockContext> context;
+    auto now = std::chrono::steady_clock::time_point();
+    AudioMixer mixer(options, context, [&now]() { return now; });
+    // Groups 4 and 21 are ambient here, and group 4 streams.
+    mixer.setAmbientGroups({4, 21});
+    mixer.setStreamedGroups({4});
+    auto ambient = mixer.play(silentClip(), AudioType::Sound, 4, 1.0f, true);
+    auto positionalStream = mixer.play(silentClip(), AudioType::Sound, 4, 1.0f, true, glm::vec3(1.0f, 0.0f, 0.0f));
+    auto positionalShot = mixer.play(silentClip(), AudioType::Sound, 21, 1.0f, true, glm::vec3(1.0f, 0.0f, 0.0f));
+    auto gainOf = [](const AudioSource &source) {
+        float gain = 0.0f;
+        alGetSourcef(source.alSource(), AL_GAIN, &gain);
+        return gain;
+    };
+    const float full = gainOf(*ambient);
+    const float shotFull = gainOf(*positionalShot);
+    ASSERT_GT(full, 0.0f);
+    ASSERT_GT(gainOf(*positionalStream), 0.0f);
+
+    mixer.setAmbientScale(0.0f);
+    now += std::chrono::milliseconds(500);
+    mixer.render();
+    EXPECT_NEAR(gainOf(*ambient), 0.5f * full, 1e-4f);
+
+    now += std::chrono::milliseconds(600);
+    mixer.render();
+    EXPECT_NEAR(gainOf(*ambient), 0.0f, 1e-4f);
+    EXPECT_NEAR(gainOf(*positionalStream), 0.0f, 1e-4f);
+    // A positional sound that is not streamed is never scaled.
+    EXPECT_FLOAT_EQ(gainOf(*positionalShot), shotFull);
+
+    mixer.jumpAmbientScale(1.0f);
+    EXPECT_FLOAT_EQ(gainOf(*ambient), full);
 }
