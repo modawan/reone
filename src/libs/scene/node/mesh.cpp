@@ -63,16 +63,13 @@ void MeshSceneNode::initTextures() {
         return;
     }
     if (!mesh->diffuseMap.empty()) {
-        auto diffuseMap = _resourceSvc.textures.get(mesh->diffuseMap, TextureUsage::MainTex);
-        _nodeTextures.diffuse = diffuseMap.get();
+        _nodeTextures.diffuse = _resourceSvc.textures.get(mesh->diffuseMap, TextureUsage::MainTex);
     }
     if (!mesh->lightmap.empty()) {
-        auto lightmap = _resourceSvc.textures.get(mesh->lightmap, TextureUsage::Lightmap);
-        _nodeTextures.lightmap = lightmap.get();
+        _nodeTextures.lightmap = _resourceSvc.textures.get(mesh->lightmap, TextureUsage::Lightmap);
     }
     if (!mesh->bumpmap.empty()) {
-        auto bumpmap = _resourceSvc.textures.get(mesh->bumpmap, TextureUsage::BumpMap);
-        _nodeTextures.bumpmap = bumpmap.get();
+        _nodeTextures.bumpmap = _resourceSvc.textures.get(mesh->bumpmap, TextureUsage::BumpMap);
     }
     refreshAdditionalTextures();
 }
@@ -84,12 +81,12 @@ void MeshSceneNode::refreshAdditionalTextures() {
     }
     const Texture::Features &features = _nodeTextures.diffuse->features();
     if (!features.envmapTexture.empty()) {
-        _nodeTextures.envmap = _resourceSvc.textures.get(features.envmapTexture, TextureUsage::EnvironmentMap).get();
+        _nodeTextures.envmap = _resourceSvc.textures.get(features.envmapTexture, TextureUsage::EnvironmentMap);
     } else if (!features.bumpyShinyTexture.empty()) {
-        _nodeTextures.envmap = _resourceSvc.textures.get(features.bumpyShinyTexture, TextureUsage::EnvironmentMap).get();
+        _nodeTextures.envmap = _resourceSvc.textures.get(features.bumpyShinyTexture, TextureUsage::EnvironmentMap);
     }
     if (!features.bumpmapTexture.empty()) {
-        _nodeTextures.bumpmap = _resourceSvc.textures.get(features.bumpmapTexture, TextureUsage::BumpMap).get();
+        _nodeTextures.bumpmap = _resourceSvc.textures.get(features.bumpmapTexture, TextureUsage::BumpMap);
     }
 }
 
@@ -583,13 +580,13 @@ bool MeshSceneNode::isLightingEnabled() const {
     return true;
 }
 
-void MeshSceneNode::setMainTexture(Texture *texture) {
+void MeshSceneNode::setMainTexture(std::shared_ptr<Texture> texture) {
     ModelNodeSceneNode::setMainTexture(texture);
-    _nodeTextures.diffuse = texture;
+    _nodeTextures.diffuse = std::move(texture);
     refreshAdditionalTextures();
 }
 
-void MeshSceneNode::setEnvironmentMap(Texture *texture) {
+void MeshSceneNode::setEnvironmentMap(std::shared_ptr<Texture> texture) {
     ModelNodeSceneNode::setEnvironmentMap(texture);
     _nodeTextures.envmap = std::move(texture);
 }

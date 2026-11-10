@@ -188,7 +188,7 @@ TEST_P(WorldTimeFixture, forced_move_timeout_expires_after_the_scripted_real_dur
 
     // In an area with open ground at the destination, the mover that runs out
     // of time is put down on it.
-    static graphics::Walkmesh groundWalkmesh;
+    static std::shared_ptr<graphics::Walkmesh> groundWalkmesh {std::make_shared<graphics::Walkmesh>()};
     auto ground = std::make_shared<scene::WalkmeshSceneNode>(
         groundWalkmesh, *sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
     ON_CALL(*sceneGraph, findRoomWalkmesh(_))

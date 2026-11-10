@@ -64,7 +64,7 @@ std::shared_ptr<ModelSceneNode> SwoopRace::loadModel(const std::string &resRef) 
         return nullptr;
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
+    auto node = sceneGraph.newModel(model, ModelUsage::Placeable);
     // Minigame actors are placed by transform far from any room; the culling
     // that assumes objects stay near their rooms does not apply to them.
     node->setCullingEnabled(false);

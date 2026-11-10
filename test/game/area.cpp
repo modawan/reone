@@ -66,8 +66,8 @@ struct WallsFixture {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     Room room {"room", glm::vec3(0.0f), nullptr, nullptr, nullptr};
-    graphics::Walkmesh roomWalkmesh;
-    graphics::Walkmesh doorWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
+    std::shared_ptr<graphics::Walkmesh> doorWalkmesh {std::make_shared<graphics::Walkmesh>()};
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     std::shared_ptr<scene::WalkmeshSceneNode> doorNode;
     StubConsole console;
@@ -84,8 +84,8 @@ struct WallsFixture {
         ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
         ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
 
-        addWall(roomWalkmesh, roomWallAt);
-        addWall(doorWalkmesh, doorWallAt);
+        addWall(*roomWalkmesh, roomWallAt);
+        addWall(*doorWalkmesh, doorWallAt);
         roomNode = std::make_shared<scene::WalkmeshSceneNode>(
             roomWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
         roomNode->setUser(room);

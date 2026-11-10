@@ -37,7 +37,7 @@ class ITextureRegistry {
 public:
     virtual ~ITextureRegistry() = default;
 
-    virtual Texture &get(const std::string &name) = 0;
+    virtual std::shared_ptr<Texture> get(const std::string &name) = 0;
 };
 
 class TextureRegistry : public ITextureRegistry, boost::noncopyable {
@@ -53,12 +53,12 @@ public:
         _nameToTexture[name] = std::move(texture);
     }
 
-    Texture &get(const std::string &name) override {
+    std::shared_ptr<Texture> get(const std::string &name) override {
         auto texture = _nameToTexture.find(name);
         if (texture == _nameToTexture.end()) {
             throw std::runtime_error("Texture not found by name: " + name);
         }
-        return *texture->second;
+        return texture->second;
     }
 
 private:

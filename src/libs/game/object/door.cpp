@@ -263,7 +263,7 @@ void Door::loadAppearance() {
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
 
-    auto modelSceneNode = sceneGraph.newModel(*model, ModelUsage::Door);
+    auto modelSceneNode = sceneGraph.newModel(model, ModelUsage::Door);
     modelSceneNode->setUser(*this);
     modelSceneNode->setAnimationEventListener(*this);
     // Under Force Sight a door is drawn see-through.
@@ -272,20 +272,20 @@ void Door::loadAppearance() {
     _sceneNode = std::move(modelSceneNode);
 
     if (walkmeshClosed) {
-        _walkmeshClosed = sceneGraph.newWalkmesh(*walkmeshClosed);
+        _walkmeshClosed = sceneGraph.newWalkmesh(walkmeshClosed);
         _walkmeshClosed->setUser(*this);
     }
 
     auto walkmeshOpen1 = _services.resource.walkmeshes.get(modelName + "1", ResType::Dwk);
     if (walkmeshOpen1) {
-        _walkmeshOpen1 = sceneGraph.newWalkmesh(*walkmeshOpen1);
+        _walkmeshOpen1 = sceneGraph.newWalkmesh(walkmeshOpen1);
         _walkmeshOpen1->setUser(*this);
         _walkmeshOpen1->setEnabled(false);
     }
 
     auto walkmeshOpen2 = _services.resource.walkmeshes.get(modelName + "2", ResType::Dwk);
     if (walkmeshOpen2) {
-        _walkmeshOpen2 = sceneGraph.newWalkmesh(*walkmeshOpen2);
+        _walkmeshOpen2 = sceneGraph.newWalkmesh(walkmeshOpen2);
         _walkmeshOpen2->setUser(*this);
         _walkmeshOpen2->setEnabled(false);
     }

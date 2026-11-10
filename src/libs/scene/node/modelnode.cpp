@@ -23,7 +23,7 @@ namespace reone {
 
 namespace scene {
 
-void ModelNodeSceneNode::setMainTexture(Texture *texture) {
+void ModelNodeSceneNode::setMainTexture(std::shared_ptr<Texture> texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setMainTexture(texture);
@@ -31,7 +31,7 @@ void ModelNodeSceneNode::setMainTexture(Texture *texture) {
     }
 }
 
-void ModelNodeSceneNode::setEnvironmentMap(Texture *texture) {
+void ModelNodeSceneNode::setEnvironmentMap(std::shared_ptr<Texture> texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setEnvironmentMap(texture);

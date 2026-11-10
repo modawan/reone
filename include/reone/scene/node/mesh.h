@@ -78,8 +78,8 @@ public:
     ModelSceneNode &model() { return _model; }
     const ModelSceneNode &model() const { return _model; }
 
-    void setMainTexture(graphics::Texture *texture) override;
-    void setEnvironmentMap(graphics::Texture *texture) override;
+    void setMainTexture(std::shared_ptr<graphics::Texture> texture) override;
+    void setEnvironmentMap(std::shared_ptr<graphics::Texture> texture) override;
     void setAlpha(float alpha) { _alpha = alpha; }
     void setSelfIllumColor(glm::vec3 color) { _selfIllumColor = std::move(color); }
     /**
@@ -105,10 +105,10 @@ private:
     };
 
     struct NodeTextures {
-        graphics::Texture *diffuse {nullptr};
-        graphics::Texture *lightmap {nullptr};
-        graphics::Texture *envmap {nullptr};
-        graphics::Texture *bumpmap {nullptr};
+        std::shared_ptr<graphics::Texture> diffuse;
+        std::shared_ptr<graphics::Texture> lightmap;
+        std::shared_ptr<graphics::Texture> envmap;
+        std::shared_ptr<graphics::Texture> bumpmap;
     } _nodeTextures;
 
     struct DanglyVertex {

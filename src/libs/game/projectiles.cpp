@@ -425,7 +425,7 @@ void Projectiles::attachPresentation(ActiveProjectile &active, Game &game, Servi
     if (!resource) {
         return;
     }
-    active.model = body->graph().newModel(*resource, scene::ModelUsage::Projectile);
+    active.model = body->graph().newModel(resource, scene::ModelUsage::Projectile);
     active.model->setLocalTransform(glm::translate(state.position) * glm::mat4_cast(state.orientation));
     if (state.kind == ProjectileKind::LightsaberRoute) {
         active.model->playAnimation("throwout");
@@ -848,7 +848,7 @@ void Projectiles::launchSafeProjectile(Creature &source, Object &target, const I
     attachPresentation(*p, game, services, false);
     if (auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(source.sceneNode())) {
         if (ammunition->muzzleFlash) {
-            p->flash = body->graph().newModel(*ammunition->muzzleFlash, scene::ModelUsage::Projectile);
+            p->flash = body->graph().newModel(ammunition->muzzleFlash, scene::ModelUsage::Projectile);
             p->flash->setLocalTransform(glm::translate(s.position));
             p->flash->signalEvent(kModelEventDetonate);
             body->graph().addRoot(p->flash);

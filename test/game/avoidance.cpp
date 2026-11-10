@@ -77,7 +77,7 @@ struct CorridorFixture {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     Room room {"corridor", glm::vec3(0.0f), nullptr, nullptr, nullptr};
-    graphics::Walkmesh roomWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     StubConsole console;
     std::unique_ptr<Game> game;

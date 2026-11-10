@@ -219,7 +219,7 @@ private:
     TestEngine _engine;
     NiceMock<scene::MockSceneGraph> _sceneGraph;
     Room _room;
-    graphics::Walkmesh _roomWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> _roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
     std::shared_ptr<scene::WalkmeshSceneNode> _roomNode;
     StubConsole _console;
     std::unique_ptr<Game> _game;

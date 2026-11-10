@@ -210,7 +210,7 @@ std::shared_ptr<ModelSceneNode> ClassSelection::getCharacterModel(int appearance
     character->loadAppearance();
     character->updateModelAnimation();
 
-    auto model = sceneGraph.newModel(*_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
+    auto model = sceneGraph.newModel(_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
     model->attach("cgbody_light", *character->sceneNode());
 
     return model;

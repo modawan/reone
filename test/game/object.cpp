@@ -618,7 +618,7 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                     engine.services().resource);
             }));
         ON_CALL(graph, newModel(_, _))
-            .WillByDefault(Invoke([&engine](graphics::Model &model, scene::ModelUsage usage) {
+            .WillByDefault(Invoke([&engine](std::shared_ptr<graphics::Model> model, scene::ModelUsage usage) {
                 auto node = std::make_shared<scene::ModelSceneNode>(
                     model,
                     usage,
@@ -631,7 +631,7 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                 return node;
             }));
         ON_CALL(graph, newWalkmesh(_))
-            .WillByDefault(Invoke([&engine](graphics::Walkmesh &walkmesh) {
+            .WillByDefault(Invoke([&engine](std::shared_ptr<graphics::Walkmesh> walkmesh) {
                 // init() is skipped on purpose: it uploads a debug-render mesh,
                 // which needs the render thread. Collision only consults the
                 // node's enabled flag and transform.
@@ -671,7 +671,7 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                 return true;
             }));
         // The ground is one room's walkable surface, material 0, at height 0.
-        static graphics::Walkmesh roomWalkmesh;
+        static std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
         static auto room = std::make_shared<scene::WalkmeshSceneNode>(
             roomWalkmesh,
             graph,
@@ -1260,11 +1260,11 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
         1, "rhand", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, bodyRoot.get()));
     bodyRoot->addChild(std::make_shared<graphics::ModelNode>(
         2, "lhand", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, bodyRoot.get()));
-    graphics::Model body(
+    auto body = std::make_shared<graphics::Model>(
         "body",
         graphics::MdlClassification::character,
         bodyRoot,
-        {makeAnimation("pause1", {{0.5f, "draw_weapon"}})},
+        std::vector<std::shared_ptr<graphics::Animation>> {makeAnimation("pause1", {{0.5f, "draw_weapon"}})},
         "",
         1.0f);
 
@@ -1285,8 +1285,8 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
         engine.services().audio,
         engine.services().resource);
     auto bodyNode = graph.newModel(body, scene::ModelUsage::Creature);
-    auto rightSaberNode = graph.newModel(*rightSaber, scene::ModelUsage::Equipment);
-    auto leftSaberNode = graph.newModel(*leftSaber, scene::ModelUsage::Equipment);
+    auto rightSaberNode = graph.newModel(rightSaber, scene::ModelUsage::Equipment);
+    auto leftSaberNode = graph.newModel(leftSaber, scene::ModelUsage::Equipment);
     bodyNode->attach("rhand", *rightSaberNode);
     bodyNode->attach("lhand", *leftSaberNode);
     ASSERT_EQ(bodyNode->getAttachment("rhand"), rightSaberNode.get());
@@ -1403,7 +1403,7 @@ TEST(Creature, should_return_a_finished_external_animation_to_the_pause) {
     auto first = makeAnimation("first");
     auto second = makeAnimation("second");
     std::vector<std::shared_ptr<graphics::Animation>> animations {idle, first, second};
-    graphics::Model model("creature", 0, modelRoot, std::move(animations), "", 1.0f);
+    auto model = std::make_shared<graphics::Model>("creature", 0, modelRoot, std::move(animations), "", 1.0f);
     graphics::GraphicsOptions graphicsOptions;
     scene::SceneGraph graph(
         "test",
@@ -1484,7 +1484,7 @@ TEST(Creature, should_publish_external_animation_before_pending_state_refresh) {
         nullptr);
     auto idle = makeAnimation("cpause1");
     auto cut = makeAnimation("cut003w");
-    graphics::Model model(
+    auto model = std::make_shared<graphics::Model>(
         "creature", 0, modelRoot,
         std::vector<std::shared_ptr<graphics::Animation>> {idle}, "", 1.0f);
     graphics::GraphicsOptions graphicsOptions;
@@ -1558,7 +1558,7 @@ TEST(DialogGUI, should_place_a_stunt_clip_by_its_id_and_put_the_participant_back
         engine.services().graphics,
         engine.services().audio,
         engine.services().resource);
-    auto modelNode = graph.newModel(*stuntModel, scene::ModelUsage::Creature);
+    auto modelNode = graph.newModel(stuntModel, scene::ModelUsage::Creature);
     auto player = game.newObject<TestCreature>(
         "player", game, engine.services());
     player->setSceneNode(modelNode);
@@ -1701,7 +1701,7 @@ struct DialogAnimScene {
         (void)id;
         auto creature = game.newObject<TestCreature>(
             std::move(tag), game, engine.services());
-        creature->setSceneNode(graph.newModel(*model, scene::ModelUsage::Creature));
+        creature->setSceneNode(graph.newModel(model, scene::ModelUsage::Creature));
         return creature;
     }
 };
@@ -5414,7 +5414,7 @@ void setUpOverlay(OverlayFixture &fixture, TestEngine &engine) {
         engine.services().graphics,
         engine.services().audio,
         engine.services().resource);
-    fixture.node = fixture.graph->newModel(*fixture.model, scene::ModelUsage::Creature);
+    fixture.node = fixture.graph->newModel(fixture.model, scene::ModelUsage::Creature);
 }
 
 // A creature whose appearance row makes it a body model, i.e. the humanoid

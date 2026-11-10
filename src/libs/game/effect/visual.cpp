@@ -476,7 +476,7 @@ bool VisualEffect::startProgram(int program, Object &object, const EffectInstanc
         _beam = true;
         _beamSourceOwner = ends.sourceModel;
         _beamTargetOwner = ends.targetModel;
-        _node = body->graph().newModel(*model, scene::ModelUsage::Projectile);
+        _node = body->graph().newModel(model, scene::ModelUsage::Projectile);
         _node->setCullingEnabled(false);
         _node->setLocalTransform(ends.sourceNode->absoluteTransform());
         _node->playAnimation("cast01");
@@ -512,7 +512,7 @@ bool VisualEffect::startProgram(int program, Object &object, const EffectInstanc
     if (program == kBreathProgram) {
         _releaseArea = object.game().module()->area();
     }
-    _attached = body->graph().newModel(*model, scene::ModelUsage::Projectile);
+    _attached = body->graph().newModel(model, scene::ModelUsage::Projectile);
     _hookNode->addChild(*_attached);
     if (program == kResistProgram) {
         // The resist visual faces its source.
@@ -646,7 +646,7 @@ void VisualEffect::stopProgram(std::optional<std::reference_wrapper<Object>> hol
 // A node model plays its impact animation. Without one, a kept application
 // goes straight to its looping duration animation and any other holds the
 // model for a second.
-void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
+void VisualEffect::startNodeModel(scene::ISceneGraph &graph, std::shared_ptr<graphics::Model> model,
                                   std::optional<std::reference_wrapper<scene::SceneNode>> hook, VisualSite site,
                                   bool orientationOff, std::shared_ptr<scene::ModelSceneNode> owner,
                                   const glm::vec3 &position, bool restoring) {
@@ -662,7 +662,7 @@ void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &mo
         graph.addRoot(nodeModel.model);
         nodeModel.model->setLocalTransform(glm::translate(hook ? hook->get().origin() : position));
     }
-    auto impact = restoring ? nullptr : model.getAnimation("impact");
+    auto impact = restoring ? nullptr : model->getAnimation("impact");
     if (impact) {
         nodeModel.model->playAnimation("impact");
         nodeModel.impactRemaining = impact->length();
@@ -692,7 +692,7 @@ void VisualEffect::attachNodeModels(Object &object, const std::shared_ptr<scene:
         if (!hook) {
             continue;
         }
-        startNodeModel(body->graph(), **model, hook, site, desc.orientationOff, body, glm::vec3 {0.0f}, restoring);
+        startNodeModel(body->graph(), *model, hook, site, desc.orientationOff, body, glm::vec3 {0.0f}, restoring);
     }
 }
 
@@ -892,7 +892,7 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
             _beamEndNode = missPoint.z == object.position().z + 1.0f ? "impact" : "root";
             auto standIn = graph ? _services.resource.models.get(kBeamStandInModel) : nullptr;
             if (standIn) {
-                _beamEnd = graph->newModel(*standIn, scene::ModelUsage::Projectile);
+                _beamEnd = graph->newModel(standIn, scene::ModelUsage::Projectile);
                 graph->addRoot(_beamEnd);
                 _beamEnd->setLocalTransform(glm::translate(missPoint));
             }
@@ -926,7 +926,7 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
         if (!_beam && (!instance.restoring || _kept)) {
             if (_location) {
                 if (desc.locationModel) {
-                    startNodeModel(*graph, *desc.locationModel, std::nullopt, VisualSite::Root, desc.orientationOff,
+                    startNodeModel(*graph, desc.locationModel, std::nullopt, VisualSite::Root, desc.orientationOff,
                                    nullptr, position, instance.restoring);
                 }
             } else if (body) {

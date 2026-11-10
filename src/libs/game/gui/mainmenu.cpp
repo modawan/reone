@@ -171,7 +171,7 @@ void MainMenu::refreshScene() {
     const auto &extent = _controls.LBL_3DVIEW->extent();
     auto model = _services.resource.models.get(state.modelResRef(true));
     if (!model) return;
-    auto environment = sceneGraph.newModel(*model, ModelUsage::GUI);
+    auto environment = sceneGraph.newModel(model, ModelUsage::GUI);
     if (!environment) return;
     SceneInitializer initializer {sceneGraph};
     initializer
@@ -182,7 +182,7 @@ void MainMenu::refreshScene() {
         .prewarmEmitters()
         .modelSupplier([environment](ISceneGraph &) { return environment; });
     if (auto room = _services.resource.models.get("gui3d_room")) {
-        initializer.room(sceneGraph.newModel(*room, ModelUsage::Room));
+        initializer.room(sceneGraph.newModel(room, ModelUsage::Room));
     }
     initializer.invoke();
     // mainmenu03 also has a character-local camerahook. Select the scene's
@@ -233,7 +233,7 @@ std::shared_ptr<ModelSceneNode> MainMenu::getKotorModel(ISceneGraph &sceneGraph)
     if (!model) {
         return nullptr;
     }
-    return sceneGraph.newModel(*model, ModelUsage::GUI);
+    return sceneGraph.newModel(model, ModelUsage::GUI);
 }
 
 void MainMenu::startModuleSelection() {
