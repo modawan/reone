@@ -23,8 +23,12 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <list>
 #include <optional>
+#include <set>
+#include <vector>
 
 namespace reone {
 
@@ -38,6 +42,58 @@ namespace resource {
  * failed operation removable without knowing what it tried to mount.
  */
 using ResourceMountToken = std::uint64_t;
+
+/// What a source reads its resources from.
+enum class ResourceSourceForm {
+    KeyBif,
+    Erf,
+    Rim,
+    Folder,
+    Executable,
+    /// Resources a caller placed in memory one by one.
+    Memory,
+    /// The runtime replacement store, which answers above every source.
+    Replacement,
+};
+
+/**
+ * The source that answered a lookup, and why it was the one to answer.
+ *
+ * The mount sequence identifies a mounted source. A list never reuses one, so
+ * a reference names a single mount of a single source even when the same file
+ * is mounted again later. The rest describes that mount: what it reads from
+ * (the path is empty for an archive mounted from memory), the bucket that
+ * placed it in the lookup order, and the owner whose retirement removes it.
+ *
+ * The replacement revision is the looked-up id's revision in the runtime
+ * replacement store at the time of the lookup, whichever source answered. A
+ * replacement itself has no mount, bucket or path, and nothing but its own
+ * removal retires it, which is why its owner is Global.
+ *
+ * Two lookups of one id that report equal references were answered from the
+ * same mount with the same replacement revision, so they read the same bytes.
+ */
+struct ResourceSourceRef {
+    ResourceSourceForm form {ResourceSourceForm::Replacement};
+    std::filesystem::path path;
+    std::optional<ResourceSourceBucket> bucket;
+    ResourceOwner owner {ResourceOwner::Global};
+    ResourceMountToken sequence {0};
+    std::uint64_t replacementRevision {0};
+
+    bool operator==(const ResourceSourceRef &other) const {
+        return form == other.form &&
+               path == other.path &&
+               bucket == other.bucket &&
+               owner == other.owner &&
+               sequence == other.sequence &&
+               replacementRevision == other.replacementRevision;
+    }
+
+    bool operator!=(const ResourceSourceRef &other) const {
+        return !(*this == other);
+    }
+};
 
 /**
  * How a source list orders what it holds.
@@ -73,11 +129,13 @@ constexpr std::size_t bucketRank(ResourceSourceBucket bucket) {
  * walking the list and taking the first hit.
  *
  * Entry must expose a ResourceOwner owner, an
- * std::optional<ResourceSourceBucket> bucket, and a ResourceMountToken
- * sequence this list assigns. Everything else about an entry, including how
- * the source is actually read, belongs to the backend: what is shared here is
- * which source wins and when a source goes away, which is exactly what the two
- * backends have to agree on.
+ * std::optional<ResourceSourceBucket> bucket, a ResourceSourceForm form, a
+ * std::filesystem::path path, and a ResourceMountToken sequence this list
+ * assigns. Everything else about an entry, including how the source is
+ * actually read, belongs to the backend: what is shared here is which source
+ * wins and when a source goes away, which is exactly what the two backends
+ * have to agree on. Resolving a lookup is therefore done here too, given only
+ * whether each source holds the resource.
  *
  * Owner and bucket answer different questions and are never derived from each
  * other. The bucket says where a source is searched; the owner says what makes
@@ -130,6 +188,7 @@ public:
                     : "Cannot mount an unbucketed source into a bucketed resource source list");
         }
         entry.sequence = _nextSequence++;
+        ++_generation;
         if (current == ResourceSourceOrder::Empty ||
             current == ResourceSourceOrder::Insertion) {
             _entries.push_front(std::move(entry));
@@ -152,13 +211,13 @@ public:
      * it, which is the one way a token could name something it never covered.
      */
     void clear() {
-        _entries.clear();
+        removeIf([](const Entry &) { return true; });
     }
 
     /// Drop every source of one owner, in every bucket. Ownership answers when
     /// a source goes away; it never answers where a source is searched.
     void clearOwner(ResourceOwner owner) {
-        _entries.remove_if([owner](const Entry &entry) {
+        removeIf([owner](const Entry &entry) {
             return entry.owner == owner;
         });
     }
@@ -176,9 +235,55 @@ public:
      * members that must survive.
      */
     void rollbackTo(ResourceMountToken token) {
-        _entries.remove_if([token](const Entry &entry) {
+        removeIf([token](const Entry &entry) {
             return entry.sequence >= token;
         });
+    }
+
+    /**
+     * Changes whenever the set of mounted sources does: a mount, or a clear,
+     * retirement or rollback that removes something. Until it changes, every
+     * lookup is answered by the source that answered it last.
+     */
+    std::uint64_t generation() const { return _generation; }
+
+    /**
+     * The source a lookup resolves to: the first in lookup order that holds the
+     * resource, passing over sources of the excluded owners. holds(entry) says
+     * whether a source has it; how a source knows is the backend's business.
+     */
+    template <class Holds>
+    const Entry *resolve(Holds holds, const std::set<ResourceOwner> &excludedOwners = {}) const {
+        for (const auto &entry : _entries) {
+            if (excludedOwners.count(entry.owner) == 0 && holds(entry)) {
+                return &entry;
+            }
+        }
+        return nullptr;
+    }
+
+    /// Every source that holds the resource, in lookup order. The first is the
+    /// one resolve answers with; the rest are what it shadows.
+    template <class Holds>
+    std::vector<const Entry *> candidates(Holds holds) const {
+        std::vector<const Entry *> found;
+        for (const auto &entry : _entries) {
+            if (holds(entry)) {
+                found.push_back(&entry);
+            }
+        }
+        return found;
+    }
+
+    /// How a lookup answered by this source reports it.
+    static ResourceSourceRef sourceRef(const Entry &entry) {
+        ResourceSourceRef ref;
+        ref.form = entry.form;
+        ref.path = entry.path;
+        ref.bucket = entry.bucket;
+        ref.owner = entry.owner;
+        ref.sequence = entry.sequence;
+        return ref;
     }
 
     iterator begin() { return _entries.begin(); }
@@ -192,6 +297,16 @@ public:
 private:
     Entries _entries;
     ResourceMountToken _nextSequence {0};
+    std::uint64_t _generation {0};
+
+    template <class Predicate>
+    void removeIf(Predicate predicate) {
+        auto before = _entries.size();
+        _entries.remove_if(predicate);
+        if (_entries.size() != before) {
+            ++_generation;
+        }
+    }
 };
 
 } // namespace resource

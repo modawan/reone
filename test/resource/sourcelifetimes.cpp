@@ -433,6 +433,9 @@ public:
         const std::set<ResourceOwner> &excludedOwners) override {
         return _backend->findExcludingOwners(id, excludedOwners);
     }
+    std::optional<ResourceSourceRef> locate(const ResourceId &id) const override { return _backend->locate(id); }
+    std::vector<ResourceSourceRef> explain(const ResourceId &id) const override { return _backend->explain(id); }
+    std::uint64_t generation() const override { return _backend->generation(); }
 
 private:
     void reject(const std::filesystem::path &path) const {

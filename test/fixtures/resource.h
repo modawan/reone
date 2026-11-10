@@ -94,6 +94,9 @@ public:
                 (const ResourceId &id,
                  const std::set<ResourceOwner> &excludedOwners),
                 (override));
+    MOCK_METHOD(std::optional<ResourceSourceRef>, locate, (const ResourceId &id), (const, override));
+    MOCK_METHOD(std::vector<ResourceSourceRef>, explain, (const ResourceId &id), (const, override));
+    MOCK_METHOD(std::uint64_t, generation, (), (const, override));
 };
 
 class MockResourceReplacements : public IResourceReplacements, boost::noncopyable {
@@ -106,6 +109,7 @@ public:
     MOCK_METHOD(void, clearResourceReplacements, (), (override));
     MOCK_METHOD(std::optional<Resource>, findResourceReplacement, (const ResourceId &id), (const override));
     MOCK_METHOD(uint64_t, revision, (const ResourceId &id), (const override));
+    MOCK_METHOD(uint64_t, generation, (), (const override));
 };
 
 class MockStrings : public IStrings, boost::noncopyable {

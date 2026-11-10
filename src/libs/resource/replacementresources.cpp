@@ -76,17 +76,52 @@ Resource ReplacementResources::get(const ResourceId &id) {
 }
 
 std::optional<Resource> ReplacementResources::find(const ResourceId &id) {
-    auto replacement = _replacements.findResourceReplacement(id);
-    return replacement ? replacement : _backend->find(id);
+    return findExcludingOwners(id, {});
 }
 
 std::optional<Resource> ReplacementResources::findExcludingOwners(
     const ResourceId &id,
     const std::set<ResourceOwner> &excludedOwners) {
     auto replacement = _replacements.findResourceReplacement(id);
-    return replacement
-               ? replacement
-               : _backend->findExcludingOwners(id, excludedOwners);
+    if (replacement) {
+        return replacement;
+    }
+    auto resource = _backend->findExcludingOwners(id, excludedOwners);
+    if (resource) {
+        resource->source.replacementRevision = _replacements.revision(id);
+    }
+    return resource;
+}
+
+std::optional<ResourceSourceRef> ReplacementResources::locate(const ResourceId &id) const {
+    auto replacement = _replacements.findResourceReplacement(id);
+    if (replacement) {
+        return replacement->source;
+    }
+    auto source = _backend->locate(id);
+    if (source) {
+        source->replacementRevision = _replacements.revision(id);
+    }
+    return source;
+}
+
+std::vector<ResourceSourceRef> ReplacementResources::explain(const ResourceId &id) const {
+    std::vector<ResourceSourceRef> sources;
+    auto replacement = _replacements.findResourceReplacement(id);
+    if (replacement) {
+        sources.push_back(replacement->source);
+    }
+    auto revision = _replacements.revision(id);
+    for (auto &source : _backend->explain(id)) {
+        source.replacementRevision = revision;
+        sources.push_back(std::move(source));
+    }
+    return sources;
+}
+
+std::uint64_t ReplacementResources::generation() const {
+    // Both counters only ever grow, so their sum changes whenever either does.
+    return _backend->generation() + _replacements.generation();
 }
 
 } // namespace resource
