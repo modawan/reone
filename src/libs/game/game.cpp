@@ -318,6 +318,8 @@ static const char *screenName(Game::Screen screen) {
         return "None";
     case Game::Screen::MainMenu:
         return "MainMenu";
+    case Game::Screen::Options:
+        return "Options";
     case Game::Screen::Loading:
         return "Loading";
     case Game::Screen::CharacterGeneration:
@@ -3671,6 +3673,7 @@ bool Game::hasModalPanel() const {
     case Screen::PazaakBoard:
     case Screen::Death:
     case Screen::MainMenu:
+    case Screen::Options:
         return true;
     default:
         return false;
@@ -6571,6 +6574,19 @@ void Game::openMainMenu() {
     changeScreen(Screen::MainMenu);
 }
 
+void Game::openMainMenuOptions() {
+    if (!_mainMenuOptions) {
+        _mainMenuOptions = std::make_unique<OptionsMenu>(*this, _services, false);
+        _mainMenuOptions->init();
+    }
+    changeScreen(Screen::Options);
+}
+
+// The main menu's music plays on under its options.
+void Game::closeMainMenuOptions() {
+    changeScreen(Screen::MainMenu);
+}
+
 static constexpr int kPauseTutorial = 6;
 
 void Game::pressPauseKey() {
@@ -6832,6 +6848,14 @@ void Game::saveKeybindOptions() const {
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
         _options.game.keybinds[i].save(_options.game.configurationPath, i);
     }
+}
+
+void Game::saveSoundOptions() const {
+    reone::game::saveSoundOptions(_options.game.configurationPath, _options.audio);
+}
+
+void Game::saveGraphicsOptions() const {
+    reone::game::saveGraphicsOptions(_options.game.configurationPath, _options.graphics);
 }
 
 // Tutorial windows
@@ -9700,6 +9724,8 @@ GameGUI *Game::guiForScreen(Screen screen) const {
         return isTSL() ? static_cast<GameGUI *>(_deathDisplay.get()) : static_cast<GameGUI *>(_deathMessage.get());
     case Screen::MainMenu:
         return _mainMenu.get();
+    case Screen::Options:
+        return _mainMenuOptions.get();
     case Screen::Loading:
         return _loadScreen.get();
     case Screen::CharacterGeneration:

@@ -121,7 +121,7 @@ void InGameMenu::loadMap() {
 }
 
 void InGameMenu::loadOptions() {
-    _options = std::make_shared<OptionsMenu>(_game, _services);
+    _options = std::make_shared<OptionsMenu>(_game, _services, true);
     _options->init();
     _host->registerScreen(InGameMenuTab::Options, _options);
 }

@@ -65,7 +65,7 @@ void addWall(graphics::Walkmesh &walkmesh, float x) {
 struct WallsFixture {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
-    Room room {"room", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    Room room {"room", glm::vec3(0.0f), nullptr, nullptr};
     graphics::Walkmesh roomWalkmesh;
     graphics::Walkmesh doorWalkmesh;
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;

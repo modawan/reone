@@ -39,13 +39,11 @@ public:
         std::string name,
         glm::vec3 position,
         std::shared_ptr<scene::ModelSceneNode> model,
-        std::shared_ptr<scene::WalkmeshSceneNode> walkmesh,
-        std::shared_ptr<scene::GrassSceneNode> grass) :
+        std::shared_ptr<scene::WalkmeshSceneNode> walkmesh) :
         _name(std::move(name)),
         _position(std::move(position)),
         _model(std::move(model)),
-        _walkmesh(std::move(walkmesh)),
-        _grass(std::move(grass)) {
+        _walkmesh(std::move(walkmesh)) {
         computeBox();
     }
 
@@ -73,6 +71,8 @@ public:
     std::shared_ptr<scene::ModelSceneNode> model() const { return _model; }
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh() const { return _walkmesh; }
     std::shared_ptr<scene::GrassSceneNode> grass() const { return _grass; }
+    /** Give the room its grass, shown while the room is. */
+    void setGrass(std::shared_ptr<scene::GrassSceneNode> grass);
 
     // END Scene Nodes
 

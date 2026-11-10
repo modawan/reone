@@ -87,6 +87,7 @@ public:
 
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
+    MOCK_METHOD(std::shared_ptr<IGUI>, load, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(void, updatePulsingAlpha, (float), (override));
 };
 

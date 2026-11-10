@@ -207,6 +207,13 @@ bool Control::handleClick(int x, int y, int clicks) {
     return true;
 }
 
+bool Control::handleMouseDown(int x, int y) {
+    return false;
+}
+
+void Control::handleMouseDrag(int x, int y) {
+}
+
 void Control::update(float dt) {
     if (!_visible) {
         return;

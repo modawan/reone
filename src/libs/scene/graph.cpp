@@ -164,8 +164,12 @@ void SceneGraph::update(float dt) {
         for (auto &root : _modelRoots) {
             root->update(dt);
         }
-        for (auto &root : _grassRoots) {
-            root->update(dt);
+        // Grass is kept round the camera only while the option shows it; it
+        // grows back where the camera is once the option is turned on again.
+        if (_graphicsOpt.grass) {
+            for (auto &root : _grassRoots) {
+                root->update(dt);
+            }
         }
         for (auto &root : _soundRoots) {
             root->update(dt);
@@ -388,9 +392,10 @@ void SceneGraph::prepareOpaqueLeafs() {
     std::vector<SceneNode *> bucket;
     auto camera = _activeCamera->camera();
 
-    // Group grass clusters into buckets without sorting
+    // Group grass clusters into buckets without sorting. The grass option
+    // decides each frame whether grass is drawn.
     for (auto &grass : _grassRoots) {
-        if (!grass->isEnabled()) {
+        if (!_graphicsOpt.grass || !grass->isEnabled()) {
             continue;
         }
         for (auto &child : grass->children()) {

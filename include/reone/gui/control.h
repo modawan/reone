@@ -292,6 +292,14 @@ public:
     virtual bool handleMouseMotion(int x, int y);
     virtual bool handleMouseWheel(int x, int y);
     virtual bool handleClick(int x, int y, int clicks = 1);
+    /**
+     * The left button went down over the control. True when the control takes
+     * the pointer: it then receives every movement through handleMouseDrag,
+     * wherever the pointer goes, and the release is not a click.
+     */
+    virtual bool handleMouseDown(int x, int y);
+    /** The pointer moved while the control holds the press it took. */
+    virtual void handleMouseDrag(int x, int y);
 
     // END User input
 

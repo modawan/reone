@@ -92,6 +92,11 @@ void Room::setVisible(bool visible) {
     _visible = visible;
 }
 
+void Room::setGrass(std::shared_ptr<scene::GrassSceneNode> grass) {
+    _grass = std::move(grass);
+    _grass->setEnabled(_visible);
+}
+
 // EnvAudio 23 is GENERIC again.
 static constexpr int kGenericAgainEnvAudio = 23;
 
