@@ -51,6 +51,8 @@ public:
 
     MOCK_METHOD(glm::vec3, listenerPosition, (), (const, override));
     MOCK_METHOD(void, setListenerPosition, (glm::vec3), (override));
+    MOCK_METHOD(glm::vec3, listenerForward, (), (const, override));
+    MOCK_METHOD(void, stopDistanceAttenuation, (AudioSource &), (override));
     MOCK_METHOD(void, setListenerOrientation, (glm::vec3, glm::vec3), (override));
     MOCK_METHOD(void, setListenerGain, (float), (override));
     MOCK_METHOD(void, setEnvironment, (Environment), (override));

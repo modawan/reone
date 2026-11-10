@@ -28,6 +28,7 @@
 // functions. FindOpenAL defines R_ENABLE_EFX when it is the OpenAL found.
 #ifdef R_ENABLE_EFX
 #define AL_ALEXT_PROTOTYPES
+#include "alext.h"
 #include "efx-presets.h"
 #include "efx.h"
 #endif
@@ -193,6 +194,22 @@ ObstructionLowpass obstructionLowpass(float obstruction) {
     return {std::pow(10.0f, lowsDb / 20.0f), std::pow(10.0f, (highsDb - lowsDb) / 20.0f)};
 }
 
+// OpenAL measures air absorption by distance times rolloff, so a source
+// kept from attenuating by its distance model still absorbs.
+void Context::stopDistanceAttenuation(AudioSource &source) {
+    const ALuint name = source.alSource();
+    if (name == 0) {
+        return;
+    }
+#ifdef R_ENABLE_EFX
+    if (_sourceDistanceModels) {
+        alSourcei(name, AL_DISTANCE_MODEL, AL_NONE);
+        return;
+    }
+#endif
+    alSourcef(name, AL_ROLLOFF_FACTOR, 0.0f);
+}
+
 void Context::setObstruction(AudioSource &source, float obstruction) {
 #ifdef R_ENABLE_EFX
     const ALuint name = source.alSource();
@@ -230,6 +247,10 @@ void Context::setAirAbsorption(AudioSource &source, float factor) {
 
 void Context::initEffects() {
 #ifdef R_ENABLE_EFX
+    if (alIsExtensionPresent("AL_EXT_source_distance_model") == AL_TRUE) {
+        alEnable(AL_SOURCE_DISTANCE_MODEL);
+        _sourceDistanceModels = true;
+    }
     ALCint sends = 0;
     if (alcIsExtensionPresent(static_cast<ALCdevice *>(_device), ALC_EXT_EFX_NAME) == ALC_TRUE) {
         alcGetIntegerv(static_cast<ALCdevice *>(_device), ALC_MAX_AUXILIARY_SENDS, 1, &sends);

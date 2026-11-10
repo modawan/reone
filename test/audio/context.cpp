@@ -11,6 +11,7 @@
 #include "al.h"
 #ifdef R_ENABLE_EFX
 #define AL_ALEXT_PROTOTYPES
+#include "alext.h"
 #include "efx-presets.h"
 #include "efx.h"
 #endif
@@ -155,4 +156,36 @@ TEST(AudioContext, gives_a_source_air_absorption) {
     EXPECT_FLOAT_EQ(factor, 1.0f);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
 #endif
+}
+
+// OpenAL Soft lets each source have a distance model, which keeps its rolloff
+// for air absorption; elsewhere the rolloff goes instead.
+TEST(AudioContext, stops_a_source_attenuating_with_distance) {
+    Context context;
+    if (!openTestContext(context)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
+    auto clip = std::make_shared<AudioClip>();
+    AudioClip::Frame frame;
+    frame.format = AudioFormat::Mono8;
+    frame.sampleRate = 22050;
+    frame.samples.assign(64, 0);
+    clip->add(std::move(frame));
+    AudioSource source(clip, 1.0f, false, glm::vec3(5.0f, 0.0f, 0.0f));
+    source.init();
+    ASSERT_NE(source.alSource(), 0u);
+
+    context.stopDistanceAttenuation(source);
+
+    float rolloff = -1.0f;
+    alGetSourcef(source.alSource(), AL_ROLLOFF_FACTOR, &rolloff);
+#ifdef R_ENABLE_EFX
+    ALint model = 0;
+    alGetSourcei(source.alSource(), AL_DISTANCE_MODEL, &model);
+    EXPECT_EQ(model, AL_NONE);
+    EXPECT_FLOAT_EQ(rolloff, 1.0f);
+#else
+    EXPECT_FLOAT_EQ(rolloff, 0.0f);
+#endif
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
 }

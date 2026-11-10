@@ -230,6 +230,12 @@ private:
         float gain {1.0f};
         /** The source was played at a position. */
         bool positional {false};
+        /** The distances a positional source falls off over; none for a 2D one. */
+        std::optional<SoundDistances> distances;
+        /** The source works out its own falloff, in place of OpenAL's (see streamedFalloff). */
+        bool ownFalloff {false};
+        /** Its own falloff, taken into its gain; 1 for a source without one. */
+        float falloff {1.0f};
         /** The obstruction it is heard with, and the one last found, which it eases towards. */
         float obstruction {0.0f};
         float obstructionTarget {0.0f};
@@ -288,6 +294,17 @@ private:
      * steeply at first; the others keep it linear.
      */
     float gainByType(AudioType type, float gain, bool positional, std::optional<int> group) const;
+    /** The gain a source plays at now: gainByType, with its own falloff. */
+    float sourceGain(const ActiveSource &active) const;
+    /**
+     * A streamed positional source's falloff: from full at its full volume
+     * distance down a straight line to nothing at its cutoff, a little
+     * quieter behind the listener, all raised to the positional gain
+     * exponent.
+     */
+    float streamedFalloff(const ActiveSource &active) const;
+    /** Works out again the falloff of each source that has its own. */
+    void renderFalloff();
     /** The sources of \p type take its volume. */
     void applyVolume(AudioType type);
     /** How much of a source reaches the reverb, as a send gain from 0 to 1. */
