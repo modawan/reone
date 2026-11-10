@@ -83,7 +83,7 @@ protected:
 
     ResourceReplacements _replacements;
     ReplacementResources _resources {std::make_unique<Resources>(), _replacements};
-    Scripts _scripts {_resources, _replacements};
+    Scripts _scripts {_resources};
     MockRoutines _routines;
 };
 

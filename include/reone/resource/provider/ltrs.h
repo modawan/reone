@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include "reone/system/cache.h"
 #include "reone/system/stream/memoryinput.h"
 
+#include "../decodedcache.h"
+#include "../exception/notfound.h"
 #include "../format/ltrreader.h"
 #include "../ltr.h"
-#include "../resources.h"
 #include "../resref.h"
 
 namespace reone {
@@ -43,20 +43,22 @@ public:
     }
 
     std::shared_ptr<Ltr> get(const ResRef &resRef) override {
-        return _cache.getOrAdd(resRef, std::bind(&Ltrs::getFromResources, this, resRef));
+        return _cache.get(resRef, [this, &resRef](ResourceReads &reads) {
+            ResourceId id(resRef, ResType::Ltr);
+            auto res = reads.find(_resources, id);
+            if (!res) {
+                throw ResourceNotFoundException(id.string());
+            }
+            auto stream = MemoryInputStream(res->data);
+            auto reader = LtrReader(stream);
+            return reader.load();
+        }).value;
     }
 
 private:
     IResources &_resources;
 
-    Cache<ResRef, Ltr> _cache;
-
-    std::shared_ptr<Ltr> getFromResources(const ResRef &resRef) {
-        auto res = _resources.get(ResourceId(resRef, ResType::Ltr));
-        auto stream = MemoryInputStream(res.data);
-        auto reader = LtrReader(stream);
-        return reader.load();
-    }
+    DecodedCache<ResRef, Ltr> _cache;
 };
 
 } // namespace resource
