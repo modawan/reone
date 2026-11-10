@@ -702,8 +702,9 @@ void Game::writeEntryAutosave(
         world.areaDisplayName = world.areaName;
     }
     world.startWaypoint = entry.empty() ? "*" : entry;
-    setLoadMusicForModule(destination.name);
-    world.loadMusic = _loadMusicResRef;
+    // Recorded for the autosave's own load; this transition's loading screen
+    // keeps the music it already had.
+    world.loadMusic = loadMusicForModule(destination.name);
     world.pauseDay = worldTimeDay();
     world.pauseTime = worldTimeOfDay();
 

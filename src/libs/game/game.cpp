@@ -2364,6 +2364,8 @@ void Game::resetGame() {
     _floatingText.reset();
     _cheatUsed = false;
     _playedTimeFraction = 0.0;
+    // A new game and a load each start the autosave interval afresh.
+    _secondsSinceSave = 0.0;
     _services.resource.director.onNewGame();
 }
 
@@ -2474,7 +2476,6 @@ bool Game::loadGame(const resource::SaveSlotDescriptor &slot) {
 }
 
 bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
-    _secondsSinceSave = 0.0;
     const NFO &nfo = prepared.nfo;
     _cheatUsed = nfo.cheatUsed;
     captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *prepared.saveInfo);
@@ -3272,10 +3273,14 @@ void Game::playMusic(const std::string &resRef) {
 // A new game, TSL's character generation and the module picker set the
 // loading-screen music from the module's row of the loading-screen table.
 void Game::setLoadMusicForModule(const std::string &moduleName) {
+    _loadMusicResRef = loadMusicForModule(moduleName);
+}
+
+std::string Game::loadMusicForModule(const std::string &moduleName) {
     if (!_loadScreen) {
         _loadScreen = tryLoadGUI<LoadingScreen>();
     }
-    _loadMusicResRef = _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
+    return _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
 }
 
 // Every loading screen shown with music starts it: the menu music stops;

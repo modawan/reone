@@ -648,6 +648,11 @@ public:
      */
     void setLoadMusicForModule(const std::string &moduleName);
     /**
+     * The music the loading-screen table gives the module named
+     * \p moduleName, leaving the music of the next loading screens as it is.
+     */
+    std::string loadMusicForModule(const std::string &moduleName);
+    /**
      * A script's music volume, from 0 to 1, in place of the music volume the
      * options keep, until that is next set.
      */
@@ -2068,7 +2073,7 @@ private:
     double _timeStopFraction {0.0};
     std::optional<uint64_t> _worldClockSample;
     double _playedTimeFraction {0.0};
-    /** Played time since the last save or load, which decides when an autosave is due. */
+    /** Played time since the last save, load or new game, which decides when an autosave is due. */
     double _secondsSinceSave {0.0};
 
     std::optional<SaveRequest> _pendingSave;

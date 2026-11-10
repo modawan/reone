@@ -336,6 +336,14 @@ uint32_t reone::game::TestGameModule::nextObjectId(const Game &game) {
     return game._nextObjectId;
 }
 
+void reone::game::TestGameModule::advancePlayedTime(Game &game, float dt) {
+    game.advancePlayedTime(dt);
+}
+
+bool reone::game::TestGameModule::autosavesOnEntering(Game &game, const std::string &module) {
+    return game.autosavesOnEntering(module);
+}
+
 std::shared_ptr<Item> reone::game::TestGameModule::newItemAtRuntimeId(
     Game &game, uint32_t id) {
     return game.newObjectAtId<Item>(id, false, game, game._services);
@@ -681,6 +689,31 @@ TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {
     EXPECT_TRUE(game.party().persistedState().pcName.empty());
     EXPECT_EQ(0, game.journal().getEntryState("old_plot"));
     EXPECT_EQ(0, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeSession, full_game_reset_starts_the_autosave_interval_afresh) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    resource::ModuleSaveRules rules;
+    rules.autosaveOnEnter = resource::ModuleAutosave::WhenDue;
+    EXPECT_CALL(engine.resourceModule().director(), moduleSaveRules(_))
+        .WillRepeatedly(Return(rules));
+
+    // Fifteen minutes into one game, entering a module autosaves.
+    TestGameModule::advancePlayedTime(game, 15.0f * 60.0f);
+    ASSERT_TRUE(TestGameModule::autosavesOnEntering(game, "next"));
+
+    // A new game, or a load, owes nothing to the time played before it.
+    game.resetGame();
+    EXPECT_FALSE(TestGameModule::autosavesOnEntering(game, "next"));
+    TestGameModule::advancePlayedTime(game, 15.0f * 60.0f - 1.0f);
+    EXPECT_FALSE(TestGameModule::autosavesOnEntering(game, "next"));
+    TestGameModule::advancePlayedTime(game, 1.0f);
+    EXPECT_TRUE(TestGameModule::autosavesOnEntering(game, "next"));
 }
 
 TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transitions_without_accumulation) {
