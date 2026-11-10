@@ -23,6 +23,22 @@ namespace game {
 class Game;
 class Creature;
 
+/**
+ * A save that holds no state for the module it names, so loading it builds
+ * that module from its installed templates. It records where the party stands
+ * in that fresh module and the world time to resume at.
+ */
+struct TemplateWorldSave {
+    std::string moduleName;
+    std::string areaName;
+    std::string areaDisplayName;
+    /** The waypoint the party starts at, or "*" for the module's entry point. */
+    std::string startWaypoint {"*"};
+    std::string loadMusic;
+    uint32_t pauseDay {0};
+    uint32_t pauseTime {0};
+};
+
 struct SaveMetadataInput {
     std::string displayName;
     uint8_t cheatUsed {0};
@@ -34,6 +50,8 @@ struct SaveMetadataInput {
     std::array<std::string, 3> portraits {};
     uint64_t timestamp {0};
     uint32_t saveNumber {0};
+    /** Set for a save that holds no state for the module it names. */
+    std::optional<TemplateWorldSave> templateWorld;
 };
 
 enum class SaveWideSnapshotError {
@@ -95,6 +113,8 @@ private:
     std::shared_ptr<resource::Gff> buildInventory() const;
     std::shared_ptr<resource::Gff> buildFactions() const;
     std::shared_ptr<resource::Gff> buildNfo() const;
+    /** The controlled creature as the player list every save carries. */
+    std::shared_ptr<resource::Gff> buildPlayerInfo() const;
     void validate(const SaveWideSnapshot &snapshot) const;
 };
 

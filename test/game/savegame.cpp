@@ -94,7 +94,7 @@ void reone::game::TestGameModule::processPendingSave(Game &game) {
 
 std::shared_ptr<const SaveWorkingState>
 reone::game::TestGameModule::prepareCurrentModuleWorkingState(Game &game) {
-    return game.prepareCurrentModuleWorkingState();
+    return game.prepareCurrentModuleWorkingState({});
 }
 
 void reone::game::TestGameModule::setSnapshotModuleName(

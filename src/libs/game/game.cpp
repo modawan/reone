@@ -1902,7 +1902,7 @@ bool Game::loadPreparedModule(
             return false;
         }
         clearDepartingActions();
-        sourceWorkingState = prepareCurrentModuleWorkingState();
+        sourceWorkingState = prepareCurrentModuleWorkingState(name);
         if (!sourceWorkingState) {
             return false;
         }
@@ -1928,6 +1928,13 @@ bool Game::loadPreparedModule(
                       "': " + e.what());
                 return false;
             }
+        }
+
+        // Entering a module can write the autosave first, from the state the
+        // game is leaving and before the destination exists, so loading it
+        // enters the module again.
+        if (autosavesOnEntering(name)) {
+            writeEntryAutosave(prepared, entry, sourceWorkingState);
         }
     }
 
@@ -2065,7 +2072,9 @@ bool Game::loadPreparedModule(
                     _party.formAgainOnModuleLoad();
                 }
                 signalPartyEquipment();
-                destination->loadParty(entry, preservesSavedPlacement(context));
+                destination->loadParty(
+                    entry,
+                    preservesSavedPlacement(context) && !prepared.placesPartyAtEntry);
                 if (!stillCurrent()) {
                     return;
                 }
@@ -2391,8 +2400,14 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
         prepared.nfo.lastModule,
         /*initialSaveRestore=*/true,
         prepared.session->workingState());
-    if (prepared.destination.context ==
-        ModuleLoadContext::InitialTemplateRestore) {
+    // A save with no state for its module, and an autosave taken on the way
+    // into a module, rebuild the player from the save's own player list and
+    // start the party where the save's parameters say. An autosave into a
+    // module the game had already saved restores that module's world.
+    auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
+    const bool templateWorld = prepared.destination.context ==
+                               ModuleLoadContext::InitialTemplateRestore;
+    if (templateWorld || params) {
         prepared.playerInfo = decodeSaveGff(
             prepared.session->findMetadata(ResourceId("pifo", ResType::Ifo)));
         if (!prepared.playerInfo ||
@@ -2400,11 +2415,11 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
             throw ValidationException(
                 "Template-world save restore requires pifo.ifo player state");
         }
-        auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
         if (!params) {
             throw ValidationException(
                 "Template-world save restore requires AUTOSAVEPARAMS");
         }
+        prepared.destination.placesPartyAtEntry = !templateWorld;
         PreparedSaveLoad::AutosaveRestoreState autosave;
         autosave.startWaypoint = params->getString("STARTWAYPOINT");
         if (autosave.startWaypoint == "*") {
@@ -2454,6 +2469,7 @@ bool Game::loadGame(const resource::SaveSlotDescriptor &slot) {
 }
 
 bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
+    _secondsSinceSave = 0.0;
     const NFO &nfo = prepared.nfo;
     _cheatUsed = nfo.cheatUsed;
     captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *prepared.saveInfo);
@@ -2507,7 +2523,17 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
             *prepared.destination.git,
             moduleIdentityContext,
             SerializedGraphRoot::AreaGit);
-        deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        if (prepared.autosave) {
+            restoreWorldTime(
+                *ifo, prepared.autosave->pauseDay, prepared.autosave->pauseTime);
+            deserializeParty(
+                *prepared.playerInfo,
+                prepared.partyTable,
+                SerializedIdentityContext::detachedRecord("pifo.ifo"));
+            entry = prepared.autosave->startWaypoint;
+        } else {
+            deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        }
     } else {
         if (!prepared.autosave || !prepared.playerInfo) {
             throw ValidationException(

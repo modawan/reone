@@ -812,6 +812,12 @@ public:
         std::shared_ptr<resource::Gff> are;
         std::shared_ptr<resource::Gff> git;
         ModuleLoadContext context {ModuleLoadContext::FreshModule};
+        /**
+         * The party starts at the entry waypoint even though the world is
+         * restored: an autosave taken on the way into a module the game had
+         * already saved.
+         */
+        bool placesPartyAtEntry {false};
     };
 
     /**
@@ -2062,6 +2068,8 @@ private:
     double _timeStopFraction {0.0};
     std::optional<uint64_t> _worldClockSample;
     double _playedTimeFraction {0.0};
+    /** Played time since the last save or load, which decides when an autosave is due. */
+    double _secondsSinceSave {0.0};
 
     std::optional<SaveRequest> _pendingSave;
     std::optional<SaveResult> _lastSaveResult;
@@ -2228,11 +2236,35 @@ private:
     void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
     void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
+    /**
+     * The working state as the current module is left for \p destination: the
+     * module stored when saves include it, the bound roster records
+     * refreshed, and the destination's delete group discarded.
+     */
     std::shared_ptr<const resource::SaveWorkingState>
-    prepareCurrentModuleWorkingState();
+    prepareCurrentModuleWorkingState(const std::string &destination);
+    /** Whether entering \p module writes the autosave first. */
+    bool autosavesOnEntering(const std::string &module);
+    /**
+     * Writes the autosave taken on the way into a module, from the working
+     * state the game is leaving and before the destination exists.
+     */
+    void writeEntryAutosave(
+        const PreparedDestinationModule &destination,
+        const std::string &entry,
+        std::shared_ptr<const resource::SaveWorkingState> workingState);
     void processPendingSave();
     void finalizeSaveRequest(const SaveRequest &request, SaveResult result);
     SaveResult executeSave(SaveRequest request);
+    /**
+     * Serializes and publishes a save over \p workingState. A template-world
+     * save stores no state for the module it names.
+     */
+    SaveResult publishSave(
+        const SaveRequest &request,
+        std::shared_ptr<const resource::SaveWorkingState> workingState,
+        std::optional<TemplateWorldSave> templateWorld,
+        bool adoptPublished);
     SaveMetadataInput buildSaveMetadata(const SaveRequest &request) const;
     resource::SaveSlotDescriptor saveTarget(const SaveRequest &request) const;
     std::map<std::string, ByteBuffer> currentLooseSavePassthrough() const;

@@ -482,7 +482,7 @@ TEST(SaveSlotPublisher, rejects_missing_required_outer_resource_and_bad_module) 
 
     auto badTarget = descriptor(prepared.rootDirectory.path / "bad-module");
     auto bad = prepared.input(badTarget);
-    bad.currentModule.archiveBytes = {'n', 'o', 't', 'm', 'o', 'd'};
+    bad.currentModule->archiveBytes = {'n', 'o', 't', 'm', 'o', 'd'};
     auto badResult = SaveSlotPublisher().publish(std::move(bad));
     EXPECT_FALSE(badResult);
     EXPECT_EQ(badResult.error, SaveSlotPublishError::InvalidInput);
