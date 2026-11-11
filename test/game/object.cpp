@@ -58,6 +58,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/pathfinder.h"
@@ -81,6 +82,7 @@
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/sound.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/scene/node/walkmesh.h"
 #include "reone/script/executioncontext.h"
@@ -1035,6 +1037,45 @@ TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
     auto restoredUnspawned = game.newCreature();
     restoredUnspawned->deserialize(*record(0), testModuleIdentity());
     EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
+}
+
+// A script that activates a sound object starts its first sound at once. The
+// node was found inaudible while the object was inactive, so it has to wait
+// for the scene to tell again rather than skip that sound.
+TEST(SoundObject, activating_forgets_the_audibility_found_while_inactive) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The mock keeps the graph past the test, and the graph keeps its options.
+    static graphics::GraphicsOptions graphicsOptions;
+    auto graph = std::make_shared<scene::SceneGraph>(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    // A scene of its own, so other tests' expectations on the graphs still hold.
+    const std::string sceneName {"sound_activation"};
+    EXPECT_CALL(engine.sceneModule().graphs(), get(sceneName))
+        .Times(AnyNumber())
+        .WillRepeatedly([graph](const std::string &) -> scene::ISceneGraph & {
+            return *graph;
+        });
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newByte("Active", 0))
+                      .field(Gff::Field::newByte("Positional", 0))
+                      .build();
+    auto sound = game.newSound(sceneName);
+    sound->deserialize(*record, SerializedIdentityContext::templateResource());
+    auto node = std::static_pointer_cast<scene::SoundSceneNode>(sound->sceneNode());
+    ASSERT_TRUE(node);
+    node->setAudible(false);
+
+    sound->setActive(true);
+
+    EXPECT_TRUE(node->isEnabled());
+    EXPECT_FALSE(node->isAudibilityKnown());
 }
 
 TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
