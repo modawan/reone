@@ -52,6 +52,12 @@ static constexpr float kSwingRateMax = 7.5f;
 static constexpr float kSwingRateRise = 3.0f;
 static constexpr float kSwingRateFall = 5.0f;
 
+// Stiff chase: a camera pushed in by a wall eases back out at this rate, each
+// second leaving exp(-rate) of the way, whatever the frame rate; and it
+// stands this far short of what it hits.
+static constexpr float kStiffChaseReturnRate = 3.5f;
+static constexpr float kStiffChaseClearance = 0.001f;
+
 // Death orbit: heading rate (degrees per second), the distance it closes on,
 // the tilt below the level it turns to (degrees), the per-update easing of
 // heading, tilt, distance and aim height, the aim height it starts from, and
@@ -221,8 +227,12 @@ void ThirdPersonCamera::update(float dt) {
         updateCombatTurn(dt);
         return;
     }
-    // The dolly distance follows the view angle every frame.
-    if (_dollyZoom) {
+    // The dolly distance follows the view angle every frame, and the stiff
+    // chase camera eases out every frame.
+    if (isStiffChase()) {
+        easeStiffChase(dt);
+        updateSceneNode();
+    } else if (_dollyZoom) {
         updateSceneNode();
     }
     const bool turnKey = _rotateCW || _rotateCCW;
@@ -421,27 +431,31 @@ void ThirdPersonCamera::updateSceneNode() {
         return;
     }
 
-    glm::vec3 dir(
-        glm::sin(_facing),
-        -glm::cos(_facing),
-        0.0f);
-
-    glm::vec3 targetPos(_targetPosition);
-    targetPos += kTargetPadding * dir;
-
-    // The dolly zoom keeps the subject's size: the style distance scaled by
-    // the tangent of the style's half angle over the current half angle.
-    const float distance = _dollyZoom
-                               ? _style.distance * std::tan(glm::radians(_style.viewAngle) * 0.5f) / std::tan(glm::radians(viewAngle()) * 0.5f)
-                               : _style.distance;
-    glm::vec3 cameraPos(_targetPosition);
-    cameraPos += distance * dir;
-    cameraPos.z += _style.height;
+    glm::vec3 targetPos;
+    glm::vec3 cameraPos;
+    followLine(targetPos, cameraPos);
 
     Collision collision;
     auto &scene = _services.scene.graphs.get(_sceneName);
-    if (scene.testLineOfSight(targetPos, cameraPos, collision)) {
-        cameraPos = collision.intersection;
+    if (!isStiffChase()) {
+        _pushedDistance.reset();
+        if (scene.testLineOfSight(targetPos, cameraPos, collision)) {
+            cameraPos = collision.intersection;
+        }
+    } else {
+        // The stiff chase camera keeps where a wall pushed it, and a wall
+        // between it and the target pushes it in at once.
+        const float length = glm::distance(targetPos, cameraPos);
+        if (length > 0.0f) {
+            const glm::vec3 along {(cameraPos - targetPos) / length};
+            const float standing = _pushedDistance.value_or(length);
+            if (scene.testLineOfSight(targetPos, targetPos + along * standing, collision)) {
+                _pushedDistance = std::max(0.0f, glm::distance(targetPos, collision.intersection) - kStiffChaseClearance);
+            }
+            if (_pushedDistance) {
+                cameraPos = targetPos + along * *_pushedDistance;
+            }
+        }
     }
 
     // The view faces the way the camera faces the target, at the view pitch.
@@ -451,6 +465,62 @@ void ThirdPersonCamera::updateSceneNode() {
     transform *= glm::translate(cameraPos);
     transform *= glm::mat4_cast(orientation);
     _sceneNode->setLocalTransform(std::move(transform));
+}
+
+void ThirdPersonCamera::followLine(glm::vec3 &from, glm::vec3 &to) const {
+    const glm::vec3 dir(
+        glm::sin(_facing),
+        -glm::cos(_facing),
+        0.0f);
+
+    from = _targetPosition + kTargetPadding * dir;
+
+    // The dolly zoom keeps the subject's size: the style distance scaled by
+    // the tangent of the style's half angle over the current half angle.
+    const float distance = _dollyZoom
+                               ? _style.distance * std::tan(glm::radians(_style.viewAngle) * 0.5f) / std::tan(glm::radians(viewAngle()) * 0.5f)
+                               : _style.distance;
+    to = _targetPosition + distance * dir;
+    to.z += _style.height;
+}
+
+bool ThirdPersonCamera::isStiffChase() const {
+    return _game.cameraMode() == Game::kStiffChaseCameraMode;
+}
+
+// The camera closes on its own distance at a steady rate, but stops short of
+// the first wall between where it stands and there. Once it would come within
+// a millimetre of its own distance with nothing in the way, it stands there.
+void ThirdPersonCamera::easeStiffChase(float dt) {
+    if (!_pushedDistance) {
+        return;
+    }
+    glm::vec3 from;
+    glm::vec3 to;
+    followLine(from, to);
+    const float length = glm::distance(from, to);
+    if (length <= 0.0f) {
+        _pushedDistance.reset();
+        return;
+    }
+    // A camera whose own distance has come in to where it stands is no
+    // longer held in.
+    const float standing = *_pushedDistance;
+    if (standing >= length) {
+        _pushedDistance.reset();
+        return;
+    }
+    const glm::vec3 along {(to - from) / length};
+    float eased = standing + (length - standing) * (1.0f - std::exp(-kStiffChaseReturnRate * dt));
+    Collision collision;
+    auto &scene = _services.scene.graphs.get(_sceneName);
+    if (scene.testLineOfSight(from + along * standing, to, collision)) {
+        eased = std::min(eased, std::max(0.0f, glm::distance(from, collision.intersection) - kStiffChaseClearance));
+    } else if (eased >= length - kStiffChaseClearance) {
+        _pushedDistance.reset();
+        return;
+    }
+    _pushedDistance = eased;
 }
 
 // In TSL stopping the camera also ends the mouse-look hold.

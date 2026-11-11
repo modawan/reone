@@ -354,6 +354,8 @@ public:
 
     std::shared_ptr<Module> module() const { return _module; }
     CameraType cameraType() const { return _cameraType; }
+    /** A script's camera mode in which the follow camera, pushed in by a wall, eases back out. */
+    static constexpr int kStiffChaseCameraMode = 2;
     /**
      * The camera modes the engine sets as the camera changes: the follow
      * camera on a stick, a conversation's or a cutscene's, free look and

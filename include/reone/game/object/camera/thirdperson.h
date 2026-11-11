@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/input/event.h"
 
 #include "../../camerastyle.h"
@@ -141,6 +143,17 @@ private:
 
     // END Look-at swing
 
+    // Stiff chase
+
+    /**
+     * Under the stiff chase camera mode, how far along its line from the
+     * target the camera stands while a wall has pushed it in; empty while it
+     * stands at its own distance.
+     */
+    std::optional<float> _pushedDistance;
+
+    // END Stiff chase
+
     // Death orbit
 
     bool _deathOrbit {false};
@@ -160,6 +173,18 @@ private:
     void updateDeathOrbit(float dt);
 
     void updateSceneNode();
+    /**
+     * The line the follow camera stands on outside combat: from just past
+     * the target to where the camera stands at its own distance.
+     */
+    void followLine(glm::vec3 &from, glm::vec3 &to) const;
+    /** Whether the stiff chase camera mode holds the follow camera. */
+    bool isStiffChase() const;
+    /**
+     * Eases a camera that a wall pushed in back out by \p dt seconds, under
+     * the stiff chase camera mode, short of any wall in the way.
+     */
+    void easeStiffChase(float dt);
     /** Places the combat camera behind the target, pulled in where the view is obstructed. */
     void updateCombatSceneNode();
     /** Turns the camera outside combat by the mouse look's travel over \p dt seconds. */
