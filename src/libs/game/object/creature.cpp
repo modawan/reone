@@ -1448,10 +1448,12 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     return true;
 }
 
-// The sneaking pace and the top driving speed of an appearance whose cell is
-// blank or zero.
+// The sneaking pace, the top driving speed and the driving acceleration of an
+// appearance whose cell is blank or zero.
 static constexpr float kDefaultStealthWalkSpeed = 2.0f;
 static constexpr float kDefaultDriveMaxSpeed = 6.0f;
+static constexpr float kDefaultDriveAcceleration = 25.0f;
+static constexpr float kDefaultDriveRunClipSpeed = 4.0f;
 
 void Creature::loadAppearanceProperties() {
     auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
@@ -1469,9 +1471,17 @@ void Creature::loadAppearanceProperties() {
     if (_stealthWalkSpeed == 0.0f) {
         _stealthWalkSpeed = kDefaultStealthWalkSpeed;
     }
+    _driveRunClipSpeed = appearances->getFloat(_appearance, _game.isTSL() ? "driveanimrun_pc" : "driveanimrun", 0.0f);
+    if (_driveRunClipSpeed == 0.0f) {
+        _driveRunClipSpeed = kDefaultDriveRunClipSpeed;
+    }
     _driveMaxSpeed = appearances->getFloat(_appearance, "drivemaxspeed", 0.0f);
     if (_driveMaxSpeed == 0.0f) {
         _driveMaxSpeed = kDefaultDriveMaxSpeed;
+    }
+    _driveAcceleration = appearances->getFloat(_appearance, "driveaccl", 0.0f);
+    if (_driveAcceleration == 0.0f) {
+        _driveAcceleration = kDefaultDriveAcceleration;
     }
     _personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
     // A blank space kept from other creatures is no space at all.
@@ -2118,6 +2128,26 @@ bool Creature::isRunLimited() const {
 
 bool Creature::movesStealthily() const {
     return _stealthMode && (!_game.isTSL() || !hasEffectiveFeat(FeatType::StealthRun));
+}
+
+// A sneaking creature gathers speed slowly, whatever its appearance.
+float Creature::driveAcceleration() const {
+    static constexpr float kStealthDriveAcceleration = 15.0f;
+    return movesStealthily() ? kStealthDriveAcceleration : _driveAcceleration;
+}
+
+float Creature::drivenClipSpeed() const {
+    return movesStealthily() ? std::min(driveSpeed(), _stealthWalkSpeed) : driveSpeed();
+}
+
+bool Creature::drivesAtRun() const {
+    static constexpr float kDriveWalkThreshold = 0.6f;
+    return drivenClipSpeed() > kDriveWalkThreshold * driveTopSpeed();
+}
+
+// The top speed follows the movement rate as speed effects come and go.
+float Creature::driveTopSpeed() const {
+    return _driveMaxSpeed * movementRate(true);
 }
 
 void Creature::setCombatStance(CombatStance stance) {
@@ -3260,15 +3290,17 @@ void Creature::updateModelAnimation() {
 
 // Walk and run clips play so that the feet keep pace with the ground. On a
 // path they also go at their own pace, which picks up and falls off with the
-// walk; before it has any, they play at their natural speed.
+// walk; before it has any, they play at their natural speed. The leader the
+// player drives shows the clip its drive speed calls for, at that speed.
 Creature::MovementClip Creature::movementClip(const ModelSceneNode &model) const {
     MovementClip clip;
-    const bool running = _movementType == MovementType::Run && !movesStealthily();
-    const float speed = running ? runSpeed() : walkSpeed();
+    const bool driven = _game.party().getLeader().get() == this && _game.module() && _game.module()->isPlayerMoving();
+    const bool running = driven ? drivesAtRun() : _movementType == MovementType::Run && !movesStealthily();
+    const float speed = driven ? drivenClipSpeed() : (running ? runSpeed() : walkSpeed());
     // A run slowed well below its clip's pace shows the walk instead, as does
     // a run on a path while it goes at under half its speed.
-    const bool runClip = running && speed >= _runDistance * kRunClipMinimumPace &&
-                         !(_path && _walkPace < kRunClipMinimumWalkPace);
+    const bool runClip = running && (driven || (speed >= _runDistance * kRunClipMinimumPace &&
+                                                !(_path && _walkPace < kRunClipMinimumWalkPace)));
     // Limping comes before sneaking. Creature models have no injured run,
     // and a run too slow for its clip shows the walk: the plain walk on
     // creature models. A clip the model lacks leaves the last one playing.
@@ -3291,8 +3323,9 @@ Creature::MovementClip Creature::movementClip(const ModelSceneNode &model) const
         clip.anim = model.model().getAnimation(getWalkAnimation());
         clip.id = kWalkAnimationId;
     }
-    const float loopDistance = runClip ? _runDistance : _walkDistance;
-    const float pace = _path ? _clipPace : 1.0f;
+    const float loopDistance = driven ? (runClip ? _driveRunClipSpeed : _stealthWalkSpeed)
+                                      : (runClip ? _runDistance : _walkDistance);
+    const float pace = _path && !driven ? _clipPace : 1.0f;
     if (clip.anim && speed > 0.0f && loopDistance > 0.0f && clip.anim->length() > 0.0f && pace > 0.0f) {
         clip.speed = pace * speed * clip.anim->length() / loopDistance;
     }
@@ -4377,7 +4410,7 @@ Creature::AnimationUpdater Creature::animationUpdater() const {
     // The leader acts freely with nothing queued or under the player's drive.
     // In a conversation it is driven only when it neither speaks nor listens;
     // in TSL not at all. Nor is it driven after an engaged swing.
-    if (leader && !_engagedExchange && (!hasOrdinaryActionsPending() || isDriven()) && !isPlayingDialogAnimation() &&
+    if (leader && !isDriveBlocked() &&
         !(_game.isTSL() ? _game.isConversationActive() : _game.isConversationSpeakerOrListener(*this))) {
         return AnimationUpdater::Drive;
     }

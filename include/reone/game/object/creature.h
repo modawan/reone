@@ -924,12 +924,23 @@ public:
     float walkSpeed() const;
     /** Whether the player drives this creature: a drive heads its queue. */
     bool isDriven() const;
-    /**
-     * The speed the player drives this creature at, 0 while it is not driven,
-     * and its appearance's limit.
-     */
+    /** The speed the player drives this creature at, 0 while it is not driven. */
     float driveSpeed() const;
-    float driveMaxSpeed() const { return _driveMaxSpeed; }
+    /**
+     * The top speed the player drives this creature at when not sneaking: its
+     * appearance's top driving speed times its movement rate factor.
+     */
+    float driveTopSpeed() const;
+    /** The drive speed at which the walk clip keeps pace with the ground; also the top speed of a sneaking drive. */
+    float driveWalkClipSpeed() const { return _stealthWalkSpeed; }
+    /**
+     * Whether the player's drive shows the run clip: its speed, held to the
+     * walk clip's pace while sneaking, is beyond six tenths of the drive's top
+     * speed.
+     */
+    bool drivesAtRun() const;
+    /** How fast the player's driving gathers speed, metres a second each second at a standstill. */
+    float driveAcceleration() const;
     /**
      * Whether the creature last moved at a run under the player's direct
      * control. Running under an action or its AI does not count, and the
@@ -995,6 +1006,14 @@ public:
      * controlled leader at rest is not driven to its rest pose.
      */
     void setEngagedExchange(bool engaged) { _engagedExchange = engaged; }
+    /**
+     * The creature is busy and not driven: it is in an engaged exchange, has
+     * actions pending other than the player's drive, or plays a dialog
+     * animation.
+     */
+    bool isDriveBlocked() const {
+        return _engagedExchange || (hasOrdinaryActionsPending() && !isDriven()) || isPlayingDialogAnimation();
+    }
 
     // Facing
 
@@ -2806,9 +2825,14 @@ private:
     /** How far one loop of the walk and run animations carries the appearance. */
     float _walkDistance {1.0f};
     float _runDistance {1.0f};
-    /** The appearance's own sneaking pace. */
+    /** The appearance's own sneaking pace, at which its walk clip keeps pace with the driven creature. */
     float _stealthWalkSpeed {0.0f};
+    /** The drive speed at which the appearance's run clip keeps pace with the ground. */
+    float _driveRunClipSpeed {0.0f};
+    /** The appearance's top driving speed. */
     float _driveMaxSpeed {0.0f};
+    /** The appearance's driving acceleration. */
+    float _driveAcceleration {0.0f};
     bool _running {false};
     float _personalSpace {0.6f};
     float _creaturePersonalSpace {0.6f};
@@ -3109,6 +3133,8 @@ private:
     bool reachesWalkGoal(const Object &goal);
     /** The walk or run clip \p model shows for the creature's movement. */
     MovementClip movementClip(const scene::ModelSceneNode &model) const;
+    /** The drive speed the clip of the driven creature follows: no faster than the walk clip's pace while sneaking. */
+    float drivenClipSpeed() const;
 
     /** The area whose music this creature drives: its own, when the player controls it. */
     std::shared_ptr<Area> battleMusicArea() const;

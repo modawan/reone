@@ -39,8 +39,10 @@ static constexpr float kKeyboardTurnDeceleration = 2000.0f;
 // The longest frame an accelerated rate advances over at once.
 static constexpr float kAcceleratedRateMaxStep = 0.2f;
 
-// Mouse travel in a full-strength frame.
+// Mouse travel in a full-strength frame, and the frame time a speed's
+// strength is measured over.
 static constexpr float kMouseFullTravel = 100.0f;
+static constexpr float kMouseStrengthFrameTime = 1.0f / 60.0f;
 
 static constexpr float kOneSixth = 1.0f / 6.0f;
 static constexpr float kOneThird = 1.0f / 3.0f;
@@ -84,8 +86,21 @@ float stepKeyboardTurn(float &velocity, float &previousInput, float input, float
                                kKeyboardTurnRate, kKeyboardTurnAcceleration, kKeyboardTurnDeceleration);
 }
 
-float mouseFrameStrength(float travel) {
+// The travel of a 60th of a second as a strength from -1 to 1: a hundred
+// counts is full strength, and rightward or downward travel reads negative.
+static float mouseFrameStrength(float travel) {
     return std::clamp(-travel / kMouseFullTravel, -1.0f, 1.0f);
+}
+
+float mouseSpeedStrength(float travel, float dt) {
+    if (dt <= 0.0f) {
+        return 0.0f;
+    }
+    return mouseFrameStrength(travel * kMouseStrengthFrameTime / dt);
+}
+
+float mouseTravelStrength(float travel, float dt) {
+    return mouseSpeedStrength(travel, dt) * dt / kMouseStrengthFrameTime;
 }
 
 // The sensitivity scale: degrees at a setting of 0, and degrees added per 100.
@@ -97,7 +112,7 @@ float mouseSensitivity(int setting) {
 }
 
 bool Camera::isMouseLookMode() const {
-    return _mouseLookHeld != _game.mouseLook();
+    return _game.mouseLook();
 }
 
 void Camera::update(float dt) {

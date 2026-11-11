@@ -1141,6 +1141,13 @@ void Party::switchLeader(bool sound) {
     _members.push_back(tmp);
 
     onLeaderChanged(tmp.creature, sound);
+    restNewLeaderDrive(tmp.creature);
+}
+
+void Party::restNewLeaderDrive(const std::shared_ptr<Creature> &previous) {
+    if (getLeader() != previous) {
+        _game.resetDriveAcceleration();
+    }
 }
 
 bool Party::changeToNextLivingMember(bool sound) {

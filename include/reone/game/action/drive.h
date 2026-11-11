@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../action.h"
 
 namespace reone {
@@ -24,9 +26,11 @@ namespace reone {
 namespace game {
 
 /**
- * The player steering a creature. Each update the creature turns at once to
- * face the way it is steered and steps that way, at a run unless it is to
- * walk or cannot run. Commands queued behind the drive wait for it.
+ * The player steering a creature. Each update the creature faces the way it
+ * is steered and steps that way at the speed the player's drive gives it, or,
+ * before the player gives one, as a drive restored from a save does, at a run
+ * unless it is to walk or cannot run. Commands queued behind the drive wait
+ * for it.
  *
  * A drive lasts 0.8 seconds. A creature the player keeps steering is given a
  * new drive before the old one runs out; one left alone stops once its drive
@@ -55,14 +59,19 @@ public:
         return from->type() == ActionType::Drive;
     }
 
-    /** Steers the creature \p direction from its next step on, at a run or a walk. */
-    void steer(glm::vec2 direction, bool run) {
+    /**
+     * Steers the creature \p direction from its next step on, showing a run or
+     * a walk, at \p speed metres a second.
+     */
+    void steer(glm::vec2 direction, bool run, float speed) {
         _direction = direction;
         _run = run;
+        _speed = speed;
     }
     /**
-     * The speed the drive moves \p creature at: a run, unless it is to walk or
-     * the creature is limited from running.
+     * The speed the drive moves \p creature at: the speed it is steered at;
+     * before it is steered, a run, unless it is to walk or the creature is
+     * limited from running.
      */
     float speed(const Creature &creature) const;
 
@@ -74,6 +83,8 @@ public:
 private:
     glm::vec2 _direction;
     bool _run;
+    /** The speed the drive is steered at; none until it is steered. */
+    std::optional<float> _speed;
     glm::vec2 _start;
     float _timeLeft;
 

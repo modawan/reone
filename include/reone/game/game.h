@@ -305,8 +305,26 @@ public:
      * stays held.
      */
     void setPlayerInputBlocked(bool blocked) { _playerInputBlocked = blocked; }
-    /** Stops the leader's steering and the camera's turning and mouse-look. */
+    /**
+     * Whether the left button is held: every left press sets it and every
+     * left release clears it, whatever screen takes them; entering a module
+     * clears it too.
+     */
+    bool isLeftButtonHeld() const { return _leftButtonHeld; }
+    /**
+     * Whether the right button or a Ctrl key holds mouse look. The hold
+     * outlasts areas and modules. In KotOR only the right button and the Ctrl
+     * keys change it, and the right button's press and release reach it on
+     * every screen. In TSL stopping play's camera and starting a module end
+     * it too.
+     */
+    bool isMouseLookHeld() const { return _mouseLookHeld; }
+    /** Starts or ends the mouse-look hold of the right button or a Ctrl key. */
+    void setMouseLookHeld(bool held) { _mouseLookHeld = held; }
+    /** Stops the leader's steering and the camera's turning; in TSL it ends the mouse-look hold too. */
     void stopMovement();
+    /** The leader's drive comes to rest at once, as at a script's movie or a change of leader. */
+    void resetDriveAcceleration();
     /**
      * For the given world milliseconds from now, a click neither starts a
      * conversation nor uses a placeable.
@@ -336,6 +354,12 @@ public:
 
     std::shared_ptr<Module> module() const { return _module; }
     CameraType cameraType() const { return _cameraType; }
+    /**
+     * A script's camera mode for the player. The third-person camera has no
+     * modes and keeps to its own; only TSL's dialog mode, 4, has an effect:
+     * it turns off the Force Sight look.
+     */
+    void setCameraMode(int mode);
     const std::set<std::string> &moduleNames() const { return _moduleNames; }
     const std::set<std::string> &saveNames() const { return _saveNames; }
 
@@ -1823,7 +1847,11 @@ private:
     bool _playerInputBlocked {false};
     /** When the left button and Return last started cooling down. */
     std::optional<uint32_t> _clickCooldownStart;
-    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    /** See isLeftButtonHeld. */
+    bool _leftButtonHeld {false};
+    /** See isMouseLookHeld. */
+    bool _mouseLookHeld {false};
+    /** See alternateActionsHeld. */
     bool _alternateActionsHeld {false};
     /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
     std::array<bool, 2> _menusTakeAlternateActions {};
@@ -2357,6 +2385,8 @@ private:
 
     void loadDefaultParty();
     bool loadParty();
+    /** Entering a module lets go of the left button and the alternate actions key. */
+    void releaseInputOnModuleEntry();
     void loadNextModule();
     void playMusic(const std::string &resRef);
     /**
