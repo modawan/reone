@@ -305,7 +305,7 @@ void Player::update(float dt) {
     glm::vec2 movementVec(forward, right);
     facing = movement ? _camera.facing() + std::atan2(right, forward) : _camera.facing();
     float magnitude = glm::length(movementVec);
-    movement = magnitude > 1e-6f;
+    movement = magnitude > 0.2f;
 
     if (movement) {
         // Moving by input clears as the player's controls do.
@@ -317,7 +317,7 @@ void Player::update(float dt) {
         partyLeader->setEngagedExchange(false);
         glm::vec2 dir(glm::normalize(glm::vec2(-glm::sin(facing), glm::cos(facing))));
         // A leader limited from running walks however it is driven.
-        const bool run = !_walk && !partyLeader->isRunLimited();
+        const bool run = !_walk && !partyLeader->isRunLimited() && magnitude > 0.8f;
         // The leader turns at once toward where it is steered.
         partyLeader->setFacing(-glm::atan(dir.x, dir.y));
         const float step = (run ? partyLeader->runSpeed() : partyLeader->walkSpeed()) * dt;
