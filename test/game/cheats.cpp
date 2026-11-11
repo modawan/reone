@@ -98,18 +98,19 @@ struct CheatFixture : Test {
     }
 
     // An item template, and the base item table that loading one reads.
-    void expectItem(const std::string &resRef) {
+    void expectItem(const std::string &resRef, const std::string &stacking = "") {
         TwoDA::Builder baseItems;
         baseItems.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
                            "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
-                           "ammunitiontype", "bodyvar", "itemtype"})
-            .row({"", "", "", "", "", "", "w_dblsbr", "", "", "", "-1", "", ""});
+                           "ammunitiontype", "bodyvar", "itemtype", "stacking"})
+            .row({"", "", "", "", "", "", "w_dblsbr", "", "", "", "-1", "", "", stacking});
         EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
             .WillRepeatedly(Return(std::shared_ptr<TwoDA>(baseItems.build())));
         EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
         EXPECT_CALL(engine.resourceModule().gffs(), get(resRef, ResType::Uti))
             .WillRepeatedly(Return(std::shared_ptr<Gff>(Gff::Builder()
                                                             .field(Gff::Field::newCExoString("Tag", resRef))
+                                                            .field(Gff::Field::newInt("BaseItem", 0))
                                                             .build())));
     }
 
@@ -140,6 +141,41 @@ TEST_F(CheatFixture, additem_adds_nothing_for_an_unknown_code) {
         .WillRepeatedly(Return(nullptr));
 
     EXPECT_THROW(console.execute("additem", {"no_such_item"}), std::runtime_error);
+
+    EXPECT_TRUE(player->items().empty());
+}
+
+TEST_F(CheatFixture, additem_gives_a_stack_as_large_as_the_base_item_allows) {
+    expectItem("g1_i_medeqpmnt01", "10");
+
+    console.execute("additem", {"g1_i_medeqpmnt01", "10"});
+
+    ASSERT_EQ(1u, player->items().size());
+    EXPECT_EQ(10, player->items()[0]->stackSize());
+}
+
+TEST_F(CheatFixture, additem_adds_nothing_for_a_stack_below_one) {
+    expectItem("g1_i_medeqpmnt01", "10");
+
+    EXPECT_THROW(console.execute("additem", {"g1_i_medeqpmnt01", "0"}), std::runtime_error);
+    EXPECT_THROW(console.execute("additem", {"g1_i_medeqpmnt01", "-1"}), std::runtime_error);
+
+    EXPECT_TRUE(player->items().empty());
+}
+
+TEST_F(CheatFixture, additem_adds_nothing_for_a_stack_above_the_base_items_maximum) {
+    expectItem("g1_i_medeqpmnt01", "10");
+
+    EXPECT_THROW(console.execute("additem", {"g1_i_medeqpmnt01", "11"}), std::runtime_error);
+
+    EXPECT_TRUE(player->items().empty());
+}
+
+// With no stacking value the limit is what a stack size can hold.
+TEST_F(CheatFixture, additem_adds_nothing_for_a_stack_too_large_to_store) {
+    expectItem("g1_i_medeqpmnt01");
+
+    EXPECT_THROW(console.execute("additem", {"g1_i_medeqpmnt01", "70000"}), std::runtime_error);
 
     EXPECT_TRUE(player->items().empty());
 }
