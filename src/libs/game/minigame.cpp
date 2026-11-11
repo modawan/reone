@@ -104,8 +104,9 @@ std::optional<MinigameSpec> parseMinigameSpec(const resource::generated::ARE &ar
     spec.depthOfField = are.MiniGame.DOF;
     spec.doBumping = are.MiniGame.DoBumping != 0;
     spec.music = are.MiniGame.Music;
-    spec.mouse.axisX = are.MiniGame.Mouse.AxisX;
-    spec.mouse.axisY = are.MiniGame.Mouse.AxisY;
+    // A binding beyond the three axes binds none.
+    spec.mouse.axisX = are.MiniGame.Mouse.AxisX <= 3 ? are.MiniGame.Mouse.AxisX : 0;
+    spec.mouse.axisY = are.MiniGame.Mouse.AxisY <= 3 ? are.MiniGame.Mouse.AxisY : 0;
     spec.mouse.flipAxisX = are.MiniGame.Mouse.FlipAxisX != 0;
     spec.mouse.flipAxisY = are.MiniGame.Mouse.FlipAxisY != 0;
 

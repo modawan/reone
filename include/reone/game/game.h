@@ -520,6 +520,12 @@ public:
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
+    /**
+     * The screen that presents play: the minigame while one runs, otherwise
+     * the world.
+     */
+    Screen gameplayScreen() const;
+    /** Returns to play, which is the minigame while one runs. */
     void openInGame();
     /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
     void renderScreenFill(const glm::vec3 &color, float alpha);
@@ -541,6 +547,16 @@ public:
 
     void openTurret();
     void closeTurret();
+
+    Turret &turret() { return _turret; }
+
+    /**
+     * Starts the turret of the module just arrived in. A turret comes up as
+     * part of the arrival, after the module's load script and before anyone
+     * enters: its actors' creation scripts build on what the load script set
+     * up, and the area's enter script runs with the turret already there.
+     */
+    void startScheduledTurret();
 
     // Exit the active turret: returns to the lifecycle origin if a lifecycle
     // session is in progress, otherwise just stops the dev session in place.
@@ -2369,16 +2385,8 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
-    // Same, for the turret minigame. The outcome is carried through rather than
-    // reduced to a success flag: a win, a loss and an abandoned session all
-    // return to the origin, but only a win emits the completion state.
-    void finishTurretLifecycle(Turret::Outcome outcome);
-
-    /**
-     * Apply post-turret globals for K1 M12ab after a victory.
-     * Other modules are unchanged.
-     */
-    void applyTurretResult(const std::string &turretModule, Turret::Outcome outcome);
+    // Same, for the turret minigame.
+    void finishTurretLifecycle();
 
     // Give up on a scheduled turret session and go back where it started.
     void abandonPendingTurret(const std::string &reason);
@@ -2639,6 +2647,9 @@ private:
     void consoleStopTurret(const ConsoleArgs &tokens);
     void consoleTurretState(const ConsoleArgs &tokens);
     void consoleStartTurretGame(const ConsoleArgs &tokens);
+    void consoleFinishTurret(const ConsoleArgs &tokens);
+    void consoleTurretAim(const ConsoleArgs &tokens);
+    void consoleTurretFire(const ConsoleArgs &tokens);
     void consoleShowImGui(const ConsoleArgs &tokens);
     void consoleShowPath(const ConsoleArgs &tokens);
 
