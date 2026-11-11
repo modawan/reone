@@ -213,6 +213,21 @@ void Context::setObstruction(AudioSource &source, float obstruction) {
 #endif
 }
 
+void Context::setAirAbsorption(AudioSource &source, float factor) {
+#ifdef R_ENABLE_EFX
+    // The obstruction filter is made exactly when the device has the
+    // effects extension.
+    const ALuint name = source.alSource();
+    if (_obstructionFilter == 0 || name == 0) {
+        return;
+    }
+    alSourcef(name, AL_AIR_ABSORPTION_FACTOR, std::clamp(factor, 0.0f, 10.0f));
+#else
+    static_cast<void>(source);
+    static_cast<void>(factor);
+#endif
+}
+
 void Context::initEffects() {
 #ifdef R_ENABLE_EFX
     ALCint sends = 0;

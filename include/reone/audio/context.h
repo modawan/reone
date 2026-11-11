@@ -67,6 +67,13 @@ public:
      * Does nothing unless rendersObstruction, or before the source is inited.
      */
     virtual void setObstruction(AudioSource &source, float obstruction) = 0;
+
+    /**
+     * Has \p source lose its highs with distance by \p factor of the air
+     * absorption EFX models, 0 for none. Does nothing without the effects
+     * extension, or before the source is inited.
+     */
+    virtual void setAirAbsorption(AudioSource &source, float factor) = 0;
 };
 
 /** The fullest reverb the device renders, which decides how much of an environment is heard. */
@@ -106,6 +113,7 @@ public:
     void setReverbSend(AudioSource &source, float gain) override;
     bool rendersObstruction() const override { return _obstructionFilter != 0; }
     void setObstruction(AudioSource &source, float obstruction) override;
+    void setAirAbsorption(AudioSource &source, float factor) override;
 
 private:
     /**

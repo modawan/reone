@@ -119,6 +119,13 @@ TEST_F(ReverbSendTest, effects_options_turn_their_sends_off) {
     EXPECT_EQ(playPositional(std::nullopt), 0.0f);
 }
 
+TEST_F(ReverbSendTest, only_positional_sounds_take_air_absorption) {
+    EXPECT_CALL(context, setAirAbsorption(_, 1.0f)).Times(1);
+
+    playPositional(std::nullopt);
+    mixer.play(silentClip(), AudioType::Sound, std::nullopt, 1.0f, true);
+}
+
 TEST_F(ReverbSendTest, positional_sound_takes_its_first_obstruction_at_once_and_eases_to_later_ones) {
     std::vector<float> obstructions;
     ON_CALL(context, setObstruction(_, _)).WillByDefault([&obstructions](AudioSource &, float obstruction) {
