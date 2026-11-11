@@ -931,6 +931,12 @@ void Game::initJournalNotifications() {
         _statusSummary.submitQuestSound(change.end);
         awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
     });
+    _journal.setClock([this]() {
+        const uint32_t dayLength = millisecondsPerWorldDay();
+        return std::pair<uint32_t, uint32_t>(
+            static_cast<uint32_t>(_worldTimeMilliseconds / dayLength),
+            static_cast<uint32_t>(_worldTimeMilliseconds % dayLength));
+    });
 }
 
 void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
