@@ -534,22 +534,22 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
         pcExpected) {
         throw std::invalid_argument("PARTYTABLE and pc.utc topology disagree");
     }
+    // The single player is the primary one, whichever creature it controls.
+    // A save of the template world lists it in the player info instead.
     if (current) {
         auto players = current->ifo->getList("Mod_PlayerList");
         if (players.size() != 1 ||
             players.front()->getUint("ObjectId", UINT32_MAX) == UINT32_MAX ||
-            players.front()->getBool("Mod_IsPrimaryPlr") != (controlled == -1)) {
+            !players.front()->getBool("Mod_IsPrimaryPlr")) {
             throw std::invalid_argument(
-                "Current module player topology disagrees with PARTYTABLE");
+                "The current module's player list is not a single primary player");
         }
-    }
-    if (!current) {
+    } else {
         auto playerInfo = readGff(
             input.saveWide.looseSlotResources.at({"pifo", ResType::Ifo}), "IFO V3.2");
         auto listedPlayers = playerInfo->getList("Mod_PlayerList");
-        if (listedPlayers.size() != 1 ||
-            listedPlayers.front()->getBool("Mod_IsPrimaryPlr") != (controlled == -1)) {
-            throw std::invalid_argument("Player list topology disagrees with PARTYTABLE");
+        if (listedPlayers.size() != 1 || !listedPlayers.front()->getBool("Mod_IsPrimaryPlr")) {
+            throw std::invalid_argument("The player info is not a single primary player");
         }
     }
     if (input.saveWide.gameId == resource::GameID::TSL) {

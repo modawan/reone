@@ -1008,8 +1008,11 @@ void HUD::update(float dt) {
         _statusSummary->update(dt);
     }
 
-    // Hide the minimap when the area has no map to show
-    _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
+    // The minimap and its button show only while there is a map to show and
+    // the party's map isn't disabled.
+    const bool minimap = _game.map().isLoaded() && !_game.map().isDisabled();
+    _controls.LBL_MAPBORDER->setVisible(minimap);
+    _controls.BTN_MINIMAP->setVisible(minimap);
 
     if (_capturePresentation) {
         _controls.LBL_CHAR1->setVisible(true);

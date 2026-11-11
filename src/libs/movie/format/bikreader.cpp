@@ -124,6 +124,8 @@ private:
     AVCodecContext *_audioCodecCtx {nullptr};
     SwsContext *_swsContext {nullptr};
     SwrContext *_swrContext {nullptr};
+    /** Audio decodes to stereo, as it does for any movie with more than one channel. */
+    bool _stereo {false};
     AVFrame *_avFrame {nullptr};
     AVFrame *_avFrameScaled {nullptr};
     uint8_t *_frameBuffer {nullptr};
@@ -194,17 +196,19 @@ private:
     void initResamplingContext() {
 #if (LIBSWRESAMPLE_VERSION_MAJOR > 4) || \
     (LIBSWRESAMPLE_VERSION_MAJOR == 4 && LIBSWRESAMPLE_VERSION_MINOR >= 7)
-        AVChannelLayout outChLayout(AV_CHANNEL_LAYOUT_MONO);
         auto &inChLayout = _audioCodecCtx->ch_layout;
+        _stereo = inChLayout.nb_channels > 1;
+        AVChannelLayout outChLayout = _stereo ? AVChannelLayout(AV_CHANNEL_LAYOUT_STEREO) : AVChannelLayout(AV_CHANNEL_LAYOUT_MONO);
         swr_alloc_set_opts2(
             &_swrContext,
             &outChLayout, AV_SAMPLE_FMT_S16, _audioCodecCtx->sample_rate,
             &inChLayout, _audioCodecCtx->sample_fmt, _audioCodecCtx->sample_rate,
             0, nullptr);
 #else
+        _stereo = _audioCodecCtx->channels > 1;
         _swrContext = swr_alloc_set_opts(
             nullptr,
-            AV_CH_LAYOUT_MONO, AV_SAMPLE_FMT_S16, _audioCodecCtx->sample_rate,
+            _stereo ? AV_CH_LAYOUT_STEREO : AV_CH_LAYOUT_MONO, AV_SAMPLE_FMT_S16, _audioCodecCtx->sample_rate,
             _audioCodecCtx->channel_layout, _audioCodecCtx->sample_fmt, _audioCodecCtx->sample_rate,
             0, nullptr);
 #endif
@@ -273,8 +277,9 @@ private:
             av_packet_unref(&packet);
             while ((ret = avcodec_receive_frame(_audioCodecCtx, _avFrame)) >= 0) {
                 // Resample frame
+                const int channels = _stereo ? 2 : 1;
                 int numSamples = swr_get_out_samples(_swrContext, _avFrame->nb_samples);
-                int bufSize = av_samples_get_buffer_size(nullptr, 1, numSamples, AV_SAMPLE_FMT_S16, 1);
+                int bufSize = av_samples_get_buffer_size(nullptr, channels, numSamples, AV_SAMPLE_FMT_S16, 1);
                 ByteBuffer samples(bufSize, '\0');
                 uint8_t *samplesPtr = reinterpret_cast<uint8_t *>(&samples[0]);
                 swr_convert(
@@ -284,7 +289,7 @@ private:
 
                 // Save frame
                 AudioClip::Frame frame;
-                frame.format = AudioFormat::Mono16;
+                frame.format = _stereo ? AudioFormat::Stereo16 : AudioFormat::Mono16;
                 frame.sampleRate = _audioCodecCtx->sample_rate;
                 frame.samples = std::move(samples);
                 _audioStream->add(std::move(frame));

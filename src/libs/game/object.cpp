@@ -362,8 +362,8 @@ void Object::runActions() {
 }
 
 // Actions run in turn for as long as each ends at once. An action still under
-// way ends the run, as does a walk to a point or a jump, a move made by the
-// action, or a run of 64 actions.
+// way ends the run, as does a walk to a point, a jump or a drive, a move made
+// by the action, or a run of 64 actions.
 void Object::executeActionsIfAble(float dt) {
     static constexpr int kMaxActionsPerUpdate = 64;
     for (int run = 1;; ++run) {
@@ -1381,6 +1381,7 @@ bool Object::executeActions(float dt) {
     case SavedActionType::MoveToPoint:
     case SavedActionType::JumpToLocation:
     case SavedActionType::JumpToObject:
+    case SavedActionType::Drive:
         return false;
     default:
         return _position == position;

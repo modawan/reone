@@ -922,10 +922,14 @@ public:
     uint16_t portraitId() const { return _portraitId; }
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
     float walkSpeed() const;
-    /** The speed the player drives this creature at, and its appearance's limit. */
-    float driveSpeed() const { return _driveSpeed; }
+    /** Whether the player drives this creature: a drive heads its queue. */
+    bool isDriven() const;
+    /**
+     * The speed the player drives this creature at, 0 while it is not driven,
+     * and its appearance's limit.
+     */
+    float driveSpeed() const;
     float driveMaxSpeed() const { return _driveMaxSpeed; }
-    void setDriveSpeed(float speed) { _driveSpeed = speed; }
     /**
      * Whether the creature last moved at a run under the player's direct
      * control. Running under an action or its AI does not count, and the
@@ -2811,7 +2815,6 @@ private:
     float _runDistance {1.0f};
     /** The appearance's own sneaking pace. */
     float _stealthWalkSpeed {0.0f};
-    float _driveSpeed {0.0f};
     float _driveMaxSpeed {0.0f};
     bool _running {false};
     float _personalSpace {0.6f};

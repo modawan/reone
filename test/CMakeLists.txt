@@ -39,6 +39,7 @@ set(TESTS_HEADERS
 
 set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/arbiter.cpp
+    ${TESTS_SOURCE_DIR}/audio/context.cpp
     ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/extract/capsule.cpp
@@ -129,6 +130,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/listbox.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp

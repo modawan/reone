@@ -532,11 +532,10 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPlayerInfo() const {
     ModuleSnapshotBuilder records(_game, {});
     auto record = records.writeCreature(
         *player,
-        4,
+        ModuleSnapshotBuilder::kPlayerEntryStructType,
         std::nullopt,
         SerializedIdentityContext::detachedRecord("pifo.ifo"));
-    put(*record, Gff::Field::newByte(
-                     "Mod_IsPrimaryPlr", player == _game._party.actualPlayer()));
+    records.writePlayerEntry(*record, *player);
     return Gff::Builder()
         .type(0xffffffff)
         .field(Gff::Field::newList("Mod_PlayerList", {record}))

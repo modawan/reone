@@ -33,6 +33,7 @@
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/changefacing.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/switchweapons.h"
@@ -2063,11 +2064,11 @@ bool Creature::permitsAction(const Action &action) const {
     }
     // A walk to a point, or one heading for an object, fails a creature that
     // cannot move unless its goal is a trigger or a linked door already in
-    // reach, which it clicks or is blocked by; a walk to a location and a
-    // follow of the leader or of the owner fail it too. A walk to an object
-    // that checks its reach, a move away and a follow of another creature
-    // keep their order: only death or going down ends them. A random walk
-    // asks nothing.
+    // reach, which it clicks or is blocked by; a walk to a location, a
+    // follow of the leader or of the owner and a drive fail it too. A walk to
+    // an object that checks its reach, a move away and a follow of another
+    // creature keep their order: only death or going down ends them. A random
+    // walk asks nothing.
     switch (command.type()) {
     case ActionType::MoveToObject: {
         const auto &move = static_cast<const MoveToObjectAction &>(command);
@@ -2083,6 +2084,7 @@ bool Creature::permitsAction(const Action &action) const {
     case ActionType::MoveToLocation:
     case ActionType::FollowLeader:
     case ActionType::FollowOwner:
+    case ActionType::Drive:
         return canMove();
     case ActionType::RandomWalk:
         return true;
@@ -4377,9 +4379,10 @@ void Creature::setDesiredFacingToward(const glm::vec3 &point) {
 Creature::AnimationUpdater Creature::animationUpdater() const {
     auto &party = _game.party();
     const bool leader = party.getLeader().get() == this;
-    // In a conversation the leader is driven only when it neither speaks nor
-    // listens; in TSL not at all. Nor is it driven after an engaged swing.
-    if (leader && !_engagedExchange && !hasOrdinaryActionsPending() && !isPlayingDialogAnimation() &&
+    // The leader acts freely with nothing queued or under the player's drive.
+    // In a conversation it is driven only when it neither speaks nor listens;
+    // in TSL not at all. Nor is it driven after an engaged swing.
+    if (leader && !_engagedExchange && (!hasOrdinaryActionsPending() || isDriven()) && !isPlayingDialogAnimation() &&
         !(_game.isTSL() ? _game.isConversationActive() : _game.isConversationSpeakerOrListener(*this))) {
         return AnimationUpdater::Drive;
     }
@@ -6135,7 +6138,9 @@ void Creature::playSound(SoundSetEntry entry, bool positional) {
         group,
         1.0f,
         false,
-        std::move(position));
+        std::move(position),
+        std::nullopt,
+        0.0f);
 }
 
 void Creature::setPresent(bool present) {
@@ -7427,7 +7432,6 @@ Alignment Creature::alignment() const {
 
 namespace {
 
-constexpr int kMaxGoodEvil = 100;
 constexpr char kPlayerAlignmentGlobal[] = "G_PC_Align_Val";
 
 // Mastery of a side of the Force strengthens influence by the level held in
@@ -7461,12 +7465,12 @@ int influenceAlignment(int base, int influence, int charismaBonus, float factor,
     const float push = static_cast<float>(playerAlignment - 50) / 50.0f * pull;
     const float value = push <= 0.0f
                             ? static_cast<float>(base) * (1.0f + push)
-                            : static_cast<float>(base) + static_cast<float>(100 - base) * push;
-    if (value > 100.0f) {
-        return 100;
+                            : static_cast<float>(base) + static_cast<float>(kMaxGoodEvil - base) * push;
+    if (value > static_cast<float>(kMaxGoodEvil)) {
+        return kMaxGoodEvil;
     }
-    if (value < 0.0f) {
-        return 0;
+    if (value < static_cast<float>(kMinGoodEvil)) {
+        return kMinGoodEvil;
     }
     return static_cast<int>(value);
 }
@@ -7475,7 +7479,7 @@ int influenceAlignment(int base, int influence, int charismaBonus, float factor,
 
 void Creature::modifyAlignment(int shift, bool dontModifyNPCs) {
     const auto clampGoodEvil = [](int value) {
-        return std::clamp(value, 0, kMaxGoodEvil);
+        return std::clamp(value, kMinGoodEvil, kMaxGoodEvil);
     };
     const auto shifted = [&]() {
         return clampGoodEvil(_goodEvil + shift);
@@ -7506,7 +7510,7 @@ void Creature::updatePureGoodEvilPowers() {
     if (_goodEvil == kMaxGoodEvil) {
         removePureAlignmentPowers(false);
         addPureAlignmentPowers(true);
-    } else if (_goodEvil == 0) {
+    } else if (_goodEvil == kMinGoodEvil) {
         removePureAlignmentPowers(true);
         addPureAlignmentPowers(false);
     } else {
@@ -7542,7 +7546,7 @@ void Creature::recomputeInfluenceAlignment() {
     }
     // Kreia's alignment is her own, whatever her influence.
     if (boost::iequals(_tag, "kreia")) {
-        _goodEvil = std::clamp(_baseCNPCAlignment, 0, kMaxGoodEvil);
+        _goodEvil = std::clamp(_baseCNPCAlignment, kMinGoodEvil, kMaxGoodEvil);
         return;
     }
     // Influence belongs to a companion's roster slot, and its base to the
@@ -12021,6 +12025,15 @@ float Creature::walkSpeed() const {
 // However slowed, a run covers at least a metre a second.
 float Creature::runSpeed() const {
     return std::max(kMinimumRunSpeed, _runSpeed * movementRate(true));
+}
+
+bool Creature::isDriven() const {
+    const auto action = getCurrentAction();
+    return action && isa<DriveAction>(action);
+}
+
+float Creature::driveSpeed() const {
+    return isDriven() ? cast<DriveAction>(getCurrentAction())->speed(*this) : 0.0f;
 }
 
 int Creature::maxForcePoints() const {

@@ -17,26 +17,30 @@
 
 #pragma once
 
+#include <memory>
+#include <optional>
+
 #include "reone/input/event.h"
 
 namespace reone {
 
 namespace game {
 
-class Area;
 class Camera;
 class Creature;
 class Module;
 class Party;
 
 /**
- * Encapsulates third-person player controls.
+ * Encapsulates third-person player controls. The movement input drives the
+ * leader: it gives the leader a drive as the input starts and a new one each
+ * drive update while it lasts, clearing the leader's orders each time, and
+ * steers the drive in between.
  */
 class Player : boost::noncopyable {
 public:
-    Player(Module &module, Area &area, Camera &camera, const Party &party) :
+    Player(Module &module, Camera &camera, const Party &party) :
         _module(module),
-        _area(area),
         _camera(camera),
         _party(party) {
     }
@@ -47,12 +51,11 @@ public:
     void stopMovement();
 
     bool isMovementRequested() const;
-    /** Whether the last update moved the leader under direct control. */
-    bool isMoving() const { return _moving; }
+    /** Whether the player drives the leader. */
+    bool isMoving() const;
 
 private:
     Module &_module;
-    Area &_area;
     Camera &_camera;
     const Party &_party;
 
@@ -62,7 +65,13 @@ private:
     bool _moveRight {false};
     bool _leftPressedInMouseLook {false};
     bool _walk {false};
-    bool _moving {false};
+    /** Time left until the next drive update while the movement input lasts. */
+    float _driveUpdateDelay {0.0f};
+    /** The creature the last drive update went to. */
+    std::weak_ptr<Creature> _driven;
+
+    /** The facing the movement input steers the leader toward, if any. */
+    std::optional<float> steeredFacing() const;
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);

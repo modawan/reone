@@ -75,6 +75,12 @@ struct ModuleNameFixture {
         routines.init();
     }
 
+    // The engine is shared by every test: the talk table answers no more
+    // strings once the fixture is gone.
+    ~ModuleNameFixture() {
+        Mock::VerifyAndClearExpectations(&engine.resourceModule().strings());
+    }
+
     // Bring up a module the way the game does: a resource name plus the module
     // IFO. The resource name is what reone normalizes to lower case, so it is
     // deliberately spelled that way here.

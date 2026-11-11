@@ -399,7 +399,7 @@ void Module::loadLimboCreatures(const resource::Gff &ifo) {
 }
 
 void Module::loadPlayer() {
-    _player = std::make_unique<Player>(*this, *_area, *_area->getCamera(CameraType::ThirdPerson), _game.party());
+    _player = std::make_unique<Player>(*this, *_area->getCamera(CameraType::ThirdPerson), _game.party());
 }
 
 void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {

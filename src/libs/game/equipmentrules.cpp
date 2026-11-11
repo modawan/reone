@@ -184,8 +184,6 @@ static bool meetsAlignmentLimits(const Creature &creature, const Item &item, boo
             return static_cast<Alignment>(property.subtype) == alignment;
         });
     }
-    static constexpr int kPureDarkSideGoodEvil = 0;
-    static constexpr int kPureLightSideGoodEvil = 100;
     const int goodEvil = creature.goodEvil();
     return anyActiveProperty(item, ItemProperty::UseLimitationAlignmentGroup, [&](const Item::PropertyEntry &property) {
         switch (static_cast<Alignment>(property.subtype)) {
@@ -196,9 +194,9 @@ static bool meetsAlignmentLimits(const Creature &creature, const Item &item, boo
         case Alignment::DarkSide:
             return static_cast<Alignment>(property.subtype) == alignment;
         case Alignment::PureDarkSide:
-            return goodEvil == kPureDarkSideGoodEvil;
+            return goodEvil == kMinGoodEvil;
         case Alignment::PureLightSide:
-            return goodEvil == kPureLightSideGoodEvil;
+            return goodEvil == kMaxGoodEvil;
         default:
             return false;
         }

@@ -28,6 +28,10 @@ constexpr int kEngineTypeInvalid = -1;
 constexpr float kDefaultFollowDistance = 5.0f;
 constexpr char kObjectTagPlayer[] = "player";
 constexpr int kNumClasses = 6;
+/** The good/evil value of pure evil, the dark side's end. */
+constexpr int kMinGoodEvil = 0;
+/** The good/evil value of pure good, the light side's end. */
+constexpr int kMaxGoodEvil = 100;
 
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;
@@ -1163,6 +1167,7 @@ enum class ActionType {
     ChangeFacing = 0x102a,
     OrientCamera = 0x102b,
     PlaySound = 0x102c,
+    Drive = 0x102d,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe

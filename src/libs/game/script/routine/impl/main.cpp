@@ -45,7 +45,6 @@
 #include "reone/game/event.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
-#include "reone/game/menupresentation.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
@@ -7168,10 +7167,6 @@ static Variable ResetDialogState(const std::vector<Variable> &args, const Routin
     return Variable::ofNull();
 }
 
-// The good/evil value runs from 0, the dark side, to 100, the light side.
-static constexpr int kMinGoodEvil = 0;
-static constexpr int kMaxGoodEvil = 100;
-
 static Variable SetGoodEvilValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto creature = getCreatureOrNull(args, 0, ctx);
@@ -8158,10 +8153,10 @@ static Variable DisableMap(const std::vector<Variable> &args, const RoutineConte
     // Load
     auto nFlag = getIntOrElse(args, 0, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("DisableMap");
+    // Any flag but 0 disables the party's map.
+    ctx.game.party().setMapDisabled(nFlag != 0);
+    return Variable::ofNull();
 }
 
 static Variable DetonateMine(const std::vector<Variable> &args, const RoutineContext &ctx) {

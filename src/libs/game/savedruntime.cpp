@@ -24,6 +24,7 @@
 #include "reone/game/action/changefacing.h"
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/doorsaber.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/equipitem.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
@@ -1315,6 +1316,9 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::ItemCastSpell, &isItemUseCommand, &CastSpellAction::restore},
     {SavedActionType::JumpToObject, &hasParameters<Type::Object, Type::Integer>, &JumpToObjectAction::restore},
     {SavedActionType::FacePoint, &hasParameters<Type::Float, Type::Float, Type::Float>, &ChangeFacingAction::restore},
+    {SavedActionType::Drive,
+     &hasParameters<Type::Float, Type::Float, Type::Integer, Type::Integer, Type::Integer, Type::Integer, Type::Integer>,
+     &DriveAction::restore},
     {SavedActionType::OrientCamera, &hasParameters<Type::Integer, Type::Float, Type::Float, Type::Float, Type::Integer>,
      &OrientCameraAction::restore},
     {SavedActionType::Appear, &hasParameters<>, &AppearAction::restore},
