@@ -713,6 +713,14 @@ public:
      */
     void updateFollowPath();
     /**
+     * The party's follower scripts over \p dt seconds of world time. A
+     * follower at least the PartyEscape range from the leader runs
+     * k_hen_retreat once that range's seconds have passed since a follower
+     * last did; one that leaves 5 m of the leader runs k_hen_exit5m, and one
+     * that comes within it k_hen_enter5m.
+     */
+    void runFollowerScripts(float dt);
+    /**
      * The way a following member faces: where it last moved, or the leader
      * it turned to. Its model turns to it, and the party turning back is
      * noticed from it.
@@ -812,6 +820,8 @@ private:
     /** The point ordered follows of party members are taken from, and its facing. */
     glm::vec3 _followAnchor {0.0f};
     float _followAnchorFacing {0.0f};
+    /** Seconds of world time since a follower last ran k_hen_retreat, up to the retreat interval. */
+    float _retreatScriptTimer {0.0f};
 
     // END Follow path
 

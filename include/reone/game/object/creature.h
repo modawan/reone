@@ -1245,6 +1245,13 @@ public:
     void setCurrentForm(CombatForm form) { _currentForm = form; }
     bool isStealthed() const { return _stealthMode; }
     /**
+     * Whether the creature, following the party's leader, was within 5 m of
+     * it at the party's last tick (see Party::runFollowerScripts). It starts
+     * clear as the creature joins, and saves keep it.
+     */
+    bool isWithinSafetyRange() const { return _withinSafetyRange; }
+    void setWithinSafetyRange(bool within) { _withinSafetyRange = within; }
+    /**
      * Enters or leaves stealth, with its presentation. In KotOR the creature
      * also plays its activate clip, unless \p quiet: stealth ended by
      * restrict mode or the start of a conversation, or a loaded creature.
@@ -2897,6 +2904,7 @@ private:
     /** The kind of the round action most recently dispatched. */
     int _roundActionKind {0};
     bool _stealthMode {false};
+    bool _withinSafetyRange {false};
     bool _treatInjuryWorkDone {false};
     bool _conversationPaused {false};
     /** Milliseconds of excitement left, counted down by the frame time; 0 when not excited. */

@@ -1375,6 +1375,9 @@ void Game::update(float frameTime) {
         if (current()) {
             _combat.update(dt);
         }
+        if (current()) {
+            _party.runFollowerScripts(dt);
+        }
         // Projectiles in flight stand still while time is stopped.
         if (current() && !_timeStopped) {
             _services.game.projectiles.update(dt, *this, _services);
