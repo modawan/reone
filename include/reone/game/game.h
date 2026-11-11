@@ -355,11 +355,27 @@ public:
     std::shared_ptr<Module> module() const { return _module; }
     CameraType cameraType() const { return _cameraType; }
     /**
-     * A script's camera mode for the player. The third-person camera has no
-     * modes and keeps to its own; only TSL's dialog mode, 4, has an effect:
-     * it turns off the Force Sight look.
+     * The camera modes the engine sets as the camera changes: the follow
+     * camera on a stick, a conversation's or a cutscene's, free look and
+     * combat. A script's modes are below these.
+     */
+    static constexpr int kOnAStickCameraMode = 3;
+    static constexpr int kDialogCameraMode = 4;
+    static constexpr int kFreeLookCameraMode = 5;
+    static constexpr int kCombatCameraMode = 6;
+
+    /**
+     * A script's camera mode for the player. It holds until the engine sets
+     * another as the camera next changes, a module loads or the session
+     * ends. Under a script's mode, 0 to 2, the follow camera turns as a
+     * script's camera command tells it. TSL's dialog mode, 4, also turns off
+     * the Force Sight look.
      */
     void setCameraMode(int mode);
+    /** The live camera mode: the engine's for the camera that shows the scene, or a script's since. */
+    int cameraMode() const { return _cameraMode; }
+    /** Whether a script's camera mode, 0 to 2, holds the follow camera. */
+    bool isScriptCameraMode() const { return _cameraMode >= 0 && _cameraMode < kOnAStickCameraMode; }
     const std::set<std::string> &moduleNames() const { return _moduleNames; }
     const std::set<std::string> &saveNames() const { return _saveNames; }
 
@@ -528,6 +544,8 @@ public:
     bool isDeadTargetHoldRunning() const { return _deadTargetHold > 0.0f; }
     /** Combat mode follows the leader's, in the area it stands in. */
     void syncPartyCombatMode();
+    /** The engine sets the camera mode once the camera that shows the scene changes. */
+    void syncEngineCameraMode();
     /**
      * Step the target through the nearby objects in bearing order: direction 0
      * turns counter-clockwise from the leader's facing, direction 1 clockwise.
@@ -1921,6 +1939,10 @@ private:
     std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
+    /** The live camera mode (see cameraMode). */
+    int _cameraMode {kOnAStickCameraMode};
+    /** The mode the engine last set for the camera that shows the scene. */
+    int _engineCameraMode {kOnAStickCameraMode};
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
     /** The sound mode the world's sounds were last paused or resumed for. */

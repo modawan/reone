@@ -1278,6 +1278,7 @@ void Game::update(float frameTime) {
     static const std::set<int> kDuckedSoundGroups {kAreaWideAmbientSoundGroup, kLoopingPositionalAmbientSoundGroup};
     _services.audio.mixer.setDucked(isTSL() && isConversationActive(), kDuckedSoundGroups);
     syncPartyCombatMode();
+    syncEngineCameraMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
         // Each member's party combat mode follows its own targets. A door or
@@ -1838,6 +1839,9 @@ void Game::publishDestinationModule(const std::string &name, const resource::Gff
         },
         [&]() noexcept {
             _module = std::move(destinationModule);
+            // A module starts with the camera on a stick.
+            _cameraMode = kOnAStickCameraMode;
+            _engineCameraMode = kOnAStickCameraMode;
         });
 }
 
@@ -2250,6 +2254,8 @@ void Game::retireRuntimeSession() {
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
+    _cameraMode = kOnAStickCameraMode;
+    _engineCameraMode = kOnAStickCameraMode;
     _freeLook = false;
     disableVideoEffect();
     _scriptVideoEffectHeld = false;
@@ -4700,13 +4706,37 @@ void Game::enableVideoEffect(int row) {
     _services.scene.graphs.get(kSceneMain).setVideoEffect(std::move(effect));
 }
 
-// TSL's dialog mode turns off the Force Sight look until a video effect is
-// next shown.
-static constexpr int kDialogCameraMode = 4;
-
+// A camera that changed earlier in the frame sets the engine's mode first,
+// so the script's mode outlasts it. TSL's dialog mode turns off the Force
+// Sight look until a video effect is next shown.
 void Game::setCameraMode(int mode) {
+    syncEngineCameraMode();
+    _cameraMode = mode;
     if (isTSL() && mode == kDialogCameraMode) {
         _services.scene.graphs.get(kSceneMain).clearForceSight();
+    }
+}
+
+// The follow camera is on a stick, or in combat; free look and the cameras of
+// conversations and cutscenes are modes of their own.
+void Game::syncEngineCameraMode() {
+    int mode = kOnAStickCameraMode;
+    switch (_cameraType) {
+    case CameraType::FirstPerson:
+        mode = kFreeLookCameraMode;
+        break;
+    case CameraType::ThirdPerson: {
+        auto *camera = _module && _module->area() ? dynamic_cast<ThirdPersonCamera *>(getActiveCamera()) : nullptr;
+        mode = camera && camera->isCombat() ? kCombatCameraMode : kOnAStickCameraMode;
+        break;
+    }
+    default:
+        mode = kDialogCameraMode;
+        break;
+    }
+    if (mode != _engineCameraMode) {
+        _engineCameraMode = mode;
+        _cameraMode = mode;
     }
 }
 
