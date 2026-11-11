@@ -122,6 +122,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/turret.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/context.cpp
+    ${TESTS_SOURCE_DIR}/graphics/dxtutil.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/mdlmdxreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/tgareader.cpp
