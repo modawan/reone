@@ -17,6 +17,11 @@
 
 #include "reone/resource/provider/movies.h"
 
+#include <algorithm>
+
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "reone/movie/format/bikreader.h"
 #include "reone/system/fileutil.h"
 
@@ -26,7 +31,8 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<IMovie> Movies::doGet(std::string name) {
+// A movie plays once, so every playback reads the file afresh.
+std::shared_ptr<IMovie> Movies::get(const std::string &name) {
     auto path = findFileIgnoreCase(_gamePath, "movies/" + name + ".bik");
     if (!path) {
         return nullptr;
@@ -36,6 +42,22 @@ std::shared_ptr<IMovie> Movies::doGet(std::string name) {
     bik.load();
 
     return bik.movie();
+}
+
+std::vector<std::string> Movies::names() {
+    std::vector<std::string> result;
+    auto directory = findFileIgnoreCase(_gamePath, "movies");
+    if (!directory) {
+        return result;
+    }
+    for (const auto &entry : std::filesystem::directory_iterator(*directory)) {
+        if (!entry.is_regular_file() || !boost::iequals(entry.path().extension().string(), ".bik")) {
+            continue;
+        }
+        result.push_back(boost::to_lower_copy(entry.path().stem().string()));
+    }
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 } // namespace resource

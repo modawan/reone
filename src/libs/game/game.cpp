@@ -745,6 +745,8 @@ void Game::init() {
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
     _options.game.gameplay = GameplayOptions::load(_options.game.configurationPath);
+    _options.game.moviesShown = loadMoviesShown(_options.game.configurationPath);
+    _options.game.unlockedPlanetSongs = loadUnlockedPlanetSongs(_options.game.configurationPath);
     initConsole();
     initTables();
     resetGalaxyMap();
@@ -1739,6 +1741,12 @@ bool Game::loadModule(
     std::string entry,
     bool initialSaveRestore) {
     info("Preparing module '" + name + "'");
+    // Every module the sequel loads but 950COR opens the music list's songs
+    // of its planet, the leading digit of its name.
+    if (isTSL() && !name.empty() && std::isdigit(static_cast<unsigned char>(name.front())) &&
+        !boost::iequals(name, "950cor")) {
+        unlockPlanetSongs(1 << (name.front() - '0'));
+    }
     PreparedDestinationModule prepared;
     try {
         prepared = prepareDestinationModule(
@@ -5669,6 +5677,7 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     if (!_movie) {
         return false;
     }
+    markMovieShown(name);
     _movieSkippable = true;
     // A movie ends the area's music and ambient loop for good; one that
     // comes before arrival, as an enter script's, leaves the music to start
@@ -6862,6 +6871,21 @@ void Game::saveSoundOptions() const {
 
 void Game::saveGraphicsOptions() const {
     reone::game::saveGraphicsOptions(_options.game.configurationPath, _options.graphics);
+}
+
+void Game::unlockPlanetSongs(int songs) {
+    if ((_options.game.unlockedPlanetSongs | songs) == _options.game.unlockedPlanetSongs) {
+        return;
+    }
+    _options.game.unlockedPlanetSongs |= songs;
+    saveUnlockedPlanetSongs(_options.game.configurationPath, _options.game.unlockedPlanetSongs);
+}
+
+// The configuration is written the first time a movie is seen.
+void Game::markMovieShown(const std::string &name) {
+    if (_options.game.moviesShown.insert(boost::to_lower_copy(name)).second) {
+        saveMoviesShown(_options.game.configurationPath, _options.game.moviesShown);
+    }
 }
 
 // Tutorial windows

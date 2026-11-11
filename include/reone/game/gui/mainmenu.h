@@ -20,6 +20,7 @@
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
+#include "reone/gui/control/slider.h"
 #include "reone/resource/types.h"
 #include "reone/scene/graph.h"
 #include "reone/scene/node/model.h"
@@ -29,13 +30,27 @@
 
 namespace reone {
 
+namespace audio {
+
+class AudioSource;
+
+}
+
 namespace game {
 
 class Creature;
 
+/**
+ * The title screen. Its movie list and, in TSL, its music player open over
+ * it as pages that take every input until they are closed.
+ */
 class MainMenu : public GameGUI {
 public:
     MainMenu(Game &game, ServicesView &services);
+
+    bool handle(const input::Event &event) override;
+    void update(float dt) override;
+    void render() override;
 
     void onModuleSelected(const std::string &name);
     // Rebuild K2 from the durable options snapshot on every menu entry.
@@ -65,10 +80,60 @@ private:
         std::shared_ptr<gui::ListBox> LB_MODULES;
     };
 
+    struct MovieControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Label> LBL_BAR1;
+        std::shared_ptr<gui::Label> LBL_BAR2;
+        std::shared_ptr<gui::Label> LBL_UNLOCKED_VALUE;
+        std::shared_ptr<gui::ListBox> LB_MOVIES;
+    };
+
+    struct MusicControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Button> BTN_LOOP;
+        std::shared_ptr<gui::Button> BTN_NEXT;
+        std::shared_ptr<gui::Button> BTN_PLAY;
+        std::shared_ptr<gui::Button> BTN_STOP;
+        std::shared_ptr<gui::Label> LBL_BAR1;
+        std::shared_ptr<gui::Label> LBL_BAR2;
+        std::shared_ptr<gui::Label> LBL_TRACKNAME;
+        std::shared_ptr<gui::Label> LBL_TRACKNUM;
+        std::shared_ptr<gui::ListBox> LB_MUSIC;
+        std::shared_ptr<gui::Slider> SLI_VOLUME;
+    };
+
+    /** A song of the music list: its music resource and its name. */
+    struct Song {
+        std::string resRef;
+        std::string name;
+    };
+
     Controls _controls;
 
     std::string _musicResRef;
     std::shared_ptr<Creature> _leader;
+
+    /** The movie list or the music player while it is open over the menu. */
+    gui::IGUI *_page {nullptr};
+
+    std::shared_ptr<gui::IGUI> _moviesGUI;
+    MovieControls _movieControls;
+
+    std::shared_ptr<gui::IGUI> _musicGUI;
+    MusicControls _musicControls;
+    std::vector<Song> _songs;
+    /** The row of the song chosen in the list, or none. */
+    int _chosenSong {-1};
+    std::shared_ptr<audio::AudioSource> _song;
+    bool _playing {false};
+    bool _looping {false};
+    /** Seconds before Next answers another click. */
+    float _nextHold {0.0f};
+    /** A stopped song while it fades out, and how far it has faded. */
+    std::shared_ptr<audio::AudioSource> _fadingSong;
+    float _fadeTime {0.0f};
+    /** The music volume of the options, which the player's own volume gives way to on closing. */
+    int _optionsMusicVolume {0};
 
 protected:
     void preload(gui::IGUI &gui) override;
@@ -94,6 +159,21 @@ private:
         _controls.LBL_NEWCONTENT = findControl<gui::Label>("LBL_NEWCONTENT");
         _controls.LB_MODULES = findControl<gui::ListBox>("LB_MODULES");
     }
+
+    std::shared_ptr<gui::IGUI> loadPage(const std::string &name);
+    void openPage(gui::IGUI &page);
+    void closePage();
+
+    void loadMoviesPage();
+    void openMovies();
+
+    void loadMusicPage();
+    void openMusic();
+    void chooseSong(int row);
+    void playChosenSong();
+    void playNextSong();
+    void stopSong();
+    void setLooping(bool looping);
 
     void configureButtons();
     void setup3DView();

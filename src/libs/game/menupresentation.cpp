@@ -35,6 +35,7 @@ const std::string kTopLevel;
 const std::string kGameOptionsSection {"Game Options"};
 const std::string kAutoPauseSection {"Autopause Options"};
 const std::string kKeybindsSectionTemplate {"Keybinds %d"};
+const std::string kMoviesShownSection {"Movies Shown"};
 
 // Top-level keys of the sound and graphics options, as the engine reads them
 // at start.
@@ -195,6 +196,23 @@ public:
     /** The number of a key in a section, fraction kept, as last set there; none when the key is absent or holds no number. */
     std::optional<float> real(const std::string &section, const std::string &key) const {
         return lastValue<float>(section, key);
+    }
+
+    /** The keys a section sets, each once, in the order they first appear. */
+    std::vector<std::string> keys(const std::string &section) const {
+        std::vector<std::string> result;
+        std::string current;
+        for (const auto &line : _lines) {
+            if (auto header = sectionHeader(line)) {
+                current = *header;
+                continue;
+            }
+            auto key = keyOf(line);
+            if (current == section && !key.empty() && std::find(result.begin(), result.end(), key) == result.end()) {
+                result.push_back(std::move(key));
+            }
+        }
+        return result;
     }
 
     /** Whether a key in a section is on: any number but zero. None when the key is absent. */
@@ -458,6 +476,32 @@ int loadDifficultyLevel(const std::filesystem::path &path, int level) {
 void saveDifficultyLevel(const std::filesystem::path &path, int level) {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kDifficultyLevelKey, level}});
+    configuration.write(path);
+}
+
+int loadUnlockedPlanetSongs(const std::filesystem::path &path) {
+    return ConfigurationFile::read(path).number(kGameOptionsSection, kUnlockedPlanetSongsKey).value_or(0);
+}
+
+// A movie seen is a key of the section set to 1.
+MoviesShown loadMoviesShown(const std::filesystem::path &path) {
+    const auto configuration = ConfigurationFile::read(path);
+    MoviesShown result;
+    for (const auto &key : configuration.keys(kMoviesShownSection)) {
+        if (configuration.flag(kMoviesShownSection, key).value_or(false)) {
+            result.insert(key);
+        }
+    }
+    return result;
+}
+
+void saveMoviesShown(const std::filesystem::path &path, const MoviesShown &shown) {
+    auto configuration = ConfigurationFile::read(path);
+    std::vector<ConfigurationValue> values;
+    for (const auto &name : shown) {
+        values.emplace_back(name, 1);
+    }
+    configuration.set(kMoviesShownSection, values);
     configuration.write(path);
 }
 

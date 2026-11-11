@@ -8172,7 +8172,7 @@ static Variable PlayOverlayAnimation(const std::vector<Variable> &args, const Ro
 // configuration rather than the saved game.
 static Variable UnlockAllSongs(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    saveUnlockedPlanetSongs(ctx.game.options().game.configurationPath, kAllPlanetSongs);
+    ctx.game.unlockPlanetSongs(kAllPlanetSongs);
     return Variable::ofNull();
 }
 

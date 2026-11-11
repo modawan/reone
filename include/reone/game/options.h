@@ -41,6 +41,10 @@ struct GameOptions {
     MouseOptions mouse;
     /** The other switches of the Gameplay panel. */
     GameplayOptions gameplay;
+    /** The movies the main menu's movie list offers beyond those it always shows. */
+    MoviesShown moviesShown;
+    /** The planet groups of the main menu's music list that are open, one bit each (TSL). */
+    int unlockedPlanetSongs {0};
     std::array<KeybindOptions, 1> keybinds;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 

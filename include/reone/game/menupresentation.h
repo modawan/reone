@@ -11,6 +11,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <string>
 
 #include "reone/audio/options.h"
@@ -105,8 +106,17 @@ void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
 
 /** Each bit of the unlocked planet songs opens one group of the main menu's music list; there are eleven. */
 constexpr int kAllPlanetSongs = 0x7ff;
+/** The unlocked planet songs in the configuration's Game Options section; none when it does not set them. */
+int loadUnlockedPlanetSongs(const std::filesystem::path &path);
 /** Write the unlocked planet songs into the configuration, keeping every other line. */
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs);
+
+/** The movies the player has seen, by their names in lower case. */
+using MoviesShown = std::set<std::string>;
+/** The movies the configuration's Movies Shown section names. */
+MoviesShown loadMoviesShown(const std::filesystem::path &path);
+/** Write the movies shown into the configuration, keeping every other line. */
+void saveMoviesShown(const std::filesystem::path &path, const MoviesShown &shown);
 
 /** Write the sound options' volumes and Force Software into the configuration, keeping every other line. */
 void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options);
