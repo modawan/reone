@@ -225,7 +225,10 @@ void ContainerGUI::showMode(Mode mode) {
     _controls.BTN_GIVEITEMS->setTextMessage(giving ? _getItemsMsg : _giveItemMsg);
     const std::string okText = _services.resource.strings.getText(giving ? kGiveItemResRef : kGetItemsResRef);
     _controls.BTN_OK->setTextMessage(okText);
-    _controls.LBL_OK->setTextMessage(okText);
+    // The label beside OK is only in layouts that carry it.
+    if (_controls.LBL_OK) {
+        _controls.LBL_OK->setTextMessage(okText);
+    }
     const int caption = giving ? kGiveCaptionResRef : takeCaption(container());
     _controls.LBL_MESSAGE->setTextMessage(_services.resource.strings.getText(caption));
 }
