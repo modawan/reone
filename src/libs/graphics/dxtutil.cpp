@@ -28,6 +28,7 @@ static uint32_t packRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 static void decompressDXT15Block(uint32_t x,
                                  uint32_t y,
                                  uint32_t width,
+                                 uint32_t height,
                                  const uint8_t *blockStorage,
                                  bool hasAlpha,
                                  uint32_t *outImage) {
@@ -119,7 +120,7 @@ static void decompressDXT15Block(uint32_t x,
                 }
             }
 
-            if (x + i < width) {
+            if (x + i < width && y + j < height) {
                 outImage[(y + j) * width + (x + i)] = color;
             }
         }
@@ -134,7 +135,8 @@ void decompressDXT1(uint32_t width,
     uint32_t blockCountY = (height + 3) / 4;
     for (uint32_t j = 0; j < blockCountY; j++) {
         for (uint32_t i = 0; i < blockCountX; i++) {
-            decompressDXT15Block(i * 4, j * 4, width, blockStorage + i * 8, false, outImage);
+            decompressDXT15Block(i * 4, j * 4, width, height,
+                                 blockStorage + i * 8, false, outImage);
         }
         blockStorage += blockCountX * 8;
     }
@@ -148,7 +150,8 @@ void decompressDXT5(uint32_t width,
     uint32_t blockCountY = (height + 3) / 4;
     for (uint32_t j = 0; j < blockCountY; j++) {
         for (uint32_t i = 0; i < blockCountX; i++) {
-            decompressDXT15Block(i * 4, j * 4, width, blockStorage + i * 16, true, outImage);
+            decompressDXT15Block(i * 4, j * 4, width, height,
+                                 blockStorage + i * 16, true, outImage);
         }
         blockStorage += blockCountX * 16;
     }
