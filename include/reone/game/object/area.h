@@ -542,6 +542,12 @@ public:
      */
     int getRoomForceRating(const glm::vec3 &position) const;
     /**
+     * Plays a room's numbered script loop, "scriptloopNN", looping on the
+     * room's model: over the room's own loops in KotOR, in place of them in
+     * TSL. A room the area does not have plays nothing.
+     */
+    void playRoomAnimation(const std::string &roomName, int animation);
+    /**
      * The surface material under a point: that of the room's face of any
      * material on the point's vertical (see ISceneGraph::findRoomFace),
      * in the room found under the point (see ISceneGraph::findRoomWalkmesh);

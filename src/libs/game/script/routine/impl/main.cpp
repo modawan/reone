@@ -7044,7 +7044,8 @@ static Variable PlayRoomAnimation(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PlayRoomAnimation");
+    ctx.game.module()->area()->playRoomAnimation(sRoom, nAnimation);
+    return Variable::ofNull();
 }
 
 static Variable ShowGalaxyMap(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7697,19 +7698,19 @@ static Variable QueueMovie(const std::vector<Variable> &args, const RoutineConte
     auto nSkippable = getIntOrElse(args, 1, 1);
 
     // Transform
+    auto movie = boost::to_lower_copy(sMovie);
 
     // Execute
-    throw RoutineNotImplementedException("QueueMovie");
+    ctx.game.queueMovie(movie, nSkippable != 0);
+    return Variable::ofNull();
 }
 
 static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto nAllowSkips = getIntOrElse(args, 0, 1);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlayMovieQueue");
+    // Each queued movie keeps the skip setting it was queued with, whatever
+    // nAllowSkips says.
+    ctx.game.playMovieQueue();
+    return Variable::ofNull();
 }
 
 static Variable YavinHackDoorClose(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -24,7 +24,7 @@ namespace scene {
 struct AnimationProperties {
     int flags {0};
     float speed {1.0f};
-    float scale {0.0f};     /**< 0.0 to use the model scale */
+    float scale {0.0f};     /**< 0.0 for the playing model's scale for the animation (graphics::Model::animationScaleFor); a clip of another model carries that model's */
     float duration {-1.0f}; /**< -1.0 is infinity */
     float startTime {0.0f}; /**< where a new channel starts; one already playing goes on from where it is */
 

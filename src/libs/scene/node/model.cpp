@@ -323,8 +323,10 @@ void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipA
 }
 
 void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
+    // An animation of this model's chain plays at the chain's scale for it; a
+    // caller playing an animation of another model gives that model's scale.
     if (properties.scale == 0.0f) {
-        properties.scale = _model->animationScale();
+        properties.scale = _model->animationScaleFor(anim);
     }
 
     if (properties.flags & AnimationFlags::layer) {
@@ -359,8 +361,11 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
             }
             // Attachments have their own animation sets. Resolve by name so
             // an unrelated body animation cannot replace a weapon's local
-            // state animation (for example, a lightsaber's "off" pose).
-            attachedModel.playAnimation(anim.name(), lipAnim, properties);
+            // state animation (for example, a lightsaber's "off" pose). The
+            // attachment's own animation plays at its own chain's scale.
+            auto attachedProperties = properties;
+            attachedProperties.scale = 0.0f;
+            attachedModel.playAnimation(anim.name(), lipAnim, std::move(attachedProperties));
         }
     }
 }
@@ -682,9 +687,17 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     float length = channelLength(channel);
     bool backwards = channel.properties.speed < 0.0f;
 
-    // Advance time; a channel played backwards runs from its end to its start
+    // Advance time; a channel played backwards runs from its end to its start.
+    // A loop that runs past an end carries the time it ran over into its next
+    // round, up to a whole round.
     float oldTime = channel.time;
-    channel.time = glm::clamp(channel.time + channel.properties.speed * dt, 0.0f, length);
+    const bool loop = channel.properties.flags & AnimationFlags::loop;
+    float time = channel.time + channel.properties.speed * dt;
+    const bool wrapped = loop && (backwards ? time < 0.0f : time > length);
+    if (wrapped) {
+        time = backwards ? glm::max(0.0f, time + length) : glm::min(length, time - length);
+    }
+    channel.time = glm::clamp(time, 0.0f, length);
 
     // A channel blending in reaches full weight over its transition time.
     if (channel.transition) {
@@ -693,10 +706,17 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
         channel.transition = channel.weight < 1.0f;
     }
 
-    // Signal events between previous and current time
+    // Signal events between previous and current time, round the end of a
+    // loop that wrapped
     for (auto &event : channel.anim->events()) {
-        bool passed = backwards ? (event.time < oldTime && event.time >= channel.time)
-                                : (event.time > oldTime && event.time <= channel.time);
+        bool passed;
+        if (wrapped) {
+            passed = backwards ? (event.time < oldTime || event.time >= channel.time)
+                               : (event.time > oldTime || event.time <= channel.time);
+        } else {
+            passed = backwards ? (event.time < oldTime && event.time >= channel.time)
+                               : (event.time > oldTime && event.time <= channel.time);
+        }
         if (passed) {
             signalEvent(event.name);
         }
@@ -708,15 +728,10 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
         computeAnimationStates(channel, channel.time, *_model->rootNode());
     }
 
-    bool lastFrame = channel.time == (backwards ? 0.0f : length);
-    if (lastFrame) {
-        bool loop = channel.properties.flags & AnimationFlags::loop;
-        if (loop) {
-            channel.time = backwards ? length : 0.0f;
-            rearmSingleEmitters(channel.anim->root());
-        } else {
-            channel.finished = true;
-        }
+    if (wrapped) {
+        rearmSingleEmitters(channel.anim->root());
+    } else if (!loop && channel.time == (backwards ? 0.0f : length)) {
+        channel.finished = true;
     }
 
     // A layer blends in over its transition time and, once finished, blends

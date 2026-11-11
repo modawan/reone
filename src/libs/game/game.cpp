@@ -1581,7 +1581,9 @@ bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     }
     _pointer->setPressed(true);
     if (_movie) {
-        _movie->finish();
+        if (_movieSkippable) {
+            _movie->finish();
+        }
         return true;
     }
     return false;
@@ -2227,6 +2229,8 @@ void Game::retireRuntimeSession() {
     _loadComesWithMovies = false;
     _movie.reset();
     _musicResRef.clear();
+    _movieQueue.clear();
+    _queuedMoviesPlaying = std::queue<QueuedMovie>();
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
     }
@@ -3171,6 +3175,25 @@ void Game::playVideo(const std::string &name, bool streamingMusic) {
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
     startVideo(name, streamingMusic);
+}
+
+void Game::queueMovie(const std::string &name, bool skippable) {
+    const bool queued = std::any_of(_movieQueue.begin(), _movieQueue.end(), [&name](const auto &movie) {
+        return movie.name == name;
+    });
+    if (!queued) {
+        _movieQueue.push_back(QueuedMovie {name, skippable});
+    }
+}
+
+void Game::playMovieQueue() {
+    for (auto &movie : _movieQueue) {
+        _queuedMoviesPlaying.push(std::move(movie));
+    }
+    _movieQueue.clear();
+    if (!_movie) {
+        playNextMovie();
+    }
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -5302,7 +5325,7 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
     }
 
     if (!_movie) {
-        playNextModuleTransitionMovie();
+        playNextMovie();
     }
 }
 
@@ -5312,6 +5335,7 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     if (!_movie) {
         return false;
     }
+    _movieSkippable = true;
     // A movie ends the area's music and ambient loop for good; one that
     // comes before arrival, as an enter script's, leaves the music to start
     // on arrival but no ambient loop. Every other sound waits for it, including
@@ -5322,7 +5346,15 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     return true;
 }
 
-bool Game::playNextModuleTransitionMovie() {
+bool Game::playNextMovie() {
+    while (!_queuedMoviesPlaying.empty()) {
+        QueuedMovie movie = std::move(_queuedMoviesPlaying.front());
+        _queuedMoviesPlaying.pop();
+        if (startVideo(movie.name, false)) {
+            _movieSkippable = movie.skippable;
+            return true;
+        }
+    }
     while (!_moduleTransitionMovies.empty()) {
         auto name = std::move(_moduleTransitionMovies.front());
         _moduleTransitionMovies.pop();
@@ -5345,7 +5377,7 @@ void Game::updateMovie(float dt) {
     if (_movie->isFinished()) {
         _movie.reset();
         _timingDiscontinuity = true;
-        playNextModuleTransitionMovie();
+        playNextMovie();
     }
 }
 

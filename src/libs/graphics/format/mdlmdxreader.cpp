@@ -814,8 +814,15 @@ void MdlMdxReader::readVectorController(const ControllerKey &key,
     ensureNumColumnsEquals(key.type, 3, numColumns);
     for (uint16_t i = 0; i < key.numRows; ++i) {
         float time = data[key.timeIndex + i];
-        glm::vec3 value(glm::make_vec3(&data[key.dataIndex + (bezier ? 9 : 3) * i]));
-        track.add(time, value);
+        const float *row = &data[key.dataIndex + (bezier ? 9 : 3) * i];
+        glm::vec3 value(glm::make_vec3(row));
+        if (bezier) {
+            // A curved key's row holds its value, then its incoming and
+            // outgoing handles.
+            track.addCurved(time, value, glm::make_vec3(row + 3), glm::make_vec3(row + 6));
+        } else {
+            track.add(time, value);
+        }
     }
     track.update();
 }

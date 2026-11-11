@@ -283,6 +283,13 @@ public:
      *        plays on while it runs
      */
     void playVideo(const std::string &name, bool streamingMusic = false);
+    /**
+     * Adds a movie to the queue that playMovieQueue plays, once. A movie that
+     * is not skippable plays to its end.
+     */
+    void queueMovie(const std::string &name, bool skippable);
+    /** Plays the queued movies in order, ahead of a transition's, and empties the queue. */
+    void playMovieQueue();
 
     bool isPaused() const { return _paused; }
     /**
@@ -1854,7 +1861,18 @@ private:
 
     PendingTurretRequest _pendingTurret;
 
+    struct QueuedMovie {
+        std::string name;
+        bool skippable {true};
+    };
+
     std::shared_ptr<movie::IMovie> _movie;
+    /** Whether a click ends the movie playing. */
+    bool _movieSkippable {true};
+    /** The movies queued for playMovieQueue. */
+    std::vector<QueuedMovie> _movieQueue;
+    /** The queued movies still to play, after the one playing. */
+    std::queue<QueuedMovie> _queuedMoviesPlaying;
     std::queue<std::string> _moduleTransitionMovies;
     std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
@@ -2403,7 +2421,8 @@ private:
 
     /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
     bool startVideo(const std::string &name, bool streamingMusic);
-    bool playNextModuleTransitionMovie();
+    /** Starts the next queued movie, else the next transition movie. */
+    bool playNextMovie();
     void updateMovie(float dt);
     void updateMusic(float frameTime);
     void updatePassiveSelection(float frameTime);
