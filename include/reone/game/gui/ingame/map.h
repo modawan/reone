@@ -74,6 +74,9 @@ private:
     int _travelRefusal {0};
     /** KotOR, as the map opened: travel is open and the return offered. */
     bool _returnOpen {false};
+    /** The map image's fill and fill style as authored, which the static replaces while the party's map is disabled. */
+    std::shared_ptr<graphics::Texture> _mapFill;
+    gui::Control::Border::FillStyle _mapFillStyle {gui::Control::Border::FillStyle::Stretch};
 
     void onGUILoaded() override;
 

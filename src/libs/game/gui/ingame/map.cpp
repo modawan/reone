@@ -26,8 +26,10 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
+#include "reone/graphics/types.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 
 using namespace reone::audio;
@@ -50,9 +52,14 @@ static constexpr int kReturnToBaseTutorial = 39;
 /** The ranges.2da row a companion in combat spots at. */
 static constexpr int kCombatSpotRangeRow = 18;
 
+/** The static the map image shows while the party's map is disabled. */
+static constexpr char kMapStaticResRef[] = "lbl_static";
+
 void MapMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    _mapFill = _controls.LBL_Map->border().fill;
+    _mapFillStyle = _controls.LBL_Map->border().fillStyle;
 
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
@@ -147,6 +154,16 @@ bool MapMenu::handle(const input::Event &event) {
 
 void MapMenu::refreshControls() {
     _controls.LBL_Area->setTextMessage(_game.module()->area()->localizedName());
+    // While the party's map is disabled (TSL), the map image is the static,
+    // stretched over it and cycled by the control.
+    auto &mapImage = _controls.LBL_Map->border();
+    if (_game.map().isDisabled()) {
+        mapImage.fill = _services.resource.textures.get(kMapStaticResRef, TextureUsage::GUI);
+        mapImage.fillStyle = Control::Border::FillStyle::Stretch;
+    } else {
+        mapImage.fill = _mapFill;
+        mapImage.fillStyle = _mapFillStyle;
+    }
     _notes.clear();
 
     // The map takes every note the area places, shown or not: a note can be
