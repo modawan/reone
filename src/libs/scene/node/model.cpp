@@ -791,9 +791,11 @@ void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float tim
             uint8_t leftShape, rightShape;
             float factor;
             if (channel.lipAnim->getKeyframes(time, leftShape, rightShape, factor)) {
+                // Lip shape n is the talk animation's pose at n + 1 of its
+                // sixteenths: the last shape is its last frame.
                 float oneOverNumShapes = 1.0f / static_cast<float>(kNumLipShapes);
-                float leftShapeTime = leftShape * oneOverNumShapes * channel.anim->length();
-                float rightShapeTime = rightShape * oneOverNumShapes * channel.anim->length();
+                float leftShapeTime = (leftShape + 1) * oneOverNumShapes * channel.anim->length();
+                float rightShapeTime = (rightShape + 1) * oneOverNumShapes * channel.anim->length();
                 glm::vec3 leftShapePos, rightShapePos;
                 glm::quat leftShapeRot, rightShapeRot;
                 if (animNode->positionAtTime(leftShapeTime, leftShapePos) &&
