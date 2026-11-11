@@ -343,6 +343,9 @@ bool AudioMixer::isStreamed(const ActiveSource &active) const {
     return active.group && _streamedGroups.count(*active.group) > 0;
 }
 
+// Positional sounds lose their highs with distance as they would through air.
+static constexpr float kAirAbsorptionFactor = 1.0f;
+
 // A wet sound sends a little under half of itself to the reverb.
 static const float kReverbSendFactor = std::pow(0.6f, 5.0f / 3.0f);
 
@@ -502,6 +505,9 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
 
     source->init();
     _context.setReverbSend(*source, reverbSend(active));
+    if (positional) {
+        _context.setAirAbsorption(*source, kAirAbsorptionFactor);
+    }
     obstruct(active, true);
     if (distances) {
         source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);

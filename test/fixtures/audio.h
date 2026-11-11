@@ -57,6 +57,7 @@ public:
     MOCK_METHOD(void, setReverbSend, (AudioSource &, float), (override));
     MOCK_METHOD(bool, rendersObstruction, (), (const, override));
     MOCK_METHOD(void, setObstruction, (AudioSource &, float), (override));
+    MOCK_METHOD(void, setAirAbsorption, (AudioSource &, float), (override));
 };
 
 /**

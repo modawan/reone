@@ -129,3 +129,30 @@ TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send_and_obstruction)
     context.setObstruction(source, 0.0f);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
 }
+
+TEST(AudioContext, gives_a_source_air_absorption) {
+#ifndef R_ENABLE_EFX
+    GTEST_SKIP() << "the OpenAL found has no effects extension";
+#else
+    Context context;
+    if (!openTestContext(context)) {
+        GTEST_SKIP() << "no OpenAL device opens";
+    }
+    auto clip = std::make_shared<AudioClip>();
+    AudioClip::Frame frame;
+    frame.format = AudioFormat::Mono8;
+    frame.sampleRate = 22050;
+    frame.samples.assign(64, 0);
+    clip->add(std::move(frame));
+    AudioSource source(clip, 1.0f, false, glm::vec3(0.0f));
+    source.init();
+    ASSERT_NE(source.alSource(), 0u);
+
+    context.setAirAbsorption(source, 1.0f);
+
+    float factor = 0.0f;
+    alGetSourcef(source.alSource(), AL_AIR_ABSORPTION_FACTOR, &factor);
+    EXPECT_FLOAT_EQ(factor, 1.0f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+#endif
+}
