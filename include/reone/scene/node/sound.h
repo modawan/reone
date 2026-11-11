@@ -72,6 +72,8 @@ public:
      */
     void setPositional(bool positional) { _positional = positional; }
     void setAudible(bool audible);
+    /** Forgets whether the sound is audible, until the scene next tells. */
+    void forgetAudibility() { _audible.reset(); }
 
 private:
     /** The priority group its owner gives the node before any of its sounds plays. */
