@@ -64,6 +64,9 @@ static constexpr int kTitleBarWidth = 250;
 static constexpr int kTitleBarPadding = 6;
 static constexpr int kHealthBarHeight = 6;
 static constexpr float kObjectTitleScale = 2.0f / 3.0f;
+static constexpr int kEmptyStrRef = 125550;
+static constexpr int kNothingStrRef = 125551;
+static constexpr int kEnglishLanguageId = 0;
 static constexpr int kActionBarMargin = 3;
 static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
@@ -644,13 +647,30 @@ void SelectionOverlay::renderReticle(Texture &texture, const glm::vec3 &screenCo
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
+// A placeable with an inventory that holds nothing says so after its name:
+// "(Empty)", or in TSL "(Nothing)" for one searched rather than opened. KotOR
+// has no words of its own for it, so its English names read "(Empty)" and
+// other languages mark the name with an asterisk.
+std::string SelectionOverlay::nameLabel(const Object &object) const {
+    std::string name = object.name();
+    const auto *placeable = dyn_cast<Placeable>(&object);
+    if (!placeable || !placeable->hasInventory() || !placeable->items().empty()) {
+        return name;
+    }
+    auto &strings = _services.resource.strings;
+    if (_game.isTSL()) {
+        return name + " (" + strings.getText(placeable->useSearch() ? kNothingStrRef : kEmptyStrRef) + ")";
+    }
+    return name + (strings.languageId() == kEnglishLanguageId ? " (Empty)" : " *");
+}
+
 void SelectionOverlay::renderTitleBar() {
     // Object-local feedback has priority over the menu error. The error is
     // UI-owned: changing it must not alter the object's script feedback text.
     auto title = !_selectedObject->feedbackText().empty()
                      ? _selectedObject->feedbackText()
                  : _feedback.active() ? _feedback.text(_game)
-                                      : _selectedObject->name();
+                                      : nameLabel(*_selectedObject);
     // TSL shows the title with its actions hidden.
     if (_game.isTSL()) {
         title = _game.substituteLogTokens(std::move(title));

@@ -125,6 +125,8 @@ private:
 
     void renderReticle(graphics::Texture &texture, const glm::vec3 &screenCoords, float width, float height, float alpha);
     void renderTitleBar();
+    /** The name the title bar gives \p object. */
+    std::string nameLabel(const Object &object) const;
     void renderHealthBar();
     void renderActionBar(bool leaderDown);
 
