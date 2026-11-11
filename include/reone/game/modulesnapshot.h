@@ -106,6 +106,9 @@ public:
     ModuleSnapshotResult build() const noexcept;
 
 private:
+    /** The struct type of a player list entry. */
+    static constexpr uint32_t kPlayerEntryStructType = 0xbead;
+
     friend class SaveWideSnapshotBuilder;
 
     const Game &_game;
@@ -154,6 +157,12 @@ private:
         std::optional<uint32_t> serializedId,
         const ModuleObjectIdContext &ids,
         bool includeInventory = true) const;
+    /**
+     * Writes what a player list entry adds to the player creature's record:
+     * the player's community name, the primary-player flag, which the single
+     * player always carries, and the creature's first and last names.
+     */
+    void writePlayerEntry(resource::Gff &record, const Creature &player) const;
     std::shared_ptr<resource::Gff> writeDoor(
         const Door &door, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writePlaceable(

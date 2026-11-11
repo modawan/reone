@@ -518,11 +518,12 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
         throw std::invalid_argument("PARTYTABLE and pc.utc topology disagree");
     }
     auto players = input.currentModule.ifo->getList("Mod_PlayerList");
+    // The single player is the primary one, whichever creature it controls.
     if (players.size() != 1 ||
         players.front()->getUint("ObjectId", UINT32_MAX) == UINT32_MAX ||
-        players.front()->getBool("Mod_IsPrimaryPlr") != (controlled == -1)) {
+        !players.front()->getBool("Mod_IsPrimaryPlr")) {
         throw std::invalid_argument(
-            "Current module player topology disagrees with PARTYTABLE");
+            "The current module's player list is not a single primary player");
     }
     if (input.saveWide.gameId == resource::GameID::TSL) {
         auto availablePuppets = party->getList("PT_AVAIL_PUPS");
