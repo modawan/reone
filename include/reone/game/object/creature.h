@@ -1719,13 +1719,23 @@ public:
      * belongs to the action that sets it out; another action, even toward the
      * same target, sets out afresh. A walk to a door or placeable sets out
      * for the use point and range of that moment and keeps them until it
-     * ends, unless \p followsPoint lets it take them anew once.
+     * ends, unless \p followsPoint lets it take them anew once. A placeable
+     * whose use point no path reaches is walked to the ground beside it, as
+     * walkablePointBeside() finds it, and counts as within use range there.
      *
      * @param targetsPath whether a planned path is recorded as heading for the target
      * @param inClearLine passed to walkToward()
      */
     bool navigateToUse(const Object &target, float extra, float dt, bool run = true, bool followsPoint = false, bool targetsPath = true,
                        bool toGoal = true, float walkExtra = 0.0f, bool inClearLine = false);
+    /**
+     * The walkable point within two metres of \p point, a use point of
+     * \p target that no path from this creature reaches, with a clear line to
+     * it at eye height: of the nearest ring of such points, a quarter of a
+     * metre apart, the one nearest the creature. Nothing when a path reaches
+     * the point, when there is no walkmesh or when the creature is off it.
+     */
+    std::optional<glm::vec3> walkablePointBeside(const Object &target, const glm::vec3 &point) const;
     void clearPath();
     void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);
     glm::vec3 computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt);
@@ -2792,11 +2802,13 @@ private:
     bool _walksOntoPoint {false};
     /**
      * The walk of navigateToUse under way: the queued action walking it and,
-     * toward a door or placeable, the use point and range it keeps.
+     * toward a door or placeable, the use point and range it keeps; toward a
+     * placeable whose use point no path reaches, the ground beside it.
      */
     struct UseWalk {
         std::weak_ptr<ActionQueueNode> walker;
         std::optional<UseApproach> kept;
+        std::optional<glm::vec3> beside;
     };
     std::optional<UseWalk> _useWalk;
     RuntimeObjectRef<Object> _attemptedMovementTarget;
