@@ -84,6 +84,13 @@ static constexpr uint32_t kBrokenOpenDelayMilliseconds = 1000;
 // The light a placeable with a light colour carries, raised this far above
 // its model's root unless its row says otherwise.
 static constexpr char kLightModelResRef[] = "fx_placeable01";
+// The animations.2da rows of the swings that sound.
+static constexpr int kDieSwingRow = 306;
+static constexpr int kOpenToCloseSwingRow = 313;
+static constexpr int kOnToOffSwingRow = 314;
+static constexpr int kOffToOnSwingRow = 315;
+// The placeableobjsnds.2da row of a corpse.
+static constexpr int kCorpseSoundType = 53;
 static constexpr float kDefaultLightOffsetZ = 3.0f;
 
 // Calls \p apply on every light node under \p root.
@@ -158,7 +165,9 @@ void Placeable::deserializeAll(
         _name = _locName.str();
     }
     gff.readEnum(_faction, "Faction");
-    gff.readBool(_plot, "Plot");
+    bool plot = plotFlag();
+    gff.readBool(plot, "Plot");
+    _plot = plot;
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), true);
     _trap.deserialize(gff);
@@ -246,6 +255,7 @@ void Placeable::loadAppearance() {
     const auto soundType = placeables->getIntOpt(_appearance, "soundapptype");
     _soundArmorType = boost::to_lower_copy(sounds->getString(soundType.value_or(0), "armortype"));
     _openedSound = soundType ? boost::to_lower_copy(sounds->getString(*soundType, "opened")) : std::string();
+    _soundType = soundType;
     _lock.setLockedSound(soundType ? sounds->getString(*soundType, "locked") : std::string());
 
     auto model = _services.resource.models.get(modelName);
@@ -434,6 +444,36 @@ void Placeable::enterDestroyedState() {
         model->playAnimation(_services.game.animations.getNameById(kDestroyedAnimation));
         // A destroyed placeable's lights go out.
         forEachLight(*model, [](scene::LightSceneNode &node) { node.setEnabled(false); });
+    }
+}
+
+void Placeable::playDestroyedSound() {
+    playSwingSound(kDieSwingRow);
+}
+
+// The death swing plays the destroyed sound, the closing swing the closed
+// sound and the switching swings the used sound. KotOR sounds a hidden body
+// bag as a corpse.
+void Placeable::playSwingSound(int swingRow) {
+    const char *column = nullptr;
+    if (swingRow == kDieSwingRow) {
+        column = "destroyed";
+    } else if (swingRow == kOpenToCloseSwingRow) {
+        column = "closed";
+    } else if (swingRow == kOnToOffSwingRow || swingRow == kOffToOnSwingRow) {
+        column = "used";
+    }
+    const auto row = !_game.isTSL() && isBodyBagHidden() ? std::optional<int>(kCorpseSoundType) : _soundType;
+    auto sounds = _services.resource.twoDas.get("placeableobjsnds");
+    if (!column || !row || !sounds) {
+        return;
+    }
+    const std::string resRef = boost::to_lower_copy(sounds->getString(*row, column));
+    if (resRef.empty()) {
+        return;
+    }
+    if (auto clip = _services.resource.audioClips.get(resRef)) {
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, _position);
     }
 }
 
@@ -726,7 +766,7 @@ static constexpr int kInventoryClosedEvent = 23;
 static constexpr float kBodilessOpeningWait = 0.5f;
 
 // The opened sound is the placeable sounds row named by the appearance's
-// sound type.
+// sound type, a one-shot positional sound.
 static std::shared_ptr<audio::AudioClip> findOpenedSound(ServicesView &services, const std::string &resRef) {
     return resRef.empty() ? nullptr : services.resource.audioClips.get(resRef);
 }
@@ -742,7 +782,7 @@ float Placeable::beginOpeningInventory() {
     }
     auto sound = findOpenedSound(_services, _openedSound);
     if (sound) {
-        _services.audio.mixer.play(sound, audio::AudioType::Sound, 1.0f, false, _position);
+        _services.audio.mixer.play(sound, audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, _position);
         if (sound->duration() > wait && wait != 0.0f) {
             wait = sound->duration();
         }
@@ -760,7 +800,7 @@ void Placeable::completeOpeningInventory(Object &opener) {
 void Placeable::playOpenedSound() {
     _inventoryOpenPending = false;
     if (auto sound = findOpenedSound(_services, _openedSound)) {
-        _services.audio.mixer.play(sound, audio::AudioType::Sound, 1.0f, false, _position);
+        _services.audio.mixer.play(sound, audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, _position);
     }
 }
 
@@ -822,6 +862,9 @@ void Placeable::setStateAnimation(int animation) {
     }
     const auto swingRow = stateLoopSwingRow(_shownAnimation, _shownAnimation, animation, false);
     _shownAnimation = animation;
+    if (swingRow) {
+        playSwingSound(*swingRow);
+    }
     _openStateLoop = loop;
     const std::string swing = swingRow ? animations.getNameById(static_cast<uint32_t>(*swingRow)) : std::string();
     if (!swing.empty() && model->model().getAnimation(swing)) {

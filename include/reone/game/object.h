@@ -218,7 +218,10 @@ public:
     const std::string &blueprintResRef() const { return _blueprintResRef; }
     const std::string &name() const { return _name; }
     const std::string &conversation() const { return _conversation; }
-    bool plotFlag() const { return _plot; }
+    /** Whether the object is plot: its plot value is not 0. */
+    bool plotFlag() const { return _plot != 0; }
+    /** The plot value as it was read or set. */
+    int plotValue() const { return _plot; }
     /**
      * Damage immunity is kept per damage type. For several types in \p flags,
      * the types are taken in bit order: a running value of 0 takes the next
@@ -271,7 +274,8 @@ public:
     void setTag(std::string tag) { _tag = std::move(tag); }
     void setConversation(std::string conversation) { _conversation = std::move(conversation); }
     void setName(std::string name) { _name = std::move(name); }
-    void setPlotFlag(bool plot) { _plot = plot; }
+    /** Sets the plot value; any value but 0 makes the object plot. */
+    void setPlotFlag(int plot) { _plot = plot; }
     void setCommandable(bool commandable) { _commandable = commandable; }
     virtual void setIsInConversation(bool isInConversation) { _isInConversation = isInConversation; }
 
@@ -310,6 +314,7 @@ public:
 
     std::shared_ptr<Item> getFirstItem();
     std::shared_ptr<Item> getNextItem();
+    /** The first item with the tag, each item's own items searched right after it; none when no item has it. */
     std::shared_ptr<Item> getItemByTag(const std::string &tag);
 
     const std::vector<std::shared_ptr<Item>> &items() const { return _items; }
@@ -735,7 +740,8 @@ protected:
     std::string _onHeartbeat;
     std::string _onUserDefined;
     bool _minOneHP {false};
-    bool _plot {false};
+    /** The plot value as read or set; the object is plot when it is not 0. */
+    int _plot {0};
     bool _commandable {true};
     bool _interruptable {false};
     int _hitPoints {0};

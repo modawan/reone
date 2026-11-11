@@ -232,6 +232,9 @@ static std::optional<PauseReasonText> pauseReasonText(PauseReason reason) {
 
 /** TSL's unpause prompt under the reason. */
 static constexpr int kK2PausePressStrRef = 136311;
+/** TSL's unpause prompts in a swoop race and in any other minigame. */
+static constexpr int kK2SwoopPausePressStrRef = 136309;
+static constexpr int kK2MinigamePausePressStrRef = 136318;
 /** The prompt sits this far below the reason, and the panel ends this far below its last line, before scaling. */
 static constexpr int kPausePromptGap = 2;
 static constexpr int kPausePanelBottomPadding = 5;
@@ -279,7 +282,7 @@ static constexpr char kNoticeBoxCorner[] = "uibit_brdr_16bct";
 static constexpr char kNoticeBoxEdge[] = "uibit_brdr_16bet";
 static constexpr char kNoticeBoxFill[] = "uibit_fill_2bt";
 static constexpr int kNoticeBoxBorderDimension = 16;
-static const glm::vec3 kNoticeBoxBorderColor {0.05f, 0.35f, 0.27f};
+static const glm::vec3 kNoticeBoxBorderColor = kTSLColorNewGreen;
 static const glm::vec3 kNoticeBoxTextColor {0.7f, 0.7f, 0.6f};
 static constexpr char kNoticeBoxFont[] = "dialogfont16x16";
 
@@ -613,14 +616,34 @@ void HUD::updatePausePanel(float dt) {
         return;
     }
     const PauseReason reason = _game.pauseReason();
-    if (_pauseLayoutReason != reason) {
+    if (_pauseLayoutReason != reason || _pauseLayoutPlace != pausePlace()) {
         layoutPausePanel(reason);
     }
     _pauseGUI->update(dt);
 }
 
+int HUD::pausePlace() const {
+    switch (_game.currentScreen()) {
+    case Game::Screen::SwoopRace:
+        return 1;
+    case Game::Screen::Turret:
+        return 2;
+    default:
+        return 0;
+    }
+}
+
+void HUD::renderMinigamePause() {
+    if (isPausePanelShown() && _pauseLayoutReason) {
+        _pauseGUI->render();
+    }
+}
+
 void HUD::layoutPausePanel(PauseReason reason) {
     _pauseLayoutReason = reason;
+    _pauseLayoutPlace = pausePlace();
+    const bool swoop = _pauseLayoutPlace == 1;
+    const bool minigame = _pauseLayoutPlace != 0;
     const auto text = *pauseReasonText(reason);
     const bool tsl = _game.isTSL();
     auto &root = _pauseGUI->rootControl();
@@ -664,7 +687,8 @@ void HUD::layoutPausePanel(PauseReason reason) {
     if (text.press) {
         pressLabel.setExtent(pressExtent);
         if (tsl) {
-            pressLabel.setTextMessage(_game.getInterfaceText(kK2PausePressStrRef));
+            const int press = !minigame ? kK2PausePressStrRef : (swoop ? kK2SwoopPausePressStrRef : kK2MinigamePausePressStrRef);
+            pressLabel.setTextMessage(_game.getInterfaceText(press));
         }
         pressExtent.top = reasonExtent.top + reasonExtent.height + static_cast<int>(std::lround(kPausePromptGap * scale));
         pressExtent.height = textHeight(pressLabel);
@@ -674,11 +698,14 @@ void HUD::layoutPausePanel(PauseReason reason) {
     panelExtent.height = last.top + last.height + static_cast<int>(std::lround(kPausePanelBottomPadding * scale));
     Control::Extent unpauseExtent {reasonExtent.left, reasonExtent.top, reasonExtent.width, panelExtent.height};
 
-    // Top-right, just under the menu bar.
+    // Top-right, just under the menu bar; in a minigame, centred.
     const int screenWidth = _game.options().graphics.width;
     const auto &menuButton = _controls.BTN_EQU->extent();
     panelExtent.top = menuButton.top + menuButton.height - 1;
-    if (tsl) {
+    if (minigame) {
+        panelExtent.left = (screenWidth - panelExtent.width) / 2;
+        panelExtent.top = (_game.options().graphics.height - panelExtent.height) / 2;
+    } else if (tsl) {
         const float scalar = interfaceScalar(true, screenWidth);
         panelExtent.top += static_cast<int>(kK2PausePanelTop * scalar);
         panelExtent.left = static_cast<int>(static_cast<float>(screenWidth - panelExtent.width) - scalar * kK2PausePanelRight);
@@ -739,7 +766,7 @@ void HUD::presentAlignmentShift(const StatusSummaryBatch &batch) {
     if (dark == light) {
         return;
     }
-    _services.audio.mixer.play(_services.game.guiSounds.getAlignmentShift(light > dark), AudioType::Sound);
+    _services.game.guiSounds.play(_services.game.guiSounds.getAlignmentShift(light > dark));
     auto leader = _game.party().getLeader();
     if (!leader->isPlayerCreated()) {
         return;
@@ -754,16 +781,15 @@ void HUD::presentAlignmentShift(const StatusSummaryBatch &batch) {
 }
 
 void HUD::playSummarySounds(const StatusSummaryBatch &batch) {
-    auto &mixer = _services.audio.mixer;
-    const auto &sounds = _services.game.guiSounds;
+    auto &sounds = _services.game.guiSounds;
     if (batch.levelUpSound) {
-        mixer.play(sounds.getOnLevelUpNotify(), AudioType::Sound);
+        sounds.play(sounds.getOnLevelUpNotify());
     }
     if (batch.questNewSound) {
-        mixer.play(sounds.getQuestNewNotify(), AudioType::Sound);
+        sounds.play(sounds.getQuestNewNotify());
     }
     if (batch.questCompleteSound) {
-        mixer.play(sounds.getQuestCompleteNotify(), AudioType::Sound);
+        sounds.play(sounds.getQuestCompleteNotify());
     }
 }
 
@@ -812,8 +838,7 @@ void HUD::resetStatusSummaryPresentation() {
 void HUD::onClick(const std::string &control) {
     // The pause, solo and stealth toggles click like checkboxes.
     if (control == "TB_PAUSE" || control == "TB_SOLO" || control == "TB_STEALTH") {
-        auto clip = _services.game.guiSounds.getCheckboxCheck();
-        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        _audioSource = _services.game.guiSounds.play(_services.game.guiSounds.getCheckboxCheck());
         return;
     }
     // An action slot sounds its own acceptance or rejection, with no click before it.
@@ -1010,8 +1035,11 @@ void HUD::update(float dt) {
         _statusSummary->update(dt);
     }
 
-    // Hide the minimap when the area has no map to show
-    _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
+    // The minimap and its button show only while there is a map to show and
+    // the party's map isn't disabled.
+    const bool minimap = _game.map().isLoaded() && !_game.map().isDisabled();
+    _controls.LBL_MAPBORDER->setVisible(minimap);
+    _controls.BTN_MINIMAP->setVisible(minimap);
 
     if (_capturePresentation) {
         _controls.LBL_CHAR1->setVisible(true);

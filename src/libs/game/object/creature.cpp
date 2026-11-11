@@ -33,6 +33,7 @@
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/changefacing.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/switchweapons.h"
@@ -383,6 +384,12 @@ int rollDamageShieldDice(const DamageCost &cost, Roll roll) {
     }
     return result;
 }
+// The loop a footstep type plays in place of steps; empty for a type that steps.
+static std::string rollingFootstepSound(const FootstepTypeSounds &sounds) {
+    auto rolling = sounds.cells.find("rolling");
+    return rolling != sounds.cells.end() ? rolling->second : std::string();
+}
+
 // The sound set entry a creature falling onto a surface material sounds
 // from; none for a surface with no fall sound.
 inline std::string Creature::AppearanceSoundSet::*fallSound(int material) {
@@ -481,6 +488,13 @@ static constexpr float kRunClipMinimumWalkPace = 0.5f;
 // A walk given no more range than this goes onto its point: it ends on the
 // step that reaches the end of its path.
 static constexpr float kNoMoveRange = 0.001f;
+// How long a path walk is watched before judging whether it is getting
+// anywhere. Arbitrary, but it must span several frames at the highest frame
+// rate played and stay short enough for a blocked creature to react quickly.
+static constexpr float kProgressCheckInterval = 0.1f;
+// A path walk slower than this, in metres a second, is getting nowhere. One
+// centimetre per frame at 60 frames a second.
+static constexpr float kMinimumProgressSpeed = 0.6f;
 // A walk that sets out within a tenth of a metre of its point steps onto it at
 // once, whatever its range.
 static constexpr float kArrivalSnapDistance2 = 0.01f;
@@ -513,6 +527,12 @@ static constexpr int kStealthWalkAnimationId = 10133;
 static constexpr int kInjuredWalkAnimationId = 10093;
 static constexpr int kInjuredRunAnimationId = 10094;
 static constexpr int kWalkBackAnimationId = 10003;
+// Steps on wood may creak; footstep types with wings never do.
+static constexpr int kWoodSurfaceMaterial = 5;
+static constexpr int kWingsFootstepType = 6;
+static constexpr int kHugeWingsFootstepType = 7;
+static constexpr int kFloorCreakPercent = 5;
+static const std::string kFloorCreakResRef {"as_cv_florcreak"};
 // Clips of a creature the player steers that turns as it goes: in place,
 // walking or running, to the left or to the right.
 static constexpr int kTurnInPlaceLeftAnimationId = 10078;
@@ -1302,6 +1322,7 @@ void Creature::retireAreaRuntime(
     }
     _pathVelocity = glm::vec3(0.0f);
     _previousPosition = _position;
+    _progressTime = 0.0f;
     _stuckTimer.reset(0.0f);
     _stuckForce = glm::vec3(0.0f);
     setMovementType(MovementType::None);
@@ -1422,8 +1443,9 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     // deserialize the same data twice, doubling accumulated class levels.
     deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
     restoreSerializedVitality();
+    deserializeHeldCounts(*utc);
     deserializeOwnedItemsAndEquipment(*utc, SerializedIdentityContext::templateResource(resRef), false);
-    countLoadedItems();
+    countLoadedItems(false);
     updateTransform();
     loadAppearance();
     // A creature that comes into the world in stealth shows it arriving.
@@ -1433,10 +1455,12 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     return true;
 }
 
-// The sneaking pace and the top driving speed of an appearance whose cell is
-// blank or zero.
+// The sneaking pace, the top driving speed and the driving acceleration of an
+// appearance whose cell is blank or zero.
 static constexpr float kDefaultStealthWalkSpeed = 2.0f;
 static constexpr float kDefaultDriveMaxSpeed = 6.0f;
+static constexpr float kDefaultDriveAcceleration = 25.0f;
+static constexpr float kDefaultDriveRunClipSpeed = 4.0f;
 
 void Creature::loadAppearanceProperties() {
     auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
@@ -1454,9 +1478,17 @@ void Creature::loadAppearanceProperties() {
     if (_stealthWalkSpeed == 0.0f) {
         _stealthWalkSpeed = kDefaultStealthWalkSpeed;
     }
+    _driveRunClipSpeed = appearances->getFloat(_appearance, _game.isTSL() ? "driveanimrun_pc" : "driveanimrun", 0.0f);
+    if (_driveRunClipSpeed == 0.0f) {
+        _driveRunClipSpeed = kDefaultDriveRunClipSpeed;
+    }
     _driveMaxSpeed = appearances->getFloat(_appearance, "drivemaxspeed", 0.0f);
     if (_driveMaxSpeed == 0.0f) {
         _driveMaxSpeed = kDefaultDriveMaxSpeed;
+    }
+    _driveAcceleration = appearances->getFloat(_appearance, "driveaccl", 0.0f);
+    if (_driveAcceleration == 0.0f) {
+        _driveAcceleration = kDefaultDriveAcceleration;
     }
     _personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
     // A blank space kept from other creatures is no space at all.
@@ -1522,6 +1554,15 @@ void Creature::loadAppearanceSoundSet(int row) {
     _appearanceSoundSet.fallHard = boost::to_lower_copy(soundSets->getString(row, "fallhard"));
     _appearanceSoundSet.fallMetal = boost::to_lower_copy(soundSets->getString(row, "fallmetal"));
     _appearanceSoundSet.fallWater = boost::to_lower_copy(soundSets->getString(row, "fallwater"));
+    // A new appearance drops the old appearance's loop.
+    _appearanceSoundSet.looping = boost::to_lower_copy(soundSets->getString(row, "looping"));
+    if (_loopingSoundResRef != _appearanceSoundSet.looping) {
+        if (_loopingSound) {
+            _loopingSound->stop();
+            _loopingSound.reset();
+        }
+        _loopingSoundResRef.clear();
+    }
 }
 
 void Creature::loadAppearance() {
@@ -1777,21 +1818,37 @@ void Creature::playSwingSound(const std::string &name, int variants) {
     playWeaponSound(row, name + std::to_string(randomInt(0, variants - 1)));
 }
 
-// A weapon sound plays once, 1.5 m above the creature's feet; a weapon with
-// no sound in the column plays nothing.
+// A weapon sound plays once, 1.5 m above the creature's feet, among the
+// combat sounds, straying in pitch by the weapon's offset, or by the group's
+// variance when it has none; a weapon with no sound in the column, or a
+// creature the player does not perceive, plays nothing.
 void Creature::playWeaponSound(int weaponSoundRow, const std::string &column) {
+    if (!isPresent()) {
+        return;
+    }
     const auto &resRef = _services.game.combatTables.weaponSound(weaponSoundRow, column);
     if (resRef.empty()) {
         return;
     }
     if (auto clip = _services.resource.audioClips.get(resRef)) {
-        _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, false, _position + glm::vec3(0.0f, 0.0f, 1.5f));
+        std::optional<float> pitchVariance;
+        if (const float offset = _services.game.combatTables.weaponSoundPitchOffset(weaponSoundRow); offset != 0.0f) {
+            pitchVariance = offset;
+        }
+        _services.audio.mixer.play(std::move(clip),
+                                   AudioType::Sound,
+                                   kCombatSoundGroup,
+                                   1.0f,
+                                   false,
+                                   _position + glm::vec3(0.0f, 0.0f, 1.5f),
+                                   std::nullopt,
+                                   pitchVariance);
     }
 }
 
 // A creature hitting the ground plays its sound set's fall sound for the
-// surface under its feet once, at its feet; another surface, or a sound set
-// with no sound for the surface, plays nothing.
+// surface under its feet once, at its feet, unmasked by other sounds; another
+// surface, or a sound set with no sound for the surface, plays nothing.
 void Creature::playFallSound() {
     const auto sound = fallSound(_game.module()->area()->getSurfaceMaterial(_position));
     if (!sound) {
@@ -1802,7 +1859,7 @@ void Creature::playFallSound() {
         return;
     }
     if (auto clip = _services.resource.audioClips.get(resRef)) {
-        _services.audio.mixer.play(std::move(clip), AudioType::Sound, 1.0f, false, _position);
+        _services.audio.mixer.play(std::move(clip), AudioType::Sound, kUnmaskableSoundGroup, 1.0f, false, _position);
     }
 }
 
@@ -2019,11 +2076,11 @@ bool Creature::permitsAction(const Action &action) const {
     }
     // A walk to a point, or one heading for an object, fails a creature that
     // cannot move unless its goal is a trigger or a linked door already in
-    // reach, which it clicks or is blocked by; a walk to a location and a
-    // follow of the leader or of the owner fail it too. A walk to an object
-    // that checks its reach, a move away and a follow of another creature
-    // keep their order: only death or going down ends them. A random walk
-    // asks nothing.
+    // reach, which it clicks or is blocked by; a walk to a location, a
+    // follow of the leader or of the owner and a drive fail it too. A walk to
+    // an object that checks its reach, a move away and a follow of another
+    // creature keep their order: only death or going down ends them. A random
+    // walk asks nothing.
     switch (command.type()) {
     case ActionType::MoveToObject: {
         const auto &move = static_cast<const MoveToObjectAction &>(command);
@@ -2039,6 +2096,7 @@ bool Creature::permitsAction(const Action &action) const {
     case ActionType::MoveToLocation:
     case ActionType::FollowLeader:
     case ActionType::FollowOwner:
+    case ActionType::Drive:
         return canMove();
     case ActionType::RandomWalk:
         return true;
@@ -2077,6 +2135,26 @@ bool Creature::isRunLimited() const {
 
 bool Creature::movesStealthily() const {
     return _stealthMode && (!_game.isTSL() || !hasEffectiveFeat(FeatType::StealthRun));
+}
+
+// A sneaking creature gathers speed slowly, whatever its appearance.
+float Creature::driveAcceleration() const {
+    static constexpr float kStealthDriveAcceleration = 15.0f;
+    return movesStealthily() ? kStealthDriveAcceleration : _driveAcceleration;
+}
+
+float Creature::drivenClipSpeed() const {
+    return movesStealthily() ? std::min(driveSpeed(), _stealthWalkSpeed) : driveSpeed();
+}
+
+bool Creature::drivesAtRun() const {
+    static constexpr float kDriveWalkThreshold = 0.6f;
+    return drivenClipSpeed() > kDriveWalkThreshold * driveTopSpeed();
+}
+
+// The top speed follows the movement rate as speed effects come and go.
+float Creature::driveTopSpeed() const {
+    return _driveMaxSpeed * movementRate(true);
 }
 
 void Creature::setCombatStance(CombatStance stance) {
@@ -2224,7 +2302,8 @@ void Creature::presentStealthChange(bool enabled, bool quiet) {
 
 // Entering stealth plays the BeginStealth sound and wraps the creature in the
 // stealth field; leaving it removes the field with the cloak-removal effect.
-// The controlled creature also hears the stealth cue both ways.
+// The controlled creature also hears the stealth cue both ways, among the
+// GUI's sounds.
 void Creature::presentStealth(bool enabled, bool announce) {
     // A creature loaded in stealth has no model yet; its model takes up the
     // field once built.
@@ -2237,7 +2316,7 @@ void Creature::presentStealth(bool enabled, bool announce) {
     presentStealthField(enabled, announce);
     if (announce && _game.party().getLeader().get() == this) {
         if (auto cue = _services.resource.audioClips.get(kStealthCue)) {
-            _services.audio.mixer.play(std::move(cue), AudioType::Sound, 1.0f, false, _position);
+            _services.audio.mixer.play(std::move(cue), AudioType::Sound, kGuiSoundGroup, 1.0f, false, _position);
         }
     }
     // TSL shows the field on an owner's puppet too, and the owner's stealth
@@ -2269,14 +2348,15 @@ void Creature::presentStealthField(bool enabled, bool announce) {
         _stealthShell.reset();
         if (announce) {
             // The cloak removal is shown as an impact: its impact program's
-            // shell for one second, with the row's impact sound.
+            // shell for one second, with the row's impact sound above it.
             const VisualEffectDesc &removal = effects.get(kCloakRemovalVisual).value();
             const auto texture = shieldTextureForProgram(removal.progFXImpact);
             _cloakRemovalShell = texture.empty() ? nullptr : _services.resource.textures.get(texture, TextureUsage::MainTex);
             _cloakRemovalShellOrder = _nextEffectApplicationOrder;
             _cloakRemovalTime = _cloakRemovalShell ? 1.0f : 0.0f;
             if (removal.soundImpact) {
-                _services.audio.mixer.play(removal.soundImpact, AudioType::Sound, 1.0f, false, _position);
+                const glm::vec3 soundPosition {_position + glm::vec3 {0.0f, 0.0f, kEffectSoundHeight}};
+                _services.audio.mixer.play(removal.soundImpact, AudioType::Sound, kSpellEffectSoundGroup, 1.0f, false, soundPosition);
             }
         }
     }
@@ -2487,6 +2567,8 @@ void Creature::update(float dt) {
     updateCombat(dt);
     updateRegeneration(dt);
     updateLightsaberSoundPositions();
+    updateRollingFootstep();
+    updateLoopingSounds();
     updateStealthXPTimer();
 }
 
@@ -3215,15 +3297,17 @@ void Creature::updateModelAnimation() {
 
 // Walk and run clips play so that the feet keep pace with the ground. On a
 // path they also go at their own pace, which picks up and falls off with the
-// walk; before it has any, they play at their natural speed.
+// walk; before it has any, they play at their natural speed. The leader the
+// player drives shows the clip its drive speed calls for, at that speed.
 Creature::MovementClip Creature::movementClip(const ModelSceneNode &model) const {
     MovementClip clip;
-    const bool running = _movementType == MovementType::Run && !movesStealthily();
-    const float speed = running ? runSpeed() : walkSpeed();
+    const bool driven = _game.party().getLeader().get() == this && _game.module() && _game.module()->isPlayerMoving();
+    const bool running = driven ? drivesAtRun() : _movementType == MovementType::Run && !movesStealthily();
+    const float speed = driven ? drivenClipSpeed() : (running ? runSpeed() : walkSpeed());
     // A run slowed well below its clip's pace shows the walk instead, as does
     // a run on a path while it goes at under half its speed.
-    const bool runClip = running && speed >= _runDistance * kRunClipMinimumPace &&
-                         !(_path && _walkPace < kRunClipMinimumWalkPace);
+    const bool runClip = running && (driven || (speed >= _runDistance * kRunClipMinimumPace &&
+                                                !(_path && _walkPace < kRunClipMinimumWalkPace)));
     // Limping comes before sneaking. Creature models have no injured run,
     // and a run too slow for its clip shows the walk: the plain walk on
     // creature models. A clip the model lacks leaves the last one playing.
@@ -3246,8 +3330,9 @@ Creature::MovementClip Creature::movementClip(const ModelSceneNode &model) const
         clip.anim = model.model().getAnimation(getWalkAnimation());
         clip.id = kWalkAnimationId;
     }
-    const float loopDistance = runClip ? _runDistance : _walkDistance;
-    const float pace = _path ? _clipPace : 1.0f;
+    const float loopDistance = driven ? (runClip ? _driveRunClipSpeed : _stealthWalkSpeed)
+                                      : (runClip ? _runDistance : _walkDistance);
+    const float pace = _path && !driven ? _clipPace : 1.0f;
     if (clip.anim && speed > 0.0f && loopDistance > 0.0f && clip.anim->length() > 0.0f && pace > 0.0f) {
         clip.speed = pace * speed * clip.anim->length() / loopDistance;
     }
@@ -4329,9 +4414,10 @@ void Creature::setDesiredFacingToward(const glm::vec3 &point) {
 Creature::AnimationUpdater Creature::animationUpdater() const {
     auto &party = _game.party();
     const bool leader = party.getLeader().get() == this;
-    // In a conversation the leader is driven only when it neither speaks nor
-    // listens; in TSL not at all. Nor is it driven after an engaged swing.
-    if (leader && !_engagedExchange && !hasOrdinaryActionsPending() && !isPlayingDialogAnimation() &&
+    // The leader acts freely with nothing queued or under the player's drive.
+    // In a conversation it is driven only when it neither speaks nor listens;
+    // in TSL not at all. Nor is it driven after an engaged swing.
+    if (leader && !isDriveBlocked() &&
         !(_game.isTSL() ? _game.isConversationActive() : _game.isConversationSpeakerOrListener(*this))) {
         return AnimationUpdater::Drive;
     }
@@ -4567,9 +4653,11 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager, bool spe
                      : randomInt(0, 1) == 1 ? DeathPose::Dead1
                                             : DeathPose::Dead;
     }
-    // The dead stop listening and lose every AI capability.
+    // The dead stop listening, lose every AI capability and put out the
+    // lightsabers in their hands.
     _listening = false;
     _effectAIStateMask = kAIStateNone;
+    setLightsabersPowered(false, true);
     _currentHitPoints = std::min(-11, static_cast<int>(_currentHitPoints));
     if (!partyDeath) {
         if (!_livingName) {
@@ -5456,21 +5544,27 @@ void Creature::removeDisguiseAppearance() {
 // she has turned to the dark side, and in any other armour the appearance
 // whose models fit the player's armour.
 static constexpr char kHandmaidenTag[] = "handmaiden";
-static constexpr char kHandmaidenClothingVariation = 'b';
+static constexpr int kHandmaidenClothingVariation = 1;
 static constexpr int kHandmaidenAppearance = 454;
 static constexpr int kHandmaidenDarkAppearance = 669;
 static constexpr int kHandmaidenArmouredAppearance = 638;
 static constexpr int kHandmaidenDarkAlignment = 40;
 // Body variations past L use the L models.
-static constexpr char kLastArmourModelVariation = 'l';
+static constexpr int kLastArmourModelVariation = 11;
+
+// The body variation a worn body item gives, 0 for the first (A); an item
+// with none gives the first.
+static int wornBodyVariation(const Item &item) {
+    return std::max(item.bodyVariation(), 1) - 1;
+}
 
 void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
     if (!_game.isTSL()) {
         return;
     }
-    char variation = 'a';
-    if (armour && !armour->baseBodyVariation().empty()) {
-        variation = std::min(armour->baseBodyVariation().front(), kLastArmourModelVariation);
+    int variation = 0;
+    if (armour) {
+        variation = std::min(wornBodyVariation(*armour), kLastArmourModelVariation);
     }
     if (armour && boost::iequals(_tag, kHandmaidenTag)) {
         if (variation == kHandmaidenClothingVariation) {
@@ -5484,11 +5578,7 @@ void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
             changeAppearance(kHandmaidenArmouredAppearance);
         }
     }
-    // A variation before A has no model column.
-    if (variation < 'a') {
-        return;
-    }
-    const int appearance = _armourAppearances[variation - 'a'];
+    const int appearance = _armourAppearances[variation];
     if (appearance != 0 && appearance != _appearance) {
         changeAppearance(appearance);
     }
@@ -5652,7 +5742,7 @@ bool Creature::replaceEquipment(
         if (slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon) {
             updatePoweredHands(*previous, false);
         }
-        previous->powerDown(_position, true);
+        previous->powerDown(_position, true, isPresent());
     }
     previous->setEquipped(false);
     previous->clearOwner();
@@ -5685,7 +5775,7 @@ std::shared_ptr<Item> Creature::takeEquippedItem(
         if (equipped->first == InventorySlots::rightWeapon || equipped->first == InventorySlots::leftWeapon) {
             updatePoweredHands(*result, false);
         }
-        result->powerDown(_position, true);
+        result->powerDown(_position, true, isPresent());
     }
     result->setEquipped(false);
     result->clearOwner();
@@ -6040,12 +6130,22 @@ void Creature::playSound(SoundSetEntry entry, bool positional) {
     if (_audioSourceVoice) {
         _audioSourceVoice->stop();
     }
+    // The controlled creature speaks as the player; any other as a large
+    // creature from the large size up, and as a medium or small one below it.
+    int group = kPlayerChatSoundGroup;
+    if (_game.party().getLeader().get() != this) {
+        group = _size < CreatureSize::Large ? kCreatureVocalizationSoundGroup : kLargeCreatureVocalizationSoundGroup;
+    }
+    // A vocalization keeps its pitch, and follows the voice volume.
     _audioSourceVoice = _services.audio.mixer.play(
         maybeSound->second,
-        AudioType::Sound,
+        AudioType::Voice,
+        group,
         1.0f,
         false,
-        std::move(position));
+        std::move(position),
+        std::nullopt,
+        0.0f);
 }
 
 void Creature::setPresent(bool present) {
@@ -6055,6 +6155,9 @@ void Creature::setPresent(bool present) {
     Object::setPresent(present);
     if (!present) {
         stopVoiceAndFootsteps();
+    }
+    for (const auto &[slot, item] : _equipment) {
+        present ? item->startPoweredSound(_position) : item->stopPoweredSound();
     }
 }
 
@@ -6067,6 +6170,8 @@ void Creature::stopVoiceAndFootsteps() {
     }
     _audioSourceVoice.reset();
     _audioSourceFootstep.reset();
+    stopRollingFootstep();
+    stopLoopingSounds();
 }
 
 void Creature::runAttackedScript(uint32_t attackerId) {
@@ -6778,7 +6883,7 @@ void Creature::powerSlotItem(int slot, bool powered, bool animate) {
     }
     weapon->playAnimation(animate ? (powered ? "powerup" : "powerdown") : (powered ? "powered" : "off"));
     if (item) {
-        powered ? item->powerUp(_position, animate) : item->powerDown(_position, animate);
+        powered ? item->powerUp(_position, animate, isPresent()) : item->powerDown(_position, animate, isPresent());
     }
 }
 
@@ -7332,7 +7437,6 @@ Alignment Creature::alignment() const {
 
 namespace {
 
-constexpr int kMaxGoodEvil = 100;
 constexpr char kPlayerAlignmentGlobal[] = "G_PC_Align_Val";
 
 // Mastery of a side of the Force strengthens influence by the level held in
@@ -7366,12 +7470,12 @@ int influenceAlignment(int base, int influence, int charismaBonus, float factor,
     const float push = static_cast<float>(playerAlignment - 50) / 50.0f * pull;
     const float value = push <= 0.0f
                             ? static_cast<float>(base) * (1.0f + push)
-                            : static_cast<float>(base) + static_cast<float>(100 - base) * push;
-    if (value > 100.0f) {
-        return 100;
+                            : static_cast<float>(base) + static_cast<float>(kMaxGoodEvil - base) * push;
+    if (value > static_cast<float>(kMaxGoodEvil)) {
+        return kMaxGoodEvil;
     }
-    if (value < 0.0f) {
-        return 0;
+    if (value < static_cast<float>(kMinGoodEvil)) {
+        return kMinGoodEvil;
     }
     return static_cast<int>(value);
 }
@@ -7380,7 +7484,7 @@ int influenceAlignment(int base, int influence, int charismaBonus, float factor,
 
 void Creature::modifyAlignment(int shift, bool dontModifyNPCs) {
     const auto clampGoodEvil = [](int value) {
-        return std::clamp(value, 0, kMaxGoodEvil);
+        return std::clamp(value, kMinGoodEvil, kMaxGoodEvil);
     };
     const auto shifted = [&]() {
         return clampGoodEvil(_goodEvil + shift);
@@ -7411,7 +7515,7 @@ void Creature::updatePureGoodEvilPowers() {
     if (_goodEvil == kMaxGoodEvil) {
         removePureAlignmentPowers(false);
         addPureAlignmentPowers(true);
-    } else if (_goodEvil == 0) {
+    } else if (_goodEvil == kMinGoodEvil) {
         removePureAlignmentPowers(true);
         addPureAlignmentPowers(false);
     } else {
@@ -7447,7 +7551,7 @@ void Creature::recomputeInfluenceAlignment() {
     }
     // Kreia's alignment is her own, whatever her influence.
     if (boost::iequals(_tag, "kreia")) {
-        _goodEvil = std::clamp(_baseCNPCAlignment, 0, kMaxGoodEvil);
+        _goodEvil = std::clamp(_baseCNPCAlignment, kMinGoodEvil, kMaxGoodEvil);
         return;
     }
     // Influence belongs to a companion's roster slot, and its base to the
@@ -9242,9 +9346,13 @@ void Creature::onEventSignalled(const std::string &name) {
         playSwingSound("parry", 2);
         return;
     }
+    // A draw lights the lightsabers it brings out. Outside combat they go out
+    // again eight seconds later, unless a conversation is running: a weapon
+    // brought out during one stays lit until combat comes and goes, a script
+    // puts it out, or its holder dies.
     if (name == "draw_weapon") {
         setLightsabersPowered(true, true);
-        if (!_combatState.active) {
+        if (!_combatState.active && !_game.isConversationActive()) {
             _lightsaberIdlePowerDownPending = true;
             _lightsaberIdlePowerDownTimer.reset(8.0f);
         }
@@ -9262,47 +9370,211 @@ void Creature::onEventSignalled(const std::string &name) {
     if (!area) {
         return;
     }
+    // A rolling footstep type plays its loop in place of steps.
+    auto ownSounds = _services.game.footstepSounds.get(_footstepType);
+    if (ownSounds && !rollingFootstepSound(*ownSounds).empty()) {
+        return;
+    }
     // A stealthed creature steps softly.
-    std::shared_ptr<FootstepTypeSounds> sounds(_services.game.footstepSounds.get(_stealthMode ? 0 : _footstepType));
+    const int footstepType = _stealthMode ? 0 : _footstepType;
+    std::shared_ptr<FootstepTypeSounds> sounds(_services.game.footstepSounds.get(footstepType));
     if (!sounds) {
         return;
     }
     // A step sounds one of three variants of the sound of the surface under
     // the creature, named by the surface; a surface without a name is silent.
-    const Surface &surface = _services.game.surfaces.getSurface(area->get().getSurfaceMaterial(_position));
+    const int material = area->get().getSurfaceMaterial(_position);
+    const Surface &surface = _services.game.surfaces.getSurface(material);
     if (surface.name.empty()) {
         return;
     }
     const auto cell = sounds->cells.find(boost::to_lower_copy(surface.name) + std::to_string(randomInt(0, 2)));
     auto clip = cell != sounds->cells.end() ? _services.resource.audioClips.get(cell->second) : nullptr;
     // TSL's Dampen Sound silences a stealthed creature's steps.
-    if (clip && _stealthMode && hasSilentMove()) {
-        return;
-    }
-    if (clip) {
+    if (clip && !(_stealthMode && hasSilentMove())) {
+        // The step's pitch strays at random by the footstep type's offset, or
+        // by its group's variance when the type has none.
+        std::optional<float> pitchVariance;
+        if (sounds->pitchOffset != 0.0f) {
+            pitchVariance = sounds->pitchOffset;
+        }
         _audioSourceFootstep = _services.audio.mixer.play(
             std::move(clip),
             AudioType::Sound,
+            footstepSoundGroup(),
             1.0f,
             false,
-            _position);
-        // The step's pitch strays at random by the footstep type's offset: on
-        // one step in two up by as much, on the other down by half as much.
-        const float variance = std::clamp(sounds->pitchOffset, 0.0f, 1.0f);
-        if (_audioSourceFootstep && variance > 0.0f) {
-            const bool up = randomInt(0, 1) == 1;
-            const float stray = randomFloat(0.0f, variance);
-            _audioSourceFootstep->setPitch(up ? 1.0f + stray : 1.0f - 0.5f * stray);
+            _position,
+            std::nullopt,
+            pitchVariance);
+    }
+    // The controlled creature's steps on wood, but for wings, creak one time
+    // in twenty.
+    const bool wings = footstepType == kWingsFootstepType || footstepType == kHugeWingsFootstepType;
+    if (material == kWoodSurfaceMaterial && !wings && _game.party().getLeader().get() == this &&
+        randomInt(0, 99) < kFloorCreakPercent) {
+        if (auto creak = _services.resource.audioClips.get(kFloorCreakResRef + std::to_string(randomInt(1, 3)))) {
+            _services.audio.mixer.play(std::move(creak), AudioType::Sound, kPlayerFootstepSoundGroup, 1.0f, false, _position);
         }
     }
 }
 
-void Creature::giveGold(int amount) {
-    _gold += amount;
+// The controlled creature steps as the player; any other as a medium or small
+// creature when tiny, small or medium, and as a large one otherwise.
+int Creature::footstepSoundGroup() const {
+    if (_game.party().getLeader().get() == this) {
+        return kPlayerFootstepSoundGroup;
+    }
+    return _size >= CreatureSize::Tiny && _size <= CreatureSize::Medium ? kCreatureFootstepSoundGroup
+                                                                        : kLargeCreatureFootstepSoundGroup;
+}
+
+// A rolling footstep type's loop plays where the creature is while it walks,
+// and raised by the type's pitch offset while it runs; any other animation
+// stops it.
+void Creature::updateRollingFootstep() {
+    // An absent creature, or one moving silently in stealth, makes no sound.
+    if (!isPresent() || (_stealthMode && hasSilentMove())) {
+        stopRollingFootstep();
+        return;
+    }
+    auto sounds = _footstepType != -1 ? _services.game.footstepSounds.get(_footstepType) : nullptr;
+    const std::string resRef = sounds ? rollingFootstepSound(*sounds) : std::string();
+    if (resRef.empty()) {
+        return;
+    }
+    std::optional<float> pitch;
+    switch (currentAnimationId()) {
+    case kWalkAnimationId:
+    case kWalkBackAnimationId:
+    case kStealthWalkAnimationId:
+    case kInjuredWalkAnimationId:
+        pitch = 1.0f;
+        break;
+    case kRunAnimationId:
+    case kInjuredRunAnimationId:
+        pitch = 1.0f + sounds->pitchOffset;
+        break;
+    default:
+        break;
+    }
+    if (!pitch) {
+        stopRollingFootstep();
+        return;
+    }
+    if (!_rollingFootstep || !_rollingFootstep->isPlaying()) {
+        _rollingFootstep = _services.audio.mixer.play(
+            _services.resource.audioClips.get(resRef), AudioType::Sound, footstepSoundGroup(), 1.0f, true, _position, std::nullopt, 0.0f);
+        if (!_rollingFootstep) {
+            return;
+        }
+    }
+    _rollingFootstep->setPosition(_position);
+    _rollingFootstep->setPitch(*pitch);
+}
+
+// The appearance's loop is the controlled creature's own group's when it
+// starts, and every other creature's otherwise. The light source loops at a
+// tenth of full volume, in the controlled creature's group.
+void Creature::updateLoopingSounds() {
+    static constexpr float kLoopingSoundHeight = 1.5f;
+    static constexpr char kLightSourceSound[] = "al_cv_firetorch1";
+    static constexpr float kLightSourceGain = 10.0f / 127.0f;
+    static constexpr int kLightSourceItemType = 29;
+    if (!isPresent()) {
+        return;
+    }
+    const bool controlled = _game.party().getLeader().get() == this;
+    const glm::vec3 position = _position + glm::vec3(0.0f, 0.0f, kLoopingSoundHeight);
+    if (!_appearanceSoundSet.looping.empty() && !_loopingSound && _loopingSoundResRef.empty()) {
+        _loopingSoundResRef = _appearanceSoundSet.looping;
+        _loopingSound = _services.audio.mixer.play(
+            _services.resource.audioClips.get(_loopingSoundResRef), AudioType::Sound,
+            controlled ? kLoopingPlayerSoundGroup : kLoopingNonPlayerSoundGroup, 1.0f, true, position);
+    }
+    if (_loopingSound) {
+        _loopingSound->setPosition(position);
+    }
+    auto held = getEquippedItem(InventorySlots::leftWeapon);
+    const bool lit = controlled && held && held->itemType() == kLightSourceItemType;
+    if (!lit) {
+        if (_lightSourceSound) {
+            _lightSourceSound->stop();
+            _lightSourceSound.reset();
+        }
+        return;
+    }
+    // It sounds where the light source is in the hand.
+    glm::vec3 lightPosition = _position;
+    if (auto *body = dynamic_cast<ModelSceneNode *>(_sceneNode.get())) {
+        if (auto *light = body->getAttachment(g_leftHandNode)) {
+            lightPosition = light->origin();
+        }
+    }
+    if (!_lightSourceSound) {
+        _lightSourceSound = _services.audio.mixer.play(
+            _services.resource.audioClips.get(kLightSourceSound), AudioType::Sound, kLoopingPlayerSoundGroup,
+            kLightSourceGain, true, lightPosition);
+    }
+    if (_lightSourceSound) {
+        _lightSourceSound->setPosition(lightPosition);
+    }
+}
+
+// A creature that comes back starts its loop again.
+void Creature::stopLoopingSounds() {
+    _loopingSoundResRef.clear();
+    for (auto *source : {&_loopingSound, &_lightSourceSound}) {
+        if (*source) {
+            (*source)->stop();
+            source->reset();
+        }
+    }
+}
+
+Creature::~Creature() {
+    stopRollingFootstep();
+    stopLoopingSounds();
+}
+
+void Creature::stopRollingFootstep() {
+    if (_rollingFootstep) {
+        _rollingFootstep->stop();
+        _rollingFootstep.reset();
+    }
 }
 
 void Creature::takeGold(int amount) {
     _gold -= amount;
+}
+
+int Creature::heldCount(HeldCount count) const {
+    switch (count) {
+    case HeldCount::Credits:
+        return _gold;
+    case HeldCount::Components:
+        return _components;
+    default:
+        return _chemicals;
+    }
+}
+
+void Creature::setHeldCount(HeldCount count, int value) {
+    switch (count) {
+    case HeldCount::Credits:
+        _gold = value;
+        break;
+    case HeldCount::Components:
+        _components = value;
+        break;
+    default:
+        _chemicals = value;
+        break;
+    }
+}
+
+void Creature::clearHeldCounts() {
+    _gold = _components = _chemicals = 0;
 }
 
 glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt) {
@@ -9311,7 +9583,18 @@ glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &ne
 
     // If we're not making progress - move in a random direction and
     // hope. If we wander off too far, the path will be recalculated.
-    const bool noProgress = _previousPosition && glm::length2(_position - *_previousPosition) < 0.0001;
+    bool noProgress = false;
+    if (_previousPosition) {
+        _progressTime += dt;
+        if (_progressTime >= kProgressCheckInterval) {
+            noProgress = glm::length(_position - *_previousPosition) < kMinimumProgressSpeed * _progressTime;
+            _previousPosition = _position;
+            _progressTime = 0.0f;
+        }
+    } else {
+        _previousPosition = _position;
+        _progressTime = 0.0f;
+    }
     if (!_stuckTimer.elapsed() || noProgress) {
         // Try to unstuck for some time even if we're moving
         // again. Otherwise desiredForce kicks in again next frame.
@@ -9330,7 +9613,6 @@ glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &ne
     } else {
         _stuckForce = glm::vec3 {0.0f, 0.0f, 0.0f};
     }
-    _previousPosition = _position;
 
     glm::vec3 combinedForce = desiredForce + 0.1f * keepoutForce + _stuckForce;
 
@@ -10748,9 +11030,8 @@ CreaturePresentation Creature::presentation() const {
     result.gender = static_cast<int>(_gender);
     result.appearance = _appearance;
     auto body = getEquippedItem(InventorySlots::body);
-    if (body && !body->baseBodyVariation().empty()) {
-        auto variation = boost::to_lower_copy(body->baseBodyVariation());
-        result.bodyVariation = variation.front() - 'a';
+    if (body) {
+        result.bodyVariation = wornBodyVariation(*body);
         result.textureVariation = body->textureVariation();
     }
     return result;
@@ -10771,6 +11052,17 @@ void Creature::setPresentation(const CreaturePresentation &presentation) {
     _gender = static_cast<Gender>(presentation.gender);
 }
 
+// The last body model and texture columns of appearance.2da, J in KotOR and
+// N in TSL, which every body variation past them uses.
+static constexpr int kK1LastBodyColumn = 9;
+static constexpr int kTSLLastBodyColumn = 13;
+
+// The letter of the body model and texture columns for a body variation
+// counted from 0.
+static char bodyColumnLetter(int bodyVariation, bool tsl) {
+    return static_cast<char>('a' + std::min(bodyVariation, tsl ? kTSLLastBodyColumn : kK1LastBodyColumn));
+}
+
 std::string Creature::getBodyModelName() const {
     std::string column;
 
@@ -10779,10 +11071,9 @@ std::string Creature::getBodyModelName() const {
 
         std::shared_ptr<Item> bodyItem(getEquippedItem(InventorySlots::body));
         if (_presentation) {
-            column += static_cast<char>('a' + _presentation->bodyVariation);
+            column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            std::string baseBodyVar(bodyItem->baseBodyVariation());
-            column += baseBodyVar;
+            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
         } else {
             column += "a";
         }
@@ -10810,10 +11101,9 @@ std::string Creature::getBodyTextureName() const {
         column = "tex";
 
         if (_presentation) {
-            column += static_cast<char>('a' + _presentation->bodyVariation);
+            column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            std::string baseBodyVar(bodyItem->baseBodyVariation());
-            column += baseBodyVar;
+            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
         } else {
             column += "a";
         }
@@ -10909,10 +11199,7 @@ std::string Creature::getMaskModelName() const {
         return "";
     }
 
-    std::string modelName(boost::to_lower_copy(headItem->itemClass()));
-    modelName += str(boost::format("_%03d") % headItem->modelVariation());
-
-    return modelName;
+    return headItem->modelResRef(_game.itemModelGenderLetter());
 }
 
 std::string Creature::getWeaponModelName(int slot) const {
@@ -10921,17 +11208,25 @@ std::string Creature::getWeaponModelName(int slot) const {
         return "";
     }
 
-    std::string modelName(bodyItem->itemClass());
-    boost::to_lower(modelName);
-
-    modelName += str(boost::format("_%03d") % bodyItem->modelVariation());
-
-    return modelName;
+    return bodyItem->modelResRef(_game.itemModelGenderLetter());
 }
 
 void Creature::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, false);
+}
+
+void Creature::deserializeAsPartyMember(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, true);
+}
+
+void Creature::deserializeRecord(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    bool partyMember) {
     std::string templateRes;
     std::shared_ptr<Gff> utc;
     if (!identityContext.isSerializedState() &&
@@ -10941,15 +11236,21 @@ void Creature::deserialize(
             deserializeAll(
                 *utc,
                 SerializedIdentityContext::templateResource(templateRes));
+            deserializeHeldCounts(*utc);
         }
     }
     // An entry placed from a template gives only where the creature stands
-    // and which way it faces, each missing value being 0.
+    // and which way it faces, each missing value being 0, and the creature
+    // keeps the template's counts; a party member's record holds none of its
+    // own.
     if (utc) {
         _position = glm::vec3(gff.getFloat("XPosition"), gff.getFloat("YPosition"), gff.getFloat("ZPosition"));
         setFacing(-glm::atan(gff.getFloat("XOrientation"), gff.getFloat("YOrientation")));
     } else {
         deserializeAll(gff, identityContext);
+        if (!partyMember) {
+            deserializeHeldCounts(gff);
+        }
     }
 
     // Vitality is rebuilt from the record before equipment is worn, so worn
@@ -10961,7 +11262,7 @@ void Creature::deserialize(
     } else {
         deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     }
-    countLoadedItems();
+    countLoadedItems(partyMember);
     // A reloaded corpse lies, without dying again, in the dead pose it was
     // saved in; one saved in no dead pose lies in the second.
     if (_dead) {
@@ -11396,7 +11697,23 @@ void Creature::forceEquipClothing() {
     _game.finishEquip(*this, InventorySlots::body, clothing);
 }
 
-void Creature::countLoadedItems() {
+// The credits, components and chemicals the creature holds itself; a record
+// never holds the party's. Each is a signed count, held up to kMaxHeldCount as
+// when it is set.
+void Creature::deserializeHeldCounts(const resource::Gff &gff) {
+    auto readHeldCount = [&gff](int &count, std::string_view label) {
+        auto value = static_cast<uint32_t>(count);
+        gff.readDword(value, label);
+        count = std::min(static_cast<int>(value), kMaxHeldCount);
+    };
+    readHeldCount(_gold, "Gold");
+    if (_game.isTSL()) {
+        readHeldCount(_components, "ItemComponent");
+        readHeldCount(_chemicals, "Chemicals");
+    }
+}
+
+void Creature::countLoadedItems(bool partyMember) {
     std::vector<std::shared_ptr<Item>> counted;
     for (const auto &item : _items) {
         if (_game.party().isCountedItem(*item)) {
@@ -11428,7 +11745,11 @@ void Creature::countLoadedItems() {
             _itemAttributes = std::move(keptAttributes);
         });
     for (const auto &item : counted) {
-        _game.party().acquireCountedItem(*this, *item);
+        if (partyMember) {
+            _game.party().acquireCountedItemAsPlayer(*this, *item);
+        } else {
+            _game.party().acquireCountedItem(*this, *item);
+        }
     }
 }
 
@@ -11750,6 +12071,15 @@ float Creature::walkSpeed() const {
 // However slowed, a run covers at least a metre a second.
 float Creature::runSpeed() const {
     return std::max(kMinimumRunSpeed, _runSpeed * movementRate(true));
+}
+
+bool Creature::isDriven() const {
+    const auto action = getCurrentAction();
+    return action && isa<DriveAction>(action);
+}
+
+float Creature::driveSpeed() const {
+    return isDriven() ? cast<DriveAction>(getCurrentAction())->speed(*this) : 0.0f;
 }
 
 int Creature::maxForcePoints() const {

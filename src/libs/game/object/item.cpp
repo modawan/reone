@@ -19,6 +19,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <limits>
+
+#include <boost/algorithm/string/case_conv.hpp>
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -35,6 +39,7 @@
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/resources.h"
+#include "reone/resource/resref.h"
 #include "reone/resource/strings.h"
 
 using namespace reone::audio;
@@ -51,8 +56,9 @@ static constexpr uint32_t kLightsaberForceItemMask = uint32_t {1} << 6;
 // The On Hit save DC of a cost value outside iprp_onhitdc.
 static constexpr int kDefaultOnHitDifficultyClass = 20;
 
-// The baseitems.2da model type of an item drawn as its wearer's body model.
-static constexpr int kBodyModelType = 1;
+// The last letter that names a base item's body variation, KotOR's and TSL's.
+static constexpr char kK1LastBodyVariation = 'J';
+static constexpr char kTSLLastBodyVariation = 'Z';
 
 // The seconds an On Hit state lasts per iprp_onhitdur round: KotOR, then TSL.
 static constexpr float kOnHitStateSecondsPerRoundK1 = 6.0f;
@@ -61,20 +67,91 @@ static constexpr float kOnHitStateSecondsPerRoundTSL = 3.0f;
 // The iprp_onhit parameter table that gives a chance and duration.
 static constexpr int kOnHitDurationParameterTable = 1;
 
+// The charges a new item holds.
+static constexpr int kNewItemCharges = 50;
+
 int Item::cost(float baseCostMultiplier) const {
-    if (plotFlag()) {
+    if (plotValue() == 1) {
         return 0;
     }
-    const auto value = static_cast<int>(static_cast<float>(_addCost) * baseCostMultiplier);
-    return value < 2 ? 1 : value;
+    const float scaled = static_cast<float>(static_cast<int32_t>(_addCost)) * baseCostMultiplier;
+    // KotOR raises a negative cost to 0; TSL keeps it.
+    const float kept = _game.isTSL() ? scaled : std::max(scaled, 0.0f);
+    const auto value = static_cast<int>(std::clamp<double>(
+        kept,
+        std::numeric_limits<int>::min(),
+        std::numeric_limits<int>::max()));
+    return value == 0 || value == 1 ? 1 : value;
 }
 
-void Item::loadFromBlueprint(const std::string &resRef) {
-    std::shared_ptr<Gff> uti(_services.resource.gffs.get(resRef, ResType::Uti));
-    if (uti) {
-        deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
-        return;
+int Item::componentValue(float baseCostMultiplier) const {
+    static constexpr int kCostPerComponent = 20;
+    const int value = cost(baseCostMultiplier);
+    return value < kCostPerComponent ? 1 : value / kCostPerComponent;
+}
+
+int Item::chemicalValue(float baseCostMultiplier) const {
+    static constexpr int kCostPerChemical = 2;
+    const int value = cost(baseCostMultiplier);
+    return value < kCostPerChemical ? 1 : value / kCostPerChemical;
+}
+
+void Item::addUpgrade(const Item &upgrade, int slot) {
+    for (const auto &property : upgrade._properties) {
+        if (isUseProperty(property.propertyName)) {
+            continue;
+        }
+        auto added = property;
+        added.upgradeMark = PropertyEntry::markOfSlot(slot);
+        _properties.push_back(added);
     }
+}
+
+// Only what the slot's upgrade added goes, however many properties the
+// upgrade taken out carries: the item's own properties all stay.
+void Item::removeUpgrade(int slot) {
+    _properties.erase(std::remove_if(_properties.begin(), _properties.end(), [slot](const PropertyEntry &property) {
+                          return !isUseProperty(property.propertyName) && property.addedBySlot(slot);
+                      }),
+                      _properties.end());
+}
+
+void Item::setUpgradeInstalled(int row, bool installed) {
+    if (row >= 0 && row < kUpgradeRowCount) {
+        _upgrades.set(static_cast<size_t>(row), installed);
+    }
+}
+
+std::string Item::modelResRef(std::optional<char> genderLetter) const {
+    auto resRef = boost::to_lower_copy(_itemClass);
+    if (_genderSpecific && genderLetter) {
+        resRef += '_';
+        resRef += *genderLetter;
+    }
+    return ResRef {resRef + str(boost::format("_%03d") % static_cast<int>(_modelVariation))}.value();
+}
+
+bool Item::hasInstalledUpgrade() const {
+    return std::any_of(_upgradeSlots.begin(), _upgradeSlots.end(), [](const std::optional<int> &slot) { return slot.has_value(); });
+}
+
+bool Item::loadFromBlueprint(const std::string &resRef) {
+    std::shared_ptr<Gff> uti(_services.resource.gffs.get(resRef, ResType::Uti));
+    if (!uti) {
+        return false;
+    }
+    deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
+    return true;
+}
+
+void Item::loadBlank() {
+    static constexpr int kBlankBaseItem = 30;
+    _baseItem = kBlankBaseItem;
+    _modelVariation = 1;
+    _charges = kNewItemCharges;
+    _dropable = true;
+    loadBaseItem();
+    loadIcon();
 }
 
 std::optional<std::string> Item::entryTemplate(const resource::Gff &entry) {
@@ -127,10 +204,9 @@ void Item::deserializeAll(
 
     // A complete record without charges holds fifty; a record with charges but
     // no maximum holds as many charges as it has.
-    static constexpr int kDefaultCharges = 50;
     const bool charged = gff.readByte(_charges, "Charges");
     if (!charged && completeRecord) {
-        _charges = kDefaultCharges;
+        _charges = kNewItemCharges;
     }
     uint8_t maxCharges = 0;
     if (gff.readByte(maxCharges, "MaxCharges")) {
@@ -142,12 +218,46 @@ void Item::deserializeAll(
     gff.readDword(_addCost, "AddCost");
     gff.readBool(_stolen, "Stolen");
     gff.readWord(_stackSize, "StackSize");
-    gff.readDword(_upgrades, "Upgrades");
+    // Upgrades holds rows 0 to 31, a bit each, and UpgradeRows any row past
+    // them; each replaces what it holds when the record has it.
+    uint32_t recorded = 0;
+    if (gff.readDword(recorded, "Upgrades")) {
+        for (int row = 0; row < kRecordedUpgradeBits; ++row) {
+            _upgrades.set(static_cast<size_t>(row), (recorded >> row) & 1u);
+        }
+    }
+    if (gff.has("UpgradeRows")) {
+        for (int row = kRecordedUpgradeBits; row < kUpgradeRowCount; ++row) {
+            _upgrades.reset(static_cast<size_t>(row));
+        }
+        for (const auto &entry : gff.getList("UpgradeRows")) {
+            setUpgradeInstalled(entry->getInt("Row", -1), true);
+        }
+    }
+    if (_game.isTSL()) {
+        // A record without an upgrade level keeps the level the item has.
+        auto level = static_cast<uint8_t>(_upgradeLevel);
+        gff.readByte(level, "UpgradeLevel");
+        _upgradeLevel = level;
+        // A slot the record leaves out, or gives a negative row, is empty, even
+        // when an earlier read filled it.
+        for (size_t slot = 0; slot < _upgradeSlots.size(); ++slot) {
+            int32_t row = kSavedEmptyUpgradeSlot;
+            gff.readInt(row, "UpgradeSlot" + std::to_string(slot));
+            _upgradeSlots[slot] = row >= 0 ? std::optional<int> {row} : std::nullopt;
+        }
+    }
 
     gff.readBool(_identified, "Identified");
-    gff.readByte(_modelVariation, "ModelVariation");
-    gff.readByte(_textureVariation, "TextureVar");
-    gff.readByte(_bodyVariation, "BodyVariation");
+    // A record without a model variation gives its first model part, and
+    // with neither the item keeps the variation it had; a variation so taken
+    // that is 0 is 1.
+    if (!gff.readByte(_modelVariation, "ModelVariation")) {
+        gff.readByte(_modelVariation, "ModelPart1");
+        if (_modelVariation == 0) {
+            _modelVariation = 1;
+        }
+    }
     gff.readBool(_dropable, "Dropable");
     gff.readBool(_nonEquippable, "NonEquippable");
     gff.readBool(_newlyAcquired, "NewItem");
@@ -178,6 +288,9 @@ void Item::deserializeProperties(const resource::Gff &gff) {
         prop->readByte(usesPerDay, "UsesPerDay");
         if (usesPerDay != PropertyEntry::kUnrecordedUsesPerDay) {
             entry.usesPerDay = usesPerDay;
+        }
+        if (_game.isTSL()) {
+            prop->readWord(entry.upgradeMark, "PropUpgrade");
         }
         prop->readBool(entry.usable, "Useable");
         prop->readDword(entry.usedDay, "UsedDay");
@@ -214,13 +327,26 @@ void Item::deserializeBase(const resource::Gff &gff) {
     if (!gff.readInt(_baseItem, "BaseItem")) {
         return;
     }
+    loadBaseItem();
+    // Only an item drawn as its wearer's body model reads its texture
+    // variation, 1 when the record has none.
+    if (isBodyModel()) {
+        _textureVariation = 1;
+        gff.readByte(_textureVariation, "TextureVar");
+    }
+    // An item drawn as its wearer's body model takes its base item's body
+    // variation, counted from 1; any other item has none.
+    _bodyVariation = isBodyModel() ? _baseBodyVariation + 1 : 0;
+    loadIcon();
+}
 
+void Item::loadBaseItem() {
     auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
     _itemType = baseItems->getInt(_baseItem, "itemtype", 0);
     _storePanelSort = baseItems->getInt(_baseItem, "storepanelsort", 0);
     _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
     _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
-    _bodyModel = baseItems->getInt(_baseItem, "modeltype", 0) == kBodyModelType;
+    _modelType = baseItems->getInt(_baseItem, "modeltype", 0);
     _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
     _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
     _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
@@ -273,6 +399,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
         static_cast<int>(std::numeric_limits<uint16_t>::max())));
 
     _poweredItem = baseItems->getInt(_baseItem, "powereditem") != 0;
+    _genderSpecific = baseItems->getInt(_baseItem, "genderspecific") != 0;
     if (_poweredItem) {
         auto loadSound = [this, &baseItems](const char *column) {
             auto resRef = boost::to_lower_copy(baseItems->getString(_baseItem, column));
@@ -283,22 +410,19 @@ void Item::deserializeBase(const resource::Gff &gff) {
         _poweredSound = loadSound("poweredsnd");
     }
 
-    std::string iconResRef;
-    if (isEquippable(InventorySlots::body)) {
-        _baseBodyVariation = boost::to_lower_copy(baseItems->getString(_baseItem, "bodyvar"));
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_textureVariation);
-    } else if (isEquippable(InventorySlots::rightWeapon)) {
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
-    } else {
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
-    }
+    const auto bodyVariation = baseItems->getString(_baseItem, "bodyvar");
+    const char lastBodyVariation = _game.isTSL() ? kTSLLastBodyVariation : kK1LastBodyVariation;
+    const bool named = bodyVariation.size() == 1 && bodyVariation[0] >= 'A' && bodyVariation[0] <= lastBodyVariation;
+    _baseBodyVariation = named ? bodyVariation[0] - 'A' : 0;
+}
+
+void Item::loadIcon() {
+    const int variation = _modelType != 0 ? _textureVariation : _modelVariation;
+    // A gender-specific base item names its icon for the male model.
+    const auto iconResRef = _genderSpecific
+                                ? str(boost::format("i%s_m_%03d") % _itemClass % variation)
+                                : str(boost::format("i%s_%03d") % _itemClass % variation);
     _icon = _services.resource.textures.get(iconResRef, TextureUsage::GUI);
-    if (!_icon && isEquippable(InventorySlots::body)) {
-        // Some body items (e.g. disguises) key the inventory icon on ModelVariation
-        // rather than TextureVar; fall back to it when the primary icon is missing.
-        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
-        _icon = _services.resource.textures.get(iconResRef, TextureUsage::GUI);
-    }
 }
 
 void Item::loadAmmunitionType() {
@@ -350,9 +474,13 @@ void Item::clone(const Item &from) {
     _maxCharges = from._maxCharges;
     _cost = from._cost;
     _addCost = from._addCost;
-    _stolen = from._stolen;
+    // A copy is never stolen, and is infinite as the original is.
+    _stolen = false;
+    _infinite = from._infinite;
     _stackSize = from._stackSize;
     _upgrades = from._upgrades;
+    _upgradeLevel = from._upgradeLevel;
+    _upgradeSlots = from._upgradeSlots;
     _identified = from._identified;
     _modelVariation = from._modelVariation;
     _bodyVariation = from._bodyVariation;
@@ -386,6 +514,7 @@ void Item::clone(const Item &from) {
     _equipped = from._equipped;
     _ammunitionType = from._ammunitionType;
     _poweredItem = from._poweredItem;
+    _genderSpecific = from._genderSpecific;
     _isPowered = from._isPowered;
     _powerUpSound = from._powerUpSound;
     _powerDownSound = from._powerDownSound;
@@ -397,7 +526,7 @@ void Item::clone(const Item &from) {
     _weaponFocusFeat = from._weaponFocusFeat;
     _weaponSpecializationFeat = from._weaponSpecializationFeat;
     _baseDefense = from._baseDefense;
-    _bodyModel = from._bodyModel;
+    _modelType = from._modelType;
     _maxDexterityBonus = from._maxDexterityBonus;
     _acBonusType = from._acBonusType;
 
@@ -474,7 +603,7 @@ std::optional<size_t> Item::usePropertyAt(size_t place) const {
 int Item::armorValue(bool installedUpgradesOnly) const {
     // Only armour worn as the body model counts its base armour class, so
     // droid plating starts from nothing.
-    int value = _bodyModel ? _baseDefense : 0;
+    int value = isBodyModel() ? _baseDefense : 0;
     for (const auto &property : _properties) {
         if (property.type() == ItemProperty::AcBonus && (!installedUpgradesOnly || isPropertyActive(property))) {
             value += property.costValue;
@@ -592,6 +721,7 @@ void Item::update(float dt) {
     refreshSpellReadiness();
 }
 
+// A shot is a combat sound; its impact where the bolt ends is a projectile's.
 void Item::playShotSound(int variant, glm::vec3 position) {
     if (!_ammunitionType) {
         return;
@@ -601,6 +731,7 @@ void Item::playShotSound(int variant, glm::vec3 position) {
         _audioSource = _services.audio.mixer.play(
             std::move(clip),
             AudioType::Sound,
+            kCombatSoundGroup,
             1.0f,
             false,
             std::move(position));
@@ -616,39 +747,51 @@ void Item::playImpactSound(int variant, glm::vec3 position) {
         _services.audio.mixer.play(
             std::move(clip),
             AudioType::Sound,
+            kProjectileSoundGroup,
             1.0f,
             false,
             std::move(position));
     }
 }
 
-void Item::powerUp(glm::vec3 position, bool transition) {
+// The power sounds and the hum are one-shot global sounds by group, though
+// they play where the item is.
+void Item::powerUp(glm::vec3 position, bool transition, bool audible) {
     if (!_poweredItem || _isPowered) {
         return;
     }
     _isPowered = true;
+    if (!audible) {
+        return;
+    }
     if (transition && _powerUpSound) {
-        _services.audio.mixer.play(_powerUpSound, AudioType::Sound, 1.0f, false, position);
+        _services.audio.mixer.play(_powerUpSound, AudioType::Sound, kSingleShotGlobalSoundGroup, 1.0f, false, position);
     }
-    if (_poweredAudioSource) {
-        _poweredAudioSource->stop();
-    }
-    if (_poweredSound) {
-        _poweredAudioSource = _services.audio.mixer.play(_poweredSound, AudioType::Sound, 1.0f, true, position);
-    }
+    stopPoweredSound();
+    startPoweredSound(position);
 }
 
-void Item::powerDown(glm::vec3 position, bool transition) {
+void Item::powerDown(glm::vec3 position, bool transition, bool audible) {
     if (!_poweredItem || !_isPowered) {
         return;
     }
     _isPowered = false;
+    stopPoweredSound();
+    if (audible && transition && _powerDownSound) {
+        _services.audio.mixer.play(_powerDownSound, AudioType::Sound, kSingleShotGlobalSoundGroup, 1.0f, false, position);
+    }
+}
+
+void Item::startPoweredSound(glm::vec3 position) {
+    if (_isPowered && _poweredSound && !_poweredAudioSource) {
+        _poweredAudioSource = _services.audio.mixer.play(_poweredSound, AudioType::Sound, kSingleShotGlobalSoundGroup, 1.0f, true, position);
+    }
+}
+
+void Item::stopPoweredSound() {
     if (_poweredAudioSource) {
         _poweredAudioSource->stop();
         _poweredAudioSource.reset();
-    }
-    if (transition && _powerDownSound) {
-        _services.audio.mixer.play(_powerDownSound, AudioType::Sound, 1.0f, false, position);
     }
 }
 
@@ -743,6 +886,23 @@ void Item::setEquipped(bool equipped) {
     _equipped = equipped;
 }
 
+// Armour takes its row too: the game's armour material class is never set.
+void Item::playDropSound() const {
+    auto baseItems = _services.resource.twoDas.get("baseitems");
+    auto sounds = _services.resource.twoDas.get("inventorysnds");
+    if (!baseItems || !sounds) {
+        return;
+    }
+    const int row = baseItems->getInt(_baseItem, "invsoundtype", -1);
+    if (row < 0 || row >= sounds->getRowCount()) {
+        return;
+    }
+    const std::string resRef = boost::to_lower_copy(sounds->getString(row, "inventorysound"));
+    if (!resRef.empty()) {
+        _services.audio.mixer.play(_services.resource.audioClips.get(resRef), audio::AudioType::Sound, kGuiSoundGroup);
+    }
+}
+
 bool Item::isMineKit() const {
     if (_itemType != kTrapKitItemType) {
         return false;
@@ -767,7 +927,7 @@ std::pair<int, int> Item::monsterDamageDice() const {
 }
 
 bool Item::isPropertyActive(const PropertyEntry &property) const {
-    return isPropertyActive(_upgrades, property.upgradeType);
+    return property.upgradeType == PropertyEntry::kNoUpgrade || isUpgradeInstalled(property.upgradeType);
 }
 
 bool Item::hasActiveProperty(ItemProperty type) const {
@@ -865,13 +1025,6 @@ std::vector<ItemOnHitProperty> Item::itemOnHitProperties() const {
         result.push_back(value);
     }
     return result;
-}
-
-bool Item::isPropertyActive(uint32_t upgrades, int upgradeType) {
-    if (upgradeType == PropertyEntry::kNoUpgrade) {
-        return true;
-    }
-    return (upgrades & (uint32_t {1} << upgradeType)) != 0;
 }
 
 } // namespace game

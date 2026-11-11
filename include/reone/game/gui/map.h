@@ -64,6 +64,12 @@ public:
 
     /** Whether there is a map to show: the area carries one and its image loaded. */
     bool isLoaded() const { return _areaTexture && mapState(); }
+    /**
+     * Whether the party's map is disabled (TSL): neither the map screen nor
+     * the minimap draws the map or its notes, and the map screen shows static
+     * in its place.
+     */
+    bool isDisabled() const;
 
     /** The map notes the map shows, with the rect each one occupies. */
     std::vector<NoteMarker> noteMarkers(const glm::vec4 &bounds, float scale) const;

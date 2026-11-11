@@ -25,7 +25,14 @@ class IContext {
 public:
     virtual ~IContext() = default;
 
+    /** Where every positional sound is heard from. */
+    virtual glm::vec3 listenerPosition() const = 0;
+
     virtual void setListenerPosition(glm::vec3 position) = 0;
+    /** Turns the listener to face \p forward with \p up above it, both unit vectors. */
+    virtual void setListenerOrientation(glm::vec3 forward, glm::vec3 up) = 0;
+    /** Scales the gain of every sound. */
+    virtual void setListenerGain(float gain) = 0;
 };
 
 class Context : public IContext, boost::noncopyable {
@@ -35,13 +42,23 @@ public:
     void init();
     void deinit();
 
+    glm::vec3 listenerPosition() const override { return _listenerPosition; }
+
     void setListenerPosition(glm::vec3 position) override;
+    void setListenerOrientation(glm::vec3 forward, glm::vec3 up) override;
+    void setListenerGain(float gain) override;
 
 private:
-    ALCdevice *_device {nullptr};
-    ALCcontext *_context {nullptr};
+    /**
+     * OpenAL's device and context. They are held opaque so that this header
+     * needs no OpenAL, whose implementations name the two types differently.
+     */
+    void *_device {nullptr};
+    void *_context {nullptr};
 
     glm::vec3 _listenerPosition {0.0f};
+    glm::vec3 _listenerForward {0.0f};
+    glm::vec3 _listenerUp {0.0f};
 };
 
 } // namespace audio

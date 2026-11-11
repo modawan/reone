@@ -178,7 +178,10 @@ void Object::deserialize(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     gff.readBool(_minOneHP, "Min1HP");
-    gff.readBool(_plot, "Plot");
+    auto plot = static_cast<uint8_t>(_plot);
+    if (gff.readByte(plot, "Plot")) {
+        _plot = plot;
+    }
     gff.readBool(_commandable, "Commandable");
     gff.readBool(_interruptable, "Interruptable");
     const bool hasBaseHitPoints = gff.readShort(_hitPoints, "HitPoints");
@@ -359,8 +362,8 @@ void Object::runActions() {
 }
 
 // Actions run in turn for as long as each ends at once. An action still under
-// way ends the run, as does a walk to a point or a jump, a move made by the
-// action, or a run of 64 actions.
+// way ends the run, as does a walk to a point, a jump or a drive, a move made
+// by the action, or a run of 64 actions.
 void Object::executeActionsIfAble(float dt) {
     static constexpr int kMaxActionsPerUpdate = 64;
     for (int run = 1;; ++run) {
@@ -1378,6 +1381,7 @@ bool Object::executeActions(float dt) {
     case SavedActionType::MoveToPoint:
     case SavedActionType::JumpToLocation:
     case SavedActionType::JumpToObject:
+    case SavedActionType::Drive:
         return false;
     default:
         return _position == position;
@@ -2026,6 +2030,9 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
     for (auto &item : _items) {
         if (item->tag() == tag)
             return item;
+        if (auto held = item->getItemByTag(tag)) {
+            return held;
+        }
     }
     return nullptr;
 }
@@ -2226,7 +2233,7 @@ static constexpr float kLockedTextSeconds = 5.0f;
 void Object::presentLocked(const Lock &lock, float soundHeight) {
     if (!lock.lockedSound().empty()) {
         if (auto clip = _services.resource.audioClips.get(lock.lockedSound())) {
-            _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, 1.0f, false,
+            _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false,
                                        _position + glm::vec3 {0.0f, 0.0f, soundHeight});
         }
     }

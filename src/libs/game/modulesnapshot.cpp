@@ -9,6 +9,7 @@
 
 #include "reone/game/modulesnapshot.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -54,6 +55,16 @@ namespace reone {
 namespace game {
 
 namespace {
+
+// A current hit point or Force value is a Short in the save, but damage can
+// take it far below what a Short holds: the console's kill deals 100000.
+// Saved as it is, -99975 would come back as 31097 and the dead would rise.
+// Clamping keeps the sign, and with it whether the object is dead.
+int32_t currentPointsField(int value) {
+    return std::clamp(value,
+                      static_cast<int>(std::numeric_limits<int16_t>::min()),
+                      static_cast<int>(std::numeric_limits<int16_t>::max()));
+}
 
 using resource::Gff;
 using resource::ResType;
@@ -1067,17 +1078,70 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newDword("AddCost", item._addCost));
     put(*result, Gff::Field::newByte("Stolen", item._stolen));
     put(*result, Gff::Field::newWord("StackSize", item._stackSize));
-    put(*result, Gff::Field::newDword("Upgrades", item._upgrades));
+    // Upgrades holds the installed rows 0 to 31, a bit each; a row past them
+    // is listed in UpgradeRows, which a record has only when such a row is
+    // installed.
+    uint32_t recordedUpgrades = 0;
+    std::vector<std::shared_ptr<Gff>> upgradeRows;
+    for (int row = 0; row < Item::kUpgradeRowCount; ++row) {
+        if (!item._upgrades.test(static_cast<size_t>(row))) {
+            continue;
+        }
+        if (row < Item::kRecordedUpgradeBits) {
+            recordedUpgrades |= uint32_t {1} << row;
+        } else {
+            upgradeRows.push_back(Gff::Builder().type(0).field(Gff::Field::newInt("Row", row)).build());
+        }
+    }
+    put(*result, Gff::Field::newDword("Upgrades", recordedUpgrades));
+    if (upgradeRows.empty()) {
+        removeSaveField(*result, "UpgradeRows");
+    } else {
+        put(*result, Gff::Field::newList("UpgradeRows", std::move(upgradeRows)));
+    }
+    if (_game.isTSL()) {
+        put(*result, Gff::Field::newByte("UpgradeLevel", static_cast<uint8_t>(item._upgradeLevel)));
+        // Every slot is saved, an empty one as kSavedEmptyUpgradeSlot, so an
+        // upgrade of upgrade.2da row 0 comes back from a save as well.
+        for (size_t slot = 0; slot < item._upgradeSlots.size(); ++slot) {
+            const int row = item._upgradeSlots[slot].value_or(Item::kSavedEmptyUpgradeSlot);
+            put(*result, Gff::Field::newInt("UpgradeSlot" + std::to_string(slot), row));
+        }
+    }
     put(*result, Gff::Field::newByte("Identified", item._identified));
     put(*result, Gff::Field::newByte("ModelVariation", item._modelVariation));
-    put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
-    put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
+    // Only an item drawn as its wearer's body model records its body and
+    // texture variations.
+    if (item.isBodyModel()) {
+        put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
+        put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
+    } else {
+        removeSaveField(*result, "BodyVariation");
+        removeSaveField(*result, "TextureVar");
+    }
     put(*result, Gff::Field::newByte("Dropable", item._dropable));
     put(*result, Gff::Field::newByte("NonEquippable", item._nonEquippable));
     put(*result, Gff::Field::newByte("NewItem", item._newlyAcquired));
     std::vector<std::shared_ptr<Gff>> properties;
     for (const auto &property : item._properties) {
-        properties.push_back(Gff::Builder().type(0).field(Gff::Field::newByte("ChanceAppear", property.chanceAppear)).field(Gff::Field::newByte("CostTable", property.costTable)).field(Gff::Field::newWord("CostValue", property.costValue)).field(Gff::Field::newByte("Param1", property.paramTable)).field(Gff::Field::newByte("Param1Value", property.paramValue)).field(Gff::Field::newWord("PropertyName", property.propertyName)).field(Gff::Field::newWord("Subtype", property.subtype)).field(Gff::Field::newByte("UpgradeType", property.upgradeType)).field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay))).field(Gff::Field::newByte("Useable", property.usable)).field(Gff::Field::newDword("UsedDay", property.usedDay)).field(Gff::Field::newDword("UsedTime", property.usedTime)).build());
+        Gff::Builder record;
+        record.type(0)
+            .field(Gff::Field::newByte("ChanceAppear", property.chanceAppear))
+            .field(Gff::Field::newByte("CostTable", property.costTable))
+            .field(Gff::Field::newWord("CostValue", property.costValue))
+            .field(Gff::Field::newByte("Param1", property.paramTable))
+            .field(Gff::Field::newByte("Param1Value", property.paramValue))
+            .field(Gff::Field::newWord("PropertyName", property.propertyName))
+            .field(Gff::Field::newWord("Subtype", property.subtype))
+            .field(Gff::Field::newByte("UpgradeType", property.upgradeType))
+            .field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay)))
+            .field(Gff::Field::newByte("Useable", property.usable))
+            .field(Gff::Field::newDword("UsedDay", property.usedDay))
+            .field(Gff::Field::newDword("UsedTime", property.usedTime));
+        if (_game.isTSL()) {
+            record.field(Gff::Field::newWord("PropUpgrade", property.upgradeMark));
+        }
+        properties.push_back(record.build());
     }
     put(*result, Gff::Field::newList("PropertiesList", std::move(properties)));
     return result;
@@ -1124,6 +1188,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     return result;
 }
 
+// The single player's community name is the talk table's first string, and
+// the single player is the primary one, whichever creature it controls.
+void ModuleSnapshotBuilder::writePlayerEntry(Gff &record, const Creature &player) const {
+    put(record, Gff::Field::newCExoString("Mod_CommntyName", _game._services.resource.strings.getText(0)));
+    put(record, Gff::Field::newByte("Mod_IsPrimaryPlr", 1));
+    put(record, Gff::Field::newCExoLocString("Mod_FirstName", player._firstName.id(), player._firstName.str()));
+    put(record, Gff::Field::newCExoLocString("Mod_LastName", player._lastName.id(), player._lastName.str()));
+}
+
 void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &creature) const {
     putTransform(record, creature);
     const auto direction = glm::vec3(
@@ -1156,10 +1229,10 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newShort("HitPoints", creature._hitPoints));
     put(record, Gff::Field::newShort("MaxHitPoints", creature.maxHitPoints()));
     put(record, Gff::Field::newShort(
-                    "CurrentHitPoints", creature.serializedCurrentHitPoints()));
+                    "CurrentHitPoints", currentPointsField(creature.serializedCurrentHitPoints())));
     put(record, Gff::Field::newByte("Dead", creature._dead));
     put(record, Gff::Field::newShort("ForcePoints", creature._forcePoints));
-    put(record, Gff::Field::newShort("CurrentForce", creature.serializedCurrentForce()));
+    put(record, Gff::Field::newShort("CurrentForce", currentPointsField(creature.serializedCurrentForce())));
     put(record, Gff::Field::newShort("MaxForcePoints", creature.maxForcePoints()));
     if (_game.isTSL()) {
         put(record, Gff::Field::newChar("FuryDamageBonus", creature._furyDamageBonus));
@@ -1185,6 +1258,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     }
     put(record, Gff::Field::newDword("Experience", static_cast<uint32_t>(creature._xp)));
     put(record, Gff::Field::newInt("JoiningXP", creature._joiningXP));
+    // A record holds the creature's own counts, never the party's.
+    put(record, Gff::Field::newDword("Gold", static_cast<uint32_t>(creature._gold)));
+    if (_game.isTSL()) {
+        put(record, Gff::Field::newDword("ItemComponent", static_cast<uint32_t>(creature._components)));
+        put(record, Gff::Field::newDword("Chemicals", static_cast<uint32_t>(creature._chemicals)));
+    }
     put(record, Gff::Field::newByte("GoodEvil", creature._goodEvil));
     // A field label holds sixteen characters, so the base alignment's is cut short.
     if (_game.isTSL()) {
@@ -1425,7 +1504,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     put(*result, Gff::Field::newByte("Locked", door.lock().isLocked()));
     put(*result, Gff::Field::newByte("Lockable", door.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
-    put(*result, Gff::Field::newShort("CurrentHP", door._currentHitPoints));
+    put(*result, Gff::Field::newShort("CurrentHP", currentPointsField(door._currentHitPoints)));
     put(*result, Gff::Field::newByte("Dead", door.isDead()));
     put(*result, Gff::Field::newByte("TrapFlag", door.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", door.trapBaseType()));
@@ -1464,7 +1543,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("Locked", placeable.lock().isLocked()));
     put(*result, Gff::Field::newByte("Lockable", placeable.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", placeable._hitPoints));
-    put(*result, Gff::Field::newShort("CurrentHP", placeable._currentHitPoints));
+    put(*result, Gff::Field::newShort("CurrentHP", currentPointsField(placeable._currentHitPoints)));
     put(*result, Gff::Field::newByte("Dead", placeable.isDead()));
     put(*result, Gff::Field::newByte("Useable", placeable._usable));
     put(*result, Gff::Field::newByte("Static", placeable._static));
@@ -1979,9 +2058,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
     auto player = writeCreature(
-        *modulePlayer, 4, ids.objectId(*modulePlayer), ids, false);
-    put(*player, Gff::Field::newByte(
-        "Mod_IsPrimaryPlr", modulePlayer == _game._party.actualPlayer()));
+        *modulePlayer, kPlayerEntryStructType, ids.objectId(*modulePlayer), ids, false);
+    writePlayerEntry(*player, *modulePlayer);
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
 
     std::vector<std::shared_ptr<Gff>> limbo;

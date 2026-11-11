@@ -39,6 +39,12 @@ public:
     MOCK_METHOD(void, withRenderPass, (const std::function<void(scene::IRenderPass &)> &), (override));
 
     MOCK_METHOD(void, clearSelection, (), (override));
+    MOCK_METHOD(std::optional<std::reference_wrapper<Control>>, activeControl, (), (const override));
+    MOCK_METHOD(void, setActiveControl, (Control &), (override));
+    MOCK_METHOD(void, selectActiveControl, (Control &), (override));
+    MOCK_METHOD(void, clearActiveControl, (), (override));
+    MOCK_METHOD(void, setHilightFollowsKeyboard, (bool), (override));
+    MOCK_METHOD(std::optional<std::reference_wrapper<Control>>, moveTarget, (const Control &, Control::MoveDirection), (const override));
 
     MOCK_METHOD(Control &, rootControl, (), (override));
 

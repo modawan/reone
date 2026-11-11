@@ -20,6 +20,9 @@
 #include <algorithm>
 #include <limits>
 
+#include "reone/audio/clip.h"
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/animations.h"
 #include "reone/game/animationutil.h"
@@ -39,6 +42,7 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/scripts.h"
@@ -62,6 +66,11 @@ namespace game {
 static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Damaged);
 // The animations.2da row of a destroyed door's pose.
 static constexpr int kDestroyedAnimation = 330;
+// The animations.2da rows of the death swing and the second opening swing,
+// which ends the opening ones.
+static constexpr int kDieSwingRow = 329;
+static constexpr int kOpening2SwingRow = 335;
+static constexpr float kSwingSoundHeight = 1.5f;
 // LinkedToFlags of a door linked to another door and to a waypoint.
 static constexpr int kLinkedToDoor = 1;
 static constexpr int kLinkedToWaypoint = 2;
@@ -146,9 +155,11 @@ void Door::deserializeAll(
     gff.readShort(_currentHitPoints, "CurrentHP");
     // An Invulnerable flag takes precedence over Plot, an explicit zero
     // included.
-    if (!gff.readBool(_plot, "Invulnerable")) {
-        gff.readBool(_plot, "Plot");
+    bool plot = plotFlag();
+    if (!gff.readBool(plot, "Invulnerable")) {
+        gff.readBool(plot, "Plot");
     }
+    _plot = plot;
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), false);
     gff.readByte(_secretDoorDC, "SecretDoorDC");
@@ -207,6 +218,9 @@ void Door::loadAppearance() {
     auto sounds = getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds");
     _soundArmorType = boost::to_lower_copy(sounds->getString(soundType, "armortype"));
     _lock.setLockedSound(sounds->getString(soundType, "locked"));
+    _openedSound = boost::to_lower_copy(sounds->getString(soundType, "opened"));
+    _closedSound = boost::to_lower_copy(sounds->getString(soundType, "closed"));
+    _destroyedSound = boost::to_lower_copy(sounds->getString(soundType, "destroyed"));
 
     _outline.clear();
     auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
@@ -519,6 +533,9 @@ void Door::playSwing(DoorTransition transition, std::optional<int> swingRow) {
     _lastAnimation = swingRow ? *swingRow : stateAnimation(transitionTarget(transition));
     _transitionSwing = swingRow ? _services.game.animations.getNameById(static_cast<uint32_t>(*swingRow)) : std::string();
 
+    if (swingRow) {
+        playSwingSound(*swingRow);
+    }
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (model && !_transitionSwing.empty()) {
         model->playAnimation(_transitionSwing);
@@ -615,6 +632,7 @@ void Door::setStateAnimation(int id) {
     _stateLoopAnimation = id;
     _stateOneShot.clear();
     if (auto swingRow = stateLoopSwingRow(shown, current, id, true)) {
+        playSwingSound(*swingRow);
         const std::string swing = animations.getNameById(static_cast<uint32_t>(*swingRow));
         if (!swing.empty() && model->model().getAnimation(swing)) {
             _stateOneShot = swing;
@@ -881,6 +899,23 @@ void Door::runDamagedScript() {
 void Door::enterDestroyedState() {
     _state = DoorState::Destroyed;
     applyRestingState();
+}
+
+void Door::playDestroyedSound() {
+    playSwingSound(kDieSwingRow);
+}
+
+// Opening swings play the opened sound, closing swings the closed sound and
+// the death swing the destroyed sound.
+void Door::playSwingSound(int swingRow) {
+    const std::string &resRef = swingRow == kDieSwingRow ? _destroyedSound : swingRow <= kOpening2SwingRow ? _openedSound : _closedSound;
+    if (resRef.empty()) {
+        return;
+    }
+    if (auto clip = _services.resource.audioClips.get(resRef)) {
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false,
+                                   _position + glm::vec3 {0.0f, 0.0f, kSwingSoundHeight});
+    }
 }
 
 void Door::receiveDamagedSignal(const std::shared_ptr<Object> &damager) {

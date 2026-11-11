@@ -38,6 +38,8 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/system.h)
 
 set(TESTS_SOURCES
+    ${TESTS_SOURCE_DIR}/audio/arbiter.cpp
+    ${TESTS_SOURCE_DIR}/audio/context.cpp
     ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/extract/capsule.cpp
@@ -60,6 +62,8 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/area.cpp
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
     ${TESTS_SOURCE_DIR}/game/avoidance.cpp
+    ${TESTS_SOURCE_DIR}/game/cheats.cpp
+    ${TESTS_SOURCE_DIR}/game/console.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
@@ -127,6 +131,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/listbox.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
@@ -215,7 +220,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 else()
     target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 endif()
-target_link_libraries(tests PRIVATE tools json GTest::gmock_main)
+target_link_libraries(tests PRIVATE tools json GTest::gmock_main OpenAL::OpenAL)
 
 if(MSVC)
     target_compile_options(tests PRIVATE /bigobj)

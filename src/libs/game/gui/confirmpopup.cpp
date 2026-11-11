@@ -110,13 +110,27 @@ void ConfirmPopup::onGUILoaded() {
     }
 }
 
+void ConfirmPopup::applyColors(const PopupColors &colors) {
+    _gui->rootControl().setBorderColor(colors.border);
+    _controls.BTN_OK->setBorderColor(colors.border);
+    _controls.BTN_OK->setTextColor(colors.text);
+    _controls.BTN_CANCEL->setBorderColor(colors.border);
+    _controls.BTN_CANCEL->setTextColor(colors.text);
+    _controls.LB_MESSAGE->protoItem().setTextColor(colors.text);
+}
+
 void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon,
-                        std::function<void()> onConfirm) {
-    open(message, std::move(icon), false);
+                        std::function<void()> onConfirm, const std::optional<PopupColors> &colors) {
+    open(message, std::move(icon), false, colors);
     _onConfirm = std::move(onConfirm);
 }
 
-void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel) {
+void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel,
+                        const std::optional<PopupColors> &colors) {
+    // A box without colours of its own keeps those it has.
+    if (colors) {
+        applyColors(*colors);
+    }
     _onConfirm = {};
     _onCancel = {};
     _controls.BTN_CANCEL->setVisible(allowCancel);
@@ -299,8 +313,9 @@ void ConfirmPopup::layoutMessage() {
 void ConfirmPopup::showConfirm(
     const std::string &message,
     std::function<void()> onConfirm,
-    std::function<void()> onCancel) {
-    open(message, nullptr, true);
+    std::function<void()> onCancel,
+    const std::optional<PopupColors> &colors) {
+    open(message, nullptr, true, colors);
     _onConfirm = std::move(onConfirm);
     _onCancel = std::move(onCancel);
 }
@@ -312,6 +327,11 @@ void ConfirmPopup::setConfirmText(const std::string &text) {
 }
 
 void ConfirmPopup::hide() {
+    // TSL leaves a box that was shown in the interface green and the
+    // highlight colour, which the next box without colours of its own keeps.
+    if (_visible && _game.isTSL()) {
+        applyColors(PopupColors {kTSLColorNewGreen, kTSLColorNewHighlight});
+    }
     _visible = false;
     _onConfirm = {};
     _onCancel = {};

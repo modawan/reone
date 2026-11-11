@@ -186,10 +186,7 @@ void PBRRenderPass::drawDangly(Mesh &mesh,
             locals.modelInv = transformInv;
             applyMaterialToLocals(material, locals);
         });
-        _uniforms.setDangly([&positions](auto &dangly) {
-            auto numPositions = std::min<int>(kMaxDanglyVertices, positions.size());
-            std::memcpy(dangly.positions, &positions[0], numPositions * sizeof(glm::vec4));
-        });
+        _uniforms.setDangly(positions);
         mesh.draw(_statistic);
     });
 }

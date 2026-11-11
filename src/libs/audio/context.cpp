@@ -17,6 +17,9 @@
 
 #include "reone/audio/context.h"
 
+#include "al.h"
+#include "alc.h"
+
 #include "reone/system/threadutil.h"
 
 namespace reone {
@@ -29,22 +32,22 @@ void Context::init() {
     if (!_device) {
         throw std::runtime_error("alcOpenDevice failed");
     }
-    _context = alcCreateContext(_device, nullptr);
+    _context = alcCreateContext(static_cast<ALCdevice *>(_device), nullptr);
     if (!_context) {
         throw std::runtime_error("alcCreateContext failed");
     }
-    alcMakeContextCurrent(_context);
+    alcMakeContextCurrent(static_cast<ALCcontext *>(_context));
 }
 
 void Context::deinit() {
     checkMainThread();
     if (_context) {
         alcMakeContextCurrent(nullptr);
-        alcDestroyContext(_context);
+        alcDestroyContext(static_cast<ALCcontext *>(_context));
         _context = nullptr;
     }
     if (_device) {
-        alcCloseDevice(_device);
+        alcCloseDevice(static_cast<ALCdevice *>(_device));
         _device = nullptr;
     }
 }
@@ -55,6 +58,20 @@ void Context::setListenerPosition(glm::vec3 position) {
     }
     alListener3f(AL_POSITION, position.x, position.y, position.z);
     _listenerPosition = std::move(position);
+}
+
+void Context::setListenerOrientation(glm::vec3 forward, glm::vec3 up) {
+    if (_listenerForward == forward && _listenerUp == up) {
+        return;
+    }
+    const float orientation[] {forward.x, forward.y, forward.z, up.x, up.y, up.z};
+    alListenerfv(AL_ORIENTATION, orientation);
+    _listenerForward = forward;
+    _listenerUp = up;
+}
+
+void Context::setListenerGain(float gain) {
+    alListenerf(AL_GAIN, gain);
 }
 
 } // namespace audio

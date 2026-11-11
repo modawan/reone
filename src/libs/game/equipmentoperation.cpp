@@ -249,7 +249,12 @@ EquipmentOperationOutcome runUnequip(
     if (!repository) {
         return EquipmentOperationOutcome::Rejected;
     }
-    return unequipInto(game, subject, item, *repository, instant);
+    // A party member's item taken off but not at once sounds as it goes.
+    const auto outcome = unequipInto(game, subject, item, *repository, instant);
+    if (outcome == EquipmentOperationOutcome::Applied && !instant && game.party().isMember(subject)) {
+        item->playDropSound();
+    }
+    return outcome;
 }
 
 // The weapons of the inventory, then the one taken from the hand being chosen
@@ -538,6 +543,10 @@ EquipmentOperationOutcome applyEquipmentOperation(
         const auto outcome = unequipInto(game, subject, clear, sourceInventory, false);
         if (outcome != EquipmentOperationOutcome::Applied) {
             return outcome;
+        }
+        // TSL's screen takes the item off not at once, so it sounds; KotOR's at once.
+        if (game.isTSL()) {
+            clear->playDropSound();
         }
     }
     return EquipmentOperationOutcome::Applied;

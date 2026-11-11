@@ -49,18 +49,23 @@ namespace {
 
 class SilentSounds : public IGUISounds {
 public:
-    std::shared_ptr<audio::AudioClip> getOnClick() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getOnEnter() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getActionAccepted() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getQuestNewNotify() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return nullptr; }
-    std::shared_ptr<audio::AudioClip> getAlignmentShift(bool) const override { return nullptr; }
+    GUISound getOnClick() const override { return {}; }
+    GUISound getOnEnter() const override { return {}; }
+    GUISound getActionAccepted() const override { return {}; }
+    GUISound getActionUnavailable() const override { return {}; }
+    GUISound getActionMenuScroll() const override { return {}; }
+    GUISound getOnLevelUpNotify() const override { return {}; }
+    GUISound getQuestNewNotify() const override { return {}; }
+    GUISound getQuestCompleteNotify() const override { return {}; }
+    GUISound getCheckboxCheck() const override { return {}; }
+    GUISound getInventoryAdd() const override { return {}; }
+    GUISound getInventorySelect() const override { return {}; }
+    GUISound getUpgrade() const override { return {}; }
+    GUISound getInventoryDrop() const override { return {}; }
+    GUISound getAlignmentShift(bool) const override { return {}; }
+    GUISound getPanelAdded() const override { return {}; }
+    GUISound getPanelRemoved() const override { return {}; }
+    std::shared_ptr<audio::AudioSource> play(GUISound) override { return nullptr; }
 };
 
 // Real controls, layout, list rows and input, with a recording test renderer.

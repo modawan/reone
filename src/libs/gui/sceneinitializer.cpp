@@ -36,6 +36,9 @@ void SceneInitializer::invoke() {
     }
 
     _sceneGraph.clear();
+    if (_room) {
+        _sceneGraph.addRoot(_room);
+    }
     _sceneGraph.addRoot(model);
     _sceneGraph.setAmbientLightColor(_ambientLightColor);
     if (_prewarmEmitters) {
@@ -89,6 +92,11 @@ SceneInitializer &SceneInitializer::prewarmEmitters() {
 
 SceneInitializer &SceneInitializer::modelSupplier(const std::function<std::shared_ptr<ModelSceneNode>(ISceneGraph &)> &supplier) {
     _modelSupplier = supplier;
+    return *this;
+}
+
+SceneInitializer &SceneInitializer::room(std::shared_ptr<ModelSceneNode> room) {
+    _room = std::move(room);
     return *this;
 }
 

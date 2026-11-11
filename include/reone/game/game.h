@@ -49,6 +49,7 @@
 #include "gui/confirmpopup.h"
 #include "gui/container.h"
 #include "gui/conversation.h"
+#include "gui/crafting.h"
 #include "gui/credits.h"
 #include "gui/deathdisplay.h"
 #include "gui/dialog.h"
@@ -212,6 +213,8 @@ public:
         PartySelection,
         SaveLoad,
         GalaxyMap,
+        UpgradeSelection,
+        LabStation,
         SwoopRace,
         PazaakWager,
         PazaakSetup,
@@ -280,6 +283,13 @@ public:
      *        plays on while it runs
      */
     void playVideo(const std::string &name, bool streamingMusic = false);
+    /**
+     * Adds a movie to the queue that playMovieQueue plays, once. A movie that
+     * is not skippable plays to its end.
+     */
+    void queueMovie(const std::string &name, bool skippable);
+    /** Plays the queued movies in order, ahead of a transition's, and empties the queue. */
+    void playMovieQueue();
 
     bool isPaused() const { return _paused; }
     /**
@@ -295,8 +305,26 @@ public:
      * stays held.
      */
     void setPlayerInputBlocked(bool blocked) { _playerInputBlocked = blocked; }
-    /** Stops the leader's steering and the camera's turning and mouse-look. */
+    /**
+     * Whether the left button is held: every left press sets it and every
+     * left release clears it, whatever screen takes them; entering a module
+     * clears it too.
+     */
+    bool isLeftButtonHeld() const { return _leftButtonHeld; }
+    /**
+     * Whether the right button or a Ctrl key holds mouse look. The hold
+     * outlasts areas and modules. In KotOR only the right button and the Ctrl
+     * keys change it, and the right button's press and release reach it on
+     * every screen. In TSL stopping play's camera and starting a module end
+     * it too.
+     */
+    bool isMouseLookHeld() const { return _mouseLookHeld; }
+    /** Starts or ends the mouse-look hold of the right button or a Ctrl key. */
+    void setMouseLookHeld(bool held) { _mouseLookHeld = held; }
+    /** Stops the leader's steering and the camera's turning; in TSL it ends the mouse-look hold too. */
     void stopMovement();
+    /** The leader's drive comes to rest at once, as at a script's movie or a change of leader. */
+    void resetDriveAcceleration();
     /**
      * For the given world milliseconds from now, a click neither starts a
      * conversation nor uses a placeable.
@@ -326,6 +354,12 @@ public:
 
     std::shared_ptr<Module> module() const { return _module; }
     CameraType cameraType() const { return _cameraType; }
+    /**
+     * A script's camera mode for the player. The third-person camera has no
+     * modes and keeps to its own; only TSL's dialog mode, 4, has an effect:
+     * it turns off the Force Sight look.
+     */
+    void setCameraMode(int mode);
     const std::set<std::string> &moduleNames() const { return _moduleNames; }
     const std::set<std::string> &saveNames() const { return _saveNames; }
 
@@ -440,22 +474,30 @@ public:
     bool isDialogUnderWay() const { return _dialogUnderWay; }
     void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
 
-    /** Show a message box dismissed with OK. False when the popup cannot be loaded. */
+    /**
+     * Show a message box dismissed with OK, in the given colours or in those
+     * the box has. False when the popup cannot be loaded.
+     */
     bool showMessagePopup(
         const std::string &message,
         std::shared_ptr<graphics::Texture> icon = nullptr,
-        std::function<void()> onConfirm = {});
+        std::function<void()> onConfirm = {},
+        const std::optional<PopupColors> &colors = std::nullopt);
     /**
      * TSL: a script's message box, showing \p text with the icon
      * \p iconResRef when it names one. Play pauses while it shows, unless it
      * is paused already or a conversation is under way.
      */
     void showScriptMessageBox(const std::string &text, const std::string &iconResRef = "");
-    /** Show a message box answered Yes or No. False when the popup cannot be loaded. */
+    /**
+     * Show a Yes/No message box, in the given colours or in those the box
+     * has. False when the popup cannot be loaded.
+     */
     bool showConfirmPopup(
         const std::string &message,
         std::function<void()> onConfirm,
-        std::function<void()> onCancel = {});
+        std::function<void()> onCancel = {},
+        const std::optional<PopupColors> &colors = std::nullopt);
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
     /**
@@ -502,6 +544,12 @@ public:
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
+    /**
+     * The screen that presents play: the minigame while one runs, otherwise
+     * the world.
+     */
+    Screen gameplayScreen() const;
+    /** Returns to play, which is the minigame while one runs. */
     void openInGame();
     /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
     void renderScreenFill(const glm::vec3 &color, float alpha);
@@ -523,6 +571,16 @@ public:
 
     void openTurret();
     void closeTurret();
+
+    Turret &turret() { return _turret; }
+
+    /**
+     * Starts the turret of the module just arrived in. A turret comes up as
+     * part of the arrival, after the module's load script and before anyone
+     * enters: its actors' creation scripts build on what the load script set
+     * up, and the area's enter script runs with the turret already there.
+     */
+    void startScheduledTurret();
 
     // Exit the active turret: returns to the lifecycle origin if a lifecycle
     // session is in progress, otherwise just stops the dev session in place.
@@ -587,13 +645,26 @@ public:
      */
     std::shared_ptr<Creature> spawnPuppet(int puppet, const glm::vec3 &position, float facing);
     void openSaveLoad(SaveLoadMode mode);
+    /** Opens the galaxy map on the planet, unless the screen can't be taken over or its travel script is running. */
     void openGalaxyMap(int initialPlanet);
     /** Whether a map's travel script is running: the galaxy map's, or the return to base. */
     bool isTravelScriptRunning() const;
     /** KotOR: the map's return to base closes the menu and runs its script. */
     void returnToBase();
     /** Whether the galaxy map may take the screen over from the given one. */
-    static bool canOpenGalaxyMapFrom(Screen screen);
+    static bool canPanelTakeScreenFrom(Screen screen);
+    /** Opens a workbench's upgrade-selection screen for a script's request over whatever is shown, unless a workbench is open. */
+    void openUpgradeScreen(UpgradeScreenRequest request);
+    /** TSL: opens a lab station for the creature over whatever is shown, unless a lab station is open. */
+    void openLabStation(std::shared_ptr<Creature> character);
+    /**
+     * Closes the open crafting station shown as \p station: the screen it was
+     * opened over comes back, or the world when that was a conversation that
+     * has ended meanwhile.
+     */
+    void closeStation(Screen station);
+    /** Whether a conversation's next step waits: a screen that pauses the world is shown over it. */
+    bool holdsConversation() const;
 
     // KotOR I Pazaak lifecycle
 
@@ -623,6 +694,11 @@ public:
      * loading-screen table gives the module named \p moduleName.
      */
     void setLoadMusicForModule(const std::string &moduleName);
+    /**
+     * A script's music volume, from 0 to 1, in place of the music volume the
+     * options keep, until that is next set.
+     */
+    void setMusicVolume(float volume);
     /** Stops the loading-screen music; the track stays set for the next loading screen. */
     void stopLoadMusic();
     /**
@@ -906,6 +982,14 @@ public:
     bool requestTutorialWindow(int id, std::function<void()> onClosed);
     /** The string of a feedbacktext.2da row; none for a blank cell or a row outside the table. */
     std::optional<int> feedbackTextStrRef(int row) const;
+    /** ChemicalCreate: what the lab station makes. It has no rows when the table is missing, as in KotOR. */
+    std::shared_ptr<resource::TwoDA> chemicalCreate() const { return _chemicalCreate; }
+    /**
+     * The gender letter worn and held item models are named with: the first
+     * letter of the gender.2da GENDER cell of the leader's gender, or M with
+     * no leader. A blank cell, or a row outside the table, names none.
+     */
+    std::optional<char> itemModelGenderLetter() const;
     /**
      * The traps.2da row of a trap type. A type outside the table reads as a
      * blank row, as every 2DA row outside its table does.
@@ -1422,6 +1506,12 @@ public:
         return worldTimeOfDay() / (millisecondsPerWorldDay() / 24u);
     }
     /**
+     * Whether it is dusk or night in the module, from the hour of the world
+     * clock against the module's dawn and dusk hours. Equal hours are day all
+     * day; the dawn hour is dawn and the dusk hour dusk.
+     */
+    bool isNightTime() const;
+    /**
      * SetTime: the world clock moves on to the time of day, into the next day
      * when that time is already past. Any negative field leaves it alone.
      */
@@ -1711,6 +1801,18 @@ private:
         std::string icon;
     };
 
+    /**
+     * How the world's sounds play: as usual, under a menu over the module or
+     * a loading screen with music, under the player's pause, or all paused
+     * while a save is written or a loading screen without music is up.
+     */
+    enum class SoundMode {
+        Playing,
+        Menu,
+        PlayerPause,
+        AllPaused
+    };
+
     resource::GameID _gameId;
     std::filesystem::path _path;
     OptionsView &_options;
@@ -1731,6 +1833,10 @@ private:
     std::vector<std::optional<int>> _feedbackTexts;
     /** The trap types of traps.2da, by row. */
     std::vector<TrapTypeRow> _trapTypes;
+    /** ChemicalCreate, read at start-up. */
+    std::shared_ptr<resource::TwoDA> _chemicalCreate;
+    /** The first letter of each gender.2da row's GENDER cell; none where blank. */
+    std::vector<std::optional<char>> _genderLetters;
 
     // END Tables
 
@@ -1741,7 +1847,11 @@ private:
     bool _playerInputBlocked {false};
     /** When the left button and Return last started cooling down. */
     std::optional<uint32_t> _clickCooldownStart;
-    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    /** See isLeftButtonHeld. */
+    bool _leftButtonHeld {false};
+    /** See isMouseLookHeld. */
+    bool _mouseLookHeld {false};
+    /** See alternateActionsHeld. */
     bool _alternateActionsHeld {false};
     /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
     std::array<bool, 2> _menusTakeAlternateActions {};
@@ -1795,13 +1905,26 @@ private:
 
     PendingTurretRequest _pendingTurret;
 
+    struct QueuedMovie {
+        std::string name;
+        bool skippable {true};
+    };
+
     std::shared_ptr<movie::IMovie> _movie;
+    /** Whether a click ends the movie playing. */
+    bool _movieSkippable {true};
+    /** The movies queued for playMovieQueue. */
+    std::vector<QueuedMovie> _movieQueue;
+    /** The queued movies still to play, after the one playing. */
+    std::queue<QueuedMovie> _queuedMoviesPlaying;
     std::queue<std::string> _moduleTransitionMovies;
     std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
+    /** The sound mode the world's sounds were last paused or resumed for. */
+    SoundMode _soundMode {SoundMode::Playing};
     int _motionBlurPrograms {0};
     bool _autoPaused {false};
     PauseReason _pauseReason {PauseReason::Other};
@@ -2054,6 +2177,10 @@ private:
     std::unique_ptr<SaveLoad> _saveLoad;
     std::unique_ptr<GalaxyMap> _galaxyMap;
     bool _runningReturnScript {false};
+    std::unique_ptr<UpgradeSelectionGUI> _upgradeSelection;
+    std::unique_ptr<LabStationPanel> _labStation;
+    /** The screen each open crafting station was opened over, by the station's screen. */
+    std::map<Screen, Screen> _stationReturnScreens;
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
@@ -2208,6 +2335,21 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         Args &&...args) {
+        return newObjectFromRecord<T>(
+            gff, identityContext,
+            [&gff, &identityContext](T &object) { object.deserialize(gff, identityContext); },
+            std::forward<Args>(args)...);
+    }
+    /**
+     * An object made from a record: \p read reads the record into it once
+     * the record's saved identity is registered.
+     */
+    template <class T, class Read, class... Args>
+    inline std::shared_ptr<T> newObjectFromRecord(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        Read &&read,
+        Args &&...args) {
         std::vector<std::shared_ptr<Object>> noObsolete;
         std::shared_ptr<T> object;
         replaceRuntimeObjectGraph(
@@ -2218,7 +2360,7 @@ private:
                     registerSavedObjectIdentity(
                         savedObjectId(gff), object, identityContext);
                 }
-                object->deserialize(gff, identityContext);
+                read(*object);
             },
             []() noexcept {});
         return object;
@@ -2243,11 +2385,25 @@ private:
 
     void loadDefaultParty();
     bool loadParty();
+    /** Entering a module lets go of the left button and the alternate actions key. */
+    void releaseInputOnModuleEntry();
     void loadNextModule();
     void playMusic(const std::string &resRef);
+    /**
+     * Pauses the world's sounds for the sound mode the game is in now, and
+     * resumes them when it leaves it.
+     */
+    void applySoundMode();
+    /** Resumes the sounds a sound mode paused. */
+    void liftSoundMode();
     /** Starts, or resumes, the loading-screen music, as a loading screen does when it is shown. */
     void startLoadMusic();
-    /** Hands the playing loading-screen music over to the background music when it asks for the same track. */
+    /**
+     * Gives up the loading-screen music to the background music when both
+     * are the track \p resRef.
+     *
+     * @return the loading-screen music, no longer looping, or none
+     */
     std::shared_ptr<audio::AudioSource> takeLoadMusic(const std::string &resRef);
     void toggleInGameCameraType();
     void enterFreeLook();
@@ -2259,16 +2415,8 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
-    // Same, for the turret minigame. The outcome is carried through rather than
-    // reduced to a success flag: a win, a loss and an abandoned session all
-    // return to the origin, but only a win emits the completion state.
-    void finishTurretLifecycle(Turret::Outcome outcome);
-
-    /**
-     * Apply post-turret globals for K1 M12ab after a victory.
-     * Other modules are unchanged.
-     */
-    void applyTurretResult(const std::string &turretModule, Turret::Outcome outcome);
+    // Same, for the turret minigame.
+    void finishTurretLifecycle();
 
     // Give up on a scheduled turret session and go back where it started.
     void abandonPendingTurret(const std::string &reason);
@@ -2311,9 +2459,10 @@ private:
 
     /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
     bool startVideo(const std::string &name, bool streamingMusic);
-    bool playNextModuleTransitionMovie();
+    /** Starts the next queued movie, else the next transition movie. */
+    bool playNextMovie();
     void updateMovie(float dt);
-    void updateMusic();
+    void updateMusic(float frameTime);
     void updatePassiveSelection(float frameTime);
     void releaseTargetOnMove(float frameTime);
     void selectPassTarget(TargetPass &pass, const Creature &leader, const Area &area, float frameTime);
@@ -2385,6 +2534,45 @@ private:
         }
     }
 
+    /**
+     * Gives the screen to a panel a script opens, loading the panel on first
+     * use; prepare readies it first. The screen stays as it is when the panel
+     * won't load.
+     * @return whether the panel took the screen
+     */
+    template <class T, class Prepare>
+    bool openPanelScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
+        if (!panel) {
+            panel = tryLoadGUI<T>();
+        }
+        if (!panel) {
+            // A panel that will not load must not take the screen away from
+            // whatever is on it.
+            return false;
+        }
+        stopMovement();
+        setRelativeMouseMode(false);
+        setCursorType(resource::CursorType::Default);
+        prepare(*panel);
+        changeScreen(screen);
+        return true;
+    }
+
+    /**
+     * Opens a crafting station's panel as \p screen over whatever is shown,
+     * remembering that screen for its close, unless the station is open.
+     */
+    template <class T, class Prepare>
+    void openStationScreen(std::unique_ptr<T> &panel, Screen screen, Prepare prepare) {
+        if (_stationReturnScreens.count(screen) > 0) {
+            return;
+        }
+        const Screen underneath = _screen;
+        if (openPanelScreen(panel, screen, prepare)) {
+            _stationReturnScreens[screen] = underneath;
+        }
+    }
+
     // END GUI
 
     // Console commands
@@ -2413,6 +2601,7 @@ private:
      * Returns the leader creature.
      */
     std::shared_ptr<Creature> getConsoleLeader();
+    void addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize);
 
     /**
      * Returns the current Area.
@@ -2428,6 +2617,10 @@ private:
     void consoleAddItem(const ConsoleArgs &tokens);
     void consoleGiveXP(const ConsoleArgs &tokens);
     void consoleGiveGold(const ConsoleArgs &tokens);
+    void consoleGiveItem(const ConsoleArgs &tokens);
+    void consoleHeal(const ConsoleArgs &tokens);
+    void consoleInvulnerability(const ConsoleArgs &tokens);
+    void consoleWhereAmI(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleCamera(const ConsoleArgs &tokens);
     void consoleCamPos(const ConsoleArgs &tokens);
@@ -2484,6 +2677,9 @@ private:
     void consoleStopTurret(const ConsoleArgs &tokens);
     void consoleTurretState(const ConsoleArgs &tokens);
     void consoleStartTurretGame(const ConsoleArgs &tokens);
+    void consoleFinishTurret(const ConsoleArgs &tokens);
+    void consoleTurretAim(const ConsoleArgs &tokens);
+    void consoleTurretFire(const ConsoleArgs &tokens);
     void consoleShowImGui(const ConsoleArgs &tokens);
     void consoleShowPath(const ConsoleArgs &tokens);
 

@@ -460,6 +460,8 @@ public:
         std::string fallHard;
         std::string fallMetal;
         std::string fallWater;
+        /** The sound the creature loops wherever it is; empty for none. */
+        std::string looping;
     };
 
     /** The creature's part in combat: whether it fights, how it was drawn in, and its targets. */
@@ -502,6 +504,12 @@ public:
         std::string sceneName,
         Game &game,
         ServicesView &services);
+    /**
+     * The creature's loops end with it: its appearance's and its light
+     * source's loops and its rolling footstep, which the mixer would
+     * otherwise keep playing.
+     */
+    ~Creature();
 
     static bool classof(const Object *from) {
         return from->type() == ObjectType::Creature;
@@ -551,6 +559,15 @@ public:
     void updateArmourAppearance(const std::shared_ptr<Item> &armour);
 
     void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
+    /**
+     * Reads the record of the creature under control as a party member's: it
+     * keeps none of the credits, components or chemicals the record holds,
+     * and the counted items it carries become the party's, the player told
+     * each gain.
+     */
+    void deserializeAsPartyMember(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
 
@@ -621,6 +638,10 @@ public:
      * again when the player perceives it again.
      */
     void setPresent(bool present) override;
+    /** Ends the creature's rolling footstep loop. */
+    void stopRollingFootstep();
+    /** Ends the creature's own loop and its light source's. */
+    void stopLoopingSounds();
     /** The leader is in the creature's area within 30 m, where it hears the creature's voice. */
     bool isHeardByLeader() const;
 
@@ -706,6 +727,8 @@ public:
     void healForcePoints(int amount);
     /** Adds to the ordinary Force pool without capping it at the maximum. */
     void addCurrentForcePoints(int amount);
+    /** Sets the ordinary Force pool, leaving temporary Force points alone. */
+    void setCurrentForcePoints(int amount) { _currentForce = amount; }
     /** The Force point maximum; none for a droid or a creature without a Force-using class. */
     int maxForcePoints() const;
     void setBodyFuel(bool active) { _bodyFuel = active; }
@@ -899,10 +922,25 @@ public:
     uint16_t portraitId() const { return _portraitId; }
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
     float walkSpeed() const;
-    /** The speed the player drives this creature at, and its appearance's limit. */
-    float driveSpeed() const { return _driveSpeed; }
-    float driveMaxSpeed() const { return _driveMaxSpeed; }
-    void setDriveSpeed(float speed) { _driveSpeed = speed; }
+    /** Whether the player drives this creature: a drive heads its queue. */
+    bool isDriven() const;
+    /** The speed the player drives this creature at, 0 while it is not driven. */
+    float driveSpeed() const;
+    /**
+     * The top speed the player drives this creature at when not sneaking: its
+     * appearance's top driving speed times its movement rate factor.
+     */
+    float driveTopSpeed() const;
+    /** The drive speed at which the walk clip keeps pace with the ground; also the top speed of a sneaking drive. */
+    float driveWalkClipSpeed() const { return _stealthWalkSpeed; }
+    /**
+     * Whether the player's drive shows the run clip: its speed, held to the
+     * walk clip's pace while sneaking, is beyond six tenths of the drive's top
+     * speed.
+     */
+    bool drivesAtRun() const;
+    /** How fast the player's driving gathers speed, metres a second each second at a standstill. */
+    float driveAcceleration() const;
     /**
      * Whether the creature last moved at a run under the player's direct
      * control. Running under an action or its AI does not count, and the
@@ -968,6 +1006,14 @@ public:
      * controlled leader at rest is not driven to its rest pose.
      */
     void setEngagedExchange(bool engaged) { _engagedExchange = engaged; }
+    /**
+     * The creature is busy and not driven: it is in an engaged exchange, has
+     * actions pending other than the player's drive, or plays a dialog
+     * animation.
+     */
+    bool isDriveBlocked() const {
+        return _engagedExchange || (hasOrdinaryActionsPending() && !isDriven()) || isPlayingDialogAnimation();
+    }
 
     // Facing
 
@@ -2280,10 +2326,20 @@ public:
 
     // Gold
 
-    void giveGold(int amount);
     void takeGold(int amount);
 
     int gold() const { return _gold; }
+    /** A count the creature holds itself, which counts while it is outside the party. */
+    int heldCount(HeldCount count) const;
+    /** Sets a count the creature holds itself. */
+    void setHeldCount(HeldCount count, int value);
+    /**
+     * The creature holds no credits, components or chemicals of its own. A
+     * creature read as a party member keeps none of the counts its record
+     * holds: the creature under control is read so whenever the party enters
+     * a module from another module.
+     */
+    void clearHeldCounts();
 
     // END Gold
 
@@ -2764,8 +2820,10 @@ private:
      */
     float _walkPace {1.0f};
     float _clipPace {0.0f};
-    /** Unset for a frame that has no step to compare with. */
+    /** Where the walk's current progress check began; unset when there is no step to compare with. */
     std::optional<glm::vec3> _previousPosition;
+    /** Seconds of walking since _previousPosition was taken. */
+    float _progressTime {0.0f};
     PathAvoidance _avoidance;
     // When there is no progress on the path, apply _stuckForce to steer the
     // creature in a random direction until the timer runs out.
@@ -2779,10 +2837,14 @@ private:
     /** How far one loop of the walk and run animations carries the appearance. */
     float _walkDistance {1.0f};
     float _runDistance {1.0f};
-    /** The appearance's own sneaking pace. */
+    /** The appearance's own sneaking pace, at which its walk clip keeps pace with the driven creature. */
     float _stealthWalkSpeed {0.0f};
-    float _driveSpeed {0.0f};
+    /** The drive speed at which the appearance's run clip keeps pace with the ground. */
+    float _driveRunClipSpeed {0.0f};
+    /** The appearance's top driving speed. */
     float _driveMaxSpeed {0.0f};
+    /** The appearance's driving acceleration. */
+    float _driveAcceleration {0.0f};
     bool _running {false};
     float _personalSpace {0.6f};
     float _creaturePersonalSpace {0.6f};
@@ -2913,6 +2975,10 @@ private:
 
     uint32_t _footstepType {0};
     int _gold {0}; /**< aka credits */
+    /** TSL: the components the creature holds itself. */
+    int _components {0};
+    /** TSL: the chemicals the creature holds itself. */
+    int _chemicals {0};
     std::string _envmap;
     /** The appearance's death visual and the body node it goes off at. */
     std::optional<int> _deathVisual;
@@ -2939,6 +3005,20 @@ private:
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
+    /** The loop a rolling footstep type plays while the creature walks or runs. */
+    std::shared_ptr<audio::AudioSource> _rollingFootstep;
+    /** The appearance's loop, playing since the creature's first update. */
+    std::shared_ptr<audio::AudioSource> _loopingSound;
+    /** The resource _loopingSound plays. */
+    std::string _loopingSoundResRef;
+    /** The loop of a lit light source the controlled creature holds in its left hand. */
+    std::shared_ptr<audio::AudioSource> _lightSourceSound;
+    /**
+     * Starts the appearance's loop once, where the creature is, 1.5 m up, and
+     * follows it there; a light source in the controlled creature's left hand
+     * loops while it holds it.
+     */
+    void updateLoopingSounds();
     bool _lightsaberIdlePowerDownPending {false};
     Timer _lightsaberIdlePowerDownTimer;
     PoweredHands _poweredHands;
@@ -3027,6 +3107,9 @@ private:
     /** Forgets an incoming attacker that is gone or dead, and the round's attackers. */
     void releaseRoundAttackers();
     void updateLightsaberSoundPositions();
+    void updateRollingFootstep();
+    /** The footstep group of the controlled creature, or of a creature of the creature's size. */
+    int footstepSoundGroup() const;
 
     void runDeathScript();
     void runDamagedScript();
@@ -3062,6 +3145,8 @@ private:
     bool reachesWalkGoal(const Object &goal);
     /** The walk or run clip \p model shows for the creature's movement. */
     MovementClip movementClip(const scene::ModelSceneNode &model) const;
+    /** The drive speed the clip of the driven creature follows: no faster than the walk clip's pace while sneaking. */
+    float drivenClipSpeed() const;
 
     /** The area whose music this creature drives: its own, when the player controls it. */
     std::shared_ptr<Area> battleMusicArea() const;
@@ -3316,9 +3401,23 @@ private:
     // END Animation
 
     // Blueprint
+    /**
+     * Reads a record and, when it names one, the template it is placed from.
+     *
+     * @param partyMember whether the record is read as a party member's
+     */
+    void deserializeRecord(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        bool partyMember);
     void deserializeAll(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /**
+     * The credits, components and chemicals a record says the creature holds
+     * itself, each a signed count held up to kMaxHeldCount.
+     */
+    void deserializeHeldCounts(const resource::Gff &gff);
     void deserializeName(const resource::Gff &gff);
     void deserializeSoundSet(const resource::Gff &gff);
     void deserializeAttributes(const resource::Gff &gff);
@@ -3356,8 +3455,14 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         bool placedTemplate);
-    /** Credits, chemicals, components and pazaak cards read into the inventory are acquired as counts. */
-    void countLoadedItems();
+    /**
+     * Credits, chemicals, components and pazaak cards read into the inventory
+     * are acquired as counts.
+     *
+     * @param partyMember whether the creature's record is read as a party
+     *        member's: its counts are then the party's
+     */
+    void countLoadedItems(bool partyMember);
     /**
      * Appends the effects \p item worn in \p slot gives; with
      * \p onlyDeferredEffects, only its armour class and disguise effects.

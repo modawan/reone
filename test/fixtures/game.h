@@ -162,18 +162,23 @@ public:
     MockGUISounds();
     ~MockGUISounds() override;
 
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnClick, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnEnter, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionAccepted, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionUnavailable, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionMenuScroll, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestNewNotify, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getQuestCompleteNotify, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
-    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getAlignmentShift, (bool light), (const override));
+    MOCK_METHOD(GUISound, getOnClick, (), (const override));
+    MOCK_METHOD(GUISound, getOnEnter, (), (const override));
+    MOCK_METHOD(GUISound, getActionAccepted, (), (const override));
+    MOCK_METHOD(GUISound, getActionUnavailable, (), (const override));
+    MOCK_METHOD(GUISound, getActionMenuScroll, (), (const override));
+    MOCK_METHOD(GUISound, getOnLevelUpNotify, (), (const override));
+    MOCK_METHOD(GUISound, getQuestNewNotify, (), (const override));
+    MOCK_METHOD(GUISound, getQuestCompleteNotify, (), (const override));
+    MOCK_METHOD(GUISound, getCheckboxCheck, (), (const override));
+    MOCK_METHOD(GUISound, getInventoryAdd, (), (const override));
+    MOCK_METHOD(GUISound, getInventorySelect, (), (const override));
+    MOCK_METHOD(GUISound, getUpgrade, (), (const override));
+    MOCK_METHOD(GUISound, getInventoryDrop, (), (const override));
+    MOCK_METHOD(GUISound, getAlignmentShift, (bool light), (const override));
+    MOCK_METHOD(GUISound, getPanelAdded, (), (const override));
+    MOCK_METHOD(GUISound, getPanelRemoved, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioSource>, play, (GUISound sound), (override));
 };
 
 class MockPortraits : public IPortraits, boost::noncopyable {
@@ -350,6 +355,7 @@ public:
     static void loadModuleInfo(Module &module, std::string name, const resource::Gff &ifo);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
     static void clickPlaceable(Module &module, const std::shared_ptr<Placeable> &placeable);
+    static void addLevelStats(Creature &creature, int hitDie, int forcePoints);
     static void setPerceptionRanges(
         Creature &creature,
         float sight,

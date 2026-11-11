@@ -146,9 +146,7 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
         // The change-character key sounds the accepted cue whether or not
         // the lead moved.
         selectNextStandingMember();
-        if (auto clip = _game.services().game.guiSounds.getActionAccepted()) {
-            _game.services().audio.mixer.play(std::move(clip), audio::AudioType::Sound);
-        }
+        _game.services().game.guiSounds.play(_game.services().game.guiSounds.getActionAccepted());
         return true;
     }
 
@@ -716,16 +714,15 @@ void Party::clear() {
     _members.clear();
 }
 
-static constexpr int kMaxGold = 999999999;
 static constexpr int kGoldGainedStrRef = 1493;
 static constexpr int kGoldLostStrRef = 1494;
 static constexpr int kComponentsGainedStrRef = 128117;
 static constexpr int kChemicalsGainedStrRef = 128118;
 static constexpr char kPazaakSideboardResRef[] = "g_i_pazsidebd001";
 
-// A count raised by amount, up to 999999999.
+// A count raised by amount, up to kMaxHeldCount.
 static int raisedCount(int count, int amount) {
-    return static_cast<int>(std::min<int64_t>(static_cast<int64_t>(count) + amount, kMaxGold));
+    return static_cast<int>(std::min<int64_t>(static_cast<int64_t>(count) + amount, kMaxHeldCount));
 }
 
 void Party::giveGold(int amount) {
@@ -736,34 +733,75 @@ void Party::takeGold(int amount) {
     _gold = std::max(_gold - amount, 0);
 }
 
-int Party::creatureGold(const Creature &creature) const {
-    return isMember(creature) ? _gold : creature.gold();
+int Party::partyCount(HeldCount count) const {
+    switch (count) {
+    case HeldCount::Credits:
+        return _gold;
+    case HeldCount::Components:
+        return static_cast<int>(_persistedState.itemComponent);
+    default:
+        return static_cast<int>(_persistedState.itemChemical);
+    }
 }
 
-int Party::addCreatureGold(Creature &creature, int amount) {
-    const int before = creatureGold(creature);
-    const int after = raisedCount(before, amount);
-    const int change = after - before;
-    if (isMember(creature)) {
-        giveGold(change);
-    } else {
-        creature.giveGold(change);
+void Party::setPartyCount(HeldCount count, int value) {
+    switch (count) {
+    case HeldCount::Credits:
+        _gold = value;
+        break;
+    case HeldCount::Components:
+        _persistedState.itemComponent = static_cast<uint32_t>(value);
+        break;
+    default:
+        _persistedState.itemChemical = static_cast<uint32_t>(value);
+        break;
     }
-    if (change != 0 && getLeader().get() == &creature) {
-        _game.addFeedbackMessage(kGoldGainedStrRef, {{0, std::to_string(change)}});
+}
+
+int Party::holderCount(const Creature &holder, HeldCount count, bool partyHeld) const {
+    return partyHeld ? partyCount(count) : holder.heldCount(count);
+}
+
+void Party::setHolderCount(Creature &holder, HeldCount count, int value, bool partyHeld) {
+    const int held = std::min(value, kMaxHeldCount);
+    if (partyHeld) {
+        setPartyCount(count, held);
+    } else {
+        holder.setHeldCount(count, held);
+    }
+}
+
+int Party::addHolderCount(Creature &holder, HeldCount count, int amount, bool partyHeld, bool told) {
+    const int before = holderCount(holder, count, partyHeld);
+    const int after = raisedCount(before, amount);
+    setHolderCount(holder, count, after, partyHeld);
+    const int change = after - before;
+    if (told && change != 0) {
+        const int strRef = count == HeldCount::Credits      ? kGoldGainedStrRef
+                           : count == HeldCount::Components ? kComponentsGainedStrRef
+                                                            : kChemicalsGainedStrRef;
+        _game.addFeedbackMessage(strRef, {{0, std::to_string(change)}});
     }
     return change;
 }
 
+int Party::creatureCount(const Creature &creature, HeldCount count) const {
+    return holderCount(creature, count, isMember(creature));
+}
+
+int Party::addCreatureCount(Creature &creature, HeldCount count, int amount) {
+    return addHolderCount(creature, count, amount, isMember(creature), getLeader().get() == &creature);
+}
+
+void Party::setCreatureCount(Creature &creature, HeldCount count, int value) {
+    setHolderCount(creature, count, value, isMember(creature));
+}
+
 int Party::removeCreatureGold(Creature &creature, int amount) {
-    const int before = creatureGold(creature);
+    const int before = creatureCount(creature, HeldCount::Credits);
     const int after = std::max(before - amount, 0);
+    setCreatureCount(creature, HeldCount::Credits, after);
     const int change = before - after;
-    if (isMember(creature)) {
-        takeGold(change);
-    } else {
-        creature.takeGold(change);
-    }
     if (change != 0 && getLeader().get() == &creature) {
         _game.addFeedbackMessage(kGoldLostStrRef, {{0, std::to_string(change)}});
     }
@@ -799,43 +837,47 @@ bool Party::isCountedItem(const Item &item) const {
     }
 }
 
-// A party member's chemicals and components are the party's counts; the
-// creature the player controls is told the change. The acquirer of a pazaak
-// card is given a sideboard to hold the collection when it has none.
-void Party::acquireCountedItem(Creature &acquirer, const Item &item) {
-    const int amount = item.stackSize();
-    auto raisePartyCount = [&](uint32_t &count, int strRef) {
-        if (!isMember(acquirer)) {
-            return;
-        }
-        const int before = static_cast<int>(count);
-        const int after = raisedCount(before, amount);
-        count = static_cast<uint32_t>(after);
-        if (after != before && getLeader().get() == &acquirer) {
-            _game.addFeedbackMessage(strRef, {{0, std::to_string(after - before)}});
-        }
-    };
+// The count a counted item raises: its credits, chemicals or components.
+static std::optional<HeldCount> heldCountOf(const Item &item) {
     switch (item.itemType()) {
     case Item::kCreditsItemType:
-        addCreatureGold(acquirer, amount);
-        break;
+        return HeldCount::Credits;
     case Item::kChemicalsItemType:
-        raisePartyCount(_persistedState.itemChemical, kChemicalsGainedStrRef);
-        break;
+        return HeldCount::Chemicals;
     case Item::kComponentsItemType:
-        raisePartyCount(_persistedState.itemComponent, kComponentsGainedStrRef);
-        break;
-    case Item::kPazaakCardItemType: {
+        return HeldCount::Components;
+    default:
+        return std::nullopt;
+    }
+}
+
+// A party member's credits, chemicals and components are the party's counts,
+// gained through the leader, and any other creature's its own. The acquirer of
+// a pazaak card is given a sideboard to hold the collection when it has none.
+void Party::acquireCountedItem(Creature &acquirer, const Item &item) {
+    const int amount = item.stackSize();
+    if (const auto count = heldCountOf(item)) {
+        const auto leader = getLeader();
+        addCreatureCount(leader && isMember(acquirer) ? *leader : acquirer, *count, amount);
+        return;
+    }
+    if (item.itemType() == Item::kPazaakCardItemType) {
         addPazaakCards(acquiredPazaakCardSlot(item.modelVariation(), _game.isTSL()), amount);
         const bool hasSideboard = std::any_of(acquirer.items().begin(), acquirer.items().end(),
                                               [](const std::shared_ptr<Item> &held) { return held->itemType() == Item::kPazaakSideboardItemType; });
         if (!hasSideboard) {
             acquirer.addItem(kPazaakSideboardResRef, 1, std::nullopt);
         }
-        break;
     }
-    default:
-        break;
+}
+
+// The player read as a party member's raises the party's counts, and is told
+// each gain.
+void Party::acquireCountedItemAsPlayer(Creature &player, const Item &item) {
+    if (const auto count = heldCountOf(item)) {
+        addHolderCount(player, *count, item.stackSize(), true, true);
+    } else {
+        acquireCountedItem(player, item);
     }
 }
 
@@ -1000,15 +1042,36 @@ void Party::applyJoiningExperience(int npc, Creature &creature) {
     }
 }
 
-// A creature joining the party, or made available to it, hands its credits
-// and carried items to the party; what it wears stays on it, and its own
-// credit count is left as it was.
+// A creature joining the party, or made available to it, hands its credits,
+// components, chemicals and carried items to the party; what it wears stays on
+// it. The party's counts rise up to kMaxHeldCount, as with every other gain,
+// and the creature keeps none of its own, so handing them over again, as each
+// module load does, adds nothing.
 void Party::transferInventory(Creature &creature) {
     auto receiver = actualPlayer();
-    _gold += creature.gold();
+    for (const auto count : {HeldCount::Credits, HeldCount::Components, HeldCount::Chemicals}) {
+        setPartyCount(count, raisedCount(partyCount(count), creature.heldCount(count)));
+    }
+    creature.clearHeldCounts();
     const auto carried = creature.items();
     for (const auto &item : carried) {
         transferItemTo(_game, item, *receiver);
+    }
+}
+
+void Party::readPlayerAsMember() {
+    _player->clearHeldCounts();
+}
+
+void Party::formAgainOnModuleLoad() {
+    // With no one under control, there is no player to read.
+    if (_player) {
+        readPlayerAsMember();
+    }
+    for (const auto &member : _members) {
+        if (member.npc != kNpcPlayer && member.creature != _player) {
+            transferInventory(*member.creature);
+        }
     }
 }
 
@@ -1078,6 +1141,13 @@ void Party::switchLeader(bool sound) {
     _members.push_back(tmp);
 
     onLeaderChanged(tmp.creature, sound);
+    restNewLeaderDrive(tmp.creature);
+}
+
+void Party::restNewLeaderDrive(const std::shared_ptr<Creature> &previous) {
+    if (getLeader() != previous) {
+        _game.resetDriveAcceleration();
+    }
 }
 
 bool Party::changeToNextLivingMember(bool sound) {

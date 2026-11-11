@@ -2074,7 +2074,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
         .WillRepeatedly(Return(makeBaseItemsTable()));
     // Item deserialization incidentally looks up inventory icons; no texture
     // is needed.
-    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_000", "ii_datapad_000"), _))
+    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_001", "ii_datapad_001"), _))
         .Times(AnyNumber());
 
     auto player = game.newCreature();
@@ -2104,7 +2104,7 @@ TEST(Object, should_convert_credits_to_gold_for_any_creature) {
         .WillRepeatedly(Return(makeBaseItemsTable()));
     // Item deserialization incidentally looks up inventory icons; no texture
     // is needed.
-    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_000", _))
+    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_001", _))
         .Times(AnyNumber());
 
     auto thug = game.newCreature();
@@ -4773,6 +4773,56 @@ TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reac
 
     EXPECT_TRUE(npc->navigationFailed());
     EXPECT_TRUE(action->isCompleted());
+}
+
+// Steers a creature toward a point far along +x for the given time, moving it
+// at the given speed each frame. Counts the frames its steering turned away
+// from that point, which is what a creature judged stuck does.
+int framesSteeredAway(Area &area, Creature &creature, float speed, float dt, float duration) {
+    const glm::vec3 start {-4.0f, 0.0f, 0.0f};
+    const glm::vec3 next {4.5f, 0.0f, 0.0f};
+    const glm::vec3 towardNext {1.0f, 0.0f, 0.0f};
+    creature.setPosition(start);
+    int steeredAway = 0;
+    const int frames = static_cast<int>(duration / dt);
+    for (int frame = 0; frame < frames; ++frame) {
+        const glm::vec3 force = creature.computeSteeringForce(area.pathfinder().uni, next, dt);
+        // Arbitrary, but wider than the nudge away from the walkmesh's edges
+        // and narrower than losing the direction altogether.
+        if (glm::distance(force, towardNext) > 0.5f) {
+            ++steeredAway;
+        }
+        creature.setPosition(start + towardNext * (speed * dt * static_cast<float>(frame + 1)));
+    }
+    return steeredAway;
+}
+
+// One-millisecond and two-millisecond frames are what a fast machine with
+// v-sync off reaches; the rest bracket ordinary play.
+const std::vector<float> kFrameLengths {0.001f, 0.002f, 0.008f, 1.0f / 60.0f, 1.0f / 30.0f};
+
+TEST(CreatureSteering, a_creature_making_way_is_not_stuck_at_any_frame_rate) {
+    for (float dt : kFrameLengths) {
+        SCOPED_TRACE(dt);
+        BlockedDoorFixture fixture;
+        loadTwoRoomWalkmesh(*fixture.area);
+        auto npc = fixture.addCreature("k_def_blocked01");
+
+        // Two metres a second is a walking creature, and two seconds of it
+        // stays within the room.
+        EXPECT_EQ(0, framesSteeredAway(*fixture.area, *npc, 2.0f, dt, 2.0f));
+    }
+}
+
+TEST(CreatureSteering, a_creature_that_cannot_move_is_stuck_at_any_frame_rate) {
+    for (float dt : kFrameLengths) {
+        SCOPED_TRACE(dt);
+        BlockedDoorFixture fixture;
+        loadTwoRoomWalkmesh(*fixture.area);
+        auto npc = fixture.addCreature("k_def_blocked01");
+
+        EXPECT_GT(framesSteeredAway(*fixture.area, *npc, 0.0f, dt, 3.0f), 0);
+    }
 }
 
 // A placeable with no use point on the ground is used from its own origin,

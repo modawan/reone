@@ -388,15 +388,14 @@ void PresentationGUI::clickControl(const std::string &tag) {
 }
 
 void PresentationGUI::onClick(const std::string &control) {
-    auto clip = _presentation.sounds.getOnClick();
-    _audioSource = _presentation.mixer.play(std::move(clip), AudioType::Sound);
+    _audioSource = _presentation.sounds.play(_presentation.sounds.getOnClick());
 }
 
 void PresentationGUI::onSelectionChanged(const std::string &control, bool selected) {
-    if (selected) {
-        auto clip = _presentation.sounds.getOnEnter();
-        _audioSource = _presentation.mixer.play(std::move(clip), AudioType::Sound);
-    }
+}
+
+void PresentationGUI::onEntered(const std::string &control) {
+    _audioSource = _presentation.sounds.play(_presentation.sounds.getOnEnter());
 }
 
 } // namespace game

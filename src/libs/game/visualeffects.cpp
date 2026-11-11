@@ -65,7 +65,13 @@ static void parseEffects(const resource::TwoDA &twoDa,
         desc.progFXCessation = twoDa.getInt(row, "progfx_cessation", -1);
         desc.fireAndForget = boost::iequals(twoDa.getString(row, "type_fd"), "F");
         desc.soundDuration = audioClips.get(twoDa.getString(row, "soundduration"));
-        // Visual effects play no cessation sound, so soundcessastion is not read.
+        // Both titles' table spells the column soundcessastion; a table that
+        // spells it right is read too.
+        auto cessation = twoDa.getString(row, "soundcessation");
+        if (cessation.empty()) {
+            cessation = twoDa.getString(row, "soundcessastion");
+        }
+        desc.soundCessation = cessation.empty() ? nullptr : audioClips.get(cessation);
         // Rows are keyed by their label, the visual effect's number.
         effects.emplace(static_cast<uint32_t>(std::stoul(twoDa.rows()[row].label)), std::move(desc));
     }

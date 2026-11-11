@@ -90,7 +90,7 @@ public:
      * intersection.
      */
     Raycast raycast(
-        std::set<uint32_t> walkcheckSurfaces,
+        const std::set<uint32_t> &walkcheckSurfaces,
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
@@ -174,14 +174,14 @@ private:
     bool _area {false};
 
     Raycast raycastAABB(
-        std::set<uint32_t> surfaces,
+        const std::set<uint32_t> &surfaces,
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
         bool ignoreBackface) const;
 
     Raycast raycastFace(
-        std::set<uint32_t> surfaces,
+        const std::set<uint32_t> &surfaces,
         const Walkmesh::Face &face,
         const glm::vec3 &origin,
         const glm::vec3 &dir,

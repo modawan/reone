@@ -895,7 +895,13 @@ void Conversation::loadVoiceOver(const std::string &sound) {
     if (!voiceResRef.empty()) {
         auto clip = _services.resource.audioClips.get(voiceResRef);
         if (clip) {
-            _currentVoice = _services.audio.mixer.play(std::move(clip), AudioType::Voice);
+            // A line's voice is heard everywhere: the controlled creature's
+            // in the player chat group, any other speaker's in the non-player
+            // chat group.
+            const auto speaker = currentEntrySpeaker();
+            const bool player = speaker && speaker == _game.party().getLeader();
+            _currentVoice = _services.audio.mixer.play(
+                std::move(clip), AudioType::Voice, player ? kPlayerChatSoundGroup : kNonPlayerChatSoundGroup);
         }
     }
 }
@@ -1214,7 +1220,11 @@ void Conversation::pickReply(int index) {
         finish();
         return;
     }
-    if (!_endEntryTimer.elapsed() || isWaiting()) {
+    // The next entry waits for the reply's own hold and for a screen the
+    // reply's script opened that pauses the world, such as a station or party
+    // selection, to close; a reply leading nowhere has ended the conversation
+    // regardless.
+    if (_game.holdsConversation() || !_endEntryTimer.elapsed() || isWaiting()) {
         _pendingEntry = entryIdx;
         return;
     }
@@ -1284,7 +1294,7 @@ bool Conversation::handleKeyDown(const input::KeyEvent &event) {
     }
     const auto index = static_cast<size_t>(code - key1);
     if (index < listedReplyCount()) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
         pickReply(static_cast<int>(index));
     }
     return true;
@@ -1300,7 +1310,7 @@ void Conversation::pickSelectedReply() {
     if (!list || list->selectedItemIndex() == -1) {
         return;
     }
-    _services.audio.mixer.play(_services.game.guiSounds.getOnClick(), AudioType::Sound);
+    _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
     pickReply(std::stoi(list->getItemAt(list->selectedItemIndex()).tag));
 }
 
@@ -1325,7 +1335,7 @@ void Conversation::moveReplySelection(int step) {
     list->setSelectedItemIndex(next);
     list->scrollToItem(next);
     if (sounds) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
     }
 }
 
@@ -1342,19 +1352,14 @@ bool Conversation::acceptsSkip() const {
     return !_entryEnded || (_autoPickFirstReply && _pendingEntry);
 }
 
-// The row under a resting pointer is selected, with the sound of a newly
-// selected row.
+// The row under a resting pointer is selected; the list sounds a newly
+// selected row as it does for any move of the pointer.
 void Conversation::selectReplyUnderPointer() {
-    const auto list = replyList();
-    if (!list) {
+    if (!replyList()) {
         return;
     }
-    const int selected = list->selectedItemIndex();
     const glm::ivec2 pointer = _game.pointerPosition();
     _gui->handle(input::Event::newMouseMotion({pointer.x, pointer.y, 0.0f, 0.0f}));
-    if (list->selectedItemIndex() != selected) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnEnter(), AudioType::Sound);
-    }
 }
 
 // A skip takes effect only in a skippable conversation and, in TSL, on an

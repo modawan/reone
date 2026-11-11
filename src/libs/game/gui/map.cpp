@@ -96,7 +96,9 @@ const AreaMapState *Map::mapState() const {
 }
 
 void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingAlpha) {
-    if (!isLoaded()) {
+    // While the party's map is disabled (TSL), nothing is drawn; the map screen
+    // shows static through its own control.
+    if (isDisabled() || !isLoaded()) {
         return;
     }
     // The minimap follows the party leader, so without one it shows nothing.
@@ -139,6 +141,10 @@ glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {
         bounds[1] + 0.5f * bounds[3] - mapPos.y * height,
         width,
         height);
+}
+
+bool Map::isDisabled() const {
+    return _game.isTSL() && _game.party().isMapDisabled();
 }
 
 void Map::renderArea(const glm::vec4 &rect) {
@@ -199,8 +205,9 @@ void Map::renderFog(const glm::vec4 &bounds, const glm::vec4 &rect) {
     }
 }
 
+// A disabled map shows no notes.
 bool Map::isNoteVisible(const Waypoint &waypoint) const {
-    if (!waypoint.hasMapNote() || !waypoint.isMapNoteEnabled()) {
+    if (isDisabled() || !waypoint.hasMapNote() || !waypoint.isMapNoteEnabled()) {
         return false;
     }
     auto state = mapState();
