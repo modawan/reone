@@ -1596,8 +1596,10 @@ void Creature::updateModel() {
     if (!replacement) {
         return;
     }
-    // A loop a script has the creature hold carries over to the new model.
+    // A loop a script has the creature hold carries over to the new model, at
+    // the speed it was playing.
     const auto heldLoop = heldScriptLoop();
+    const float heldSpeed = _animationSource.speed;
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     // Visual effects and special-attack weapon visuals carry over to the new
     // model without starting over, and the latest shell covers its new head
@@ -1622,7 +1624,7 @@ void Creature::updateModel() {
     _oneShot.reset();
     _animDirty = true;
     if (heldLoop) {
-        playScriptAnimation(getScriptAnimation(*heldLoop), 1.0f);
+        playScriptAnimation(getScriptAnimation(*heldLoop), heldSpeed);
     }
 }
 
@@ -5417,7 +5419,9 @@ void Creature::playScriptAnimation(const ScriptAnimation &animation, float speed
     AnimationProperties properties;
     properties.speed = speed;
     properties.flags |= AnimationFlags::loop;
-    playAnimation(animation.clip, std::move(properties), animation.source);
+    auto source = animation.source;
+    source.speed = speed;
+    playAnimation(animation.clip, std::move(properties), source);
 }
 
 // A creature idling in its plain pause glances or fidgets now and then: first

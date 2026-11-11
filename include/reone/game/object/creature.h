@@ -308,13 +308,15 @@ struct SavingThrowBreakdown {
 
 /**
  * Where the clip a creature shows came from: its animation ID, -1 when
- * unknown, whether it is a dialog animation, and whether it is only shown, the
- * creature carrying on with what it does under it.
+ * unknown, whether it is a dialog animation, whether it is only shown, the
+ * creature carrying on with what it does under it, and the speed it was asked
+ * to play at.
  */
 struct AnimationSource {
     int id {-1};
     bool dialog {false};
     bool shownOnly {false};
+    float speed {1.0f};
 };
 
 /**
