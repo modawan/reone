@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <map>
 
 #include "reone/audio/source.h"
@@ -63,11 +64,15 @@ public:
 
     /**
      * Start \p dialog owned by \p owner. \p listener is the object that
-     * started the conversation with the owner, when there is one.
+     * started the conversation with the owner, when there is one. A
+     * conversation that opens calls \p opening before its first entry shows;
+     * one that starts on a one-liner barks it without opening, and one with no
+     * active start entry ends without opening.
      */
     void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner,
                GlobalFade::DialogTicket admission = {},
-               const std::shared_ptr<Object> &listener = nullptr);
+               const std::shared_ptr<Object> &listener = nullptr,
+               const std::function<void()> &opening = {});
     void cleanupForModuleTransition();
 
     /** True from start() until the conversation has finished or been cleaned up. */
@@ -338,7 +343,12 @@ private:
     bool isCurrent(uint64_t generation) const;
 
     void loadCameraModel();
-    void loadStartEntry();
+    void loadStartEntry(const std::function<void()> &opening);
+    /**
+     * Whether the conversation, starting on \p entry, is a one-liner: an
+     * entry with no replies, or with one reply that leads to no entry.
+     */
+    bool isOneLiner(const resource::Dialog::EntryReply &entry) const;
     /** Plays the current entry's voice: \p sound, or else its voice-over. */
     void loadVoiceOver(const std::string &sound);
     void scheduleEndOfEntry();
