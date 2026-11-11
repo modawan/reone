@@ -65,22 +65,7 @@ private:
     graphics::GraphicsOptions &_options;
     IResources &_resources;
 
-    /**
-     * Keyed by BOTH the lowercased resref and the usage it was decoded for.
-     *
-     * doGet is usage-dependent - the readers take it, and a grayscale bump map
-     * is promoted to a 2D array under BumpMap and left flat under anything else
-     * - so a key that drops the usage hands back a texture built for a
-     * different slot. Measured on danm14ab: `loadscreen3` is fetched as GUI and
-     * then as MainTex, and the admission's `is2DArray` assertion is one asset
-     * away from aborting a frame the same way.
-     *
-     * Lowercased on the way in rather than only on the way out: the resrefs
-     * arrive in mixed case from the authored data, and looking one up under its
-     * original spelling used to miss an entry stored in lower case and decode
-     * the whole TPC again. Measured at over two hundred redundant decodes of
-     * `CM_Baremetal` in a single 900-frame run.
-     */
+    // Filtering and wrapping depend on the usage, so the usage is part of the key.
     Cache<std::pair<std::string, graphics::TextureUsage>, graphics::Texture> _cache;
 
     std::shared_ptr<graphics::Texture> doGet(const std::string &resRef, graphics::TextureUsage usage);
