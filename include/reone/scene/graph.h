@@ -158,19 +158,23 @@ public:
 
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     /**
-     * Where the line first meets a room walkmesh face that stops sight, or the
-     * posed model of a creature, placeable or door whose user is not one of
-     * \p excluded.
+     * Where the line first meets a face of a room model's AABB mesh of a
+     * camera surface, as testCameraLine has them, or the posed model of a
+     * creature, placeable or door, or a model attached to one, that takes
+     * scene hits (see ModelSceneNode::takesSceneHits). Of an object whose
+     * user is in \p excluded only the attached models count, except the one
+     * attached at \p excludedHook.
      */
-    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const = 0;
+    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
     /**
      * Where the line first meets what stops a camera: a face of a room
      * model's AABB mesh, in any room, shown or not, of a camera surface
      * (setCameraSurfaces), walkable floor included; or a triangle, as it is
      * posed, of the model of a door or placeable that a camera does not pass
-     * through and whose classification does not let it. The normal faces
-     * back along the line.
+     * through, that takes scene hits (see ModelSceneNode::takesSceneHits) and
+     * whose classification does not let it. The normal faces back along the
+     * line.
      */
     virtual bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     /**
@@ -436,7 +440,7 @@ public:
     // Collision detection and object picking
 
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
-    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const override;
+    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
     bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
     void setCameraSurfaces(std::set<uint32_t> surfaces) override { _cameraSurfaces = std::move(surfaces); }
@@ -480,6 +484,13 @@ public:
     // END Factory methods
 
 private:
+    /**
+     * Where the line, of some length, meets a face of a room model's AABB
+     * mesh of a camera surface nearer than \p nearest, which it brings in,
+     * every room whether shown or not.
+     */
+    void testRoomModels(const glm::vec3 &origin, const glm::vec3 &dest, float &nearest, Collision &outCollision) const;
+
     std::string _name;
     IRenderPipelineFactory &_renderPipelineFactory;
     graphics::GraphicsOptions &_graphicsOpt;
