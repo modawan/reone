@@ -709,13 +709,15 @@ void MdlMdxReader::prepareSkinMeshes() {
         }
         auto skin = node->mesh()->skin;
         for (size_t i = 0; i < skin->boneMap.size(); ++i) {
+            // -1 marks a node that is not a bone. Converting it to an
+            // unsigned type is undefined, so it is skipped while a float.
+            if (skin->boneMap[i] < 0.0f) {
+                continue;
+            }
             auto boneIdx = static_cast<uint16_t>(skin->boneMap[i]);
             if (boneIdx >= skin->boneNodeNumber.size()) {
                 skin->boneSerial.resize(boneIdx + 1);
                 skin->boneNodeNumber.resize(boneIdx + 1);
-            }
-            if (boneIdx == 0xffff) {
-                continue;
             }
             auto boneNode = _nodes[i];
             skin->boneSerial[boneIdx] = i;
