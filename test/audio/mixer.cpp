@@ -50,7 +50,7 @@ std::shared_ptr<AudioClip> silentClip() {
 class ReverbSendTest : public testing::Test {
 protected:
     ReverbSendTest() :
-        mixer(options, context) {
+        mixer(options, context, [this]() { return now; }) {
     }
 
     void SetUp() override {
@@ -74,6 +74,7 @@ protected:
     Context openAL;
     AudioOptions options;
     NiceMock<MockContext> context;
+    std::chrono::steady_clock::time_point now;
     AudioMixer mixer;
     std::vector<float> sends;
 };
@@ -118,7 +119,7 @@ TEST_F(ReverbSendTest, effects_options_turn_their_sends_off) {
     EXPECT_EQ(playPositional(std::nullopt), 0.0f);
 }
 
-TEST_F(ReverbSendTest, positional_sound_is_obstructed_as_it_starts_and_again_in_turn) {
+TEST_F(ReverbSendTest, positional_sound_takes_its_first_obstruction_at_once_and_eases_to_later_ones) {
     std::vector<float> obstructions;
     ON_CALL(context, setObstruction(_, _)).WillByDefault([&obstructions](AudioSource &, float obstruction) {
         obstructions.push_back(obstruction);
@@ -134,6 +135,20 @@ TEST_F(ReverbSendTest, positional_sound_is_obstructed_as_it_starts_and_again_in_
 
     blocked = 1.0f;
     mixer.render();
+    EXPECT_EQ(obstructions.size(), 1u);
+
+    // Full obstruction takes half a second to come in.
+    now += std::chrono::milliseconds(100);
+    mixer.render();
     ASSERT_EQ(obstructions.size(), 2u);
+    EXPECT_NEAR(obstructions.back(), 0.6f, 1e-4f);
+
+    now += std::chrono::milliseconds(1000);
+    mixer.render();
+    ASSERT_EQ(obstructions.size(), 3u);
     EXPECT_FLOAT_EQ(obstructions.back(), 1.0f);
+
+    now += std::chrono::milliseconds(100);
+    mixer.render();
+    EXPECT_EQ(obstructions.size(), 3u);
 }

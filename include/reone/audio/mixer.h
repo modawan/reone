@@ -87,7 +87,8 @@ public:
     virtual void setRoomReverb(bool reverb) = 0;
     /**
      * Sets how positional sources are found obstructed: as each one starts,
-     * and again for a few playing ones each render, in turn.
+     * and again for a few playing ones each render, in turn. A source takes
+     * its first obstruction at once and eases to each later one.
      */
     virtual void setObstructionTest(ObstructionTest test) = 0;
     /** The row of priority group \p group. */
@@ -154,9 +155,13 @@ public:
 
 class AudioMixer : public IAudioMixer, boost::noncopyable {
 public:
-    AudioMixer(AudioOptions &options, IContext &context) :
+    /** What the mixer's easings read the time from. */
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
+
+    AudioMixer(AudioOptions &options, IContext &context, Clock clock = std::chrono::steady_clock::now) :
         _options(options),
-        _context(context) {
+        _context(context),
+        _clock(std::move(clock)) {
         _arbiter.setVoiceCounts(options.voices2D, options.voices3D);
     }
 
@@ -208,10 +213,14 @@ private:
         float gain {1.0f};
         /** The source was played at a position. */
         bool positional {false};
+        /** The obstruction it is heard with, and the one last found, which it eases towards. */
+        float obstruction {0.0f};
+        float obstructionTarget {0.0f};
     };
 
     AudioOptions &_options;
     IContext &_context;
+    Clock _clock;
 
     std::vector<ActiveSource> _sources;
     /** Shares the groups' room and the voices among the sources in a group. */
@@ -223,6 +232,8 @@ private:
     ObstructionTest _obstructionTest;
     /** The source whose obstruction is worked out next. */
     size_t _nextObstructed {0};
+    /** When the obstructions last eased; none before the first render. */
+    std::optional<std::chrono::steady_clock::time_point> _obstructionRendered;
     bool _soundsHeldForMovie {false};
     /** The priority groups the sound mode in force keeps playing; none without a mode. */
     std::optional<std::set<int>> _modeKeptGroups;
@@ -250,10 +261,12 @@ private:
     /** How much of a source reaches the reverb, as a send gain from 0 to 1. */
     float reverbSend(const ActiveSource &active) const;
     bool isStreamed(const ActiveSource &active) const;
-    /** Works out how obstructed a positional source is now. */
-    void obstruct(AudioSource &source);
+    /** Works out how obstructed a positional source is now, and with \p jump hears it so at once. */
+    void obstruct(ActiveSource &active, bool jump);
     /** Works out again how obstructed the next few positional sources are. */
     void refreshObstruction();
+    /** Eases each source's obstruction towards the one last found. */
+    void renderObstruction();
     /** Resumes a source that nothing holds paused any more. */
     void resumeIfFree(ActiveSource &active);
     /** The arbiter holds the source back: it waits for room or a voice, or is out of range. */
