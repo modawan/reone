@@ -92,6 +92,12 @@ if(ENABLE_ASAN)
     endif()
 endif()
 
+# Clang stamps a precompiled header with the mtimes of the headers it includes,
+# so without this a fresh checkout or a branch switch misses ccache everywhere.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fno-pch-timestamp>")
+endif()
+
 # END Compile options
 
 # Libraries
