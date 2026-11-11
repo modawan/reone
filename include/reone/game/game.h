@@ -984,6 +984,13 @@ public:
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
+    /**
+     * How far the mouse wheel has moved the follow camera in or out: its
+     * distance is scaled by this. It holds from area to area, and goes back
+     * to 1 when the session ends.
+     */
+    float followCameraZoom() const { return _followCameraZoom; }
+    void setFollowCameraZoom(float zoom) { _followCameraZoom = zoom; }
     void saveKeybindOptions() const;
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool alternateActionsHeld() const { return _alternateActionsHeld; }
@@ -1871,6 +1878,7 @@ private:
     bool _leftButtonHeld {false};
     /** See isMouseLookHeld. */
     bool _mouseLookHeld {false};
+    float _followCameraZoom {1.0f};
     /** See alternateActionsHeld. */
     bool _alternateActionsHeld {false};
     /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */

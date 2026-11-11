@@ -58,6 +58,13 @@ static constexpr float kSwingRateFall = 5.0f;
 static constexpr float kStiffChaseReturnRate = 3.5f;
 static constexpr float kStiffChaseClearance = 0.001f;
 
+// Wheel zoom: each notch scales the follow camera's distance by two to the
+// minus this, within these bounds, and the camera eases to it at this rate.
+static constexpr float kZoomStep = 0.25f;
+static constexpr float kMinZoom = 0.5f;
+static constexpr float kMaxZoom = 2.0f;
+static constexpr float kZoomRate = 12.0f;
+
 // Death orbit: heading rate (degrees per second), the distance it closes on,
 // the tilt below the level it turns to (degrees), the per-update easing of
 // heading, tilt, distance and aim height, the aim height it starts from, and
@@ -103,6 +110,7 @@ static float wrapRadians(float angle) {
 void ThirdPersonCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
+    _zoom = _game.followCameraZoom();
     resetTilt();
     rebuildProjection();
 }
@@ -123,9 +131,39 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
         return handleMouseButtonUp(event.button);
     case input::EventType::MouseMotion:
         return handleMouseMotion(event.motion);
+    case input::EventType::MouseWheel:
+        return handleMouseWheel(event.wheel);
     default:
         return false;
     }
+}
+
+bool ThirdPersonCamera::handleMouseWheel(const input::MouseWheelEvent &event) {
+    if (!_game.options().game.wheelZoom || _combat || _deathOrbit) {
+        return false;
+    }
+    const float notches = event.direction == input::MouseWheelDirection::Flipped ? -event.y : event.y;
+    if (notches == 0.0f) {
+        return false;
+    }
+    // Rolling the wheel forward brings the camera in.
+    const float zoom = glm::clamp(_game.followCameraZoom() * std::exp2(-kZoomStep * notches), kMinZoom, kMaxZoom);
+    _game.setFollowCameraZoom(zoom);
+    return true;
+}
+
+// The scale eases toward the wheel's at a steady rate whatever the frame
+// rate, and settles on it once within a thousandth.
+bool ThirdPersonCamera::updateZoom(float dt) {
+    const float target = _game.followCameraZoom();
+    if (_zoom == target) {
+        return false;
+    }
+    _zoom += (target - _zoom) * (1.0f - std::exp(-kZoomRate * dt));
+    if (std::abs(target - _zoom) < 0.001f) {
+        _zoom = target;
+    }
+    return true;
 }
 
 // The turn keys work whether or not the mouse turns the camera. Either Ctrl
@@ -227,12 +265,13 @@ void ThirdPersonCamera::update(float dt) {
         updateCombatTurn(dt);
         return;
     }
-    // The dolly distance follows the view angle every frame, and the stiff
-    // chase camera eases out every frame.
+    // The dolly distance follows the view angle every frame, the stiff chase
+    // camera eases out every frame, and the wheel's zoom eases in or out.
+    const bool zoomed = updateZoom(dt);
     if (isStiffChase()) {
         easeStiffChase(dt);
         updateSceneNode();
-    } else if (_dollyZoom) {
+    } else if (_dollyZoom || zoomed) {
         updateSceneNode();
     }
     const bool turnKey = _rotateCW || _rotateCCW;
@@ -480,8 +519,9 @@ void ThirdPersonCamera::followLine(glm::vec3 &from, glm::vec3 &to) const {
     const float distance = _dollyZoom
                                ? _style.distance * std::tan(glm::radians(_style.viewAngle) * 0.5f) / std::tan(glm::radians(viewAngle()) * 0.5f)
                                : _style.distance;
-    to = _targetPosition + distance * dir;
-    to.z += _style.height;
+    // The wheel's zoom scales the camera's offset from the target, so the
+    // target stays where it is in the view.
+    to = _targetPosition + _zoom * (distance * dir + glm::vec3(0.0f, 0.0f, _style.height));
 }
 
 bool ThirdPersonCamera::isStiffChase() const {

@@ -143,6 +143,13 @@ private:
 
     // END Look-at swing
 
+    // Wheel zoom
+
+    /** The follow camera's distance scale, easing toward the one the wheel set. */
+    float _zoom {1.0f};
+
+    // END Wheel zoom
+
     // Stiff chase
 
     /**
@@ -175,7 +182,8 @@ private:
     void updateSceneNode();
     /**
      * The line the follow camera stands on outside combat: from just past
-     * the target to where the camera stands at its own distance.
+     * the target to where the camera stands at its own distance, as the
+     * wheel has zoomed it.
      */
     void followLine(glm::vec3 &from, glm::vec3 &to) const;
     /** Whether the stiff chase camera mode holds the follow camera. */
@@ -210,6 +218,10 @@ private:
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
     bool handleMouseButtonUp(const input::MouseButtonEvent &event);
+    /** The wheel moves the follow camera in or out, outside combat. */
+    bool handleMouseWheel(const input::MouseWheelEvent &event);
+    /** Eases the follow camera's distance scale by \p dt seconds; whether it changed. */
+    bool updateZoom(float dt);
 };
 
 } // namespace game

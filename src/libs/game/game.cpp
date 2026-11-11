@@ -2256,6 +2256,7 @@ void Game::retireRuntimeSession() {
     _savedCameraType = CameraType::ThirdPerson;
     _cameraMode = kOnAStickCameraMode;
     _engineCameraMode = kOnAStickCameraMode;
+    _followCameraZoom = 1.0f;
     _freeLook = false;
     disableVideoEffect();
     _scriptVideoEffectHeld = false;
