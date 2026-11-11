@@ -142,8 +142,8 @@ public:
     MockMovies();
     ~MockMovies() override;
 
-    MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<movie::IMovie>, get, (const std::string &name), (override));
+    MOCK_METHOD(std::vector<std::string>, names, (), (override));
 };
 
 class MockAudioClips : public IAudioClips, boost::noncopyable {

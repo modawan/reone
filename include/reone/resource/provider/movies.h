@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "reone/graphics/di/services.h"
 #include "reone/movie/movie.h"
 
@@ -34,9 +37,11 @@ class IMovies {
 public:
     virtual ~IMovies() = default;
 
-    virtual void clear() = 0;
-
+    /** A new playback of the movie, from its start; none when the game has no such movie. */
     virtual std::shared_ptr<movie::IMovie> get(const std::string &name) = 0;
+
+    /** The names of the game's movies, in lower case and without their extension, in order of name. */
+    virtual std::vector<std::string> names() = 0;
 };
 
 class Movies : public IMovies, boost::noncopyable {
@@ -49,27 +54,13 @@ public:
         _audioPlayer(audioPlayer) {
     }
 
-    void clear() override {
-        _objects.clear();
-    }
-
-    std::shared_ptr<movie::IMovie> get(const std::string &name) override {
-        auto maybeObject = _objects.find(name);
-        if (maybeObject != _objects.end()) {
-            return maybeObject->second;
-        }
-        auto object = doGet(name);
-        return _objects.insert(make_pair(name, std::move(object))).first->second;
-    }
+    std::shared_ptr<movie::IMovie> get(const std::string &name) override;
+    std::vector<std::string> names() override;
 
 private:
     std::filesystem::path _gamePath;
     graphics::GraphicsServices &_graphicsSvc;
     audio::IAudioMixer &_audioPlayer;
-
-    std::unordered_map<std::string, std::shared_ptr<movie::IMovie>> _objects;
-
-    std::shared_ptr<movie::IMovie> doGet(std::string name);
 };
 
 } // namespace resource

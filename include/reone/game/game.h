@@ -1117,6 +1117,13 @@ public:
     void saveSoundOptions() const;
     /** Write the graphics options to the configuration. */
     void saveGraphicsOptions() const;
+    /** Open these planet groups of the main menu's music list, and record them in the configuration. */
+    void unlockPlanetSongs(int songs);
+    /**
+     * Play \p resRef as the menu music, looping, in place of any; empty stops
+     * it. Menu music keeps the area's music suspended.
+     */
+    void playMusic(const std::string &resRef);
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool alternateActionsHeld() const { return _alternateActionsHeld; }
     /**
@@ -2744,7 +2751,6 @@ private:
     /** Entering a module lets go of the left button and the alternate actions key. */
     void releaseInputOnModuleEntry();
     void loadNextModule();
-    void playMusic(const std::string &resRef);
     /**
      * Pauses the world's sounds for the sound mode the game is in now, and
      * resumes them when it leaves it.
@@ -2810,6 +2816,8 @@ private:
 
     /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
     bool startVideo(const std::string &name, bool streamingMusic);
+    /** Record a movie as seen, which opens it in the main menu's movie list when the movie table names it. */
+    void markMovieShown(const std::string &name);
     /** Starts the next queued movie, else the next transition movie. */
     bool playNextMovie();
     void updateMovie(float dt);
