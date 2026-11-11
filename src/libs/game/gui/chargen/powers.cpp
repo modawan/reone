@@ -61,44 +61,6 @@ static IconChain::State getPowerIconState(SpellAvailability availability) {
     return IconChain::State::Locked;
 }
 
-static std::map<SpellType, glm::ivec2> getPowerIconPositions(
-    const std::vector<SpellDisplayEntry> &entries) {
-
-    std::map<SpellType, int> nextIndexByRoot;
-    std::vector<SpellType> chainRoots;
-    std::map<SpellType, glm::ivec2> result;
-    for (const auto &entry : entries) {
-        if (!entry.visible) {
-            continue;
-        }
-
-        SpellType root = entry.chainRoot != SpellType::All ? entry.chainRoot : entry.type;
-        auto maybeIndex = nextIndexByRoot.insert({root, 0});
-        if (maybeIndex.second) {
-            chainRoots.push_back(root);
-        }
-        int index = maybeIndex.first->second++;
-        result.emplace(entry.type, glm::ivec2(index % kIconSelectionColumnCount, index / kIconSelectionColumnCount));
-    }
-
-    std::map<SpellType, int> rowBases;
-    int nextRow = 0;
-    for (auto root : chainRoots) {
-        int count = nextIndexByRoot.at(root);
-        rowBases.emplace(root, nextRow);
-        nextRow += (count + kIconSelectionColumnCount - 1) / kIconSelectionColumnCount;
-    }
-
-    for (const auto &entry : entries) {
-        if (!entry.visible) {
-            continue;
-        }
-        SpellType root = entry.chainRoot != SpellType::All ? entry.chainRoot : entry.type;
-        result.at(entry.type).y += rowBases.at(root);
-    }
-    return result;
-}
-
 /** The controls the panel shows in both titles. */
 static const std::unordered_set<std::string> kPanelControls {
     "ACCEPT_BTN", "BACK_BTN", "LBL_POWER", "LB_DESC", "LB_POWERS", "MAIN_TITLE_LBL",

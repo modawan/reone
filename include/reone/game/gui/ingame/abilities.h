@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "reone/gui/control.h"
+
 #include "../../gui.h"
 #include "../../types.h"
 
@@ -25,6 +27,7 @@ namespace reone {
 namespace gui {
 
 class Button;
+class IconChain;
 class Label;
 class ListBox;
 
@@ -32,6 +35,13 @@ class ListBox;
 
 namespace game {
 
+class Creature;
+
+/**
+ * The party leader's skills, Force powers and feats, one view at a time. The
+ * powers and feats are shown as chains of icons; the powers view is offered
+ * to a character whose newest class is a Jedi one.
+ */
 class AbilitiesMenu : public GameGUI {
 public:
     AbilitiesMenu(Game &game, ServicesView &services) :
@@ -39,9 +49,16 @@ public:
         _resRef = guiResRef("abilities");
     }
 
+    /** Show the party leader, in the view last chosen. */
     void refreshControls();
 
 private:
+    enum class View {
+        Skills,
+        Powers,
+        Feats
+    };
+
     struct SkillInfo {
         SkillType skill;
         std::string name;
@@ -79,10 +96,31 @@ private:
     };
 
     Controls _controls;
+    /** The powers or feats of the views that show them. */
+    std::shared_ptr<gui::IconChain> _chain;
+    /**
+     * The skill list and the chain share the list's scroll bar, each placing
+     * it where its own layout puts it.
+     */
+    gui::Control::Extent _listScrollBarExtent;
+    gui::Control::Extent _chainScrollBarExtent;
 
     std::unordered_map<SkillType, SkillInfo> _skills;
+    View _view {View::Skills};
 
     void onGUILoaded() override;
+
+    void setView(View view);
+    void showSkillsView();
+    void showFeatsView(const Creature &character);
+    void showPowersView(const Creature &character);
+    void showSkill(SkillType skill);
+    void showFeat(FeatType feat);
+    void showPower(SpellType power);
+    /** Name what is shown, with its description in the view's description box. */
+    void describe(const std::string &name, const std::string &description);
+    /** Show a change to a value: \p better is whether it is for the better. */
+    void showChange(const std::string &text, int better);
 
     void bindControls() {
         _controls.BTN_CHANGE1 = findControl<gui::Button>("BTN_CHANGE1");
@@ -115,9 +153,6 @@ private:
 
     void loadSkills();
     void refreshPortraits();
-    /** Shows the skill of the list row tagged \p item: its name, rank and description. */
-    void showSkill(const std::string &item);
-
 };
 
 } // namespace game
