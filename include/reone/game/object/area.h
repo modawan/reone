@@ -131,6 +131,8 @@ public:
         std::optional<std::reference_wrapper<const Door>> door;
         /** The normal where the walk is stopped: the wall's, or for a creature the way out from its centre. */
         glm::vec3 normal {0.0f};
+        /** How the walker meets the wall that stops it, when a swept wall test found it. */
+        std::optional<graphics::Walkmesh::ContactKind> contact;
     };
 
     using SearchCriteriaList = std::vector<std::pair<CreatureType, int>>;
@@ -429,15 +431,15 @@ public:
         const glm::vec3 &to,
         std::optional<std::reference_wrapper<const Creature>> ignored = std::nullopt) const;
     /**
-     * Whether a walking creature, or a driven leader, can take a step from
-     * one point to another. Walls are found by a thin level line just above
-     * the ground. A walk from no room leaves the rooms at once; otherwise
-     * only what stands before the point where the walk runs out of the rooms
-     * counts, a door or placeable wall within the creature's personal space of
-     * that point included, and with nothing there it leaves them at that
-     * point. The walk is settled room by room: a creature in an earlier room
-     * stops it before a wall in a later one. What is reported is as for
-     * testDirectLine.
+     * Whether a walking creature can take a step from one point to another,
+     * or a driven leader that starts with a wall within its personal space.
+     * Walls are found by a thin level line just above the ground. A walk from
+     * no room leaves the rooms at once; otherwise only what stands before the
+     * point where the walk runs out of the rooms counts, a door or placeable
+     * wall within the creature's personal space of that point included, and
+     * with nothing there it leaves them at that point. The walk is settled
+     * room by room: a creature in an earlier room stops it before a wall in a
+     * later one. What is reported is as for testDirectLine.
      */
     DirectLineTest testWalkStep(
         const Creature &mover,

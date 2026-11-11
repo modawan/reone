@@ -2660,12 +2660,14 @@ Area::DirectLineTest Area::testDirectLine(
                 test.door = static_cast<const Door &>(wall->object.get());
             }
             test.normal = wall->contact.normal;
+            test.contact = wall->contact.kind;
             return test;
         }
         if (roomContact) {
             test.result = DirectLine::Blocked;
             test.stopPoint = pointAt(roomContact->distance);
             test.normal = roomContact->normal;
+            test.contact = roomContact->kind;
             return test;
         }
         CreatureCollision creatureCollision;
