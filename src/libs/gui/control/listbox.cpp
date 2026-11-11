@@ -58,7 +58,9 @@ void ListBox::addItem(Item &&item) {
     if (!_protoItem)
         return;
 
-    item._textLines = breakText(item.text, *_protoItem->text().font, getItemTextWidth(), _protoItem->scale());
+    if (const auto &font = _protoItem->text().font) {
+        item._textLines = breakText(item.text, *font, getItemTextWidth(), _protoItem->scale());
+    }
     _items.push_back(item);
 
     updateItemSlots();
@@ -74,8 +76,10 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
         std::vector<std::string> lines;
         if (logicalLine.empty()) {
             lines.push_back("");
+        } else if (const auto &font = _protoItem->text().font) {
+            lines = breakText(logicalLine, *font, getItemTextWidth(), _protoItem->scale());
         } else {
-            lines = breakText(logicalLine, *_protoItem->text().font, getItemTextWidth(), _protoItem->scale());
+            lines.push_back(logicalLine);
         }
 
         for (auto &line : lines) {
@@ -569,10 +573,17 @@ int ListBox::getTextBlockAlignmentOffset(int content, int room, int padding) con
 }
 
 int ListBox::getTextLineHeight() const {
-    return static_cast<int>(std::lround(_protoItem->text().font->height() * _protoItem->scale()));
+    const auto &font = _protoItem->text().font;
+    return font ? static_cast<int>(std::lround(font->height() * _protoItem->scale())) : 0;
 }
 
 void ListBox::renderTextLineRows(const glm::ivec2 &screenSize, const glm::ivec2 &offset, IRenderPass &pass) {
+    // Lines of no height, as without a font, have nothing to draw, and the
+    // block's placement divides by their height.
+    const int lineHeight = getTextLineHeight();
+    if (lineHeight == 0) {
+        return;
+    }
     // The room is inside the border, less an enabled scroll bar on its side.
     const int border = _border ? _border->dimension : 0;
     const int scrollBarWidth = _scrollBar && _scrollBarEnabled ? _scrollBar->extent().width : 0;
@@ -581,7 +592,6 @@ void ListBox::renderTextLineRows(const glm::ivec2 &screenSize, const glm::ivec2 
         _extent.top + border,
         std::max(0, _extent.width - 2 * border - scrollBarWidth),
         getInnerHeight()};
-    const int lineHeight = getTextLineHeight();
     const int lines = static_cast<int>(_items.size());
     const int padding = static_cast<int>(_padding * _layoutScale);
     // The block's top below the room's top: the padding at the first
@@ -728,8 +738,9 @@ void ListBox::updateItemsLayout() {
     }
 
     int textWidth = getItemTextWidth();
+    const auto &font = _protoItem->text().font;
     for (auto &item : _items) {
-        item._textLines = breakText(item.text, *_protoItem->text().font, textWidth, _protoItem->scale());
+        item._textLines = font ? breakText(item.text, *font, textWidth, _protoItem->scale()) : std::vector<std::string> {};
     }
     updateItemSlots();
 }
@@ -804,11 +815,13 @@ int ListBox::getItemHeight(const Item &item) const {
     if (!_protoItem) {
         return 0;
     }
-    if (!_protoMatchContent) {
+    // Without a font the text has no height, so the row keeps the prototype's.
+    const auto &font = _protoItem->text().font;
+    if (!_protoMatchContent || !font) {
         return _protoItem->extent().height;
     }
 
-    float fontHeight = _protoItem->text().font->height() * _protoItem->scale();
+    float fontHeight = font->height() * _protoItem->scale();
     int textHeight = static_cast<int>(item._textLines.size() * fontHeight + 0.5f);
     if (static_cast<int>(fontHeight + 0.5f) <= 15) {
         ++textHeight;
