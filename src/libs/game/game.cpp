@@ -7293,7 +7293,8 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
     auto &reputes = _services.game.reputes;
     std::vector<Candidate> candidates;
     for (const auto &object : area.objects()) {
-        if (object.get() == &leader) {
+        // Only what exists for the player can be listed.
+        if (object.get() == &leader || !object->isPresent()) {
             continue;
         }
         bool rangeHostile = false;
