@@ -82,6 +82,10 @@ void LevelUpMenu::onGUILoaded() {
     });
 }
 
+void LevelUpMenu::setCanCancel(bool canCancel) {
+    _controls.BTN_BACK->setDisabled(!canCancel);
+}
+
 void LevelUpMenu::reset() {
     int nextLevel = _charGen.character().attributes.getAggregateLevel() + 1;
     _hasAttributes = nextLevel % 4 == 0;

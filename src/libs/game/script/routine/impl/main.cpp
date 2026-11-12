@@ -2828,15 +2828,16 @@ static Variable ApplyEffectAtLocation(const std::vector<Variable> &args, const R
 
 static Variable GetIsPC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
-    // Transform
-    auto creature = checkCreature(oCreature);
-
-    // Execute: TSL returns the record's IsPC as stored; KotOR asks whether
-    // it is the creature the player controls.
+    // Execute: TSL asks whether the record marks a player character; KotOR
+    // asks whether it is the creature the player controls. Anything but a
+    // creature is no player character.
+    if (!creature) {
+        return Variable::ofInt(0);
+    }
     if (ctx.game.isTSL()) {
-        return Variable::ofInt(creature->isPCValue());
+        return Variable::ofInt(static_cast<int>(creature->isPC()));
     }
     return Variable::ofInt(static_cast<int>(creature == ctx.game.party().getLeader()));
 }
@@ -3318,7 +3319,8 @@ static Variable GetAreaOfEffectCreator(const std::vector<Variable> &args, const 
 
 static Variable ShowLevelUpGUI(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("ShowLevelUpGUI");
+    // The controlled creature's level-up opens, and cannot be cancelled.
+    return Variable::ofInt(ctx.game.openLevelUp(true) ? 1 : 0);
 }
 
 static Variable SetItemNonEquippable(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5893,7 +5895,7 @@ static Variable GetLockLockDC(const std::vector<Variable> &args, const RoutineCo
 
 static Variable GetPCLevellingUp(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetPCLevellingUp");
+    return Variable::ofObject(ctx.game.module()->pcLevellingUp());
 }
 
 static Variable GetHasFeatEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {

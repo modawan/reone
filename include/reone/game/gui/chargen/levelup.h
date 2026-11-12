@@ -53,6 +53,9 @@ public:
 
     void setStep(int step);
 
+    /** Whether Back may leave the level-up; a forced level-up cannot be left. */
+    void setCanCancel(bool canCancel);
+
     /**
      * Shows the current step as current again, its number and name pulsing,
      * as when the panel returns from one of the steps' screens.

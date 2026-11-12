@@ -9238,18 +9238,60 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakOriginScreen = Screen::None;
 }
 
-void Game::openLevelUp() {
+bool Game::openLevelUp(bool forced) {
+    auto leader = _party.getLeader();
+    // A level-up already open is not opened again.
+    if (!leader || !leader->isLevelUpPending() || _screen == Screen::CharacterGeneration) {
+        return false;
+    }
+    return openLevelUpScreen(forced);
+}
+
+bool Game::openLevelUpScreen(bool forced) {
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
     }
     if (!_charGen) {
-        return;
+        return false;
     }
 
+    if (forced) {
+        _levelUpReturnScreen = _screen;
+        _levelUpPaused = !_paused;
+        if (_levelUpPaused) {
+            setPaused(true);
+        }
+    }
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
-    _charGen->startLevelUp();
+    _charGen->startLevelUp(forced);
     changeScreen(Screen::CharacterGeneration);
+    return true;
+}
+
+// Finishing a forced level-up resumes play if the level-up paused it; a pause
+// the player had put on stays.
+void Game::closeLevelUp(bool forced) {
+    if (!forced) {
+        openInGame();
+        return;
+    }
+    if (_levelUpPaused) {
+        _levelUpPaused = false;
+        setPaused(false);
+    }
+    returnToScreen(_levelUpReturnScreen);
+}
+
+// A conversation that a script ended under the closing screen, or that went
+// with the session, is gone.
+void Game::returnToScreen(Screen underneath) {
+    const bool conversationGone = underneath == Screen::Conversation && (!_conversation || !_conversation->isRunning());
+    if (underneath == Screen::InGame || conversationGone) {
+        openInGame();
+        return;
+    }
+    changeScreen(underneath);
 }
 
 static constexpr int kLevelUpAvailableStrRef = 1438;
@@ -9272,6 +9314,19 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
         runLevelUpDialogOnce();
     }
+}
+
+void Game::notifyLevelUpStillAvailable(const Creature &creature) {
+    if (creature.isLevelUpPending()) {
+        addFeedbackMessage(kLevelUpAvailableStrRef);
+    }
+}
+
+void Game::signalPlayerLevelUp(const Creature &creature) {
+    if (!_module || !creature.isPC()) {
+        return;
+    }
+    queueScriptEvent(*_module, creature, Event(static_cast<int>(SavedSignalEventType::PlayerLevelUp)));
 }
 
 void Game::runLevelUpDialogOnce() {
@@ -10123,7 +10178,8 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
     if (!_module || !_party.getLeader()) {
         throw std::runtime_error("Character-generation capture screens require a loaded party");
     }
-    openLevelUp();
+    // A capture opens the level-up whether or not a level is waiting.
+    openLevelUpScreen(false);
     if (!_charGen) {
         throw std::runtime_error("Character generation GUI is unavailable");
     }
