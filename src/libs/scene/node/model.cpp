@@ -763,11 +763,15 @@ static bool doesNodeHaveAncestor(const ModelNode &node, const std::string &name)
 }
 
 // Some retail models name an animation root they do not contain (TSL's
-// planet_04..planet_08 animations are rooted at planet_03); the animation then
-// applies to the whole model rather than to no node at all.
+// planet_04..planet_08 animations are rooted at planet_03). The fallback to
+// the whole model applies only when the name is stale: present in neither
+// the model nor the animation's own node tree. A root the animation tree
+// does contain is kept as-is, so a partial animation (e.g. an upper-body
+// layer) played on a skeleton that names its nodes differently keeps the
+// old behaviour of moving nothing, rather than animating the whole model.
 std::string ModelSceneNode::resolveAnimationRoot(const Animation &anim) const {
     const std::string &root = anim.root();
-    if (root.empty() || _model->getNodeByName(root)) {
+    if (root.empty() || _model->getNodeByName(root) || anim.getNodeByName(root)) {
         return root;
     }
     return "";
