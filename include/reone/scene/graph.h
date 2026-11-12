@@ -582,11 +582,26 @@ private:
 
     void cullRoots();
 
+    /** Which walkmeshes a line-of-sight test considers. */
+    enum class LineOfSightScope {
+        /** Room walkmeshes as well as door and placeable ones. */
+        AllWalkmeshes,
+        /** Door and placeable walkmeshes only; room walkmeshes are skipped. */
+        ObjectWalkmeshesOnly
+    };
+
     /**
-     * Line of sight from origin to dest, optionally leaving out area (room)
-     * walkmeshes and keeping only door and placeable walkmeshes.
+     * Line of sight from origin to dest, considering the walkmeshes in
+     * scope. The three-argument overload considers all walkmeshes.
      */
-    bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, bool areaWalkmeshes, Collision &outCollision) const;
+    bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, LineOfSightScope scope, Collision &outCollision) const;
+
+    /**
+     * Where the ray from origin along dir first meets the opaque, drawn
+     * meshes of an enabled room model, within maxDistance; none when it
+     * reaches that far unobstructed.
+     */
+    std::optional<float> nearestDrawnRoomHit(const glm::vec3 &origin, const glm::vec3 &dir, float maxDistance) const;
     /** Keeps the blocking surfaces in step with the walkable and walk-check ones. */
     void updateBlockingSurfaces();
     const FloorStacking &floorStacking() const;

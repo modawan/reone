@@ -157,7 +157,10 @@ public:
      * model's own meshes as they are posed, as a share of its length; none
      * when it meets none. Skinned meshes, lightsaber blades and attached
      * models are not tested; with \p opaqueOnly, neither are meshes that are
-     * not drawn or are drawn see-through.
+     * not drawn or are drawn see-through. Alpha-tested (punch-through)
+     * meshes count as opaque here: the triangle test has no per-pixel alpha,
+     * so skipping such a mesh would let a segment through its solid parts
+     * as well as its holes.
      */
     std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to, bool opaqueOnly = false) const;
 
