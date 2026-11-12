@@ -801,6 +801,10 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
 }
 
 bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
+    return testLineOfSight(origin, dest, LineOfSightScope::AllWalkmeshes, outCollision);
+}
+
+bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, LineOfSightScope scope, Collision &outCollision) const {
     const auto originToDest = dest - origin;
     const float maxDistance = glm::length(originToDest);
     // A line of no length meets nothing.
@@ -819,6 +823,9 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         glm::vec3 originLocal;
         glm::vec3 dirLocal;
         if (root->walkmesh().isAreaWalkmesh()) {
+            if (scope == LineOfSightScope::ObjectWalkmeshesOnly) {
+                continue;
+            }
             originLocal = origin;
             dirLocal = dir;
         } else {
@@ -1373,6 +1380,9 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
     glm::vec3 end(glm::unProject(glm::vec3(x, _graphicsOpt.height - y, 1.0f), camera->view(), camera->projection(), viewport));
     glm::vec3 dir(glm::normalize(end - start));
 
+    // Collect the pickable models whose bounding boxes the ray enters,
+    // nearest first. No triangle or walkmesh test runs here, so pointing
+    // at empty space costs none; this runs on every mouse move.
     std::vector<std::pair<ModelSceneNode *, float>> distances;
     for (auto &model : _modelRoots) {
         if (!model->isPickable() || (except == model->user())) {
@@ -1385,10 +1395,6 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
         auto objSpaceInvDir = 1.0f / (model->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
         float distance;
         if (model->aabb().raycast(objSpaceStart, objSpaceInvDir, kMaxCollisionDistanceLineOfSight, distance) && distance > 0.0f) {
-            Collision collision;
-            if (testLineOfSight(start, start + distance * dir, collision) && collision.user != model->user()) {
-                continue;
-            }
             distances.push_back(std::make_pair(model.get(), distance));
         }
     }
@@ -1397,7 +1403,64 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
     }
     sort(distances.begin(), distances.end(), [](auto &left, auto &right) { return left.second < right.second; });
 
-    return distances[0].first;
+    // Rooms hide an object from the pointer by what they draw, not by their
+    // walkmeshes: a room walkmesh also holds invisible barriers, and a module
+    // can put an object to use behind one. The Ebon Hawk's ramp in Davik's
+    // hangar (tar_m08aa) stands past a Nonwalk wall the player cannot cross.
+    // Candidates are nearest first, so once a drawn room hit is found it
+    // stands in front of every later candidate and no further room search
+    // is needed; until then, rooms are searched only as far as the
+    // candidate being tested.
+    std::optional<float> roomHit;
+    float roomSearchedTo = 0.0f;
+
+    for (auto &[model, distance] : distances) {
+        if (roomHit && *roomHit < distance) {
+            continue;
+        }
+        if (roomSearchedTo < distance) {
+            roomHit = nearestDrawnRoomHit(start, dir, distance);
+            roomSearchedTo = distance;
+            if (roomHit && *roomHit < distance) {
+                continue;
+            }
+        }
+        // A closed door still stands in the way through its walkmesh.
+        Collision collision;
+        if (testLineOfSight(start, start + distance * dir, LineOfSightScope::ObjectWalkmeshesOnly, collision) && collision.user != model->user()) {
+            continue;
+        }
+        return model;
+    }
+    return nullptr;
+}
+
+std::optional<float> SceneGraph::nearestDrawnRoomHit(const glm::vec3 &origin, const glm::vec3 &dir, float maxDistance) const {
+    std::optional<float> nearest;
+    for (auto &room : _modelRoots) {
+        if (room->usage() != ModelUsage::Room || !room->isEnabled()) {
+            continue;
+        }
+        // Only rooms whose box the ray enters before the nearest hit found
+        // so far can hold a nearer drawn hit. The segment shortens as that
+        // hit shrinks, so meshes past it are rejected by their bounding
+        // boxes inside intersectSegment.
+        const float bound = nearest ? *nearest : maxDistance;
+        auto objSpaceStart = room->absoluteTransformInverse() * glm::vec4(origin, 1.0f);
+        auto objSpaceInvDir = 1.0f / (room->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
+        float boxDistance;
+        if (!room->aabb().raycast(objSpaceStart, objSpaceInvDir, bound, boxDistance)) {
+            continue;
+        }
+        auto share = room->intersectSegment(origin, origin + bound * dir, /*opaqueOnly=*/true);
+        if (share) {
+            float hit = *share * bound;
+            if (!nearest || hit < *nearest) {
+                nearest = hit;
+            }
+        }
+    }
+    return nearest;
 }
 
 std::optional<std::reference_wrapper<ModelSceneNode>> SceneGraph::pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const {
