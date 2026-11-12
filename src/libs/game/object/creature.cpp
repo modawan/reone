@@ -5064,7 +5064,7 @@ bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, Ani
         abortFireForgetAnimation();
         flushFireForgetQueue();
     }
-    properties.flags |= AnimationFlags::retargetRoot;
+    properties.flags |= AnimationFlags::external;
     bool started = doPlayAnimation(fireForget, [&]() {
         if (!fireForget && !storeLoop(anim->name(), properties, false, source, anim)) {
             return;

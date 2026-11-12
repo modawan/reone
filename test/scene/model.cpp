@@ -469,7 +469,7 @@ TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root)
 
     // when: a clip of another model carries that model's scale
     modelSceneNode->init();
-    auto properties = AnimationProperties::fromFlags(AnimationFlags::retargetRoot);
+    auto properties = AnimationProperties::fromFlags(AnimationFlags::external);
     properties.scale = 1.0f;
     modelSceneNode->playAnimation(*external, nullptr, properties);
     modelSceneNode->update(1.0f);
@@ -512,9 +512,10 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, bodyRoot.get());
     bodyRoot->addChild(accessoryHook);
 
+    // A head animates from its neck down, not at its root.
     auto headRoot = std::make_shared<ModelNode>(
         0, "pmhb05", glm::vec3(0.0f),
-        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
     auto eyelid = std::make_shared<ModelNode>(
         1, "eyeLid", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, headRoot.get());
@@ -571,7 +572,7 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
         "local_overlay", nullptr,
         AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
     // A clip of another model carries that model's scale.
-    auto properties = AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::retargetRoot);
+    auto properties = AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::external);
     properties.scale = 1.0f;
     body->playAnimation(*external, nullptr, properties);
     body->update(1.0f);
