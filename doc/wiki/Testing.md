@@ -1,7 +1,12 @@
+# Testing
+
 ## Unit Tests
 
-- Configure CMake project with `-D BUILD_TESTS=ON`
-- Run unit tests: `ctest -VV -C RelWithDebInfo`
+- Install GoogleTest with GoogleMock and configure CMake project with `-DBUILD_TESTS=ON` (enabled by default)
+- Build tests: `cmake --build build --config RelWithDebInfo --target tests`
+- From the build directory (`cd build`), run unit tests: `ctest -VV -C RelWithDebInfo`
+
+For single-configuration generators, also set `-DCMAKE_BUILD_TYPE=RelWithDebInfo` when configuring.
 
 ## Functional Testing
 

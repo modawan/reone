@@ -1,3 +1,5 @@
+# Code Style
+
 ## General
 
 Add a copyright notice to the beginning of each file.

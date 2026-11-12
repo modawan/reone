@@ -1,14 +1,21 @@
+# Project Architecture
+
 ## Modules
 
-![](https://github.com/seedhartha/reone/raw/master/doc/diagram/modules.jpg)
+![](diagram/modules.jpg)
 
 Source code is organized into modules, each module containing a different engine subsystem. Dependency must be from higher- to lower-level modules. Circular dependencies must be avoided.
 
 ### Applications
 
-- _reone_ is the engine executable
+- _engine_ is the engine executable
 - _launcher_ is a GUI application to configure and launch the engine
-- _toolkit_ is a GUI application to inspect game resources and invoke [tools](https://github.com/seedhartha/reone/wiki/Tooling)
+- _toolkit_ is a GUI application to inspect game resources and invoke [tools](Tooling.md)
+- _dataminer_ extracts information from game resources
+- _gff2json_ converts GFF resources to JSON
+- _unerf_ extracts ERF archives
+- _ncsrun_ executes NCS programs without a game context
+- _shaderpack_ packs GLSL shaders into an ERF archive during the build
 
 ### Libraries
 
@@ -17,15 +24,17 @@ Source code is organized into modules, each module containing a different engine
 - _gui_ contains the GUI subsystem
 - _scene_ contains the scene management subsystem
 - _resource_ contains the resource management subsystem
+- _json_ contains JSON serialization of game resources
 - _movie_ contains the movie playback subsystem
 - _script_ contains the scripting subsystem
 - _graphics_ contains the graphics subsystem
 - _audio_ contains the audio subsystem
+- _input_ contains the input event types and key codes
 - _system_ contains common utility classes and functions
 
 ## Object Hierarchies
 
-![](https://github.com/seedhartha/reone/raw/master/doc/diagram/objects.jpg)
+![](diagram/objects.jpg)
 
 ## File and Class Names
 

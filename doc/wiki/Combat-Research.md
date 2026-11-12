@@ -1,3 +1,5 @@
+# Combat Research
+
 ## Animations
 
 Animation names consist of four characters:
@@ -7,7 +9,7 @@ Animation names consist of four characters:
 3. Animation type: "w", "r", "a", "g", "p" or "d"
 4. Animation variant: 1-6 
 
-Weapon types:
+## Weapon types
 
 |Ordinal|Description|
 |-|-|
@@ -21,7 +23,7 @@ Weapon types:
 |8|Hand-to-hand|
 |9|Heavy weapon|
 
-Animation types:
+## Animation types
 
 |Letter|Description|
 |-|-|

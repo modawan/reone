@@ -1,8 +1,10 @@
+# Tooling
+
 ## toolkit
 
 toolkit is a GUI application that can be used to preview, extract, edit and create KotOR and TSL resources.
 
-## Features
+### Features
 
 * Extract BIF, RIM and ERF archives
 * Create RIM, ERF or MOD archive from directory
@@ -13,10 +15,15 @@ toolkit is a GUI application that can be used to preview, extract, edit and crea
 * Decompile NCS to NSS-like pseudocode
 * Compose LIP files from text and audio files
 
-## Other Tools
+## Other Tools (Internal)
 
-Use [KotorBlender](https://github.com/seedhartha/kotorblender) to import & export MDL, LYT and PTH files.
+* _dataminer_ extracts information from game resources
+* _gff2json_ converts GFF resources to JSON: `gff2json input.gff`
+* _unerf_ extracts ERF archives: `unerf input.erf`
+* _ncsrun_ runs NCS programs without a game context: `ncsrun input.ncs` (game script routines are not handled)
 
-Use Notepad++ with [Odyssey++](https://deadlystream.com/files/file/1395-odyssey/) to view and edit NSS files.
+## Other Tools (External)
 
-Use [KotorTool](https://deadlystream.com/files/file/280-kotor-tool/) to compile NSS files.
+* Use Notepad++ with [Odyssey++](https://deadlystream.com/files/file/1395-odyssey/) to view and edit NSS files.
+* Use [KotorTool](https://deadlystream.com/files/file/280-kotor-tool/) to compile NSS files.
+* Use [KotorBlender](https://github.com/seedhartha/kotorblender) to import & export MDL, LYT and PTH files.
