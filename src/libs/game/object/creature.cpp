@@ -2087,7 +2087,7 @@ bool Creature::permitsAction(const Action &action) const {
         if (!move.usesPointPath()) {
             return canExecuteActions();
         }
-        return canMove() || isWalkGoalInReach(*move.target());
+        return canMove() || isWalkGoalInReach(*move.target(), move.pathOffset());
     }
     case ActionType::MoveToPoint: {
         const auto &goal = static_cast<const MoveToPointAction &>(command).goal();
@@ -2119,8 +2119,8 @@ bool Creature::isLinkedDoorInReach(const Object &goal, std::optional<float> path
     return door && door->isLinked() && isInUseRange(*door, 0.0f, pathOffset);
 }
 
-bool Creature::isWalkGoalInReach(const Object &goal) const {
-    return clicksTriggerInReach(goal) || isLinkedDoorInReach(goal);
+bool Creature::isWalkGoalInReach(const Object &goal, std::optional<float> pathOffset) const {
+    return clicksTriggerInReach(goal) || isLinkedDoorInReach(goal, pathOffset);
 }
 
 bool Creature::isSelectable() const {
@@ -9802,7 +9802,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         const float step = std::min(pacedStep, endsOnPoint ? glm::length(toLast) : getDistanceTo(stepLimit));
         const glm::vec3 stepEnd {_position.x + dir.x * step, _position.y + dir.y * step, _position.z};
         const glm::vec2 stepDir {glm::normalize(glm::vec2(dir))};
-        const auto test = area.testDirectLine(*this, _position, stepEnd);
+        const auto test = area.testWalkStep(*this, _position, stepEnd);
         const Area::DirectLine line = test.result;
         const auto &door = test.door;
 
@@ -10211,20 +10211,18 @@ bool Creature::endsWalkToward(const Object &goal, float range, bool inClearLine,
 void Creature::clickInReach(const Object &target) {
     setMovementType(MovementType::None);
     clearPath();
-    static constexpr int kClickedEvent = static_cast<int>(SavedSignalEventType::Clicked);
-    auto clicked = _game.getObjectById(target.id());
-    _game.queueScriptEvent(*clicked, *this, Event(kClickedEvent, {}, {}, {}, {_game.getObjectById(_id)}));
+    _game.queueClick(target, *this, *this);
 }
 
-bool Creature::reachesWalkGoal(const Object &goal) {
+bool Creature::reachesWalkGoal(const Object &goal, std::optional<float> pathOffset) {
     if (clicksTriggerInReach(goal)) {
         clickInReach(goal);
         return true;
     }
-    const auto *door = dyn_cast<const Door>(&goal);
-    if (!door || !door->isLinked() || !isInUseRange(*door, 0.0f)) {
+    if (!isLinkedDoorInReach(goal, pathOffset)) {
         return false;
     }
+    const auto *door = static_cast<const Door *>(&goal);
     if (door->isOpen()) {
         clickInReach(*door);
         return true;
@@ -10241,7 +10239,7 @@ bool Creature::walkToward(std::optional<std::reference_wrapper<const Object>> go
     // A walk heading for a trigger that is not a mine, or for a linked door,
     // ends once it comes within use range of it, as it sets out, on the way or
     // with its last step.
-    if (goal && reachesWalkGoal(goal->get())) {
+    if (goal && reachesWalkGoal(goal->get(), pathOffset)) {
         return true;
     }
     if (goal && endsWalkToward(goal->get(), range, inClearLine, pathOffset)) {
@@ -10253,7 +10251,7 @@ bool Creature::walkToward(std::optional<std::reference_wrapper<const Object>> go
         return false;
     }
     if (goal) {
-        reachesWalkGoal(goal->get());
+        reachesWalkGoal(goal->get(), pathOffset);
     }
     return true;
 }

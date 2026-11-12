@@ -457,17 +457,18 @@ static Variable ActionForceFollowObject(const std::vector<Variable> &args, const
     // Execute
     // Only a creature follows. A party member heads for its place by the
     // party's follow anchor; anyone else for the point the distance in front
-    // of the one followed. The follow sets out running from where the
-    // follower stands, a check queued behind it.
+    // of the one followed, wherever that one goes. Which it is stays as the
+    // order finds it. The follow sets out running from where the follower
+    // stands, a check queued behind it.
     auto *creature = dyn_cast<Creature>(caller.get());
     if (!creature) {
         return Variable::ofNull();
     }
-    const float facing = oFollow->getFacing();
-    const glm::vec2 point = ctx.game.party().forceFollowOffset(*creature).value_or(
-        glm::vec2(oFollow->position()) + fFollowDistance * glm::vec2(-std::sin(facing), std::cos(facing)));
-    caller->addAction(ctx.game.newAction<FollowAction>(oFollow, true, point, false, glm::vec2(caller->position())));
-    caller->addAction(ctx.game.newAction<FollowCheckAction>(std::move(oFollow), true, point));
+    const auto offset = ctx.game.party().forceFollowOffset(*creature);
+    const glm::vec2 point = offset.value_or(glm::vec2(fFollowDistance, 0.0f));
+    const bool anchored = offset.has_value();
+    caller->addAction(ctx.game.newAction<FollowAction>(oFollow, true, point, anchored, false, glm::vec2(caller->position())));
+    caller->addAction(ctx.game.newAction<FollowCheckAction>(std::move(oFollow), true, point, anchored));
     return Variable::ofNull();
 }
 

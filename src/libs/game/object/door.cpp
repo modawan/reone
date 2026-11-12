@@ -342,7 +342,11 @@ bool Door::isInOutline(const glm::vec3 &point) const {
     const glm::vec3 local {glm::inverse(transform()) * glm::vec4(point, 1.0f)};
     const glm::vec3 &low = _outline[0];
     const glm::vec3 &high = _outline[2];
-    return local.x >= low.x && local.x <= high.x && local.y >= low.y && local.y <= high.y;
+    if (local.x < low.x || local.x > high.x || local.y < low.y || local.y > high.y) {
+        return false;
+    }
+    const auto area = spatialArea();
+    return !area || area->get().isAtLevelOf(point, _position.z);
 }
 
 // Whether the door is open makes no difference. A creature outside the party
