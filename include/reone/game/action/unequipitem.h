@@ -48,6 +48,7 @@ public:
         return from->type() == ActionType::UnequipItem;
     }
 
+    /** A queued unequip puts the item into a matching stack in KotOR only. */
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** A saved UnequipItem command; none once the item is gone. */

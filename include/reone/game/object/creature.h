@@ -1578,6 +1578,11 @@ public:
     /** Validate an equipment commit without changing ownership. */
     bool canEquip(int slot, const std::shared_ptr<Item> &item) const;
     bool equip(int slot, const std::shared_ptr<Item> &item);
+    /**
+     * Puts \p item in the empty \p slot without testing whether it fits
+     * there: its effects apply, and the creature owns and wears it.
+     */
+    void putInSlot(int slot, const std::shared_ptr<Item> &item);
     /** Validate an equipment replacement without changing ownership. */
     bool canReplaceEquipment(
         int slot,

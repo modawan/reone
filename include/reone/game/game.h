@@ -1081,11 +1081,13 @@ public:
      */
     void breakEquipForfeit(const Creature &member, int slot, const Item &item);
     /**
-     * What follows every item going on, in this order: the module is told
-     * (event 38), a forfeit condition may break, and in TSL body armour may
-     * change the wearer's appearance.
+     * What follows every item going on, in this order: a weapon in a hand
+     * readies the wearer for combat, unless the equip is \p instant or a
+     * conversation is under way; the module is told (event 38); a forfeit
+     * condition may break; and in TSL body armour may change the wearer's
+     * appearance.
      */
-    void finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item);
+    void finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item, bool instant);
     /**
      * Signals the module that the wearer put the item on, unless into the
      * second weapon set. The module's equip script runs on it.

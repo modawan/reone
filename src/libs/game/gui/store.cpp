@@ -505,9 +505,9 @@ void StoreGUI::sell(const std::shared_ptr<Item> &item) {
     }
     auto inventory = _game.party().sharedInventoryReceiver(leader);
     const bool wasEquipped = item->isEquipped();
-    // An unequip that is refused, or whose item joins a stack, sells nothing.
-    if (wasEquipped &&
-        (runUnequip(_game, *leader, item, nullptr, true) != EquipmentOperationOutcome::Applied || !item->isRuntimeLive())) {
+    // The item comes off into a stack of its own; an unequip that is refused
+    // sells nothing.
+    if (wasEquipped && !runUnequip(_game, *leader, item, nullptr, ItemStacking::Own, true)) {
         return;
     }
     _presentation.sounds.play(_presentation.sounds.getInventoryDrop());
