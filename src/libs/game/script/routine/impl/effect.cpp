@@ -120,6 +120,12 @@ namespace reone {
 
 namespace game {
 
+// A script's ability effect on an ability outside Strength to Charisma is
+// on Strength.
+static Ability scriptEffectAbility(int ability) {
+    return isScriptAbility(ability) ? static_cast<Ability>(ability) : Ability::Strength;
+}
+
 // A script's skill effect names a skill of the skill table after Computer
 // Use, or every skill; on any other it is an invalid effect.
 static bool isScriptSkillEffectSkill(int skill, const RoutineContext &ctx) {
@@ -197,7 +203,7 @@ static Variable EffectAbilityIncrease(const std::vector<Variable> &args, const R
     auto nModifyBy = getInt(args, 1);
 
     // Transform
-    auto abilityToIncrease = static_cast<Ability>(nAbilityToIncrease);
+    auto abilityToIncrease = scriptEffectAbility(nAbilityToIncrease);
 
     // Execute
     auto effect = ctx.game.newEffect<AbilityIncreaseEffect>(abilityToIncrease, nModifyBy);
@@ -668,7 +674,7 @@ static Variable EffectAbilityDecrease(const std::vector<Variable> &args, const R
     auto nModifyBy = getInt(args, 1);
 
     // Transform
-    auto ability = static_cast<Ability>(nAbility);
+    auto ability = scriptEffectAbility(nAbility);
 
     // Execute
     auto effect = ctx.game.newEffect<AbilityDecreaseEffect>(ability, nModifyBy);

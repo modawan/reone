@@ -8176,7 +8176,7 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
     AttackBonusBreakdown result;
 
     int strengthModifier = getEffectiveAbilityModifier(Ability::Strength);
-    int dexterityModifier = getEffectiveAbilityModifier(Ability::Dexterity);
+    int dexterityModifier = getDexterityModifier(false);
 
     if (weapon && weapon->isRanged()) {
         result.dexterityModifier = dexterityModifier;
@@ -8613,7 +8613,7 @@ AttackBonusBreakdown Creature::getHandAttackBonusBreakdown(
         AttackBonusBreakdown result = getAttackBonusBreakdown(std::nullopt, weapon, offHand, handType);
         // A ranged attack always uses Dexterity, and targeting needs no weapon.
         result.strengthModifier = 0;
-        result.dexterityModifier = getEffectiveAbilityModifier(Ability::Dexterity);
+        result.dexterityModifier = getDexterityModifier(false);
         result.targetingBonus = getTargetingAttackBonus(
             _game.isTSL(),
             true,
