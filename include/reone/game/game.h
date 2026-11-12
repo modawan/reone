@@ -32,6 +32,7 @@
 #include "reone/graphics/types.h"
 #include "reone/input/event.h"
 #include "reone/movie/movie.h"
+#include "reone/resource/parser/gff/nfo.h"
 #include "reone/script/routines.h"
 #include "reone/system/logutil.h"
 
@@ -44,25 +45,8 @@
 #include "event.h"
 #include "floatingtext.h"
 #include "globalfade.h"
-#include "gui/chargen.h"
-#include "gui/computer.h"
-#include "gui/confirmpopup.h"
-#include "gui/container.h"
-#include "gui/conversation.h"
-#include "gui/crafting.h"
-#include "gui/credits.h"
-#include "gui/deathdisplay.h"
-#include "gui/dialog.h"
-#include "gui/galaxymap.h"
-#include "gui/hud.h"
-#include "gui/ingame.h"
-#include "gui/loadscreen.h"
-#include "gui/mainmenu.h"
-#include "gui/map.h"
-#include "gui/partyselect.h"
-#include "gui/pazaak.h"
-#include "gui/saveload.h"
-#include "gui/store.h"
+#include "gui/conversationautoskip.h"
+#include "gui/popupcolors.h"
 #include "journal.h"
 #include "location.h"
 #include "messagelog.h"
@@ -86,6 +70,7 @@
 #include "party.h"
 #include "pazaaksession.h"
 #include "presentationpointer.h"
+#include "savedgame.h"
 #include "savegame.h"
 #include "saveprovenance.h"
 #include "script/runner.h"
@@ -117,6 +102,32 @@ class SaveWorkingState;
 }
 
 namespace game {
+
+class CharacterGeneration;
+class ComputerGUI;
+class ConfirmPopup;
+class ContainerGUI;
+class Conversation;
+class CreditsGUI;
+class DeathDisplay;
+class DialogGUI;
+class GalaxyMap;
+class GameGUI;
+class HUD;
+class InGameMenu;
+class LabStationPanel;
+class LoadingScreen;
+class MainMenu;
+class Map;
+class PartySelection;
+class PazaakBoardGUI;
+class PazaakSetupGUI;
+class PazaakWagerGUI;
+class SaveLoad;
+class StoreGUI;
+class UpgradeSelectionGUI;
+
+struct UpgradeScreenRequest;
 
 /**
  * Temporary death recovery's millisecond counters, independent of world simulation.
@@ -229,24 +240,9 @@ public:
         OptionsView &options,
         ServicesView &services,
         IConsole &console,
-        std::shared_ptr<PresentationPointer> pointer = nullptr) :
-        _gameId(gameId),
-        _path(std::move(path)),
-        _options(options),
-        _services(services),
-        _console(console),
-        _party(*this),
-        _combat(*this, services),
-        _swoopRace(*this),
-        _turret(*this, services),
-        _journal(services.resource.gffs, services.resource.strings, services.resource.twoDas),
-        _floatingText(*this, services),
-        _areaMusic(services),
-        _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
-        initJournalNotifications();
-        // TSL keeps combat lines in a list of their own.
-        _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
-    }
+        std::shared_ptr<PresentationPointer> pointer = nullptr);
+
+    ~Game();
 
     void init();
 
@@ -821,14 +817,10 @@ public:
     }
 
     /** A conversation owns the screen, and its dialog is an animated cutscene. */
-    bool isAnimatedCutsceneShowing() const {
-        return isConversationActive() && _conversation && _conversation->isAnimatedCutscene();
-    }
+    bool isAnimatedCutsceneShowing() const;
 
     /** The object is the running dialogue's current speaker or listener. */
-    bool isConversationSpeakerOrListener(const Object &object) const {
-        return isConversationActive() && _conversation == _dialog.get() && _dialog->isSpeakerOrListener(object);
-    }
+    bool isConversationSpeakerOrListener(const Object &object) const;
 
     std::shared_ptr<movie::IMovie> movie() const {
         return _movie;
@@ -2244,7 +2236,7 @@ private:
     std::unique_ptr<LoadingScreen> _loadScreen;
 
     Conversation *_conversation {nullptr}; /**< pointer to either DialogGUI or ComputerGUI  */
-    Conversation::AutoSkip _conversationAutoSkip;
+    ConversationAutoSkip _conversationAutoSkip;
 
     // END GUI
 

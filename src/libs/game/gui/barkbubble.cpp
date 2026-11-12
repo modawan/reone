@@ -21,6 +21,7 @@
 #include <cmath>
 
 #include "reone/game/game.h"
+#include "reone/graphics/font.h"
 
 using namespace reone::audio;
 using namespace reone::graphics;

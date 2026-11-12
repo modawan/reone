@@ -30,6 +30,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/d20/spell.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/creaturestate.h"
 #include "reone/game/equipmentoperation.h"

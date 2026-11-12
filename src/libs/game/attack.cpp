@@ -29,6 +29,7 @@
 #include "reone/game/animations.h"
 #include "reone/game/combatfeedback.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/abilitydecrease.h"
 #include "reone/game/effect/acdecrease.h"

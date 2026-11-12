@@ -1511,7 +1511,7 @@ void Conversation::resume() {
     _paused = false;
 }
 
-std::optional<int> Conversation::AutoSkip::trySkipReply() {
+std::optional<int> ConversationAutoSkip::trySkipReply() {
     if (!enabled || replies.empty()) {
         return std::optional<int>();
     }
@@ -1520,7 +1520,7 @@ std::optional<int> Conversation::AutoSkip::trySkipReply() {
     return reply;
 }
 
-std::optional<bool> Conversation::AutoSkip::trySkipEntry() {
+std::optional<bool> ConversationAutoSkip::trySkipEntry() {
     if (!enabled || entries.empty()) {
         return std::optional<bool>();
     }

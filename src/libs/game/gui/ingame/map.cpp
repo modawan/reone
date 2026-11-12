@@ -23,6 +23,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/map.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"

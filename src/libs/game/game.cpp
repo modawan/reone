@@ -53,8 +53,26 @@
 #include "reone/game/effect/heal.h"
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
+#include "reone/game/gui/chargen.h"
+#include "reone/game/gui/computer.h"
+#include "reone/game/gui/confirmpopup.h"
+#include "reone/game/gui/container.h"
+#include "reone/game/gui/conversation.h"
+#include "reone/game/gui/crafting.h"
+#include "reone/game/gui/credits.h"
+#include "reone/game/gui/deathdisplay.h"
+#include "reone/game/gui/dialog.h"
+#include "reone/game/gui/galaxymap.h"
 #include "reone/game/gui/hud.h"
+#include "reone/game/gui/ingame.h"
+#include "reone/game/gui/loadscreen.h"
+#include "reone/game/gui/mainmenu.h"
+#include "reone/game/gui/map.h"
+#include "reone/game/gui/partyselect.h"
+#include "reone/game/gui/pazaak.h"
+#include "reone/game/gui/saveload.h"
 #include "reone/game/gui/sounds.h"
+#include "reone/game/gui/store.h"
 #include "reone/game/location.h"
 #include "reone/game/minigame.h"
 #include "reone/game/object/door.h"
@@ -140,6 +158,41 @@ using namespace reone::script;
 namespace reone {
 
 namespace game {
+
+Game::Game(
+    resource::GameID gameId,
+    std::filesystem::path path,
+    OptionsView &options,
+    ServicesView &services,
+    IConsole &console,
+    std::shared_ptr<PresentationPointer> pointer) :
+    _gameId(gameId),
+    _path(std::move(path)),
+    _options(options),
+    _services(services),
+    _console(console),
+    _party(*this),
+    _combat(*this, services),
+    _swoopRace(*this),
+    _turret(*this, services),
+    _journal(services.resource.gffs, services.resource.strings, services.resource.twoDas),
+    _floatingText(*this, services),
+    _areaMusic(services),
+    _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
+    initJournalNotifications();
+    // TSL keeps combat lines in a list of their own.
+    _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
+}
+
+Game::~Game() = default;
+
+bool Game::isAnimatedCutsceneShowing() const {
+    return isConversationActive() && _conversation && _conversation->isAnimatedCutscene();
+}
+
+bool Game::isConversationSpeakerOrListener(const Object &object) const {
+    return isConversationActive() && _conversation == _dialog.get() && _dialog->isSpeakerOrListener(object);
+}
 
 ModuleLoadContext resolveModuleLoadContext(
     bool initialSaveRestore,

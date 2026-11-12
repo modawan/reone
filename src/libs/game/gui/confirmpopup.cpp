@@ -18,6 +18,7 @@
 #include "reone/game/gui/confirmpopup.h"
 
 #include "reone/game/game.h"
+#include "reone/graphics/font.h"
 
 #include <algorithm>
 #include <cmath>

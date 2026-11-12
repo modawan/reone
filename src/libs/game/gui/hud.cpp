@@ -34,6 +34,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/effect/visual.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/map.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
