@@ -92,7 +92,7 @@ public:
         bool finished {false};   /**< finished channels will be erased from the queue */
         float weight {1.0f};     /**< how far a layer, or a channel blending in, pulls the nodes toward its own state */
 
-        AnimationChannel(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim, AnimationProperties properties, std::string root) :
+        AnimationChannel(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim, AnimationProperties properties, std::string root = "") :
             anim(&anim),
             lipAnim(std::move(lipAnim)),
             properties(std::move(properties)),
