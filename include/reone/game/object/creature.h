@@ -46,6 +46,7 @@
 #include "../menupresentation.h"
 #include "../object.h"
 #include "../pathfinder.h"
+#include "../portrait.h"
 #include "../runtimeref.h"
 
 #include "item.h"
@@ -938,7 +939,10 @@ public:
     CreaturePresentation presentation() const;
     void setPresentation(const CreaturePresentation &presentation);
     uint16_t portraitId() const { return _portraitId; }
+    /** The portrait shown in play, its row's variant for the creature's good/evil. */
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
+    /** The resref of the portrait shown in play; empty for a creature without a portrait row. */
+    std::string portraitResRef() const;
     float walkSpeed() const;
     /** Whether the player drives this creature: a drive heads its queue. */
     bool isDriven() const;
@@ -2820,6 +2824,23 @@ private:
     bool _wearsBackupHead {false};
     ModelType _modelType {ModelType::Creature};
     std::shared_ptr<graphics::Texture> _portrait;
+    /** The portraits.2da row of the portrait, when it has one. */
+    std::optional<Portrait> _portraitRow;
+    /** The good/evil the portrait, body and head were last shown for. */
+    int _alignmentGoodEvil {0};
+    /** The good/evil texture the head shows; empty while it shows its own. */
+    std::string _headAlignmentTexture;
+    /** The evil texture the body shows; empty while it shows its own. */
+    std::string _bodyAlignmentTexture;
+    /** The appearance's evil body textures by appearance.2da column, empty for a blank cell. */
+    std::map<std::string, std::string> _evilBodyTextures;
+    /** The heads.2da model of the appearance's head; empty for none. */
+    std::string _headModelName;
+    /**
+     * The head's textures for good/evil of 10, 20, 30 and 40 and below, then
+     * of 70 and 90 and above; empty for a blank cell.
+     */
+    std::array<std::string, 6> _headAlignmentTextures;
 
     /**
      * The facing the model shows turns toward the facing wanted standing
@@ -3316,6 +3337,18 @@ private:
     int headRow(const resource::TwoDA &appearances) const;
     /** Shows the head headRow() now gives. */
     void refreshHead();
+    /** The head model and its good/evil textures, from the head's heads.2da row. */
+    void loadHeadProperties(const resource::TwoDA &appearances);
+    /** Shows the portrait for the creature's good/evil. */
+    void refreshPortrait();
+    /** The head's texture for the creature's good/evil; empty for its own. */
+    std::string getHeadAlignmentTextureName() const;
+    /** The body's evil texture for the creature's good/evil and armour; empty for its own. */
+    std::string getEvilBodyTextureName() const;
+    void applyHeadAlignment(scene::ModelSceneNode &head);
+    void applyBodyAlignment(scene::ModelSceneNode &body);
+    /** Shows the portrait, body and head for a good/evil that has changed. */
+    void updateAlignmentTextures();
 
     // END Appearance
 

@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include "reone/graphics/texture.h"
+#include <string>
+
+#include "types.h"
 
 namespace reone {
 
@@ -31,6 +33,24 @@ struct Portrait {
     /** The forpc cell; zero for a portrait no player character uses. */
     int forPC {0};
     int sex {0};
+    /** The variants shown at good/evil 40 and below, 30, 20 and 10; blank cells are empty. */
+    std::string resRefE;
+    std::string resRefVE;
+    std::string resRefVVE;
+    std::string resRefVVVE;
+
+    /**
+     * The portrait shown for \p goodEvil: the variant of its band, or the base
+     * above 40 or when the variant's cell is blank.
+     */
+    const std::string &resRefForGoodEvil(int goodEvil) const {
+        const std::string &variant = goodEvil <= kVeryVeryVeryEvilMaxGoodEvil ? resRefVVVE
+                                     : goodEvil <= kVeryVeryEvilMaxGoodEvil   ? resRefVVE
+                                     : goodEvil <= kVeryEvilMaxGoodEvil       ? resRefVE
+                                     : goodEvil <= kEvilMaxGoodEvil           ? resRefE
+                                                                              : resRef;
+        return variant.empty() ? resRef : variant;
+    }
 };
 
 } // namespace game
