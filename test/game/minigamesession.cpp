@@ -602,6 +602,63 @@ TEST(MinigameSession, a_hitbump_above_the_bike_is_passed_under) {
     EXPECT_EQ(session->player()->lastObstacleHit, 0u);
 }
 
+// The TSL jump: SWMG_SetJumpSpeed lifts the bike, the tunnel's Z limit is
+// the ceiling, and gravity brings it back to its starting height.
+TEST(MinigameSession, a_jump_rises_to_the_tunnel_ceiling_and_lands) {
+    ScriptedHost host;
+    auto session = makeSwoop(host, 0, {});
+    session->setTunnelPos(glm::vec3(13.0f, 3.0f, 6.0f));
+    session->setTunnelNeg(glm::vec3(-13.0f, -3.0f, 0.0f));
+    float ground = session->offset().z;
+
+    session->setJumpSpeed(30.0f);
+    session->update(kTick, MinigameInput());
+    EXPECT_NEAR(session->offset().z, ground + 1.0f, 1e-4f);
+    for (int i = 0; i < 9; ++i) {
+        session->update(kTick, MinigameInput());
+    }
+    EXPECT_GT(session->offset().z, ground + 5.0f);
+    EXPECT_LE(session->offset().z, ground + 6.0f);
+    EXPECT_LE(session->jumpSpeed(), 0.0f);
+
+    for (int i = 0; i < 60; ++i) {
+        session->update(kTick, MinigameInput());
+    }
+    EXPECT_FLOAT_EQ(session->offset().z, ground);
+    EXPECT_FLOAT_EQ(session->jumpSpeed(), 0.0f);
+}
+
+// A barrier across the track (the TSL courses have them) stops a bike on the
+// ground. A bike that jumps before it passes over.
+TEST(MinigameSession, a_jumping_bike_passes_over_a_hitbump) {
+    auto run = [](bool jump) {
+        ScriptedHost host;
+        auto session = std::make_unique<MinigameSession>(host);
+        MinigameSession::ObstaclePlacement barrier;
+        barrier.name = "510ond_mgc13";
+        barrier.position = glm::vec3(100.0f, 60.0f, 0.0f);
+        barrier.hasHitbump = true;
+        barrier.hitbumpMin = glm::vec3(80.0f, 58.0f, -1.0f);
+        barrier.hitbumpMax = glm::vec3(120.0f, 62.0f, 4.0f);
+        session->load(swoopSpec(0), tarisTrack(), {}, {barrier});
+        session->setObjectId(0, 1);
+        session->setObjectId(1, 2);
+        session->setTunnelPos(glm::vec3(13.0f, 3.0f, 6.0f));
+        session->setTunnelNeg(glm::vec3(-13.0f, -3.0f, 0.0f));
+        session->setPlayerSpeed(100.0f);
+        session->setPlayerMaxSpeed(100.0f);
+        if (jump) {
+            session->setJumpSpeed(30.0f);
+        }
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        return host.count("obstacle");
+    };
+    EXPECT_EQ(run(false), 1u);
+    EXPECT_EQ(run(true), 0u);
+}
+
 TEST(MinigameSession, a_segment_that_passes_a_follower_still_touches_it) {
     // At speed the bike covers more than a pad's diameter in one update; the
     // test is between movement segments, not end points.

@@ -411,6 +411,7 @@ void MinigameSession::load(const MinigameSpec &spec,
     _brakeHeld = false;
     _lateralVelocity = glm::vec3(0.0f);
     _previousInput = glm::vec3(0.0f);
+    _jumpSpeed = 0.0f;
 
     _type = spec.type;
     _lateralAccel = spec.lateralAccel;
@@ -674,6 +675,25 @@ void MinigameSession::updatePlayerMotion(float dt, const MinigameInput &input) {
             _lateralVelocity = glm::vec3(0.0f);
         }
         _offset = clamped;
+
+        // A jump (TSL): the vertical speed lifts the bike off the track and
+        // gravity brings it back. The tunnel's Z limit is the ceiling: the
+        // bike stops rising there. It lands at its starting height.
+        if (_jumpSpeed != 0.0f || _offset.z > _startOffset.z) {
+            glm::vec3 lifted = _offset;
+            lifted.z += _jumpSpeed * dt;
+            _jumpSpeed -= kMinigameGravity * dt;
+            glm::vec3 held = lifted;
+            clampOffset(held);
+            if (held.z < lifted.z - kTunnelWallTolerance) {
+                _jumpSpeed = glm::min(_jumpSpeed, 0.0f);
+            }
+            if (held.z <= _startOffset.z) {
+                held.z = _startOffset.z;
+                _jumpSpeed = 0.0f;
+            }
+            _offset.z = held.z;
+        }
     }
 
     advanceTrack(p, dt);
@@ -763,8 +783,10 @@ void MinigameSession::collideObstacles() {
             continue;
         }
         // A hitbump that starts above the bike is a roof or an arch over the
-        // track (the TSL courses have them): the bike passes under it.
-        if (o.hitbumpMin.z > p.position.z) {
+        // track (the TSL courses have them): the bike passes under it. A bike
+        // in the air above a hitbump passes over it.
+        bool airborne = _offset.z > _startOffset.z;
+        if (o.hitbumpMin.z > p.position.z || (airborne && o.hitbumpMax.z < p.position.z)) {
             continue;
         }
         // A hit is the bike's movement this update entering the hitbump.

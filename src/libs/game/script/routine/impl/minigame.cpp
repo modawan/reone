@@ -2082,10 +2082,11 @@ static Variable SWMG_DestroyMiniGameObject(const std::vector<Variable> &args, co
 static Variable SWMG_SetJumpSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto fSpeed = getFloat(args, 0);
-    (void)fSpeed;
 
     // Execute
-    // intentionally stubbed: the swoop model has no vertical motion for a jump speed to drive
+    if (auto session = mgSession(ctx)) {
+        session->setJumpSpeed(fSpeed);
+    }
     return Variable::ofNull();
 }
 

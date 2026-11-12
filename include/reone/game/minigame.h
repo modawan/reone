@@ -353,6 +353,9 @@ std::optional<MinigameTrack> buildMinigameTrack(const graphics::Model &model, co
  */
 constexpr float kMinigameTrackRateDivisor = 100.0f;
 
+// The pull on a jumping swoop bike, units per second squared.
+constexpr float kMinigameGravity = 9.8f;
+
 /**
  * Player intent for a minigame. The keyboard and mouse handlers of the view
  * write it; the session reads it once per update.
@@ -588,6 +591,10 @@ public:
     void setTunnelNeg(const glm::vec3 &v) { _tunnelNeg = v; }
     void setTunnelInfinite(const glm::vec3 &v) { _tunnelInfinite = v; }
     void setLateralAccel(float accel) { _lateralAccel = accel; }
+
+    /** The bike's vertical speed: a jump (TSL), brought back by gravity. */
+    void setJumpSpeed(float speed) { _jumpSpeed = speed; }
+    float jumpSpeed() const { return _jumpSpeed; }
     void setSpeedBlur(bool enabled, float ratio) {
         _speedBlur = enabled;
         _speedBlurRatio = ratio;
@@ -628,6 +635,7 @@ private:
     glm::vec3 _tunnelInfinite {0.0f};
     glm::vec3 _lateralVelocity {0.0f};
     glm::vec3 _previousInput {0.0f};
+    float _jumpSpeed {0.0f};
     bool _speedHeld {false};
     bool _accelerateHeld {false};
     bool _brakeHeld {false};
