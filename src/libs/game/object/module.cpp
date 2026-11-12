@@ -1683,7 +1683,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         // an enemy takes the hostile power menu and, in TSL, the hostile item
         // list in place of its own mine kits (which only TSL has).
         const bool hostileTarget = placeable->isHostileAppearance() && !placeable->hasInventory() &&
-                                   leader->getReputationFrom(placeable->faction()) <= kHighestEnemyReputation;
+                                   isEnemyReputation(leader->getReputationFrom(placeable->faction()));
         if (hostileTarget) {
             for (auto &power : leader->powerMenuActions(*object, true)) {
                 actions.push_back(std::move(power));

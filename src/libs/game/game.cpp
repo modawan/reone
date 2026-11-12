@@ -3617,7 +3617,7 @@ void Game::updateTemporaryDeath() {
                 if (!creature || _party.isMember(*creature)) {
                     continue;
                 }
-                if (creature->getReputationToward(*reference) > kHighestEnemyReputation) {
+                if (!isEnemyReputation(creature->getReputationToward(*reference))) {
                     continue;
                 }
                 const bool seesMember = std::any_of(
@@ -7451,7 +7451,7 @@ void Game::clearPlayerHostileActions() {
     const ObjectList creatures = _module->area()->getObjectsByType(ObjectType::Creature);
     for (const auto &object : creatures) {
         auto &creature = static_cast<Creature &>(*object);
-        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestEnemyReputation) {
+        if (_party.isMember(creature) || !isEnemyReputation(creature.getReputationToward(*player))) {
             continue;
         }
         creature.clearAllActions(true);

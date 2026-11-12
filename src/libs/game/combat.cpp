@@ -186,7 +186,7 @@ static bool isItemUse(Action &command) {
 }
 
 static bool isHostileForContinuation(const Creature &source, const Creature &target) {
-    return source.getReputationToward(target) <= kHighestEnemyReputation;
+    return isEnemyReputation(source.getReputationToward(target));
 }
 
 std::shared_ptr<Creature> Combat::findNearestEnemy(
@@ -1444,7 +1444,7 @@ static bool turnsOnAnyone(int effectState) {
 bool Combat::refusesAttackOnFriend(const Creature &attacker, const Object &target) {
     const auto *creature = dyn_cast<const Creature>(&target);
     const int state = attacker.effectState();
-    return creature && creature->getReputationToward(attacker) >= kLowestFriendReputation && !turnsOnAnyone(state);
+    return creature && isFriendReputation(creature->getReputationToward(attacker)) && !turnsOnAnyone(state);
 }
 
 bool Combat::refusesUnperceivedTarget(const Creature &caster, const CastSpellAction &cast) {

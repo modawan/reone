@@ -165,6 +165,24 @@ TEST(Reputes, reinitialization_restores_the_authored_matrix) {
     EXPECT_EQ(0, reputes->getReputation(kBeta, kGamma));
 }
 
+TEST(ReputationThresholds, ten_or_less_is_an_enemy_and_ninety_or_more_a_friend) {
+    EXPECT_TRUE(isEnemyReputation(kMinReputation));
+    EXPECT_TRUE(isEnemyReputation(10));
+    EXPECT_FALSE(isEnemyReputation(11));
+
+    EXPECT_TRUE(isFriendReputation(90));
+    EXPECT_TRUE(isFriendReputation(kMaxReputation));
+    EXPECT_FALSE(isFriendReputation(89));
+}
+
+TEST(ReputationThresholds, only_the_reputations_between_are_neutral) {
+    EXPECT_TRUE(isNeutralReputation(kNeutralReputation));
+    EXPECT_TRUE(isNeutralReputation(11));
+    EXPECT_TRUE(isNeutralReputation(89));
+    EXPECT_FALSE(isNeutralReputation(10));
+    EXPECT_FALSE(isNeutralReputation(90));
+}
+
 TEST(AdjustReputationRoutine, adjusts_the_source_faction_view_of_the_target) {
     TestEngine &engine = testEngine();
     StubConsole console;

@@ -135,7 +135,7 @@ static bool isHoverHostile(const Object &object, const Creature &leader, const M
     case ObjectType::Placeable: {
         const auto &placeable = static_cast<const Placeable &>(object);
         return isKnownHostileTrap(placeable, leader) ||
-               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestEnemyReputation);
+               (placeable.isHostileAppearance() && isEnemyReputation(getObjectReputation(placeable, leader, game)));
     }
     default:
         return false;
