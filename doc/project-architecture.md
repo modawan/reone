@@ -2,9 +2,39 @@
 
 ## Modules
 
-![](diagram/modules.jpg)
+```mermaid
+flowchart TD
+    subgraph applications["applications"]
+        direction LR
+        engine([engine])
+        launcher([launcher])
+        toolkit([toolkit])
+    end
 
-Source code is organized into modules, each module containing a different engine subsystem. Dependency must be from higher- to lower-level modules. Circular dependencies must be avoided.
+    subgraph libraries["libraries"]
+        direction TB
+        tools([tools])
+        game([game])
+        gui([gui])
+        scene([scene])
+        resource([resource])
+        movie([movie])
+        graphics([graphics])
+        audio([audio])
+        script([script])
+        system([system])
+
+        tools --> game --> gui --> scene --> resource --> movie --> graphics
+        resource --> graphics
+        graphics --> audio
+        graphics --> script
+        tools & game & gui & scene & resource & movie & graphics & audio & script --> system
+    end
+
+    applications ==> libraries
+```
+
+Source code is organized into modules, each module containing a different engine subsystem. Dependency must be from higher- to lower-level modules (top to bottom in the diagram). Circular dependencies must be avoided.
 
 ### Applications
 
@@ -34,7 +64,37 @@ Source code is organized into modules, each module containing a different engine
 
 ## Object Hierarchies
 
-![](diagram/objects.jpg)
+```mermaid
+classDiagram
+    direction TB
+
+    class Game
+    class Object
+    class Module
+    class Area
+    class SceneGraph
+    class SceneNode
+    class GUI
+    class Control
+
+    Game *-- Object
+    Game *-- SceneGraph
+    Game *-- GUI
+
+    Object *-- Module
+    Object o-- SceneGraph
+    Object o-- SceneNode
+
+    Module <|-- Object : Extends
+    Module o-- Area
+    Area o-- Object
+
+    SceneGraph *-- SceneNode
+    SceneNode *-- SceneNode
+
+    GUI *-- Control
+    Control *-- Control
+```
 
 ## File and Class Names
 
