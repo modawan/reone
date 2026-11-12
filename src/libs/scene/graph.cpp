@@ -192,7 +192,7 @@ float SceneGraph::forceSightPulse() const {
 void SceneGraph::cullRoots() {
     const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
+        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !roomTest->model(*root))) {
             root->setCulled(true);
             continue;
         }
@@ -305,12 +305,16 @@ void SceneGraph::refresh() {
     _lights.clear();
     _emitters.clear();
 
+    // A room's lights go with the room, which is disabled while hidden; an
+    // object's light goes with the room it stands in itself.
+    const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        refreshFromNode(*root);
+        const bool room = root->usage() == ModelUsage::Room;
+        refreshFromNode(*root, room ? nullptr : roomTest.get(), false);
     }
 }
 
-void SceneGraph::refreshFromNode(SceneNode &node) {
+void SceneGraph::refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly) {
     // A disabled node (and its subtree) is skipped from the render lists, so
     // callers can suppress a specific mesh or emitter. The renderer otherwise
     // ignores isEnabled on child nodes.
@@ -322,14 +326,19 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
 
     switch (node.type()) {
     case SceneNodeType::Model: {
-        // Ignore models that have been culled
+        // A culled model is not drawn, but its lights shine whether it is
+        // drawn or not; one that is not rendered gives nothing.
         auto &model = static_cast<ModelSceneNode &>(node);
         if (model.isCulled()) {
-            propagate = false;
+            propagate = model.isRendered();
+            lightsOnly = true;
         }
         break;
     }
     case SceneNodeType::Mesh: {
+        if (lightsOnly) {
+            break;
+        }
         // For model nodes, determine whether they should be rendered and cast shadows
         auto &modelNode = static_cast<MeshSceneNode &>(node);
         bool shouldRender = modelNode.shouldRender();
@@ -353,10 +362,14 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
         break;
     }
     case SceneNodeType::Light:
-        _lights.push_back(static_cast<LightSceneNode *>(&node));
+        if (!roomTest || roomTest->point(node.origin())) {
+            _lights.push_back(static_cast<LightSceneNode *>(&node));
+        }
         break;
     case SceneNodeType::Emitter:
-        _emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        if (!lightsOnly) {
+            _emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        }
         break;
     default:
         break;
@@ -364,7 +377,7 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
 
     if (propagate) {
         for (auto &child : node.children()) {
-            refreshFromNode(*child);
+            refreshFromNode(*child, roomTest, lightsOnly);
         }
     }
 }

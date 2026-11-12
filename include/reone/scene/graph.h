@@ -86,8 +86,13 @@ enum class RoomFaceProbe {
 
 class ModelSceneNode;
 
-/** Whether a top-level model stands in a shown room (see ISceneGraph::setRoomTest). */
-using RoomTest = std::function<bool(const ModelSceneNode &)>;
+/** What stands in a shown room (see ISceneGraph::setRoomTest). */
+struct RoomTest {
+    /** Whether a top-level model stands in a shown room. */
+    std::function<bool(const ModelSceneNode &)> model;
+    /** Whether a point, where an object's light stands, is in a shown room. */
+    std::function<bool(const glm::vec3 &)> point;
+};
 
 /** The face of a room walkmesh that a vertical probe meets first going down. */
 struct RoomFace {
@@ -264,9 +269,11 @@ public:
     virtual void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) = 0;
     /**
      * The test a top-level model other than a room's must pass to be drawn
-     * and picked: whether it stands in a shown room. The graph only watches
-     * the test, which its owner keeps; once the owner lets it go, or after
-     * clear, every model passes.
+     * and picked: whether it stands in a shown room. A light of such a model
+     * shines when it stands in a shown room itself, and a room's lights
+     * shine while the room is shown, whether the model is drawn or not. The
+     * graph only watches the test, which its owner keeps; once the owner lets
+     * it go, or after clear, every model and light passes.
      */
     virtual void setRoomTest(std::weak_ptr<const RoomTest> test) = 0;
 
@@ -588,7 +595,12 @@ private:
     bool isStacked(const WalkmeshSceneNode &room) const { return floorStacking().rooms.count(&room) > 0; }
 
     void refresh();
-    void refreshFromNode(SceneNode &node);
+    /**
+     * Collects the meshes, lights and emitters under a node. Under a model
+     * that is culled but rendered, only its lights are collected. A light is
+     * collected when \p roomTest, if any, passes at its position.
+     */
+    void refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly);
 
     void updateLighting();
     void updateShadowLight(float dt);

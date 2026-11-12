@@ -3499,12 +3499,20 @@ bool Area::isModelInShownRoom(const ModelSceneNode &model) const {
         return true;
     }
     const glm::mat4 &transform = model.absoluteTransform();
+    const auto &box = model.model().meshBox();
     const glm::vec3 centre {(model.model().classification() & MdlClassification::character) != 0
                                 ? glm::vec3(transform[3])
-                                : glm::vec3(transform * glm::vec4(0.5f * (model.model().aabb().min() + model.model().aabb().max()), 1.0f))};
+                                : glm::vec3(transform * glm::vec4(0.5f * (box.min() + box.max()), 1.0f))};
+    return isPointInShownRoom(centre);
+}
+
+bool Area::isPointInShownRoom(const glm::vec3 &point) const {
+    if (!_cullingRooms) {
+        return true;
+    }
     bool held = false;
     for (const auto &room : _rooms) {
-        if (!room.second->boxHolds(glm::vec2(centre))) {
+        if (!room.second->boxHolds(glm::vec2(point))) {
             continue;
         }
         if (room.second->isVisible()) {

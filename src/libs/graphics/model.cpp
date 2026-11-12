@@ -67,11 +67,16 @@ void Model::fillLookups(const std::shared_ptr<ModelNode> &node) {
 
 void Model::computeAABB() {
     _aabb.reset();
+    _meshBox.reset();
 
     for (auto &node : _nodeByNumber) {
         auto mesh = node.second->mesh();
         if (mesh && mesh->mesh) {
-            _aabb.expand(mesh->mesh->aabb() * node.second->absoluteTransform());
+            const AABB box {mesh->mesh->aabb() * node.second->absoluteTransform()};
+            _aabb.expand(box);
+            if (!mesh->saber) {
+                _meshBox.expand(box);
+            }
         }
     }
 }

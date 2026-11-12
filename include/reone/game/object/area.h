@@ -508,11 +508,16 @@ public:
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
-     * centre of its bounding box for any other. A model no box holds, one
-     * whose subclassification marks it so, or an object's model placed at the
-     * world origin, is in every room.
+     * centre of the box of its meshes except saber blades for any other. A
+     * model no box holds, one whose subclassification marks it so, or an
+     * object's model placed at the world origin, is in every room.
      */
     bool isModelInShownRoom(const scene::ModelSceneNode &model) const;
+    /**
+     * Whether a point is in a shown room: in each room whose box holds it
+     * seen from above, or in every room when none does.
+     */
+    bool isPointInShownRoom(const glm::vec3 &point) const;
     /**
      * Where the room shown around is looked for: the leader's position, or
      * the camera of a conversation under way that uses one of its own; none
@@ -1018,8 +1023,9 @@ private:
     /** Whether only some rooms are shown this frame. */
     bool _cullingRooms {false};
     /** The test the scene graph culls models by while this area lasts (see ISceneGraph::setRoomTest). */
-    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(
-        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); })};
+    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(scene::RoomTest {
+        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); },
+        [this](const glm::vec3 &point) { return isPointInShownRoom(point); }})};
     CameraStyle _camStyleDefault;
     CameraStyle _camStyleCombat;
     AmbientAudio _ambientAudio;
