@@ -908,34 +908,54 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
     // events, and creation scripts run at the first update, so no authored
     // script runs inside the load once the party is placed. Fail the load
     // after placement where the third-person camera turns to the leader:
-    // its line-of-sight test, the third the load makes after the two that
-    // set the camera up. The failure goes to whichever scene graph the shared
-    // engine serves; afterwards the graph answers as it did before.
+    // the first wall test the camera makes once the destination module is
+    // published with the leader in its area, however many lines a placement
+    // tests. The failure goes to whichever scene graph the shared engine
+    // serves, which outlives this test: it is armed only until it fires or
+    // the test ends, and the graph then answers as it did before.
     auto expectedLeader = game->party().player();
     std::shared_ptr<Area> failedArea;
     std::shared_ptr<Trigger> failedTrigger;
+    auto armed = std::make_shared<bool>(true);
+    struct Disarm {
+        std::shared_ptr<bool> armed;
+        ~Disarm() { *armed = false; }
+    } disarm {armed};
     auto &graph = static_cast<scene::MockSceneGraph &>(
         engine.sceneModule().graphs().get(kSceneMain));
-    EXPECT_CALL(graph, testLineOfSight(_, _, _))
-        .WillOnce(DoDefault())
-        .WillOnce(DoDefault())
-        .WillOnce(Invoke([this, &failedArea, &failedTrigger, expectedLeader, puppet](
-                             const glm::vec3 &, const glm::vec3 &, scene::Collision &)
-                             -> bool {
-            failedArea = game->module()->area();
+    EXPECT_CALL(graph, testCameraLine(_, _, _))
+        .Times(AtLeast(1))
+        .WillRepeatedly(Invoke([this, armed, &failedArea, &failedTrigger,
+                                leaderRef = std::weak_ptr<Creature>(expectedLeader),
+                                puppetRef = std::weak_ptr<Creature>(puppet)](
+                                   const glm::vec3 &, const glm::vec3 &, scene::Collision &)
+                                   -> bool {
+            if (!*armed) {
+                return false;
+            }
+            auto leader = leaderRef.lock();
+            auto module = game->module();
+            if (!leader || !module || !module->area()) {
+                return false;
+            }
+            const auto &placed = module->area()->getObjectsByType(ObjectType::Creature);
+            if (std::find(placed.begin(), placed.end(), leader) == placed.end()) {
+                return false;
+            }
+            *armed = false;
+            failedArea = module->area();
             TestGameModule::setAreaRuntimePath(
-                *expectedLeader, failedArea->pathfinder());
+                *leader, failedArea->pathfinder());
             failedTrigger = game->newTrigger();
             failedArea->add(failedTrigger);
-            failedTrigger->addTenant(expectedLeader);
-            if (puppet) {
+            failedTrigger->addTenant(leader);
+            if (auto placedPuppet = puppetRef.lock()) {
                 TestGameModule::setAreaRuntimePath(
-                    *puppet, failedArea->pathfinder());
-                failedTrigger->addTenant(puppet);
+                    *placedPuppet, failedArea->pathfinder());
+                failedTrigger->addTenant(placedPuppet);
             }
             throw std::runtime_error("injected post-placement failure");
-        }))
-        .WillRepeatedly(DoDefault());
+        }));
 
     ASSERT_FALSE(game->loadModule("module_b"));
     ASSERT_TRUE(failedArea);

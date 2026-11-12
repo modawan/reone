@@ -62,7 +62,8 @@ public:
     std::shared_ptr<ModelNode> getNodeByNumber(uint16_t number) const;
     std::shared_ptr<ModelNode> getNodeByName(const std::string &name) const;
     std::shared_ptr<ModelNode> getNodeByNameRecursive(const std::string &name) const;
-    std::shared_ptr<ModelNode> getAABBNode() const;
+    /** The model's AABB mesh node, found once when the model is made; none without one. */
+    std::shared_ptr<ModelNode> getAABBNode() const { return _aabbNode; }
 
     // END Nodes
 
@@ -100,6 +101,7 @@ private:
 
     std::unordered_map<uint16_t, std::shared_ptr<ModelNode>> _nodeByNumber;
     std::unordered_map<std::string, std::shared_ptr<ModelNode>> _nodeByName;
+    std::shared_ptr<ModelNode> _aabbNode;
 
     void fillLookups(const std::shared_ptr<ModelNode> &node);
     void computeAABB();

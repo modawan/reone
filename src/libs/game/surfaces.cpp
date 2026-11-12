@@ -88,6 +88,19 @@ std::set<uint32_t> Surfaces::getLineOfSightSurfaces() const {
     return getSurfaceIndices([](auto &surface) { return surface.lineOfSight; });
 }
 
+// The Trigger row of surfacemat.2da.
+static constexpr uint32_t kTriggerSurface = 30;
+
+std::set<uint32_t> Surfaces::getCameraSurfaces() const {
+    std::set<uint32_t> result;
+    for (uint32_t material = 0; material < graphics::Walkmesh::kSurfaceMaterialCount; ++material) {
+        if (material != kTriggerSurface) {
+            result.insert(material);
+        }
+    }
+    return result;
+}
+
 } // namespace game
 
 } // namespace reone

@@ -276,7 +276,18 @@ void Door::applyRestingState() {
     _lastAnimation = stateAnimation(_state);
     _open = _state != DoorState::Closed;
     enableStateWalkmeshes();
+    updateCameraPassage();
     applyRestingPose();
+}
+
+// Unlike the walkmeshes, which change at the swing's door event, a camera
+// takes the state a swing leads to from its start: it passes through a door
+// swinging open at once, and is stopped by one swinging shut at once. It
+// passes through a door whose type shows no model in any state.
+void Door::updateCameraPassage() {
+    if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
+        model->setCameraPassesThrough(actionState() != DoorState::Closed || !typeShowsModel());
+    }
 }
 
 void Door::enableStateWalkmeshes() {
@@ -436,9 +447,17 @@ void Door::close() {
     }
 }
 
+bool Door::typeShowsModel() const {
+    if (_appearance == 0) {
+        return true;
+    }
+    auto types = _services.resource.twoDas.get("doortypes");
+    return !types || types->getInt(_appearance, "visiblemodel", 1) != 0;
+}
+
 void Door::shutAtOnce() {
     // A door whose type shows no model takes the destroyed state instead.
-    if (_appearance != 0 && _services.resource.twoDas.get("doortypes")->getInt(_appearance, "visiblemodel", 1) == 0) {
+    if (!typeShowsModel()) {
         enterDestroyedState();
         return;
     }
@@ -523,9 +542,11 @@ void Door::beginTransition(DoorTransition transition) {
         _queuedSwingRow = swingRow;
         _stateLoop.clear();
         _stateLoopAnimation.reset();
+        updateCameraPassage();
         return;
     }
     playSwing(transition, swingRow);
+    updateCameraPassage();
 }
 
 void Door::playSwing(DoorTransition transition, std::optional<int> swingRow) {

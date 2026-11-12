@@ -44,6 +44,12 @@ Model::Model(
         fillLookups(_rootNode);
     }
     computeAABB();
+    for (auto &node : _nodeByNumber) {
+        if (node.second->isAABBMesh()) {
+            _aabbNode = node.second;
+            break;
+        }
+    }
 
     for (auto &anim : animations) {
         _animations[anim->name()] = anim;
@@ -94,14 +100,6 @@ std::shared_ptr<ModelNode> Model::getNodeByNameRecursive(const std::string &name
     } else {
         return nullptr;
     }
-}
-
-std::shared_ptr<ModelNode> Model::getAABBNode() const {
-    for (auto &node : _nodeByNumber) {
-        if (node.second->isAABBMesh())
-            return node.second;
-    }
-    return nullptr;
 }
 
 std::vector<std::string> Model::getAnimationNames() const {

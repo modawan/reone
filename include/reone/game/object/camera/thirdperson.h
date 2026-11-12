@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/input/event.h"
 
 #include "../../camerastyle.h"
@@ -55,6 +57,8 @@ public:
     bool isMouseLookMode() const override;
 
     void setTargetPosition(glm::vec3 position);
+    /** The next update places the camera, whatever was placed before it. */
+    void placeAtNextUpdate() { _placedSinceUpdate = false; }
     /** The point the camera follows: the leader's camera hook. */
     const glm::vec3 &targetPosition() const { return _targetPosition; }
     void setFacing(float facing) override;
@@ -141,6 +145,31 @@ private:
 
     // END Look-at swing
 
+    // Wheel zoom
+
+    /** The follow camera's distance scale, easing toward the one the wheel set. */
+    float _zoom {1.0f};
+
+    // END Wheel zoom
+
+    // Placement
+
+    /** Whether the camera was placed since the last update, as the target moved. */
+    bool _placedSinceUpdate {false};
+
+    // END Placement
+
+    // Stiff chase
+
+    /**
+     * Under the stiff chase camera mode, how far along its line from the
+     * target the camera stands while a wall has pushed it in; empty while it
+     * stands at its own distance.
+     */
+    std::optional<float> _pushedDistance;
+
+    // END Stiff chase
+
     // Death orbit
 
     bool _deathOrbit {false};
@@ -160,6 +189,21 @@ private:
     void updateDeathOrbit(float dt);
 
     void updateSceneNode();
+    /**
+     * The line the follow camera stands on outside combat: from just past
+     * the target to where the camera stands at its own distance, as the
+     * wheel has zoomed it.
+     */
+    void followLine(glm::vec3 &from, glm::vec3 &to) const;
+    /** Whether the stiff chase camera mode holds the follow camera. */
+    bool isStiffChase() const;
+    /**
+     * Eases a camera that a wall pushed in back out by \p dt seconds, under
+     * the stiff chase camera mode, short of any wall in the way.
+     */
+    void easeStiffChase(float dt);
+    /** Where a camera wanted at \p desired stands, kept clear of walls as seen from \p from. */
+    glm::vec3 clearOfWalls(const glm::vec3 &from, const glm::vec3 &desired) const;
     /** Places the combat camera behind the target, pulled in where the view is obstructed. */
     void updateCombatSceneNode();
     /** Turns the camera outside combat by the mouse look's travel over \p dt seconds. */
@@ -185,6 +229,10 @@ private:
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
     bool handleMouseButtonUp(const input::MouseButtonEvent &event);
+    /** The wheel moves the follow camera in or out, outside combat. */
+    bool handleMouseWheel(const input::MouseWheelEvent &event);
+    /** Eases the follow camera's distance scale by \p dt seconds; whether it changed. */
+    bool updateZoom(float dt);
 };
 
 } // namespace game

@@ -407,6 +407,13 @@ private:
     /** A one-shot a script set gives way, once it ends, to the loop the door showed before. */
     void updateStateAnimation();
     void enableStateWalkmeshes();
+    /**
+     * Lets a camera through the door unless the state it is in or swinging to
+     * is closed and its type shows a model.
+     */
+    void updateCameraPassage();
+    /** Whether the door's type shows a model: doortypes.2da's visiblemodel, for a door with an appearance. */
+    bool typeShowsModel() const;
     /** Swings this door alone open to the side the opening names. */
     void swingOpen(DoorTransition opening);
     /** Swings this door alone shut. */
