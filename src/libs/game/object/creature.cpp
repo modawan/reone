@@ -2038,10 +2038,66 @@ void Creature::clearHostileActionsAgainst(const Object &object) {
             return false; }, [this](const OrdinaryActionQueue::Node &node) { discardGroupNode(node); });
 }
 
+bool Creature::keepsItemsInOrder() const {
+    return _game.party().actualPlayer().get() == this;
+}
+
 // A Force push holds only the creature's moves, through its AI state.
+// So does every other state: a creature acts while it is neither dead nor
+// down, and what a state keeps it from doing, its AI state keeps it from. A
+// stun, paralysis or sleep also holds the body, and what the creature does
+// with it waits (waitsForBody).
 bool Creature::canExecuteActions() const {
-    return !_dead && !isTemporarilyDead() && !hasEffect(EffectType::Stunned) &&
-           !isImmobilizingState(static_cast<CreatureState>(_effectState));
+    return !_dead && !isTemporarilyDead();
+}
+
+bool Creature::isBodyHeld() const {
+    return hasEffect(EffectType::Stunned) || isImmobilizingState(static_cast<CreatureState>(_effectState));
+}
+
+bool Creature::waitsForBody(const Action &action) const {
+    if (!isBodyHeld()) {
+        return false;
+    }
+    switch (action.combatAction().type()) {
+    case ActionType::PickUpItem:
+    case ActionType::DropItem:
+    case ActionType::PutDownItem:
+    case ActionType::AttackObject:
+    case ActionType::CastSpell:
+    case ActionType::CastSpellAtObject:
+    case ActionType::CastSpellAtLocation:
+    case ActionType::ItemCastSpell:
+    case ActionType::CounterSpell:
+    case ActionType::OpenDoor:
+    case ActionType::CloseDoor:
+    case ActionType::DoorSaber:
+    case ActionType::DisableTrap:
+    case ActionType::RecoverTrap:
+    case ActionType::FlagTrap:
+    case ActionType::ExamineTrap:
+    case ActionType::SetTrap:
+    case ActionType::OpenLock:
+    case ActionType::Lock:
+    case ActionType::UseObject:
+    case ActionType::OpenContainer:
+    case ActionType::AnimalEmpathy:
+    case ActionType::Taunt:
+    case ActionType::Heal:
+    case ActionType::PickPocket:
+    case ActionType::EquipItem:
+    case ActionType::UnequipItem:
+    case ActionType::SwitchWeapons:
+    case ActionType::GiveItem:
+    case ActionType::TakeItem:
+    case ActionType::UseFeat:
+    case ActionType::UseSkill:
+    case ActionType::UseTalentOnObject:
+    case ActionType::UseTalentAtLocation:
+        return true;
+    default:
+        return false;
+    }
 }
 
 // The commands a party member at zero vitality still carries out; it fails
@@ -2080,6 +2136,10 @@ bool Creature::permitsAction(const Action &action) const {
     const Action &command = action.combatAction();
     if (isTemporarilyDead()) {
         return runsWhileDown(static_cast<SavedActionType>(command.serializedActionId()));
+    }
+    // What is done with a held body is refused where it cannot wait.
+    if (waitsForBody(action)) {
+        return false;
     }
     // A walk to a point, or one heading for an object, fails a creature that
     // cannot move unless its goal is a trigger or a linked door already in
@@ -5597,6 +5657,21 @@ static int wornBodyVariation(const Item &item) {
     return std::max(item.bodyVariation(), 1) - 1;
 }
 
+void Creature::noteBodyLook(int slot, const Item &item) {
+    if (slot == InventorySlots::body && item.isBodyModel()) {
+        _shownTextureVariation = item.textureVariation();
+    }
+}
+
+// A body item of the body model type is drawn with its own look; any other
+// with the first body model and the texture variation shown.
+std::pair<int, int> Creature::bodyLookOf(const Item &body) const {
+    if (body.isBodyModel()) {
+        return {wornBodyVariation(body), body.textureVariation()};
+    }
+    return {0, _shownTextureVariation};
+}
+
 void Creature::updateArmourAppearance(const std::shared_ptr<Item> &armour) {
     if (!_game.isTSL()) {
         return;
@@ -5717,7 +5792,8 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
 
     _equipment[slot] = item;
     item->setEquipped(true);
-    item->setOwner(_id);
+    item->setOwner(*this);
+    noteBodyLook(slot, *item);
     replaceEffectState(std::move(replacementEffects));
     bringOutHandForConversation(slot);
 
@@ -5787,7 +5863,10 @@ bool Creature::replaceEquipment(
     previous->clearOwner();
     _equipment[slot] = item;
     item->setEquipped(true);
-    item->setOwner(_id);
+    item->setOwner(*this);
+    // Worn straight over the last, an item keeps or takes the look as an
+    // equip does; nothing was unequipped.
+    noteBodyLook(slot, *item);
     displacedReceiver.addItem(previous);
     replaceEffectState(std::move(replacementEffects));
     bringOutHandForConversation(slot);
@@ -5830,20 +5909,20 @@ std::shared_ptr<Item> Creature::takeEquippedItem(
     return result;
 }
 
-bool Creature::moveEquippedItemTo(
+std::shared_ptr<Item> Creature::moveEquippedItemTo(
     const std::shared_ptr<Item> &item,
-    Object &receiver) {
+    Object &receiver,
+    ItemStacking stacking) {
     if (!item ||
         (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
         (isPresentationOnly() != receiver.isPresentationOnly())) {
-        return false;
+        return nullptr;
     }
     auto taken = takeEquippedItem(item);
     if (!taken) {
-        return false;
+        return nullptr;
     }
-    receiver.addItem(taken);
-    return true;
+    return receiver.addItem(taken, stacking);
 }
 
 void Creature::updateEquipmentPresentation() {
@@ -5860,13 +5939,16 @@ void Creature::updateEquipmentPresentation() {
     }
 }
 
-// Only the first sixteen equipment slots leave items in a body bag.
-static constexpr int kBodyBagEquipmentSlots = 16;
+// Only the first fourteen equipment slots leave items in a body bag, sixteen
+// in TSL.
+static constexpr int kBodyBagEquipmentSlots = 14;
+static constexpr int kTslBodyBagEquipmentSlots = 16;
 
 std::vector<std::shared_ptr<Item>> Creature::dropableItems() const {
     std::vector<std::shared_ptr<Item>> result;
+    const int bodyBagSlots = _game.isTSL() ? kTslBodyBagEquipmentSlots : kBodyBagEquipmentSlots;
     for (const auto &[slot, item] : _equipment) {
-        if (slot < kBodyBagEquipmentSlots && item->isDropable()) {
+        if (slot < bodyBagSlots && item->isDropable()) {
             result.push_back(item);
         }
     }
@@ -7074,9 +7156,9 @@ void Creature::recordQueuedAttack(Object &target) {
     if (!_combatState.attemptedAttackTarget.resolve()) {
         setAttemptedAttackTarget(target.id());
     }
-    // A plot door or placeable told it is attacked fails to open for the
-    // attacker.
-    if ((isa<Door>(&target) || isa<Placeable>(&target)) && target.plotFlag()) {
+    // A plot door, or in TSL a plot placeable, fails to open for the attacker
+    // when told it is attacked.
+    if ((isa<Door>(&target) || (_game.isTSL() && isa<Placeable>(&target))) && target.plotFlag()) {
         signalFailToOpen(target, *this);
     }
 }
@@ -11068,8 +11150,7 @@ CreaturePresentation Creature::presentation() const {
     result.appearance = _appearance;
     auto body = getEquippedItem(InventorySlots::body);
     if (body) {
-        result.bodyVariation = wornBodyVariation(*body);
-        result.textureVariation = body->textureVariation();
+        std::tie(result.bodyVariation, result.textureVariation) = bodyLookOf(*body);
     }
     return result;
 }
@@ -11110,7 +11191,7 @@ std::string Creature::getBodyModelName() const {
         if (_presentation) {
             column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
+            column += bodyColumnLetter(bodyLookOf(*bodyItem).first, _game.isTSL());
         } else {
             column += "a";
         }
@@ -11140,7 +11221,7 @@ std::string Creature::getBodyTextureName() const {
         if (_presentation) {
             column += bodyColumnLetter(_presentation->bodyVariation, _game.isTSL());
         } else if (bodyItem) {
-            column += bodyColumnLetter(wornBodyVariation(*bodyItem), _game.isTSL());
+            column += bodyColumnLetter(bodyLookOf(*bodyItem).first, _game.isTSL());
         } else {
             column += "a";
         }
@@ -11161,7 +11242,7 @@ std::string Creature::getBodyTextureName() const {
     if (_modelType == Creature::ModelType::Character) {
         bool texFound = false;
         if (_presentation || bodyItem) {
-            auto variation = _presentation ? _presentation->textureVariation : bodyItem->textureVariation();
+            auto variation = _presentation ? _presentation->textureVariation : bodyLookOf(*bodyItem).second;
             std::string tmp(str(boost::format("%s%02d") % texName % variation));
             std::shared_ptr<Texture> texture(_services.resource.textures.get(tmp, TextureUsage::MainTex));
             if (texture) {
@@ -11714,20 +11795,16 @@ void Creature::forceEquipClothing() {
     }
     _bodyRefusedOnLoad = false;
     static constexpr char kClothing[] = "g_a_clothes01";
-    // The party's own clothing is taken first; otherwise a new, droppable set.
+    // The party's own clothing is worn first, its whole stack, found wherever
+    // it is and taken from what holds it. Otherwise a new, droppable set.
     auto self = _game.getObjectById(_id);
     auto repository = self ? _game.party().sharedInventoryReceiver(self) : nullptr;
     std::shared_ptr<Item> clothing;
     if (repository) {
-        std::shared_ptr<Item> found;
-        for (const auto &item : repository->items()) {
-            if (item && boost::iequals(item->tag(), kClothing)) {
-                found = item;
-                break;
-            }
-        }
-        if (found) {
-            clothing = takeEquipmentCandidate(_game, *repository, found);
+        if (const auto found = repository->getItemByTag(kClothing)) {
+            const auto holder = _game.getObjectById(found->owner());
+            (holder ? *holder : *repository).removeItemStack(found);
+            clothing = found;
         }
     }
     if (!clothing) {
@@ -11812,6 +11889,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
     if (!replaceItems && !replaceEquipment) {
         return;
     }
+    const ItemLoadScope loading(*this);
     bool bodyRefused = false;
 
     if (!identityContext.isSerializedState()) {
@@ -11842,9 +11920,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     return nullptr;
                 }
                 auto item = _game.newItemFromBlueprint(resRef);
-                uint8_t dropable = 0;
-                entry.readByte(dropable, "Dropable");
-                item->setDropable((dropable & 1) != 0);
+                bool dropable = false;
+                entry.readBool(dropable, "Dropable");
+                item->setDropable(dropable);
                 return item;
             }
             if (Item::namesMissingTemplate(entry, _services.resource.gffs)) {
@@ -11855,7 +11933,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
         _game.replaceRuntimeObjectGraph(
             obsolete,
             [&]() {
-                // Refused equipment enters the inventory before the carried items.
+                // Refused equipment enters the inventory before the carried items
+                // and joins a stack it matches.
                 if (replaceEquipment) {
                     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
                         auto item = loadEntry(*itemGff, "EquippedRes");
@@ -11864,14 +11943,15 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         }
                         const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, false);
                         if (!slot || replacementEquipment.count(*slot) != 0) {
-                            item->setOwner(_id);
-                            appendOwnedItemCandidate(
-                                replacementItems, item, true);
+                            item->setOwner(*this);
+                            _game.recordCarriedOnLoad(appendOwnedItemCandidate(
+                                replacementItems, item));
                             continue;
                         }
-                        item->setOwner(_id);
+                        // Worn first, the item stays possessed by its wearer.
                         item->setEquipped(true);
-                        _game.recordEquippedOnLoad(*slot, item);
+                        item->setOwner(*this);
+                        _game.recordEquippedOnLoad(*slot, item, true);
                         replacementEquipment.emplace(*slot, std::move(item));
                     }
                 }
@@ -11882,8 +11962,14 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         if (!item) {
                             continue;
                         }
-                        item->setOwner(_id);
-                        replacementItems.push_back(std::move(item));
+                        item->setOwner(*this);
+                        // The creature acquires what it carries, but not what
+                        // it counts, which goes as it is counted.
+                        if (!_game.party().isCountedItem(*item)) {
+                            _game.recordCarriedOnLoad(item);
+                        }
+                        // Carried items keep their own stacks.
+                        placeItem(replacementItems, std::move(item));
                     }
                 }
                 for (const auto &item : replacementItems) {
@@ -11903,8 +11989,13 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     replaceEffectState(std::move(replacementEffects));
                 }
             });
-        // Body armour read with the creature is put on like any other.
+        // Body armour read with the creature is put on like any other, and the
+        // body look starts from what the creature wears.
+        if (replaceEquipment) {
+            _shownTextureVariation = kFirstTextureVariation;
+        }
         if (auto armour = replaceEquipment ? getEquippedItem(InventorySlots::body) : nullptr) {
+            noteBodyLook(InventorySlots::body, *armour);
             updateArmourAppearance(armour);
         }
         return;
@@ -11943,9 +12034,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     // A saved player character is told why it may no longer wear an item.
                     const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, _isPC);
                     if (!slot) {
-                        item->setOwner(_id);
+                        item->restoreOwner(*this);
                         appendOwnedItemCandidate(
-                            replacementItems, item, false);
+                            replacementItems, item);
                         continue;
                     }
                     if (replacementEquipment.count(*slot) != 0) {
@@ -11953,8 +12044,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                             "Multiple saved items occupy equipment slot " +
                             std::to_string(*slot));
                     }
-                    item->setOwner(_id);
+                    // Worn first, the item stays possessed by its wearer.
                     item->setEquipped(true);
+                    item->restoreOwner(*this);
                     _game.recordEquippedOnLoad(*slot, item);
                     replacementEquipment.emplace(*slot, std::move(item));
                 }
@@ -11968,8 +12060,9 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         *itemGff,
                         identityContext,
                         {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
-                    item->setOwner(_id);
-                    replacementItems.push_back(std::move(item));
+                    item->restoreOwner(*this);
+                    // Carried items keep their own stacks.
+                    placeItem(replacementItems, std::move(item));
                 }
             }
             for (const auto &item : replacementItems) {
@@ -12009,8 +12102,13 @@ void Creature::deserializeOwnedItemsAndEquipment(
     if (_appearance != previousAppearance) {
         loadAppearanceProperties();
     }
-    // Body armour read with the creature is put on like any other.
+    // Body armour read with the creature is put on like any other, and the
+    // body look starts from what the creature wears.
+    if (replaceEquipment) {
+        _shownTextureVariation = kFirstTextureVariation;
+    }
     if (auto armour = replaceEquipment ? getEquippedItem(InventorySlots::body) : nullptr) {
+        noteBodyLook(InventorySlots::body, *armour);
         updateArmourAppearance(armour);
     }
 }

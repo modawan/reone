@@ -70,6 +70,8 @@ void JournalMenu::onGUILoaded() {
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &plotId) {
         refreshEntryText(plotId);
     });
+    // The quest list holds the keyboard until the pointer gives it to another control.
+    _gui->setActiveControl(*_controls.LB_ITEMS);
 }
 
 void JournalMenu::refresh() {
@@ -96,6 +98,11 @@ void JournalMenu::refresh() {
         _controls.LB_ITEMS->addItem(std::move(item));
     }
     _shownQuest.clear();
+    // The first quest is selected and described.
+    if (_controls.LB_ITEMS->getItemCount() > 0) {
+        _controls.LB_ITEMS->setSelectedItemIndex(0);
+        refreshEntryText(_controls.LB_ITEMS->getItemAt(0).tag);
+    }
 }
 
 // A new quest read in the journal shows as new until another is read, and

@@ -26,6 +26,7 @@
 #include "reone/gui/control/listbox.h"
 
 #include "../runtimeref.h"
+#include "confirmpopup.h"
 
 namespace reone {
 
@@ -124,6 +125,8 @@ private:
     std::shared_ptr<Item> itemOfRow(const std::string &tag) const;
     std::shared_ptr<Item> selectedItem(const gui::ListBox &list) const;
 
+    /** TSL draws the store's message boxes in colours of their own. */
+    std::optional<PopupColors> popupColors() const;
     void offerToBuy(const std::shared_ptr<Item> &item);
     void offerToSell(const std::shared_ptr<Item> &item);
     void buy(const std::shared_ptr<Item> &item);

@@ -148,13 +148,8 @@ bool ListBox::handleMouseMotion(int x, int y) {
         return false;
     }
     if (_selectionMode == SelectionMode::OnHover) {
-        const int index = getItemIndex(y);
-        if (index != -1 || !_keepsSelection) {
-            selectByPointer(index);
-        }
-    } else if (_selectionMode == SelectionMode::OnHoverKept) {
         int itemIdx = getDrawnItemIndex(x, y);
-        if (itemIdx != -1) {
+        if (itemIdx != -1 && !_items[itemIdx].textLine) {
             selectByPointer(itemIdx);
         }
     }
@@ -162,7 +157,7 @@ bool ListBox::handleMouseMotion(int x, int y) {
 }
 
 void ListBox::selectByPointer(int index) {
-    if (index != _selectedItemIndex && index != -1 && !_items[index].textLine) {
+    if (index != _selectedItemIndex) {
         _selectionEntered = true;
     }
     _selectedItemIndex = index;
@@ -283,13 +278,11 @@ bool ListBox::handleClick(int x, int y, int clicks) {
     if (!_itemsInteractive)
         return false;
 
-    int itemIdx = _selectionMode == SelectionMode::OnHoverKept ? getDrawnItemIndex(x, y) : getItemIndex(y);
-    if (itemIdx == -1)
+    int itemIdx = _selectionMode == SelectionMode::OnHover ? getDrawnItemIndex(x, y) : getItemIndex(y);
+    if (itemIdx == -1 || _items[itemIdx].textLine)
         return false;
 
-    if (_selectionMode == SelectionMode::OnClick || _selectionMode == SelectionMode::OnHoverKept) {
-        selectByPointer(itemIdx);
-    }
+    selectByPointer(itemIdx);
     if (_onItemClick) {
         _onItemClick(_items[itemIdx].tag);
     }
@@ -461,13 +454,6 @@ void ListBox::insetScrollBar(Control &scrollBar,
     scrollBar.setExtent(std::move(extent));
 }
 
-void ListBox::setSelected(bool selected) {
-    Control::setSelected(selected);
-    if (!selected && _selectionMode == SelectionMode::OnHover && !_keepsSelection) {
-        _selectedItemIndex = -1;
-    }
-}
-
 void ListBox::setExtent(Extent extent) {
     Control::setExtent(extent);
     updateItemsLayout();
@@ -505,9 +491,17 @@ void ListBox::setSelectionMode(SelectionMode mode) {
 
 void ListBox::setSelectedItemIndex(int index) {
     _selectedItemIndex = index >= 0 && index < getItemCount() ? index : -1;
+    if (_selectedItemIndex >= 0) {
+        scrollToItem(_selectedItemIndex);
+    }
 }
 
-bool ListBox::selectAdjacentItem(bool next) {
+bool ListBox::selectAdjacentItem(bool next, bool repeat) {
+    if (!repeat) {
+        _gui.setKeyRepeatStopped(false);
+    } else if (_gui.keyRepeatStopped()) {
+        return false;
+    }
     const int count = getItemCount();
     if (count == 0) {
         return false;
@@ -520,11 +514,23 @@ bool ListBox::selectAdjacentItem(bool next) {
                 return false;
             }
             index = index < 0 ? count - 1 : 0;
+            _gui.setKeyRepeatStopped(true);
         }
     }
     _selectedItemIndex = index;
     scrollToItem(index);
     return true;
+}
+
+void ListBox::takeKeyboard() {
+    if (!_itemsInteractive || _selectedItemIndex >= 0 || _items.empty()) {
+        return;
+    }
+    _selectedItemIndex = 0;
+    scrollToItem(0);
+    if (_selectionMode == SelectionMode::OnClick && _onItemClick) {
+        _onItemClick(_items.front().tag);
+    }
 }
 
 void ListBox::setItemsInteractive(bool interactive) {

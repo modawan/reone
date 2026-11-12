@@ -2,9 +2,63 @@
 
 ## Modules
 
-![](diagram/modules.jpg)
+```mermaid
+flowchart TD
+    engine([engine])
+    toolkit([toolkit])
+    launcher([launcher])
 
-Source code is organized into modules, each module containing a different engine subsystem. Dependency must be from higher- to lower-level modules. Circular dependencies must be avoided.
+    subgraph toolslib[" "]
+        direction TB
+        tools([tools])
+    end
+
+    subgraph enginelibs[" "]
+        direction TB
+        game([game])
+        gui([gui])
+        scene([scene])
+        resource([resource])
+        movie([movie])
+        input([input])
+        json([json])
+
+        subgraph services[" "]
+            direction TB
+            graphics([graphics])
+            audio([audio])
+            script([script])
+        end
+    end
+
+    subgraph systemlib[" "]
+        direction TB
+        system([system])
+    end
+
+    engine --> game
+    toolkit --> tools
+    launcher --> system
+
+    tools --> game
+    game --> gui
+    gui --> scene
+    gui --> input
+    scene --> resource
+    json --> resource
+    resource --> movie
+    movie --> graphics
+
+    movie --> audio
+    resource --> script
+
+    system
+    graphics --> system
+    audio --> system
+    script --> system
+```
+
+Source code is organized into modules, each module containing a different engine subsystem. Dependency must be from higher- to lower-level modules (top to bottom in the diagram). Circular dependencies must be avoided.
 
 ### Applications
 
@@ -34,7 +88,37 @@ Source code is organized into modules, each module containing a different engine
 
 ## Object Hierarchies
 
-![](diagram/objects.jpg)
+```mermaid
+classDiagram
+    direction TB
+
+    class Game
+    class Object
+    class Module
+    class Area
+    class SceneGraph
+    class SceneNode
+    class GUI
+    class Control
+
+    Game *-- Object
+    Game *-- SceneGraph
+    Game *-- GUI
+
+    Object *-- Module
+    Object o-- SceneGraph
+    Object o-- SceneNode
+
+    Module <|-- Object : Extends
+    Module o-- Area
+    Area o-- Object
+
+    SceneGraph *-- SceneNode
+    SceneNode *-- SceneNode
+
+    GUI *-- Control
+    Control *-- Control
+```
 
 ## File and Class Names
 

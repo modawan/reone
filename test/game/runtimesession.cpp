@@ -1697,7 +1697,7 @@ TEST(RuntimeObjectIntegrity, staged_stack_coalescing_obeys_retail_maximum) {
     EXPECT_EQ(1, several->items()[3]->stackSize());
 }
 
-TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinct) {
+TEST(RuntimeObjectIntegrity, staged_identical_saved_items_join_the_first_identity) {
     TestEngine engine;
     engine.init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
@@ -1722,10 +1722,12 @@ TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinc
     placeable->deserialize(
         *record, SerializedIdentityContext::moduleGraph("saved_inventory"));
 
-    ASSERT_EQ(2u, placeable->items().size());
+    // The second item joins the first item's stack, and its saved identity
+    // names nothing.
+    ASSERT_EQ(1u, placeable->items().size());
     EXPECT_EQ(placeable->items()[0], game.getObjectBySavedId(870));
-    EXPECT_EQ(placeable->items()[1], game.getObjectBySavedId(871));
-    EXPECT_NE(placeable->items()[0], placeable->items()[1]);
+    EXPECT_EQ(2, placeable->items()[0]->stackSize());
+    EXPECT_FALSE(game.getObjectBySavedId(871));
 
     auto detached = game.newPlaceable();
     auto detachedRecord = resource::Gff::Builder()
@@ -1740,13 +1742,11 @@ TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinc
 
     detached->deserialize(*detachedRecord, detachedContext);
 
-    ASSERT_EQ(2u, detached->items().size());
+    ASSERT_EQ(1u, detached->items().size());
     EXPECT_EQ(
         detached->items()[0]->serializedObjectIdentity(),
         std::optional<SerializedObjectIdentity>({detachedContext, 880}));
-    EXPECT_EQ(
-        detached->items()[1]->serializedObjectIdentity(),
-        std::optional<SerializedObjectIdentity>({detachedContext, 881}));
+    EXPECT_EQ(2, detached->items()[0]->stackSize());
     EXPECT_FALSE(game.getObjectBySavedId(880));
     EXPECT_FALSE(game.getObjectBySavedId(881));
 }
@@ -3118,7 +3118,8 @@ TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto gameplayItem = game.newItem();
-    gameplayItem->setOwner(77);
+    auto holder = game.newItem();
+    gameplayItem->setOwner(*holder);
     const size_t registrySize = TestGameModule::objectRegistrySize(game);
     for (int i = 0; i < 5; ++i) {
         auto preview = game.newPresentationCreature("preview");
@@ -3132,7 +3133,7 @@ TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
         EXPECT_FALSE(game.getObjectById(previewItem->id()));
     }
     EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
-    EXPECT_EQ(77u, gameplayItem->owner());
+    EXPECT_EQ(holder->id(), gameplayItem->owner());
 }
 
 TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_idempotently) {

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/audio/types.h"
 #include "reone/scene/node/grass.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/walkmesh.h"
@@ -106,6 +107,21 @@ private:
 
     void computeBox();
 };
+
+/**
+ * The environment an ARE room's EnvAudio names. 0 to 22 are the EAX room types
+ * in order, and 23 repeats GENERIC, though soundeax.2da labels that row
+ * NOREVERB. Any other value names none, and whatever environment was loaded
+ * before stays.
+ */
+std::optional<audio::Environment> environmentOfEnvAudio(int envAudio);
+
+/**
+ * Whether a room's EnvAudio lets unstreamed positional sounds into the reverb.
+ * GENERIC's room type keeps them dry, and so do 23 and every value that names
+ * no EAX room type.
+ */
+bool envAudioReverberates(int envAudio);
 
 } // namespace game
 

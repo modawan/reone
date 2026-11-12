@@ -889,6 +889,36 @@ void Party::acquireCountedItemAsPlayer(Creature &player, const Item &item) {
     }
 }
 
+// The creature possessing a container item counts the credits and pazaak
+// cards put into it; none counts what any other item receives.
+static std::shared_ptr<Creature> containerCarrier(const Object &receiver, const Item &item) {
+    const auto *container = dyn_cast<const Item>(&receiver);
+    if (!container || !container->isContainer() || !(item.isCredits() || item.itemType() == Item::kPazaakCardItemType)) {
+        return nullptr;
+    }
+    return std::dynamic_pointer_cast<Creature>(container->possessor());
+}
+
+bool Party::countsReceivedItem(const Object &receiver, const Item &item) const {
+    if (isa<Creature>(&receiver)) {
+        return isCountedItem(item);
+    }
+    return containerCarrier(receiver, item) != nullptr;
+}
+
+void Party::acquireReceivedItem(Object &receiver, const Item &item) {
+    if (auto *creature = dyn_cast<Creature>(&receiver)) {
+        acquireCountedItem(*creature, item);
+        return;
+    }
+    const auto carrier = containerCarrier(receiver, item);
+    if (item.isCredits()) {
+        addCreatureCount(*carrier, HeldCount::Credits, item.stackSize());
+    } else {
+        acquireCountedItem(*carrier, item);
+    }
+}
+
 // TSL: the first companion in the party with feat 202 adds 3%, 5% or 7% of
 // an award by its own level (1-6, 7-12, 13 and up), rounded up.
 int Party::companionXPBonus(int amount) const {
@@ -1051,19 +1081,25 @@ void Party::applyJoiningExperience(int npc, Creature &creature) {
 }
 
 // A creature joining the party, or made available to it, hands its credits,
-// components, chemicals and carried items to the party; what it wears stays on
-// it. The party's counts rise up to kMaxHeldCount, as with every other gain,
-// and the creature keeps none of its own, so handing them over again, as each
-// module load does, adds nothing.
+// components, chemicals and carried items to the party, the items announced
+// neither lost nor acquired; what it wears stays on it. The party's counts
+// rise up to kMaxHeldCount, as with every other gain, and the creature keeps
+// none of its own, so handing them over again, as each module load does, adds
+// nothing.
 void Party::transferInventory(Creature &creature) {
-    auto receiver = actualPlayer();
     for (const auto count : {HeldCount::Credits, HeldCount::Components, HeldCount::Chemicals}) {
         setPartyCount(count, raisedCount(partyCount(count), creature.heldCount(count)));
     }
     creature.clearHeldCounts();
+    // With no one to hold the shared inventory the creature keeps its carried
+    // items until it hands them over again.
+    const auto receiver = actualPlayer();
+    if (!receiver) {
+        return;
+    }
     const auto carried = creature.items();
     for (const auto &item : carried) {
-        transferItemTo(_game, item, *receiver);
+        transferItemTo(_game, item, *receiver, ItemLossNotice::None);
     }
 }
 
@@ -1080,6 +1116,70 @@ void Party::formAgainOnModuleLoad() {
         if (member.npc != kNpcPlayer && member.creature != _player) {
             transferInventory(*member.creature);
         }
+    }
+}
+
+void Party::takeItemsOnModuleLoad() {
+    // With no one under control, there is no player to take them.
+    if (!_player) {
+        return;
+    }
+    const auto holder = actualPlayer();
+    // The items come back to the creature that had them: none is marked anew.
+    for (const auto &[slot, item] : _player->equipment()) {
+        item->retakeForTop(_player);
+        item->announceKept();
+        _game.signalItemEquipped(*_player, slot, item);
+    }
+    for (const auto &item : holder->items()) {
+        item->retakeForTop(_player);
+        item->announceKept();
+    }
+}
+
+void Party::switchControlTo(
+    int npc,
+    const std::shared_ptr<Creature> &creature,
+    const std::shared_ptr<Creature> &previous,
+    bool fromWorld) {
+    // A creature already possessing items of the party, as the leader does,
+    // keeps them. Control can come from no one, and stay with no one when the
+    // creature's roster slot cannot be bound, so the shared inventory may have
+    // no holder before or after.
+    std::vector<std::shared_ptr<Item>> kept;
+    if (const auto holder = actualPlayer()) {
+        for (const auto &item : holder->items()) {
+            if (item->possessorId() == creature->id()) {
+                kept.push_back(item);
+            }
+        }
+    }
+    setControlledMember(npc, creature);
+    if (fromWorld) {
+        takeControlFromWorld(*creature);
+    }
+    // The party's items pass to the creature now in control, with nothing
+    // told, unless it possessed them already; each is then announced kept by
+    // it, once.
+    if (const auto holder = actualPlayer()) {
+        for (const auto &item : holder->items()) {
+            if (std::find(kept.begin(), kept.end(), item) == kept.end()) {
+                item->retakeForTop(previous);
+            }
+            item->announceKept();
+        }
+    }
+    passItemsToLeader();
+}
+
+void Party::passItemsToLeader() {
+    const auto leader = getLeader();
+    const auto holder = actualPlayer();
+    if (!leader || !holder) {
+        return;
+    }
+    for (const auto &item : holder->items()) {
+        item->passTo(*leader, false, false);
     }
 }
 
@@ -1214,6 +1314,7 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
     // The lead changes only within a module's area.
     auto &area = *_game.module()->area();
     const auto &leader = _members[0].creature;
+    passItemsToLeader();
     if (leader && previous && leader != previous) {
         leader->setPerceptionRangeRow(kPlayerPerceptionRangeRow);
         previous->setPerceptionRangeRow(kPartyPerceptionRangeRow);
@@ -1528,6 +1629,8 @@ void Party::leadWithPlayerCharacter() {
         if (creature && creature->isPC()) {
             if (i > 0) {
                 setPartyLeaderByIndex(i, false);
+            } else if (_members.size() > 1) {
+                passItemsToLeader();
             }
             return;
         }

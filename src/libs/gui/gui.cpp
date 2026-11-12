@@ -340,8 +340,7 @@ void GUI::followPointer(const std::optional<std::reference_wrapper<Control>> &co
         if (!target.isSelected()) {
             onEntered(target.tag());
         }
-        releaseKeyboard();
-        _activeControl = target;
+        setActiveControl(target);
         hilight(target);
     }
     if ((!_selection && !control) ||
@@ -382,7 +381,7 @@ void GUI::unhilight(Control &control) {
 }
 
 void GUI::releaseKeyboard() {
-    if (_activeControl && hilightFollowsKeyboard(_activeControl->get())) {
+    if (_activeControl && _hilightFollowsKeyboard && _activeControl->get().type() != ControlType::ListBox) {
         unhilight(_activeControl->get());
     }
     _activeControl.reset();
@@ -394,14 +393,18 @@ void GUI::setActiveControl(Control &control) {
     }
     releaseKeyboard();
     _activeControl = control;
+    // The list holds the keyboard before it selects, so a row handler giving
+    // it the keyboard again changes nothing.
+    if (control.type() == ControlType::ListBox) {
+        static_cast<ListBox &>(control).takeKeyboard();
+    }
 }
 
 void GUI::selectActiveControl(Control &control) {
     if (holdsKeyboard(control)) {
         return;
     }
-    releaseKeyboard();
-    _activeControl = control;
+    setActiveControl(control);
     hilight(control);
 }
 
@@ -421,7 +424,7 @@ void GUI::enterList(Control &control, const glm::ivec2 &coords) {
         _listEntered = true;
         entered = true;
         if (list.isNavigable()) {
-            setActiveControl(control);
+            setActiveControl(list);
         }
     }
     // Reaching a row and moving the selection onto it at once sound once.
@@ -448,14 +451,36 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) cons
 
 // A disabled control is passed over along the same direction; links that only
 // lead round disabled controls lead nowhere.
-std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &control, Control::MoveDirection direction) const {
+// The keys move through buttons, lists and sliders.
+static bool isNavigable(const Control &control) {
+    switch (control.type()) {
+    case ControlType::Button:
+    case ControlType::ToggleButton:
+    case ControlType::Slider:
+    case ControlType::ListBox:
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly) const {
+    const auto takes = [visibleOnly](const Control &target) {
+        return !target.isDisabled() && (!visibleOnly || target.isVisible());
+    };
     std::reference_wrapper<const Control> from = control;
     for (size_t step = 0; step < _controls.size(); ++step) {
         auto next = findControlById(from.get().moveTo(direction));
         if (!next || &next->get() == &control) {
             return std::nullopt;
         }
-        if (!next->get().isDisabled()) {
+        if (!isNavigable(next->get())) {
+            if (visibleOnly && !takes(next->get())) {
+                return std::nullopt;
+            }
+            return next;
+        }
+        if (takes(next->get())) {
             return next;
         }
         from = next->get();

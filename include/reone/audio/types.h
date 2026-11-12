@@ -35,6 +35,36 @@ enum class AudioType {
     Movie
 };
 
+/**
+ * A listener environment, in the order EAX numbers its room types. Each one
+ * is rendered from OpenAL Soft's preset of the same name.
+ */
+enum class Environment {
+    Generic,
+    PaddedCell,
+    Room,
+    Bathroom,
+    LivingRoom,
+    StoneRoom,
+    Auditorium,
+    ConcertHall,
+    Cave,
+    Arena,
+    Hangar,
+    CarpetedHallway,
+    Hallway,
+    StoneCorridor,
+    Alley,
+    Forest,
+    City,
+    Mountains,
+    Quarry,
+    Plain,
+    ParkingLot,
+    SewerPipe,
+    Underwater
+};
+
 /** The loudest volume a sound, or a priority group, plays at. */
 constexpr int kMaxVolume = 127;
 

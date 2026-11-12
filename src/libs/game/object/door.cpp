@@ -153,13 +153,7 @@ void Door::deserializeAll(
         _maxHitPoints = _hitPoints;
     }
     gff.readShort(_currentHitPoints, "CurrentHP");
-    // An Invulnerable flag takes precedence over Plot, an explicit zero
-    // included.
-    bool plot = plotFlag();
-    if (!gff.readBool(plot, "Invulnerable")) {
-        gff.readBool(plot, "Plot");
-    }
-    _plot = plot;
+    deserializePlot(gff, true);
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), false);
     gff.readByte(_secretDoorDC, "SecretDoorDC");
@@ -208,6 +202,13 @@ void Door::loadAppearance() {
         _preciseUse = false;
         _blocksSight = types->getInt(_appearance, "blocksight", 1) != 0;
         soundType = types->getInt(_appearance, "soundapptype");
+        // A door type without a visible model rests destroyed and is plot,
+        // whatever state the door was loaded in.
+        _visibleModel = types->getInt(_appearance, "visiblemodel", 1) != 0;
+        if (!_visibleModel) {
+            _state = DoorState::Destroyed;
+            _plot = true;
+        }
     } else {
         std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
         modelName = boost::to_lower_copy(doors->getString(_genericType, "modelname"));
@@ -416,6 +417,9 @@ void Door::damage(
         return;
     }
 
+    // A door broken by damage becomes plot, which ends its being dead, and
+    // opens unlocked.
+    _plot = true;
     _lock.setLocked(false);
     if (damager) {
         open(*damager);
@@ -445,14 +449,6 @@ void Door::close() {
     if (auto linked = linkedDoor()) {
         linked->swingShut();
     }
-}
-
-bool Door::typeShowsModel() const {
-    if (_appearance == 0) {
-        return true;
-    }
-    auto types = _services.resource.twoDas.get("doortypes");
-    return !types || types->getInt(_appearance, "visiblemodel", 1) != 0;
 }
 
 void Door::shutAtOnce() {
@@ -500,6 +496,10 @@ std::shared_ptr<Door> Door::linkedDoor() {
 }
 
 void Door::swingOpen(DoorTransition opening) {
+    if (!typeShowsModel()) {
+        enterDestroyedState();
+        return;
+    }
     if (actionState() == transitionTarget(opening)) {
         // Already open, or swinging open, to that side. Restarting would
         // rewind the leaf and re-run whatever the caller does around the
@@ -513,6 +513,10 @@ void Door::swingOpen(DoorTransition opening) {
 }
 
 void Door::swingShut() {
+    if (!typeShowsModel()) {
+        enterDestroyedState();
+        return;
+    }
     // Already shut, or swinging or waiting to: closing again replays nothing.
     if (actionState() == DoorState::Closed) {
         return;

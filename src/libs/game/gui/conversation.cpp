@@ -1314,27 +1314,16 @@ void Conversation::pickSelectedReply() {
     pickReply(std::stoi(list->getItemAt(list->selectedItemIndex()).tag));
 }
 
-// The selection stops at either end of the list, which scrolls to show it,
-// and the newly selected row sounds. With no row selected, either arrow
-// selects the first row, and only the down arrow sounds.
+// The list moves its selection as an arrow key moves any list's, and the
+// newly selected row sounds. With no row selected, either arrow selects the
+// first row, and only the down arrow sounds.
 void Conversation::moveReplySelection(int step) {
     const auto list = replyList();
-    if (!list || list->getItemCount() == 0) {
+    if (!list) {
         return;
     }
-    const int row = list->selectedItemIndex();
-    int next = 0;
-    bool sounds = step > 0;
-    if (row != -1) {
-        next = row + step;
-        if (next < 0 || next >= list->getItemCount()) {
-            return;
-        }
-        sounds = true;
-    }
-    list->setSelectedItemIndex(next);
-    list->scrollToItem(next);
-    if (sounds) {
+    const bool sounds = step > 0 || list->selectedItemIndex() >= 0;
+    if (list->selectAdjacentItem(step > 0, false) && sounds) {
         _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
     }
 }

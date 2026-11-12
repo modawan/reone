@@ -606,6 +606,7 @@ std::shared_ptr<Item> takeEquipmentCandidate(
 
     auto split = game.newItemClone(*item);
     split->setStackSize(1);
+    split->keepMarksOf(*item);
     return split;
 }
 
@@ -645,7 +646,8 @@ bool releaseAreaOwnedItem(
 ItemTransfer transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
-    Object &receiver) {
+    Object &receiver,
+    ItemLossNotice loss) {
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
         (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
         (item->isPresentationOnly() != receiver.isPresentationOnly()) ||
@@ -654,8 +656,15 @@ ItemTransfer transferItemTo(
     }
 
     uint32_t ownerId = item->owner();
-    if (ownerId == receiver.id() && !item->isEquipped())
+    if (ownerId == receiver.id() && !item->isEquipped()) {
+        // A placeable takes back an item it holds: the item leaves its list
+        // and is added again, as its newest item or joining a stack there.
+        if (receiver.type() == ObjectType::Placeable) {
+            receiver.removeItemStack(item);
+            return {true, receiver.addItem(item)};
+        }
         return {true, item};
+    }
 
     if (!item->isHeld()) {
         // owner() describes nested inventory/equipment ownership; it does not
@@ -685,9 +694,74 @@ ItemTransfer transferItemTo(
     } else if (!owner->removeItemStack(item)) {
         return {};
     }
+    if (loss != ItemLossNotice::None) {
+        item->announceLoss(loss == ItemLossNotice::Told);
+    }
 
     game.party().noteItemReceived(*item, receiver, owner.get());
     return {true, receiver.addItem(item)};
+}
+
+void announceAcquiredBy(
+    const std::shared_ptr<Item> &item,
+    const std::shared_ptr<Item> &held,
+    const Object &creature,
+    bool feedback) {
+    if (!held) {
+        return;
+    }
+    bool announced = true;
+    if (held != item) {
+        held->announceKept();
+    } else if (const auto possessor = held->inSharedInventory() ? held->possessor() : nullptr) {
+        held->announceAcquisition(script::kObjectInvalid, *possessor, feedback, feedback);
+    } else {
+        announced = false;
+    }
+    // Announced once, it is not announced again to the creature possessing it.
+    if (!announced || held->possessorId() != creature.id()) {
+        held->passTo(creature, true, feedback);
+    }
+}
+
+void announceStoredFor(
+    const std::shared_ptr<Item> &item,
+    const std::shared_ptr<Item> &held,
+    uint32_t previousPossessor,
+    const Object &creature) {
+    if (!held) {
+        return;
+    }
+    if (held != item) {
+        held->announceKept();
+    } else if (const auto possessor = held->possessor()) {
+        held->announceAcquisition(previousPossessor, *possessor, true, true);
+    }
+    if (held->possessorId() != creature.id()) {
+        held->passTo(creature, true, true);
+    }
+}
+
+ItemTransfer giveItemToCreature(
+    Game &game,
+    const std::shared_ptr<Item> &item,
+    Object &receiver,
+    const Object &creature,
+    bool feedback) {
+    const bool heldAlready = item->owner() == receiver.id() && !item->isEquipped();
+    auto transfer = transferItemTo(game, item, receiver);
+    if (!transfer) {
+        return transfer;
+    }
+    if (heldAlready) {
+        // An item the receiver holds already stays where it is and passes to
+        // the creature: kept when it possesses it, else lost by the one that
+        // did and acquired by the creature.
+        item->passTo(creature, true, feedback);
+    } else {
+        announceAcquiredBy(item, transfer.held, creature, feedback);
+    }
+    return transfer;
 }
 
 } // namespace game

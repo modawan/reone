@@ -91,12 +91,23 @@ constexpr glm::vec3 kTSLColorUpgradeBorder = glm::vec3(0.0f, 0.33f, 0.5f);
 constexpr glm::vec3 kTSLColorDisabledText = glm::vec3(0.4f, 0.4f, 0.3f);
 /** TSL's interface green: frames, and the colour a message box takes when it closes. */
 constexpr glm::vec3 kTSLColorNewGreen = glm::vec3(0.05f, 0.35f, 0.27f);
+/** The frame of TSL's store message boxes. */
+constexpr glm::vec3 kTSLColorDarkGold = glm::vec3(0.31f, 0.25f, 0.09f);
+
+/** Whether an item joins a matching stack where it lands, or keeps a stack of its own. */
+enum class ItemStacking {
+    Join,
+    Own
+};
 
 enum class BackgroundType {
     None,
     Menu,
     Load,
-    Computer
+    Computer,
+    Store,
+    /** The upgrade bench's panels: the menu backdrop, which TSL looks for too. */
+    Upgrade
 };
 
 enum class WeaponType {

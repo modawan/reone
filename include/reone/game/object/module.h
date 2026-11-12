@@ -72,7 +72,8 @@ struct ModuleItemEvents {
     uint32_t activatedTarget {script::kObjectInvalid};
     glm::vec3 activatedPosition {0.0f};
     uint32_t acquired {script::kObjectInvalid};
-    uint32_t acquiredFrom {script::kObjectInvalid};
+    /** The item's holder the acquisition event named, which GetModuleItemAcquiredFrom returns. */
+    uint32_t acquiredBy {script::kObjectInvalid};
     uint32_t lost {script::kObjectInvalid};
     uint32_t lostBy {script::kObjectInvalid};
     uint32_t equipped {script::kObjectInvalid};

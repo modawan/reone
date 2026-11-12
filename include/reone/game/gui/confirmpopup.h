@@ -27,6 +27,7 @@ namespace reone {
 
 namespace graphics {
 
+class Font;
 class Texture;
 
 }
@@ -49,9 +50,7 @@ struct PopupColors {
 class ConfirmPopup : public GameGUI {
 public:
     ConfirmPopup(Game &game, ServicesView &services) :
-        GameGUI(game, services) {
-        _resRef = guiResRef("confirm");
-    }
+        ConfirmPopup(game, services, false) {}
 
     /** Shows an OK box, in the given colours or in those it has. */
     void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr,
@@ -63,14 +62,55 @@ public:
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {},
         const std::optional<PopupColors> &colors = std::nullopt);
-    /** Closes the box; in TSL a box shown closes in the interface green and the highlight colour. */
+    /**
+     * Shows an OK box with pages, in the colours it has. OK, and closing the
+     * box as its key would, first turn to the next page, which replaces the
+     * message while the box stays open; the box closes and confirms only when
+     * no page follows.
+     *
+     * @param message the first page
+     * @param icon the icon shown above every page, if any
+     * @param nextPage turns to the next page; false when none follows
+     * @param onConfirm called when the box closes
+     */
+    void showPages(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+                   std::function<bool()> nextPage, std::function<void()> onConfirm = {});
+    /**
+     * Shows an OK box with a datapad's text, in the colours it has, aligned
+     * left in the datapad font. The message takes the box's own font and
+     * alignment again when the box closes.
+     */
+    void showDatapad(const std::string &message, std::function<void()> onConfirm);
+    /** Replaces the message of the box shown, which stays open; its tokens are resolved. */
+    void setMessage(const std::string &message);
+    /** Shows \p icon above the message, in place of any icon shown; the box is laid out again. */
+    void setIcon(std::shared_ptr<graphics::Texture> icon);
+    /** Sets the font the message is drawn in, from the next message laid out; the box's own font returns when it closes. */
+    void setMessageFont(std::shared_ptr<graphics::Font> font);
+    /**
+     * Closes the box; in TSL a box shown closes in the interface green and the
+     * highlight colour. The message takes the box's own font and alignment again.
+     */
     void hide();
-    /** Close as its key would: cancelled when it offers Cancel, otherwise confirmed. */
+    /** Close as its key would: a box with pages turns to its next page; otherwise cancelled when it offers Cancel, or confirmed. */
     void close();
+    /**
+     * The box shown gives way to another: one offering Cancel is cancelled,
+     * as its question goes unanswered; an OK box closes without confirming.
+     */
+    void withdraw();
     /** Relabel OK until the next show; the box is laid out again for the new label. */
     void setConfirmText(const std::string &text);
 
     bool isVisible() const { return _visible; }
+
+protected:
+    /** @param datapad whether the box is TSL's datapad box, on the datapad's layout */
+    ConfirmPopup(Game &game, ServicesView &services, bool datapad) :
+        GameGUI(game, services),
+        _datapad(datapad) {
+        _resRef = guiResRef(datapad ? "datapad" : "confirm");
+    }
 
 private:
     struct Controls {
@@ -80,14 +120,20 @@ private:
     };
 
     Controls _controls;
+    bool _datapad {false};
     bool _visible {false};
     std::function<void()> _onConfirm;
     std::function<void()> _onCancel;
+    /** Turns a box with pages to its next page; false when none follows. */
+    std::function<bool()> _nextPage;
     std::string _defaultConfirmText;
 
     std::shared_ptr<gui::Control> _icon;
     /** The message shown, its tokens resolved. */
     std::string _message;
+    /** The message's font and alignment as the box was loaded. */
+    std::shared_ptr<graphics::Font> _messageFont;
+    gui::Control::TextAlign _messageAlign {gui::Control::TextAlign::CenterTop};
     /** Whether an icon is shown above the message. */
     bool _hasIcon {false};
 
@@ -125,6 +171,13 @@ private:
      * stacked, centred, from the top and below the message.
      */
     void layoutMessage();
+    /**
+     * Lays the message out in the datapad box, which is of a set size,
+     * centred across the screen with its top where its layout puts it; the
+     * message and OK keep set places in it. Only a message that does not fit
+     * shows the scroll bar, its text wrapped clear of it.
+     */
+    void layoutDatapadMessage();
 
     /**
      * The width a message box button takes for its label: a minimum width
@@ -138,6 +191,16 @@ private:
         _controls.BTN_OK = findControl<gui::Button>("BTN_OK");
         _controls.LB_MESSAGE = findControl<gui::ListBox>("LB_MESSAGE");
     }
+};
+
+/**
+ * TSL's datapad box: a message box on the datapad's layout, its frame drawn
+ * over the datapad's background, which TSL shows a datapad's text in.
+ */
+class DatapadBox : public ConfirmPopup {
+public:
+    DatapadBox(Game &game, ServicesView &services) :
+        ConfirmPopup(game, services, true) {}
 };
 
 } // namespace game

@@ -108,24 +108,34 @@ bool useCarriedKey(Creature &actor, Object &target, Lock &lock, bool wantLocked)
         return false;
     }
 
+    // One key of a stack is used up; the last one is spent.
+    std::shared_ptr<Item> spent;
     if (lock.isAutoRemoveKey()) {
-        // One key of a stack is used up; the last one is destroyed.
         if (equipped) {
             if (key->stackSize() > 1) {
                 key->setStackSize(key->stackSize() - 1);
             } else if (actor.takeEquippedItem(key)) {
-                game.destroyRuntimeObjectGraph(key);
+                spent = key;
             }
         } else {
+            // A carried key goes from whatever holds it, which may be an item
+            // it is inside.
             bool last = false;
-            if (holder->removeItem(key, last) && last) {
-                game.destroyRuntimeObjectGraph(key);
+            const auto keyHolder = game.getObjectById(key->owner());
+            if (keyHolder && keyHolder->removeItem(key, last) && last) {
+                spent = key;
             }
         }
     }
     lock.setLocked(wantLocked);
     if (isLeader(game, actor)) {
         game.addFeedbackMessage(kKeyUsedStrRef);
+    }
+    // A spent key is destroyed after the events about it, so they still
+    // name it.
+    if (spent) {
+        spent->announceLoss(true);
+        game.postObjectDestruction(*spent, actor.id(), 0.0f);
     }
     return true;
 }

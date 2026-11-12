@@ -53,19 +53,21 @@ EquipmentOperationOutcome runEquip(
  * Unequip an Item into an owned container, or into the subject's inventory
  * owner when no container is given. Removing a main-hand item promotes a
  * weapon held in the paired off-hand slot, which is drawn unless instant.
+ * The item joins a stack or not as Object::addItem does with \p stacking.
  */
 EquipmentOperationOutcome runUnequip(
     Game &game,
     Creature &subject,
     const std::shared_ptr<Item> &item,
     const std::shared_ptr<Item> &container,
-    bool instant);
+    bool instant,
+    ItemStacking stacking = ItemStacking::Join);
 
 /**
  * Chooses the melee weapon, from the inventory and the weapon in the hand,
  * that deals the most damage to \p versus and queues its equip. A ranged
  * weapon in that hand returns to the inventory at once, the off-hand item with
- * a main-hand one.
+ * a main-hand one; each goes in by name, in its own stack.
  */
 void equipMostDamagingMeleeWeapon(
     Game &game,
@@ -76,8 +78,8 @@ void equipMostDamagingMeleeWeapon(
 /**
  * Chooses the ranged weapon with the best attack against \p versus and queues
  * its equip into the main hand. Whenever the main hand holds anything the
- * off-hand item returns to the inventory at once. False when no better ranged
- * weapon than the one held was found.
+ * off-hand item returns to the inventory at once, by name, in its own stack.
+ * False when no better ranged weapon than the one held was found.
  */
 bool equipMostDamagingRangedWeapon(
     Game &game,

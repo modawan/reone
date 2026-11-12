@@ -401,10 +401,7 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
             ctx.game.killRosterCreature({RosterKind::Npc, *npc});
         }
     }
-    party.setControlledMember(nNPC, creature);
-    if (nNPC != kNpcPlayer && resident && !wasListed) {
-        party.takeControlFromWorld(*creature);
-    }
+    party.switchControlTo(nNPC, creature, previous, nNPC != kNpcPlayer && resident && !wasListed);
 
     if (area) {
         if (!resident) {
@@ -644,8 +641,11 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
         ctx.game.party().noteItemReceived(*item, *receiver, nullptr);
         held = receiver->addItem(item);
     }
-    // An item created on a party member is reported in the status summary,
-    // unless the script hides it.
+    // A creature acquires it, told. An item created on a party member is
+    // reported in the status summary, unless the script hides it.
+    if (oTarget->type() == ObjectType::Creature) {
+        announceAcquiredBy(item, held, *oTarget, true);
+    }
     if (ctx.game.party().isMember(*oTarget) && !nHideMessage) {
         ctx.game.submitStatusSummary(StatusSummaryCategory::ItemsReceived, 0, {name});
     }
@@ -3360,8 +3360,15 @@ static Variable GiveItem(const std::vector<Variable> &args, const RoutineContext
     // Transform
     auto item = checkItem(oItem);
 
-    // Execute
-    transferItemTo(ctx.game, item, *oGiveTo);
+    // Execute: the item is announced lost by the one it leaves, told when a
+    // creature takes it, and acquired, untold, by a creature that does.
+    if (auto placeable = dyn_cast<Placeable>(oGiveTo)) {
+        placeable->receiveItem(item, nullptr, false);
+    } else if (oGiveTo->type() == ObjectType::Creature) {
+        giveItemToCreature(ctx.game, item, *oGiveTo, *oGiveTo, false);
+    } else {
+        transferItemTo(ctx.game, item, *oGiveTo, ItemLossNotice::Event);
+    }
     return Variable::ofNull();
 }
 
@@ -3454,7 +3461,7 @@ static Variable GetModuleItemAcquired(const std::vector<Variable> &args, const R
 
 static Variable GetModuleItemAcquiredFrom(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofObject(ctx.game.module()->itemEvents().acquiredFrom);
+    return Variable::ofObject(ctx.game.module()->itemEvents().acquiredBy);
 }
 
 static Variable SetCustomToken(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4856,10 +4863,8 @@ static Variable GetGold(const std::vector<Variable> &args, const RoutineContext 
     }
     // A placeable's are the stack of the first credits item it holds.
     if (std::dynamic_pointer_cast<Placeable>(target)) {
-        for (const auto &item : target->items()) {
-            if (item->itemType() == Item::kCreditsItemType) {
-                return Variable::ofInt(item->stackSize());
-            }
+        if (const auto credits = target->getItemByItemType(Item::kCreditsItemType)) {
+            return Variable::ofInt(credits->stackSize());
         }
     }
     return Variable::ofInt(0);
@@ -5177,7 +5182,7 @@ static Variable SetPlotFlag(const std::vector<Variable> &args, const RoutineCont
     // Transform
 
     // Execute
-    oTarget->setPlotFlag(nPlotFlag);
+    oTarget->setPlotFlag(nPlotFlag != 0);
     return Variable::ofNull();
 }
 
@@ -8256,21 +8261,17 @@ static Variable DisplayMessageBox(const std::vector<Variable> &args, const Routi
     return Variable::ofNull();
 }
 
-/** The local boolean a datapad sets once a script has shown it. */
-static constexpr int kDatapadShownBoolean = 94;
-
 static Variable DisplayDatapad(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oDatapad = getObjectOrNull(args, 0, ctx);
 
     // Execute: the datapad is marked as shown, and its identified
-    // description shows in a message box.
+    // description shows in the datapad box.
     auto item = oDatapad ? dyn_cast<Item>(oDatapad) : nullptr;
     if (!item) {
         return Variable::ofNull();
     }
-    item->setLocalBoolean(kDatapadShownBoolean, true);
-    ctx.game.showScriptMessageBox(item->descIdentified());
+    ctx.game.showDatapad(*item);
     return Variable::ofNull();
 }
 

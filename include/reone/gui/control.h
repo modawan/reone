@@ -225,6 +225,8 @@ public:
     void setNavigable(bool navigable) { _navigable = navigable; }
     /** Sets the ID of the control the arrow key of \p direction moves the keyboard to from this one. */
     void setMoveTo(MoveDirection direction, int id) { _moveTo[static_cast<size_t>(direction)] = id; }
+    /** Puts back the links the layout gave the control, undoing setMoveTo. */
+    void restoreLayoutMoves() { _moveTo = _layoutMoveTo; }
     virtual void setExtent(Extent extent);
     virtual void setExtentHeight(int height);
     void setExtentTop(int top);
@@ -334,6 +336,8 @@ protected:
     bool _navigable {false};
     /** By MoveDirection, the IDs of the controls the arrow keys move the keyboard to. */
     std::array<int, 4> _moveTo {};
+    /** The links as the layout gave them. */
+    std::array<int, 4> _layoutMoveTo {};
     bool _sharpenBorderFillAlpha {false};
     /** Seconds the control has been updated while shown, which runs its fills that cycle through frames. */
     float _textureTime {0.0f};

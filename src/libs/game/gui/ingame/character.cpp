@@ -240,6 +240,8 @@ void CharacterMenu::loadScriptSelectPanel() {
     controls.BTN_Back->setOnClick([this]() {
         closeScriptSelectPanel();
     });
+    // The list holds the keyboard until the pointer gives it to another control.
+    _scriptSelectGUI->setActiveControl(list);
 }
 
 // The panel opens for the leader with its current style marked and focused,
@@ -402,6 +404,8 @@ std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneG
         _game.newPresentationCreature(sceneGraph.name());
     character->setFacing(-glm::half_pi<float>());
     character->setAppearance(partyLeader->appearance());
+    // A disguise previews over the texture variation the leader shows.
+    character->takeShownTextureVariation(*partyLeader);
 
     for (auto &item : partyLeader->equipment()) {
         switch (item.first) {

@@ -29,6 +29,8 @@
 #include "reone/game/combattables.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/party.h"
 #include "reone/game/twodautil.h"
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
@@ -71,7 +73,7 @@ static constexpr int kOnHitDurationParameterTable = 1;
 static constexpr int kNewItemCharges = 50;
 
 int Item::cost(float baseCostMultiplier) const {
-    if (plotValue() == 1) {
+    if (plotFlag()) {
         return 0;
     }
     const float scaled = static_cast<float>(static_cast<int32_t>(_addCost)) * baseCostMultiplier;
@@ -149,7 +151,6 @@ void Item::loadBlank() {
     _baseItem = kBlankBaseItem;
     _modelVariation = 1;
     _charges = kNewItemCharges;
-    _dropable = true;
     loadBaseItem();
     loadIcon();
 }
@@ -168,8 +169,8 @@ bool Item::namesMissingTemplate(const resource::Gff &entry, resource::IGffs &gff
 }
 
 // A saved item is its own record. Any other entry that names a template is
-// that template with the entry's Dropable flag, when it has one; an entry
-// naming none is a whole item record.
+// that template with the entry's Dropable and Pickpocketable flags, when it
+// has them; an entry naming none is a whole item record.
 void Item::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -178,10 +179,8 @@ void Item::deserialize(
             if (auto uti = _services.resource.gffs.get(*resRef, ResType::Uti)) {
                 deserializeAll(*uti, SerializedIdentityContext::templateResource(*resRef), true);
             }
-            uint8_t dropable = 0;
-            if (gff.readByte(dropable, "Dropable")) {
-                _dropable = (dropable & 1) != 0;
-            }
+            gff.readBool(_dropable, "Dropable");
+            gff.readBool(_pickpocketable, "Pickpocketable");
             return;
         }
     }
@@ -258,7 +257,11 @@ void Item::deserializeAll(
             _modelVariation = 1;
         }
     }
+    // A record without either flag has it unset.
+    _dropable = false;
     gff.readBool(_dropable, "Dropable");
+    _pickpocketable = false;
+    gff.readBool(_pickpocketable, "Pickpocketable");
     gff.readBool(_nonEquippable, "NonEquippable");
     gff.readBool(_newlyAcquired, "NewItem");
 
@@ -399,6 +402,8 @@ void Item::loadBaseItem() {
         static_cast<int>(std::numeric_limits<uint16_t>::max())));
 
     _poweredItem = baseItems->getInt(_baseItem, "powereditem") != 0;
+    // The whole cell counts, and a blank one is 0: it takes no other column's
+    // value.
     _genderSpecific = baseItems->getInt(_baseItem, "genderspecific") != 0;
     if (_poweredItem) {
         auto loadSound = [this, &baseItems](const char *column) {
@@ -462,7 +467,6 @@ void Item::clone(const Item &from) {
     // Object
     _tag = from._tag;
     _name = from._name;
-    _plot = from._plot;
     // END Object
 
     // Serializable
@@ -485,7 +489,9 @@ void Item::clone(const Item &from) {
     _modelVariation = from._modelVariation;
     _bodyVariation = from._bodyVariation;
     _textureVariation = from._textureVariation;
-    _dropable = from._dropable;
+    // A copy starts dropable and pickpocketable, whatever the original.
+    _dropable = true;
+    _pickpocketable = true;
     _nonEquippable = from._nonEquippable;
     _newlyAcquired = from._newlyAcquired;
     // END Serializable
@@ -884,6 +890,182 @@ void Item::setIdentified(bool value) {
 
 void Item::setEquipped(bool equipped) {
     _equipped = equipped;
+}
+
+static constexpr int kItemAcquiredEvent = static_cast<int>(SavedSignalEventType::ItemAcquired);
+static constexpr int kInventoryDisturbedEvent = static_cast<int>(SavedSignalEventType::InventoryDisturbed);
+static constexpr int kItemLostEvent = static_cast<int>(SavedSignalEventType::ItemLost);
+static constexpr int kItemGainedStrRef = 1449;
+static constexpr int kItemLostStrRef = 1450;
+
+// The creature at the top of a possessor: the possessor itself, or the one
+// possessing the item that is the possessor; none for anything else.
+static std::shared_ptr<Creature> topCreatureOf(const Game &game, uint32_t possessor) {
+    if (const auto container = game.getObjectById<Item>(possessor)) {
+        return game.getObjectById<Creature>(container->possessorId());
+    }
+    return game.getObjectById<Creature>(possessor);
+}
+
+uint32_t Item::possessorId() const {
+    return isHeld() && _sharedPossessorId != script::kObjectInvalid ? _sharedPossessorId : _ownerId;
+}
+
+std::shared_ptr<Object> Item::possessor() const {
+    return _game.getObjectById(possessorId());
+}
+
+void Item::setOwner(const Object &holder) {
+    // The one possessing the item before: its possessor while held, else the
+    // one possessing it when it last left a holder.
+    uint32_t previousPossessor = possessorId();
+    if (!isHeld()) {
+        previousPossessor = _sharedPossessorId != script::kObjectInvalid ? _sharedPossessorId : _releasedFrom;
+    }
+    const auto previousTop = topCreatureOf(_game, previousPossessor);
+    restoreOwner(holder);
+    markForTop(holder, previousTop);
+}
+
+void Item::restoreOwner(const Object &holder) {
+    _ownerId = holder.id();
+    _releasedFrom = script::kObjectInvalid;
+    // The party's shared inventory is kept on the player character; the
+    // creature in control possesses what comes to it.
+    const auto &party = _game.party();
+    const auto controlled = party.player();
+    const bool shared = controlled && !_equipped && holder.id() == party.actualPlayer()->id();
+    _sharedPossessorId = shared ? controlled->id() : script::kObjectInvalid;
+}
+
+void Item::retakeForTop(const std::shared_ptr<Creature> &previousTop) {
+    const auto controlled = _game.party().player();
+    const auto holder = _game.getObjectById(_ownerId);
+    if (!controlled || !holder) {
+        return;
+    }
+    // What a creature wears stays possessed by it.
+    if (!_equipped) {
+        _sharedPossessorId = controlled->id();
+    }
+    markForTop(*holder, previousTop);
+}
+
+// An item coming to a player character becomes dropable and pickpocketable.
+void Item::markForTop(const Object &holder, const std::shared_ptr<Creature> &previousTop) {
+    std::shared_ptr<Creature> possessor;
+    const Creature *top;
+    if (const auto *container = dyn_cast<const Item>(&holder)) {
+        possessor = _game.getObjectById<Creature>(container->possessorId());
+        top = possessor.get();
+    } else if (_sharedPossessorId != script::kObjectInvalid && _sharedPossessorId != holder.id()) {
+        possessor = _game.getObjectById<Creature>(_sharedPossessorId);
+        top = possessor.get();
+    } else {
+        top = dyn_cast<const Creature>(&holder);
+    }
+    if (top && top->isPC() && top != previousTop.get()) {
+        _dropable = true;
+        _pickpocketable = true;
+    }
+}
+
+// With no module, as in character generation, there is none to tell.
+void Item::announceKept() {
+    if (!_game.module()) {
+        return;
+    }
+    _game.queueScriptEvent(*_game.module(), *this, Event(kItemAcquiredEvent, {}, {}, {}, {_game.getObjectById(_id), possessor()}));
+}
+
+void Item::passTo(const Object &possessor, bool events, bool feedback) {
+    if (possessorId() == possessor.id()) {
+        if (events) {
+            announceKept();
+        }
+        return;
+    }
+    const auto previousTop = topCreatureOf(_game, possessorId());
+    if (previousTop != topCreatureOf(_game, possessor.id())) {
+        reportLoss(previousTop, events, feedback);
+    }
+    announceAcquisition(possessorId(), possessor, events, feedback);
+}
+
+void Item::announceLoss(bool feedback) {
+    const uint32_t previousPossessor = _sharedPossessorId != script::kObjectInvalid ? _sharedPossessorId : _releasedFrom;
+    _sharedPossessorId = script::kObjectInvalid;
+    _releasedFrom = script::kObjectInvalid;
+    reportLoss(topCreatureOf(_game, previousPossessor), true, feedback);
+}
+
+void Item::announceSplitLoss(const Item &stack, bool feedback) {
+    _sharedPossessorId = script::kObjectInvalid;
+    _releasedFrom = stack.possessorId();
+    announceLoss(feedback);
+}
+
+// The lost event names the item, and its caller is the creature that lost
+// it. With no module, as in character generation, there is none to tell.
+void Item::reportLoss(const std::shared_ptr<Creature> &previousTop, bool events, bool feedback) {
+    if (!previousTop) {
+        return;
+    }
+    if (events && _game.module()) {
+        _game.queueScriptEvent(*_game.module(), *previousTop, Event(kItemLostEvent, {}, {}, {}, {_game.getObjectById(_id)}));
+    }
+    if (feedback && previousTop == _game.party().getLeader()) {
+        _game.addFeedbackMessage(kItemLostStrRef, {{0, localizedName()}});
+    }
+}
+
+void Item::announceAcquisition(uint32_t previousPossessor, const Object &possessor, bool events, bool feedback) {
+    // With no module, as in character generation, there are no events.
+    events = events && _game.module();
+    const auto self = _game.getObjectById(_id);
+    const auto previousTop = topCreatureOf(_game, previousPossessor);
+    // A creature comes to possess an item in the shared inventory.
+    if (isHeld() && _sharedPossessorId != script::kObjectInvalid && possessor.type() == ObjectType::Creature) {
+        _sharedPossessorId = possessor.id();
+        markForTop(*_game.getObjectById(_ownerId), previousTop);
+    }
+    const auto top = topCreatureOf(_game, possessor.id());
+    if (top) {
+        if (feedback && top != previousTop && top == _game.party().getLeader()) {
+            _game.addFeedbackMessage(kItemGainedStrRef, {{0, localizedName()}});
+        }
+        if (events) {
+            _game.queueScriptEvent(*_game.module(), *this, Event(kItemAcquiredEvent, {}, {}, {}, {self, top}));
+        }
+    }
+    if (!events) {
+        return;
+    }
+    // A placeable the item leaves, and one it comes to, is disturbed unless it
+    // is destroyed once empty: the one left by the creature now at the item's
+    // top, or else by the placeable it comes to; the one it comes to by the
+    // creature at the item's top before, or else by the placeable it left.
+    const auto left = _game.getObjectById<Placeable>(previousPossessor);
+    const auto reached = _game.getObjectById<Placeable>(possessor.id());
+    const auto disturb = [&](Placeable &placeable, const std::shared_ptr<Object> &disturber, InventoryDisturbType type) {
+        if (placeable.dieWhenEmpty() || !disturber) {
+            return;
+        }
+        _game.queueScriptEvent(placeable, *disturber, Event(kInventoryDisturbedEvent, {static_cast<int32_t>(type)}, {}, {}, {self}));
+    };
+    if (left) {
+        disturb(*left, top ? std::static_pointer_cast<Object>(top) : std::static_pointer_cast<Object>(reached), InventoryDisturbType::Removed);
+    }
+    if (reached) {
+        disturb(*reached, previousTop ? std::static_pointer_cast<Object>(previousTop) : std::static_pointer_cast<Object>(left), InventoryDisturbType::Added);
+    }
+}
+
+void Item::keepMarksOf(const Item &stack) {
+    _plot = stack._plot;
+    _stolen = stack._stolen;
+    _dropable = stack._dropable;
+    _pickpocketable = stack._pickpocketable;
 }
 
 // Armour takes its row too: the game's armour material class is never set.

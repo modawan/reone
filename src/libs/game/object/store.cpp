@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -152,10 +153,10 @@ void Store::deserializeItems(
                         identityContext,
                         {SaveRecordOriginKind::StoreItem, std::to_string(_id)});
                 }
-                // An entry never runs out when its Infinite's low bit is set; an
-                // entry without one runs out.
-                item->setInfinite((entry->getUint("Infinite", 0) & 1) != 0);
-                item->setOwner(_id);
+                // An entry never runs out when its Infinite is any value but
+                // 0; an entry without one runs out.
+                item->setInfinite(entry->getUint("Infinite", 0) != 0);
+                item->setOwner(*this);
                 loaded.push_back(std::move(item));
             }
             std::stable_sort(loaded.begin(), loaded.end(), [this](const auto &left, const auto &right) {
@@ -238,7 +239,7 @@ std::shared_ptr<Item> Store::acquireItem(const std::shared_ptr<Item> &item) {
         _game.destroyRuntimeObjectGraph(item);
         return nullptr;
     }
-    item->setOwner(_id);
+    item->setOwner(*this);
     return item;
 }
 
@@ -247,6 +248,7 @@ void Store::sellItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Cr
     if (item->isInfinite() || item->stackSize() > 1) {
         // The one sold is never infinite.
         sold = _game.newItemClone(*item);
+        sold->keepMarksOf(*item);
         sold->setInfinite(false);
         sold->setStackSize(1);
         if (!item->isInfinite()) {
@@ -255,7 +257,7 @@ void Store::sellItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Cr
     } else {
         removeItemStack(item);
     }
-    _game.party().sharedInventoryReceiver(buyer)->addItem(sold);
+    announceAcquiredBy(sold, _game.party().sharedInventoryReceiver(buyer)->addItem(sold), *buyer, true);
 }
 
 void Store::onOpened(uint32_t openerId) {
