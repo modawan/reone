@@ -22,6 +22,71 @@ namespace reone {
 namespace input {
 
 
+struct Keybind {
+    input::KeyCode keyCode;
+    input::KeyCode keyCodeAlt;
+    input::GamepadButton gamepadButton;
+    input::GamepadAxis gamepadAxis;
+
+    bool check(input::KeyCode keyCode) {
+        return this->keyCode == keyCode || keyCodeAlt == keyCode;
+    }
+    bool check(input::GamepadButton button) {
+        return gamepadButton == button;
+    }
+    bool check(input::GamepadAxis axis) {
+        return gamepadAxis == axis;
+    }
+};
+
+struct KeybindOptions {
+    Keybind moveForward {input::KeyCode::W, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftY};
+    Keybind moveBackward {input::KeyCode::S, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftY};
+    Keybind moveLeft {input::KeyCode::Z, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftX};
+    Keybind moveRight {input::KeyCode::C, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftX};
+    Keybind flourish {input::KeyCode::X, input::KeyCode::Unknown, input::GamepadButton::North, input::GamepadAxis::Invalid};
+    Keybind walk {input::KeyCode::B, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind cameraRotateLeft {input::KeyCode::A, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightX};
+    Keybind cameraRotateRight {input::KeyCode::D, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightX};
+    Keybind cycleTargetLeft {input::KeyCode::Q, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftTrigger};
+    Keybind cycleTargetRight {input::KeyCode::E, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightTrigger};
+    Keybind toggleStealth {input::KeyCode::G, input::KeyCode::Unknown, input::GamepadButton::Back, input::GamepadAxis::Invalid};
+    Keybind clearOneAction {input::KeyCode::Y, input::KeyCode::Unknown, input::GamepadButton::North, input::GamepadAxis::Invalid};
+    Keybind cancelCombat {input::KeyCode::F, input::KeyCode::Unknown, input::GamepadButton::East, input::GamepadAxis::Invalid};
+    Keybind defaultAction {input::KeyCode::R, input::KeyCode::Unknown, input::GamepadButton::South, input::GamepadAxis::Invalid};
+    Keybind pause {input::KeyCode::Space, input::KeyCode::Pause, input::GamepadButton::LeftShoulder, input::GamepadAxis::Invalid};
+    Keybind changeCharacter {input::KeyCode::Tab, input::KeyCode::Unknown, input::GamepadButton::RightShoulder, input::GamepadAxis::Invalid};
+    Keybind freeLook {input::KeyCode::CapsLock, input::KeyCode::Unknown, input::GamepadButton::LeftStick, input::GamepadAxis::Invalid};
+    Keybind quickSave {input::KeyCode::F4, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind quickLoad {input::KeyCode::F5, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiNavigateScrollUp {input::KeyCode::Unknown, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightY};
+    Keybind guiNavigateScrollDown {input::KeyCode::Unknown, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::RightY};
+    Keybind guiNavigateUp {input::KeyCode::Up, input::KeyCode::Unknown, input::GamepadButton::DPadUp, input::GamepadAxis::LeftY};
+    Keybind guiNavigateDown {input::KeyCode::Down, input::KeyCode::Unknown, input::GamepadButton::DPadDown, input::GamepadAxis::LeftY};
+    Keybind guiNavigateLeft {input::KeyCode::Left, input::KeyCode::Unknown, input::GamepadButton::DPadLeft, input::GamepadAxis::LeftX};
+    Keybind guiNavigateRight {input::KeyCode::Right, input::KeyCode::Unknown, input::GamepadButton::DPadRight, input::GamepadAxis::LeftX};
+    Keybind guiNavigateExit {input::KeyCode::Escape, input::KeyCode::Unknown, input::GamepadButton::East, input::GamepadAxis::Invalid};
+    Keybind guiNavigateConfirm {input::KeyCode::Return, input::KeyCode::KeypadEnter, input::GamepadButton::South, input::GamepadAxis::Invalid};
+    Keybind guiNavigateAlt1 {input::KeyCode::Unknown, input::KeyCode::Unknown, input::GamepadButton::West, input::GamepadAxis::Invalid};
+    Keybind guiNavigateAlt2 {input::KeyCode::Unknown, input::KeyCode::Unknown, input::GamepadButton::North, input::GamepadAxis::Invalid};
+    Keybind guiMenuMessages {input::KeyCode::J, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuMap {input::KeyCode::M, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuQuest {input::KeyCode::L, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuSkillsFeats {input::KeyCode::K, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuOptions {input::KeyCode::O, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuCharacter {input::KeyCode::P, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuInventory {input::KeyCode::I, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiMenuEquipment {input::KeyCode::U, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiNextMenu {input::KeyCode::E, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind guiPreviousMenu {input::KeyCode::Q, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::Invalid};
+    Keybind mgMoveFoward {input::KeyCode::W, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftY};
+    Keybind mgMoveBackward {input::KeyCode::S, input::KeyCode::Unknown, input::GamepadButton::Invalid, input::GamepadAxis::LeftY};
+    Keybind mgMoveLeft {input::KeyCode::A, input::KeyCode::Left, input::GamepadButton::Invalid, input::GamepadAxis::LeftX};
+    Keybind mgMoveRight {input::KeyCode::D, input::KeyCode::Right, input::GamepadButton::Invalid, input::GamepadAxis::LeftX};
+    Keybind mgAction {input::KeyCode::Space, input::KeyCode::Unknown, input::GamepadButton::South, input::GamepadAxis::Invalid};
+    Keybind mgPause {input::KeyCode::Escape, input::KeyCode::Unknown, input::GamepadButton::LeftShoulder, input::GamepadAxis::Invalid};
+};
+   
 enum class GamepadButton {
     Invalid = -1,
     South, 

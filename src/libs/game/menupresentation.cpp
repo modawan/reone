@@ -70,22 +70,22 @@ const std::array<std::pair<std::string_view, bool AutoPauseOptions::*>, 6> kAuto
     {"New Target Selected", &AutoPauseOptions::newTargetSelected},
 }};
 
-const std::array<std::pair<std::string_view, Keybind KeybindOptions::*>, 15> kKeybindOptionsKeys {{
-    {"moveForward", &KeybindOptions::moveForward},
-    {"moveBackward", &KeybindOptions::moveBackward},
-    {"moveLeft", &KeybindOptions::moveLeft},
-    {"moveRight", &KeybindOptions::moveRight},
-    {"flourish", &KeybindOptions::flourish},
-    {"walk", &KeybindOptions::walk},
-    {"cameraRotateLeft", &KeybindOptions::cameraRotateLeft},
-    {"cameraRotateRight", &KeybindOptions::cameraRotateRight},
-    {"cycleTargetLeft", &KeybindOptions::cycleTargetLeft},
-    {"cycleTargetRight", &KeybindOptions::cycleTargetRight},
-    {"toggleStealth", &KeybindOptions::toggleStealth},
-    {"clearOneAction", &KeybindOptions::clearOneAction},
-    {"cancelCombat", &KeybindOptions::cancelCombat},
-    {"defaultAction", &KeybindOptions::defaultAction},
-    {"pause", &KeybindOptions::pause},
+const std::array<std::pair<std::string_view, input::Keybind input::KeybindOptions::*>, 15> kKeybindOptionsKeys {{
+    {"moveForward", &input::KeybindOptions::moveForward},
+    {"moveBackward", &input::KeybindOptions::moveBackward},
+    {"moveLeft", &input::KeybindOptions::moveLeft},
+    {"moveRight", &input::KeybindOptions::moveRight},
+    {"flourish", &input::KeybindOptions::flourish},
+    {"walk", &input::KeybindOptions::walk},
+    {"cameraRotateLeft", &input::KeybindOptions::cameraRotateLeft},
+    {"cameraRotateRight", &input::KeybindOptions::cameraRotateRight},
+    {"cycleTargetLeft", &input::KeybindOptions::cycleTargetLeft},
+    {"cycleTargetRight", &input::KeybindOptions::cycleTargetRight},
+    {"toggleStealth", &input::KeybindOptions::toggleStealth},
+    {"clearOneAction", &input::KeybindOptions::clearOneAction},
+    {"cancelCombat", &input::KeybindOptions::cancelCombat},
+    {"defaultAction", &input::KeybindOptions::defaultAction},
+    {"pause", &input::KeybindOptions::pause},
 }};
 
 std::string trim(const std::string &s) {
@@ -162,8 +162,8 @@ public:
         return value ? std::optional<bool>(*value != 0) : std::nullopt;
     }
 
-    std::optional<Keybind> keybind(const std::string &section, const std::string &keyPrefix) const {
-        auto value = Keybind();
+    std::optional<input::Keybind> keybind(const std::string &section, const std::string &keyPrefix) const {
+        auto value = input::Keybind();
 
         if (exists(section)) {
             value.keyCode = static_cast<input::KeyCode>(number(section, str(boost::format("%sKeyCode") % keyPrefix)).value_or(0));
@@ -310,30 +310,6 @@ void MenuPresentation::save(const std::filesystem::path &path) const {
                                  });
     configuration.write(path);
 }
-KeybindOptions KeybindOptions::load(const std::filesystem::path &path, const int index) {
-    const auto configuration = ConfigurationFile::read(path);
-    const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
-    KeybindOptions result;
-    for (const auto &[key, option] : kKeybindOptionsKeys) {
-        auto keybind = configuration.keybind(kKeybindsSection, std::string(key));
-        if (keybind.has_value())
-            result.*option = keybind.value();
-    }
-    return result;
-}
-
-void KeybindOptions::save(const std::filesystem::path &path, const int index) const {
-    auto configuration = ConfigurationFile::read(path);
-    const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
-    std::vector<ConfigurationValue> values;
-    for (const auto &[key, option] : kKeybindOptionsKeys) {
-        values.emplace_back(str(boost::format("%sKeyCode") % key), static_cast<int>((this->*option).keyCode));
-        values.emplace_back(str(boost::format("%sKeyCodeAlt") % key), static_cast<int>((this->*option).keyCodeAlt));
-    }
-    configuration.set(kKeybindsSection, values);
-    configuration.write(path);
-}
-
 
 FeedbackOptions FeedbackOptions::load(const std::filesystem::path &path) {
     const auto configuration = ConfigurationFile::read(path);
@@ -363,6 +339,30 @@ int loadActiveKeybinds(const std::filesystem::path &path, int activeKeybinds) {
 void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds) {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kActiveKeybindsKey, activeKeybinds}});
+    configuration.write(path);
+}
+
+input::KeybindOptions loadKeybinds(const std::filesystem::path &path, const int index) {
+    const auto configuration = ConfigurationFile::read(path);
+    const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
+    input::KeybindOptions result;
+    for (const auto &[key, option] : kKeybindOptionsKeys) {
+        auto keybind = configuration.keybind(kKeybindsSection, std::string(key));
+        if (keybind.has_value())
+            result.*option = keybind.value();
+    }
+    return result;
+}
+
+void saveKeybinds(const std::filesystem::path &path, const int index) {
+    auto configuration = ConfigurationFile::read(path);
+    const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
+    std::vector<ConfigurationValue> values;
+    for (const auto &[key, option] : kKeybindOptionsKeys) {
+        values.emplace_back(str(boost::format("%sKeyCode") % key), static_cast<int>((this->*option).keyCode));
+        values.emplace_back(str(boost::format("%sKeyCodeAlt") % key), static_cast<int>((this->*option).keyCodeAlt));
+    }
+    configuration.set(kKeybindsSection, values);
     configuration.write(path);
 }
 
