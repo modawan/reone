@@ -425,7 +425,7 @@ TEST_F(ConversationTest, repeated_pause_and_resume_calls_are_safe_and_determinis
 }
 
 TEST_F(ConversationTest, automatic_skip_does_not_bypass_a_paused_entry) {
-    Conversation::AutoSkip autoSkip;
+    ConversationAutoSkip autoSkip;
     autoSkip.enabled = true;
     autoSkip.entries.push(true);
     _conversation->setAutoSkip(&autoSkip);
@@ -447,7 +447,7 @@ TEST_F(ConversationTest, automatic_skip_does_not_bypass_a_paused_entry) {
 }
 
 TEST_F(ConversationTest, unpaused_automatic_skip_retains_immediate_progression) {
-    Conversation::AutoSkip autoSkip;
+    ConversationAutoSkip autoSkip;
     autoSkip.enabled = true;
     autoSkip.entries.push(true);
     _conversation->setAutoSkip(&autoSkip);

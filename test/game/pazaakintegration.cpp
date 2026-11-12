@@ -13,6 +13,7 @@
 
 #include "reone/audio/clip.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/pazaak.h"
 #include "reone/game/script/routines.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"

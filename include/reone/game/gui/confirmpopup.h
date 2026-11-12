@@ -22,6 +22,7 @@
 #include "reone/gui/control/listbox.h"
 
 #include "../gui.h"
+#include "popupcolors.h"
 
 namespace reone {
 
@@ -32,14 +33,6 @@ class Texture;
 }
 
 namespace game {
-
-/** The colours a message box is drawn in: its frame and button borders, and its message and button text. */
-struct PopupColors {
-    /** The frame's and the buttons' borders. */
-    glm::vec3 border {1.0f};
-    /** The message's and the buttons' text. */
-    glm::vec3 text {1.0f};
-};
 
 /**
  * Centered in-game message popup laid out on the confirmation dialog's GUI,

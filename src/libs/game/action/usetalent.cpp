@@ -20,6 +20,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/usetalentatlocation.h"
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
