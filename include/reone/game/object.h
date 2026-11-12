@@ -648,6 +648,8 @@ public:
         std::string conversation;
         /** A request to talk asks for a private conversation. */
         bool privateConversation {false};
+        /** A request to talk ignores its start range, as a script's does. */
+        bool ignoreStartRange {false};
     };
 
     /** A pattern the object listens for and the number it answers with. */

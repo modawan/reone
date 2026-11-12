@@ -6434,8 +6434,11 @@ static Variable BarkString(const std::vector<Variable> &args, const RoutineConte
 
     // Transform
 
-    // Execute: nobody barks while a conversation is under way. A speaker
-    // that can't be found barks with no speaker.
+    // Execute: TSL's bark bubble takes the place asked for, -1 leaving an edge
+    // to the layout, even when the bark is dropped. Nobody barks while a
+    // conversation is under way. A speaker that can't be found barks with no
+    // speaker.
+    ctx.game.setBarkBubblePlace(nBarkX, nBarkY);
     if (ctx.game.isDialogUnderWay()) {
         return Variable::ofNull();
     }

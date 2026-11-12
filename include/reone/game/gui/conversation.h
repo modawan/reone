@@ -208,8 +208,11 @@ protected:
     /** One line per reply, in reply order; an empty line stands for a reply that is not listed. */
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
 
-    // How a one-liner presents its entry, alongside setMessage/setReplyLines.
-    virtual void setBarkText(std::string text, float duration);
+    /**
+     * How a one-liner presents its entry, alongside setMessage/setReplyLines:
+     * barked by \p speaker, or with no speaker, near it unless \p ignoresDistance.
+     */
+    virtual void setBarkText(std::string text, float duration, uint32_t speaker, bool ignoresDistance);
 
     virtual void onStart();
     virtual void onFinish();

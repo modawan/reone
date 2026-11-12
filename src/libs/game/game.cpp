@@ -2019,7 +2019,7 @@ bool Game::loadPreparedModule(
 
                 _services.scene.graphs.get(kSceneMain).clear();
                 // A module starts with no conversation under way or asked for.
-                _dialogUnderWay = false;
+                setDialogUnderWay(false);
                 dropConversationRequest();
                 _conversationRequestAdmitted = false;
                 if (isTSL()) {
@@ -9327,13 +9327,13 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     } catch (const std::exception &e) {
         warn("Game: conversation load failed: " + resRef + ": " + e.what());
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
     if (!dialog) {
         warn("Game: conversation not found or invalid: " + resRef);
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
 
@@ -9341,7 +9341,7 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     auto conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
     if (!conversation) {
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
 
@@ -9437,7 +9437,7 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
     }
     if (!started) {
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
     }
     return started;
 }
@@ -9658,13 +9658,21 @@ GameGUI *Game::guiForScreen(Screen screen) const {
     }
 }
 
-void Game::setBarkBubbleText(std::string text, float duration) {
-    _hud->barkBubble().setBarkText(text, duration);
+void Game::setBarkBubbleText(std::string text, float duration, uint32_t speaker, bool ignoresDistance) {
+    if (_hud) {
+        _hud->barkBubble().setBarkText(text, duration, speaker, ignoresDistance);
+    }
+}
+
+void Game::setBarkBubblePlace(int x, int y) {
+    if (_hud) {
+        _hud->barkBubble().setPlace(x, y);
+    }
 }
 
 void Game::bark(Object &speaker, int strRef) {
     const std::string text = getInterfaceText(strRef);
-    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text), speaker.id());
     playBarkSound(speaker, _services.resource.strings.getSound(strRef));
 }
 

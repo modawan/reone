@@ -376,8 +376,8 @@ void Conversation::loadCameraModel() {
     _cameraModel = modelResRef.empty() ? nullptr : _services.resource.models.get(modelResRef);
 }
 
-void Conversation::setBarkText(std::string text, float duration) {
-    _game.setBarkBubbleText(std::move(text), duration);
+void Conversation::setBarkText(std::string text, float duration, uint32_t speaker, bool ignoresDistance) {
+    _game.setBarkBubbleText(std::move(text), duration, speaker, ignoresDistance);
 }
 
 void Conversation::onStart() {
@@ -635,11 +635,15 @@ void Conversation::loadEntry(int index, bool start) {
                                 ? _services.resource.strings.getSound(_currentEntry->textStrRef)
                                 : _currentEntry->voResRef;
             }
-            if (auto speaker = currentEntrySpeaker()) {
+            const auto speaker = currentEntrySpeaker();
+            if (speaker) {
                 _game.playBarkSound(*speaker, barkSound);
             }
+            // The bark shows only near its speaker, unless the conversation
+            // ignores its start range.
             const float barkDuration = spokenLineSeconds(entryText);
-            setBarkText(std::move(entryText), barkDuration);
+            setBarkText(std::move(entryText), barkDuration, speaker ? speaker->id() : script::kObjectInvalid,
+                        _game.conversationIgnoresStartRange());
             if (auto owner = _owner.resolve()) {
                 runEndScript(*_dialog, *owner);
                 if (!isCurrent(generation)) {
