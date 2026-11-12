@@ -17,6 +17,10 @@
 
 #include "reone/game/minigame.h"
 
+#include <algorithm>
+
+#include <boost/algorithm/string.hpp>
+
 #include "reone/graphics/animation.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
@@ -77,6 +81,67 @@ MinigameFollowerScriptSpec parseFollowerScripts(const TScripts &scripts) {
 }
 
 } // namespace
+
+const char *minigameSlotName(MinigameSlot slot) {
+    switch (slot) {
+    case MinigameSlot::OnCreate:
+        return "OnCreate";
+    case MinigameSlot::OnHitBullet:
+        return "OnHitBullet";
+    case MinigameSlot::OnHitFollower:
+        return "OnHitFollower";
+    case MinigameSlot::OnAnimEvent:
+        return "OnAnimEvent";
+    case MinigameSlot::OnHeartbeat:
+        return "OnHeartbeat";
+    case MinigameSlot::OnDamage:
+        return "OnDamage";
+    case MinigameSlot::OnDeath:
+        return "OnDeath";
+    case MinigameSlot::OnFire:
+        return "OnFire";
+    case MinigameSlot::OnHitObstacle:
+        return "OnHitObstacle";
+    case MinigameSlot::OnTrackLoop:
+        return "OnTrackLoop";
+    case MinigameSlot::OnAccelerate:
+        return "OnAccelerate";
+    case MinigameSlot::OnBrake:
+        return "OnBrake";
+    case MinigameSlot::OnHitWorld:
+        return "OnHitWorld";
+    default:
+        return "?";
+    }
+}
+
+MinigameScripts minigameScripts(const MinigameFollowerScriptSpec &spec) {
+    MinigameScripts scripts;
+    scripts[static_cast<size_t>(MinigameSlot::OnCreate)] = spec.onCreate;
+    scripts[static_cast<size_t>(MinigameSlot::OnHitBullet)] = spec.onHitBullet;
+    scripts[static_cast<size_t>(MinigameSlot::OnHitFollower)] = spec.onHitFollower;
+    scripts[static_cast<size_t>(MinigameSlot::OnAnimEvent)] = spec.onAnimEvent;
+    scripts[static_cast<size_t>(MinigameSlot::OnHeartbeat)] = spec.onHeartbeat;
+    scripts[static_cast<size_t>(MinigameSlot::OnDamage)] = spec.onDamage;
+    scripts[static_cast<size_t>(MinigameSlot::OnDeath)] = spec.onDeath;
+    scripts[static_cast<size_t>(MinigameSlot::OnFire)] = spec.onFire;
+    scripts[static_cast<size_t>(MinigameSlot::OnHitObstacle)] = spec.onHitObstacle;
+    scripts[static_cast<size_t>(MinigameSlot::OnTrackLoop)] = spec.onTrackLoop;
+    scripts[static_cast<size_t>(MinigameSlot::OnAccelerate)] = spec.onAccelerate;
+    scripts[static_cast<size_t>(MinigameSlot::OnBrake)] = spec.onBrake;
+    scripts[static_cast<size_t>(MinigameSlot::OnHitWorld)] = spec.onHitWorld;
+    return scripts;
+}
+
+MinigameScripts minigameScripts(const MinigameObstacleScriptSpec &spec) {
+    MinigameScripts scripts;
+    scripts[static_cast<size_t>(MinigameSlot::OnCreate)] = spec.onCreate;
+    scripts[static_cast<size_t>(MinigameSlot::OnHitBullet)] = spec.onHitBullet;
+    scripts[static_cast<size_t>(MinigameSlot::OnHitFollower)] = spec.onHitFollower;
+    scripts[static_cast<size_t>(MinigameSlot::OnAnimEvent)] = spec.onAnimEvent;
+    scripts[static_cast<size_t>(MinigameSlot::OnHeartbeat)] = spec.onHeartbeat;
+    return scripts;
+}
 
 float minigameAccelerationPerSecond(float minimumSpeed, float maximumSpeed, float accelSecs) {
     if (accelSecs == 0.0f) {
@@ -215,6 +280,10 @@ MinigameTrack::MinigameTrack(glm::mat4 base,
     _orientations.update();
 }
 
+MinigameTrack MinigameTrack::fixed(const glm::vec3 &position) {
+    return MinigameTrack(glm::translate(position), glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), {}, {}, 0.0f);
+}
+
 glm::mat4 MinigameTrack::hookAt(float time) const {
     glm::vec3 offset(0.0f);
     _positions.valueAtTime(time, offset);
@@ -250,6 +319,677 @@ std::optional<MinigameTrack> buildMinigameTrack(const graphics::Model &model, co
     }
     return MinigameTrack(base, hook->restPosition(), hook->restOrientation(),
                          std::move(positions), std::move(orientations), length);
+}
+
+namespace {
+
+constexpr float kDefaultSwoopMovementPerSec = 6.0f;
+constexpr float kTunnelWallTolerance = 0.01f;
+constexpr float kBumpClearance = 0.1f;
+
+} // namespace
+
+// Geometry
+
+float minigameSegmentDistance(const glm::vec3 &p0, const glm::vec3 &p1, const glm::vec3 &q0, const glm::vec3 &q1) {
+    glm::vec3 d1 = p1 - p0;
+    glm::vec3 d2 = q1 - q0;
+    glm::vec3 r = p0 - q0;
+    float a = glm::dot(d1, d1);
+    float e = glm::dot(d2, d2);
+    float f = glm::dot(d2, r);
+    float s = 0.0f;
+    float t = 0.0f;
+    constexpr float eps = 1e-8f;
+    if (a <= eps && e <= eps) {
+        return glm::length(r);
+    }
+    if (a <= eps) {
+        t = glm::clamp(f / e, 0.0f, 1.0f);
+    } else {
+        float c = glm::dot(d1, r);
+        if (e <= eps) {
+            s = glm::clamp(-c / a, 0.0f, 1.0f);
+        } else {
+            float b = glm::dot(d1, d2);
+            float denom = a * e - b * b;
+            s = denom > eps ? glm::clamp((b * f - c * e) / denom, 0.0f, 1.0f) : 0.0f;
+            t = (b * s + f) / e;
+            if (t < 0.0f) {
+                t = 0.0f;
+                s = glm::clamp(-c / a, 0.0f, 1.0f);
+            } else if (t > 1.0f) {
+                t = 1.0f;
+                s = glm::clamp((b - c) / a, 0.0f, 1.0f);
+            }
+        }
+    }
+    return glm::length((p0 + d1 * s) - (q0 + d2 * t));
+}
+
+bool minigameSegmentHitsBox2D(const glm::vec3 &p0, const glm::vec3 &p1, const glm::vec3 &boxMin, const glm::vec3 &boxMax) {
+    float tmin = 0.0f;
+    float tmax = 1.0f;
+    for (int axis = 0; axis < 2; ++axis) {
+        float origin = p0[axis];
+        float dir = p1[axis] - p0[axis];
+        if (glm::abs(dir) < 1e-8f) {
+            if (origin < boxMin[axis] || origin > boxMax[axis]) {
+                return false;
+            }
+            continue;
+        }
+        float t1 = (boxMin[axis] - origin) / dir;
+        float t2 = (boxMax[axis] - origin) / dir;
+        if (t1 > t2) {
+            std::swap(t1, t2);
+        }
+        tmin = glm::max(tmin, t1);
+        tmax = glm::min(tmax, t2);
+        if (tmin > tmax) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Session
+
+void MinigameSession::load(const MinigameSpec &spec,
+                           MinigameTrack playerTrack,
+                           std::vector<MinigameTrack> enemyTracks,
+                           std::vector<ObstaclePlacement> obstacles) {
+    _actors.clear();
+    _enemyList.clear();
+    _obstacleList.clear();
+    _ticks = 0;
+    _elapsed = 0.0f;
+    _scriptsRun = 0;
+    _started = false;
+    _speedHeld = false;
+    _lateralVelocity = glm::vec3(0.0f);
+    _previousInput = glm::vec3(0.0f);
+
+    _type = spec.type;
+    _lateralAccel = spec.lateralAccel;
+    _movementPerSec = spec.movementPerSec;
+    if (_movementPerSec <= 0.0f && _type == MinigameType::SwoopRace) {
+        _movementPerSec = kDefaultSwoopMovementPerSec;
+    }
+    _useInertia = spec.useInertia;
+    _doBumping = spec.doBumping;
+    _nearClip = spec.nearClip;
+    _farClip = spec.farClip;
+    _speedBlur = false;
+    _speedBlurRatio = 0.0f;
+
+    auto applyFollower = [](MinigameActor &actor,
+                            uint32_t hitPoints,
+                            uint32_t maxHitPoints,
+                            float sphereRadius,
+                            float invincePeriod,
+                            int bumpDamage,
+                            int numLoops) {
+        // The follower setters keep their defaults for out-of-range values.
+        if (static_cast<int>(hitPoints) > 0) {
+            actor.hitPoints = static_cast<int>(hitPoints);
+        }
+        if (static_cast<int>(maxHitPoints) > 0) {
+            actor.maxHitPoints = static_cast<int>(maxHitPoints);
+        }
+        if (sphereRadius >= 0.0f) {
+            actor.sphereRadius = sphereRadius;
+        }
+        if (invincePeriod >= 0.0f) {
+            actor.invincePeriod = invincePeriod;
+        }
+        actor.bumpDamage = bumpDamage;
+        actor.numLoops = numLoops;
+    };
+
+    // Player
+    MinigameActor player;
+    player.kind = MinigameActorKind::Player;
+    player.models = spec.player.models;
+    player.name = spec.player.models.empty() ? std::string() : spec.player.models.front().resRef;
+    player.scripts = minigameScripts(spec.player.scripts);
+    player.sounds = spec.player.sounds;
+    applyFollower(player, spec.player.hitPoints, spec.player.maxHitPoints, spec.player.sphereRadius,
+                  spec.player.invincePeriod, spec.player.bumpDamage, spec.player.numLoops);
+    for (const auto &bank : spec.player.gunBanks) {
+        player.gunBanks.push_back({bank, 0.0f});
+    }
+    player.track = std::move(playerTrack);
+    _actors.push_back(std::move(player));
+
+    _minSpeed = spec.player.minimumSpeed;
+    _maxSpeed = 0.0f;
+    if (spec.player.maximumSpeed >= 0.0f) {
+        _maxSpeed = spec.player.maximumSpeed;
+    }
+    _accelPerSecond = spec.player.accelPerSecond;
+    _tunnelPos = glm::vec3(spec.player.tunnelXPos, spec.player.tunnelYPos, spec.player.tunnelZPos);
+    _tunnelNeg = glm::vec3(spec.player.tunnelXNeg, spec.player.tunnelYNeg, spec.player.tunnelZNeg);
+    _tunnelInfinite = spec.player.tunnelInfinite;
+    _startOffset = spec.player.startOffset;
+    _offset = _startOffset;
+    _targetOffset = spec.player.targetOffset;
+
+    // Enemies
+    for (size_t i = 0; i < spec.enemies.size(); ++i) {
+        const auto &enemySpec = spec.enemies[i];
+        MinigameActor enemy;
+        enemy.kind = MinigameActorKind::Enemy;
+        enemy.specIndex = i;
+        enemy.models = enemySpec.models;
+        enemy.name = enemySpec.models.empty() ? enemySpec.trackResRef : enemySpec.models.front().resRef;
+        enemy.scripts = minigameScripts(enemySpec.scripts);
+        enemy.sounds = enemySpec.sounds;
+        enemy.trigger = enemySpec.trigger;
+        applyFollower(enemy, enemySpec.hitPoints, enemySpec.maxHitPoints, enemySpec.sphereRadius,
+                      enemySpec.invincePeriod, enemySpec.bumpDamage, enemySpec.numLoops);
+        for (const auto &bank : enemySpec.gunBanks) {
+            enemy.gunBanks.push_back({bank, 0.0f});
+        }
+        if (i < enemyTracks.size()) {
+            enemy.track = std::move(enemyTracks[i]);
+        }
+        _enemyList.push_back(_actors.size());
+        _actors.push_back(std::move(enemy));
+    }
+
+    // Obstacles
+    for (size_t i = 0; i < obstacles.size(); ++i) {
+        auto &placement = obstacles[i];
+        MinigameActor obstacle;
+        obstacle.kind = MinigameActorKind::Obstacle;
+        obstacle.specIndex = i;
+        obstacle.name = placement.name;
+        if (i < spec.obstacles.size()) {
+            obstacle.scripts = minigameScripts(spec.obstacles[i].scripts);
+        }
+        obstacle.track = MinigameTrack::fixed(placement.position);
+        obstacle.hasHitbump = placement.hasHitbump;
+        obstacle.hitbumpMin = placement.hitbumpMin;
+        obstacle.hitbumpMax = placement.hitbumpMax;
+        _obstacleList.push_back(_actors.size());
+        _actors.push_back(std::move(obstacle));
+    }
+
+    for (auto &actor : _actors) {
+        placeActor(actor);
+        actor.previousPosition = actor.position;
+    }
+}
+
+void MinigameSession::start() {
+    if (_started || _actors.empty()) {
+        return;
+    }
+    _started = true;
+    // Creation order: the player, then the enemies in file order, then the
+    // obstacles. The lists are copied: a creation script may change them.
+    std::vector<size_t> order;
+    order.push_back(0);
+    order.insert(order.end(), _enemyList.begin(), _enemyList.end());
+    order.insert(order.end(), _obstacleList.begin(), _obstacleList.end());
+    for (size_t index : order) {
+        runScriptSlot(_actors[index], MinigameSlot::OnCreate);
+    }
+}
+
+bool MinigameSession::runScriptSlot(MinigameActor &actor, MinigameSlot slot) {
+    // Every slot runs from here: OnCreate OnHitBullet OnHitFollower
+    // OnAnimEvent OnHeartbeat OnDamage OnDeath OnFire OnHitObstacle
+    // OnTrackLoop OnAccelerate OnBrake OnHitWorld.
+    const std::string &script = actor.scripts[static_cast<size_t>(slot)];
+    if (script.empty()) {
+        return false;
+    }
+    ++_scriptsRun;
+    _host.runScript(script, actor.objectId);
+    // An authored script replaces the engine default; it can still ask for
+    // it through the SWMG_On* routines.
+    return true;
+}
+
+void MinigameSession::update(float dt, const MinigameInput &input) {
+    if (_actors.empty() || dt <= 0.0f) {
+        return;
+    }
+    ++_ticks;
+    _elapsed += dt;
+
+    auto &playerActor = _actors.front();
+    if (!playerActor.dead) {
+        updatePlayerMotion(dt, input);
+    }
+
+    // Object updates: the player and every listed enemy run their heartbeat
+    // and count down their invulnerability; enemies move along their tracks.
+    std::vector<size_t> order;
+    if (!playerActor.dead) {
+        order.push_back(0);
+    }
+    order.insert(order.end(), _enemyList.begin(), _enemyList.end());
+    for (size_t index : order) {
+        auto &actor = _actors[index];
+        if (index != 0) {
+            actor.previousPosition = actor.position;
+            advanceTrack(actor, dt);
+            placeActor(actor);
+        }
+        updateFollower(actor, dt);
+    }
+    std::vector<size_t> obstacles(_obstacleList);
+    for (size_t index : obstacles) {
+        runScriptSlot(_actors[index], MinigameSlot::OnHeartbeat);
+    }
+
+    updatePlayerGuns(dt, input.fire);
+
+    if (!_actors.front().dead) {
+        collideObstacles();
+    }
+    if (!_actors.front().dead) {
+        collideFollowers();
+    }
+}
+
+void MinigameSession::updateFollower(MinigameActor &actor, float dt) {
+    runScriptSlot(actor, MinigameSlot::OnHeartbeat);
+    if (actor.invulnerableTime > 0.0f) {
+        actor.invulnerableTime = glm::max(0.0f, actor.invulnerableTime - dt);
+    }
+}
+
+void MinigameSession::updatePlayerMotion(float dt, const MinigameInput &input) {
+    auto &p = _actors.front();
+    p.previousPosition = p.position;
+
+    // Speed moves toward the maximum at the acceleration per second, unless a
+    // bump already set it this update.
+    if (!_speedHeld && p.speed != _maxSpeed) {
+        float step = _accelPerSecond * dt;
+        if (_maxSpeed <= p.speed) {
+            p.speed = (p.speed - step <= _maxSpeed) ? _maxSpeed : p.speed - step;
+        } else {
+            p.speed = (_maxSpeed <= p.speed + step) ? _maxSpeed : p.speed + step;
+        }
+    }
+    _speedHeld = false;
+
+    // Lateral steering (translation minigames). The turret reports its aim
+    // through setPlayerAim instead.
+    if (_type == MinigameType::SwoopRace) {
+        glm::vec3 in(glm::clamp(input.steer, -1.0f, 1.0f), 0.0f, 0.0f);
+        glm::vec3 delta(0.0f);
+        float top = _movementPerSec;
+        if (_useInertia && top > 0.0f) {
+            // dv/dt = L * u - (L / M) * v, the input blended from the previous
+            // update's to this one's; 4th-order Runge-Kutta.
+            float L = _lateralAccel;
+            float damping = L / top;
+            glm::vec3 u0 = _previousInput;
+            glm::vec3 um = (_previousInput + in) * 0.5f;
+            glm::vec3 u1 = in;
+            glm::vec3 v = _lateralVelocity;
+            auto accel = [&](const glm::vec3 &vel, const glm::vec3 &u) {
+                return L * u - damping * vel;
+            };
+            glm::vec3 k1v = accel(v, u0);
+            glm::vec3 k1x = v;
+            glm::vec3 k2v = accel(v + 0.5f * dt * k1v, um);
+            glm::vec3 k2x = v + 0.5f * dt * k1v;
+            glm::vec3 k3v = accel(v + 0.5f * dt * k2v, um);
+            glm::vec3 k3x = v + 0.5f * dt * k2v;
+            glm::vec3 k4v = accel(v + dt * k3v, u1);
+            glm::vec3 k4x = v + dt * k3v;
+            _lateralVelocity = v + (dt / 6.0f) * (k1v + 2.0f * k2v + 2.0f * k3v + k4v);
+            delta = (dt / 6.0f) * (k1x + 2.0f * k2x + 2.0f * k3x + k4x);
+        } else {
+            _lateralVelocity = in * top;
+            delta = _lateralVelocity * dt;
+        }
+        _previousInput = in;
+
+        glm::vec3 unclamped = _offset + delta;
+        glm::vec3 clamped = unclamped;
+        clampOffset(clamped);
+        if (glm::abs(unclamped.x - clamped.x) > kTunnelWallTolerance) {
+            _lateralVelocity = glm::vec3(0.0f);
+        }
+        _offset = clamped;
+    }
+
+    advanceTrack(p, dt);
+    placeActor(p);
+}
+
+void MinigameSession::clampOffset(glm::vec3 &offset) const {
+    for (int axis = 0; axis < 3; ++axis) {
+        if (_tunnelInfinite[axis] == 0.0f) {
+            float hi = _startOffset[axis] + _tunnelPos[axis];
+            float lo = _startOffset[axis] + _tunnelNeg[axis];
+            if (offset[axis] > hi) {
+                offset[axis] = hi;
+            } else if (offset[axis] < lo) {
+                offset[axis] = lo;
+            }
+        }
+    }
+}
+
+void MinigameSession::advanceTrack(MinigameActor &actor, float dt) {
+    if (!actor.trackRunning) {
+        return;
+    }
+    float length = actor.track.length();
+    if (length <= 0.0f) {
+        return;
+    }
+    actor.trackTime += dt * actor.speed / kMinigameTrackRateDivisor;
+    while (actor.trackTime >= length) {
+        if (actor.numLoops < 0) {
+            actor.trackTime -= length;
+        } else if (actor.numLoops > 1) {
+            --actor.numLoops;
+            actor.trackTime -= length;
+        } else {
+            actor.trackTime = length;
+            break;
+        }
+        runScriptSlot(actor, MinigameSlot::OnTrackLoop);
+    }
+    while (actor.trackTime < 0.0f) {
+        actor.trackTime += length;
+    }
+}
+
+void MinigameSession::placeActor(MinigameActor &actor) {
+    actor.hook = actor.track.hookAt(actor.trackTime);
+    if (actor.kind == MinigameActorKind::Player && _type == MinigameType::SwoopRace) {
+        actor.position = glm::vec3(actor.hook * glm::vec4(_offset, 1.0f));
+    } else {
+        actor.position = glm::vec3(actor.hook[3]);
+    }
+}
+
+void MinigameSession::updatePlayerGuns(float dt, bool fire) {
+    auto &p = _actors.front();
+    for (size_t i = 0; i < p.gunBanks.size(); ++i) {
+        auto &bank = p.gunBanks[i];
+        if (bank.cooldown > 0.0f) {
+            bank.cooldown = glm::max(0.0f, bank.cooldown - dt);
+        }
+        if (!fire || p.dead || bank.cooldown > 0.0f) {
+            continue;
+        }
+        bank.cooldown = bank.spec.bullet.rateOfFire;
+        _host.onMinigameGunFired(p, i);
+        gunFired(p, i);
+    }
+}
+
+void MinigameSession::gunFired(MinigameActor &actor, size_t bankIndex) {
+    if (bankIndex < actor.gunBanks.size()) {
+        const auto &bullet = actor.gunBanks[bankIndex].spec.bullet;
+        actor.lastBulletFiredDamage = static_cast<int>(bullet.damage);
+        actor.lastBulletFiredTarget = static_cast<int>(bullet.targetType);
+    }
+    runScriptSlot(actor, MinigameSlot::OnFire);
+}
+
+void MinigameSession::collideObstacles() {
+    auto &p = _actors.front();
+    std::vector<size_t> obstacles(_obstacleList);
+    for (size_t index : obstacles) {
+        auto &o = _actors[index];
+        if (!o.hasHitbump) {
+            continue;
+        }
+        // A hit is the bike's movement this update entering the hitbump.
+        bool wasInside = p.previousPosition.x >= o.hitbumpMin.x && p.previousPosition.x <= o.hitbumpMax.x &&
+                         p.previousPosition.y >= o.hitbumpMin.y && p.previousPosition.y <= o.hitbumpMax.y;
+        if (wasInside || !minigameSegmentHitsBox2D(p.previousPosition, p.position, o.hitbumpMin, o.hitbumpMax)) {
+            continue;
+        }
+        p.lastObstacleHit = o.objectId;
+        o.lastFollowerHit = p.objectId;
+        if (!runScriptSlot(o, MinigameSlot::OnHitFollower) && !runScriptSlot(p, MinigameSlot::OnHitObstacle)) {
+            defaultObstacleHit(p);
+        }
+        if (p.dead) {
+            return;
+        }
+    }
+}
+
+void MinigameSession::defaultObstacleHit(MinigameActor &follower) {
+    // A swoop bike shrugs an obstacle off by default; anything else dies.
+    if (_type == MinigameType::SwoopRace) {
+        return;
+    }
+    kill(follower);
+}
+
+void MinigameSession::collideFollowers() {
+    auto &p = _actors.front();
+    std::vector<size_t> enemies(_enemyList);
+    glm::vec3 push(0.0f);
+    int contacts = 0;
+    int bump = 0;
+    for (auto it = enemies.rbegin(); it != enemies.rend(); ++it) {
+        auto &e = _actors[*it];
+        if (e.dead || !(e.trigger || _doBumping)) {
+            continue;
+        }
+        float distance = minigameSegmentDistance(p.previousPosition, p.position, e.previousPosition, e.position);
+        float reach = p.sphereRadius + e.sphereRadius;
+        if (distance >= reach) {
+            continue;
+        }
+        if (!e.trigger) {
+            glm::vec3 away = p.position - e.position;
+            float len = glm::length(away);
+            glm::vec3 dir = len > 1e-6f ? away / len : glm::vec3(1.0f, 0.0f, 0.0f);
+            push += (e.position + dir * (reach + kBumpClearance)) - p.position;
+            if (!e.invulnerable()) {
+                playAnimation(e, "damage", false, false, false);
+                playAnimation(e, "Ready_01", true, true, false);
+                changeHitPoints(e, -p.bumpDamage);
+                e.invulnerableTime = e.invincePeriod;
+            }
+            bump = glm::max(bump, e.bumpDamage);
+        }
+        p.lastFollowerHit = e.objectId;
+        runScriptSlot(p, MinigameSlot::OnHitFollower);
+        e.lastFollowerHit = p.objectId;
+        runScriptSlot(e, MinigameSlot::OnHitFollower);
+        ++contacts;
+        if (p.dead) {
+            return;
+        }
+    }
+    if (contacts == 0) {
+        return;
+    }
+    if (_type == MinigameType::SwoopRace) {
+        glm::vec3 local = glm::vec3(glm::inverse(p.hook) * glm::vec4(p.position + push / static_cast<float>(contacts), 1.0f));
+        glm::vec3 moved = local;
+        clampOffset(moved);
+        _offset = moved;
+        placeActor(p);
+    }
+    if (!p.invulnerable()) {
+        p.invulnerableTime = p.invincePeriod + p.invincePeriod;
+        changeHitPoints(p, -bump);
+        _speedHeld = true;
+    }
+}
+
+void MinigameSession::changeHitPoints(MinigameActor &actor, int delta) {
+    if (!actor.follower()) {
+        return;
+    }
+    actor.lastHPChange = delta;
+    if (!runScriptSlot(actor, MinigameSlot::OnDamage)) {
+        defaultDamage(actor);
+    }
+}
+
+void MinigameSession::defaultDamage(MinigameActor &actor) {
+    if (!actor.follower()) {
+        return;
+    }
+    actor.hitPoints += actor.lastHPChange;
+    if (actor.lastHPChange < 0) {
+        if (actor.hitPoints < 1) {
+            kill(actor);
+        } else {
+            playAnimation(actor, "damage", false, false, false);
+            playAnimation(actor, "Ready_01", true, true, false);
+        }
+    } else {
+        actor.hitPoints = glm::min(actor.hitPoints, actor.maxHitPoints);
+    }
+}
+
+void MinigameSession::kill(MinigameActor &actor) {
+    if (actor.dead) {
+        return;
+    }
+    actor.dead = true;
+    if (!runScriptSlot(actor, MinigameSlot::OnDeath)) {
+        defaultDeath(actor);
+    }
+}
+
+void MinigameSession::defaultDeath(MinigameActor &actor) {
+    actor.dead = true;
+    actor.trackRunning = false;
+    if (!actor.sounds.death.empty()) {
+        _host.playMinigameSound(actor.sounds.death, actor.position);
+    }
+    _host.onMinigameActorDied(actor);
+    actor.gunBanks.clear();
+    unlist(actor);
+}
+
+void MinigameSession::destroy(MinigameActor &actor) {
+    actor.dead = true;
+    actor.trackRunning = false;
+    unlist(actor);
+}
+
+void MinigameSession::unlist(MinigameActor &actor) {
+    size_t index = static_cast<size_t>(&actor - _actors.data());
+    auto drop = [index](std::vector<size_t> &list) {
+        list.erase(std::remove(list.begin(), list.end(), index), list.end());
+    };
+    drop(_enemyList);
+    drop(_obstacleList);
+    actor.listed = false;
+}
+
+void MinigameSession::bulletHit(MinigameActor &target, int damage, int targetType, uint32_t shooter, const std::string &part) {
+    target.lastBulletHitDamage = damage;
+    target.lastBulletHitTarget = targetType;
+    target.lastBulletHitShooter = shooter;
+    target.lastBulletHitPart = part;
+    if (!runScriptSlot(target, MinigameSlot::OnHitBullet)) {
+        defaultBulletHit(target);
+    }
+}
+
+void MinigameSession::defaultBulletHit(MinigameActor &target) {
+    if (target.follower()) {
+        changeHitPoints(target, -target.lastBulletHitDamage);
+    }
+}
+
+void MinigameSession::playAnimation(MinigameActor &actor, const std::string &name, bool looping, bool queue, bool overlay) {
+    _host.playMinigameAnimation(actor, name, looping, queue, overlay);
+}
+
+void MinigameSession::removeAnimation(MinigameActor &actor, const std::string &name) {
+    _host.removeMinigameAnimation(actor, name);
+}
+
+void MinigameSession::setPlayerSpeed(float speed) {
+    if (!_actors.empty()) {
+        _actors.front().speed = speed;
+    }
+}
+
+void MinigameSession::setPlayerMaxSpeed(float speed) {
+    if (speed >= 0.0f) {
+        _maxSpeed = speed;
+    }
+}
+
+void MinigameSession::setPlayerOffset(const glm::vec3 &offset) {
+    _offset = offset;
+    clampOffset(_offset);
+    if (!_actors.empty()) {
+        placeActor(_actors.front());
+    }
+}
+
+void MinigameSession::setPlayerOrigin(const glm::vec3 &origin) {
+    _startOffset = origin;
+    if (!_started) {
+        _offset = origin;
+    }
+}
+
+float MinigameSession::playerSpeed() const {
+    return _actors.empty() ? 0.0f : _actors.front().speed;
+}
+
+MinigameActor *MinigameSession::actorByObjectId(uint32_t id) {
+    for (auto &actor : _actors) {
+        if (actor.objectId == id) {
+            return &actor;
+        }
+    }
+    return nullptr;
+}
+
+MinigameActor *MinigameSession::player() {
+    return _actors.empty() ? nullptr : &_actors.front();
+}
+
+const MinigameActor *MinigameSession::player() const {
+    return _actors.empty() ? nullptr : &_actors.front();
+}
+
+MinigameActor *MinigameSession::enemy(int index) {
+    if (index < 0 || index >= static_cast<int>(_enemyList.size())) {
+        return nullptr;
+    }
+    return &_actors[_enemyList[index]];
+}
+
+MinigameActor *MinigameSession::obstacle(int index) {
+    if (index < 0 || index >= static_cast<int>(_obstacleList.size())) {
+        return nullptr;
+    }
+    return &_actors[_obstacleList[index]];
+}
+
+MinigameActor *MinigameSession::findByName(const std::string &name) {
+    for (auto &actor : _actors) {
+        if (boost::iequals(actor.name, name)) {
+            return &actor;
+        }
+        for (const auto &model : actor.models) {
+            if (boost::iequals(model.resRef, name)) {
+                return &actor;
+            }
+        }
+    }
+    return nullptr;
 }
 
 } // namespace game
