@@ -142,6 +142,12 @@ public:
     void prewarmEmitters();
 
     bool isPickable() const { return _pickable; }
+    /**
+     * Whether a camera passes through the model whatever it is classified
+     * as: an open door's, or a placeable's whose appearance is not hit
+     * checked.
+     */
+    bool cameraPassesThrough() const { return _cameraPassesThrough; }
 
     ModelNodeSceneNode *getNodeByNumber(uint16_t number);
     ModelNodeSceneNode *getNodeByName(const std::string &name);
@@ -173,6 +179,7 @@ public:
     const std::shared_ptr<graphics::Texture> &bumpedOutShellTexture() const { return _bumpedOutShellTexture; }
     float bumpedOutShellOffset() const { return _bumpedOutShellOffset; }
     void setPickable(bool pickable) { _pickable = pickable; }
+    void setCameraPassesThrough(bool passes) { _cameraPassesThrough = passes; }
     void setAnimationEventListener(IAnimationEventListener &listener) { _animEventListener = &listener; }
     /** Stops sending animation events to the listener. */
     void clearAnimationEventListener() { _animEventListener = nullptr; }
@@ -340,6 +347,7 @@ private:
     // Flags
 
     bool _pickable {false};
+    bool _cameraPassesThrough {false};
     std::shared_ptr<graphics::Texture> _bumpedOutShellTexture;
     float _bumpedOutShellOffset {0.0f};
 

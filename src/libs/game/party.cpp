@@ -23,6 +23,7 @@
 
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/container/small_vector.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "reone/audio/mixer.h"
@@ -562,6 +563,12 @@ void Party::vacateMemberEntries(const Creature &creature) {
 }
 
 void Party::removeMemberEntries(const Creature &creature) {
+    // A creature leaving the party leaves its follow state behind.
+    for (auto &member : _members) {
+        if (member.creature.get() == &creature) {
+            member.creature->setWithinSafetyRange(false);
+        }
+    }
     _members.erase(
         std::remove_if(
             _members.begin(), _members.end(),
@@ -696,6 +703,7 @@ void Party::reset() {
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);
     _persistedState = PersistedState();
+    _retreatScriptTimer = 0.0f;
     resetFollowSlots();
 }
 
@@ -1802,6 +1810,62 @@ void Party::resetFollowPath(Area &area, const glm::vec3 &position, float facing,
         const glm::vec3 standing {member->position()};
         member->setPosition(area.computeSafeLocation(standing, kResetPlacementRadius, *member, true).value_or(standing));
         area.determineObjectRoom(*member);
+    }
+}
+
+// The ranges.2da row whose ranges send a follower back toward the leader: the
+// distance, and the seconds between two retreats.
+static constexpr int kPartyEscapeRangeRow = 16;
+// How close a follower stands to the leader to be within its safety range.
+static constexpr float kSafetyRange = 5.0f;
+
+void Party::runFollowerScripts(float dt) {
+    static constexpr char kRetreatScript[] = "k_hen_retreat";
+    static constexpr char kLeaveSafetyScript[] = "k_hen_exit5m";
+    static constexpr char kEnterSafetyScript[] = "k_hen_enter5m";
+    const auto ranges = _game.services().game.spells.findRange(kPartyEscapeRangeRow);
+    const float escape = ranges ? ranges->get().primary.value_or(0.0f) : 0.0f;
+    const float retreatInterval = ranges ? ranges->get().secondary.value_or(0.0f) : 0.0f;
+    // The timer counts no further than the interval, past which it has
+    // nothing more to tell.
+    _retreatScriptTimer = std::min(_retreatScriptTimer + dt, retreatInterval);
+    auto leader = getLeader();
+    if (!leader || getSize() < 2) {
+        return;
+    }
+    bool retreated = false;
+    // The members' list, and its leader, can change under a script, so each
+    // follower is held for the whole of its turn, and one that has left the
+    // party or taken the lead by then is passed over.
+    boost::container::small_vector<std::shared_ptr<Creature>, kPartyFollowSlots> followers;
+    for (int i = 1; i < getSize(); ++i) {
+        if (auto follower = getMember(i)) {
+            followers.push_back(std::move(follower));
+        }
+    }
+    for (const auto &follower : followers) {
+        leader = getLeader();
+        if (!leader || leader == follower || !isMember(*follower)) {
+            continue;
+        }
+        const glm::vec3 apart {leader->position() - follower->position()};
+        const float distance2 = glm::dot(apart, apart);
+        // A range of nothing, as from a missing row, sends no one back.
+        if (escape > 0.0f && _retreatScriptTimer >= retreatInterval && distance2 >= escape * escape) {
+            _game.scriptRunner().run(kRetreatScript, follower->id());
+            retreated = true;
+            if (!isMember(*follower)) {
+                continue;
+            }
+        }
+        const bool within = distance2 <= kSafetyRange * kSafetyRange;
+        if (follower->isWithinSafetyRange() != within) {
+            follower->setWithinSafetyRange(within);
+            _game.scriptRunner().run(within ? kEnterSafetyScript : kLeaveSafetyScript, follower->id());
+        }
+    }
+    if (retreated) {
+        _retreatScriptTimer = 0.0f;
     }
 }
 

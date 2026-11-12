@@ -266,6 +266,8 @@ void Placeable::loadAppearance() {
 
     auto sceneNode = sceneGraph.newModel(*model, ModelUsage::Placeable);
     sceneNode->setUser(*this);
+    // A camera passes through a placeable whose appearance is not hit checked.
+    sceneNode->setCameraPassesThrough(placeables->getInt(_appearance, "hitcheck", 0) == 0);
     sceneNode->setDrawDistance(_game.options().graphics.drawDistance);
     // An appearance with a light colour carries the placeable light, in the
     // colour of its lightcolor.2da row. The games carry it uncoloured.

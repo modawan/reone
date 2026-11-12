@@ -59,6 +59,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("fullscreen", value<bool>()->default_value(options->graphics.fullscreen), "enable fullscreen")                         //
         ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
+        ("wheelzoom", value<bool>()->default_value(options->game.wheelZoom), "zoom the follow camera with the mouse wheel")     //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
         ("particles", value<bool>()->default_value(options->graphics.particles), "enable emitter particles")                    //
@@ -101,6 +102,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
 
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
     options->game.developer = vars["dev"].as<bool>();
+    options->game.wheelZoom = vars["wheelzoom"].as<bool>();
     options->game.configurationPath = std::filesystem::absolute(kConfigFilename);
     options->game.menuPresentation = game::MenuPresentation::load(options->game.configurationPath);
     options->graphics.width = vars["width"].as<int>();

@@ -3476,9 +3476,7 @@ std::optional<glm::vec3> Area::roomViewPosition() const {
 }
 
 bool Area::isModelInShownRoom(const ModelSceneNode &model) const {
-    // A model whose subclassification has this flag is in every room.
-    static constexpr int kInEveryRoom = 1;
-    if (!_cullingRooms || (model.model().subclassification() & kInEveryRoom) != 0) {
+    if (!_cullingRooms || (model.model().subclassification() & MdlSubclassification::inEveryRoom) != 0) {
         return true;
     }
     // A model placed at the world origin for a clip authored there is drawn

@@ -30,6 +30,8 @@ struct GameOptions {
     std::filesystem::path path;
     bool developer {false};
     bool neo {false};
+    /** The mouse wheel moves the follow camera in and out. */
+    bool wheelZoom {false};
     FeedbackOptions feedback;
     int clientDifficulty {1}; /**< Easy=0, Normal=1, Difficult=2, Default=3 */
     int activeKeybindsIndex {0};
