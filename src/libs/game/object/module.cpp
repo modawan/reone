@@ -454,6 +454,7 @@ void Module::receiveLoadedSignal(bool loadFromSaveGame) {
     if (_game.isModuleTransitionScheduled()) {
         return;
     }
+    _game.startScheduledTurret();
     if (auto player = _game.party().player()) {
         receiveClientEntered(*player);
     }
@@ -1422,9 +1423,9 @@ void Module::update(float dt) {
         return;
     }
 
-    if (_game.cameraType() == CameraType::ThirdPerson) {
-        _player->update(dt);
-    }
+    // The drive runs whatever camera shows the scene; outside play it runs
+    // unsteered.
+    _player->update(dt);
     _area->update(dt);
     if (held()) {
         return;

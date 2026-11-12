@@ -44,16 +44,6 @@ std::vector<MinigameModelSpec> parseModels(const TModels &models) {
     return result;
 }
 
-// KeyframeTrack::valueAtTime extrapolates past the last key, so clamp to it.
-template <class Value>
-bool valueAtTrackTime(const graphics::KeyframeTrack<Value> &track, float time, Value &value) {
-    const auto &keys = track.keyframes();
-    if (keys.empty()) {
-        return false;
-    }
-    return track.valueAtTime(std::min(time, keys.back().time), value);
-}
-
 template <class TBullet>
 MinigameBulletSpec parseBullet(const TBullet &bullet) {
     MinigameBulletSpec spec;
@@ -114,8 +104,9 @@ std::optional<MinigameSpec> parseMinigameSpec(const resource::generated::ARE &ar
     spec.depthOfField = are.MiniGame.DOF;
     spec.doBumping = are.MiniGame.DoBumping != 0;
     spec.music = are.MiniGame.Music;
-    spec.mouse.axisX = are.MiniGame.Mouse.AxisX;
-    spec.mouse.axisY = are.MiniGame.Mouse.AxisY;
+    // A binding beyond the three axes binds none.
+    spec.mouse.axisX = are.MiniGame.Mouse.AxisX <= 3 ? are.MiniGame.Mouse.AxisX : 0;
+    spec.mouse.axisY = are.MiniGame.Mouse.AxisY <= 3 ? are.MiniGame.Mouse.AxisY : 0;
     spec.mouse.flipAxisX = are.MiniGame.Mouse.FlipAxisX != 0;
     spec.mouse.flipAxisY = are.MiniGame.Mouse.FlipAxisY != 0;
 
@@ -226,9 +217,9 @@ MinigameTrack::MinigameTrack(glm::mat4 base,
 
 glm::mat4 MinigameTrack::hookAt(float time) const {
     glm::vec3 offset(0.0f);
-    valueAtTrackTime(_positions, time, offset);
+    _positions.valueAtTime(time, offset);
     glm::quat orientation(_restOrientation);
-    valueAtTrackTime(_orientations, time, orientation);
+    _orientations.valueAtTime(time, orientation);
     return _base * glm::translate(_restPosition + offset) * glm::mat4_cast(orientation);
 }
 

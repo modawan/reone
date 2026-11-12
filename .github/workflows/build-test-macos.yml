@@ -1,0 +1,43 @@
+name: Build and run tests on MacOS
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  # Only pushes to master share a group; other runs remain independent.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-macos
+
+  delete-superseded-ccache:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    strategy:
+      matrix:
+        arch: [ARM64, X64]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    concurrency: delete-superseded-ccache-macos-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/delete-superseded-ccache
+        with:
+          key: ccache-macos-${{ matrix.arch }}-

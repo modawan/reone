@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <utility>
+
+#include "reone/system/cache.h"
+
 #include "reone/graphics/types.h"
 
 namespace reone {
@@ -61,7 +65,8 @@ private:
     graphics::GraphicsOptions &_options;
     IResources &_resources;
 
-    std::unordered_map<std::string, std::shared_ptr<graphics::Texture>> _cache;
+    // Filtering and wrapping depend on the usage, so the usage is part of the key.
+    Cache<std::pair<std::string, graphics::TextureUsage>, graphics::Texture> _cache;
 
     std::shared_ptr<graphics::Texture> doGet(const std::string &resRef, graphics::TextureUsage usage);
 };

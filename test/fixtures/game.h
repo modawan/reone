@@ -55,6 +55,7 @@ class SaveWorkingState;
 
 namespace scene {
 class SceneNode;
+class WalkmeshSceneNode;
 }
 
 namespace game {
@@ -440,6 +441,7 @@ public:
         Game &game, const resource::Gff &ifo,
         const SerializedIdentityContext &identityContext);
     static std::optional<int> savedScriptLoop(const Creature &creature);
+    static void setDoorClosedWalkmesh(Door &door, std::shared_ptr<scene::WalkmeshSceneNode> walkmesh);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
     static void configureSnapshotCamera(

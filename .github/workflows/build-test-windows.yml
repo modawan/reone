@@ -4,6 +4,12 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  # Only pushes to master share a group; other runs remain independent.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 env:
   VCPKG_ROOT: C:/vcpkg
 

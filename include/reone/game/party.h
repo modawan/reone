@@ -112,10 +112,12 @@ public:
     /** PT_TUT_WND_SHOWN holds one bit per tutorial window: six bytes in KotOR, 33 in TSL. */
     static constexpr size_t kK1TutorialShownBytes = 6;
     static constexpr size_t kTutorialShownBytes = 33;
-    // Forfeit conditions: no Force powers, no items, no item but a shield.
+    /** The combat-mode line shown while the player drives the leader. */
+    static constexpr int kMovingCombatMessage = 42476;
     /** The combat-mode line shown while the leader moves to attack its target. */
     static constexpr int kMovingToAttackCombatMessage = 42477;
 
+    // Forfeit conditions: no Force powers, no items, no item but a shield.
     static constexpr int kForfeitNoForcePowers = 1;
     static constexpr int kForfeitNoItems = 2;
     static constexpr int kForfeitNoItemButShield = 128;
@@ -191,7 +193,7 @@ public:
     void retireRuntimeSession();
 
     void clear();
-    /** The next member takes the lead; the one leading goes to the back. */
+    /** The next member takes the lead; the one leading goes to the back. A new leader's drive starts at rest. */
     void switchLeader(bool sound = true);
     /**
      * Rotate the lead, up to three times, to the next member neither dead nor
@@ -735,6 +737,8 @@ public:
     std::optional<glm::vec2> forceFollowOffset(const Creature &member) const;
     /** The point \p offset gives from the follow anchor, turned to the anchor's facing. */
     glm::vec3 followAnchorPoint(const glm::vec2 &offset) const;
+    /** The offset from the follow anchor that gives \p point (see followAnchorPoint). */
+    glm::vec2 followAnchorOffset(const glm::vec3 &point) const;
 
     // END Follow path
 
@@ -854,6 +858,8 @@ private:
 
     void saveLeaderAttackTarget();
     void onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound = true);
+    /** The player's change of leader: a leader other than \p previous starts with its drive at rest. */
+    void restNewLeaderDrive(const std::shared_ptr<Creature> &previous);
     void playLeaderSelectSound();
 
     void resetFollowSlots();

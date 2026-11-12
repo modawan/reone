@@ -7,6 +7,8 @@
 #include "reone/audio/context.h"
 #include "reone/system/threadutil.h"
 
+#include "al.h"
+
 using namespace reone;
 using namespace reone::audio;
 

@@ -17,6 +17,8 @@
 
 #include "reone/audio/source.h"
 
+#include "al.h"
+
 #include "reone/audio/clip.h"
 #include "reone/system/threadutil.h"
 

@@ -234,11 +234,17 @@ void Encounter::update(float dt) {
 }
 
 bool Encounter::contains(const glm::vec3 &point) const {
-    return isInPolygon2D(glm::vec2(point - _position), _geometry);
+    return isInPolygon2D(glm::vec2(point - _position), _geometry) && isAtLevel(point);
 }
 
 bool Encounter::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
-    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry);
+    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry) &&
+           (isAtLevel(from) || isAtLevel(to));
+}
+
+bool Encounter::isAtLevel(const glm::vec3 &point) const {
+    const auto area = spatialArea();
+    return !area || area->get().isAtLevelOf(point, _position.z);
 }
 
 void Encounter::setActive(bool active) {

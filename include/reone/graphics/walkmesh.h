@@ -47,6 +47,13 @@ public:
      * material is this or greater counts as its material modulo this.
      */
     static constexpr uint32_t kSurfaceMaterialCount = 32;
+    /**
+     * How far from a point's height a floor counts as at its level: a floor
+     * more than this over it is a floor over it (see standingFace), and two
+     * floors more than this apart over the same ground lie one over the other
+     * (see hasFloorOverFloor).
+     */
+    static constexpr float kFloorHeadroom = 1.0f;
 
     struct Face {
         uint32_t index {0};
@@ -84,6 +91,59 @@ public:
         glm::vec2 normal {0.0f};
     };
 
+    /** How a walker swept along a segment meets a face. */
+    enum class ContactKind {
+        /** The walker meets an edge of the face side on. */
+        Edge,
+        /** The walker meets a corner of the face, an upright edge, or an edge it runs along. */
+        Corner,
+        /** The walker starts over the face. */
+        StartInside
+    };
+
+    /** Where a walker swept along a segment first meets a face. */
+    struct Contact {
+        ContactKind kind {ContactKind::Edge};
+        /**
+         * How far along the level segment the walker stops short of the face,
+         * from 0 at its start to its length.
+         */
+        float distance {0.0f};
+        /**
+         * The level normal of the face where the walker meets it, in the
+         * walkmesh's own coordinates; for a walker starting over a face, or
+         * running along one of its edges, the direction back along the
+         * segment.
+         */
+        glm::vec3 normal {0.0f};
+    };
+
+    /** The face a point stands on (see standingFace). */
+    struct Standing {
+        uint32_t face {0};
+        /** The height at which the vertical through the point meets the face. */
+        float height {0.0f};
+    };
+
+    /** The heights a level walk spans over the walkable faces it crosses. */
+    struct HeightBand {
+        float low {0.0f};
+        float high {0.0f};
+    };
+
+    /** A level walk across the walkable faces of an area walkmesh (see walkFaces). */
+    struct FaceWalk {
+        /** The heights the walk spans over the faces. */
+        HeightBand band;
+        /**
+         * Where the walk leaves the walkable faces across a perimeter edge
+         * before its end, if it does, the fraction being of the walk given.
+         */
+        std::optional<PerimeterCrossing> exit;
+        /** The height of the walk where it leaves them. */
+        float exitHeight {0.0f};
+    };
+
     /**
      * @return index of the face that the ray intersects, distance from the
      * origin point to the intersection, and an error code if there is no
@@ -116,6 +176,95 @@ public:
      * Coordinates are the walkmesh's own.
      */
     std::optional<PerimeterCrossing> findPerimeterCrossing(const glm::vec2 &from, const glm::vec2 &to, float after) const;
+
+    /**
+     * Where a walker of the given radius, swept along the level segment
+     * between two points, first meets a face of one of the given materials
+     * that spans part of the height band [minZ, maxZ]. The walker covers the
+     * strip of its radius either side of the segment, from its start to its
+     * end, and the disc of its radius round its end. A walker starting over a
+     * face meets it at once; a face counts as under the start only when its
+     * front faces up. Empty when the walker meets none. Coordinates are the
+     * walkmesh's own.
+     */
+    std::optional<Contact> sweep(
+        const std::set<uint32_t> &materials,
+        const glm::vec3 &from,
+        const glm::vec3 &to,
+        float radius,
+        float minZ,
+        float maxZ) const;
+
+    /**
+     * The face of the given materials a point stands on, going down the
+     * vertical through it from \p top over \p reach: the first face met. On
+     * a walkmesh that lays floors over floors (see
+     * hasFloorOverFloor), a first face more than kFloorHeadroom over the point
+     * that is a floor of one of the \p walkable materials, or lies within 45
+     * degrees of level, is a floor over the point's own: while a face lies on
+     * the vertical within kFloorHeadroom of the point's height, the highest
+     * such is stood on instead. Empty when the vertical meets no face.
+     * Coordinates are the walkmesh's own.
+     *
+     * @param stacked whether the walkmesh lays floors over floors
+     */
+    std::optional<Standing> standingFace(const std::set<uint32_t> &surfaces, const std::set<uint32_t> &walkable,
+                                         const glm::vec3 &point, float top, float reach, bool stacked) const;
+
+    /**
+     * A level walk from one point toward another across the walkable faces
+     * of an area walkmesh, until it reaches its end or leaves the walkable
+     * faces. The walk starts on the face of the given materials the start
+     * stands on, from a thousand units up (see standingFace, \p walkable
+     * being the floors), one tried once more shifted 0.001 toward the end
+     * when none lies there, and goes from face to face across their shared
+     * edges. The band holds the height at the start and at every edge it
+     * crosses, and at the end when the walk reaches it. Empty when no face
+     * lies at the start, or the walk cannot be followed: it crosses more than
+     * 512 faces, or leaves a face by no edge that it can be found to cross.
+     * Coordinates are the walkmesh's own.
+     *
+     * @param stacked whether the walkmesh lays floors over floors
+     */
+    std::optional<FaceWalk> walkFaces(const std::set<uint32_t> &surfaces, const std::set<uint32_t> &walkable,
+                                      const glm::vec3 &from, const glm::vec3 &to, bool stacked) const;
+
+    /**
+     * The unit normals of a walkmesh's floors, by face, worked out from their
+     * corners; none for a face that is not a floor or has no area. Worked out
+     * once for a walkmesh, they serve every hasFloorOverFloor and
+     * hasFloorOver it takes part in.
+     */
+    using FloorNormals = std::vector<std::optional<glm::vec3>>;
+
+    /**
+     * The walkmesh's floor normals.
+     *
+     * @param floors the walkable materials
+     */
+    FloorNormals floorNormals(const std::set<uint32_t> &floors) const;
+    /**
+     * Whether two of the walkmesh's walkable faces lie over the same ground
+     * more than kFloorHeadroom apart somewhere: whether it lays floors over
+     * floors. Two faces lie over the same ground only where their overlap
+     * across it is at least a centimetre thick (twice its area over its
+     * perimeter), so floors that only meet along a line, as at the foot and
+     * the top of a wall, do not. Their planes are taken from their corners,
+     * and faces steeper than about 84 degrees are passed over.
+     *
+     * @param ownNormals the walkmesh's floor normals
+     */
+    bool hasFloorOverFloor(const FloorNormals &ownNormals) const;
+    /**
+     * Whether a walkable face of another walkmesh and one of this one lie
+     * over the same ground more than kFloorHeadroom apart somewhere, as for
+     * hasFloorOverFloor, the other's vertices taken into this one's
+     * coordinates by \p toThis.
+     *
+     * @param ownNormals this walkmesh's floor normals
+     * @param otherNormals the other's, in its own coordinates
+     */
+    bool hasFloorOver(const FloorNormals &ownNormals, const Walkmesh &other, const FloorNormals &otherNormals, const glm::mat4 &toThis) const;
 
     /**
      * Whether a face's material is one of a set of surface materials, the
@@ -154,6 +303,13 @@ public:
     std::vector<uint32_t> materials;
     /** The perimeter of the walkable faces of an area walkmesh, as edge loops. */
     std::vector<PerimeterEdge> perimeter;
+    /**
+     * For each edge of each walkable face of an area walkmesh, three to a
+     * face, the edge of another walkable face it is shared with, as three
+     * times that face plus the edge's place in it; -1 for none. Walkable faces
+     * come first in an area walkmesh.
+     */
+    std::vector<int> adjacency;
 
     /**
      * The two points a door or placeable is used from, each given twice: as
@@ -179,6 +335,10 @@ private:
         const glm::vec3 &dir,
         float maxDistance,
         bool ignoreBackface) const;
+
+    /** See hasFloorOver; with no transform, the other walkmesh is this one. */
+    bool findFloorOver(const FloorNormals &ownNormals, const Walkmesh &other, const FloorNormals &otherNormals,
+                       const std::optional<glm::mat4> &toThis) const;
 
     Raycast raycastFace(
         const std::set<uint32_t> &surfaces,

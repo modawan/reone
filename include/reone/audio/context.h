@@ -49,8 +49,12 @@ public:
     void setListenerGain(float gain) override;
 
 private:
-    ALCdevice *_device {nullptr};
-    ALCcontext *_context {nullptr};
+    /**
+     * OpenAL's device and context. They are held opaque so that this header
+     * needs no OpenAL, whose implementations name the two types differently.
+     */
+    void *_device {nullptr};
+    void *_context {nullptr};
 
     glm::vec3 _listenerPosition {0.0f};
     glm::vec3 _listenerForward {0.0f};

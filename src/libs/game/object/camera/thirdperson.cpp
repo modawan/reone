@@ -127,6 +127,11 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
 bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
     auto &keybinds = _game.options().game.activeKeybinds();
 
+    // TSL's turn keys end the party-target mode.
+    if (_game.isTSL() &&
+        (keybinds.cameraRotateLeft.check(event.code) || keybinds.cameraRotateRight.check(event.code))) {
+        _game.cancelPartyItemTarget();
+    }
     if (keybinds.cameraRotateLeft.check(event.code)) {
         if (!event.repeat) {
             _rotateCCW = true;
@@ -142,7 +147,7 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
             return true;
         }
     } else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
-        _mouseLookHeld = true;
+        _game.setMouseLookHeld(true);
         return true;
     }
 
@@ -159,7 +164,7 @@ bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
         _rotateCW = false;
         return true;
     } else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
-        _mouseLookHeld = false;
+        _game.setMouseLookHeld(false);
         return true;
     }
 
@@ -180,10 +185,13 @@ bool ThirdPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) 
 }
 
 // The right button and the Ctrl keys share one hold: any press starts it and
-// any release ends it.
+// any release ends it. KotOR's right button holds it on every screen, which
+// Game::handle sees to.
 bool ThirdPersonCamera::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Right) {
-        _mouseLookHeld = true;
+        if (_game.isTSL()) {
+            _game.setMouseLookHeld(true);
+        }
         return true;
     }
     return false;
@@ -191,7 +199,9 @@ bool ThirdPersonCamera::handleMouseButtonDown(const input::MouseButtonEvent &eve
 
 bool ThirdPersonCamera::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Right) {
-        _mouseLookHeld = false;
+        if (_game.isTSL()) {
+            _game.setMouseLookHeld(false);
+        }
         return true;
     }
     return false;
@@ -219,7 +229,7 @@ void ThirdPersonCamera::update(float dt) {
     if (turnKey) {
         releaseLookAt();
     }
-    updateMouseTurn();
+    updateMouseTurn(dt);
     updateTilt(dt);
     updateLookAtSwing(dt);
     // Under mouse look a held turn key turns the camera neither way.
@@ -238,14 +248,15 @@ void ThirdPersonCamera::update(float dt) {
 }
 
 // A held turn key stops the mouse turn. Otherwise a mouse look turns the
-// camera by the frame's travel, scaled by the mouse sensitivity.
-void ThirdPersonCamera::updateMouseTurn() {
+// camera by its travel, scaled by the mouse sensitivity, whatever the frame
+// rate.
+void ThirdPersonCamera::updateMouseTurn(float dt) {
     const float travel = _mouseTurn;
     _mouseTurn = 0.0f;
     if (_rotateCW || _rotateCCW || !isMouseLookMode()) {
         return;
     }
-    const float turned = mouseFrameStrength(travel) * mouseSensitivity(_game.options().game.mouse.sensitivity);
+    const float turned = mouseTravelStrength(travel, dt) * mouseSensitivity(_game.options().game.mouse.sensitivity);
     if (turned == 0.0f) {
         return;
     }
@@ -253,67 +264,85 @@ void ThirdPersonCamera::updateMouseTurn() {
     updateSceneNode();
 }
 
-// Tilt input, read from the frame's vertical travel and the mouse
-// sensitivity: TSL scales it down by kTiltDivisorTSL; KotOR divides an input
-// stronger than one by kTiltDamping. TSL moves its offset at kTiltRateTSL
-// times the input per second, KotOR at the style's tilt speed, and KotOR's
-// view eases to its pitch by kTiltEasing a second.
-static constexpr float kTiltDivisorTSL = 10.0f;
-static constexpr float kTiltRateTSL = 100.0f;
-static constexpr float kTiltDamping = 75.0f;
-static constexpr float kTiltEasing = 0.5f;
-// TSL's view is level at a pitch of 90 degrees; its offset tilts from there.
+// Under mouse look the view tilts by the mouse's vertical travel, a sixth of
+// the degrees the same travel would turn it.
+static constexpr float kTiltPerTurn = 1.0f / 6.0f;
+// A level view's pitch.
 static constexpr float kLevelPitch = 90.0f;
 
-// TSL keeps its offset between the style's tilt-up limit, taken upward, and
-// its tilt-down limit, on every frame.
-static float clampTiltOffsetTSL(float offset, const CameraStyle &style) {
-    return std::min(style.tiltDown, std::max(-style.tiltUp, offset));
+// The titles' camera styles measure the tilt differently. KotOR's pitch is
+// the view's own, from straight down, and its tilt-up limit bounds the
+// greater pitches. TSL's view tilts from level, starting at its pitch taken
+// as an offset, and its tilt-up limit bounds the smaller pitches.
+float ThirdPersonCamera::tiltCentre() const {
+    return _game.isTSL() ? kLevelPitch : _style.pitch;
 }
 
-// A camera starts its tilt at the style pitch, which TSL then holds within
-// the style's limits.
+float ThirdPersonCamera::tiltSign() const {
+    return _game.isTSL() ? 1.0f : -1.0f;
+}
+
+// The offset stays between the tilt-up limit, taken upward, and the tilt-down
+// limit, on every frame.
+void ThirdPersonCamera::clampTilt() {
+    _tiltOffset = std::min(_lookDown, std::max(-_lookUp, _tiltOffset));
+    _viewPitch = tiltCentre() + tiltSign() * _tiltOffset;
+}
+
 void ThirdPersonCamera::resetTilt() {
-    _tiltOffset = _style.pitch;
-    if (_game.isTSL()) {
-        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
-        _viewPitch = kLevelPitch + _tiltOffset;
+    _tiltOffset = _game.isTSL() ? _style.pitch : 0.0f;
+    _lookUp = _style.tiltUp;
+    _lookDown = _style.tiltDown;
+    clampTilt();
+}
+
+// The free-look limits replace the tilt limits while the mouse looks with
+// the left button up and either moves vertically at a speed strength above
+// kTiltLimitsMouseStrength or the tilt-up limit is above zero. Otherwise the
+// limits come down at kTiltLimitsRate degrees a second. These are TSL's
+// figures at 60 frames a second: a frame's travel and three degrees a frame.
+static constexpr float kTiltLimitsMouseStrength = 0.05f;
+static constexpr float kTiltLimitsRate = 180.0f;
+
+void ThirdPersonCamera::updateTiltLimits(bool leftButtonHeld, bool steersBack, float dt) {
+    const bool mouseLook = isMouseLookMode();
+    const float rise = mouseSpeedStrength(_mouseRise, dt);
+    const float step = kTiltLimitsRate * dt;
+    if (mouseLook && !leftButtonHeld && (std::abs(rise) > kTiltLimitsMouseStrength || _lookUp > 0.0f)) {
+        _lookUp = _style.freeLookUp;
+        _lookDown = _style.freeLookDown;
     } else {
-        _viewPitch = _style.pitch;
+        if (_lookUp > _style.tiltUp) {
+            _lookUp = std::max(_style.tiltUp, _lookUp - step);
+        }
+        if (_lookDown > _style.tiltDown) {
+            _lookDown = std::max(_style.tiltDown, _lookDown - step);
+        }
+    }
+    // Driving ahead with the mouse centres the view.
+    if (mouseLook && leftButtonHeld && !steersBack) {
+        if (_lookUp > 0.0f) {
+            _lookUp = std::max(0.0f, _lookUp - step);
+        }
+        if (_lookDown > 0.0f) {
+            _lookDown = std::max(0.0f, _lookDown - step);
+        }
     }
 }
 
-// TSL tilts only under mouse look: each mouse-look frame without a held turn
-// key sets the tilt, and a held key leaves the last one in force. KotOR reads
-// the tilt from every frame's travel and moves its pitch within the style's
-// limits around the style pitch.
+// The view tilts only under mouse look, by the mouse's vertical travel,
+// whatever the frame rate: travel toward the bottom of the screen raises the
+// pitch.
 void ThirdPersonCamera::updateTilt(float dt) {
-    const float strength = mouseFrameStrength(_mouseRise);
+    const float travel = _mouseRise;
     _mouseRise = 0.0f;
-    const float sensitivity = mouseSensitivity(_game.options().game.mouse.sensitivity);
     const float previousPitch = _viewPitch;
-    if (_game.isTSL()) {
-        const bool mouseLook = isMouseLookMode();
-        if (mouseLook && !_rotateCW && !_rotateCCW) {
-            _mouseTilt = -sensitivity * strength / kTiltDivisorTSL;
-        }
-        if (mouseLook && _mouseTilt != 0.0f) {
-            _tiltOffset += _mouseTilt * dt * kTiltRateTSL;
-        }
-        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
-        _viewPitch = kLevelPitch + _tiltOffset;
-    } else {
-        float tilt = -sensitivity * strength;
-        if (std::abs(tilt) > 1.0f) {
-            tilt /= kTiltDamping;
-        }
-        if (tilt > 0.0f) {
-            _tiltOffset = std::min(_style.pitch + _style.tiltUp, _tiltOffset + tilt * _style.tiltSpeed * dt);
-        } else if (tilt < 0.0f) {
-            _tiltOffset = std::max(_style.pitch - _style.tiltDown, _tiltOffset + tilt * _style.tiltSpeed * dt);
-        }
-        _viewPitch = _tiltOffset - (_tiltOffset - _viewPitch) * kTiltEasing * dt;
+    if (isMouseLookMode()) {
+        const float sensitivity = mouseSensitivity(_game.options().game.mouse.sensitivity);
+        const float pitchChange = -sensitivity * mouseTravelStrength(travel, dt) * kTiltPerTurn;
+        _tiltOffset += tiltSign() * pitchChange;
     }
+    clampTilt();
     if (_viewPitch != previousPitch) {
         updateSceneNode();
     }
@@ -324,17 +353,17 @@ float ThirdPersonCamera::integrateCombatTurn(float input, float dt) {
 }
 
 // Held turn keys win. Otherwise a mouse look moved this frame turns by its
-// travel at once and leaves that turn as a velocity to coast off; with
-// neither, the turn brakes.
+// travel at once and leaves its speed as a velocity to coast off; with
+// neither, the turn brakes. Both follow the mouse whatever the frame rate.
 void ThirdPersonCamera::updateCombatTurn(float dt) {
     const float input = _rotateCCW ? 1.0f : (_rotateCW ? -1.0f : 0.0f);
     float turned;
-    const float mouse = isMouseLookMode()
-                            ? mouseFrameStrength(_mouseTurn) * mouseSensitivity(_game.options().game.mouse.sensitivity)
-                            : 0.0f;
+    const float sensitivity = isMouseLookMode() ? mouseSensitivity(_game.options().game.mouse.sensitivity) : 0.0f;
+    const float mouse = mouseTravelStrength(_mouseTurn, dt) * sensitivity;
+    const float mouseVelocity = mouseSpeedStrength(_mouseTurn, dt) * sensitivity;
     _mouseTurn = 0.0f;
     if (input == 0.0f && mouse != 0.0f) {
-        _turnVelocity = mouse;
+        _turnVelocity = mouseVelocity;
         turned = mouse;
     } else {
         turned = integrateCombatTurn(input, dt);
@@ -424,10 +453,17 @@ void ThirdPersonCamera::updateSceneNode() {
     _sceneNode->setLocalTransform(std::move(transform));
 }
 
+// In TSL stopping the camera also ends the mouse-look hold.
 void ThirdPersonCamera::stopMovement() {
     _rotateCCW = false;
     _rotateCW = false;
-    _mouseLookHeld = false;
+    if (_game.isTSL()) {
+        _game.setMouseLookHeld(false);
+    }
+}
+
+bool ThirdPersonCamera::isMouseLookMode() const {
+    return _game.isMouseLookHeld() != _game.mouseLook();
 }
 
 void ThirdPersonCamera::setTargetPosition(glm::vec3 position) {
@@ -449,14 +485,13 @@ bool ThirdPersonCamera::setDollyZoom(bool enabled) {
     return true;
 }
 
-// A new style keeps the tilt: TSL holds it within the new limits at once;
-// KotOR's moves into them only as the mouse tilts it.
+// A new style keeps the tilt and sets the tilt limits, which hold the tilt
+// at once.
 void ThirdPersonCamera::setStyle(CameraStyle style) {
     _style = std::move(style);
-    if (_game.isTSL()) {
-        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
-        _viewPitch = kLevelPitch + _tiltOffset;
-    }
+    _lookUp = _style.tiltUp;
+    _lookDown = _style.tiltDown;
+    clampTilt();
     // A new style sets its own view angle.
     _viewAngleOverride.reset();
     rebuildProjection();

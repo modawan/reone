@@ -63,6 +63,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
     ${TESTS_SOURCE_DIR}/game/avoidance.cpp
     ${TESTS_SOURCE_DIR}/game/cheats.cpp
+    ${TESTS_SOURCE_DIR}/game/console.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
@@ -121,6 +122,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/turret.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/context.cpp
+    ${TESTS_SOURCE_DIR}/graphics/dxtutil.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/mdlmdxreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/tgareader.cpp
@@ -162,6 +164,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/provider/dialogs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/gffs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/scripts.cpp
+    ${TESTS_SOURCE_DIR}/resource/provider/textures.cpp
     ${TESTS_SOURCE_DIR}/resource/2da.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
@@ -219,7 +222,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 else()
     target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 endif()
-target_link_libraries(tests PRIVATE tools json GTest::gmock_main)
+target_link_libraries(tests PRIVATE tools json GTest::gmock_main OpenAL::OpenAL)
 
 if(MSVC)
     target_compile_options(tests PRIVATE /bigobj)

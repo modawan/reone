@@ -838,42 +838,10 @@ void Area::loadLYT() {
     auto walkableSurfaces = _services.game.surfaces.getWalkableSurfaces();
     for (auto &lytRoom : layout->rooms) {
         _layoutWalkmeshes.emplace_back();
-        auto model = _services.resource.models.get(lytRoom.name);
-        if (!model) {
-            continue;
-        }
-
-        // Model
         glm::vec3 position(lytRoom.position.x, lytRoom.position.y, lytRoom.position.z);
-        std::shared_ptr<ModelSceneNode> modelSceneNode(sceneGraph.newModel(*model, ModelUsage::Room));
-        modelSceneNode->setLocalTransform(glm::translate(glm::mat4(1.0f), position));
-
-        // Mark room objects as static when not below "{modelName}a" model node
-        std::stack<std::reference_wrapper<ModelNode>> modelNodes;
-        modelNodes.push(*model->rootNode());
-        while (!modelNodes.empty()) {
-            auto &modelNode = modelNodes.top().get();
-            modelNodes.pop();
-            if (modelNode.name() == model->name() + "a") {
-                continue;
-            }
-            auto sceneNode = modelSceneNode->getNodeByName(modelNode.name());
-            if (sceneNode) {
-                sceneNode->setStatic(true);
-            }
-            for (auto &child : modelNode.children()) {
-                modelNodes.push(*child);
-            }
-        }
-
-        for (auto &anim : model->getAnimationNames()) {
-            if (boost::starts_with(anim, "animloop")) {
-                modelSceneNode->playAnimation(anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-            }
-        }
-        sceneGraph.addRoot(modelSceneNode);
-
-        // Walkmesh
+        // A room is walked on by its walkmesh, whether or not its model is
+        // there to be drawn.
+        auto model = _services.resource.models.get(lytRoom.name);
         std::shared_ptr<WalkmeshSceneNode> walkmeshSceneNode;
         auto walkmesh = _services.resource.walkmeshes.get(lytRoom.name, ResType::Wok);
         if (walkmesh) {
@@ -882,9 +850,45 @@ void Area::loadLYT() {
             uniwalkLoadRoom(_pathfinder.uni, *walkmesh, walkableSurfaces);
         }
 
+        if (!model && !walkmeshSceneNode) {
+            continue;
+        }
+
+        // Model
+        std::shared_ptr<ModelSceneNode> modelSceneNode;
+        if (model) {
+            modelSceneNode = sceneGraph.newModel(*model, ModelUsage::Room);
+            modelSceneNode->setLocalTransform(glm::translate(glm::mat4(1.0f), position));
+
+            // Mark room objects as static when not below "{modelName}a" model node
+            std::stack<std::reference_wrapper<ModelNode>> modelNodes;
+            modelNodes.push(*model->rootNode());
+            while (!modelNodes.empty()) {
+                auto &modelNode = modelNodes.top().get();
+                modelNodes.pop();
+                if (modelNode.name() == model->name() + "a") {
+                    continue;
+                }
+                auto sceneNode = modelSceneNode->getNodeByName(modelNode.name());
+                if (sceneNode) {
+                    sceneNode->setStatic(true);
+                }
+                for (auto &child : modelNode.children()) {
+                    modelNodes.push(*child);
+                }
+            }
+
+            for (auto &anim : model->getAnimationNames()) {
+                if (boost::starts_with(anim, "animloop")) {
+                    modelSceneNode->playAnimation(anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
+                }
+            }
+            sceneGraph.addRoot(modelSceneNode);
+        }
+
         // Grass
         std::shared_ptr<GrassSceneNode> grassSceneNode;
-        auto aabbNode = modelSceneNode->model().getAABBNode();
+        auto aabbNode = modelSceneNode ? modelSceneNode->model().getAABBNode() : nullptr;
         if (_grass.texture && aabbNode && _game.options().graphics.grass) {
             auto grassProperties = GrassProperties();
             grassProperties.density = _grass.density;
@@ -1443,6 +1447,17 @@ int Area::getRoomForceRating(const glm::vec3 &position) const {
     return found != _roomForceRatings.end() ? found->second : 0;
 }
 
+void Area::playRoomAnimation(const std::string &roomName, int animation) {
+    auto room = _rooms.find(boost::to_lower_copy(roomName));
+    if (room == _rooms.end()) {
+        return;
+    }
+    // Loops are numbered from 00; a number reads as unsigned and 16 bits wide.
+    auto name = str(boost::format("scriptloop%02u") % static_cast<uint16_t>(animation));
+    int flags = _game.isTSL() ? AnimationFlags::loop : AnimationFlags::loopOverlay;
+    room->second->model()->playAnimation(name, nullptr, AnimationProperties::fromFlags(flags));
+}
+
 int Area::getSurfaceMaterial(const glm::vec3 &position) const {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto room = sceneGraph.findRoomWalkmesh(position);
@@ -1946,9 +1961,27 @@ void Area::groundCreature(Creature &creature) {
     const glm::vec3 position {creature.position()};
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh;
     const int hint = creature.groundRoomHint();
+    // In TSL the room the creature was last found in is kept while the
+    // vertical through the creature meets it; where floors lie over others,
+    // not while the creature stands at the level of another room's floor and
+    // not of that room's.
+    const auto atLevel = [&](const scene::WalkmeshSceneNode &room) {
+        const auto face = sceneGraph.findRoomFace(room, position, scene::RoomFaceProbe::Locating);
+        return face && std::abs(face->height - position.z) <= graphics::Walkmesh::kFloorHeadroom;
+    };
+    std::shared_ptr<scene::WalkmeshSceneNode> hinted;
     if (_game.isTSL() && hint >= 0 && hint < static_cast<int>(_layoutWalkmeshes.size()) && _layoutWalkmeshes[hint] &&
         sceneGraph.findRoomFace(*_layoutWalkmeshes[hint], position, scene::RoomFaceProbe::Locating)) {
-        walkmesh = _layoutWalkmeshes[hint];
+        hinted = _layoutWalkmeshes[hint];
+    }
+    if (hinted && sceneGraph.hasStackedFloors() && !atLevel(*hinted)) {
+        const auto found = sceneGraph.findRoomWalkmesh(position);
+        if (found && found != hinted && atLevel(*found)) {
+            hinted = nullptr;
+        }
+    }
+    if (hinted) {
+        walkmesh = hinted;
     } else {
         walkmesh = sceneGraph.findRoomWalkmesh(position);
         const auto found = std::find(_layoutWalkmeshes.begin(), _layoutWalkmeshes.end(), walkmesh);
@@ -2032,6 +2065,55 @@ bool Area::hasRoomAt(const glm::vec3 &position) const {
     return _services.scene.graphs.get(_sceneName).findRoomWalkmesh(position) != nullptr;
 }
 
+bool Area::hasStackedFloors() const {
+    return _services.scene.graphs.get(_sceneName).hasStackedFloors();
+}
+
+bool Area::isAtLevelOf(const glm::vec3 &point, float height) const {
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    if (!sceneGraph.hasStackedFloors()) {
+        return true;
+    }
+    const glm::vec3 probe {point.x, point.y, height};
+    float floor = height;
+    if (const auto room = sceneGraph.findRoomWalkmesh(probe)) {
+        const auto face = sceneGraph.findRoomFace(*room, probe, scene::RoomFaceProbe::Locating);
+        if (!face) {
+            return false;
+        }
+        floor = face->height;
+    }
+    return std::abs(floor - point.z) <= graphics::Walkmesh::kFloorHeadroom;
+}
+
+float Area::roomLookupHeight(float height) const {
+    return hasStackedFloors() ? height : 0.0f;
+}
+
+graphics::Walkmesh::HeightBand Area::staticWallBand(const Creature &walker, float low, float high) const {
+    static constexpr float kStaticWallReach = 1000.0f;
+    static constexpr float kOverhead = 0.1f;
+    if (!hasStackedFloors()) {
+        return {low - kStaticWallReach, high + kStaticWallReach};
+    }
+    return {low - graphics::Walkmesh::kFloorHeadroom, high + walker.collisionHeight() + kOverhead};
+}
+
+// How far up from its feet a creature stands in the way of others where
+// floors lie over others: its collision height, but no less than a floor's
+// headroom, so that one of no height still meets those beside it.
+static float standingHeight(const Creature &creature) {
+    return std::max(creature.collisionHeight(), graphics::Walkmesh::kFloorHeadroom);
+}
+
+// Whether a creature, from its feet up through its standing height, keeps
+// clear of the heights from low to high: where floors lie over others, it
+// stands on another floor.
+static bool clearsHeights(const Creature &creature, float low, float high) {
+    const float feet = creature.position().z;
+    return feet > high || feet + standingHeight(creature) < low;
+}
+
 // Blocking faces are the non-walkable ones that walking is checked against,
 // in the rooms and in doors and placeables alike.
 static std::set<uint32_t> blockingSurfaces(const ISurfaces &surfaces) {
@@ -2056,6 +2138,24 @@ static bool hasBlockingFaceWithin(const std::shared_ptr<scene::WalkmeshSceneNode
     const glm::vec3 localTo {node->absoluteTransformInverse() * glm::vec4(to, 1.0f)};
     const float shift = localFrom.z - from.z;
     return node->walkmesh().hasFaceWithin(blocking, localFrom, localTo, radius, minZ + shift, maxZ + shift);
+}
+
+// Where a walker of the given radius, swept along the level segment between
+// two points, first meets a blocking face of an enabled walkmesh between two
+// heights; the contact's normal in world coordinates.
+static std::optional<graphics::Walkmesh::Contact> sweepWalkmesh(const std::shared_ptr<scene::WalkmeshSceneNode> &node, const std::set<uint32_t> &blocking,
+                                                                const glm::vec3 &from, const glm::vec3 &to, float radius, float minZ, float maxZ) {
+    if (!node || !node->isEnabled()) {
+        return std::nullopt;
+    }
+    const glm::vec3 localFrom {node->absoluteTransformInverse() * glm::vec4(from, 1.0f)};
+    const glm::vec3 localTo {node->absoluteTransformInverse() * glm::vec4(to, 1.0f)};
+    const float shift = localFrom.z - from.z;
+    auto contact = node->walkmesh().sweep(blocking, localFrom, localTo, radius, minZ + shift, maxZ + shift);
+    if (contact) {
+        contact->normal = glm::vec3(node->absoluteTransform() * glm::vec4(contact->normal, 0.0f));
+    }
+    return contact;
 }
 
 // Whether a wall of a door as it stands lies within radius of the level
@@ -2098,6 +2198,29 @@ std::optional<std::reference_wrapper<const Object>> Area::findStaticWallAlong(
     return std::nullopt;
 }
 
+std::optional<Area::StaticWallContact> Area::findStaticWallContact(
+    const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const {
+    const auto blocking = blockingSurfaces(_services.game.surfaces);
+    const float radius = creature.personalSpace();
+    std::optional<StaticWallContact> nearest;
+    const auto consider = [&](const Object &object, const std::shared_ptr<scene::WalkmeshSceneNode> &node) {
+        auto contact = sweepWalkmesh(node, blocking, from, to, radius, minZ, maxZ);
+        if (contact && (!nearest || contact->distance < nearest->contact.distance)) {
+            nearest = StaticWallContact {std::cref(object), *contact};
+        }
+    };
+    for (const auto &object : _objectsByType.at(ObjectType::Door)) {
+        const auto &door = static_cast<const Door &>(*object);
+        for (const auto &node : {door.walkmeshOpen1(), door.walkmeshOpen2(), door.walkmeshClosed()}) {
+            consider(door, node);
+        }
+    }
+    for (const auto &object : _objectsByType.at(ObjectType::Placeable)) {
+        consider(*object, static_cast<const Placeable &>(*object).walkmesh());
+    }
+    return nearest;
+}
+
 bool Area::isSafeLocationPoint(const glm::vec3 &point, const Creature &creature) const {
     if (!hasRoomAt(point + kSafeLocationRoomOffset)) {
         return false;
@@ -2128,9 +2251,11 @@ bool Area::isSafeLocationPoint(const glm::vec3 &point, const Creature &creature)
     }
 
     const float ownRadius = creature.creaturePersonalSpace() + kCreatureCollisionEpsilon;
+    const bool stacked = hasStackedFloors();
     for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
         const auto &other = static_cast<const Creature &>(*object);
-        if (&other == &creature || other.isDead() || other.isTemporarilyDead()) {
+        if (&other == &creature || other.isDead() || other.isTemporarilyDead() ||
+            (stacked && clearsHeights(other, point.z, point.z + standingHeight(creature)))) {
             continue;
         }
         const float reach = ownRadius + other.creaturePersonalSpace();
@@ -2349,16 +2474,13 @@ std::optional<std::reference_wrapper<const Creature>> Area::findBlockingCreature
     return collision.creature;
 }
 
-Area::DirectLineTest Area::testDirectLine(
+Area::DirectLineTest Area::testWalkStep(
     const Creature &mover,
     const glm::vec3 &from,
     const glm::vec3 &to,
     std::optional<std::reference_wrapper<const Creature>> ignored) const {
     // In TSL a walk is followed through no more than this many rooms.
     static constexpr int kMaxRoomsOnWalk = 100;
-    // Door and placeable walls are looked for this far below and above the
-    // heights the walk spans in the room it leaves the rooms from.
-    static constexpr float kExitWallReach = 1000.0f;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     DirectLineTest test;
     std::vector<float> crossings;
@@ -2420,12 +2542,12 @@ Area::DirectLineTest Area::testDirectLine(
     }
     if (leavesRooms) {
         // Where the walk runs out of the rooms, a door or placeable wall
-        // there stops it first.
+        // there stops it first, across the heights the walk spans in the
+        // room it leaves the rooms from (see staticWallBand).
         const float exit = fractionOf(reach);
         const glm::vec3 entry {from + line * roomStart(exit)};
-        const float minZ = std::min(entry.z, reach.z) - kExitWallReach;
-        const float maxZ = std::max(entry.z, reach.z) + kExitWallReach;
-        if (auto object = findStaticWallAlong(reach, reach, mover, minZ, maxZ)) {
+        const auto wallBand = staticWallBand(mover, std::min(entry.z, reach.z), std::max(entry.z, reach.z));
+        if (auto object = findStaticWallAlong(reach, reach, mover, wallBand.low, wallBand.high)) {
             if (creatureInEarlierRoom(exit)) {
                 return test;
             }
@@ -2445,6 +2567,106 @@ Area::DirectLineTest Area::testDirectLine(
         test.result = DirectLine::LeavesRooms;
         test.stopPoint = reach;
         test.normal = roomExit.normal;
+    }
+    return test;
+}
+
+Area::DirectLineTest Area::testDirectLine(
+    const Creature &mover,
+    const glm::vec3 &from,
+    const glm::vec3 &to,
+    std::optional<std::reference_wrapper<const Creature>> ignored) const {
+    // In TSL a walk is followed through no more than this many rooms.
+    static constexpr int kMaxRoomsOnWalk = 100;
+    // Room walls are looked for this far below the heights the walk spans in
+    // a room, and this far above those plus the walker's height; door and
+    // placeable walls across the band staticWallBand gives.
+    static constexpr float kRoomWallMargin = 0.1f;
+
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    DirectLineTest test;
+    std::vector<scene::RoomStretch> stretches;
+    Collision roomEnd;
+    const scene::RoomWalkEnd walkEnd = sceneGraph.walkRooms(from, to, _game.isTSL() ? std::make_optional(kMaxRoomsOnWalk) : std::nullopt,
+                                                            /*withBands=*/true, stretches, roomEnd);
+    if (walkEnd == scene::RoomWalkEnd::OffRooms) {
+        test.result = DirectLine::LeavesRooms;
+        test.stopPoint = from;
+        test.normal = roomEnd.normal;
+        return test;
+    }
+    const glm::vec3 line {to - from};
+    const glm::vec2 level {line};
+    const float length2 = glm::dot(level, level);
+    const glm::vec3 back {length2 > 0.0f ? glm::vec3(-level / std::sqrt(length2), 0.0f) : glm::vec3(0.0f)};
+    // Where the walk runs out of the rooms, as a fraction of it.
+    const float last = walkEnd == scene::RoomWalkEnd::Dest || length2 == 0.0f
+                           ? 1.0f
+                           : glm::dot(glm::vec2(roomEnd.intersection - from), level) / length2;
+    // A scene graph that records no stretch, as a test's may, has the walk
+    // settled as one stretch with no room walls.
+    if (stretches.empty()) {
+        stretches.push_back(scene::RoomStretch {});
+    }
+    const auto blocking = blockingSurfaces(_services.game.surfaces);
+    const float radius = mover.personalSpace();
+    for (size_t i = 0; i < stretches.size(); ++i) {
+        const scene::RoomStretch &stretch = stretches[i];
+        const glm::vec3 start {from + line * stretch.from};
+        const glm::vec3 end {from + line * (i + 1 < stretches.size() ? stretches[i + 1].from : last)};
+        const float span = glm::length(glm::vec2(end - start));
+        const auto pointAt = [&](float distance) {
+            return span > 0.0f ? start + (end - start) * (distance / span) : start;
+        };
+        float low = std::min(start.z, end.z);
+        float high = std::max(start.z, end.z);
+        std::optional<graphics::Walkmesh::Contact> roomContact;
+        if (stretch.room) {
+            if (!stretch.band) {
+                test.result = DirectLine::Blocked;
+                test.stopPoint = start;
+                test.normal = back;
+                return test;
+            }
+            low = stretch.band->low;
+            high = stretch.band->high;
+            const float minZ = low - kRoomWallMargin;
+            const float maxZ = high + mover.collisionHeight() + kRoomWallMargin;
+            roomContact = sweepWalkmesh(stretch.room, blocking, start, end, radius, minZ, maxZ);
+        }
+        // The nearer of the room's wall and a door's or placeable's stops the
+        // walk; on a tie the door or placeable does, so that a door in the
+        // way is known.
+        const auto wallBand = staticWallBand(mover, low, high);
+        const auto wall = findStaticWallContact(start, end, mover, wallBand.low, wallBand.high);
+        if (wall && (!roomContact || wall->contact.distance <= roomContact->distance)) {
+            test.result = DirectLine::Blocked;
+            test.stopPoint = pointAt(wall->contact.distance);
+            if (wall->object.get().type() == ObjectType::Door) {
+                test.door = static_cast<const Door &>(wall->object.get());
+            }
+            test.normal = wall->contact.normal;
+            return test;
+        }
+        if (roomContact) {
+            test.result = DirectLine::Blocked;
+            test.stopPoint = pointAt(roomContact->distance);
+            test.normal = roomContact->normal;
+            return test;
+        }
+        CreatureCollision creatureCollision;
+        if (findCreatureCollision(mover, start, end, creatureCollision, ignored)) {
+            test.result = DirectLine::CreatureBlocked;
+            test.blocker = creatureCollision.creature;
+            test.stopPoint = start + (end - start) * creatureCollision.time;
+            test.normal = glm::vec3 {creatureCollision.normal, 0.0f};
+            return test;
+        }
+    }
+    if (walkEnd != scene::RoomWalkEnd::Dest) {
+        test.result = DirectLine::LeavesRooms;
+        test.stopPoint = roomEnd.intersection;
+        test.normal = roomEnd.normal;
     }
     return test;
 }
@@ -2476,7 +2698,7 @@ glm::vec3 Area::randomDestination(const Creature &mover, int range) const {
     const int span = 2 * range;
     const int dx = randomInt(0, kRandMax) % span - range;
     const int dy = randomInt(0, kRandMax) % span - range;
-    glm::vec3 target {origin.x + static_cast<float>(dx), origin.y + static_cast<float>(dy), 0.0f};
+    glm::vec3 target {origin.x + static_cast<float>(dx), origin.y + static_cast<float>(dy), roomLookupHeight(origin.z)};
     target.z = groundHeight(target, GroundFace::Locating);
 
     glm::vec3 direction {target - origin};
@@ -2526,7 +2748,7 @@ std::optional<glm::vec3> Area::randomWalkPoint(const Creature &walker, const glm
 
     const int dx = randomInt(0, kRandMax) % kSpan - kReach;
     const int dy = randomInt(0, kRandMax) % kSpan - kReach;
-    glm::vec3 target {home.x + static_cast<float>(dx), home.y + static_cast<float>(dy), 0.0f};
+    glm::vec3 target {home.x + static_cast<float>(dx), home.y + static_cast<float>(dy), roomLookupHeight(home.z)};
     target.z = groundHeight(target, GroundFace::Locating);
 
     const glm::vec3 &origin = walker.position();
@@ -3046,10 +3268,16 @@ bool Area::findCreatureCollision(
     std::optional<std::reference_wrapper<const Creature>> ignoredCreature) const {
     bool found = false;
     outCollision.time = 1.0f;
+    // Where floors lie over others, a creature counts only across the heights
+    // the mover spans along the step.
+    const bool stacked = hasStackedFloors();
+    const float low = std::min(origin.z, destination.z);
+    const float high = std::max(origin.z, destination.z) + standingHeight(creature);
 
     for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
         const auto &other = static_cast<const Creature &>(*object);
-        if (&other == &creature || (ignoredCreature && &other == &ignoredCreature->get()) || other.isDead() || other.isTemporarilyDead()) {
+        if (&other == &creature || (ignoredCreature && &other == &ignoredCreature->get()) || other.isDead() || other.isTemporarilyDead() ||
+            (stacked && clearsHeights(other, low, high))) {
             continue;
         }
 

@@ -292,6 +292,11 @@ void Sound::setActive(bool active) {
     }
     if (_sceneNode) {
         _sceneNode->setEnabled(active);
+        // The node was found inaudible while it was disabled, so the scene
+        // tells again before the first sound plays.
+        if (active) {
+            static_cast<SoundSceneNode &>(*_sceneNode).forgetAudibility();
+        }
     }
     // An activated sound object starts its list again.
     if (active) {

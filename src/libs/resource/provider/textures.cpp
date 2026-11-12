@@ -47,14 +47,9 @@ std::shared_ptr<Texture> Textures::get(const std::string &resRef, TextureUsage u
     if (resRef.empty()) {
         return nullptr;
     }
-    std::string lcResRef(boost::to_lower_copy(resRef));
-    auto maybeTexture = _cache.find(lcResRef);
-    if (maybeTexture != _cache.end()) {
-        return maybeTexture->second;
-    }
-    auto inserted = _cache.insert(std::make_pair(lcResRef, doGet(lcResRef, usage)));
-
-    return inserted.first->second;
+    const auto lcResRef = boost::to_lower_copy(resRef);
+    return _cache.getOrAdd({lcResRef, usage},
+                           [this, &lcResRef, usage]() { return doGet(lcResRef, usage); });
 }
 
 std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage usage) {

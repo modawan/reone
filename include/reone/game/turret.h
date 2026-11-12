@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <array>
 #include <limits>
+#include <map>
+#include <memory>
+#include <optional>
 
 #include "reone/input/event.h"
+#include "reone/scene/animeventlistener.h"
+#include "reone/script/types.h"
 
 #include "minigame.h"
 
@@ -28,6 +34,7 @@ namespace reone {
 namespace audio {
 
 class AudioClip;
+class AudioSource;
 
 }
 
@@ -41,123 +48,97 @@ namespace game {
 
 class Game;
 class FirstPersonCamera;
+class MinigameObject;
 struct ServicesView;
 
 /**
- * Aim state of the player turret, in radians.
- *
- * The module stores the aim limits in the .are MiniGame Player "Tunnel" fields:
- * X is the pitch axis and Z is the yaw axis (Y is unused by the turret). The
- * stored values are signed degree limits, so the usable range of an axis is
- * [Neg, Pos] rather than [-Neg, +Pos]; K1's Ebon Hawk turret pitches between
- * TunnelXNeg = 2 and TunnelXPos = 45 degrees. An axis whose TunnelInfinite
- * component is set is unbounded and wraps instead of clamping, which is how the
- * turret gets free 360 degree yaw.
+ * The player turret's aim: an offset in degrees, x the pitch, y the roll and z
+ * the yaw. Each axis keeps within its origin plus the tunnel's negative and
+ * positive deltas, unless the axis is infinite, when it wraps into [0, 360)
+ * instead.
  */
 class TurretAim {
 public:
+    /** Takes the authored origin (Start_Offset) and tunnel, and aims at the origin. */
     void configure(const MinigamePlayerSpec &player);
 
+    glm::vec3 offset() const { return _offset; }
+    /** Aims at \p degrees, held inside the tunnel. */
+    void setOffset(const glm::vec3 &degrees);
+    /** Turns the aim by \p degrees, held inside the tunnel. */
+    void turn(const glm::vec3 &degrees);
+
+    const glm::vec3 &origin() const { return _origin; }
     /**
-     * Return to the authored starting aim. Replaying a session must not inherit
-     * the previous run's aim.
+     * Moves the origin; while the turret's track has not started, the aim
+     * moves to it as well.
      */
-    void reset();
+    void setOrigin(const glm::vec3 &degrees, bool trackPlaying);
+    const glm::vec3 &tunnelPositive() const { return _tunnelPositive; }
+    const glm::vec3 &tunnelNegative() const { return _tunnelNegative; }
+    const glm::vec3 &tunnelInfinite() const { return _tunnelInfinite; }
+    void setTunnelPositive(const glm::vec3 &degrees) { _tunnelPositive = degrees; }
+    void setTunnelNegative(const glm::vec3 &degrees) { _tunnelNegative = degrees; }
+    void setTunnelInfinite(const glm::vec3 &axes) { _tunnelInfinite = axes; }
 
-    void addPitch(float radians);
-    void addYaw(float radians);
-
-    float pitch() const { return _pitch; }
-    float yaw() const { return _yaw; }
-
-    // Authored starting aim, already clamped into the authored bounds.
-    float startPitch() const { return _startPitch; }
-    float startYaw() const { return _startYaw; }
-
-    // How far an axis can travel, in radians; a full turn when unbounded.
-    float pitchTravel() const;
-    float yawTravel() const;
+    // Pitch and yaw in radians.
+    float pitch() const { return glm::radians(_offset.x); }
+    float yaw() const { return glm::radians(_offset.z); }
+    void addPitch(float radians) { turn(glm::vec3(glm::degrees(radians), 0.0f, 0.0f)); }
+    void addYaw(float radians) { turn(glm::vec3(0.0f, 0.0f, glm::degrees(radians))); }
 
     /**
      * Unit vector the turret is pointing along, in the track frame. Models
-     * look down +Y, so this is Rz(yaw) * Rx(pitch) applied to +Y.
+     * look down +Y.
      */
     glm::vec3 forward() const;
 
+    /** Yaw about Z, then pitch about X, then roll about Y. */
     glm::quat orientation() const;
 
-    bool pitchBounded() const { return _pitchBounded; }
-    bool yawBounded() const { return _yawBounded; }
-    float minPitch() const { return _minPitch; }
-    float maxPitch() const { return _maxPitch; }
-    float minYaw() const { return _minYaw; }
-    float maxYaw() const { return _maxYaw; }
-
 private:
-    float _pitch {0.0f};
-    float _yaw {0.0f};
-    float _startPitch {0.0f};
-    float _startYaw {0.0f};
+    glm::vec3 _offset {0.0f};
+    glm::vec3 _origin {0.0f};
+    glm::vec3 _tunnelPositive {0.0f};
+    glm::vec3 _tunnelNegative {0.0f};
+    glm::vec3 _tunnelInfinite {0.0f};
 
-    bool _pitchBounded {true};
-    bool _yawBounded {true};
-    float _minPitch {0.0f};
-    float _maxPitch {0.0f};
-    float _minYaw {0.0f};
-    float _maxYaw {0.0f};
+    void keepInTunnel();
 };
 
 /**
- * Turn rate of one aim axis while a key is held.
- *
- * This is the existing keyboard rotation model (ThirdPersonCamera): a held
- * key starts at a minimum rate and accelerates to a cap, so a tap gives fine
- * adjustment while a hold sweeps. The rates are scaled by the axis's authored
- * travel and calibrated so an unbounded axis reproduces ThirdPersonCamera's
- * rates exactly; a narrow axis such as the turret's 43 degree pitch band then
- * moves proportionally slower, and both axes cross their full authored travel
- * in about the same time.
- *
- * The rate is integrated analytically rather than stepped, so the angle covered
- * over a given interval does not depend on how many frames it is split into.
+ * Turn rate of one aim axis while a key is held, in degrees per second. A held
+ * key accelerates the axis towards the top rate, MovementPerSec, at the
+ * lateral acceleration, LateralAccel; let go, it slows the same way. The rate
+ * is integrated exactly, so the angle covered over an interval does not depend
+ * on how many frames it is split into.
  */
 class TurretAimRate {
 public:
-    void configure(float travelRadians);
+    void configure(float lateralAcceleration, float movementPerSecond);
+    void setLateralAcceleration(float lateralAcceleration) { _acceleration = lateralAcceleration; }
 
-    /**
-     * -1, 0 or +1. Engaging an axis, or reversing it, restarts the acceleration
-     * ramp from the minimum rate.
-     */
+    /** -1, 0 or +1. */
     void setDirection(int direction);
 
-    /**
-     * Angle to apply this step, signed by the held direction; zero when idle.
-     */
+    /** Degrees to turn this step. */
     float advance(float dt);
 
-    /** Drop any held direction and accumulated acceleration. */
+    /** Drop any held direction and the rate it built up. */
     void reset();
 
     int direction() const { return _direction; }
-    float minRate() const { return _minRate; }
-    float maxRate() const { return _maxRate; }
-    float rate() const;
+    float rate() const { return _rate; }
 
 private:
-    float _minRate {0.0f};
-    float _maxRate {0.0f};
     float _acceleration {0.0f};
+    float _topRate {0.0f};
     int _direction {0};
-    float _held {0.0f}; // seconds the current direction has been engaged
-
-    float rateAt(float held) const;
-    float angleOver(float from, float to) const;
+    float _rate {0.0f};
 };
 
 /**
- * Rate-of-fire gate for a single gun bank. The module stores the interval
- * between shots in the bank's Bullet.Rate_Of_Fire.
+ * Rate-of-fire gate for a single gun bank: the bank's time between shots.
  */
 class TurretGunTimer {
 public:
@@ -175,6 +156,12 @@ public:
      */
     bool tryFire();
 
+    /**
+     * A new time between shots. A shot counting down within the old time is
+     * brought forward, or put back, by the difference.
+     */
+    void setRateOfFire(float rateOfFire);
+
     float cooldown() const { return _cooldown; }
     float rateOfFire() const { return _rateOfFire; }
 
@@ -188,6 +175,8 @@ private:
  */
 struct TurretBullet {
     glm::vec3 position {0.0f};
+    /** Where the bullet was before its last step: the hit tests sweep from here to position. */
+    glm::vec3 previousPosition {0.0f};
     glm::vec3 direction {0.0f, 1.0f, 0.0f};
 
     // World orientation of the firing actor at the moment of the shot. Authored
@@ -222,81 +211,6 @@ struct TurretBullet {
      */
     void expire() { life = std::numeric_limits<float>::max(); }
 };
-
-/**
- * Cockpit HUD state, reproducing what K1's module-local OnDamage script
- * (k_pebo_hawkhit) computes. The minigame is substituted here and that script
- * cannot run - its SWMG_ routines are unimplemented - so the small part of it
- * that drives the HUD is reproduced here:
- *
- *   if (!GetGlobalBoolean("M12AB_END_SYNC")) {
- *     if (SWMG_GetHitPoints(OBJECT_SELF) >= 2000) {
- *       SWMG_OnDamage();
- *       state = ((SWMG_GetHitPoints(OBJECT_SELF) - 2000) * 12) / 1000 + 1;
- *       anim  = (state <= 9) ? "Health0" + IntToString(state)
- *                            : "Health"  + IntToString(state);
- *       SWMG_PlayAnimation(OBJECT_SELF, anim, TRUE, FALSE, FALSE);
- *       if (state == 3) { SoundObjectPlay(GetObjectByTag("Alarm01")); }
- *     } else {
- *       ... SoundObjectStop(GetObjectByTag("Alarm01"));
- *       SWMG_PlayAnimation(OBJECT_SELF, "Health00", TRUE, FALSE, FALSE);
- *       ... loss presentation
- *     }
- *   }
- */
-
-// The hit point floor the shipped script treats as destruction, and the span of
-// the authored gauge above it. The Ebon Hawk is authored with 3000 hit points,
-// so the gauge covers 2000..3000.
-constexpr int kTurretGaugeFloor = 2000;
-constexpr int kTurretGaugeSpan = 1000;
-constexpr int kTurretHealthStateCount = 13; // Health00..Health12
-
-/**
- * Authored health state for a hit point total, clamped to Health00..Health12.
- *
- * Uses the shipped integer arithmetic verbatim, including its truncating
- * division: a state covers a whole band of hit points, so ordinary damage steps
- * the gauge down one state at a time rather than flickering between two.
- */
-/**
- * Whether the hawk has been destroyed. The shipped script takes its destruction
- * branch below the gauge floor rather than at zero hit points.
- */
-bool turretIsDestroyed(int hitPoints);
-
-int turretHealthState(int hitPoints);
-
-/** "Health00".."Health12" for a state index. */
-std::string turretHealthAnimation(int state);
-
-/**
- * The shipped script starts the alarm when the computed state is exactly 3 -
- * a boundary trigger as the gauge falls through that band, not a level test,
- * and with no authored hysteresis or restart.
- */
-constexpr int kTurretAlarmState = 3;
-
-bool turretAlarmStartsAtState(int state);
-
-/** Tag of the authored looping alarm sound object placed in the module. */
-extern const std::string kTurretAlarmTag;
-
-/**
- * Radar contact channel for an enemy index (0-based). The shipped HUD authors
- * one contact loop per enemy track: track m12ab_mgt02 is SithLoop02 on node
- * sithhud002, and so on through mgt07 / SithLoop07 / sithhud007.
- */
-std::string turretContactAnimation(size_t enemyIndex);
-
-/**
- * The matching contact-removal pose ("SithLoop02d"..), a zero length pose that
- * drops the contact's alpha.
- */
-std::string turretContactDeathAnimation(size_t enemyIndex);
-
-/** How many contact channels the shipped HUD authors. */
-constexpr size_t kTurretContactCount = 6;
 
 /**
  * Whether a destroyed fighter has finished presenting its death effect.
@@ -343,14 +257,6 @@ void turretDisableReferenceAttachments(scene::ModelSceneNode &model);
 float turretMuzzleClearance(float modelMinForward);
 
 /**
- * Radar heading pose index for a turret yaw, as a whole degree in [0, 360).
- */
-int turretHeadingState(float yawRadians);
-
-/** "HudRot_000".."HudRot_359" for a heading index. */
-std::string turretHeadingAnimation(int heading);
-
-/**
  * Why a requested turret session cannot be scheduled.
  */
 enum class TurretRequestError {
@@ -392,13 +298,6 @@ TurretRequestResolution resolveTurretRequest(bool pendingForModule,
 const char *turretRequestResolutionMessage(TurretRequestResolution resolution);
 
 /**
- * Where a finished turret session returns to: the module's end-script target for
- * the turret module when one is known, otherwise the module it started from.
- */
-std::string turretReturnModule(const std::string &turretModule,
-                               const std::string &originModule);
-
-/**
  * Direction an actor with this world orientation fires along. Models look
  * down +Y, so both the bolt's travel and its visual long axis come from the
  * same orientation - which is also why every gun bank of one actor fires
@@ -426,7 +325,7 @@ bool rayIntersectsSphere(const glm::vec3 &origin,
                          float maxDistance);
 
 /**
- * The K1 Ebon Hawk turret minigame (.are MiniGame Type 2).
+ * The turret minigame (.are MiniGame Type 2).
  *
  * The player is a gun turret riding an authored rail: the player track model
  * animates a "modelhook" node, and everything is parented to it, so the whole
@@ -438,55 +337,156 @@ bool rayIntersectsSphere(const glm::vec3 &origin,
  *
  * Player models are split by the .are "RotatingModel" flag: flagged models (the
  * gun, the HUD panes) follow the aim, the rest (the Ebon Hawk hull) stay fixed
- * in the track frame. Gun banks mount on the rotating group's "gunbankN" hooks
- * and spawn bullets from the gun model's "bullethook0".
+ * in the track frame. Gun banks mount on the "gunbankN" hooks of whichever of
+ * the actor's models carries them, and spawn bullets from the gun model's
+ * "bullethook0".
  *
- * Not implemented in this slice: the module's minigame scripts (the SWMG_*
- * routines they need are unimplemented), obstacles, and the player invincibility
- * period. Win/lose is decided engine-side: destroying every enemy wins, running
- * out of hit points loses.
+ * The module's scripts drive it. The player, each enemy and each obstacle of
+ * the area layout is an object its scripts run as and the SWMG routines take.
+ * A hook with a script replaces the built-in handling, which the script can
+ * still ask for. Nothing here decides a win or a loss: the scripts end the
+ * fight.
  */
 class Turret {
 public:
+    /** The fields of a bullet a gun bank fires that a hit reports. */
+    struct BulletInfo {
+        int damage {0};
+        uint32_t targetType {0};
+        std::string collisionSound;
+    };
+
     struct GunBank {
-        const MinigameGunBankSpec *spec {nullptr};
+        /** The bank as authored, changed by scripts. */
+        MinigameGunBankSpec spec;
         std::shared_ptr<scene::ModelSceneNode> modelNode;
         TurretGunTimer timer;
     };
 
-    struct Enemy {
-        const MinigameEnemySpec *spec {nullptr};
+    struct Actor;
+
+    /** Passes one model's animation events to the turret, which runs them in its next update. */
+    class ModelEvents : public scene::IAnimationEventListener {
+    public:
+        ModelEvents(Turret &turret, Actor &actor, std::string modelName) :
+            _turret(turret),
+            _actor(actor),
+            _modelName(std::move(modelName)) {
+        }
+
+        void onEventSignalled(const std::string &name) override;
+
+    private:
+        Turret &_turret;
+        Actor &_actor;
+        std::string _modelName;
+    };
+
+    /** What the player, an enemy and an obstacle have alike. */
+    struct Actor {
+        virtual ~Actor() = default;
+
+        std::shared_ptr<MinigameObject> object;
+        /** A follower's track model name, an obstacle's model name. */
+        std::string name;
+        std::vector<std::shared_ptr<scene::ModelSceneNode>> models;
+        std::vector<std::unique_ptr<ModelEvents>> modelEvents;
+
+        // The last bullet to hit it.
+        BulletInfo lastBulletHit;
+        uint32_t lastBulletShooter {script::kObjectInvalid};
+        std::string lastBulletHitPart;
+        glm::vec3 lastBulletHitPosition {0.0f};
+        uint32_t lastFollowerHit {script::kObjectInvalid};
+
+        // The last custom animation event: its tag and the model that raised it.
+        std::string lastEvent;
+        std::string lastEventModel;
+
+        uint32_t id() const;
+    };
+
+    /** The volume, frequency and random frequency of an engine or death sound. */
+    struct SoundSettings {
+        int volume {0};
+        int frequency {0};
+        int frequencyIsRandom {0};
+    };
+
+    /** The player or an enemy: an actor that rides a track. */
+    struct Follower : Actor {
+        bool player {false};
+        bool trigger {false};
+        MinigameFollowerScriptSpec scripts;
         std::shared_ptr<scene::ModelSceneNode> trackNode;
-        std::shared_ptr<scene::ModelSceneNode> modelNode;
-        std::vector<std::shared_ptr<scene::ModelSceneNode>> extraNodes;
+        std::string trackAnimation;
+        /** Where the track's animation was at the last update, to tell when it goes round. */
+        std::optional<float> lastTrackTime;
         std::vector<GunBank> gunBanks;
+        std::string deathSound;
+        /** The engine's looping sound, heard where the follower is while its track plays. */
+        std::string engineSound;
+        std::shared_ptr<audio::AudioSource> engineSource;
+        std::array<SoundSettings, 2> sounds;
+
+        int hitPoints {100};
+        int maxHitPoints {0};
+        float sphereRadius {0.0f};
+        int numLoops {1};
+        float invincibility {0.0f};
+        float invincibilityTimer {0.0f};
+        /** The last change made to the hit points, pending while OnDamage runs. */
+        int hitPointAdjust {0};
+        uint32_t lastObstacleHit {script::kObjectInvalid};
+        BulletInfo lastBulletFired;
+
+        bool dead {false};
+        /** In the enemy list; the built-in death takes it out. */
+        bool listed {true};
+
         glm::vec3 position {0.0f};
         glm::quat orientation {1.0f, 0.0f, 0.0f, 0.0f};
         glm::vec3 forward {0.0f, 1.0f, 0.0f};
-        int hitPoints {0};
-        bool alive {true};
-        bool deathHandled {false};
 
-        // Death effect bookkeeping. A destroyed fighter keeps playing its
-        // authored "die" animation for that animation's own length, after which
-        // everything it owns leaves the scene.
+        // Death effect bookkeeping. The built-in death plays each model's "die"
+        // animation for that animation's own length, after which the follower
+        // and everything it owns leave the scene.
+        bool dying {false};
         float deathElapsed {0.0f};
         float deathDuration {0.0f};
-        bool nodesReleased {false};
+        bool released {false};
         bool detachedFromTrack {false};
+
+        /** The bullet target bit it answers to: 1 the player, 2 an enemy. */
+        uint32_t targetType() const { return player ? 1 : 2; }
+
+        /**
+         * Scripts number gun banks by bank id. The bank with the id, the last
+         * made when several share it, or none.
+         */
+        GunBank *gunBank(int bankId);
+        /** One more than the highest bank id: the ids below it without a bank count too. */
+        int gunBankCount() const;
+    };
+
+    struct Obstacle : Actor {
+        MinigameObstacleScriptSpec scripts;
+        bool listed {true};
+    };
+
+    /** Where a bullet hit, the surface's normal there and the part it hit. */
+    struct BulletHit {
+        glm::vec3 position {0.0f};
+        glm::vec3 normal {0.0f, 0.0f, 1.0f};
+        std::string part;
     };
 
     struct Bullet {
         TurretBullet sim;
         std::shared_ptr<scene::ModelSceneNode> modelNode;
         std::string modelResRef;
-        std::string collisionSound;
-    };
-
-    enum class Outcome {
-        InProgress,
-        Won,
-        Lost
+        BulletInfo info;
+        uint32_t shooter {script::kObjectInvalid};
     };
 
     Turret(Game &game, ServicesView &services) :
@@ -495,7 +495,8 @@ public:
     }
 
     /**
-     * Load the minigame actors for \p spec and activate the turret.
+     * Load the minigame actors for \p spec, run their creation scripts and
+     * activate the turret.
      *
      * @param camera the area first-person camera, reused as the turret camera; may be null
      * @param areaName the area resref, used to look up the LYT track placements
@@ -513,31 +514,72 @@ public:
 
     bool isActive() const { return _active; }
 
+    // Script objects
+
+    /** The player while it exists, else none. */
+    Follower *player() { return _player.get(); }
+    /** The follower (player or enemy) an object id names. */
+    Follower *follower(uint32_t id);
+    Obstacle *obstacle(uint32_t id);
+    /** The follower or obstacle an object id names. */
+    Actor *actor(uint32_t id);
+    /** The enemies still in the enemy list, in authored order. */
+    std::vector<Follower *> listedEnemies();
+    /** The obstacles still in the obstacle list, in layout order. */
+    std::vector<Obstacle *> listedObstacles();
+    /** The first object with the name, in the order the objects were made. */
+    Actor *actorByName(const std::string &name);
+
+    // Script hooks with their built-in handling. Without \p apply a script on
+    // the hook runs in place of the built-in handling; with it, the built-in
+    // handling runs.
+
+    /** Records \p amount as the last change to the hit points, then handles the damage. */
+    void adjustHitPoints(Follower &follower, int amount);
+    void onDamage(Follower &follower, bool apply);
+    void onDeath(Follower &follower, bool apply);
+    void onBulletHit(Actor &actor, bool apply);
+    void onObstacleHit(Follower &follower, bool apply);
+
+    /** Takes an obstacle out of the obstacle list and the scene; its object stays. */
+    void removeObstacle(Obstacle &obstacle);
+    /** Takes an obstacle away, its object too. */
+    void destroyObstacle(Obstacle &obstacle);
+
+    void playAnimation(Actor &actor, const std::string &name, bool looping, bool overlay);
+    void removeAnimation(Actor &actor, const std::string &name);
+
+    void setNumLoops(Follower &follower, int loops);
+
+    /** Sets the engine (0) or death (1) sound's volume, out of 127; the engine's takes effect at once. */
+    void setSoundVolume(Follower &follower, int sound, int volume);
+
+    /** Puts a new gun model on every gun of the bank. */
+    void setGunModel(Follower &follower, GunBank &bank, const std::string &resRef);
+
+    // Player state for scripts
+
+    TurretAim &aim() { return _aim; }
+    const TurretAim &aim() const { return _aim; }
+    float speed() const { return _speed; }
+    /** The player's speed; the track plays at a hundredth of it. */
+    void setSpeed(float speed);
+    float lateralAcceleration() const { return _lateralAcceleration; }
+    void setLateralAcceleration(float acceleration);
+    float nearClip() const { return _nearClip; }
+    float farClip() const { return _farClip; }
+    void setCameraClip(float nearClip, float farClip);
+    bool trackPlaying() const { return _trackPlaying; }
+    /** Presses the player's trigger once, as the fire button does. */
+    void pullTrigger();
+
     // Diagnostics
 
-    Outcome outcome() const { return _outcome; }
-    bool finished() const { return _outcome != Outcome::InProgress; }
-
-    const TurretAim &aim() const { return _aim; }
     glm::vec3 position() const { return _anchorPosition; }
-    int hitPoints() const { return _hitPoints; }
-    int maxHitPoints() const { return _maxHitPoints; }
     float elapsed() const { return _elapsed; }
-    size_t enemyCount() const { return _enemies.size(); }
-    size_t enemiesAlive() const;
     size_t bulletCount() const { return _bullets.size(); }
-    size_t gunBankCount() const { return _gunBanks.size(); }
     const std::string &trackResRef() const { return _trackResRef; }
     const std::string &anchorSource() const { return _anchorSource; }
-
-    // HUD diagnostics
-    int healthState() const { return _healthState; }
-    int headingState() const { return _headingState; }
-    bool alarmActive() const { return _alarmActive; }
-    bool haveHealthHud() const { return static_cast<bool>(_healthHud); }
-    bool haveRadarHud() const { return static_cast<bool>(_radarHud); }
-    size_t contactsLive() const;
-    size_t radarChannelCount() const;
 
     // Eye offset the camera mount contributes, in the rotating group's frame.
     glm::vec3 cameraHookOffset() const { return glm::vec3(_cameraHookLocal[3]); }
@@ -550,7 +592,6 @@ private:
     ServicesView &_services;
 
     bool _active {false};
-    Outcome _outcome {Outcome::InProgress};
 
     // Owned copy of the area metadata: the runtime holds pointers into its
     // enemy and gun bank lists, which must outlive the area on a module change.
@@ -562,37 +603,47 @@ private:
 
     FirstPersonCamera *_camera {nullptr};
 
-    // Player actors
+    // The minigame's music, looping while it runs.
+    std::shared_ptr<audio::AudioSource> _music;
 
-    std::shared_ptr<scene::ModelSceneNode> _playerTrackNode;
+    std::unique_ptr<Follower> _player;
+    std::vector<std::unique_ptr<Follower>> _enemies;
+    std::vector<std::unique_ptr<Obstacle>> _obstacles;
 
-    // Root of the models that stay fixed in the track frame (the hull).
+    // Root of the player models that stay fixed in the track frame (the hull).
     std::shared_ptr<scene::ModelSceneNode> _bodyRoot;
-    std::vector<std::shared_ptr<scene::ModelSceneNode>> _bodyChildNodes;
-
-    // Root of the models that follow the aim (the gun, the HUD).
+    // Root of the player models that follow the aim (the gun, the HUD).
     std::shared_ptr<scene::ModelSceneNode> _turretRoot;
-    std::vector<std::shared_ptr<scene::ModelSceneNode>> _turretChildNodes;
 
     // Static model-space transform of the camera mount's "camerahook" node. The
     // mount model itself is not added to the scene.
     glm::mat4 _cameraHookLocal {1.0f};
     bool _haveCameraHook {false};
 
-    // Cockpit HUD panes, picked out of the rotating model set by resref. The
-    // health gauge and the radar are separate authored models, each driven by
-    // overlay animation channels so their disjoint node sets can run at once.
-    std::shared_ptr<scene::ModelSceneNode> _healthHud;
-    std::shared_ptr<scene::ModelSceneNode> _radarHud;
-
-    int _healthState {-1};    // last applied Health00..12, -1 = none yet
-    int _headingState {-1};   // last applied HudRot degree, -1 = none yet
-    bool _alarmActive {false};
-    std::vector<bool> _contactAlive;
-
-    std::vector<GunBank> _gunBanks;
-    std::vector<Enemy> _enemies;
     std::vector<Bullet> _bullets;
+
+    // Bullets playing their explosion where they hit.
+    struct Explosion {
+        std::shared_ptr<scene::ModelSceneNode> modelNode;
+        std::string modelResRef;
+    };
+    std::vector<Explosion> _explosions;
+
+    // An animation event, waiting for the turret's update.
+    struct PendingAnimationEvent {
+        uint32_t actorId {script::kObjectInvalid};
+        std::string modelName;
+        std::string event;
+    };
+    std::vector<PendingAnimationEvent> _pendingAnimationEvents;
+
+    // A model playing an animation once, with its ready loop to go back to.
+    struct ReadyReturn {
+        std::weak_ptr<scene::ModelSceneNode> model;
+        std::string animation;
+        std::string ready;
+    };
+    std::vector<ReadyReturn> _readyReturns;
 
     // Culled bullet models, kept for reuse: the scene graph owns every node it
     // creates until the graph is cleared, so a node per shot would accumulate
@@ -606,29 +657,49 @@ private:
     TurretAimRate _yawRate;
     glm::vec3 _anchorPosition {0.0f};
     glm::mat4 _anchorTransform {1.0f};
-    float _playerSphereRadius {0.0f};
-    int _hitPoints {0};
-    int _maxHitPoints {0};
+    float _speed {100.0f};
+    float _lateralAcceleration {0.0f};
+    float _nearClip {0.0f};
+    float _farClip {0.0f};
+    bool _trackPlaying {false};
     float _elapsed {0.0f};
-    bool _firing {false};
+    /** Seconds toward the next heartbeat tick. */
+    float _heartbeatTime {0.0f};
 
     // Loading
 
     std::shared_ptr<scene::ModelSceneNode> loadModel(const std::string &resRef);
     std::shared_ptr<scene::ModelSceneNode> loadTrack(const std::string &resRef,
-                                                     const glm::vec3 &position);
-    bool loadPlayer(const MinigameSpec &spec);
-    void loadEnemies(const MinigameSpec &spec);
+                                                     const glm::vec3 &position,
+                                                     std::string &animation);
+    bool loadPlayer();
+    void loadEnemies();
+    void loadObstacles();
+    void loadObstacleScripts();
+    /** Gives the actor its script object and listens to its models' animation events. */
+    void registerActor(Actor &actor);
+    void listenTo(Actor &actor, scene::ModelSceneNode &model);
+    void loadFollower(Follower &follower,
+                      uint32_t hitPoints,
+                      uint32_t maxHitPoints,
+                      float sphereRadius,
+                      int numLoops,
+                      float invincibility,
+                      const std::string &deathSound,
+                      const std::string &engineSound);
+    void startEngineSound(Follower &follower);
+    void stopEngineSound(Follower &follower);
+    void go(Follower &follower);
 
     /**
-     * Retire everything a fighter owns: its gun bank models, its model root
-     * with the reference models, lights and emitters the loader built under it,
+     * Retire everything a follower owns: its gun bank models, its models with
+     * the reference models, lights and emitters the loader built under them,
      * and its rail. Safe to call twice.
      */
-    void releaseEnemyNodes(Enemy &enemy);
+    void releaseFollowerNodes(Follower &follower);
 
     /**
-     * Take a destroyed fighter off its flight rail, keeping the world pose it
+     * Take a destroyed enemy off its flight rail, keeping the world pose it
      * died in, and re-root it alongside the tracks.
      *
      * Emitter particles are children of the emitter that spawned them, so a
@@ -636,47 +707,54 @@ private:
      * with it. Detaching stops the rail translating the fighter; the authored
      * "die" animation still plays on top. Safe to call twice.
      */
-    void detachEnemyFromTrack(Enemy &enemy);
+    void detachFromTrack(Follower &follower);
+    /** Mounts each bank's gun on the first of \p models that carries the bank's hook. */
     void loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
-                      scene::ModelSceneNode &mount,
+                      const std::vector<std::shared_ptr<scene::ModelSceneNode>> &models,
                       std::vector<GunBank> &out);
 
     // Simulation
 
+    void runScript(const std::string &resRef, const Actor &actor);
     void updateAnchor();
     void updatePlayerTransforms();
     void updateCamera();
-    void updateEnemies(float dt);
+    void updateFollower(Follower &follower, float dt);
+    /** Runs the objects' heartbeats for each tick of \p dt due. */
+    void runHeartbeats(float dt);
+    void checkTrackLoop(Follower &follower);
+    void updateEnemyFire(Follower &enemy, float dt);
+    void updateDeath(Follower &follower, float dt);
     void updateBullets(float dt);
+    void checkBulletHits();
+    std::optional<BulletHit> bulletHits(const Bullet &bullet, const Actor &target) const;
+    /** Whether a bullet that hit nothing of the minigame stops on the area's walls or hits an area object. */
+    bool hitAreaObjects(const Bullet &bullet);
+    /** Plays the bullet's explosion where it hit, or takes it away when it has none. */
+    void explodeBullet(Bullet &bullet, const BulletHit &hit);
+    void updateExplosions();
     void fire();
-    void spawnBullet(const MinigameGunBankSpec &bank,
+    void spawnBullet(const GunBank &bank,
                      const glm::vec3 &origin,
                      const glm::quat &orientation,
-                     bool fromPlayer);
-    void damagePlayer(uint32_t amount);
-    void damageEnemy(Enemy &enemy, uint32_t amount);
-    void playSound(const std::string &resRef);
+                     Follower &shooter);
+    void die(Follower &follower);
+    void queueAnimationEvent(const Actor &actor, const std::string &modelName, const std::string &event);
+    void runAnimationEvents();
+    void onAnimationEvent(Actor &actor, const std::string &modelName, const std::string &event);
+    void playSound(const std::string &resRef, int group, std::optional<glm::vec3> position = std::nullopt);
+    void playThenReady(const std::shared_ptr<scene::ModelSceneNode> &model,
+                       const std::string &animation,
+                       const std::string &ready);
+    void updateReadyReturns();
+    void applyCameraProjection();
 
     // Hide the authored canopy glass shells for this session's cockpit only.
     void suppressCanopyGlass();
 
-    // HUD
-
-    void bindHudPanes();
-    void resetHud();
-    void updateHealthHud();
-    void updateHeadingHud();
-    void startContactHud();
-    void killContactHud(size_t enemyIndex);
-    void clearHud();
-    void setAlarmActive(bool active);
-
-    // END HUD
-
     void detachAll();
     std::shared_ptr<scene::ModelSceneNode> acquireBulletNode(const std::string &resRef);
     void releaseBulletNode(Bullet &bullet);
-    void setCameraFieldOfView(float fovDegrees);
 
     // Input
 
@@ -687,34 +765,6 @@ private:
 
     float cameraAspect() const;
 };
-
-/**
- * A session is a success only when every enemy was destroyed. Abandoning a
- * session mid-run is neither a win nor a loss, so it must not be reported as
- * either - in particular it must not emit the victory-only completion state.
- */
-inline bool turretSessionSucceeded(Turret::Outcome outcome) {
-    return outcome == Turret::Outcome::Won;
-}
-
-/**
- * True when a session ended before reaching a win or a loss, i.e. the player
- * left through Escape or stopturret.
- */
-inline bool turretSessionAborted(Turret::Outcome outcome) {
-    return outcome == Turret::Outcome::InProgress;
-}
-
-inline const char *turretOutcomeName(Turret::Outcome outcome) {
-    switch (outcome) {
-    case Turret::Outcome::Won:
-        return "won";
-    case Turret::Outcome::Lost:
-        return "lost";
-    default:
-        return "aborted";
-    }
-}
 
 } // namespace game
 

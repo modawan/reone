@@ -232,6 +232,9 @@ static std::optional<PauseReasonText> pauseReasonText(PauseReason reason) {
 
 /** TSL's unpause prompt under the reason. */
 static constexpr int kK2PausePressStrRef = 136311;
+/** TSL's unpause prompts in a swoop race and in any other minigame. */
+static constexpr int kK2SwoopPausePressStrRef = 136309;
+static constexpr int kK2MinigamePausePressStrRef = 136318;
 /** The prompt sits this far below the reason, and the panel ends this far below its last line, before scaling. */
 static constexpr int kPausePromptGap = 2;
 static constexpr int kPausePanelBottomPadding = 5;
@@ -613,14 +616,34 @@ void HUD::updatePausePanel(float dt) {
         return;
     }
     const PauseReason reason = _game.pauseReason();
-    if (_pauseLayoutReason != reason) {
+    if (_pauseLayoutReason != reason || _pauseLayoutPlace != pausePlace()) {
         layoutPausePanel(reason);
     }
     _pauseGUI->update(dt);
 }
 
+int HUD::pausePlace() const {
+    switch (_game.currentScreen()) {
+    case Game::Screen::SwoopRace:
+        return 1;
+    case Game::Screen::Turret:
+        return 2;
+    default:
+        return 0;
+    }
+}
+
+void HUD::renderMinigamePause() {
+    if (isPausePanelShown() && _pauseLayoutReason) {
+        _pauseGUI->render();
+    }
+}
+
 void HUD::layoutPausePanel(PauseReason reason) {
     _pauseLayoutReason = reason;
+    _pauseLayoutPlace = pausePlace();
+    const bool swoop = _pauseLayoutPlace == 1;
+    const bool minigame = _pauseLayoutPlace != 0;
     const auto text = *pauseReasonText(reason);
     const bool tsl = _game.isTSL();
     auto &root = _pauseGUI->rootControl();
@@ -664,7 +687,8 @@ void HUD::layoutPausePanel(PauseReason reason) {
     if (text.press) {
         pressLabel.setExtent(pressExtent);
         if (tsl) {
-            pressLabel.setTextMessage(_game.getInterfaceText(kK2PausePressStrRef));
+            const int press = !minigame ? kK2PausePressStrRef : (swoop ? kK2SwoopPausePressStrRef : kK2MinigamePausePressStrRef);
+            pressLabel.setTextMessage(_game.getInterfaceText(press));
         }
         pressExtent.top = reasonExtent.top + reasonExtent.height + static_cast<int>(std::lround(kPausePromptGap * scale));
         pressExtent.height = textHeight(pressLabel);
@@ -674,11 +698,14 @@ void HUD::layoutPausePanel(PauseReason reason) {
     panelExtent.height = last.top + last.height + static_cast<int>(std::lround(kPausePanelBottomPadding * scale));
     Control::Extent unpauseExtent {reasonExtent.left, reasonExtent.top, reasonExtent.width, panelExtent.height};
 
-    // Top-right, just under the menu bar.
+    // Top-right, just under the menu bar; in a minigame, centred.
     const int screenWidth = _game.options().graphics.width;
     const auto &menuButton = _controls.BTN_EQU->extent();
     panelExtent.top = menuButton.top + menuButton.height - 1;
-    if (tsl) {
+    if (minigame) {
+        panelExtent.left = (screenWidth - panelExtent.width) / 2;
+        panelExtent.top = (_game.options().graphics.height - panelExtent.height) / 2;
+    } else if (tsl) {
         const float scalar = interfaceScalar(true, screenWidth);
         panelExtent.top += static_cast<int>(kK2PausePanelTop * scalar);
         panelExtent.left = static_cast<int>(static_cast<float>(screenWidth - panelExtent.width) - scalar * kK2PausePanelRight);

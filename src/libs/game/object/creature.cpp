@@ -453,6 +453,13 @@ static constexpr float kGroundLineHeight = 0.1f;
 // A walk to a use point keeps its point while the current one lies within a
 // millimetre of it.
 static constexpr float kUsePointTolerance = 0.001f;
+// The ground beside a placeable's use point that no path reaches is looked for
+// within two metres of it, in rings a quarter of a metre apart, sixteen
+// directions each, and walked to within a quarter of a metre.
+static constexpr float kUseBesideRadius = 2.0f;
+static constexpr float kUseBesideStep = 0.25f;
+static constexpr int kUseBesideDirections = 16;
+static constexpr float kUseBesideArrival = 0.25f;
 // Walking into other creatures: five blocked steps are planned round, the
 // sixth ends the walk.
 static constexpr int kMaxPathBumps = 5;
@@ -1448,10 +1455,12 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     return true;
 }
 
-// The sneaking pace and the top driving speed of an appearance whose cell is
-// blank or zero.
+// The sneaking pace, the top driving speed and the driving acceleration of an
+// appearance whose cell is blank or zero.
 static constexpr float kDefaultStealthWalkSpeed = 2.0f;
 static constexpr float kDefaultDriveMaxSpeed = 6.0f;
+static constexpr float kDefaultDriveAcceleration = 25.0f;
+static constexpr float kDefaultDriveRunClipSpeed = 4.0f;
 
 void Creature::loadAppearanceProperties() {
     auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
@@ -1469,9 +1478,17 @@ void Creature::loadAppearanceProperties() {
     if (_stealthWalkSpeed == 0.0f) {
         _stealthWalkSpeed = kDefaultStealthWalkSpeed;
     }
+    _driveRunClipSpeed = appearances->getFloat(_appearance, _game.isTSL() ? "driveanimrun_pc" : "driveanimrun", 0.0f);
+    if (_driveRunClipSpeed == 0.0f) {
+        _driveRunClipSpeed = kDefaultDriveRunClipSpeed;
+    }
     _driveMaxSpeed = appearances->getFloat(_appearance, "drivemaxspeed", 0.0f);
     if (_driveMaxSpeed == 0.0f) {
         _driveMaxSpeed = kDefaultDriveMaxSpeed;
+    }
+    _driveAcceleration = appearances->getFloat(_appearance, "driveaccl", 0.0f);
+    if (_driveAcceleration == 0.0f) {
+        _driveAcceleration = kDefaultDriveAcceleration;
     }
     _personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
     // A blank space kept from other creatures is no space at all.
@@ -2077,7 +2094,7 @@ bool Creature::permitsAction(const Action &action) const {
         if (!move.usesPointPath()) {
             return canExecuteActions();
         }
-        return canMove() || isWalkGoalInReach(*move.target());
+        return canMove() || isWalkGoalInReach(*move.target(), move.pathOffset());
     }
     case ActionType::MoveToPoint: {
         const auto &goal = static_cast<const MoveToPointAction &>(command).goal();
@@ -2109,8 +2126,8 @@ bool Creature::isLinkedDoorInReach(const Object &goal, std::optional<float> path
     return door && door->isLinked() && isInUseRange(*door, 0.0f, pathOffset);
 }
 
-bool Creature::isWalkGoalInReach(const Object &goal) const {
-    return clicksTriggerInReach(goal) || isLinkedDoorInReach(goal);
+bool Creature::isWalkGoalInReach(const Object &goal, std::optional<float> pathOffset) const {
+    return clicksTriggerInReach(goal) || isLinkedDoorInReach(goal, pathOffset);
 }
 
 bool Creature::isSelectable() const {
@@ -2125,6 +2142,26 @@ bool Creature::isRunLimited() const {
 
 bool Creature::movesStealthily() const {
     return _stealthMode && (!_game.isTSL() || !hasEffectiveFeat(FeatType::StealthRun));
+}
+
+// A sneaking creature gathers speed slowly, whatever its appearance.
+float Creature::driveAcceleration() const {
+    static constexpr float kStealthDriveAcceleration = 15.0f;
+    return movesStealthily() ? kStealthDriveAcceleration : _driveAcceleration;
+}
+
+float Creature::drivenClipSpeed() const {
+    return movesStealthily() ? std::min(driveSpeed(), _stealthWalkSpeed) : driveSpeed();
+}
+
+bool Creature::drivesAtRun() const {
+    static constexpr float kDriveWalkThreshold = 0.6f;
+    return drivenClipSpeed() > kDriveWalkThreshold * driveTopSpeed();
+}
+
+// The top speed follows the movement rate as speed effects come and go.
+float Creature::driveTopSpeed() const {
+    return _driveMaxSpeed * movementRate(true);
 }
 
 void Creature::setCombatStance(CombatStance stance) {
@@ -3267,15 +3304,17 @@ void Creature::updateModelAnimation() {
 
 // Walk and run clips play so that the feet keep pace with the ground. On a
 // path they also go at their own pace, which picks up and falls off with the
-// walk; before it has any, they play at their natural speed.
+// walk; before it has any, they play at their natural speed. The leader the
+// player drives shows the clip its drive speed calls for, at that speed.
 Creature::MovementClip Creature::movementClip(const ModelSceneNode &model) const {
     MovementClip clip;
-    const bool running = _movementType == MovementType::Run && !movesStealthily();
-    const float speed = running ? runSpeed() : walkSpeed();
+    const bool driven = _game.party().getLeader().get() == this && _game.module() && _game.module()->isPlayerMoving();
+    const bool running = driven ? drivesAtRun() : _movementType == MovementType::Run && !movesStealthily();
+    const float speed = driven ? drivenClipSpeed() : (running ? runSpeed() : walkSpeed());
     // A run slowed well below its clip's pace shows the walk instead, as does
     // a run on a path while it goes at under half its speed.
-    const bool runClip = running && speed >= _runDistance * kRunClipMinimumPace &&
-                         !(_path && _walkPace < kRunClipMinimumWalkPace);
+    const bool runClip = running && (driven || (speed >= _runDistance * kRunClipMinimumPace &&
+                                                !(_path && _walkPace < kRunClipMinimumWalkPace)));
     // Limping comes before sneaking. Creature models have no injured run,
     // and a run too slow for its clip shows the walk: the plain walk on
     // creature models. A clip the model lacks leaves the last one playing.
@@ -3298,8 +3337,9 @@ Creature::MovementClip Creature::movementClip(const ModelSceneNode &model) const
         clip.anim = model.model().getAnimation(getWalkAnimation());
         clip.id = kWalkAnimationId;
     }
-    const float loopDistance = runClip ? _runDistance : _walkDistance;
-    const float pace = _path ? _clipPace : 1.0f;
+    const float loopDistance = driven ? (runClip ? _driveRunClipSpeed : _stealthWalkSpeed)
+                                      : (runClip ? _runDistance : _walkDistance);
+    const float pace = _path && !driven ? _clipPace : 1.0f;
     if (clip.anim && speed > 0.0f && loopDistance > 0.0f && clip.anim->length() > 0.0f && pace > 0.0f) {
         clip.speed = pace * speed * clip.anim->length() / loopDistance;
     }
@@ -4384,7 +4424,7 @@ Creature::AnimationUpdater Creature::animationUpdater() const {
     // The leader acts freely with nothing queued or under the player's drive.
     // In a conversation it is driven only when it neither speaks nor listens;
     // in TSL not at all. Nor is it driven after an engaged swing.
-    if (leader && !_engagedExchange && (!hasOrdinaryActionsPending() || isDriven()) && !isPlayingDialogAnimation() &&
+    if (leader && !isDriveBlocked() &&
         !(_game.isTSL() ? _game.isConversationActive() : _game.isConversationSpeakerOrListener(*this))) {
         return AnimationUpdater::Drive;
     }
@@ -9801,7 +9841,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         const float step = std::min(pacedStep, endsOnPoint ? glm::length(toLast) : getDistanceTo(stepLimit));
         const glm::vec3 stepEnd {_position.x + dir.x * step, _position.y + dir.y * step, _position.z};
         const glm::vec2 stepDir {glm::normalize(glm::vec2(dir))};
-        const auto test = area.testDirectLine(*this, _position, stepEnd);
+        const auto test = area.testWalkStep(*this, _position, stepEnd);
         const Area::DirectLine line = test.result;
         const auto &door = test.door;
 
@@ -10210,20 +10250,18 @@ bool Creature::endsWalkToward(const Object &goal, float range, bool inClearLine,
 void Creature::clickInReach(const Object &target) {
     setMovementType(MovementType::None);
     clearPath();
-    static constexpr int kClickedEvent = static_cast<int>(SavedSignalEventType::Clicked);
-    auto clicked = _game.getObjectById(target.id());
-    _game.queueScriptEvent(*clicked, *this, Event(kClickedEvent, {}, {}, {}, {_game.getObjectById(_id)}));
+    _game.queueClick(target, *this, *this);
 }
 
-bool Creature::reachesWalkGoal(const Object &goal) {
+bool Creature::reachesWalkGoal(const Object &goal, std::optional<float> pathOffset) {
     if (clicksTriggerInReach(goal)) {
         clickInReach(goal);
         return true;
     }
-    const auto *door = dyn_cast<const Door>(&goal);
-    if (!door || !door->isLinked() || !isInUseRange(*door, 0.0f)) {
+    if (!isLinkedDoorInReach(goal, pathOffset)) {
         return false;
     }
+    const auto *door = static_cast<const Door *>(&goal);
     if (door->isOpen()) {
         clickInReach(*door);
         return true;
@@ -10240,7 +10278,7 @@ bool Creature::walkToward(std::optional<std::reference_wrapper<const Object>> go
     // A walk heading for a trigger that is not a mine, or for a linked door,
     // ends once it comes within use range of it, as it sets out, on the way or
     // with its last step.
-    if (goal && reachesWalkGoal(goal->get())) {
+    if (goal && reachesWalkGoal(goal->get(), pathOffset)) {
         return true;
     }
     if (goal && endsWalkToward(goal->get(), range, inClearLine, pathOffset)) {
@@ -10252,7 +10290,7 @@ bool Creature::walkToward(std::optional<std::reference_wrapper<const Object>> go
         return false;
     }
     if (goal) {
-        reachesWalkGoal(goal->get());
+        reachesWalkGoal(goal->get(), pathOffset);
     }
     return true;
 }
@@ -10297,8 +10335,21 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
         if (target.type() == ObjectType::Door || target.type() == ObjectType::Placeable) {
             _useWalk->kept = UseApproach {use, !followsPoint};
         }
+        if (target.type() == ObjectType::Placeable) {
+            _useWalk->beside = walkablePointBeside(target, use.point);
+        }
     } else if (_useWalk->kept) {
         _useWalk->kept->follow(use);
+    }
+    // A placeable with no use point on the ground, used from its own origin
+    // inside its footprint, is used from the ground beside it. A walk to the
+    // origin itself would find no path and give up where the creature stands.
+    if (_useWalk->beside) {
+        if (!walkToward(goal, *_useWalk->beside, run, kUseBesideArrival, dt, pathTarget, inClearLine)) {
+            return false;
+        }
+        _useWalk.reset();
+        return true;
     }
     const UseRange &walk = _useWalk->kept ? _useWalk->kept->use : use;
     if (!walkToward(goal, walk.point, run, walk.range + walkExtra, dt, pathTarget, inClearLine)) {
@@ -10307,6 +10358,42 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
     // Arriving ends the walk; the next one sets out afresh.
     _useWalk.reset();
     return isInUseRange(target, extra);
+}
+
+std::optional<glm::vec3> Creature::walkablePointBeside(const Object &target, const glm::vec3 &point) const {
+    if (!_game.module() || !_game.module()->area()) {
+        return std::nullopt;
+    }
+    Area &area = *_game.module()->area();
+    const Pathfinder &pf = area.pathfinder();
+    if (pf.uni.regions.empty() || !pathExists(pf, _position, _position) || pathExists(pf, _position, point)) {
+        return std::nullopt;
+    }
+    const glm::vec3 lift {0.0f, 0.0f, kEyeHeight};
+    for (float ring = kUseBesideStep; ring <= kUseBesideRadius + 1e-4f; ring += kUseBesideStep) {
+        std::optional<glm::vec3> best;
+        float bestDistance2 = 0.0f;
+        for (int i = 0; i < kUseBesideDirections; ++i) {
+            const float angle = static_cast<float>(i) * glm::two_pi<float>() / kUseBesideDirections;
+            const glm::vec3 candidate {point.x + ring * std::sin(angle), point.y + ring * std::cos(angle), _position.z};
+            if (!pathExists(pf, _position, candidate) ||
+                !area.isEyeLineClear(candidate + lift, point + lift, *this, target)) {
+                continue;
+            }
+            // Of a ring's points, the one nearest the creature: it walks round
+            // the object no farther than it must.
+            const glm::vec2 offset {glm::vec2(candidate) - glm::vec2(_position)};
+            const float distance2 = glm::dot(offset, offset);
+            if (!best || distance2 < bestDistance2) {
+                best = candidate;
+                bestDistance2 = distance2;
+            }
+        }
+        if (best) {
+            return best;
+        }
+    }
+    return std::nullopt;
 }
 
 void Creature::advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt) {
