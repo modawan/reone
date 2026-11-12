@@ -48,6 +48,7 @@
 #include "reone/resource/di/services.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/resource/strings.h"
 #include "reone/system/exception/validation.h"
@@ -178,10 +179,8 @@ void Object::deserialize(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     gff.readBool(_minOneHP, "Min1HP");
-    auto plot = static_cast<uint8_t>(_plot);
-    if (gff.readByte(plot, "Plot")) {
-        _plot = plot;
-    }
+    // A creature reads Invulnerable before Plot; an item reads Plot alone.
+    deserializePlot(gff, _type == ObjectType::Creature);
     gff.readBool(_commandable, "Commandable");
     gff.readBool(_interruptable, "Interruptable");
     const bool hasBaseHitPoints = gff.readShort(_hitPoints, "HitPoints");
@@ -200,6 +199,14 @@ void Object::deserialize(
             gff, identityContext, SaveRecordOriginKind::ContainedItem);
     }
     deserializeRuntimeState(gff, identityContext);
+}
+
+// Any value but 0 makes the object plot.
+void Object::deserializePlot(const resource::Gff &gff, bool readInvulnerable) {
+    bool plot = false;
+    if ((readInvulnerable && gff.readBool(plot, "Invulnerable")) || gff.readBool(plot, "Plot")) {
+        _plot = plot;
+    }
 }
 
 void Object::deserializePlacement(const resource::Gff &gff) {
@@ -226,23 +233,35 @@ std::vector<std::shared_ptr<Object>> Object::ownedRuntimeObjects() const {
     return {_items.begin(), _items.end()};
 }
 
+size_t Object::itemInsertPosition(const std::vector<std::shared_ptr<Item>> &items, const Item &item) const {
+    if (!keepsItemsInOrder()) {
+        return _loadingItems ? items.size() : 0;
+    }
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto &existing = *items[i];
+        if (item.baseItemType() < existing.baseItemType()) {
+            return i;
+        }
+        if (item.baseItemType() == existing.baseItemType() && item.localizedName() < existing.localizedName()) {
+            return i;
+        }
+    }
+    return items.size();
+}
+
+void Object::placeItem(std::vector<std::shared_ptr<Item>> &items, std::shared_ptr<Item> item) const {
+    const auto position = static_cast<std::ptrdiff_t>(itemInsertPosition(items, *item));
+    items.insert(items.begin() + position, std::move(item));
+}
+
 std::shared_ptr<Item> Object::appendOwnedItemCandidate(
     std::vector<std::shared_ptr<Item>> &items,
-    const std::shared_ptr<Item> &item,
-    bool preserveSerializedIdentities) {
+    const std::shared_ptr<Item> &item) {
     if (!item) {
         throw ValidationException("Cannot stage a null owned Item");
     }
     for (const auto &existing : items) {
-        if (!existing || existing.get() == item.get()) {
-            continue;
-        }
-        if (preserveSerializedIdentities &&
-            (existing->serializedObjectIdentity() ||
-             item->serializedObjectIdentity())) {
-            continue;
-        }
-        if (!existing->isStackCompatibleWith(*item)) {
+        if (!existing || existing.get() == item.get() || !existing->isStackCompatibleWith(*item)) {
             continue;
         }
         if (existing->mergeStackFrom(*item)) {
@@ -251,7 +270,7 @@ std::shared_ptr<Item> Object::appendOwnedItemCandidate(
             return existing;
         }
     }
-    items.push_back(item);
+    placeItem(items, item);
     return item;
 }
 
@@ -259,8 +278,9 @@ void Object::deserializeOwnedItems(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
     SaveRecordOriginKind originKind,
-    bool forceDropable,
-    std::string originOwner) {
+    std::string originOwner,
+    bool placedTemplate) {
+    const ItemLoadScope loading(*this);
     if (!identityContext.isSerializedState()) {
         if (!gff.has("ItemList")) return;
         std::vector<std::shared_ptr<Object>> obsolete(
@@ -272,15 +292,27 @@ void Object::deserializeOwnedItems(
             obsolete,
             [&]() {
                 for (const auto &itemGff : gff.getList("ItemList")) {
-                    // An entry naming a missing template makes no item.
-                    if (Item::namesMissingTemplate(*itemGff, _services.resource.gffs)) {
-                        continue;
+                    std::shared_ptr<Item> item;
+                    if (placedTemplate) {
+                        // The template of an object an area places makes each
+                        // entry its InventoryRes template and nothing more of
+                        // the entry; an entry without one makes no item.
+                        std::string resRef;
+                        if (!itemGff->readResRef(resRef, "InventoryRes") ||
+                            !_services.resource.gffs.get(resRef, resource::ResType::Uti)) {
+                            continue;
+                        }
+                        item = _game.newItemFromBlueprint(resRef);
+                    } else {
+                        // An entry naming a missing template makes no item.
+                        if (Item::namesMissingTemplate(*itemGff, _services.resource.gffs)) {
+                            continue;
+                        }
+                        item = _game.newOwnedItem(*itemGff, identityContext);
                     }
-                    auto item = _game.newOwnedItem(*itemGff, identityContext);
-                    if (forceDropable) item->setDropable(true);
-                    item->setOwner(_id);
+                    item->setOwner(*this);
                     appendOwnedItemCandidate(
-                        replacement, item, true);
+                        replacement, item);
                 }
                 if (creature) {
                     for (const auto &item : replacement) {
@@ -312,12 +344,9 @@ void Object::deserializeOwnedItems(
                     identityContext,
                     {originKind,
                      originOwner.empty() ? std::to_string(_id) : originOwner});
-                if (forceDropable) {
-                    item->setDropable(true);
-                }
-                item->setOwner(_id);
+                item->restoreOwner(*this);
                 appendOwnedItemCandidate(
-                    replacement, item, true);
+                    replacement, item);
             }
             if (creature) {
                 for (const auto &item : replacement) {
@@ -944,6 +973,7 @@ void Object::setLastHostileActor(uint32_t actor, bool force) {
         }
         return;
     }
+    // A plot object keeps no record.
     if (_plot) {
         _lastHostileActor.reset();
         return;
@@ -1342,6 +1372,11 @@ bool Object::executeActions(float dt) {
     if (creature && _game.combat().blocksOwnerActions(*creature)) {
         return false;
     }
+    // What a creature does with its body waits while a stun, paralysis or
+    // sleep holds it; the rest of the queue waits behind it.
+    if (creature && creature->waitsForBody(*action)) {
+        return false;
+    }
     const bool refused = creature && !creature->permitsAction(*action);
     // A physical attack its creature is no longer able to make fails, and
     // ends the creature's combat modes.
@@ -1427,6 +1462,8 @@ std::shared_ptr<Action> Object::getCurrentAction() const {
 std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, std::optional<bool> dropable) {
     std::shared_ptr<Item> result;
     std::shared_ptr<Item> counted;
+    bool joined = false;
+    bool newlyAcquired = false;
     std::vector<std::shared_ptr<Object>> noObsolete;
     std::vector<std::shared_ptr<Item>> replacement(_items);
     ItemAttributes replacementAttributes;
@@ -1440,15 +1477,18 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
             if (dropable) {
                 candidate->setDropable(*dropable);
             }
-            if (creature && _game.party().isCountedItem(*candidate)) {
+            if (_game.party().countsReceivedItem(*this, *candidate)) {
                 counted = candidate;
                 _game.discardStagedRuntimeObjects({candidate});
                 return;
             }
-            candidate->setOwner(_id);
+            _game.party().noteItemReceived(*candidate, *this, nullptr);
+            newlyAcquired = candidate->isNewlyAcquired();
+            candidate->setOwner(*this);
             result = appendOwnedItemCandidate(
-                replacement, candidate, false);
-            if (creature && result.get() == candidate.get()) {
+                replacement, candidate);
+            joined = result.get() != candidate.get();
+            if (creature && !joined) {
                 replacementAttributes.addItem(candidate, _services.game);
             }
         },
@@ -1460,12 +1500,16 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
             }
         });
     if (counted) {
-        _game.party().acquireCountedItem(*creature, *counted);
+        _game.party().acquireReceivedItem(*this, *counted);
+    }
+    // In KotOR a stack a new item joins is marked new too.
+    if (joined && newlyAcquired && !_game.isTSL()) {
+        result->setNewlyAcquired(true);
     }
     return result;
 }
 
-std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
+std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item, ItemStacking stacking) {
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly())) {
         throw ValidationException("Cannot own a non-live runtime item");
     }
@@ -1489,31 +1533,37 @@ std::shared_ptr<Item> Object::addItem(const std::shared_ptr<Item> &item) {
         return *alreadyOwned;
     }
     auto creature = dyn_cast<Creature>(this);
-    if (creature && _game.party().isCountedItem(*item)) {
+    if (_game.party().countsReceivedItem(*this, *item)) {
         item->clearOwner();
-        _game.party().acquireCountedItem(*creature, *item);
+        _game.party().acquireReceivedItem(*this, *item);
         _game.destroyRuntimeObjectGraph(item);
         return nullptr;
     }
-    for (const auto &existing : _items) {
-        if (!existing->isStackCompatibleWith(*item)) {
-            continue;
-        }
-        if (existing->mergeStackFrom(*item)) {
-            item->clearOwner();
-            _game.destroyRuntimeObjectGraph(item);
-            return existing;
+    if (stacking == ItemStacking::Join) {
+        for (const auto &existing : _items) {
+            if (!existing->isStackCompatibleWith(*item)) {
+                continue;
+            }
+            if (existing->mergeStackFrom(*item)) {
+                // In KotOR a stack a new item joins is marked new too.
+                if (item->isNewlyAcquired() && !_game.isTSL()) {
+                    existing->setNewlyAcquired(true);
+                }
+                item->clearOwner();
+                _game.destroyRuntimeObjectGraph(item);
+                return existing;
+            }
         }
     }
     std::vector<std::shared_ptr<Item>> replacement(_items);
-    replacement.push_back(item);
+    placeItem(replacement, item);
     ItemAttributes replacementAttributes;
     if (creature) {
         replacementAttributes = creature->itemAttributes();
         replacementAttributes.addItem(item, _services.game);
     }
     _items = std::move(replacement);
-    item->setOwner(_id);
+    item->setOwner(*this);
     if (creature) {
         creature->itemAttributes() = std::move(replacementAttributes);
     }
@@ -1612,35 +1662,26 @@ void Object::faceAwayFrom(const Object &other) {
     setFacing(-glm::atan(dir.x, dir.y));
 }
 
-void Object::moveDropableItemsTo(Object &other) {
-    for (auto it = _items.begin(); it != _items.end();) {
-        if ((*it)->isDropable()) {
-            std::shared_ptr<Item> item(*it);
-            it = _items.erase(it);
-            handOverItem(item, other);
-        } else {
-            ++it;
-        }
-    }
-}
-
-void Object::moveAllItemsTo(Object &other) {
+std::vector<Object::HandedOverItem> Object::moveAllItemsTo(Object &other) {
+    std::vector<HandedOverItem> result;
     while (!_items.empty()) {
         auto item = _items.back();
         _items.pop_back();
-        handOverItem(item, other);
+        auto held = handOverItem(item, other);
+        result.push_back({std::move(item), std::move(held)});
     }
+    return result;
 }
 
 // An item a party member is handed goes to the party's inventory.
-void Object::handOverItem(const std::shared_ptr<Item> &item, Object &other) {
+std::shared_ptr<Item> Object::handOverItem(const std::shared_ptr<Item> &item, Object &other) {
     if (Creature *creature = dyn_cast<Creature>(this)) {
         creature->itemAttributes().removeItem(item);
     }
     item->clearOwner();
     auto receiver = _game.party().sharedInventoryReceiver(_game.getObjectById(other.id()));
     _game.party().noteItemReceived(*item, *receiver, this);
-    receiver->addItem(item);
+    return receiver->addItem(item);
 }
 
 int Object::damageImmunity(int flags) const {
@@ -2032,6 +2073,18 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
             return item;
         if (auto held = item->getItemByTag(tag)) {
             return held;
+        }
+    }
+    return nullptr;
+}
+
+std::shared_ptr<Item> Object::getItemByItemType(int itemType) const {
+    for (const auto &item : _items) {
+        if (auto held = item->getItemByItemType(itemType)) {
+            return held;
+        }
+        if (item->itemType() == itemType) {
+            return item;
         }
     }
     return nullptr;

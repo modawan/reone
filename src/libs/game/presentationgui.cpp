@@ -105,6 +105,24 @@ void PresentationGUI::render() {
     }
 }
 
+// A full-screen backdrop is named for the screen height, the largest of the
+// backdrop sizes it reaches.
+static std::string backdropResolution(int screenHeight) {
+    if (screenHeight >= 1200) {
+        return "1600x1200";
+    }
+    if (screenHeight >= 1024) {
+        return "1280x1024";
+    }
+    if (screenHeight >= 960) {
+        return "1280x960";
+    }
+    if (screenHeight >= 768) {
+        return "1024x768";
+    }
+    return "800x600";
+}
+
 void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
     std::string resRef;
 
@@ -123,22 +141,24 @@ void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
             // panel. TSL's terminal sits on a void fill.
             resRef = "black";
             break;
+        case BackgroundType::Store:
+        case BackgroundType::Upgrade:
+            // The store's backdrop, or the upgrade bench's, or the menus'
+            // fill where there is none.
+            if (_gui) {
+                const std::string suffix = type == BackgroundType::Store ? "store" : "back";
+                auto backdrop = _presentation.textures.get(backdropResolution(_graphicsOptions.height) + suffix, TextureUsage::MainTex);
+                _gui->setBackground(backdrop ? backdrop : _presentation.textures.get("blackfill", TextureUsage::MainTex));
+            }
+            return;
         default:
             return;
         }
     } else {
-        auto &options = _graphicsOptions;
-        if ((options.width == 1600 && options.height == 1200) ||
-            (options.width == 1280 && options.height == 960) ||
-            (options.width == 1024 && options.height == 768) ||
-            (options.width == 800 && options.height == 600)) {
-
-            resRef = str(boost::format("%dx%d") % options.width % options.height);
-        } else {
-            resRef = "1600x1200";
-        }
+        resRef = backdropResolution(_graphicsOptions.height);
         switch (type) {
         case BackgroundType::Menu:
+        case BackgroundType::Upgrade:
             resRef += "back";
             break;
         case BackgroundType::Load:
@@ -146,6 +166,9 @@ void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
             break;
         case BackgroundType::Computer:
             resRef += "comp" + std::to_string(computerType);
+            break;
+        case BackgroundType::Store:
+            resRef += "store";
             break;
         default:
             return;

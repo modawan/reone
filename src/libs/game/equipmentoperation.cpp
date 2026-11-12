@@ -157,7 +157,8 @@ static EquipmentOperationOutcome equipFrom(
 // Removing a main-hand item promotes a weapon held in the paired off-hand slot.
 // A hand left with another weapon, or with none, is drawn anew.
 static EquipmentOperationOutcome unequipInto(
-    Game &game, Creature &subject, const std::shared_ptr<Item> &item, Object &repository, bool instant) {
+    Game &game, Creature &subject, const std::shared_ptr<Item> &item, Object &repository, bool instant,
+    ItemStacking stacking = ItemStacking::Join) {
     if (!item->isEquipped() || item->owner() != subject.id()) {
         return EquipmentOperationOutcome::Rejected;
     }
@@ -177,7 +178,7 @@ static EquipmentOperationOutcome unequipInto(
         promoted = nullptr;
     }
 
-    if (!subject.moveEquippedItemTo(item, repository)) {
+    if (!subject.moveEquippedItemTo(item, repository, stacking)) {
         return EquipmentOperationOutcome::Failed;
     }
     if (slot == InventorySlots::body) {
@@ -233,7 +234,8 @@ EquipmentOperationOutcome runUnequip(
     Creature &subject,
     const std::shared_ptr<Item> &item,
     const std::shared_ptr<Item> &container,
-    bool instant) {
+    bool instant,
+    ItemStacking stacking) {
     if (!isLiveObject(game, subject) || !item) {
         return EquipmentOperationOutcome::Rejected;
     }
@@ -250,7 +252,7 @@ EquipmentOperationOutcome runUnequip(
         return EquipmentOperationOutcome::Rejected;
     }
     // A party member's item taken off but not at once sounds as it goes.
-    const auto outcome = unequipInto(game, subject, item, *repository, instant);
+    const auto outcome = unequipInto(game, subject, item, *repository, instant, stacking);
     if (outcome == EquipmentOperationOutcome::Applied && !instant && game.party().isMember(subject)) {
         item->playDropSound();
     }
@@ -313,6 +315,7 @@ static void chooseMeleeWeapon(
                    : InventorySlots::rightWeapon;
     }
     auto held = subject.getEquippedItem(slot);
+    // What leaves the hands goes back as it was.
     if (held && held->isRanged()) {
         subject.moveEquippedItemTo(held, *inventory);
         if (slot == InventorySlots::rightWeapon) {
@@ -416,6 +419,7 @@ bool equipMostDamagingRangedWeapon(
         best = subject.getAttackBonusBreakdown(versusCreature, held, false).total();
         choice = held;
     }
+    // The off-hand item goes back as it was.
     if (held) {
         if (auto offHandItem = subject.getEquippedItem(InventorySlots::leftWeapon)) {
             subject.moveEquippedItemTo(offHandItem, *inventory);

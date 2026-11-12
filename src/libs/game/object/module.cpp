@@ -985,10 +985,14 @@ void Module::deliverSavedEvent(PublishedSavedEvent &published) {
         }
         break;
     case SavedEventType::AcquireItem:
-        // A placeable takes the caller, an item, into its inventory.
+        // A placeable takes the caller, an item no one possesses, into its
+        // inventory and announces it acquired from no one, as the event
+        // names no giver. An item something possesses stays there.
         if (auto item = std::dynamic_pointer_cast<Item>(savedEvent.caller.boundObject());
-            item && isa<Placeable>(target)) {
-            transferItemTo(_game, item, *target);
+            item && item->possessorId() == script::kObjectInvalid) {
+            if (auto placeable = dyn_cast<Placeable>(target)) {
+                placeable->receiveItem(item);
+            }
         }
         break;
     case SavedEventType::Timed:
@@ -1136,6 +1140,12 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
         } else if (placeable->isUsable()) {
             placeable->runOnUsed(savedEvent.caller.boundObject());
         }
+    } else if (placeable && type == Signal::InventoryDisturbed) {
+        // A disturbed inventory runs its script with the one who disturbed
+        // it, the item and whether it was added or removed.
+        const auto item = subject();
+        placeable->runOnInvDisturbed(callerId(), static_cast<InventoryDisturbType>(event.integers.empty() ? 0 : event.integers[0]),
+                                     item ? item->id() : script::kObjectInvalid);
     } else if (auto lock = target->findLock(); lock && (type == Signal::Locked || type == Signal::Unlocked)) {
         // A door or placeable that was locked or unlocked remembers who did
         // it and runs its script for that.
@@ -1320,6 +1330,7 @@ void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keep
         _game.closeContainer(*placeable);
         spawnBodyBag(*placeable);
     }
+    // A held item leaves its holder, announced lost, told.
     if (auto item = dyn_cast<Item>(target)) {
         if (auto owner = _game.getObjectById(item->owner())) {
             if (item->isEquipped()) {
@@ -1329,6 +1340,7 @@ void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keep
             } else {
                 owner->removeItemStack(item);
             }
+            item->announceLoss(true);
         }
     }
     _area->destroyObject(*target);
@@ -1513,7 +1525,7 @@ void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectRe
         break;
     case SavedSignalEventType::ItemAcquired:
         _itemEvents.acquired = objectId(0);
-        _itemEvents.acquiredFrom = objectId(1);
+        _itemEvents.acquiredBy = objectId(1);
         script = _info.onAcquireItem;
         break;
     case SavedSignalEventType::ItemEquipped:

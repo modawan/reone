@@ -75,7 +75,8 @@ public:
     std::shared_ptr<Item> acquireItem(const std::shared_ptr<Item> &item);
     /**
      * Sells the buyer one of the stocked item: a copy of an endless stock,
-     * one off a stack, or else the item itself.
+     * one off a stack, or else the item itself, which the buyer acquires,
+     * told.
      */
     void sellItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Creature> &buyer);
     /** Runs the store's open script, with the one who opened it. */

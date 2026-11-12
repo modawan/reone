@@ -374,6 +374,11 @@ static bool pausesWorld(Game::Screen screen) {
     }
 }
 
+// The crafting stations, whose panels open over whatever is shown.
+static bool isStationScreen(Game::Screen screen) {
+    return screen == Game::Screen::UpgradeSelection || screen == Game::Screen::LabStation;
+}
+
 // The screens that leave the world running: play, a conversation, the death
 // sequence, the turret, whose scripts are the module's, and pazaak.
 static bool runsWorld(Game::Screen screen) {
@@ -1084,7 +1089,9 @@ bool Game::handle(const input::Event &event) {
     // releasing one lets it go. While a menu, the credits or a popup holds
     // the input, a Shift is taken only when its keymap row lets menus take
     // it; otherwise the key stays as it was when the menu opened.
-    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible());
+    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible()) ||
+                                (_tutorialPopup && _tutorialPopup->isVisible()) ||
+                                (_datapadBox && _datapadBox->isVisible());
     if ((event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
         (event.key.code == input::KeyCode::LeftShift || event.key.code == input::KeyCode::RightShift) &&
         (!menuHoldsInput || _menusTakeAlternateActions[event.key.code == input::KeyCode::LeftShift ? 0 : 1])) {
@@ -1116,7 +1123,8 @@ bool Game::handle(const input::Event &event) {
         _credits->handle(event);
         return true;
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
+    // The message box on top takes the input first.
+    if (ConfirmPopup *popup = topShownPopup()) {
         // The drawn pointer keeps following the mouse while the popup takes
         // the input.
         if (event.type == input::EventType::MouseMotion) {
@@ -1125,7 +1133,7 @@ bool Game::handle(const input::Event &event) {
                    event.button.button == input::MouseButton::Left) {
             _pointer->setPressed(event.type == input::EventType::MouseButtonDown);
         }
-        _confirmPopup->handle(event);
+        popup->handle(event);
         return true;
     }
 
@@ -1449,6 +1457,12 @@ void Game::update(float frameTime) {
     }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
+    }
+    if (_datapadBox && _datapadBox->isVisible()) {
+        _datapadBox->update(dt);
+    }
+    if (_tutorialPopup && _tutorialPopup->isVisible()) {
+        _tutorialPopup->update(dt);
     }
     // The credits run in real time and hold still while the game is paused.
     if (_credits) {
@@ -1809,6 +1823,10 @@ void Game::endSourceSession(const std::string &destination) {
     if (_conversation && (_screen == Screen::Conversation || _conversation->isRunning())) {
         _conversation->cleanupForModuleTransition();
     }
+    // A station open across the change has nothing to return to; left
+    // listed, it could not be opened again until a load.
+    _stationReturnScreens.clear();
+    releasePopupsUnderStation();
 
     if (_module) {
         // The source snapshot is already frozen. Module retirement now owns
@@ -2075,12 +2093,20 @@ bool Game::loadPreparedModule(
 
                 // The party is formed anew in the destination: a place that names
                 // no one does not come along, the first member there leads, and
-                // a party carried over is formed again from its members.
+                // a party carried over is formed again from its members. The
+                // creature under control takes the party's items, each
+                // announced once; only then do the other members' carried
+                // items join, and a companion leading the party takes the
+                // shared inventory.
                 _party.removeVacantMembers();
+                _party.takeItemsOnModuleLoad();
+                signalPartyEquipment();
                 if (partyCarriedOver) {
                     _party.formAgainOnModuleLoad();
                 }
-                signalPartyEquipment();
+                if (_party.player() && _party.getLeader() != _party.player()) {
+                    _party.passItemsToLeader();
+                }
                 destination->loadParty(entry, preservesSavedPlacement(context));
                 if (!stillCurrent()) {
                     return;
@@ -2229,6 +2255,7 @@ void Game::retireRuntimeSession() {
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
     _stationReturnScreens.clear();
+    releasePopupsUnderStation();
     _lastRenderedSceneOutput = nullptr;
 
     abortPazaak();
@@ -2356,9 +2383,7 @@ void Game::resetGame() {
     _nearestObjects.clear();
     _tutorialPending.reset();
     if (_tutorial) {
-        if (_confirmPopup) {
-            _confirmPopup->hide();
-        }
+        _tutorialPopup->hide();
         finishTutorialWindow(false);
     }
     retireRuntimeSession();
@@ -3152,7 +3177,6 @@ void Game::deserializeInventory(resource::Gff &inventoryGff) {
         inventoryGff,
         SerializedIdentityContext::detachedRecord("inventory.res"),
         SaveRecordOriginKind::PartyInventoryItem,
-        false,
         "inventory");
 }
 
@@ -3322,6 +3346,10 @@ void Game::renderScene() {
         _lastRenderedSceneOutput = nullptr;
         return;
     }
+    // A station covers the world, which is not drawn while it is up.
+    if (isStationScreen(_screen)) {
+        return;
+    }
     auto &scene = _services.scene.graphs.get(kSceneMain);
     auto &output = scene.render({_options.graphics.width, _options.graphics.height});
     _lastRenderedSceneOutput = &output;
@@ -3450,7 +3478,8 @@ void Game::updateTemporaryDeath() {
 
 bool Game::hasModalPanel() const {
     if (_screen == Screen::InGame) {
-        return _confirmPopup && _confirmPopup->isVisible();
+        return (_confirmPopup && _confirmPopup->isVisible()) || (_tutorialPopup && _tutorialPopup->isVisible()) ||
+               (_datapadBox && _datapadBox->isVisible());
     }
     // These exclusive screens own input instead of the world. The complete
     // modal stack of the GUI manager is not exposed to scripts.
@@ -4887,14 +4916,29 @@ void Game::renderGUI() {
         _hud->renderModal();
     }
     if (!gameplayHUD) {
+        // A station is drawn alone, over its own backdrop: the screen it
+        // covers is not.
         auto gui = getScreenGUI();
         if (gui) {
             gui->render();
         }
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
-        _confirmPopup->render();
+    // The message box opened last is drawn over the other; a box held under
+    // a station is not drawn.
+    const bool tutorialOver = isTutorialPopupOver();
+    const auto renderPopup = [](const std::unique_ptr<ConfirmPopup> &popup, bool held) {
+        if (popup && popup->isVisible() && !held) {
+            popup->render();
+        }
+    };
+    if (tutorialOver) {
+        renderPopup(_confirmPopup, _messageBoxUnderStation);
+        renderPopup(_tutorialPopup, _tutorialUnderStation);
+    } else {
+        renderPopup(_tutorialPopup, _tutorialUnderStation);
+        renderPopup(_confirmPopup, _messageBoxUnderStation);
     }
+    renderPopup(_datapadBox, _datapadUnderStation);
     // The credits cover everything, the fade included, and hide the pointer.
     // The pointer also hides while the mouse turns the camera.
     if (_credits) {
@@ -6408,6 +6452,7 @@ void Game::showSoloModeQuery(bool forStealth) {
             setPaused(false);
         }
     };
+    putMessagePopupOnTop();
     _confirmPopup->showConfirm(
         _services.resource.strings.getText(strRef),
         [this, forStealth, restorePause]() {
@@ -6647,19 +6692,46 @@ bool Game::showTutorialPage() {
         }
     }
 
-    auto text = getInterfaceText(*message);
-    if (!showMessagePopup(text, std::move(icon), [this, hasNext]() {
-            if (hasNext) {
-                ++_tutorialPage;
-                if (showTutorialPage()) {
-                    return;
-                }
-            }
-            finishTutorialWindow(true);
-        })) {
+    if (!_tutorialPopup) {
+        _tutorialPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_tutorialPopup) {
         return false;
     }
-    _confirmPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    if (_tutorialPopup->isVisible()) {
+        // A window open takes the new tutorial in place: its first page, and
+        // its icon only when it has one, the old icon staying otherwise.
+        if (icon) {
+            _tutorialPopup->setIcon(std::move(icon));
+        }
+        _tutorialPopup->setMessage(getInterfaceText(*message));
+    } else {
+        // The popup takes all input, so the steering and mouse-look held when
+        // it opens stop now. It opens over the other message box.
+        stopMovement();
+        _tutorialPopupOnTop = true;
+        // The window's pages turn in place; it closes after the last.
+        _tutorialPopup->setMessageFont(_services.resource.fonts.get(guiFontName("fnt_d16x16")));
+        _tutorialPopup->showPages(
+            getInterfaceText(*message), std::move(icon),
+            [this]() { return showNextTutorialPage(); },
+            [this]() { finishTutorialWindow(true); });
+    }
+    _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    _tutorialUnderStation = false;
+    return true;
+}
+
+bool Game::showNextTutorialPage() {
+    const auto &tutorial = _tutorials[_tutorial->id];
+    auto message = tutorialMessage(tutorial.messages, _tutorialPage + 1);
+    if (!message) {
+        return false;
+    }
+    ++_tutorialPage;
+    const bool hasNext = tutorialMessage(tutorial.messages, _tutorialPage + 1).has_value();
+    _tutorialPopup->setMessage(getInterfaceText(*message));
+    _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
     return true;
 }
 
@@ -6902,9 +6974,23 @@ void Game::signalItemEquipped(Creature &wearer, int slot, const std::shared_ptr<
     queueScriptEvent(*_module, wearer, *newEvent(kItemEquippedEvent, std::vector<int32_t> {}, std::vector<float> {}, std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {item}));
 }
 
-void Game::recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item) {
+void Game::recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item, bool acquired) {
     assert(_stagedRuntimeObjectGraph && "equipment is read inside a runtime object graph");
-    _stagedRuntimeObjectGraph->equippedOnLoad.push_back({slot, item});
+    _stagedRuntimeObjectGraph->equippedOnLoad.push_back({slot, item, acquired});
+}
+
+void Game::recordCarriedOnLoad(const std::shared_ptr<Item> &item) {
+    assert(_stagedRuntimeObjectGraph && "items are read inside a runtime object graph");
+    _stagedRuntimeObjectGraph->equippedOnLoad.push_back({kCarriedOnLoad, item, true});
+}
+
+void Game::signalReadOnLoad(Creature &wearer, const EquippedOnLoad &read) {
+    if (read.acquired) {
+        read.item->announceKept();
+    }
+    if (read.slot != kCarriedOnLoad) {
+        signalItemEquipped(wearer, read.slot, read.item);
+    }
 }
 
 std::shared_ptr<Creature> Game::equippedOnLoadWearer(const EquippedOnLoad &equipped) const {
@@ -6916,10 +7002,10 @@ void Game::releaseEquippedOnLoad(const std::vector<EquippedOnLoad> &equipped) {
         _equippedOnLoad.insert(_equippedOnLoad.end(), equipped.begin(), equipped.end());
         return;
     }
-    for (const auto &[slot, item] : equipped) {
-        auto wearer = equippedOnLoadWearer({slot, item});
+    for (const auto &read : equipped) {
+        auto wearer = equippedOnLoadWearer(read);
         assert(wearer && "equipment read on load is worn by a live creature");
-        signalItemEquipped(*wearer, slot, item);
+        signalReadOnLoad(*wearer, read);
     }
 }
 
@@ -6932,16 +7018,17 @@ void Game::signalEquippedOnLoad(const Creature &wearer) {
             continue;
         }
         if (isRuntimeObjectLive(*it->item)) {
-            signalItemEquipped(*creature, it->slot, it->item);
+            signalReadOnLoad(*creature, *it);
         }
         it = _equippedOnLoad.erase(it);
     }
 }
 
-// The party arrives in every module as if read anew: the player character,
-// then each other member, then each puppet, tells the module of every item it
-// wears, in slot order. What any of them was read wearing during the load is
-// not told twice.
+// The party arrives in every module as if read anew: each member other than
+// the creature under control, then each puppet, tells the module of every item
+// it wears, in slot order; the creature under control has told it as it took
+// the party's items. What any of them was read wearing during the load is not
+// told twice.
 void Game::signalPartyEquipment() {
     std::vector<std::shared_ptr<Creature>> arriving;
     auto player = _party.player();
@@ -6959,12 +7046,25 @@ void Game::signalPartyEquipment() {
         }
     }
     for (const auto &creature : arriving) {
+        // What a member other than the creature under control was read
+        // acquiring is told first; the creature under control has told it as
+        // it took the party's items.
+        if (creature != player) {
+            for (const auto &read : _equippedOnLoad) {
+                if (read.acquired && equippedOnLoadWearer(read) == creature && isRuntimeObjectLive(*read.item)) {
+                    read.item->announceKept();
+                }
+            }
+        }
         _equippedOnLoad.erase(
             std::remove_if(
                 _equippedOnLoad.begin(),
                 _equippedOnLoad.end(),
                 [&](const EquippedOnLoad &kept) { return equippedOnLoadWearer(kept) == creature; }),
             _equippedOnLoad.end());
+        if (creature == player) {
+            continue;
+        }
         for (const auto &[slot, item] : creature->equipment()) {
             signalItemEquipped(*creature, slot, item);
         }
@@ -6979,7 +7079,7 @@ void Game::signalKeptEquippedOnLoad() {
     for (const auto &equipped : kept) {
         auto wearer = equippedOnLoadWearer(equipped);
         if (wearer && isRuntimeObjectLive(*equipped.item)) {
-            signalItemEquipped(*wearer, equipped.slot, equipped.item);
+            signalReadOnLoad(*wearer, equipped);
         }
     }
 }
@@ -8694,13 +8794,23 @@ void Game::closeStation(Screen station) {
     }
     const Screen underneath = found->second;
     _stationReturnScreens.erase(found);
-    // A conversation that a reply's script ended under the station is gone.
+    // The message boxes held under it come back with the screen.
+    if (!isStationScreen(underneath)) {
+        releasePopupsUnderStation();
+    }
+    if (auto gui = getScreenGUI()) {
+        gui->clearSelection();
+    }
+    // The covered screen comes back as it was left. A conversation that a
+    // reply's script ended under the station is gone, and play takes its
+    // place.
     const bool conversationGone = underneath == Screen::Conversation && !_conversation->isRunning();
     if (underneath == Screen::InGame || conversationGone) {
-        openInGame();
+        _runtimeSessionPlayable = static_cast<bool>(_module);
+        _screen = Screen::InGame;
         return;
     }
-    changeScreen(underneath);
+    _screen = underneath;
 }
 
 bool Game::holdsConversation() const {
@@ -9468,7 +9578,15 @@ float Game::baseItemCostMultiplier(int baseItem) const {
     return found != _baseItemCostMultipliers.end() ? found->second : 1.0f;
 }
 
+// A station opening over a screen leaves that screen as it was, as a panel
+// added over it does: the in-game menu keeps its tab and sub-screen, and an
+// open message box or tutorial window stays up. Its close returns to the
+// screen the same way (closeStation).
 void Game::changeScreen(Screen screen) {
+    if (isStationScreen(screen)) {
+        _screen = screen;
+        return;
+    }
     if (_screen == Screen::InGameMenu && screen != Screen::InGameMenu && _inGame) {
         _inGame->leaveTab(InGameMenuTab::None);
     }
@@ -9479,15 +9597,24 @@ void Game::changeScreen(Screen screen) {
     if (_confirmPopup) {
         _confirmPopup->hide();
     }
+    if (_datapadBox) {
+        _datapadBox->hide();
+    }
+    _pendingDatapads.clear();
     releaseMessageBoxPause();
     if (_tutorial) {
+        _tutorialPopup->hide();
         finishTutorialWindow(false);
     }
     _screen = screen;
 }
 
 GameGUI *Game::getScreenGUI() const {
-    switch (_screen) {
+    return guiForScreen(_screen);
+}
+
+GameGUI *Game::guiForScreen(Screen screen) const {
+    switch (screen) {
     case Screen::Death:
         return isTSL() ? static_cast<GameGUI *>(_deathDisplay.get()) : static_cast<GameGUI *>(_deathMessage.get());
     case Screen::MainMenu:
@@ -10094,9 +10221,75 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
     }
 }
 
+bool Game::isTutorialPopupOver() const {
+    return _tutorialPopup && _tutorialPopup->isVisible() &&
+           (_tutorialPopupOnTop || !_confirmPopup || !_confirmPopup->isVisible());
+}
+
+// A message box shown again while it is open keeps its place. The box it was
+// showing gives way: a question it asked goes unanswered, and a pause a
+// script's box held is let go. A box held under a station is the station's
+// now.
+void Game::putMessagePopupOnTop() {
+    _messageBoxUnderStation = false;
+    if (!_confirmPopup->isVisible()) {
+        _tutorialPopupOnTop = false;
+        return;
+    }
+    // A box that the one giving way opens, as its question goes unanswered,
+    // gives way in turn, a few deep; the new box then takes the place of any
+    // still shown.
+    static constexpr int kMaxWithdrawals = 8;
+    for (int i = 0; i < kMaxWithdrawals && _confirmPopup->isVisible(); ++i) {
+        _confirmPopup->withdraw();
+        releaseBoxPause(_scriptBoxHoldsPause);
+    }
+}
+
+void Game::holdPopupsUnderStation() {
+    _messageBoxUnderStation = _messageBoxUnderStation || (_confirmPopup && _confirmPopup->isVisible());
+    _tutorialUnderStation = _tutorialUnderStation || (_tutorialPopup && _tutorialPopup->isVisible());
+    _datapadUnderStation = _datapadUnderStation || (_datapadBox && _datapadBox->isVisible());
+}
+
+void Game::releasePopupsUnderStation() {
+    _messageBoxUnderStation = false;
+    _tutorialUnderStation = false;
+    _datapadUnderStation = false;
+}
+
+// The datapad box is over the message boxes, and the message box opened last
+// is over the other.
+ConfirmPopup *Game::topShownPopup() const {
+    const auto shown = [](const std::unique_ptr<ConfirmPopup> &popup, bool held) {
+        return popup && popup->isVisible() && !held;
+    };
+    if (shown(_datapadBox, _datapadUnderStation)) {
+        return _datapadBox.get();
+    }
+    const bool tutorial = shown(_tutorialPopup, _tutorialUnderStation);
+    const bool messageBox = shown(_confirmPopup, _messageBoxUnderStation);
+    if (tutorial && (!messageBox || isTutorialPopupOver())) {
+        return _tutorialPopup.get();
+    }
+    return messageBox ? _confirmPopup.get() : nullptr;
+}
+
 void Game::closeMessagePopup() {
+    _pendingDatapads.clear();
+    if (_datapadBox && _datapadBox->isVisible()) {
+        _datapadBox->close();
+    }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->close();
+    }
+    // A tutorial window closes whatever pages it has left, and the action it
+    // interrupted is not taken.
+    if (_tutorialPopup && _tutorialPopup->isVisible()) {
+        _tutorialPopup->hide();
+        if (_tutorial) {
+            finishTutorialWindow(false);
+        }
     }
 }
 
@@ -10122,6 +10315,7 @@ bool Game::showMessagePopup(
     // The popup takes all input, key and button releases included, so the
     // steering and mouse-look held when it opens stop now.
     stopMovement();
+    putMessagePopupOnTop();
     _confirmPopup->show(message, std::move(icon), std::move(onConfirm), colors);
     return true;
 }
@@ -10131,16 +10325,34 @@ void Game::showScriptMessageBox(const std::string &text, const std::string &icon
     if (!iconResRef.empty()) {
         icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
     }
-    if (!showMessagePopup(text, std::move(icon), [this]() { releaseMessageBoxPause(); })) {
+    if (!showMessagePopup(text, std::move(icon), [this]() { releaseBoxPause(_scriptBoxHoldsPause); })) {
         return;
     }
+    holdBoxPause(_scriptBoxHoldsPause);
+}
+
+// A box opening while play runs pauses it; one opening while the boxes hold a
+// pause holds it too, so play resumes only once the last of them closes.
+void Game::holdBoxPause(bool &holder) {
     if (!_paused && !_dialogUnderWay) {
         setPaused(true);
         _messageBoxPausedGame = true;
     }
+    if (_messageBoxPausedGame) {
+        holder = true;
+    }
+}
+
+void Game::releaseBoxPause(bool &holder) {
+    holder = false;
+    if (!_scriptBoxHoldsPause && !_datapadHoldsPause) {
+        releaseMessageBoxPause();
+    }
 }
 
 void Game::releaseMessageBoxPause() {
+    _scriptBoxHoldsPause = false;
+    _datapadHoldsPause = false;
     if (_messageBoxPausedGame) {
         _messageBoxPausedGame = false;
         setPaused(false);
@@ -10159,8 +10371,41 @@ bool Game::showConfirmPopup(
         return false;
     }
     stopMovement();
+    putMessagePopupOnTop();
     _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel), colors);
     return true;
+}
+
+void Game::showDatapad(Item &datapad) {
+    datapad.setLocalBoolean(Item::kDatapadShownBoolean, true);
+    if (!_datapadBox) {
+        _datapadBox = tryLoadGUI<DatapadBox>();
+    }
+    if (!_datapadBox) {
+        return;
+    }
+    if (_datapadBox->isVisible()) {
+        _pendingDatapads.push_back(datapad.descIdentified());
+        return;
+    }
+    openDatapadBox(datapad.descIdentified());
+}
+
+void Game::openDatapadBox(const std::string &text) {
+    stopMovement();
+    _datapadUnderStation = false;
+    _datapadBox->showDatapad(text, [this]() { onDatapadBoxClosed(); });
+    holdBoxPause(_datapadHoldsPause);
+}
+
+void Game::onDatapadBoxClosed() {
+    if (_pendingDatapads.empty()) {
+        releaseBoxPause(_datapadHoldsPause);
+        return;
+    }
+    const std::string text = std::move(_pendingDatapads.front());
+    _pendingDatapads.pop_front();
+    openDatapadBox(text);
 }
 
 void Game::consoleSeed(const ConsoleArgs &args) {

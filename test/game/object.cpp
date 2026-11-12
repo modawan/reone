@@ -2127,7 +2127,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     footlocker->addItem(makeItem(game, "g_i_credits002", 0, 10));
     footlocker->addItem(makeItem(game, "g_i_datapad001", 1, 1));
 
-    footlocker->moveDropableItemsTo(*player);
+    footlocker->moveAllItemsTo(*player);
 
     EXPECT_EQ(game.party().gold(), 15);
     ASSERT_EQ(player->items().size(), 1);
@@ -2153,7 +2153,7 @@ TEST(Object, should_convert_credits_to_gold_for_any_creature) {
     auto footlocker = game.newPlaceable();
     footlocker->addItem(makeItem(game, "g_i_credits001", 0, 5));
 
-    footlocker->moveDropableItemsTo(*thug);
+    footlocker->moveAllItemsTo(*thug);
 
     EXPECT_EQ(game.party().gold(), 0);
     ASSERT_EQ(thug->items().size(), 0);
@@ -2602,7 +2602,7 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
     // regular GUI layout scale and its own text setting.
     EXPECT_FLOAT_EQ(listBox.protoItem().scale(), 1.5f);
     EXPECT_EQ(listBox.protoItem().border().dimension, 2);
-    listBox.handleMouseMotion(0, 119);
+    listBox.handleMouseMotion(listBox.protoItem().extent().left, 119);
     EXPECT_EQ(listBox.selectedItemIndex(), 4);
 }
 

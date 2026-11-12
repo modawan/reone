@@ -71,6 +71,12 @@ private:
     uint32_t _containerId {kSavedRuntimeInvalidObjectId};
     bool _containerOverwritten {false};
     int32_t _instant;
+
+    /**
+     * Takes the item off, joining its stacks or not as Object::addItem does,
+     * and completes. The hand it leaves is drawn unless the unequip is instant.
+     */
+    void takeOff(Object &actor, ItemStacking stacking);
 };
 
 } // namespace game

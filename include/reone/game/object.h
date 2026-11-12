@@ -112,6 +112,13 @@ public:
         Presentation,
     };
 
+    /** An item handed over to another object, and the stack that now holds it. */
+    struct HandedOverItem {
+        std::shared_ptr<Item> item;
+        /** The item itself, the stack it joined, or none when it was counted. */
+        std::shared_ptr<Item> held;
+    };
+
     virtual ~Object() = default;
 
     static bool classof(Object *from) {
@@ -218,10 +225,8 @@ public:
     const std::string &blueprintResRef() const { return _blueprintResRef; }
     const std::string &name() const { return _name; }
     const std::string &conversation() const { return _conversation; }
-    /** Whether the object is plot: its plot value is not 0. */
-    bool plotFlag() const { return _plot != 0; }
-    /** The plot value as it was read or set. */
-    int plotValue() const { return _plot; }
+    /** Whether the object is plot. */
+    bool plotFlag() const { return _plot; }
     /**
      * Damage immunity is kept per damage type. For several types in \p flags,
      * the types are taken in bit order: a running value of 0 takes the next
@@ -274,8 +279,7 @@ public:
     void setTag(std::string tag) { _tag = std::move(tag); }
     void setConversation(std::string conversation) { _conversation = std::move(conversation); }
     void setName(std::string name) { _name = std::move(name); }
-    /** Sets the plot value; any value but 0 makes the object plot. */
-    void setPlotFlag(int plot) { _plot = plot; }
+    void setPlotFlag(bool plot) { _plot = plot; }
     void setCommandable(bool commandable) { _commandable = commandable; }
     virtual void setIsInConversation(bool isInConversation) { _isInConversation = isInConversation; }
 
@@ -305,17 +309,27 @@ public:
      * counted.
      */
     std::shared_ptr<Item> addItem(const std::string &resRef, int stackSize = 1, std::optional<bool> dropable = true);
-    std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item);
+    /**
+     * The object takes a live item, as addItem above does. Keeping its own
+     * stack, the item joins none.
+     */
+    std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item, ItemStacking stacking = ItemStacking::Join);
+    /** One item of a stack leaves the object; the last one takes the stack, which is no longer new. */
     bool removeItem(const std::shared_ptr<Item> &item, bool &last);
     bool removeItemStack(const std::shared_ptr<Item> &item);
-    void moveDropableItemsTo(Object &other);
-    /** Every item moves to other, the last first. */
-    void moveAllItemsTo(Object &other);
+    /**
+     * Every item moves to other, the last first.
+     *
+     * @return each item moved, in the order moved
+     */
+    std::vector<HandedOverItem> moveAllItemsTo(Object &other);
 
     std::shared_ptr<Item> getFirstItem();
     std::shared_ptr<Item> getNextItem();
     /** The first item with the tag, each item's own items searched right after it; none when no item has it. */
     std::shared_ptr<Item> getItemByTag(const std::string &tag);
+    /** The first item of the type, each item's own items searched before it; none when no item is of it. */
+    std::shared_ptr<Item> getItemByItemType(int itemType) const;
 
     const std::vector<std::shared_ptr<Item>> &items() const { return _items; }
 
@@ -691,8 +705,12 @@ protected:
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
 
-    /** An item taken out of this object's inventory goes to other. */
-    void handOverItem(const std::shared_ptr<Item> &item, Object &other);
+    /**
+     * An item taken out of this object's inventory goes to other.
+     *
+     * @return the stack now holding the item, or null when it was counted
+     */
+    std::shared_ptr<Item> handOverItem(const std::shared_ptr<Item> &item, Object &other);
 
     /**
      * Drops a node of a removed action group, bypassing commandability,
@@ -715,13 +733,26 @@ protected:
      */
     void recordReceivedAttack(uint32_t attackerId, int weaponAttackType);
 
-    // Add one privately constructed Item to a candidate owned graph using the
-    // same stacking rules as runtime inventory insertion. Authoritative saved
-    // identities can be preserved as distinct records during restoration.
+    /**
+     * Adds one privately constructed Item to a candidate owned graph with the
+     * stacking rules of runtime inventory insertion; a loaded item joins an
+     * identical stack whatever saved identity either carries. An item taken
+     * in whole by a stack is discarded, so its saved identity names nothing.
+     *
+     * @return the stack now holding the item
+     */
     std::shared_ptr<Item> appendOwnedItemCandidate(
         std::vector<std::shared_ptr<Item>> &items,
-        const std::shared_ptr<Item> &item,
-        bool preserveSerializedIdentities);
+        const std::shared_ptr<Item> &item);
+    /**
+     * Where a new item goes among the object's items: by base item, then by
+     * name among items of one base item, when the object keeps its items in
+     * order; otherwise first, or last while the items are read from a record,
+     * which keeps the record's order.
+     */
+    size_t itemInsertPosition(const std::vector<std::shared_ptr<Item>> &items, const Item &item) const;
+    /** Puts \p item among \p items where itemInsertPosition places it. */
+    void placeItem(std::vector<std::shared_ptr<Item>> &items, std::shared_ptr<Item> item) const;
     /** Atomically replace canonical effect state and run exact lifecycle hooks. */
     void replaceEffectState(std::deque<EffectInstance> replacement) noexcept;
 
@@ -740,8 +771,8 @@ protected:
     std::string _onHeartbeat;
     std::string _onUserDefined;
     bool _minOneHP {false};
-    /** The plot value as read or set; the object is plot when it is not 0. */
-    int _plot {0};
+    /** Whether the object is plot: a record's value or a script's argument sets it when not 0. */
+    bool _plot {false};
     bool _commandable {true};
     bool _interruptable {false};
     int _hitPoints {0};
@@ -750,6 +781,19 @@ protected:
     glm::vec3 _position {0.0f};
     glm::quat _orientation {1.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::shared_ptr<Item>> _items; // FIXME: deserialize
+    /** Whether the object is reading its items from a record, whose order they keep. */
+    bool _loadingItems {false};
+
+    /** Marks the object as reading its items for as long as it lives. */
+    class ItemLoadScope {
+    public:
+        explicit ItemLoadScope(Object &object) :
+            _object(object) { _object._loadingItems = true; }
+        ~ItemLoadScope() { _object._loadingItems = false; }
+
+    private:
+        Object &_object;
+    };
     // END Serializable
 
     /**
@@ -904,13 +948,30 @@ protected:
      * running or failing by its own rule; by default, while it can act.
      */
     virtual bool takesUpActions() const { return canExecuteActions(); }
+    /** Whether the object's inventory keeps itself in order. */
+    virtual bool keepsItemsInOrder() const { return false; }
 
+    /**
+     * Replaces the object's items with those of a record's ItemList.
+     *
+     * @param originOwner the owner a saved item's record is kept under; the object's id when empty
+     * @param placedTemplate whether the record is the template of an object an
+     *        area places, whose entries are each their InventoryRes template alone
+     */
     void deserializeOwnedItems(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         SaveRecordOriginKind originKind,
-        bool forceDropable = false,
-        std::string originOwner = {});
+        std::string originOwner = {},
+        bool placedTemplate = false);
+    /**
+     * Reads the plot flag of a record. An Invulnerable value takes precedence
+     * over Plot, an explicit zero included; a record holding neither keeps the
+     * current value.
+     *
+     * @param readInvulnerable whether the record's Invulnerable value is read
+     */
+    void deserializePlot(const resource::Gff &gff, bool readInvulnerable);
 
     // Actions
 

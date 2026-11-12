@@ -64,13 +64,14 @@ bool GiveItemAction::queue(Game &game, Object &giver, std::shared_ptr<Item> item
 // and a pazaak card out of the party's collection. A count short of the stack
 // is split off it; otherwise the stack moves. A creature or placeable
 // receives the item (a creature counts credits and the other counted items it
-// acquires). A party member that receives an item a script gave reports it in
-// the status summary. A placeable that receives one, unless it is destroyed
-// once empty, runs its inventory disturbed script for the stack that holds
-// it, disturbed by the item's holder before the give. A creature that
-// receives one runs its disturbed script the same way, unless it gave the
-// item itself or its inventory held the item already, as party members
-// sharing the party inventory do.
+// acquires). The item is announced lost by the one it leaves and acquired by
+// a creature that receives it, both told unless it is credits. A party
+// member that receives an item a script gave reports it in the status
+// summary. A placeable that receives one announces it acquired from the
+// item's possessor before the give. A creature that receives one runs its
+// disturbed script for the stack that holds it, disturbed by the item's
+// holder before the give, unless it gave the item itself or its inventory
+// held the item already, as party members sharing the party inventory do.
 void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     if (auto *giver = dyn_cast<Creature>(&actor)) {
@@ -104,29 +105,34 @@ void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     if (_count > 0 && _count < _item->stackSize()) {
         split = _game.newItemClone(*_item);
         split->setStackSize(_count);
+        split->keepMarksOf(*_item);
         _item->setStackSize(_item->stackSize() - _count);
     }
-    const auto deliver = [&](Object &receiver) -> ItemTransfer {
-        if (split) {
-            _game.party().noteItemReceived(*split, receiver, _game.getObjectById(_item->owner()).get());
-            return {true, receiver.addItem(split)};
-        }
-        return transferItemTo(_game, _item, receiver);
-    };
+    // Credits given are told neither lost nor gained.
+    const bool feedback = _item->itemType() != Item::kCreditsItemType;
     switch (_giveTo->type()) {
-    case ObjectType::Placeable: {
-        auto &placeable = static_cast<Placeable &>(*_giveTo);
-        auto delivered = deliver(placeable);
-        if (delivered && !placeable.dieWhenEmpty()) {
-            placeable.runOnInvDisturbed(disturber, InventoryDisturbType::Added, delivered.held->id());
+    case ObjectType::Placeable:
+        if (split) {
+            split->announceSplitLoss(*_item, feedback);
         }
+        static_cast<Placeable &>(*_giveTo).receiveItem(_item, split, feedback);
         break;
-    }
     case ObjectType::Creature: {
         const std::string name = _item->localizedName();
         auto receiver = party.sharedInventoryReceiver(_giveTo);
         const bool alreadyHeld = _item->owner() == receiver->id() && !_item->isEquipped();
-        auto delivered = deliver(*receiver);
+        ItemTransfer delivered;
+        if (split) {
+            // Part of a stack leaves its possessor as the whole stack would.
+            if (!alreadyHeld) {
+                split->announceSplitLoss(*_item, feedback);
+            }
+            _game.party().noteItemReceived(*split, *receiver, _game.getObjectById(_item->owner()).get());
+            delivered = {true, receiver->addItem(split)};
+            announceAcquiredBy(split, delivered.held, *_giveTo, feedback);
+        } else {
+            delivered = giveItemToCreature(_game, _item, *receiver, *_giveTo, feedback);
+        }
         if (_givenByScript && party.isMember(*_giveTo)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsReceived, 0, {name});
         }
@@ -163,24 +169,27 @@ std::shared_ptr<Action> GiveItemAction::restore(const SavedActionRecord &record,
     return game.newAction<GiveItemAction>(std::move(item), std::move(receiver), record.integerParameter(2), record.integerParameter(3) != 0);
 }
 
-// A creature or placeable takes the item. A creature that takes it from a
-// party member reports the item lost in the status summary. A creature the
-// item is taken from runs its disturbed script, disturbed by the taker, for
-// the taker's stack that holds the item, as an item merged into a stack is
-// gone. A take between creatures sharing the party inventory moves nothing
-// and is neither.
+// A creature or placeable takes the item. A placeable announces it acquired
+// from the item's possessor. A creature acquires it as given items are,
+// told; one that takes it from a party member reports the item lost in the
+// status summary. A creature the item is taken from runs its disturbed
+// script, disturbed by the taker, for the taker's stack that holds the item,
+// as an item merged into a stack is gone. A take between creatures sharing
+// the party inventory moves nothing and is neither.
 void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &party = _game.party();
     ItemTransfer taken;
     bool alreadyHeld = false;
     switch (actor.type()) {
-    case ObjectType::Placeable:
-        taken = transferItemTo(_game, _item, actor);
+    case ObjectType::Placeable: {
+        const auto held = static_cast<Placeable &>(actor).receiveItem(_item);
+        taken = {held != nullptr, held};
         break;
+    }
     case ObjectType::Creature: {
         auto receiver = party.sharedInventoryReceiver(_game.getObjectById(actor.id()));
         alreadyHeld = _item->owner() == receiver->id() && !_item->isEquipped();
-        taken = transferItemTo(_game, _item, *receiver);
+        taken = giveItemToCreature(_game, _item, *receiver, actor, true);
         if (taken && !alreadyHeld && party.isMember(*_takeFrom)) {
             _game.submitStatusSummary(StatusSummaryCategory::ItemsLost);
         }
@@ -287,6 +296,10 @@ std::shared_ptr<Action> EquipItemAction::restore(const SavedActionRecord &record
 }
 
 void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    takeOff(actor, ItemStacking::Join);
+}
+
+void UnequipItemAction::takeOff(Object &actor, ItemStacking stacking) {
     std::shared_ptr<Item> container;
     if (!_containerOverwritten && _containerId != kSavedRuntimeInvalidObjectId) {
         container = std::dynamic_pointer_cast<Item>(_game.getObjectById(_containerId));
@@ -296,7 +309,7 @@ void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, flo
         !_containerOverwritten && (_containerId == kSavedRuntimeInvalidObjectId || container);
     if (auto *creature = dyn_cast<Creature>(&actor);
         creature && containerNamed && canRunEquipmentCommand(_game, *creature))
-        runUnequip(_game, *creature, _item, container, _instant != 0);
+        runUnequip(_game, *creature, _item, container, _instant != 0, stacking);
     complete();
 }
 
@@ -371,10 +384,11 @@ void swapWeaponSets(Game &game, Creature &creature) {
     game.combat().discardEquipment(creature);
 
     // Off-hands leave before their main hands so neither is promoted, then each
-    // set moves into the other pair.
+    // set moves into the other pair. Each keeps its own stack, so the very
+    // item put away goes back on.
     for (const auto &item : {alternateLeft, alternateRight, left, right})
         if (item) {
-            runUnequip(game, creature, item, nullptr, false);
+            runUnequip(game, creature, item, nullptr, false, ItemStacking::Own);
         }
     if (alternateRight) {
         runEquip(game, creature, alternateRight, InventorySlots::rightWeapon, false);

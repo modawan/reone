@@ -142,14 +142,7 @@ void SaveLoad::onGUILoaded() {
         _controls.CB_CLOUDSAVE->showAsCheckBox(_baseColor, _hilightColor);
     }
     _controls.LB_GAMES->setOnItemClick([this](const std::string &tag) {
-        _selectedSaveSlot.reset();
-        if (tag != "new") {
-            try {
-                _selectedSaveSlot = static_cast<uint32_t>(std::stoul(tag));
-            } catch (const std::exception &) {
-            }
-        }
-        refreshSelection();
+        chooseGame(tag);
     });
     _controls.LB_GAMES->setOnItemDoubleClick([this](const std::string &) {
         activateSelection();
@@ -262,7 +255,7 @@ void SaveLoad::activateSelection() {
     }
 }
 
-void SaveLoad::refreshSavedGames() {
+void SaveLoad::refreshSavedGames(int row) {
     _saves = detail::prepareSaveBrowserEntries(
         _game.savedGames(), _game.isTSL(), _mode);
     _selectedSaveSlot.reset();
@@ -302,6 +295,28 @@ void SaveLoad::refreshSavedGames() {
     _controls.BTN_DELETE->setDisabled(true);
     _controls.BTN_SAVELOAD->setDisabled(_mode != SaveLoadMode::Save);
     _controls.BTN_SAVELOAD->setVisible(_mode == SaveLoadMode::Save);
+    // The game at the row is selected and shown, the last when the list is
+    // shorter; the list then takes the keyboard afresh, which shows its first
+    // game when none is selected.
+    const int count = _controls.LB_GAMES->getItemCount();
+    if (row > 0 && count > 0) {
+        const int selected = std::min(row, count - 1);
+        _controls.LB_GAMES->setSelectedItemIndex(selected);
+        chooseGame(_controls.LB_GAMES->getItemAt(selected).tag);
+    }
+    _gui->clearActiveControl();
+    _gui->setActiveControl(*_controls.LB_GAMES);
+}
+
+void SaveLoad::chooseGame(const std::string &tag) {
+    _selectedSaveSlot.reset();
+    if (tag != "new") {
+        try {
+            _selectedSaveSlot = static_cast<uint32_t>(std::stoul(tag));
+        } catch (const std::exception &) {
+        }
+    }
+    refreshSelection();
 }
 
 void SaveLoad::refreshSelection() {
@@ -513,20 +528,22 @@ void SaveLoad::deleteGame(uint32_t number) {
             _services.resource.strings.getText(kStrRefConfirmDelete),
             [this, number]() {
                 auto confirmed = findSave(number);
+                const int row = _controls.LB_GAMES->selectedItemIndex();
                 if (!confirmed ||
                     !deleteSavedGame(_game.gamePath(), confirmed->descriptor)) {
                     showStatus("The selected save could not be deleted.");
                     return;
                 }
-                refreshSavedGames();
+                refreshSavedGames(row);
             });
         return;
     }
+    const int row = _controls.LB_GAMES->selectedItemIndex();
     if (!deleteSavedGame(_game.gamePath(), save->descriptor)) {
         showStatus("The selected save could not be deleted.");
         return;
     }
-    refreshSavedGames();
+    refreshSavedGames(row);
 }
 
 } // namespace game

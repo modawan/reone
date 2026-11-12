@@ -557,6 +557,12 @@ public:
      * may change the creature's appearance for good.
      */
     void updateArmourAppearance(const std::shared_ptr<Item> &armour);
+    /** Takes the texture variation of a body item of the body model type put on \p slot. */
+    void noteBodyLook(int slot, const Item &item);
+    /** The body variation and texture variation \p body is drawn with. */
+    std::pair<int, int> bodyLookOf(const Item &body) const;
+    /** Shows the texture variation \p other shows, as a preview of it does. */
+    void takeShownTextureVariation(const Creature &other) { _shownTextureVariation = other._shownTextureVariation; }
 
     void deserialize(
         const resource::Gff &gff,
@@ -836,8 +842,18 @@ public:
     bool canMove() const { return canExecuteActions() && (_effectAIStateMask & kAIStateMove) != 0; }
     bool canAttack() const {
         constexpr int kAttackBits = kAIStateAttack | kAIStateAct;
-        return canExecuteActions() && (_effectAIStateMask & kAttackBits) == kAttackBits;
+        return canExecuteActions() && !isBodyHeld() && (_effectAIStateMask & kAttackBits) == kAttackBits;
     }
+    /** Whether a stun, paralysis or sleep holds the creature's body. */
+    bool isBodyHeld() const;
+    /**
+     * Whether the action is one done with the body while the body is held:
+     * an attack, a power, a use of an item, an object, a door, a trap, a
+     * lock, a skill, a feat or a talent, or a handling of items. Such an
+     * action waits until the body is free; what is said, played, walked or
+     * scripted is not held.
+     */
+    bool waitsForBody(const Action &action) const;
     bool isMovementRestricted() const { return _movementRestricted || !canMove(); }
     bool movementLockedByAction() const { return _movementRestricted; }
     /** Whether the AI state lets the creature take \p action. */
@@ -1576,10 +1592,17 @@ public:
      * Without the presentation update the model keeps showing the item.
      */
     std::shared_ptr<Item> takeEquippedItem(const std::shared_ptr<Item> &item, bool updatePresentation = true);
-    /** Unequip an Item directly into an explicit owning inventory. */
-    bool moveEquippedItemTo(
+    /**
+     * Unequip an Item directly into an explicit owning inventory, joining its
+     * stacks or not as Object::addItem does.
+     *
+     * @return the Item as it lies in \p receiver, itself or the stack it
+     *         joined; none when it could not be moved
+     */
+    std::shared_ptr<Item> moveEquippedItemTo(
         const std::shared_ptr<Item> &item,
-        Object &receiver);
+        Object &receiver,
+        ItemStacking stacking = ItemStacking::Join);
 
     std::shared_ptr<Item> getEquippedItem(int slot) const;
     /** The first item worn with tag \p tag, in slot order; KotOR has no second weapon set to search. */
@@ -1615,7 +1638,7 @@ public:
     std::optional<int> appearanceBodyBagRow() const { return _appearanceBodyBag; }
     /** The appearance's delay in milliseconds before a destroyed body fades; blank keeps the corpse. */
     std::optional<int> fadeDelayOnDeath() const { return _fadeDelayOnDeath; }
-    /** The items a body leaves in its bag: droppable equipment of the first sixteen slots, then droppable inventory. */
+    /** The items a body leaves in its bag: droppable equipment of the first fourteen slots (sixteen in TSL), then droppable inventory. */
     std::vector<std::shared_ptr<Item>> dropableItems() const;
     /** The body shows no weapons in its hands; its equipment is unchanged. */
     void stripHandWeapons();
@@ -2494,6 +2517,8 @@ protected:
     /** A party member at zero vitality takes up its actions too, which mostly fail. */
     bool takesUpActions() const override;
     glm::quat presentedOrientation() const override;
+    /** The party's inventory, which the actual player creature holds, keeps itself in order. */
+    bool keepsItemsInOrder() const override;
     /** Runs the conversation script, the fallback one for a creature with none or "default". */
     void runConversationScript() override;
 
@@ -2692,6 +2717,16 @@ private:
     EffectId _activePoisonEffectId {kUnassignedEffectId};
     bool _notReorienting {false};
     uint8_t _bodyVariation {0};
+    /** The texture variation a creature's look starts from. */
+    static constexpr int kFirstTextureVariation = 1;
+    /**
+     * The texture variation shown, which a body item of the body model type
+     * sets. A body item of another model type (a disguise, droid plating) is
+     * drawn with the first body model and this texture variation. It starts
+     * at kFirstTextureVariation, and again whenever the creature is read; it
+     * is not saved.
+     */
+    int _shownTextureVariation {kFirstTextureVariation};
     std::optional<CreaturePresentation> _presentation;
     uint8_t _textureVar {0};
     bool _partyInteract {false};
@@ -3457,7 +3492,10 @@ private:
         const std::map<int, std::shared_ptr<Item>> &loaded, bool &bodyRefused, bool reportRefusal);
     /**
      * Replaces the carried items and the equipment with those of the record's
-     * lists.
+     * lists. A creature read from a template, or placed by an area outside a
+     * saved game, acquires what it wears and carries: the module is told of
+     * each worn item before it is told it was put on, then of each carried
+     * item but those it counts, with nothing told to the party.
      *
      * @param placedTemplate whether the record is the template of a creature
      *        an area places: each entry then names its list's template and

@@ -836,7 +836,7 @@ public:
     bool handle(const input::Event &event) override;
     /** The panel open over the screen is updated in place of TSL's description of the list. */
     void update(float dt) override;
-    /** The panel open is drawn over the screen. */
+    /** The panel open is drawn in place of the screen, over its own backdrop. */
     void render() override;
 
     /**
@@ -960,6 +960,8 @@ private:
     void showKinds();
     /** KotOR: the kind's button becomes the active one, holding the keyboard, and Upgrade Items takes up the kind, showing whether the party has an item of it. */
     void describeKind(UpgradableType kind);
+    /** A kind button's click or Return: takes up the kind and opens its list when the party holds one. */
+    void chooseKind(UpgradableType kind);
     /**
      * KotOR: gives a key to the kind button holding the keyboard, or to a
      * control the arrows moved the keyboard to.

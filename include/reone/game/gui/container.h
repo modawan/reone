@@ -37,6 +37,10 @@ public:
         _resRef = guiResRef("container");
     }
 
+    /**
+     * Shows a container's inventory, recording whether it holds items now:
+     * that sets the caption, and whether OK takes everything.
+     */
     void open(std::shared_ptr<Object> contanier);
     void update(float dt) override;
 
@@ -51,6 +55,7 @@ private:
         std::shared_ptr<gui::Button> BTN_GIVEITEMS;
         std::shared_ptr<gui::Button> BTN_OK;
         std::shared_ptr<gui::Label> LBL_MESSAGE;
+        std::shared_ptr<gui::Label> LBL_OK;
         std::shared_ptr<gui::ListBox> LB_ITEMS;
     };
 
@@ -61,23 +66,20 @@ private:
         PlayerToContainer,
     };
 
-    /** Where a give stands in refreshing the list. */
-    enum class GiveRefresh {
-        None,
-        /** A give was asked for this frame; the list waits a frame. */
-        AfterNextFrame,
-        /** The list is shown again on this frame. */
-        Due,
-    };
+    /** A list entry: the id of the stack it shows and the stack's size. */
+    using ListedEntry = std::pair<uint32_t, int>;
 
     Mode _mode {Mode::ContainerToPlayer};
-    GiveRefresh _giveRefresh {GiveRefresh::None};
     RuntimeObjectRef<Object> _container;
     /**
      * The list shows the container as it is once the world update in which
      * the screen opened has finished, its open and used scripts included.
      */
     bool _itemsListed {false};
+    /** Whether the container held items when the screen opened: OK then takes everything it holds. */
+    bool _heldItemsWhenOpened {false};
+    /** The entries the list shows, to tell when what it lists has changed. */
+    std::vector<ListedEntry> _listed;
 
     std::string _giveItemMsg;
     std::string _getItemsMsg;
@@ -89,16 +91,28 @@ private:
         _controls.BTN_GIVEITEMS = findControl<gui::Button>("BTN_GIVEITEMS");
         _controls.BTN_OK = findControl<gui::Button>("BTN_OK");
         _controls.LBL_MESSAGE = findControl<gui::Label>("LBL_MESSAGE");
+        _controls.LBL_OK = findControl<gui::Label>("LBL_OK");
         _controls.LB_ITEMS = findControl<gui::ListBox>("LB_ITEMS");
     }
 
     void configureItemsListBox();
-    void populateItems(Object &source, bool onlyDropable, bool skipCredits);
+    /** The entries \p source gives the list; the list of items to give leaves out credits and plot items. */
+    static std::vector<ListedEntry> listedEntries(const Object &source, bool giving);
+    /** Lists every item \p source holds; the list of items to give leaves out credits and plot items. */
+    void populateItems(Object &source, bool giving);
+    /** Sets the caption, the texts of OK and of the switch button, and whether the list's entries can be picked, for \p mode. */
+    void showMode(Mode mode);
+    /** The caption over the container's items, for what it held when the screen opened. */
+    int takeCaption(const Object &container) const;
     void switchMode();
-    void transferItemsToPlayer();
-    void onItemDoubleClick(const std::string &tag);
-    /** Lists the leader's items again once a give has had a frame to run. */
-    void updateGiveRefresh();
+    /** The leader gives the container the item of the list entry \p entry. */
+    void queueGiveOfEntry(const std::string &entry);
+    /**
+     * Lists what the list shows again once it has changed, as when a give
+     * has gone through, keeping the scroll offset and the selected row.
+     */
+    void refreshItems();
+    /** Closes the container's inventory, taking everything in it when \p takeAll, and returns to the game. */
     void close(bool takeAll = false);
 };
 

@@ -115,6 +115,8 @@ private:
 
     void loadSkills();
     void refreshPortraits();
+    /** Shows the skill of the list row tagged \p item: its name, rank and description. */
+    void showSkill(const std::string &item);
 
 };
 

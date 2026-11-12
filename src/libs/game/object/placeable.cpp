@@ -29,6 +29,7 @@
 #include "reone/game/attack.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/death.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -113,23 +114,32 @@ void Placeable::loadFromBlueprint(const std::string &resRef) {
     if (!utp) {
         return;
     }
-    deserialize(*utp, SerializedIdentityContext::templateResource(resRef));
+    deserializeRecord(*utp, SerializedIdentityContext::templateResource(resRef), false);
 }
 
+// An area's entry or a save's record; a template it names is that of an
+// area-placed placeable.
 void Placeable::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, true);
+}
+
+void Placeable::deserializeRecord(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     std::string templateRes;
     std::shared_ptr<Gff> utp;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
         utp = _services.resource.gffs.get(templateRes, ResType::Utp);
         if (utp) {
-            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes));
+            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes), placedTemplate);
             captureAuthoredRecord(*utp, gff);
         }
     }
-    deserializeAll(gff, identityContext);
+    deserializeAll(gff, identityContext, false);
     // The Static byte is the record's or, when the record has none, set
     // unless its Useable byte is 1. A placeable whose entry carries no object
     // id is never static, and only a Static byte of 1 makes it plot.
@@ -156,7 +166,8 @@ void Placeable::deserialize(
 
 void Placeable::deserializeAll(
     const resource::Gff &gff,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
@@ -165,9 +176,7 @@ void Placeable::deserializeAll(
         _name = _locName.str();
     }
     gff.readEnum(_faction, "Faction");
-    bool plot = plotFlag();
-    gff.readBool(plot, "Plot");
-    _plot = plot;
+    deserializePlot(gff, true);
     gff.readBool(_minOneHP, "Min1HP");
     _lock.deserialize(gff, _game.isTSL(), true);
     _trap.deserialize(gff);
@@ -238,7 +247,8 @@ void Placeable::deserializeAll(
         gff,
         identityContext,
         SaveRecordOriginKind::PlaceableItem,
-        true);
+        {},
+        placedTemplate);
 
     // FIXME: deserialize EffectList, ActionList
 }
@@ -714,8 +724,9 @@ void Placeable::fillBodyBag(Object &source, bool corpse, std::optional<int> name
     setFacing(source.getFacing());
 }
 
-// A creature gives up its droppable items, equipment first, and all its gold
-// as a stack of credits; a placeable gives up everything.
+// A creature gives up its droppable items, equipment first, each announced
+// lost, and all its gold as a stack of credits; a placeable gives up
+// everything.
 void Placeable::acquireItemsFrom(Object &source) {
     if (auto *creature = dyn_cast<Creature>(&source)) {
         for (const auto &item : creature->dropableItems()) {
@@ -725,6 +736,7 @@ void Placeable::acquireItemsFrom(Object &source) {
             } else {
                 creature->removeItemStack(item);
             }
+            item->announceLoss(true);
             addItem(item);
         }
         if (const int gold = creature->gold()) {
@@ -820,12 +832,29 @@ void Placeable::openInventory(Object &opener) {
     _open = true;
 }
 
+// The tag of the TSL container whose take-all shows each datapad taken.
+static constexpr char kDatapadShowingContainerTag[] = "lockertsfinv";
+
 void Placeable::closeInventory(Object &closer, bool takeAll) {
     if (!_open) {
         return;
     }
     if (takeAll && &closer == _game.party().getLeader().get()) {
-        moveAllItemsTo(closer);
+        for (const auto &moved : moveAllItemsTo(closer)) {
+            // In TSL each datapad taken is marked shown; one taken from the
+            // container that shows them has its text shown, unless it was
+            // shown before.
+            if (_game.isTSL() && moved.item->itemType() == Item::kDatapadItemType) {
+                if (!boost::iequals(_tag, kDatapadShowingContainerTag)) {
+                    moved.item->setLocalBoolean(Item::kDatapadShownBoolean, true);
+                } else if (!moved.item->getLocalBoolean(Item::kDatapadShownBoolean)) {
+                    _game.showDatapad(*moved.item);
+                }
+            }
+            // Each is acquired by the one possessing it as it is stored, then
+            // passes to the closer, unless the closer possesses it already.
+            announceStoredFor(moved.item, moved.held, _id, closer);
+        }
     }
     _game.queueScriptEvent(*this, closer, Event(kInventoryClosedEvent));
     setStateAnimation(kCloseAnimationId);
@@ -835,6 +864,21 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
     }
     _usable = 0;
     _game.postObjectDestruction(*this, _id, 0.0f, false);
+}
+
+std::shared_ptr<Item> Placeable::receiveItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Item> &split, bool lossFeedback) {
+    const uint32_t previousPossessor = item->possessorId();
+    const auto delivered = split ? ItemTransfer {true, addItem(split)}
+                                 : transferItemTo(_game, item, *this, lossFeedback ? ItemLossNotice::Told : ItemLossNotice::Event);
+    if (!delivered) {
+        return nullptr;
+    }
+    if (delivered.held == (split ? split : item)) {
+        delivered.held->announceAcquisition(previousPossessor, *this, true, true);
+        return delivered.held;
+    }
+    delivered.held->announceKept();
+    return delivered.held;
 }
 
 // The clip an animation ID shows on a placeable: the one its row names, else

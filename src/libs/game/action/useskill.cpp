@@ -29,6 +29,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/effect/heal.h"
 #include "reone/game/effect/visual.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -330,7 +331,9 @@ void useUpCarriedItem(Game &game, Creature &actor, const std::shared_ptr<Item> &
     auto repository = game.getObjectById(actor.itemRepositoryOwner().id());
     bool last = false;
     if (repository->removeItem(item, last) && last) {
-        game.destroyRuntimeObjectGraph(item);
+        item->announceLoss(true);
+        // Destroyed after the events about it, so they still name it.
+        game.postObjectDestruction(*item, actor.id(), 0.0f);
     }
 }
 
@@ -392,11 +395,12 @@ void UseSkillAction::resolveMine(Creature &actor) {
         if (resRef.empty()) {
             return;
         }
+        // The recoverer acquires the kit, told.
         if (auto receiver = _game.party().sharedInventoryReceiver(actorPtr)) {
             auto kit = _game.newItemFromBlueprint(resRef);
             kit->setDropable(true);
             _game.party().noteItemReceived(*kit, *receiver, nullptr);
-            receiver->addItem(kit);
+            announceAcquiredBy(kit, receiver->addItem(kit), actor, true);
         }
     };
 
@@ -569,17 +573,22 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
                 }
             }
         }
-        // One kit is spent, and TSL tells the module the setter lost it.
+        // One kit is spent; the last is announced lost, told. TSL also tells
+        // the module of every mine set, naming its setter. The last kit is
+        // destroyed after the events about it, so they still name it.
         auto kit = _itemUsed;
+        bool last = false;
+        if (auto holder = _game.getObjectById(kit->owner())) {
+            holder->removeItem(kit, last);
+            if (last) {
+                kit->announceLoss(true);
+            }
+        }
         if (_game.isTSL()) {
             _game.queueScriptEvent(*_game.module(), actor, *_game.newEvent(static_cast<int>(SavedSignalEventType::ItemLost), std::vector<int32_t> {}, std::vector<float> {}, std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {kit}));
         }
-        if (auto holder = _game.getObjectById(kit->owner())) {
-            bool last = false;
-            holder->removeItem(kit, last);
-            if (last) {
-                _game.destroyRuntimeObjectGraph(kit);
-            }
+        if (last) {
+            _game.postObjectDestruction(*kit, actor.id(), 0.0f);
         }
         // A critical failure sets the mine off on its setter.
         if (result == SkillResult::CriticalFailure) {
