@@ -2498,6 +2498,15 @@ private:
         SavedActionQueue actions;
         std::vector<bool> actionReferencesBound;
     };
+    /**
+     * A companion, or in TSL a puppet, following the party out of the source
+     * module, with its roster record as it left.
+     */
+    struct TravellingCompanion {
+        RosterIdentity identity;
+        RuntimeObjectRef<Creature> creature;
+        ByteBuffer record;
+    };
 
     void clearDepartingActions();
     std::vector<PartyTransitionState> captureResidentPartyActions();
@@ -2506,6 +2515,16 @@ private:
     /** Create the destination module and make it the current one. */
     void publishDestinationModule(const std::string &name, const resource::Gff &ifo, bool restoringSavedWorld);
     void restorePartyTransitionState(std::vector<PartyTransitionState> &states);
+    std::vector<TravellingCompanion> captureTravellingCompanions();
+    /**
+     * Each travelling companion's record replaces its roster record and its
+     * creature is destroyed, so that it is made again from the record.
+     */
+    void retireTravellingCompanions(std::vector<TravellingCompanion> &companions);
+    /** Persist an encoded roster record as AVAILNPC/AVAILPUP. */
+    void saveRosterRecord(
+        const RosterIdentity &identity,
+        ByteBuffer record);
 
     void loadDefaultParty();
     bool loadParty();
