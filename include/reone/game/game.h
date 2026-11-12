@@ -2714,6 +2714,7 @@ private:
     void consoleStartPazaak(const ConsoleArgs &tokens);
     void consoleMiniGameInfo(const ConsoleArgs &tokens);
     void consoleSwoopState(const ConsoleArgs &tokens);
+    void consoleStartSwoopRace(const ConsoleArgs &tokens);
     void consoleStartTurret(const ConsoleArgs &tokens);
     void consoleStopTurret(const ConsoleArgs &tokens);
     void consoleTurretState(const ConsoleArgs &tokens);

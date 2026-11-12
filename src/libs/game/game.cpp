@@ -1012,6 +1012,7 @@ void Game::initConsole() {
     if (_options.game.developer) {
         registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
         registerConsoleCommand("swoopstate", "print the state of the running swoop race", &Game::consoleSwoopState);
+        registerConsoleCommand("startswooprace", "start the swoop race of the current module, or start it again", &Game::consoleStartSwoopRace);
         registerConsoleCommand("startturret", "enter the turret minigame for the current area", &Game::consoleStartTurret);
         registerConsoleCommand("startturretgame", "enter a turret module from the current one and auto-start the minigame", &Game::consoleStartTurretGame);
         registerConsoleCommand("stopturret", "exit the turret minigame", &Game::consoleStopTurret);
@@ -10624,6 +10625,22 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
                                % layout->obstacles.size() % obstaclesMatched % mg.obstacles.size()));
     }
     _console.printLine("  player scripts:" + followerScripts(mg.player.scripts));
+}
+
+void Game::consoleStartSwoopRace(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto area = _module ? _module->area() : nullptr;
+    if (!area) {
+        _console.printLine("swoop: no module loaded");
+        return;
+    }
+    if (!area->hasMinigame() || area->miniGame().type != MinigameType::SwoopRace) {
+        _console.printLine("swoop: current area has no swoop minigame");
+        return;
+    }
+    // A race already running starts again from its creation scripts.
+    endSwoopRace();
+    _console.printLine(startSwoopRace() ? "swoop: race started" : "swoop: the race did not start");
 }
 
 void Game::consoleSwoopState(const ConsoleArgs &args) {

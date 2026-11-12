@@ -9,7 +9,14 @@
 
 #include <gtest/gtest.h>
 
+#include <gmock/gmock.h>
+
+#include "../fixtures/engine.h"
+
+#include "reone/game/game.h"
 #include "reone/game/minigame.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
@@ -264,4 +271,43 @@ TEST_F(SwoopRaceFixture, without_an_animated_track_the_bike_holds_the_hook_at_re
     session.update(3.0f, MinigameInput());
 
     expectNear(kRestStart, bike().position);
+}
+
+namespace {
+
+// startswooprace is a developer command.
+struct SwoopConsoleFixture : testing::Test {
+    void SetUp() override {
+        engine.options().game.developer = true;
+        ON_CALL(engine.sceneModule().graphs(), get(testing::_)).WillByDefault(testing::ReturnRef(sceneGraph));
+        game = std::make_unique<Game>(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+        game->initLocalServices();
+        TestGameModule::initConsole(*game);
+    }
+
+    void TearDown() override {
+        game.reset();
+        engine.options().game.developer = developerWasEnabled;
+    }
+
+    TestEngine &engine {testEngine()};
+    bool developerWasEnabled {engine.options().game.developer};
+    testing::NiceMock<scene::MockSceneGraph> sceneGraph;
+    StubConsole console;
+    std::unique_ptr<Game> game;
+};
+
+} // namespace
+
+TEST_F(SwoopConsoleFixture, startswooprace_needs_a_module_with_a_swoop_race) {
+    ASSERT_TRUE(console.hasCommand("startswooprace"));
+
+    console.execute("startswooprace");
+    ASSERT_FALSE(console.lines.empty());
+    EXPECT_EQ(console.lines.back(), "swoop: no module loaded");
+
+    TestGameModule::configureModuleSnapshot(*game, game->newArea(), game->newCreature(), "end_m01aa", "end_m01aa");
+    console.execute("startswooprace");
+    EXPECT_EQ(console.lines.back(), "swoop: current area has no swoop minigame");
+    EXPECT_EQ(game->minigameSession(), nullptr);
 }
