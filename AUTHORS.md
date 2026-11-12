@@ -10,23 +10,23 @@
 
 ## Contributors
 
-Listed alphabetically by name.
+Listed alphabetically.
 
-- Billy Brawner <me@wbrawner.com>
-- bobberb <bobberb1983@gmail.com>
-- Brian Allred <brian.d.allred@gmail.com>
-- ShaolinGhost (a.k.a. CrispyW0nton) 
-- Eldbury <leneldbury@gmail.com>
-- Fernando Urbano <fdiazmalaga@outlook.com>
-- Jack Greiner <jack@emoss.org>
+- Billy Brawner
+- bobberb
+- Brian Allred
+- Eldbury
+- Fernando Urbano
 - loudbytes
 - Luis Cáceres
-- Martin Hauke <mardnh@gmx.de>
+- Martin Hauke
 - McChaffee
 - Mykhailo Moroz
-- Nicholas Hugi <hugi.nicholas@hotmail.com>
-- Thomas Gao <thomasgaozx@gmail.com>
-- User Sergey <agentman007@yandex.ru>
+- Nicholas Hugi
+- ShaolinGhost (a.k.a. CrispyW0nton)
+- Synchro
+- Thomas Gao
+- User Sergey
 - uwadmin12
 - Vriff
 - Ziemas
