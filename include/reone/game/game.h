@@ -284,6 +284,13 @@ public:
      *        plays on while it runs
      */
     void playVideo(const std::string &name, bool streamingMusic = false);
+    /**
+     * Adds a movie to the queue that playMovieQueue plays, once. A movie that
+     * is not skippable plays to its end.
+     */
+    void queueMovie(const std::string &name, bool skippable);
+    /** Plays the queued movies in order, ahead of a transition's, and empties the queue. */
+    void playMovieQueue();
 
     bool isPaused() const { return _paused; }
     /**
@@ -299,8 +306,26 @@ public:
      * stays held.
      */
     void setPlayerInputBlocked(bool blocked) { _playerInputBlocked = blocked; }
-    /** Stops the leader's steering and the camera's turning and mouse-look. */
+    /**
+     * Whether the left button is held: every left press sets it and every
+     * left release clears it, whatever screen takes them; entering a module
+     * clears it too.
+     */
+    bool isLeftButtonHeld() const { return _leftButtonHeld; }
+    /**
+     * Whether the right button or a Ctrl key holds mouse look. The hold
+     * outlasts areas and modules. In KotOR only the right button and the Ctrl
+     * keys change it, and the right button's press and release reach it on
+     * every screen. In TSL stopping play's camera and starting a module end
+     * it too.
+     */
+    bool isMouseLookHeld() const { return _mouseLookHeld; }
+    /** Starts or ends the mouse-look hold of the right button or a Ctrl key. */
+    void setMouseLookHeld(bool held) { _mouseLookHeld = held; }
+    /** Stops the leader's steering and the camera's turning; in TSL it ends the mouse-look hold too. */
     void stopMovement();
+    /** The leader's drive comes to rest at once, as at a script's movie or a change of leader. */
+    void resetDriveAcceleration();
     /**
      * For the given world milliseconds from now, a click neither starts a
      * conversation nor uses a placeable.
@@ -330,6 +355,30 @@ public:
 
     std::shared_ptr<Module> module() const { return _module; }
     CameraType cameraType() const { return _cameraType; }
+    /** A script's camera mode in which the follow camera, pushed in by a wall, eases back out. */
+    static constexpr int kStiffChaseCameraMode = 2;
+    /**
+     * The camera modes the engine sets as the camera changes: the follow
+     * camera on a stick, a conversation's or a cutscene's, free look and
+     * combat. A script's modes are below these.
+     */
+    static constexpr int kOnAStickCameraMode = 3;
+    static constexpr int kDialogCameraMode = 4;
+    static constexpr int kFreeLookCameraMode = 5;
+    static constexpr int kCombatCameraMode = 6;
+
+    /**
+     * A script's camera mode for the player. It holds until the engine sets
+     * another as the camera next changes, a module loads or the session
+     * ends. Under a script's mode, 0 to 2, the follow camera turns as a
+     * script's camera command tells it. TSL's dialog mode, 4, also turns off
+     * the Force Sight look.
+     */
+    void setCameraMode(int mode);
+    /** The live camera mode: the engine's for the camera that shows the scene, or a script's since. */
+    int cameraMode() const { return _cameraMode; }
+    /** Whether a script's camera mode, 0 to 2, holds the follow camera. */
+    bool isScriptCameraMode() const { return _cameraMode >= 0 && _cameraMode < kOnAStickCameraMode; }
     const std::set<std::string> &moduleNames() const { return _moduleNames; }
     const std::set<std::string> &saveNames() const { return _saveNames; }
 
@@ -505,6 +554,8 @@ public:
     bool isDeadTargetHoldRunning() const { return _deadTargetHold > 0.0f; }
     /** Combat mode follows the leader's, in the area it stands in. */
     void syncPartyCombatMode();
+    /** The engine sets the camera mode once the camera that shows the scene changes. */
+    void syncEngineCameraMode();
     /**
      * Step the target through the nearby objects in bearing order: direction 0
      * turns counter-clockwise from the leader's facing, direction 1 clockwise.
@@ -521,6 +572,12 @@ public:
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
+    /**
+     * The screen that presents play: the minigame while one runs, otherwise
+     * the world.
+     */
+    Screen gameplayScreen() const;
+    /** Returns to play, which is the minigame while one runs. */
     void openInGame();
     /** Covers the screen with \p color at opacity \p alpha, over what is drawn so far. */
     void renderScreenFill(const glm::vec3 &color, float alpha);
@@ -542,6 +599,16 @@ public:
 
     void openTurret();
     void closeTurret();
+
+    Turret &turret() { return _turret; }
+
+    /**
+     * Starts the turret of the module just arrived in. A turret comes up as
+     * part of the arrival, after the module's load script and before anyone
+     * enters: its actors' creation scripts build on what the load script set
+     * up, and the area's enter script runs with the turret already there.
+     */
+    void startScheduledTurret();
 
     // Exit the active turret: returns to the lifecycle origin if a lifecycle
     // session is in progress, otherwise just stops the dev session in place.
@@ -925,6 +992,13 @@ public:
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
+    /**
+     * How far the mouse wheel has moved the follow camera in or out: its
+     * distance is scaled by this. It holds from area to area, and goes back
+     * to 1 when the session ends.
+     */
+    float followCameraZoom() const { return _followCameraZoom; }
+    void setFollowCameraZoom(float zoom) { _followCameraZoom = zoom; }
     void saveKeybindOptions() const;
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool alternateActionsHeld() const { return _alternateActionsHeld; }
@@ -1814,7 +1888,12 @@ private:
     bool _playerInputBlocked {false};
     /** When the left button and Return last started cooling down. */
     std::optional<uint32_t> _clickCooldownStart;
-    /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
+    /** See isLeftButtonHeld. */
+    bool _leftButtonHeld {false};
+    /** See isMouseLookHeld. */
+    bool _mouseLookHeld {false};
+    float _followCameraZoom {1.0f};
+    /** See alternateActionsHeld. */
     bool _alternateActionsHeld {false};
     /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
     std::array<bool, 2> _menusTakeAlternateActions {};
@@ -1868,11 +1947,28 @@ private:
 
     PendingTurretRequest _pendingTurret;
 
+    struct QueuedMovie {
+        std::string name;
+        bool skippable {true};
+    };
+
     std::shared_ptr<movie::IMovie> _movie;
+    /** Whether a click ends the movie playing. */
+    bool _movieSkippable {true};
+    /** The movies queued for playMovieQueue. */
+    std::vector<QueuedMovie> _movieQueue;
+    /** The queued movies still to play, after the one playing. */
+    std::queue<QueuedMovie> _queuedMoviesPlaying;
     std::queue<std::string> _moduleTransitionMovies;
     std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
+    /** The live camera mode (see cameraMode). */
+    int _cameraMode {kOnAStickCameraMode};
+    /** The mode the engine last set for the camera that shows the scene. */
+    int _engineCameraMode {kOnAStickCameraMode};
+    /** The type of the camera last updated; none since the module started. */
+    std::optional<CameraType> _updatedCameraType;
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
     /** The sound mode the world's sounds were last paused or resumed for. */
@@ -2409,6 +2505,8 @@ private:
 
     void loadDefaultParty();
     bool loadParty();
+    /** Entering a module lets go of the left button and the alternate actions key. */
+    void releaseInputOnModuleEntry();
     void loadNextModule();
     void playMusic(const std::string &resRef);
     /**
@@ -2437,16 +2535,8 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
-    // Same, for the turret minigame. The outcome is carried through rather than
-    // reduced to a success flag: a win, a loss and an abandoned session all
-    // return to the origin, but only a win emits the completion state.
-    void finishTurretLifecycle(Turret::Outcome outcome);
-
-    /**
-     * Apply post-turret globals for K1 M12ab after a victory.
-     * Other modules are unchanged.
-     */
-    void applyTurretResult(const std::string &turretModule, Turret::Outcome outcome);
+    // Same, for the turret minigame.
+    void finishTurretLifecycle();
 
     // Give up on a scheduled turret session and go back where it started.
     void abandonPendingTurret(const std::string &reason);
@@ -2491,7 +2581,8 @@ private:
 
     /** Start a movie; \p streamingMusic lets area music set to play through movies play on. */
     bool startVideo(const std::string &name, bool streamingMusic);
-    bool playNextModuleTransitionMovie();
+    /** Starts the next queued movie, else the next transition movie. */
+    bool playNextMovie();
     void updateMovie(float dt);
     void updateMusic(float frameTime);
     void updatePassiveSelection(float frameTime);
@@ -2710,6 +2801,9 @@ private:
     void consoleStopTurret(const ConsoleArgs &tokens);
     void consoleTurretState(const ConsoleArgs &tokens);
     void consoleStartTurretGame(const ConsoleArgs &tokens);
+    void consoleFinishTurret(const ConsoleArgs &tokens);
+    void consoleTurretAim(const ConsoleArgs &tokens);
+    void consoleTurretFire(const ConsoleArgs &tokens);
     void consoleShowImGui(const ConsoleArgs &tokens);
     void consoleShowPath(const ConsoleArgs &tokens);
 

@@ -39,9 +39,13 @@ static constexpr float kMaxRotationSpeed = 2.5f;
 static constexpr float kRotationAcceleration = 1.0f;
 static constexpr float kTargetPadding = 0.05f;
 
-// Clearance kept around the combat camera, and the extra lift it may take.
-static constexpr float kCombatPersonalSpace = 0.35f;
-static constexpr float kCombatLiftAllowance = 0.15f;
+// The world's up axis.
+static constexpr glm::vec3 kWorldUp {0.0f, 0.0f, 1.0f};
+
+// Clearance kept around the follow and combat cameras, and the extra lift
+// they may take.
+static constexpr float kCameraPersonalSpace = 0.35f;
+static constexpr float kCameraLiftAllowance = 0.15f;
 // Look-at swing: the target is held this far off centre, the swing lets go
 // once it lies this close to the view line (metres), and the approach rate
 // ramps between these bounds.
@@ -51,6 +55,19 @@ static constexpr float kSwingRateMin = 2.5f;
 static constexpr float kSwingRateMax = 7.5f;
 static constexpr float kSwingRateRise = 3.0f;
 static constexpr float kSwingRateFall = 5.0f;
+
+// Stiff chase: a camera pushed in by a wall eases back out at this rate, each
+// second leaving exp(-rate) of the way, whatever the frame rate; and it
+// stands this far short of what it hits.
+static constexpr float kStiffChaseReturnRate = 3.5f;
+static constexpr float kStiffChaseClearance = 0.001f;
+
+// Wheel zoom: each notch scales the follow camera's distance by two to the
+// minus this, within these bounds, and the camera eases to it at this rate.
+static constexpr float kZoomStep = 0.25f;
+static constexpr float kMinZoom = 0.5f;
+static constexpr float kMaxZoom = 2.0f;
+static constexpr float kZoomRate = 12.0f;
 
 // Death orbit: heading rate (degrees per second), the distance it closes on,
 // the tilt below the level it turns to (degrees), the per-update easing of
@@ -97,6 +114,7 @@ static float wrapRadians(float angle) {
 void ThirdPersonCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
+    _zoom = _game.followCameraZoom();
     resetTilt();
     rebuildProjection();
 }
@@ -117,9 +135,39 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
         return handleMouseButtonUp(event.button);
     case input::EventType::MouseMotion:
         return handleMouseMotion(event.motion);
+    case input::EventType::MouseWheel:
+        return handleMouseWheel(event.wheel);
     default:
         return false;
     }
+}
+
+bool ThirdPersonCamera::handleMouseWheel(const input::MouseWheelEvent &event) {
+    if (!_game.options().game.wheelZoom || _combat || _deathOrbit) {
+        return false;
+    }
+    const float notches = event.direction == input::MouseWheelDirection::Flipped ? -event.y : event.y;
+    if (notches == 0.0f) {
+        return false;
+    }
+    // Rolling the wheel forward brings the camera in.
+    const float zoom = glm::clamp(_game.followCameraZoom() * std::exp2(-kZoomStep * notches), kMinZoom, kMaxZoom);
+    _game.setFollowCameraZoom(zoom);
+    return true;
+}
+
+// The scale eases toward the wheel's at a steady rate whatever the frame
+// rate, and settles on it once within a thousandth.
+bool ThirdPersonCamera::updateZoom(float dt) {
+    const float target = _game.followCameraZoom();
+    if (_zoom == target) {
+        return false;
+    }
+    _zoom += (target - _zoom) * (1.0f - std::exp(-kZoomRate * dt));
+    if (std::abs(target - _zoom) < 0.001f) {
+        _zoom = target;
+    }
+    return true;
 }
 
 // The turn keys work whether or not the mouse turns the camera. Either Ctrl
@@ -127,6 +175,11 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
 bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
     auto &keybinds = _game.options().game.activeKeybinds();
 
+    // TSL's turn keys end the party-target mode.
+    if (_game.isTSL() &&
+        (keybinds.cameraRotateLeft.check(event.code) || keybinds.cameraRotateRight.check(event.code))) {
+        _game.cancelPartyItemTarget();
+    }
     if (keybinds.cameraRotateLeft.check(event.code)) {
         if (!event.repeat) {
             _rotateCCW = true;
@@ -142,7 +195,7 @@ bool ThirdPersonCamera::handleKeyDown(const input::KeyEvent &event) {
             return true;
         }
     } else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
-        _mouseLookHeld = true;
+        _game.setMouseLookHeld(true);
         return true;
     }
 
@@ -159,7 +212,7 @@ bool ThirdPersonCamera::handleKeyUp(const input::KeyEvent &event) {
         _rotateCW = false;
         return true;
     } else if (event.code == input::KeyCode::LeftControl || event.code == input::KeyCode::RightControl) {
-        _mouseLookHeld = false;
+        _game.setMouseLookHeld(false);
         return true;
     }
 
@@ -180,10 +233,13 @@ bool ThirdPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) 
 }
 
 // The right button and the Ctrl keys share one hold: any press starts it and
-// any release ends it.
+// any release ends it. KotOR's right button holds it on every screen, which
+// Game::handle sees to.
 bool ThirdPersonCamera::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Right) {
-        _mouseLookHeld = true;
+        if (_game.isTSL()) {
+            _game.setMouseLookHeld(true);
+        }
         return true;
     }
     return false;
@@ -191,7 +247,9 @@ bool ThirdPersonCamera::handleMouseButtonDown(const input::MouseButtonEvent &eve
 
 bool ThirdPersonCamera::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Right) {
-        _mouseLookHeld = false;
+        if (_game.isTSL()) {
+            _game.setMouseLookHeld(false);
+        }
         return true;
     }
     return false;
@@ -203,120 +261,144 @@ void ThirdPersonCamera::update(float dt) {
     if (_deathOrbit) {
         _mouseTurn = 0.0f;
         _mouseRise = 0.0f;
+        _placedSinceUpdate = false;
         updateDeathOrbit(dt);
         return;
     }
     if (_combat) {
         _mouseRise = 0.0f;
         updateCombatTurn(dt);
+        _placedSinceUpdate = false;
         return;
     }
-    // The dolly distance follows the view angle every frame.
-    if (_dollyZoom) {
-        updateSceneNode();
+    const float facingBefore = _facing;
+    const float pitchBefore = _viewPitch;
+    // The wheel's zoom eases in or out, and the stiff chase camera eases out.
+    const bool zoomed = updateZoom(dt);
+    if (isStiffChase()) {
+        easeStiffChase(dt);
     }
     const bool turnKey = _rotateCW || _rotateCCW;
     if (turnKey) {
         releaseLookAt();
     }
-    updateMouseTurn();
+    updateMouseTurn(dt);
     updateTilt(dt);
     updateLookAtSwing(dt);
     // Under mouse look a held turn key turns the camera neither way.
-    if (!turnKey || isMouseLookMode())
-        return;
-
-    _rotationSpeed += kRotationAcceleration * dt;
-
-    if (_rotationSpeed > kMaxRotationSpeed) {
-        _rotationSpeed = kMaxRotationSpeed;
+    if (turnKey && !isMouseLookMode()) {
+        _rotationSpeed += kRotationAcceleration * dt;
+        if (_rotationSpeed > kMaxRotationSpeed) {
+            _rotationSpeed = kMaxRotationSpeed;
+        }
+        _facing += (_rotateCCW ? 1.0f : -1.0f) * _rotationSpeed * dt;
+        _facing = glm::mod(_facing, glm::two_pi<float>());
     }
-    _facing += (_rotateCCW ? 1.0f : -1.0f) * _rotationSpeed * dt;
-    _facing = glm::mod(_facing, glm::two_pi<float>());
-
-    updateSceneNode();
+    // Placed when the view moved this frame, or when nothing has placed it
+    // since the last update, so that it is placed every frame: the dolly
+    // distance follows the view angle, and a door that shuts between the
+    // camera and the target stops it at once.
+    const bool viewMoved = zoomed || isStiffChase() || _dollyZoom || _facing != facingBefore || _viewPitch != pitchBefore;
+    if (viewMoved || !_placedSinceUpdate) {
+        updateSceneNode();
+    }
+    _placedSinceUpdate = false;
 }
 
 // A held turn key stops the mouse turn. Otherwise a mouse look turns the
-// camera by the frame's travel, scaled by the mouse sensitivity.
-void ThirdPersonCamera::updateMouseTurn() {
+// camera by its travel, scaled by the mouse sensitivity, whatever the frame
+// rate.
+void ThirdPersonCamera::updateMouseTurn(float dt) {
     const float travel = _mouseTurn;
     _mouseTurn = 0.0f;
     if (_rotateCW || _rotateCCW || !isMouseLookMode()) {
         return;
     }
-    const float turned = mouseFrameStrength(travel) * mouseSensitivity(_game.options().game.mouse.sensitivity);
+    const float turned = mouseTravelStrength(travel, dt) * mouseSensitivity(_game.options().game.mouse.sensitivity);
     if (turned == 0.0f) {
         return;
     }
     _facing = glm::mod(_facing + glm::radians(turned), glm::two_pi<float>());
-    updateSceneNode();
 }
 
-// Tilt input, read from the frame's vertical travel and the mouse
-// sensitivity: TSL scales it down by kTiltDivisorTSL; KotOR divides an input
-// stronger than one by kTiltDamping. TSL moves its offset at kTiltRateTSL
-// times the input per second, KotOR at the style's tilt speed, and KotOR's
-// view eases to its pitch by kTiltEasing a second.
-static constexpr float kTiltDivisorTSL = 10.0f;
-static constexpr float kTiltRateTSL = 100.0f;
-static constexpr float kTiltDamping = 75.0f;
-static constexpr float kTiltEasing = 0.5f;
-// TSL's view is level at a pitch of 90 degrees; its offset tilts from there.
+// Under mouse look the view tilts by the mouse's vertical travel, a sixth of
+// the degrees the same travel would turn it.
+static constexpr float kTiltPerTurn = 1.0f / 6.0f;
+// A level view's pitch.
 static constexpr float kLevelPitch = 90.0f;
 
-// TSL keeps its offset between the style's tilt-up limit, taken upward, and
-// its tilt-down limit, on every frame.
-static float clampTiltOffsetTSL(float offset, const CameraStyle &style) {
-    return std::min(style.tiltDown, std::max(-style.tiltUp, offset));
+// The titles' camera styles measure the tilt differently. KotOR's pitch is
+// the view's own, from straight down, and its tilt-up limit bounds the
+// greater pitches. TSL's view tilts from level, starting at its pitch taken
+// as an offset, and its tilt-up limit bounds the smaller pitches.
+float ThirdPersonCamera::tiltCentre() const {
+    return _game.isTSL() ? kLevelPitch : _style.pitch;
 }
 
-// A camera starts its tilt at the style pitch, which TSL then holds within
-// the style's limits.
+float ThirdPersonCamera::tiltSign() const {
+    return _game.isTSL() ? 1.0f : -1.0f;
+}
+
+// The offset stays between the tilt-up limit, taken upward, and the tilt-down
+// limit, on every frame.
+void ThirdPersonCamera::clampTilt() {
+    _tiltOffset = std::min(_lookDown, std::max(-_lookUp, _tiltOffset));
+    _viewPitch = tiltCentre() + tiltSign() * _tiltOffset;
+}
+
 void ThirdPersonCamera::resetTilt() {
-    _tiltOffset = _style.pitch;
-    if (_game.isTSL()) {
-        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
-        _viewPitch = kLevelPitch + _tiltOffset;
+    _tiltOffset = _game.isTSL() ? _style.pitch : 0.0f;
+    _lookUp = _style.tiltUp;
+    _lookDown = _style.tiltDown;
+    clampTilt();
+}
+
+// The free-look limits replace the tilt limits while the mouse looks with
+// the left button up and either moves vertically at a speed strength above
+// kTiltLimitsMouseStrength or the tilt-up limit is above zero. Otherwise the
+// limits come down at kTiltLimitsRate degrees a second. These are TSL's
+// figures at 60 frames a second: a frame's travel and three degrees a frame.
+static constexpr float kTiltLimitsMouseStrength = 0.05f;
+static constexpr float kTiltLimitsRate = 180.0f;
+
+void ThirdPersonCamera::updateTiltLimits(bool leftButtonHeld, bool steersBack, float dt) {
+    const bool mouseLook = isMouseLookMode();
+    const float rise = mouseSpeedStrength(_mouseRise, dt);
+    const float step = kTiltLimitsRate * dt;
+    if (mouseLook && !leftButtonHeld && (std::abs(rise) > kTiltLimitsMouseStrength || _lookUp > 0.0f)) {
+        _lookUp = _style.freeLookUp;
+        _lookDown = _style.freeLookDown;
     } else {
-        _viewPitch = _style.pitch;
+        if (_lookUp > _style.tiltUp) {
+            _lookUp = std::max(_style.tiltUp, _lookUp - step);
+        }
+        if (_lookDown > _style.tiltDown) {
+            _lookDown = std::max(_style.tiltDown, _lookDown - step);
+        }
+    }
+    // Driving ahead with the mouse centres the view.
+    if (mouseLook && leftButtonHeld && !steersBack) {
+        if (_lookUp > 0.0f) {
+            _lookUp = std::max(0.0f, _lookUp - step);
+        }
+        if (_lookDown > 0.0f) {
+            _lookDown = std::max(0.0f, _lookDown - step);
+        }
     }
 }
 
-// TSL tilts only under mouse look: each mouse-look frame without a held turn
-// key sets the tilt, and a held key leaves the last one in force. KotOR reads
-// the tilt from every frame's travel and moves its pitch within the style's
-// limits around the style pitch.
+// The view tilts only under mouse look, by the mouse's vertical travel,
+// whatever the frame rate: travel toward the bottom of the screen raises the
+// pitch.
 void ThirdPersonCamera::updateTilt(float dt) {
-    const float strength = mouseFrameStrength(_mouseRise);
+    const float travel = _mouseRise;
     _mouseRise = 0.0f;
-    const float sensitivity = mouseSensitivity(_game.options().game.mouse.sensitivity);
-    const float previousPitch = _viewPitch;
-    if (_game.isTSL()) {
-        const bool mouseLook = isMouseLookMode();
-        if (mouseLook && !_rotateCW && !_rotateCCW) {
-            _mouseTilt = -sensitivity * strength / kTiltDivisorTSL;
-        }
-        if (mouseLook && _mouseTilt != 0.0f) {
-            _tiltOffset += _mouseTilt * dt * kTiltRateTSL;
-        }
-        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
-        _viewPitch = kLevelPitch + _tiltOffset;
-    } else {
-        float tilt = -sensitivity * strength;
-        if (std::abs(tilt) > 1.0f) {
-            tilt /= kTiltDamping;
-        }
-        if (tilt > 0.0f) {
-            _tiltOffset = std::min(_style.pitch + _style.tiltUp, _tiltOffset + tilt * _style.tiltSpeed * dt);
-        } else if (tilt < 0.0f) {
-            _tiltOffset = std::max(_style.pitch - _style.tiltDown, _tiltOffset + tilt * _style.tiltSpeed * dt);
-        }
-        _viewPitch = _tiltOffset - (_tiltOffset - _viewPitch) * kTiltEasing * dt;
+    if (isMouseLookMode()) {
+        const float sensitivity = mouseSensitivity(_game.options().game.mouse.sensitivity);
+        const float pitchChange = -sensitivity * mouseTravelStrength(travel, dt) * kTiltPerTurn;
+        _tiltOffset += tiltSign() * pitchChange;
     }
-    if (_viewPitch != previousPitch) {
-        updateSceneNode();
-    }
+    clampTilt();
 }
 
 float ThirdPersonCamera::integrateCombatTurn(float input, float dt) {
@@ -324,17 +406,17 @@ float ThirdPersonCamera::integrateCombatTurn(float input, float dt) {
 }
 
 // Held turn keys win. Otherwise a mouse look moved this frame turns by its
-// travel at once and leaves that turn as a velocity to coast off; with
-// neither, the turn brakes.
+// travel at once and leaves its speed as a velocity to coast off; with
+// neither, the turn brakes. Both follow the mouse whatever the frame rate.
 void ThirdPersonCamera::updateCombatTurn(float dt) {
     const float input = _rotateCCW ? 1.0f : (_rotateCW ? -1.0f : 0.0f);
     float turned;
-    const float mouse = isMouseLookMode()
-                            ? mouseFrameStrength(_mouseTurn) * mouseSensitivity(_game.options().game.mouse.sensitivity)
-                            : 0.0f;
+    const float sensitivity = isMouseLookMode() ? mouseSensitivity(_game.options().game.mouse.sensitivity) : 0.0f;
+    const float mouse = mouseTravelStrength(_mouseTurn, dt) * sensitivity;
+    const float mouseVelocity = mouseSpeedStrength(_mouseTurn, dt) * sensitivity;
     _mouseTurn = 0.0f;
     if (input == 0.0f && mouse != 0.0f) {
-        _turnVelocity = mouse;
+        _turnVelocity = mouseVelocity;
         turned = mouse;
     } else {
         turned = integrateCombatTurn(input, dt);
@@ -343,42 +425,56 @@ void ThirdPersonCamera::updateCombatTurn(float dt) {
     updateSceneNode();
 }
 
-// The combat camera sits the style distance behind the target at the style
-// height, pitched by the style. When the view from the target toward it is
-// obstructed it is pulled in by the deepest intrusion and lifted in proportion.
-void ThirdPersonCamera::updateCombatSceneNode() {
-    static const glm::vec3 up {0.0f, 0.0f, 1.0f};
-
-    const glm::vec3 dir {glm::sin(_facing), -glm::cos(_facing), 0.0f};
-    const glm::vec3 eye {_eyePosition};
-    glm::vec3 desired {_targetPosition + _style.distance * dir};
-    desired.z += _style.height;
-
+// A camera wanted at a point, seen from another: when the view from there
+// toward the camera's clearance round the point, to either side, above or
+// below, meets a wall, the camera is pulled in by the deepest the clearance
+// reaches past it, never past the point it is seen from, and lifted in
+// proportion, short of its clearance under anything above.
+glm::vec3 ThirdPersonCamera::clearOfWalls(const glm::vec3 &from, const glm::vec3 &desired) const {
+    const float length = glm::distance(desired, from);
+    if (length <= 0.0f) {
+        return desired;
+    }
+    glm::vec3 side {glm::cross(from - desired, kWorldUp)};
+    side = glm::length(side) > 0.0f ? glm::normalize(side) : glm::vec3(1.0f, 0.0f, 0.0f);
     auto &scene = _services.scene.graphs.get(_sceneName);
-    const glm::vec3 side {glm::normalize(glm::cross(eye - desired, up))};
     float intrusion = 0.0f;
     bool obstructed = false;
-    for (const auto &end : {desired + kCombatPersonalSpace * side, desired - kCombatPersonalSpace * side,
-                            desired + kCombatPersonalSpace * up, desired - kCombatPersonalSpace * up}) {
+    for (const auto &end : {desired + kCameraPersonalSpace * side, desired - kCameraPersonalSpace * side,
+                            desired + kCameraPersonalSpace * kWorldUp, desired - kCameraPersonalSpace * kWorldUp}) {
         Collision collision;
-        if (scene.testLineOfSight(eye, end, collision)) {
+        if (scene.testCameraLine(from, end, collision)) {
             obstructed = true;
             intrusion = std::max(intrusion, glm::distance(collision.intersection, end));
         }
     }
-    glm::vec3 cameraPos {desired};
-    if (obstructed) {
-        const float length = glm::distance(desired, eye);
-        cameraPos -= glm::normalize(desired - eye) * intrusion;
-        cameraPos += up * (intrusion / length) * (kCombatPersonalSpace + kCombatLiftAllowance);
+    if (!obstructed) {
+        return desired;
     }
+    intrusion = std::min(intrusion, length);
+    const glm::vec3 pulled {desired - (desired - from) / length * intrusion};
+    float lift = (intrusion / length) * (kCameraPersonalSpace + kCameraLiftAllowance);
+    Collision above;
+    if (lift > 0.0f && scene.testCameraLine(pulled, pulled + kWorldUp * (lift + kCameraPersonalSpace), above)) {
+        lift = std::max(0.0f, glm::distance(pulled, above.intersection) - kCameraPersonalSpace);
+    }
+    return pulled + kWorldUp * lift;
+}
+
+// The combat camera sits the style distance behind the target at the style
+// height, pitched by the style, kept clear of walls as seen from the eye.
+void ThirdPersonCamera::updateCombatSceneNode() {
+    const glm::vec3 dir {glm::sin(_facing), -glm::cos(_facing), 0.0f};
+    glm::vec3 desired {_targetPosition + _style.distance * dir};
+    desired.z += _style.height;
+    const glm::vec3 cameraPos {clearOfWalls(_eyePosition, desired)};
 
     // Pitch 90 looks level; lower values look down.
     const float tilt = glm::radians(90.0f - _style.pitch);
-    const glm::vec3 forward {glm::normalize(-dir * glm::cos(tilt) - up * glm::sin(tilt))};
+    const glm::vec3 forward {glm::normalize(-dir * glm::cos(tilt) - kWorldUp * glm::sin(tilt))};
     glm::mat4 transform {1.0f};
     transform *= glm::translate(cameraPos);
-    transform *= glm::mat4_cast(glm::quatLookAt(forward, up));
+    transform *= glm::mat4_cast(glm::quatLookAt(forward, kWorldUp));
     _sceneNode->setLocalTransform(std::move(transform));
 }
 
@@ -387,32 +483,37 @@ void ThirdPersonCamera::updateSceneNode() {
     if (_deathOrbit) {
         return;
     }
+    _placedSinceUpdate = true;
     if (_combat) {
         updateCombatSceneNode();
         return;
     }
 
-    glm::vec3 dir(
-        glm::sin(_facing),
-        -glm::cos(_facing),
-        0.0f);
+    glm::vec3 targetPos;
+    glm::vec3 cameraPos;
+    followLine(targetPos, cameraPos);
 
-    glm::vec3 targetPos(_targetPosition);
-    targetPos += kTargetPadding * dir;
-
-    // The dolly zoom keeps the subject's size: the style distance scaled by
-    // the tangent of the style's half angle over the current half angle.
-    const float distance = _dollyZoom
-                               ? _style.distance * std::tan(glm::radians(_style.viewAngle) * 0.5f) / std::tan(glm::radians(viewAngle()) * 0.5f)
-                               : _style.distance;
-    glm::vec3 cameraPos(_targetPosition);
-    cameraPos += distance * dir;
-    cameraPos.z += _style.height;
-
-    Collision collision;
-    auto &scene = _services.scene.graphs.get(_sceneName);
-    if (scene.testLineOfSight(targetPos, cameraPos, collision)) {
-        cameraPos = collision.intersection;
+    if (!isStiffChase()) {
+        _pushedDistance.reset();
+        cameraPos = clearOfWalls(targetPos, cameraPos);
+    } else {
+        // The stiff chase camera keeps where a wall pushed it, and a wall
+        // between it and the target pushes it in at once.
+        const float length = glm::distance(targetPos, cameraPos);
+        if (length > 0.0f) {
+            const glm::vec3 along {(cameraPos - targetPos) / length};
+            const float standing = _pushedDistance.value_or(length);
+            Collision collision;
+            auto &scene = _services.scene.graphs.get(_sceneName);
+            if (scene.testCameraLine(targetPos, targetPos + along * standing, collision)) {
+                _pushedDistance = std::max(0.0f, glm::distance(targetPos, collision.intersection) - kStiffChaseClearance);
+            }
+            if (_pushedDistance) {
+                cameraPos = targetPos + along * *_pushedDistance;
+            }
+        }
+        // Where it stands, it keeps its clearance as the follow camera does.
+        cameraPos = clearOfWalls(targetPos, cameraPos);
     }
 
     // The view faces the way the camera faces the target, at the view pitch.
@@ -424,10 +525,74 @@ void ThirdPersonCamera::updateSceneNode() {
     _sceneNode->setLocalTransform(std::move(transform));
 }
 
+void ThirdPersonCamera::followLine(glm::vec3 &from, glm::vec3 &to) const {
+    const glm::vec3 dir(
+        glm::sin(_facing),
+        -glm::cos(_facing),
+        0.0f);
+
+    from = _targetPosition + kTargetPadding * dir;
+
+    // The dolly zoom keeps the subject's size: the style distance scaled by
+    // the tangent of the style's half angle over the current half angle.
+    const float distance = _dollyZoom
+                               ? _style.distance * std::tan(glm::radians(_style.viewAngle) * 0.5f) / std::tan(glm::radians(viewAngle()) * 0.5f)
+                               : _style.distance;
+    // The wheel's zoom scales the camera's offset from the target, so the
+    // target stays where it is in the view.
+    to = _targetPosition + _zoom * (distance * dir + glm::vec3(0.0f, 0.0f, _style.height));
+}
+
+bool ThirdPersonCamera::isStiffChase() const {
+    return _game.cameraMode() == Game::kStiffChaseCameraMode;
+}
+
+// The camera closes on its own distance at a steady rate, but stops short of
+// the first wall between where it stands and there. Once it would come within
+// a millimetre of its own distance with nothing in the way, it stands there.
+void ThirdPersonCamera::easeStiffChase(float dt) {
+    if (!_pushedDistance) {
+        return;
+    }
+    glm::vec3 from;
+    glm::vec3 to;
+    followLine(from, to);
+    const float length = glm::distance(from, to);
+    if (length <= 0.0f) {
+        _pushedDistance.reset();
+        return;
+    }
+    // A camera whose own distance has come in to where it stands is no
+    // longer held in.
+    const float standing = *_pushedDistance;
+    if (standing >= length) {
+        _pushedDistance.reset();
+        return;
+    }
+    const glm::vec3 along {(to - from) / length};
+    float eased = standing + (length - standing) * (1.0f - std::exp(-kStiffChaseReturnRate * dt));
+    Collision collision;
+    auto &scene = _services.scene.graphs.get(_sceneName);
+    if (scene.testCameraLine(from + along * standing, to, collision)) {
+        eased = std::min(eased, std::max(0.0f, glm::distance(from, collision.intersection) - kStiffChaseClearance));
+    } else if (eased >= length - kStiffChaseClearance) {
+        _pushedDistance.reset();
+        return;
+    }
+    _pushedDistance = eased;
+}
+
+// In TSL stopping the camera also ends the mouse-look hold.
 void ThirdPersonCamera::stopMovement() {
     _rotateCCW = false;
     _rotateCW = false;
-    _mouseLookHeld = false;
+    if (_game.isTSL()) {
+        _game.setMouseLookHeld(false);
+    }
+}
+
+bool ThirdPersonCamera::isMouseLookMode() const {
+    return _game.isMouseLookHeld() != _game.mouseLook();
 }
 
 void ThirdPersonCamera::setTargetPosition(glm::vec3 position) {
@@ -449,14 +614,13 @@ bool ThirdPersonCamera::setDollyZoom(bool enabled) {
     return true;
 }
 
-// A new style keeps the tilt: TSL holds it within the new limits at once;
-// KotOR's moves into them only as the mouse tilts it.
+// A new style keeps the tilt and sets the tilt limits, which hold the tilt
+// at once.
 void ThirdPersonCamera::setStyle(CameraStyle style) {
     _style = std::move(style);
-    if (_game.isTSL()) {
-        _tiltOffset = clampTiltOffsetTSL(_tiltOffset, _style);
-        _viewPitch = kLevelPitch + _tiltOffset;
-    }
+    _lookUp = _style.tiltUp;
+    _lookDown = _style.tiltDown;
+    clampTilt();
     // A new style sets its own view angle.
     _viewAngleOverride.reset();
     rebuildProjection();
@@ -506,7 +670,6 @@ void ThirdPersonCamera::updateLookAtSwing(float dt) {
         // Without a target the view holds its desired facing.
         if (_swinging) {
             _facing = glm::mod(_desiredFacing, glm::two_pi<float>());
-            updateSceneNode();
         }
         _swinging = false;
         _swingRate = 0.0f;
@@ -524,7 +687,6 @@ void ThirdPersonCamera::updateLookAtSwing(float dt) {
     }
     _swingRate = std::min(std::max(_swingRate, kSwingRateMin), kSwingRateMax);
     _facing = glm::mod(_facing + delta * _swingRate * dt, glm::two_pi<float>());
-    updateSceneNode();
 }
 
 void ThirdPersonCamera::setCombat(bool combat) {
@@ -617,7 +779,7 @@ void ThirdPersonCamera::updateDeathOrbit(float dt) {
 
     Collision collision;
     auto &scene = _services.scene.graphs.get(_sceneName);
-    if (scene.testLineOfSight(anchor, placed + back * kDeathClearance, collision)) {
+    if (scene.testCameraLine(anchor, placed + back * kDeathClearance, collision)) {
         placed = collision.intersection + collision.normal * kDeathClearance;
     }
     _deathPosition = placed;

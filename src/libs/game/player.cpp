@@ -17,100 +17,23 @@
 
 #include "reone/game/player.h"
 
+#include <cmath>
+
+#include "reone/game/action/drive.h"
 #include "reone/game/game.h"
-#include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
+#include "reone/game/object/camera/thirdperson.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
 
 namespace reone {
 
 namespace game {
 
-// A driven step is tried at most this many times.
-static constexpr int kDriveTries = 6;
-// How far a driven leader standing where it does not fit looks for a spot
-// that does: square rings out to about a metre.
-static constexpr float kDriveNudgeRadius = -1.01f;
-// Door and placeable walls count this far below and above the leader,
-// whatever their height.
-static constexpr float kStaticWallReach = 1000.0f;
-
-// The leader is driven along a straight line to a point a step ahead. A
-// companion or puppet in the way is pushed aside first; when someone is still
-// in the way and the leader stands where it does not fit, the leader first
-// moves to the nearest spot that does. A point the leader cannot walk straight
-// to is slid: past a creature, onto the line through where they meet, across
-// the way out from that creature's centre; along a wall, as far along the wall
-// from where the leader stands. The leader steps only to a point it can walk
-// straight to. A step that would bring a door or placeable wall within the
-// leader's personal space is slid round that object, unless the leader stands
-// that close already. It stays where it is once six lines have failed, or when
-// two meetings in a row turn it opposite ways across its path, as in a corner.
-static void driveLeader(Game &game, Area &area, const std::shared_ptr<Creature> &leader, const glm::vec2 &dir, float step) {
-    static constexpr glm::vec3 kUp {0.0f, 0.0f, 1.0f};
-    const glm::vec3 start {leader->position()};
-    glm::vec3 target {start.x + dir.x * step, start.y + dir.y * step, start.z};
-    const glm::vec2 back {-dir};
-    glm::vec2 previousNormal {0.0f};
-    for (int attempt = 1;; ++attempt) {
-        auto line = area.testDirectLine(*leader, leader->position(), target);
-        if (line.result == Area::DirectLine::CreatureBlocked) {
-            leader->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), leader->position(), target, dir);
-            line = area.testDirectLine(*leader, leader->position(), target);
-            if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(leader->position(), *leader)) {
-                if (auto spot = area.computeSafeLocation(leader->position(), kDriveNudgeRadius, *leader, true)) {
-                    leader->setPosition(*spot);
-                    area.determineObjectRoom(*leader);
-                }
-                line = area.testDirectLine(*leader, leader->position(), target);
-            }
-        }
-        if (line.result == Area::DirectLine::Clear) {
-            const glm::vec3 position {leader->position()};
-            const float minZ = position.z - kStaticWallReach;
-            const float maxZ = position.z + kStaticWallReach;
-            const auto wall = area.findStaticWallAlong(target, target, *leader, minZ, maxZ);
-            if (!wall || area.findStaticWallAlong(position, position, *leader, minZ, maxZ)) {
-                // The room under the step is looked for around height 0.
-                area.stepCreatureTo(leader, glm::vec3(glm::vec2(target), 0.0f), Area::MoveFacing::Keep);
-                return;
-            }
-            // The leader slides across the way out from the object's centre;
-            // heading straight at it, the leader stays where it is.
-            const glm::vec2 away {glm::vec2(position) - glm::vec2(wall->get().position())};
-            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
-            if (glm::length(away) == 0.0f || glm::dot(way, glm::vec2(-away.y, away.x)) == 0.0f) {
-                return;
-            }
-            line.result = Area::DirectLine::Blocked;
-            line.normal = glm::vec3(glm::normalize(away), 0.0f);
-        }
-        if (attempt == kDriveTries) {
-            return;
-        }
-
-        const glm::vec2 across {line.normal};
-        if (attempt > 1) {
-            const float now = glm::dot(back, glm::vec2(-across.y, across.x));
-            const float before = glm::dot(back, glm::vec2(-previousNormal.y, previousNormal.x));
-            if ((now > 0.0f && before < 0.0f) || (now < 0.0f && before > 0.0f)) {
-                return;
-            }
-        }
-        if (line.result == Area::DirectLine::CreatureBlocked) {
-            target -= glm::vec3(across, 0.0f) * glm::dot(across, glm::vec2(target - line.stopPoint));
-        } else {
-            const glm::vec3 position {leader->position()};
-            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
-            const glm::vec2 along {glm::normalize(glm::vec2(glm::cross(kUp, line.normal)))};
-            const glm::vec2 slide {along * (glm::sign(glm::dot(way, along)) * glm::length(way))};
-            target = glm::vec3(position.x + slide.x, position.y + slide.y, position.z);
-        }
-        previousNormal = across;
-    }
-}
+// The seconds between drive updates while the movement input lasts.
+static constexpr float kDriveUpdateInterval = 0.5f;
 
 bool Player::handle(const input::Event &event) {
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
@@ -185,95 +108,364 @@ bool Player::handleKeyUp(const input::KeyEvent &event) {
 }
 
 bool Player::handleMouseButtonDown(const input::MouseButtonEvent &event) {
-    if (_camera.isMouseLookMode() && event.button == input::MouseButton::Left) {
-        _moveForward = true;
-        _leftPressedInMouseLook = true;
-        return true;
+    if (event.button == input::MouseButton::Left) {
+        return _camera.isMouseLookMode();
     }
 
     return false;
 }
 
 bool Player::handleMouseButtonUp(const input::MouseButtonEvent &event) {
-    if (_leftPressedInMouseLook && event.button == input::MouseButton::Left) {
-        _moveForward = false;
-        _leftPressedInMouseLook = false;
-        return true;
+    if (event.button == input::MouseButton::Left) {
+        return _camera.isMouseLookMode();
     }
 
     return false;
 }
 
+// A leader that is debilitated, lacks the will to move, or is busy with
+// something else is not moved by the drive.
+static bool holdsDrivenLeader(const Creature &leader) {
+    return leader.isDebilitated() || (leader.effectAIStateMask() & Creature::kAIStateMove) == 0 ||
+           leader.isDriveBlocked();
+}
+
+// A heading in degrees from a direction, from 0 up to 360.
+static float headingDegrees(const glm::vec2 &dir) {
+    const float degrees = glm::degrees(std::atan2(-dir.x, dir.y));
+    return degrees < 0.0f ? degrees + 360.0f : degrees;
+}
+
 void Player::update(float dt) {
-    _moving = false;
+    static constexpr float kLongestUpdate = 1.0f;
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
-    if (partyLeader) {
-        partyLeader->setDriveSpeed(0.0f);
+    // The drive goes with the lead: a creature that no longer leads is no
+    // longer driven, and the new leader takes a drive update at once.
+    if (auto driven = _driven.lock(); driven && driven != partyLeader) {
+        driven->removeActionsOfType(ActionType::Drive);
+        _driven.reset();
+        _driveUpdateDelay = 0.0f;
     }
-    // A leader that cannot be commanded, or held by a time stop, does not
-    // answer the steering.
-    if (!partyLeader || partyLeader->isMovementRestricted() || !partyLeader->isCommandable() ||
-        _module.game().isFrozenByTimeStop(*partyLeader)) {
+    if (!partyLeader) {
         return;
     }
-    float facing = 0.0f;
-    bool movement = true;
-
-    if (_moveForward) {
-        facing = _camera.facing();
-    } else if (_moveBackward) {
-        facing = _camera.facing() + glm::pi<float>();
-    } else if (_moveLeft) {
-        facing = _camera.facing() + glm::half_pi<float>();
-    } else if (_moveRight) {
-        facing = _camera.facing() - glm::half_pi<float>();
-    } else {
-        movement = false;
+    auto &game = _module.game();
+    // The drive runs on world time, which stands still in a time stop.
+    if (game.isTimeStopped()) {
+        dt = 0.0f;
     }
-
-    if (movement) {
-        // Moving by input clears as the player's controls do.
-        _module.game().combat().clearAllOrders(*partyLeader);
-        partyLeader->clearPath();
-        // Moving by input releases the leader's orientation lock and ends its
-        // engaged exchange.
-        partyLeader->dropOrientationLock();
-        partyLeader->setEngagedExchange(false);
-        glm::vec2 dir(glm::normalize(glm::vec2(-glm::sin(facing), glm::cos(facing))));
-        // A leader limited from running walks however it is driven.
-        const bool run = !_walk && !partyLeader->isRunLimited();
-        // The leader turns at once toward where it is steered.
-        partyLeader->setFacing(-glm::atan(dir.x, dir.y));
-        const float step = (run ? partyLeader->runSpeed() : partyLeader->walkSpeed()) * dt;
-        driveLeader(_module.game(), _area, partyLeader, dir, step);
-        _moving = true;
-        partyLeader->setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
-        partyLeader->setRunning(run);
-        // The driven speed, which the motion blur follows.
-        partyLeader->setDriveSpeed(run ? partyLeader->runSpeed() : partyLeader->walkSpeed());
-    } else if (partyLeader->actions().empty()) {
+    // A leader down for the moment is neither steered nor driven, and its drive
+    // stays as it was.
+    if (partyLeader->isTemporarilyDead()) {
+        return;
+    }
+    // Only play steers: the third-person camera on the play screen. Under free
+    // look, a conversation's camera, a menu or a minigame the drive runs on
+    // unsteered: it slows, stops and carries the leader as it would with the
+    // keys let go.
+    const bool steered = !game.isFreeLook() && game.cameraType() == CameraType::ThirdPerson &&
+                         game.currentScreen() == Game::Screen::InGame;
+    glm::vec2 steering(0.0f);
+    if (steered) {
+        steering = steeringInput();
+        if (partyLeader->isDriveBlocked()) {
+            steering = holdBusySteering(*partyLeader, steering, dt);
+        } else {
+            _busySteeringWait.reset();
+        }
+        presentMovingCombatMessage(*partyLeader);
+    }
+    // A dead leader is not driven, and its drive stays as it was.
+    if (partyLeader->isDead()) {
+        return;
+    }
+    dt = std::min(kLongestUpdate, dt);
+    // A sneaking leader drives at its walk clip's pace at most.
+    const float topSpeed = partyLeader->movesStealthily() ? partyLeader->driveWalkClipSpeed() : partyLeader->driveTopSpeed();
+    if (steering != glm::vec2(0.0f)) {
+        turnTowardSteering(*partyLeader, steering, topSpeed, dt);
+    }
+    const DriveOutcome outcome = accelerateDrive(*partyLeader, steering, topSpeed, dt);
+    // A leader that cannot be commanded, or held by a time stop, is not
+    // driven.
+    const bool drivable = !holdsDrivenLeader(*partyLeader) && !partyLeader->isMovementRestricted() &&
+                          partyLeader->isCommandable() && !game.isFrozenByTimeStop(*partyLeader);
+    if (outcome == DriveOutcome::Moving && drivable) {
+        driveLeader(*partyLeader, dt);
+        return;
+    }
+    // The leader's drive ends once the drive no longer moves it.
+    _driveUpdateDelay = 0.0f;
+    partyLeader->removeActionsOfType(ActionType::Drive);
+    // The combat camera turns the leader while it shows the scene: not under
+    // free look's or a conversation's camera.
+    if (outcome == DriveOutcome::Still && game.getActiveCamera() == &_camera) {
+        faceCombatTarget(*partyLeader, dt);
+    }
+    if (partyLeader->actions().empty()) {
         partyLeader->setMovementType(Creature::MovementType::None);
-        // A leader coming to a halt under the player's control slows to a walk
-        // first, so it is no longer running.
-        partyLeader->setRunning(false);
     }
 }
 
+// The drive moves the leader the way it faces at the drive's speed. As the
+// leader sets off, and each interval while the drive moves it, its orders are
+// cleared as the player's controls clear them and it is given a new drive. A
+// script that clears the drive away and gives orders makes the leader busy:
+// its orders are carried out until the steering breaks them off
+// (holdBusySteering).
+void Player::driveLeader(Creature &leader, float dt) {
+    const float heading = leader.getFacing();
+    const glm::vec2 direction {-glm::sin(heading), glm::cos(heading)};
+    const float speed = glm::length(_driveVelocity);
+    const bool run = leader.drivesAtRun();
+    _driveUpdateDelay -= dt;
+    if (!leader.isDriven() || _driveUpdateDelay <= 0.0f) {
+        _driveUpdateDelay = kDriveUpdateInterval;
+        _module.game().combat().clearAllOrders(leader);
+        leader.clearPath();
+        auto drive = _module.game().newAction<DriveAction>(direction, run, glm::vec2(leader.position()));
+        drive->steer(direction, run, speed);
+        leader.addAction(drive);
+        _driven = _party.getLeader();
+    } else {
+        cast<DriveAction>(leader.getCurrentAction())->steer(direction, run, speed);
+    }
+}
+
+// The opacity of the global fade from which TSL's movement keys stop steering.
+static constexpr float kKeysStopFadeOpacity = 0.01f;
+
+bool Player::keysSteer() const {
+    const Game &game = _module.game();
+    return !game.isTSL() || game.globalFade().opacity() < kKeysStopFadeOpacity;
+}
+
+bool Player::steersBack() const {
+    return keysSteer() && _moveBackward && !_moveForward;
+}
+
+// Each axis comes from its two keys, while they steer. The left button held in
+// mouse look steers ahead, unless the keys steer back. Steering along both axes
+// at once points the same full way as along one, and walking steers at half
+// strength.
+glm::vec2 Player::steeringInput() const {
+    glm::vec2 steering(0.0f);
+    if (keysSteer()) {
+        steering = glm::vec2((_moveRight ? 1.0f : 0.0f) - (_moveLeft ? 1.0f : 0.0f),
+                             (_moveForward ? 1.0f : 0.0f) - (_moveBackward ? 1.0f : 0.0f));
+    }
+    if (_module.game().isLeftButtonHeld() && _camera.isMouseLookMode() && steering.y >= 0.0f) {
+        steering.y = 1.0f;
+    }
+    if (steering.x != 0.0f && steering.y != 0.0f) {
+        steering = glm::normalize(steering);
+    }
+    if (_walk) {
+        steering *= 0.5f;
+    }
+    return steering;
+}
+
+// In combat mode the leader's line says it is on the move while the drive
+// goes at a quarter of a metre a second or more, and turns back to the idle
+// line once the drive is slower.
+void Player::presentMovingCombatMessage(const Creature &leader) {
+    if (!leader.partyCombatMode()) {
+        return;
+    }
+    auto &party = _module.game().party();
+    if (driveSpeed() >= kMovingDriveSpeed) {
+        party.setCombatMessage(leader, Party::kMovingCombatMessage);
+    } else if (party.members().front().combatMessage == Party::kMovingCombatMessage) {
+        party.setCombatMessage(leader, party.idleCombatMessage());
+    }
+}
+
+// The steering points the way the camera looks, turned by the steering's own
+// way. The leader turns that way only while the drive moved it last update and
+// it is more than a tenth of a degree off. It turns the shorter way round, at
+// a rate from the area's fastest at rest to its slowest at the drive's top
+// speed, and no further than it needs. Without the will to move it keeps its
+// facing.
+void Player::turnTowardSteering(Creature &leader, glm::vec2 steering, float topSpeed, float dt) {
+    static constexpr float kLeastTurn = 0.1f;
+    static constexpr float kLeastTurningSpeed = 0.1f;
+    const float look = viewHeading();
+    const glm::vec2 way(steering.x * std::cos(look) - steering.y * std::sin(look),
+                        steering.x * std::sin(look) + steering.y * std::cos(look));
+    const float facing = leader.getFacing();
+    const float target = headingDegrees(way);
+    const float current = headingDegrees(glm::vec2(-std::sin(facing), std::cos(facing)));
+    float off = std::abs(target - current);
+    // Positive turns raise the heading.
+    float direction = target > current ? 1.0f : -1.0f;
+    if (off > 180.0f) {
+        direction = -direction;
+        off = 360.0f - off;
+    }
+    if (off <= kLeastTurn || leader.driveSpeed() <= kLeastTurningSpeed) {
+        return;
+    }
+    const auto &style = _module.area()->camStyleDefault();
+    const float rate = style.minTurnRate + (1.0f - glm::length(_driveVelocity) / topSpeed) * (style.maxTurnRate - style.minTurnRate);
+    const float turn = glm::clamp(rate * dt * direction, -off, off);
+    if ((leader.effectAIStateMask() & Creature::kAIStateMove) == 0) {
+        return;
+    }
+    leader.setFacing(glm::mod(facing + glm::radians(turn), glm::two_pi<float>()));
+}
+
+// The heading the view looks along: the third-person camera's facing, or
+// that of the view direction of whichever other camera shows the scene, such
+// as a conversation's.
+float Player::viewHeading() const {
+    const Camera *view = _module.game().getActiveCamera();
+    if (!view || view == &_camera) {
+        return _camera.facing();
+    }
+    const glm::vec3 ahead(-view->sceneNode()->absoluteTransform()[2]);
+    return std::atan2(-ahead.x, ahead.y);
+}
+
+// Behind the combat camera, a leader the drive leaves where it is turns toward
+// the creature it targets when that creature is hostile to it, at up to 900
+// degrees a second, unless the leader is busy.
+void Player::faceCombatTarget(Creature &leader, float dt) {
+    static constexpr float kCombatTurnRate = 900.0f;
+    auto &game = _module.game();
+    if (!_module.area()->getCamera<ThirdPersonCamera>(CameraType::ThirdPerson)->isCombat()) {
+        return;
+    }
+    auto target = std::dynamic_pointer_cast<Creature>(game.getObjectById(game.lastTarget()));
+    if (!target || leader.getReputationToward(*target) > kHighestEnemyReputation || leader.isDriveBlocked()) {
+        return;
+    }
+    const float facing = leader.getFacing();
+    float off = glm::degrees(std::atan2(-(target->position().x - leader.position().x),
+                                        target->position().y - leader.position().y) -
+                             std::atan2(std::sin(facing), std::cos(facing)));
+    if (off > 180.0f) {
+        off -= 360.0f;
+    }
+    if (off < -180.0f) {
+        off += 360.0f;
+    }
+    const float limit = kCombatTurnRate * dt;
+    const float turn = off >= 0.0f ? std::min(limit, off) : std::max(-limit, off);
+    leader.setFacing(glm::mod(facing + glm::radians(turn), glm::two_pi<float>()));
+}
+
+// A busy leader is steered only after a wait of 0.3 s. From then on the
+// steering passes on every update, and once the drive has gathered more than
+// a quarter of a metre a second it breaks off what the leader was doing. A
+// leader that cannot be commanded is not steered while busy.
+glm::vec2 Player::holdBusySteering(Creature &leader, glm::vec2 steering, float dt) {
+    static constexpr float kWait = 0.3f;
+    static constexpr float kBreakOffSpeed = 0.25f;
+    auto &game = _module.game();
+    if (steering == glm::vec2(0.0f)) {
+        _busySteeringWait.reset();
+        return steering;
+    }
+    if (!_busySteeringWait) {
+        _busySteeringWait = kWait;
+    }
+    *_busySteeringWait -= dt;
+    if (*_busySteeringWait > 0.0f || !leader.isCommandable()) {
+        return glm::vec2(0.0f);
+    }
+    if (driveSpeed() > kBreakOffSpeed) {
+        game.combat().clearAllOrders(leader);
+        leader.abortFireForgetAnimation();
+        leader.dropOrientationLock();
+        leader.setEngagedExchange(false);
+        leader.clearPath();
+        _busySteeringWait.reset();
+    }
+    return steering;
+}
+
+// The drive gathers speed toward the steering times the leader's top speed,
+// and loses it without steering, after the leader's acceleration, made
+// proportionally slower for a top speed of 1.8 m/s or less. It is worked out
+// in four steps an update toward this update's steering, so a change of
+// steering counts in full from the update it comes in. With no steering, a
+// drive slower than a quarter of a metre a second along both axes stops at
+// once; steering along one axis only drops the speed along the other. The
+// leader moves only while the drive is faster than a metre a second, and then
+// by the way it covered.
+Player::DriveOutcome Player::accelerateDrive(const Creature &leader, glm::vec2 steering, float topSpeed, float dt) {
+    static constexpr float kRestSpeed = 0.25f;
+    static constexpr float kSlowTopSpeed = 1.8f;
+    static constexpr float kMovingSpeed = 1.0f;
+    const bool steered = steering != glm::vec2(0.0f);
+    if (!steered && _driveVelocity != glm::vec2(0.0f) &&
+        std::abs(_driveVelocity.x) < kRestSpeed && std::abs(_driveVelocity.y) < kRestSpeed) {
+        _driveVelocity = glm::vec2(0.0f);
+        return DriveOutcome::Halted;
+    }
+    if (steering.x == 0.0f && steering.y != 0.0f) {
+        _driveVelocity.x = 0.0f;
+    }
+    if (steering.y == 0.0f && steering.x != 0.0f) {
+        _driveVelocity.y = 0.0f;
+    }
+    float acceleration = leader.driveAcceleration();
+    if (topSpeed <= kSlowTopSpeed) {
+        acceleration *= topSpeed / kSlowTopSpeed;
+    }
+    auto accelerationAt = [&](const glm::vec2 &velocity) {
+        return acceleration * steering - (acceleration / topSpeed) * velocity;
+    };
+    const glm::vec2 v1 = _driveVelocity;
+    const glm::vec2 a1 = accelerationAt(v1);
+    const glm::vec2 v2 = v1 + a1 * (dt * 0.5f);
+    const glm::vec2 a2 = accelerationAt(v2);
+    const glm::vec2 v3 = v1 + a2 * (dt * 0.5f);
+    const glm::vec2 a3 = accelerationAt(v3);
+    const glm::vec2 v4 = v1 + a3 * dt;
+    const glm::vec2 a4 = accelerationAt(v4);
+    _driveVelocity = v1 + (a1 + 2.0f * a2 + 2.0f * a3 + a4) * (dt / 6.0f);
+    const glm::vec2 travel = (v1 + 2.0f * v2 + 2.0f * v3 + v4) * (dt / 6.0f);
+    if (glm::length(travel) <= 0.0f) {
+        return DriveOutcome::Still;
+    }
+    const float speed = glm::length(_driveVelocity);
+    if (!std::isfinite(speed) || speed <= kMovingSpeed) {
+        return DriveOutcome::Slow;
+    }
+    return DriveOutcome::Moving;
+}
+
 void Player::stopMovement() {
-    _moving = false;
     _moveForward = false;
     _moveLeft = false;
     _moveBackward = false;
     _moveRight = false;
+    _driveUpdateDelay = 0.0f;
 
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
     if (partyLeader) {
+        partyLeader->removeActionsOfType(ActionType::Drive);
         partyLeader->setMovementType(Creature::MovementType::None);
     }
 }
 
+void Player::resetDriveAcceleration() {
+    _driveVelocity = glm::vec2(0.0f);
+}
+
 bool Player::isMovementRequested() const {
     return _moveForward || _moveLeft || _moveBackward || _moveRight;
+}
+
+bool Player::isMoving() const {
+    std::shared_ptr<Creature> partyLeader(_party.getLeader());
+    return partyLeader && partyLeader->isDriven();
+}
+
+float Player::driveSpeed() const {
+    return std::max(std::abs(_driveVelocity.x), std::abs(_driveVelocity.y));
 }
 
 } // namespace game

@@ -188,6 +188,12 @@ public:
     std::shared_ptr<Area> area() const { return _area; }
     Player &player() { return *_player; }
     bool isPlayerMoving() const { return _player && _player->isMoving(); }
+    /** The player's drive starts again from rest; a module without player controls has none. */
+    void resetPlayerDrive() {
+        if (_player) {
+            _player->resetDriveAcceleration();
+        }
+    }
     bool isSaveGame() const { return _isSaveGame; }
     const std::vector<std::shared_ptr<Creature>> &limboCreatures() const { return _limboCreatures; }
     /**

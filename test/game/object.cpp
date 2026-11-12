@@ -25,6 +25,7 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
+#include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/unlockobject.h"
@@ -57,6 +58,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/pathfinder.h"
@@ -80,6 +82,7 @@
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/sound.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/scene/node/walkmesh.h"
 #include "reone/script/executioncontext.h"
@@ -1034,6 +1037,45 @@ TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
     auto restoredUnspawned = game.newCreature();
     restoredUnspawned->deserialize(*record(0), testModuleIdentity());
     EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
+}
+
+// A script that activates a sound object starts its first sound at once. The
+// node was found inaudible while the object was inactive, so it has to wait
+// for the scene to tell again rather than skip that sound.
+TEST(SoundObject, activating_forgets_the_audibility_found_while_inactive) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The mock keeps the graph past the test, and the graph keeps its options.
+    static graphics::GraphicsOptions graphicsOptions;
+    auto graph = std::make_shared<scene::SceneGraph>(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    // A scene of its own, so other tests' expectations on the graphs still hold.
+    const std::string sceneName {"sound_activation"};
+    EXPECT_CALL(engine.sceneModule().graphs(), get(sceneName))
+        .Times(AnyNumber())
+        .WillRepeatedly([graph](const std::string &) -> scene::ISceneGraph & {
+            return *graph;
+        });
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newByte("Active", 0))
+                      .field(Gff::Field::newByte("Positional", 0))
+                      .build();
+    auto sound = game.newSound(sceneName);
+    sound->deserialize(*record, SerializedIdentityContext::templateResource());
+    auto node = std::static_pointer_cast<scene::SoundSceneNode>(sound->sceneNode());
+    ASSERT_TRUE(node);
+    node->setAudible(false);
+
+    sound->setActive(true);
+
+    EXPECT_TRUE(node->isEnabled());
+    EXPECT_FALSE(node->isAudibilityKnown());
 }
 
 TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
@@ -4822,6 +4864,48 @@ TEST(CreatureSteering, a_creature_that_cannot_move_is_stuck_at_any_frame_rate) {
 
         EXPECT_GT(framesSteeredAway(*fixture.area, *npc, 0.0f, dt, 3.0f), 0);
     }
+}
+
+// A placeable with no use point on the ground is used from its own origin,
+// which lies inside its footprint, off the walkmesh. The use walks to the
+// ground beside it rather than giving up where the creature stands.
+TEST(CreatureNavigationFailure, using_a_placeable_off_the_walkmesh_walks_to_the_ground_beside_it) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto desk = fixture.game.newPlaceable();
+    desk->setPosition(glm::vec3(6.5f, 0.0f, 0.0f));
+    fixture.area->add(desk);
+
+    auto action = fixture.game.newAction<OpenContainerAction>(desk);
+    npc->addAction(action);
+    for (int i = 0; i < 200 && !action->isCompleted(); ++i) {
+        action->execute(action, *npc, 0.1f);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_GT(npc->position().x, 4.0f);
+    EXPECT_LE(glm::distance(glm::vec2(npc->position()), glm::vec2(desk->position())), 2.5f);
+}
+
+// A placeable in a room no path reaches has no ground beside it within reach,
+// and its use still gives up.
+TEST(CreatureNavigationFailure, using_a_placeable_in_another_room_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto desk = fixture.game.newPlaceable();
+    desk->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+    fixture.area->add(desk);
+
+    auto action = fixture.game.newAction<OpenContainerAction>(desk);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(glm::vec3(0.0f), npc->position());
 }
 
 // Invoke GetBlockingDoor as the given caller.

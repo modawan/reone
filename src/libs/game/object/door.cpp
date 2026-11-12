@@ -277,7 +277,18 @@ void Door::applyRestingState() {
     _lastAnimation = stateAnimation(_state);
     _open = _state != DoorState::Closed;
     enableStateWalkmeshes();
+    updateCameraPassage();
     applyRestingPose();
+}
+
+// Unlike the walkmeshes, which change at the swing's door event, a camera
+// takes the state a swing leads to from its start: it passes through a door
+// swinging open at once, and is stopped by one swinging shut at once. It
+// passes through a door whose type shows no model in any state.
+void Door::updateCameraPassage() {
+    if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
+        model->setCameraPassesThrough(actionState() != DoorState::Closed || !typeShowsModel());
+    }
 }
 
 void Door::enableStateWalkmeshes() {
@@ -343,7 +354,11 @@ bool Door::isInOutline(const glm::vec3 &point) const {
     const glm::vec3 local {glm::inverse(transform()) * glm::vec4(point, 1.0f)};
     const glm::vec3 &low = _outline[0];
     const glm::vec3 &high = _outline[2];
-    return local.x >= low.x && local.x <= high.x && local.y >= low.y && local.y <= high.y;
+    if (local.x < low.x || local.x > high.x || local.y < low.y || local.y > high.y) {
+        return false;
+    }
+    const auto area = spatialArea();
+    return !area || area->get().isAtLevelOf(point, _position.z);
 }
 
 // Whether the door is open makes no difference. A creature outside the party
@@ -436,9 +451,17 @@ void Door::close() {
     }
 }
 
+bool Door::typeShowsModel() const {
+    if (_appearance == 0) {
+        return true;
+    }
+    auto types = _services.resource.twoDas.get("doortypes");
+    return !types || types->getInt(_appearance, "visiblemodel", 1) != 0;
+}
+
 void Door::shutAtOnce() {
     // A door whose type shows no model takes the destroyed state instead.
-    if (_appearance != 0 && _services.resource.twoDas.get("doortypes")->getInt(_appearance, "visiblemodel", 1) == 0) {
+    if (!typeShowsModel()) {
         enterDestroyedState();
         return;
     }
@@ -531,9 +554,11 @@ void Door::beginTransition(DoorTransition transition) {
         _queuedSwingRow = swingRow;
         _stateLoop.clear();
         _stateLoopAnimation.reset();
+        updateCameraPassage();
         return;
     }
     playSwing(transition, swingRow);
+    updateCameraPassage();
 }
 
 void Door::playSwing(DoorTransition transition, std::optional<int> swingRow) {

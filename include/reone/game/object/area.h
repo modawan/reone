@@ -294,8 +294,8 @@ public:
      * for a hundredth of a metre back along x and y and a tenth of a metre
      * below the point), no blocking walkmesh face within its personal space
      * across its height, and no other creature within their combined creature
-     * personal space, other than the dead and party members down at no
-     * vitality.
+     * personal space (where floors lie over others, one across its height),
+     * other than the dead and party members down at no vitality.
      */
     bool isSafeLocationPoint(const glm::vec3 &point, const Creature &creature) const;
     /**
@@ -314,7 +314,7 @@ public:
     /** Which face of the room under a point gives the ground height there. */
     enum class GroundFace {
         Locating, /**< the walk-check face by which the room is found, within a thousand units of the point's height */
-        Top       /**< the topmost face of any material in the room */
+        Top       /**< the topmost face of any material in the room, unless the room lays floors over floors and that is one over the point's own */
     };
     /**
      * The ground height at a point: the height of a face of the room found
@@ -331,6 +331,37 @@ public:
     glm::vec3 groundNormal(const glm::vec3 &position) const;
     /** Whether a room lies under a point (see ISceneGraph::findRoomWalkmesh). */
     bool hasRoomAt(const glm::vec3 &position) const;
+    /**
+     * Whether the area lays floors over floors (see
+     * scene::ISceneGraph::hasStackedFloors). Where it does, creatures,
+     * triggers, encounters and door outlines, and door and placeable walls,
+     * count only at the level of what meets them.
+     */
+    bool hasStackedFloors() const;
+    /**
+     * Whether a point stands at the level of something placed at a height,
+     * as the outline of a trigger, encounter or door is: always, unless
+     * floors lie over others; then whether the floor found under the point
+     * from that height (see scene::ISceneGraph::findRoomWalkmesh and
+     * scene::RoomFaceProbe::Locating), or the height itself over no room,
+     * lies within graphics::Walkmesh::kFloorHeadroom of the point.
+     */
+    bool isAtLevelOf(const glm::vec3 &point, float height) const;
+    /**
+     * The height the room under a point at \p height is looked for from when
+     * the point's own height is not settled, as for a random destination, a
+     * driven step or a mine's corner: \p height where floors lie over
+     * others, so the point keeps to its floor; otherwise 0.
+     */
+    float roomLookupHeight(float height) const;
+    /**
+     * The heights between which door and placeable walls stop a walker whose
+     * walk spans the heights from \p low to \p high: whatever their height,
+     * a thousand units further out; where floors lie over others, from
+     * graphics::Walkmesh::kFloorHeadroom below \p low to the walker's height
+     * and a tenth over \p high.
+     */
+    graphics::Walkmesh::HeightBand staticWallBand(const Creature &walker, float low, float high) const;
     /**
      * Whether a point stands on walkable ground for placing a creature or
      * choosing a use point. Only the room found under the point counts (see
@@ -373,20 +404,42 @@ public:
      */
     std::optional<std::reference_wrapper<const Creature>> findBlockingCreature(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const;
     /**
-     * Whether the creature can walk straight from one point to another. A
-     * walk from no room leaves the rooms at once; otherwise only what stands
-     * before the point where the walk runs out of the rooms counts, a door or
-     * placeable wall at that point included, and with nothing there it leaves
-     * them at that point. The walk is settled room by room: a creature in an
-     * earlier room stops it before a wall in a later one. When only another creature
-     * stands in the way, that creature is reported. The point where the walk
-     * is stopped, by a wall, by that creature or by leaving the rooms, is
-     * reported too, and the door, when a door's wall stops it. The normal
-     * there is the wall's or the room edge's, or for a creature the way out
-     * from its centre through that point. The ignored creature never stands
-     * in the way.
+     * Whether the creature can walk straight from one point to another. The
+     * walk is followed over the rooms it passes (see ISceneGraph::walkRooms),
+     * and settled in each room before the next, with the creature's personal
+     * space swept along it. In a room it is stopped first by the nearer of
+     * the room's walls, between the heights the walk spans there less a
+     * tenth and those plus the creature's height and a tenth, and the nearest
+     * wall of a door or placeable, between the heights staticWallBand gives,
+     * the door or placeable on a tie; then by another creature, where floors
+     * lie over others one across the heights the walk spans. A walk from no room leaves the rooms at once, and one
+     * entering a room where no walkable face lies, or whose faces it cannot
+     * be followed across (see graphics::Walkmesh::walkFaces), is stopped
+     * there. A walk that runs out of the rooms with nothing in its way leaves
+     * them where it does. When only another creature stands in the way, that
+     * creature is reported. The point where the walk is stopped, short of a
+     * wall, by that creature or by leaving the rooms, is reported too, and the
+     * door, when a door's wall stops it. The normal there is the wall's or the
+     * room edge's, or for a creature the way out from its centre through that
+     * point. The ignored creature never stands in the way.
      */
     DirectLineTest testDirectLine(
+        const Creature &mover,
+        const glm::vec3 &from,
+        const glm::vec3 &to,
+        std::optional<std::reference_wrapper<const Creature>> ignored = std::nullopt) const;
+    /**
+     * Whether a walking creature, or a driven leader, can take a step from
+     * one point to another. Walls are found by a thin level line just above
+     * the ground. A walk from no room leaves the rooms at once; otherwise
+     * only what stands before the point where the walk runs out of the rooms
+     * counts, a door or placeable wall within the creature's personal space of
+     * that point included, and with nothing there it leaves them at that
+     * point. The walk is settled room by room: a creature in an earlier room
+     * stops it before a wall in a later one. What is reported is as for
+     * testDirectLine.
+     */
+    DirectLineTest testWalkStep(
         const Creature &mover,
         const glm::vec3 &from,
         const glm::vec3 &to,
@@ -417,8 +470,9 @@ public:
      */
     glm::vec3 computeAwayPoint(const Creature &mover, const glm::vec3 &threat, float distance) const;
     /**
-     * A random point within range of a creature that it can walk straight to.
-     * A blocked point is brought in by a quarter, or once that would leave it
+     * A random point within range of a creature that it can walk straight to,
+     * on the ground found from roomLookupHeight of the creature's height. A
+     * blocked point is brought in by a quarter, or once that would leave it
      * nearer than two and a half metres, tried again at full distance in a
      * new direction. After 22 tries, or once the distance falls under a metre,
      * the creature's own position is the answer.
@@ -426,8 +480,9 @@ public:
     glm::vec3 randomDestination(const Creature &mover, int range) const;
     /**
      * A random point for a random walk: up to seven whole metres either way
-     * on each axis from its home, on the ground, which the walker can walk
-     * straight to from where it stands. A blocked point is brought in by a
+     * on each axis from its home, on the ground found from roomLookupHeight
+     * of the home's height, which the walker can walk straight to from where
+     * it stands. A blocked point is brought in by a
      * quarter while it stays at least three tenths of the full distance away;
      * then the same bearing is tried level with the walker at full distance.
      * After 22 tries, or once the distance falls under a metre, there is none.
@@ -541,6 +596,12 @@ public:
      * ARE entry.
      */
     int getRoomForceRating(const glm::vec3 &position) const;
+    /**
+     * Plays a room's numbered script loop, "scriptloopNN", looping on the
+     * room's model: over the room's own loops in KotOR, in place of them in
+     * TSL. A room the area does not have plays nothing.
+     */
+    void playRoomAnimation(const std::string &roomName, int animation);
     /**
      * The surface material under a point: that of the room's face of any
      * material on the point's vertical (see ISceneGraph::findRoomFace),
@@ -1152,6 +1213,21 @@ private:
      * @return whether a wall stands along the walk
      */
     bool findWalkLineWall(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to, scene::Collision &outCollision) const;
+
+    /** A door or placeable wall a swept walker meets (see findStaticWallContact). */
+    struct StaticWallContact {
+        std::reference_wrapper<const Object> object;
+        graphics::Walkmesh::Contact contact;
+    };
+
+    /**
+     * The nearest wall, as it stands, of a door or placeable that the
+     * creature's personal space, swept along the level line between two
+     * points, meets between two heights. The contact's normal is in world
+     * coordinates.
+     */
+    std::optional<StaticWallContact> findStaticWallContact(
+        const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
 
     bool findCreatureCollision(
         const Creature &creature,

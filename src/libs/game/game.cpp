@@ -380,12 +380,13 @@ static bool isStationScreen(Game::Screen screen) {
 }
 
 // The screens that leave the world running: play, a conversation, the death
-// sequence and pazaak.
+// sequence, the turret, whose scripts are the module's, and pazaak.
 static bool runsWorld(Game::Screen screen) {
     switch (screen) {
     case Game::Screen::InGame:
     case Game::Screen::Conversation:
     case Game::Screen::Death:
+    case Game::Screen::Turret:
     case Game::Screen::PazaakWager:
     case Game::Screen::PazaakSetup:
     case Game::Screen::PazaakBoard:
@@ -1020,6 +1021,9 @@ void Game::initConsole() {
         registerConsoleCommand("startturretgame", "enter a turret module from the current one and auto-start the minigame", &Game::consoleStartTurretGame);
         registerConsoleCommand("stopturret", "exit the turret minigame", &Game::consoleStopTurret);
         registerConsoleCommand("turretstate", "print the current turret aim/health/enemy state", &Game::consoleTurretState);
+        registerConsoleCommand("finishturret", "deal the turret's remaining enemies, or that many, a hit that takes all their hit points", &Game::consoleFinishTurret);
+        registerConsoleCommand("turretaim", "aim the turret at a pitch and yaw in degrees", &Game::consoleTurretAim);
+        registerConsoleCommand("turretfire", "press the turret's trigger once", &Game::consoleTurretFire);
         registerConsoleCommand("showimgui", "open imgui demo", &Game::consoleShowImGui);
     }
 }
@@ -1048,11 +1052,13 @@ void Game::setSceneSurfaces() {
     auto walkable = _services.game.surfaces.getWalkableSurfaces();
     auto walkcheck = _services.game.surfaces.getWalkcheckSurfaces();
     auto lineOfSight = _services.game.surfaces.getLineOfSightSurfaces();
+    auto camera = _services.game.surfaces.getCameraSurfaces();
     for (auto &name : _services.scene.graphs.sceneNames()) {
         auto &scene = _services.scene.graphs.get(name);
         scene.setWalkableSurfaces(walkable);
         scene.setWalkcheckSurfaces(walkcheck);
         scene.setLineOfSightSurfaces(lineOfSight);
+        scene.setCameraSurfaces(camera);
     }
 }
 
@@ -1095,6 +1101,19 @@ bool Game::handle(const input::Event &event) {
     if (_playerInputBlocked && !_movie && event.type != input::EventType::KeyUp &&
         event.type != input::EventType::MouseButtonUp) {
         return true;
+    }
+    // The left button's state follows its every press and release, before any
+    // screen takes them.
+    if ((event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+        event.button.button == input::MouseButton::Left) {
+        _leftButtonHeld = event.type == input::EventType::MouseButtonDown;
+    }
+    // In KotOR the right button's every press and release starts and ends the
+    // mouse-look hold, whatever screen takes them.
+    if (!isTSL() &&
+        (event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+        event.button.button == input::MouseButton::Right) {
+        _mouseLookHeld = event.type == input::EventType::MouseButtonDown;
     }
     if (isCoolingDown(event)) {
         return true;
@@ -1269,6 +1288,7 @@ void Game::update(float frameTime) {
     static const std::set<int> kDuckedSoundGroups {kAreaWideAmbientSoundGroup, kLoopingPositionalAmbientSoundGroup};
     _services.audio.mixer.setDucked(isTSL() && isConversationActive(), kDuckedSoundGroups);
     syncPartyCombatMode();
+    syncEngineCameraMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
         // Each member's party combat mode follows its own targets. A door or
@@ -1318,20 +1338,9 @@ void Game::update(float frameTime) {
         }
     }
 
+    // The module's scripts end a turret fight.
     if (_turret.isActive() && !_paused) {
         _turret.update(dt);
-
-        // Non-blocking auto-finish: a lifecycle session ends as soon as the
-        // turret reaches a win or a loss and returns to the origin module. Plain
-        // dev sessions (no lifecycle) keep running so the dev stays in control.
-        if (_turretLifecycle.active && _turret.finished()) {
-            debug(str(boost::format("turret: auto-finish outcome=%s hp=%d/%d returning=%s")
-                      % turretOutcomeName(_turret.outcome())
-                      % _turret.hitPoints()
-                      % _turret.maxHitPoints()
-                      % _turretLifecycle.originModule));
-            finishTurretLifecycle(_turret.outcome());
-        }
     }
 
     if (_module && _module->area()) {
@@ -1376,6 +1385,9 @@ void Game::update(float frameTime) {
         };
         if (current()) {
             _combat.update(dt);
+        }
+        if (current()) {
+            _party.runFollowerScripts(dt);
         }
         // Projectiles in flight stand still while time is stopped.
         if (current() && !_timeStopped) {
@@ -1426,7 +1438,7 @@ void Game::update(float frameTime) {
         _module->runSpawnScriptsOutsideArea();
     }
 
-    if (_screen == Screen::SwoopRace || _screen == Screen::Turret) {
+    if (_screen == Screen::SwoopRace) {
         settleFadeArrival();
     }
 
@@ -1438,6 +1450,9 @@ void Game::update(float frameTime) {
     auto gui = getScreenGUI();
     if (gui) {
         gui->update(dt);
+    }
+    if ((_screen == Screen::Turret || _screen == Screen::SwoopRace) && _hud) {
+        _hud->updateMinigamePause(dt);
     }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
@@ -1595,7 +1610,9 @@ bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     }
     _pointer->setPressed(true);
     if (_movie) {
-        _movie->finish();
+        if (_movieSkippable) {
+            _movie->finish();
+        }
         return true;
     }
     return false;
@@ -1784,6 +1801,7 @@ void Game::endSourceSession(const std::string &destination) {
     }
     if (_turret.isActive()) {
         _turret.stop();
+        setPartyVisible(true);
         _cameraType = _savedCameraType;
     }
     if (_swoopLifecycle.active) {
@@ -1844,6 +1862,10 @@ void Game::publishDestinationModule(const std::string &name, const resource::Gff
         },
         [&]() noexcept {
             _module = std::move(destinationModule);
+            // A module starts with the camera on a stick.
+            _cameraMode = kOnAStickCameraMode;
+            _engineCameraMode = kOnAStickCameraMode;
+            _updatedCameraType.reset();
         });
 }
 
@@ -1999,6 +2021,9 @@ bool Game::loadPreparedModule(
                 _dialogUnderWay = false;
                 dropConversationRequest();
                 _conversationRequestAdmitted = false;
+                if (isTSL()) {
+                    _mouseLookHeld = false;
+                }
 
                 const auto &ifo = prepared.ifo;
                 ModuleLoadContext context = prepared.context;
@@ -2254,12 +2279,18 @@ void Game::retireRuntimeSession() {
     _loadComesWithMovies = false;
     _movie.reset();
     _musicResRef.clear();
+    _movieQueue.clear();
+    _queuedMoviesPlaying = std::queue<QueuedMovie>();
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
     }
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
+    _cameraMode = kOnAStickCameraMode;
+    _engineCameraMode = kOnAStickCameraMode;
+    _updatedCameraType.reset();
+    _followCameraZoom = 1.0f;
     _freeLook = false;
     disableVideoEffect();
     _scriptVideoEffectHeld = false;
@@ -3197,6 +3228,25 @@ void Game::playVideo(const std::string &name, bool streamingMusic) {
     startVideo(name, streamingMusic);
 }
 
+void Game::queueMovie(const std::string &name, bool skippable) {
+    const bool queued = std::any_of(_movieQueue.begin(), _movieQueue.end(), [&name](const auto &movie) {
+        return movie.name == name;
+    });
+    if (!queued) {
+        _movieQueue.push_back(QueuedMovie {name, skippable});
+    }
+}
+
+void Game::playMovieQueue() {
+    for (auto &movie : _movieQueue) {
+        _queuedMoviesPlaying.push(std::move(movie));
+    }
+    _movieQueue.clear();
+    if (!_movie) {
+        playNextMovie();
+    }
+}
+
 void Game::playMusic(const std::string &resRef) {
     if (_musicResRef == resRef) {
         return;
@@ -3608,10 +3658,17 @@ bool Game::handleFreeLookKey(const input::KeyEvent &event) {
     if (!_freeLook) {
         return false;
     }
+    // The turn keys only leave free-look; TSL's also end the party-target mode.
+    auto &keybinds = _options.game.activeKeybinds();
+    if (keybinds.cameraRotateLeft.check(event.code) || keybinds.cameraRotateRight.check(event.code)) {
+        if (isTSL()) {
+            cancelPartyItemTarget();
+        }
+        exitFreeLook();
+        return true;
+    }
     switch (event.code) {
     // Selection, the solo query and the menu keys only leave free-look.
-    case input::KeyCode::Q:
-    case input::KeyCode::E:
     case input::KeyCode::V:
     case input::KeyCode::Escape:
     case input::KeyCode::Return:
@@ -4686,6 +4743,40 @@ void Game::enableVideoEffect(int row) {
     _services.scene.graphs.get(kSceneMain).setVideoEffect(std::move(effect));
 }
 
+// A camera that changed earlier in the frame sets the engine's mode first,
+// so the script's mode outlasts it. TSL's dialog mode turns off the Force
+// Sight look until a video effect is next shown.
+void Game::setCameraMode(int mode) {
+    syncEngineCameraMode();
+    _cameraMode = mode;
+    if (isTSL() && mode == kDialogCameraMode) {
+        _services.scene.graphs.get(kSceneMain).clearForceSight();
+    }
+}
+
+// The follow camera is on a stick, or in combat; free look and the cameras of
+// conversations and cutscenes are modes of their own.
+void Game::syncEngineCameraMode() {
+    int mode = kOnAStickCameraMode;
+    switch (_cameraType) {
+    case CameraType::FirstPerson:
+        mode = kFreeLookCameraMode;
+        break;
+    case CameraType::ThirdPerson: {
+        auto *camera = _module && _module->area() ? dynamic_cast<ThirdPersonCamera *>(getActiveCamera()) : nullptr;
+        mode = camera && camera->isCombat() ? kCombatCameraMode : kOnAStickCameraMode;
+        break;
+    }
+    default:
+        mode = kDialogCameraMode;
+        break;
+    }
+    if (mode != _engineCameraMode) {
+        _engineCameraMode = mode;
+        _cameraMode = mode;
+    }
+}
+
 void Game::disableVideoEffect() {
     if (_videoEffectType == kNoVideoEffect) {
         return;
@@ -4812,6 +4903,9 @@ void Game::renderGUI() {
     } else if (gameplayHUD) {
         if (auto gui = getScreenGUI()) {
             gui->render();
+        }
+        if (_hud) {
+            _hud->renderMinigamePause();
         }
     }
     renderGlobalFade();
@@ -5216,6 +5310,11 @@ void Game::updateMusic(float frameTime) {
     _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, kMusicSoundGroup);
 }
 
+void Game::releaseInputOnModuleEntry() {
+    _leftButtonHeld = false;
+    _alternateActionsHeld = false;
+}
+
 void Game::loadNextModule() {
     std::string target(_nextModule);
 
@@ -5235,6 +5334,7 @@ void Game::loadNextModule() {
     }
     bool wasLifecycleActive = _swoopLifecycle.active || _turretLifecycle.active;
 
+    releaseInputOnModuleEntry();
     bool loaded = loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
@@ -5279,22 +5379,14 @@ void Game::loadNextModule() {
         return;
     }
     if (minigameType == MinigameType::Turret) {
-        openTurret();
-        if (_turret.isActive()) {
-            _turretLifecycle = MinigameLifecycle();
-            _turretLifecycle.active = true;
-            _turretLifecycle.haveOrigin = haveOrigin;
-            _turretLifecycle.originModule = originModule;
-            _turretLifecycle.originPosition = originPosition;
-            _turretLifecycle.originFacing = originFacing;
-            _turretLifecycle.forcedSuccess = true;
-            _pendingTurret = PendingTurretRequest();
-            debug(str(boost::format("turret: lifecycle start origin=%s target=%s hook=%s")
-                      % originModule % target
-                      % (pendingTurret ? "startturretgame" : "StartNewModule")));
-        } else if (pendingTurret) {
-            abandonPendingTurret("turret failed to start");
-        }
+        // The turret comes up as part of the arrival, once the module's load
+        // script has run (see startScheduledTurret).
+        _pendingTurret.active = true;
+        _pendingTurret.targetModule = target;
+        _pendingTurret.originModule = originModule;
+        _pendingTurret.originPosition = originPosition;
+        _pendingTurret.originFacing = originFacing;
+        _pendingTurret.haveOrigin = haveOrigin;
         return;
     }
     if (minigameType != MinigameType::SwoopRace) {
@@ -5331,6 +5423,12 @@ void Game::stopMovement() {
     _module->player().stopMovement();
 }
 
+void Game::resetDriveAcceleration() {
+    if (_module) {
+        _module->resetPlayerDrive();
+    }
+}
+
 void Game::scheduleModuleTransition(const std::string &moduleName, const std::string &entry) {
     _nextModule = moduleName;
     _nextEntry = entry;
@@ -5346,7 +5444,7 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
     }
 
     if (!_movie) {
-        playNextModuleTransitionMovie();
+        playNextMovie();
     }
 }
 
@@ -5356,6 +5454,7 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     if (!_movie) {
         return false;
     }
+    _movieSkippable = true;
     // A movie ends the area's music and ambient loop for good; one that
     // comes before arrival, as an enter script's, leaves the music to start
     // on arrival but no ambient loop. Every other sound waits for it, including
@@ -5366,7 +5465,15 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     return true;
 }
 
-bool Game::playNextModuleTransitionMovie() {
+bool Game::playNextMovie() {
+    while (!_queuedMoviesPlaying.empty()) {
+        QueuedMovie movie = std::move(_queuedMoviesPlaying.front());
+        _queuedMoviesPlaying.pop();
+        if (startVideo(movie.name, false)) {
+            _movieSkippable = movie.skippable;
+            return true;
+        }
+    }
     while (!_moduleTransitionMovies.empty()) {
         auto name = std::move(_moduleTransitionMovies.front());
         _moduleTransitionMovies.pop();
@@ -5389,7 +5496,7 @@ void Game::updateMovie(float dt) {
     if (_movie->isFinished()) {
         _movie.reset();
         _timingDiscontinuity = true;
-        playNextModuleTransitionMovie();
+        playNextMovie();
     }
 }
 
@@ -5436,11 +5543,31 @@ void Game::updateCamera(float dt) {
             }
         }
         break;
+    // A minigame looks through the first-person camera it drives, including
+    // after a conversation over it has taken a camera of its own.
+    case Screen::Turret:
+    case Screen::SwoopRace:
+        _cameraType = CameraType::FirstPerson;
+        break;
     default:
         break;
     }
     Camera *camera = getActiveCamera();
     if (camera) {
+        // Play moves the view's tilt limits each frame, while the leader is not
+        // down for the moment.
+        if (_screen == Screen::InGame) {
+            auto leader = _party.getLeader();
+            if (leader && !leader->isTemporarilyDead()) {
+                thirdPerson.updateTiltLimits(_leftButtonHeld, _module->player().steersBack(), dt);
+            }
+        }
+        // The follow camera is placed at its first update since another
+        // camera showed the scene, whatever was placed while it was away.
+        if (_cameraType == CameraType::ThirdPerson && _updatedCameraType != CameraType::ThirdPerson) {
+            thirdPerson.placeAtNextUpdate();
+        }
+        _updatedCameraType = _cameraType;
         // An animated camera's shot stands still while the world is held, the
         // player's pause included.
         camera->update(_cameraType == CameraType::Animated && holdsWorld() ? 0.0f : dt);
@@ -5453,6 +5580,11 @@ void Game::updateCamera(float dt) {
             listenerPosition += kThirdPersonListenerShare * (thirdPerson.targetPosition() - listenerPosition);
         }
         _services.audio.context.setListenerPosition(std::move(listenerPosition));
+        // The listener faces where the camera looks: down its local -Z, with
+        // its local +Y up.
+        const glm::mat4 &cameraTransform = camera->sceneNode()->absoluteTransform();
+        _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
+                                                       glm::normalize(glm::vec3(cameraTransform[1])));
     }
 }
 
@@ -6101,9 +6233,15 @@ void Game::setRelativeMouseMode(bool relative) {
 }
 
 // In play the cursor is also held while the mouse turns the camera, unless a
-// popup takes the input.
+// popup takes the input. A turret holds it for aiming whenever it is on
+// screen, a conversation over it having freed it or not; a popup over it frees
+// it until the popup closes.
 bool Game::relativeMouseMode() const {
-    return _relativeMouseMode || isMouseLooking();
+    const bool popup = _confirmPopup && _confirmPopup->isVisible();
+    if (_screen == Screen::Turret) {
+        return !popup;
+    }
+    return (_relativeMouseMode && !popup) || isMouseLooking();
 }
 
 bool Game::isMouseLooking() const {
@@ -7195,12 +7333,19 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
     return cone;
 }
 
-// Direct movement out of combat mode lets go of the target after half a second.
+// Driving out of combat mode lets go of the target after half a second of
+// world time.
 void Game::releaseTargetOnMove(float frameTime) {
-    // A deferred autopause holds the target too.
-    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
-        _module->isPlayerMoving()) {
-        _targetMoveTime += frameTime;
+    // While the leader is down for the moment, the count stands as it is.
+    auto leader = _party.getLeader();
+    if (leader && leader->isTemporarilyDead()) {
+        return;
+    }
+    // A deferred autopause holds the target too. World time stands still while
+    // paused and in a time stop.
+    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() &&
+        _module->player().driveSpeed() >= Player::kMovingDriveSpeed) {
+        _targetMoveTime += _paused || _timeStopped ? 0.0f : frameTime * _gameSpeed * _deathTimeScale;
         if (_targetMoveTime >= kTargetMoveSpeedTime) {
             _targetMoveTime = 0.0f;
             _lastTarget.reset();
@@ -7600,9 +7745,21 @@ void Game::updateHostileHilites(float dt) {
 
 // END Target presentation
 
+// A minigame outlives the menus and conversations that come up over it, so
+// closing one returns to the minigame rather than to the world behind it.
+Game::Screen Game::gameplayScreen() const {
+    if (_turret.isActive()) {
+        return Screen::Turret;
+    }
+    if (_swoopRace.isActive()) {
+        return Screen::SwoopRace;
+    }
+    return Screen::InGame;
+}
+
 void Game::openInGame() {
     _runtimeSessionPlayable = static_cast<bool>(_module);
-    changeScreen(Screen::InGame);
+    changeScreen(gameplayScreen());
 }
 
 namespace {
@@ -7983,8 +8140,10 @@ void Game::finishSwoopLifecycle(bool success) {
     closeSwoopRace();
 
     // Return to the originating module using its race-end waypoint when known.
-    // Otherwise restore the saved pre-race position.
+    // Otherwise restore the saved pre-race position. Like any module entry,
+    // the return lets go of the held input.
     const auto returnWaypoint = swoopReturnWaypoint(raceModule);
+    releaseInputOnModuleEntry();
     if (!returnWaypoint.empty()) {
         debug(str(boost::format("swoop: return waypoint=%s") % returnWaypoint));
         loadModule(session.originModule, returnWaypoint);
@@ -8105,16 +8264,12 @@ void Game::openTurret() {
     }
 
     _cameraType = CameraType::FirstPerson;
-    setRelativeMouseMode(true);
     changeScreen(Screen::Turret);
 
-    // Every started session is a lifecycle session, so a win or a loss is
-    // consumed the same way however the turret was entered. A session started
-    // in place - the startturret developer command, or any entry that did not
-    // come from a module transition - captures no origin; finishing one falls
-    // through to the authored return module when the turret area names one and
-    // otherwise leaves the player where they are. A transition-driven entry
-    // overwrites this in onModuleLoaded with the origin it captured.
+    // Every started session is a lifecycle session. A session started in
+    // place - the startturret developer command - captures no origin, and
+    // leaving it leaves the player where they are. A session started on
+    // arrival overwrites this with the origin the transition captured.
     _turretLifecycle = MinigameLifecycle();
     _turretLifecycle.active = true;
 
@@ -8130,47 +8285,51 @@ void Game::openTurret() {
     // visibility on exit.
     setPartyVisible(false);
 
-    debug(str(boost::format("turret: started track=%s anchor=%s models=%zu banks=%zu enemies=%zu hp=%d camfov=%.0f clip=[%.2f,%.0f]")
+    auto player = _turret.player();
+    debug(str(boost::format("turret: started track=%s anchor=%s models=%zu banks=%zu enemies=%zu obstacles=%zu hp=%d camfov=%.0f clip=[%.2f,%.0f]")
               % mg.player.trackResRef
               % _turret.anchorSource()
               % mg.player.models.size()
-              % _turret.gunBankCount()
-              % _turret.enemyCount()
-              % _turret.hitPoints()
+              % (player ? player->gunBanks.size() : 0)
+              % _turret.listedEnemies().size()
+              % _turret.listedObstacles().size()
+              % (player ? player->hitPoints : 0)
               % mg.cameraViewAngle
-              % mg.nearClip
-              % mg.farClip));
-    debug(str(boost::format("turret: hud gauge=%s radar=%s healthState=%d(%s) heading=%d contacts=%zu radarChannels=%zu alarm=%d")
-              % (_turret.haveHealthHud() ? "mgf_hud02" : "<missing>")
-              % (_turret.haveRadarHud() ? "mgf_hud01" : "<missing>")
-              % _turret.healthState()
-              % turretHealthAnimation(_turret.healthState())
-              % _turret.headingState()
-              % _turret.contactsLive()
-              % _turret.radarChannelCount()
-              % static_cast<int>(_turret.alarmActive())));
-    debug(str(boost::format("turret: camera mount=%s hook=%s eyeOffset=[%.3f,%.3f,%.3f] targetOffset=[%.1f,%.1f,%.1f] rotate=%d")
+              % _turret.nearClip()
+              % _turret.farClip()));
+    debug(str(boost::format("turret: camera mount=%s hook=%s eyeOffset=[%.3f,%.3f,%.3f] rotate=%d")
               % (mg.player.cameraResRef.empty() ? "<none>" : mg.player.cameraResRef)
               % (_turret.haveCameraHook() ? "camerahook" : "<missing>")
               % _turret.cameraHookOffset().x
               % _turret.cameraHookOffset().y
               % _turret.cameraHookOffset().z
-              % mg.player.targetOffset.x
-              % mg.player.targetOffset.y
-              % mg.player.targetOffset.z
               % static_cast<int>(mg.player.cameraRotate)));
-    debug(str(boost::format("turret: aim pitch=[%.1f,%.1f]%s yaw=[%.1f,%.1f]%s authoredStart=[%.1f,%.1f,%.1f] startPitch=%.1f startYaw=%.1f")
-              % glm::degrees(_turret.aim().minPitch())
-              % glm::degrees(_turret.aim().maxPitch())
-              % (_turret.aim().pitchBounded() ? "" : " (infinite)")
-              % glm::degrees(_turret.aim().minYaw())
-              % glm::degrees(_turret.aim().maxYaw())
-              % (_turret.aim().yawBounded() ? "" : " (infinite)")
-              % mg.player.startOffset.x
-              % mg.player.startOffset.y
-              % mg.player.startOffset.z
-              % glm::degrees(_turret.aim().startPitch())
-              % glm::degrees(_turret.aim().startYaw())));
+    const auto &aim = _turret.aim();
+    debug(str(boost::format("turret: aim offset=[%.1f,%.1f,%.1f] origin=[%.1f,%.1f,%.1f] tunnel=[%.1f,%.1f,%.1f]..[%.1f,%.1f,%.1f] infinite=[%.0f,%.0f,%.0f]")
+              % aim.offset().x % aim.offset().y % aim.offset().z
+              % aim.origin().x % aim.origin().y % aim.origin().z
+              % aim.tunnelNegative().x % aim.tunnelNegative().y % aim.tunnelNegative().z
+              % aim.tunnelPositive().x % aim.tunnelPositive().y % aim.tunnelPositive().z
+              % aim.tunnelInfinite().x % aim.tunnelInfinite().y % aim.tunnelInfinite().z));
+}
+
+void Game::startScheduledTurret() {
+    if (!_pendingTurret.active) {
+        return;
+    }
+    PendingTurretRequest request = _pendingTurret;
+    openTurret();
+    if (!_turret.isActive()) {
+        abandonPendingTurret("turret failed to start");
+        return;
+    }
+    _pendingTurret = PendingTurretRequest();
+    _turretLifecycle.haveOrigin = request.haveOrigin;
+    _turretLifecycle.originModule = request.originModule;
+    _turretLifecycle.originPosition = request.originPosition;
+    _turretLifecycle.originFacing = request.originFacing;
+    debug(str(boost::format("turret: lifecycle start origin=%s target=%s")
+              % request.originModule % request.targetModule));
 }
 
 void Game::closeTurret() {
@@ -8190,9 +8349,7 @@ void Game::exitTurret() {
     // Escape / stopturret entry point. If a lifecycle session is in progress,
     // return to the origin module; otherwise just stop the dev session in place.
     if (_turretLifecycle.active) {
-        // A session abandoned mid-run is still InProgress; it returns to the
-        // origin but is neither a win nor a loss.
-        finishTurretLifecycle(_turret.outcome());
+        finishTurretLifecycle();
     } else if (_pendingTurret.active) {
         // Scheduled but never started: drop the request rather than leaving it
         // to fire on a later transition into the same module.
@@ -8209,6 +8366,7 @@ void Game::returnToLifecycleOrigin(const std::string &module,
     if (module.empty()) {
         return;
     }
+    releaseInputOnModuleEntry();
     loadModule(module);
     if (!haveOrigin) {
         return;
@@ -8241,61 +8399,29 @@ void Game::abandonPendingTurret(const std::string &reason) {
                             request.originFacing);
 }
 
-void Game::finishTurretLifecycle(Turret::Outcome outcome) {
+void Game::finishTurretLifecycle() {
     // Repeated calls are no-ops: the session is cleared below before anything
-    // else runs, so neither the return nor the completion state can be emitted
-    // twice for one session.
+    // else runs, so the return cannot be scheduled twice for one session.
     if (!_turretLifecycle.active) {
         return;
     }
     // Capture and clear the session first so the upcoming module load does not
-    // re-enter this path. The current module (before returning) is the turret
-    // module, which selects the return contract.
+    // re-enter this path.
     MinigameLifecycle session = _turretLifecycle;
     _turretLifecycle = MinigameLifecycle();
-    std::string turretModule = _module ? _module->name() : "";
 
     closeTurret();
 
-    // Use the turret end-script destination when known; otherwise return
-    // to the module where the session started.
-    std::string returnModule = game::turretReturnModule(turretModule, session.originModule);
-    if (returnModule.empty()) {
-        // Nothing authored and nothing captured: stay put rather than schedule
-        // a transition to an empty module name.
-        debug("turret: no return module, staying put");
-        applyTurretResult(turretModule, outcome);
+    // Without a captured origin there is nowhere to go back to.
+    if (session.originModule.empty()) {
+        debug("turret: no origin module, staying put");
         return;
     }
-    bool returningToOrigin = boost::iequals(returnModule, session.originModule);
-    returnToLifecycleOrigin(returnModule,
-                            returningToOrigin && session.haveOrigin,
+    returnToLifecycleOrigin(session.originModule,
+                            session.haveOrigin,
                             session.originPosition,
                             session.originFacing);
-
-    applyTurretResult(turretModule, outcome);
-
-    debug(str(boost::format("turret: finished outcome=%s returning=%s")
-              % turretOutcomeName(outcome)
-              % returnModule));
-}
-
-void Game::applyTurretResult(const std::string &turretModule, Turret::Outcome outcome) {
-    // A victory in M12ab clears the remaining-fighters count and marks the turret
-    // sequence complete. Defeat or abandonment leaves the sequence outstanding.
-    if (!boost::iequals(turretModule, "m12ab")) {
-        return;
-    }
-    if (!turretSessionSucceeded(outcome)) {
-        _console.printLine(str(boost::format(
-            "turret: result module=m12ab outcome=%s (no completion state written)")
-            % turretOutcomeName(outcome)));
-        return;
-    }
-    setGlobalNumber("ebo_num_fighters", 0);
-    setGlobalBoolean("ebo_turret_done", true);
-    _console.printLine(
-        "turret: result module=m12ab outcome=won ebo_turret_done=1 ebo_num_fighters=0");
+    debug(str(boost::format("turret: finished returning=%s") % session.originModule));
 }
 
 /**
@@ -9644,11 +9770,21 @@ std::shared_ptr<Creature> Game::getConsoleLeader() {
 }
 
 // An unknown code is rejected, since an item without a template arrives blank.
+// So is a size the base item does not stack to, since an item stores its size
+// unchecked.
 void Game::addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize) {
     if (!_services.resource.gffs.get(resRef, ResType::Uti)) {
         throw std::runtime_error("Unknown item: " + resRef);
     }
-    _party.sharedInventoryReceiver(receiver)->addItem(resRef, stackSize);
+    auto item = newItemFromBlueprint(resRef);
+    const int maxStackSize = item->maxStackSize();
+    if (stackSize < 1 || stackSize > maxStackSize) {
+        destroyRuntimeObjectGraph(item);
+        throw std::runtime_error(str(boost::format("Stack size must be from 1 to %d") % maxStackSize));
+    }
+    item->setStackSize(stackSize);
+    item->setDropable(true);
+    _party.sharedInventoryReceiver(receiver)->addItem(item);
 }
 
 std::shared_ptr<Area> Game::getConsoleArea() {
@@ -11154,6 +11290,47 @@ void Game::consoleStartTurretGame(const ConsoleArgs &args) {
                            % originModule % target));
 }
 
+void Game::consoleFinishTurret(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1, "[count]");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    // Each is hit as a bolt would hit it, through its own damage and death
+    // scripts.
+    auto enemies = _turret.listedEnemies();
+    size_t count = static_cast<size_t>(args.get<int>(1).value_or(static_cast<int>(enemies.size())));
+    size_t struck = 0;
+    for (auto enemy : enemies) {
+        if (struck == count) {
+            break;
+        }
+        _turret.adjustHitPoints(*enemy, -enemy->hitPoints);
+        ++struck;
+    }
+    _console.printLine(str(boost::format("turret: struck %zu of %zu enemies") % struck % enemies.size()));
+}
+
+void Game::consoleTurretAim(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "pitch yaw");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    auto &aim = _turret.aim();
+    aim.setOffset(glm::vec3(args.get<float>(1).value(), aim.offset().y, args.get<float>(2).value()));
+    _console.printLine(str(boost::format("turret: aim pitch=%.1f yaw=%.1f") % aim.offset().x % aim.offset().z));
+}
+
+void Game::consoleTurretFire(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    _turret.pullTrigger();
+}
+
 void Game::consoleStopTurret(const ConsoleArgs &args) {
     // If a lifecycle session is active, return to origin safely; otherwise stop
     // in place.
@@ -11166,38 +11343,20 @@ void Game::consoleTurretState(const ConsoleArgs &args) {
         return;
     }
     glm::vec3 pos = _turret.position();
-    const char *outcome = "in-progress";
-    switch (_turret.outcome()) {
-    case Turret::Outcome::Won:
-        outcome = "won";
-        break;
-    case Turret::Outcome::Lost:
-        outcome = "lost";
-        break;
-    default:
-        break;
-    }
-    _console.printLine(str(boost::format("turret: pitch=%.1f yaw=%.1f hp=%d/%d enemies=%zu/%zu bullets=%zu elapsed=%.1f pos=[%.1f,%.1f,%.1f] outcome=%s")
-                           % glm::degrees(_turret.aim().pitch())
-                           % glm::degrees(_turret.aim().yaw())
-                           % _turret.hitPoints()
-                           % _turret.maxHitPoints()
-                           % _turret.enemiesAlive()
-                           % _turret.enemyCount()
+    auto player = _turret.player();
+    _console.printLine(str(boost::format("turret: offset=[%.1f,%.1f,%.1f] hp=%d/%d enemies=%zu obstacles=%zu bullets=%zu elapsed=%.1f pos=[%.1f,%.1f,%.1f] speed=%.0f track=%s")
+                           % _turret.aim().offset().x
+                           % _turret.aim().offset().y
+                           % _turret.aim().offset().z
+                           % (player ? player->hitPoints : 0)
+                           % (player ? player->maxHitPoints : 0)
+                           % _turret.listedEnemies().size()
+                           % _turret.listedObstacles().size()
                            % _turret.bulletCount()
                            % _turret.elapsed()
                            % pos.x % pos.y % pos.z
-                           % outcome));
-    _console.printLine(str(boost::format("  hud: health=%d(%s) heading=%d alarm=%d contacts=%zu/%zu gauge=%d radar=%d radarChannels=%zu")
-                           % _turret.healthState()
-                           % turretHealthAnimation(_turret.healthState())
-                           % _turret.headingState()
-                           % static_cast<int>(_turret.alarmActive())
-                           % _turret.contactsLive()
-                           % kTurretContactCount
-                           % static_cast<int>(_turret.haveHealthHud())
-                           % static_cast<int>(_turret.haveRadarHud())
-                           % _turret.radarChannelCount()));
+                           % _turret.speed()
+                           % (_turret.trackPlaying() ? "playing" : "stopped")));
 }
 
 void Game::consoleShowImGui(const ConsoleArgs &args) {

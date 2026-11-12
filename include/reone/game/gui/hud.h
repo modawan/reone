@@ -56,6 +56,14 @@ public:
     void update(float dt) override;
     void render() override;
     void renderModal();
+
+    /**
+     * A minigame shows play's pause indicator, centred on the screen, and none
+     * of the rest of the interface. In TSL the indicator's prompt names the
+     * minigame's resume.
+     */
+    void updateMinigamePause(float dt) { updatePausePanel(dt); }
+    void renderMinigamePause();
     /** Click the pause, solo and stealth toggles like checkboxes; an action slot sounds its own outcome. */
     void onClick(const std::string &control) override;
 
@@ -200,6 +208,9 @@ private:
     PauseControls _pauseControls;
     /** The pause reason the indicator is laid out for; none while it is hidden. */
     std::optional<PauseReason> _pauseLayoutReason;
+    /** What the indicator was laid out for: play (0), a swoop race (1) or another minigame (2). */
+    int _pauseLayoutPlace {0};
+    int pausePlace() const;
 
     SelectionOverlay _select;
     ActionBar _actionBar;

@@ -112,10 +112,12 @@ public:
     /** PT_TUT_WND_SHOWN holds one bit per tutorial window: six bytes in KotOR, 33 in TSL. */
     static constexpr size_t kK1TutorialShownBytes = 6;
     static constexpr size_t kTutorialShownBytes = 33;
-    // Forfeit conditions: no Force powers, no items, no item but a shield.
+    /** The combat-mode line shown while the player drives the leader. */
+    static constexpr int kMovingCombatMessage = 42476;
     /** The combat-mode line shown while the leader moves to attack its target. */
     static constexpr int kMovingToAttackCombatMessage = 42477;
 
+    // Forfeit conditions: no Force powers, no items, no item but a shield.
     static constexpr int kForfeitNoForcePowers = 1;
     static constexpr int kForfeitNoItems = 2;
     static constexpr int kForfeitNoItemButShield = 128;
@@ -191,7 +193,7 @@ public:
     void retireRuntimeSession();
 
     void clear();
-    /** The next member takes the lead; the one leading goes to the back. */
+    /** The next member takes the lead; the one leading goes to the back. A new leader's drive starts at rest. */
     void switchLeader(bool sound = true);
     /**
      * Rotate the lead, up to three times, to the next member neither dead nor
@@ -237,6 +239,10 @@ public:
     /** The party-wide AI style scripts set and read. */
     int aiStyle() const { return _persistedState.aiState; }
     void setAIStyle(int style) { _persistedState.aiState = style; }
+    /** Whether the party's map is disabled (TSL). */
+    bool isMapDisabled() const { return _persistedState.mapDisabled; }
+    /** Disables or enables the party's map (TSL). */
+    void setMapDisabled(bool disabled) { _persistedState.mapDisabled = disabled; }
     bool isHealthRegenerationDisabled() const { return _persistedState.regenerationDisabled; }
     void setHealthRegenerationDisabled(bool disabled) { _persistedState.regenerationDisabled = disabled; }
     bool isTutorialShown(int id) const { return _persistedState.tutorialsShown.count(id) != 0; }
@@ -753,6 +759,14 @@ public:
      */
     void updateFollowPath();
     /**
+     * The party's follower scripts over \p dt seconds of world time. A
+     * follower at least the PartyEscape range from the leader runs
+     * k_hen_retreat once that range's seconds have passed since a follower
+     * last did; one that leaves 5 m of the leader runs k_hen_exit5m, and one
+     * that comes within it k_hen_enter5m.
+     */
+    void runFollowerScripts(float dt);
+    /**
      * The way a following member faces: where it last moved, or the leader
      * it turned to. Its model turns to it, and the party turning back is
      * noticed from it.
@@ -777,6 +791,8 @@ public:
     std::optional<glm::vec2> forceFollowOffset(const Creature &member) const;
     /** The point \p offset gives from the follow anchor, turned to the anchor's facing. */
     glm::vec3 followAnchorPoint(const glm::vec2 &offset) const;
+    /** The offset from the follow anchor that gives \p point (see followAnchorPoint). */
+    glm::vec2 followAnchorOffset(const glm::vec3 &point) const;
 
     // END Follow path
 
@@ -852,6 +868,8 @@ private:
     /** The point ordered follows of party members are taken from, and its facing. */
     glm::vec3 _followAnchor {0.0f};
     float _followAnchorFacing {0.0f};
+    /** Seconds of world time since a follower last ran k_hen_retreat, up to the retreat interval. */
+    float _retreatScriptTimer {0.0f};
 
     // END Follow path
 
@@ -901,6 +919,8 @@ private:
 
     void saveLeaderAttackTarget();
     void onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound = true);
+    /** The player's change of leader: a leader other than \p previous starts with its drive at rest. */
+    void restNewLeaderDrive(const std::shared_ptr<Creature> &previous);
     void playLeaderSelectSound();
 
     void resetFollowSlots();

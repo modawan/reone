@@ -102,13 +102,16 @@ public:
     /**
      * Whether a point is inside the trigger: for a trap, within the trap
      * radius of its position in three dimensions; otherwise inside its
-     * outline on the ground plane.
+     * outline on the ground plane, and where floors lie over others (see
+     * Area::hasStackedFloors), at the level of the trigger's position (see
+     * Area::isAtLevelOf).
      */
     bool isIn(const glm::vec3 &point) const;
     /**
      * Whether the step from \p from to \p to crosses the trigger's edge: for a
      * trap, the surface of its radius; otherwise its outline on the ground
-     * plane.
+     * plane, and where floors lie over others, with one end at the level of
+     * the trigger's position.
      */
     bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
@@ -300,6 +303,8 @@ private:
     void setTrapCreator(const std::shared_ptr<Object> &creator);
     /** The reach of a trap around its position: ranges.2da's trap row, or a metre without one. */
     float trapRadius() const;
+    /** Whether a point stands at the level of the trigger's position (see Area::isAtLevelOf); every point does outside an area. */
+    bool isAtLevel(const glm::vec3 &point) const;
     /**
      * Set the mine off on the entering creature, when there is one. Whatever
      * happens, the mine then goes with its explosion when it is removed.

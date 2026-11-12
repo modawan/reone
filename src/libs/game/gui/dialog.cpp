@@ -761,10 +761,11 @@ bool DialogGUI::applyCutAnimation(const std::string &participant, const CutAnima
             return false;
         }
         // The clip plays where the participant stands, or at the world origin
-        // when its ID says so, whatever the conversation.
+        // when its ID says so, whatever the conversation, and at the scale
+        // the stunt model's own chain gives it.
         AnimationProperties properties;
         properties.flags = AnimationFlags::propagate | (cut.looping ? AnimationFlags::loop : 0);
-        properties.scale = 1.0f;
+        properties.scale = stunt.model->animationScaleFor(*animation);
         return stuntCreature->playExternalAnimation(animation, std::move(properties), AnimationSource {cut.id, true});
     }
 

@@ -450,7 +450,7 @@ void VisualEffect::updateMotionBlurProgram(Object &object) {
         game.addMotionBlurProgram(true);
         _motionBlurApplied = true;
     }
-    const float speed = creature->driveSpeed() / creature->driveMaxSpeed();
+    const float speed = creature->driveSpeed() / creature->driveTopSpeed();
     game.setSpeedBlurRatio(speed > 1.0f ? kMotionBlurRatio : kMotionBlurRatio * speed);
 }
 

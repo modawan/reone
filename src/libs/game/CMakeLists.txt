@@ -29,6 +29,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/closedoor.h
     ${GAME_INCLUDE_DIR}/action/docommand.h
     ${GAME_INCLUDE_DIR}/action/doorsaber.h
+    ${GAME_INCLUDE_DIR}/action/drive.h
     ${GAME_INCLUDE_DIR}/action/equipitem.h
     ${GAME_INCLUDE_DIR}/action/follow.h
     ${GAME_INCLUDE_DIR}/action/followleader.h
@@ -326,6 +327,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/object/door.h
     ${GAME_INCLUDE_DIR}/object/encounter.h
     ${GAME_INCLUDE_DIR}/object/item.h
+    ${GAME_INCLUDE_DIR}/object/minigameobject.h
     ${GAME_INCLUDE_DIR}/object/module.h
     ${GAME_INCLUDE_DIR}/object/placeable.h
     ${GAME_INCLUDE_DIR}/object/sound.h

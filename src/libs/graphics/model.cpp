@@ -44,6 +44,12 @@ Model::Model(
         fillLookups(_rootNode);
     }
     computeAABB();
+    for (auto &node : _nodeByNumber) {
+        if (node.second->isAABBMesh()) {
+            _aabbNode = node.second;
+            break;
+        }
+    }
 
     for (auto &anim : animations) {
         _animations[anim->name()] = anim;
@@ -96,14 +102,6 @@ std::shared_ptr<ModelNode> Model::getNodeByNameRecursive(const std::string &name
     }
 }
 
-std::shared_ptr<ModelNode> Model::getAABBNode() const {
-    for (auto &node : _nodeByNumber) {
-        if (node.second->isAABBMesh())
-            return node.second;
-    }
-    return nullptr;
-}
-
 std::vector<std::string> Model::getAnimationNames() const {
     std::vector<std::string> result;
 
@@ -120,8 +118,9 @@ std::vector<std::string> Model::getAnimationNames() const {
     return result;
 }
 
+// Animation names are read in lower case and looked up without regard to case.
 std::shared_ptr<Animation> Model::getAnimation(const std::string &name) const {
-    auto maybeAnim = _animations.find(name);
+    auto maybeAnim = _animations.find(boost::to_lower_copy(name));
     if (maybeAnim != _animations.end())
         return maybeAnim->second;
 
@@ -131,6 +130,19 @@ std::shared_ptr<Animation> Model::getAnimation(const std::string &name) const {
     }
 
     return anim;
+}
+
+float Model::animationScaleFor(const Animation &animation) const {
+    float scale = 1.0f;
+    const Model *model = this;
+    for (;;) {
+        auto owned = model->_animations.find(animation.name());
+        if (owned != model->_animations.end() && owned->second.get() == &animation) {
+            return scale;
+        }
+        scale *= model->_animationScale;
+        model = model->_superModel.get();
+    }
 }
 
 } // namespace graphics

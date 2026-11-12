@@ -55,6 +55,7 @@ class SaveWorkingState;
 
 namespace scene {
 class SceneNode;
+class WalkmeshSceneNode;
 }
 
 namespace game {
@@ -245,6 +246,7 @@ public:
     MOCK_METHOD(std::set<uint32_t>, getWalkableSurfaces, (), (const override));
     MOCK_METHOD(std::set<uint32_t>, getWalkcheckSurfaces, (), (const override));
     MOCK_METHOD(std::set<uint32_t>, getLineOfSightSurfaces, (), (const override));
+    MOCK_METHOD(std::set<uint32_t>, getCameraSurfaces, (), (const override));
 };
 
 class MockProjectiles : public IProjectiles, boost::noncopyable {
@@ -431,6 +433,7 @@ public:
     // Stand in for a save record that reports the creature as already spawned.
     static void markSpawnScriptFired(Creature &creature);
     static void setSnapshotDoorState(Door &door, DoorState state);
+    static void setDoorClosedWalkmesh(Door &door, std::shared_ptr<scene::WalkmeshSceneNode> walkmesh);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
     static void configureSnapshotCamera(

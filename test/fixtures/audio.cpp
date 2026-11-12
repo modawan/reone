@@ -30,6 +30,14 @@ MockMp3ReaderFactory::~MockMp3ReaderFactory() = default;
 MockContext::MockContext() = default;
 MockContext::~MockContext() = default;
 
+void useNullAudioBackend() {
+#ifdef _WIN32
+    _putenv_s("ALSOFT_DRIVERS", "null");
+#else
+    setenv("ALSOFT_DRIVERS", "null", 1);
+#endif
+}
+
 MockAudioMixer::MockAudioMixer() = default;
 MockAudioMixer::~MockAudioMixer() = default;
 

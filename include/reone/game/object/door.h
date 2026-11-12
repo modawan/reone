@@ -208,7 +208,11 @@ public:
     const resource::LocString &transitionDestination() const { return _transitionDestin; }
     /** The bounds of the door's closed walkmesh across the ground, as four points in its own frame; none without one. */
     const std::vector<glm::vec3> &outline() const { return _outline; }
-    /** Whether \p point stands within the door's outline, the bounds of its closed walkmesh, across the ground. */
+    /**
+     * Whether \p point stands within the door's outline, the bounds of its
+     * closed walkmesh, across the ground, and where floors lie over others,
+     * at the level of the door's position (see Area::isAtLevelOf).
+     */
     bool isInOutline(const glm::vec3 &point) const;
     /**
      * Notes whether \p creature stands within the door's outline. When
@@ -405,6 +409,13 @@ private:
     /** A one-shot a script set gives way, once it ends, to the loop the door showed before. */
     void updateStateAnimation();
     void enableStateWalkmeshes();
+    /**
+     * Lets a camera through the door unless the state it is in or swinging to
+     * is closed and its type shows a model.
+     */
+    void updateCameraPassage();
+    /** Whether the door's type shows a model: doortypes.2da's visiblemodel, for a door with an appearance. */
+    bool typeShowsModel() const;
     /** Swings this door alone open to the side the opening names; a door without a visible model stays destroyed. */
     void swingOpen(DoorTransition opening);
     /** Swings this door alone shut; a door without a visible model stays destroyed. */

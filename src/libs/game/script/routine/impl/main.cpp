@@ -45,7 +45,6 @@
 #include "reone/game/event.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
-#include "reone/game/menupresentation.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
@@ -5523,13 +5522,15 @@ static Variable CutsceneAttack(const std::vector<Variable> &args, const RoutineC
 
 static Variable SetCameraMode(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oPlayer = getObject(args, 0, ctx);
+    auto oPlayer = getObjectOrNull(args, 0, ctx);
     auto nCameraMode = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetCameraMode");
+    // The mode reaches the player only when the object is the controlled one.
+    if (oPlayer && oPlayer == ctx.game.party().getLeader()) {
+        ctx.game.setCameraMode(nCameraMode);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetLockOrientationInDialog(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6962,6 +6963,7 @@ static Variable PlayMovie(const std::vector<Variable> &args, const RoutineContex
     auto movie = boost::to_lower_copy(sMovie);
 
     // Execute
+    ctx.game.resetDriveAcceleration();
     ctx.game.playVideo(movie, nStreamingMusic != 0);
     return Variable::ofNull();
 }
@@ -7050,7 +7052,8 @@ static Variable PlayRoomAnimation(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("PlayRoomAnimation");
+    ctx.game.module()->area()->playRoomAnimation(sRoom, nAnimation);
+    return Variable::ofNull();
 }
 
 static Variable ShowGalaxyMap(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7172,10 +7175,6 @@ static Variable ResetDialogState(const std::vector<Variable> &args, const Routin
     ctx.game.setDialogUnderWay(false);
     return Variable::ofNull();
 }
-
-// The good/evil value runs from 0, the dark side, to 100, the light side.
-static constexpr int kMinGoodEvil = 0;
-static constexpr int kMaxGoodEvil = 100;
 
 static Variable SetGoodEvilValue(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
@@ -7707,19 +7706,19 @@ static Variable QueueMovie(const std::vector<Variable> &args, const RoutineConte
     auto nSkippable = getIntOrElse(args, 1, 1);
 
     // Transform
+    auto movie = boost::to_lower_copy(sMovie);
 
     // Execute
-    throw RoutineNotImplementedException("QueueMovie");
+    ctx.game.queueMovie(movie, nSkippable != 0);
+    return Variable::ofNull();
 }
 
 static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
-    auto nAllowSkips = getIntOrElse(args, 0, 1);
-
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("PlayMovieQueue");
+    // Each queued movie keeps the skip setting it was queued with, whatever
+    // nAllowSkips says.
+    ctx.game.playMovieQueue();
+    return Variable::ofNull();
 }
 
 static Variable YavinHackDoorClose(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -8163,10 +8162,10 @@ static Variable DisableMap(const std::vector<Variable> &args, const RoutineConte
     // Load
     auto nFlag = getIntOrElse(args, 0, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("DisableMap");
+    // Any flag but 0 disables the party's map.
+    ctx.game.party().setMapDisabled(nFlag != 0);
+    return Variable::ofNull();
 }
 
 static Variable DetonateMine(const std::vector<Variable> &args, const RoutineContext &ctx) {

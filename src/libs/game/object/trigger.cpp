@@ -315,13 +315,13 @@ void Trigger::initMine(
         _locName = LocString(*nameStrRef, "", _services.resource.strings);
         _name = _locName.str();
     }
-    // A square four metres across, each corner on the ground beneath it, or
-    // level with the mine where there is no room or the ground is at height
-    // zero.
+    // A square four metres across, each corner on the ground beneath it (found
+    // from Area::roomLookupHeight of the mine's height), or level with the mine
+    // where there is no room or the ground is at height zero.
     _position = position;
     auto corner = [&](float x, float y) {
         glm::vec3 point {x, y, 0.0f};
-        const float ground = area.groundHeight(glm::vec3(position.x + x, position.y + y, 0.0f), Area::GroundFace::Locating);
+        const float ground = area.groundHeight(glm::vec3(position.x + x, position.y + y, area.roomLookupHeight(position.z)), Area::GroundFace::Locating);
         if (ground != 0.0f) {
             point.z = ground - position.z;
         }
@@ -633,14 +633,20 @@ bool Trigger::isIn(const glm::vec3 &point) const {
         return glm::dot(offset, offset) <= radius * radius;
     }
     auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
-    return sceneNode && sceneNode->isIn(glm::vec2(point));
+    return sceneNode && sceneNode->isIn(glm::vec2(point)) && isAtLevel(point);
 }
 
 bool Trigger::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
     if (_isTrap) {
         return shape::crossesSphere(from, to, _position, trapRadius());
     }
-    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry);
+    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry) &&
+           (isAtLevel(from) || isAtLevel(to));
+}
+
+bool Trigger::isAtLevel(const glm::vec3 &point) const {
+    const auto area = spatialArea();
+    return !area || area->get().isAtLevelOf(point, _position.z);
 }
 
 float Trigger::trapRadius() const {

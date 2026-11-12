@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -878,8 +878,10 @@ public:
      * A walk heading for \p goal ends where this creature stands: \p goal is
      * a trigger that is not a mine, or a linked door, already within use
      * range.
+     *
+     * @param pathOffset the walk's, passed to isLinkedDoorInReach()
      */
-    bool isWalkGoalInReach(const Object &goal) const;
+    bool isWalkGoalInReach(const Object &goal, std::optional<float> pathOffset = std::nullopt) const;
     /**
      * Enough experience for the next level by the experience table, below the
      * title's maximum, neither dead nor downed.
@@ -938,10 +940,25 @@ public:
     uint16_t portraitId() const { return _portraitId; }
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
     float walkSpeed() const;
-    /** The speed the player drives this creature at, and its appearance's limit. */
-    float driveSpeed() const { return _driveSpeed; }
-    float driveMaxSpeed() const { return _driveMaxSpeed; }
-    void setDriveSpeed(float speed) { _driveSpeed = speed; }
+    /** Whether the player drives this creature: a drive heads its queue. */
+    bool isDriven() const;
+    /** The speed the player drives this creature at, 0 while it is not driven. */
+    float driveSpeed() const;
+    /**
+     * The top speed the player drives this creature at when not sneaking: its
+     * appearance's top driving speed times its movement rate factor.
+     */
+    float driveTopSpeed() const;
+    /** The drive speed at which the walk clip keeps pace with the ground; also the top speed of a sneaking drive. */
+    float driveWalkClipSpeed() const { return _stealthWalkSpeed; }
+    /**
+     * Whether the player's drive shows the run clip: its speed, held to the
+     * walk clip's pace while sneaking, is beyond six tenths of the drive's top
+     * speed.
+     */
+    bool drivesAtRun() const;
+    /** How fast the player's driving gathers speed, metres a second each second at a standstill. */
+    float driveAcceleration() const;
     /**
      * Whether the creature last moved at a run under the player's direct
      * control. Running under an action or its AI does not count, and the
@@ -1007,6 +1024,14 @@ public:
      * controlled leader at rest is not driven to its rest pose.
      */
     void setEngagedExchange(bool engaged) { _engagedExchange = engaged; }
+    /**
+     * The creature is busy and not driven: it is in an engaged exchange, has
+     * actions pending other than the player's drive, or plays a dialog
+     * animation.
+     */
+    bool isDriveBlocked() const {
+        return _engagedExchange || (hasOrdinaryActionsPending() && !isDriven()) || isPlayingDialogAnimation();
+    }
 
     // Facing
 
@@ -1237,6 +1262,13 @@ public:
     void setPuppet(bool puppet) { _puppet = puppet; }
     void setCurrentForm(CombatForm form) { _currentForm = form; }
     bool isStealthed() const { return _stealthMode; }
+    /**
+     * Whether the creature, following the party's leader, was within 5 m of
+     * it at the party's last tick (see Party::runFollowerScripts). It starts
+     * clear as the creature joins, and saves keep it.
+     */
+    bool isWithinSafetyRange() const { return _withinSafetyRange; }
+    void setWithinSafetyRange(bool within) { _withinSafetyRange = within; }
     /**
      * Enters or leaves stealth, with its presentation. In KotOR the creature
      * also plays its activate clip, unless \p quiet: stealth ended by
@@ -1719,13 +1751,23 @@ public:
      * belongs to the action that sets it out; another action, even toward the
      * same target, sets out afresh. A walk to a door or placeable sets out
      * for the use point and range of that moment and keeps them until it
-     * ends, unless \p followsPoint lets it take them anew once.
+     * ends, unless \p followsPoint lets it take them anew once. A placeable
+     * whose use point no path reaches is walked to the ground beside it, as
+     * walkablePointBeside() finds it, and counts as within use range there.
      *
      * @param targetsPath whether a planned path is recorded as heading for the target
      * @param inClearLine passed to walkToward()
      */
     bool navigateToUse(const Object &target, float extra, float dt, bool run = true, bool followsPoint = false, bool targetsPath = true,
                        bool toGoal = true, float walkExtra = 0.0f, bool inClearLine = false);
+    /**
+     * The walkable point within two metres of \p point, a use point of
+     * \p target that no path from this creature reaches, with a clear line to
+     * it at eye height: of the nearest ring of such points, a quarter of a
+     * metre apart, the one nearest the creature. Nothing when a path reaches
+     * the point, when there is no walkmesh or when the creature is off it.
+     */
+    std::optional<glm::vec3> walkablePointBeside(const Object &target, const glm::vec3 &point) const;
     void clearPath();
     void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);
     glm::vec3 computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt);
@@ -2467,6 +2509,8 @@ public:
     void clearFuryState();
     /** In TSL a running Fury adds a point of damage, up to six. */
     void incrementFuryDamageBonus();
+    /** The party follow slot, 1 or 2, or -1 outside them. */
+    int followSlot() const;
 
 protected:
     bool canExecuteActions() const override;
@@ -2804,11 +2848,13 @@ private:
     bool _walksOntoPoint {false};
     /**
      * The walk of navigateToUse under way: the queued action walking it and,
-     * toward a door or placeable, the use point and range it keeps.
+     * toward a door or placeable, the use point and range it keeps; toward a
+     * placeable whose use point no path reaches, the ground beside it.
      */
     struct UseWalk {
         std::weak_ptr<ActionQueueNode> walker;
         std::optional<UseApproach> kept;
+        std::optional<glm::vec3> beside;
     };
     std::optional<UseWalk> _useWalk;
     RuntimeObjectRef<Object> _attemptedMovementTarget;
@@ -2837,10 +2883,14 @@ private:
     /** How far one loop of the walk and run animations carries the appearance. */
     float _walkDistance {1.0f};
     float _runDistance {1.0f};
-    /** The appearance's own sneaking pace. */
+    /** The appearance's own sneaking pace, at which its walk clip keeps pace with the driven creature. */
     float _stealthWalkSpeed {0.0f};
-    float _driveSpeed {0.0f};
+    /** The drive speed at which the appearance's run clip keeps pace with the ground. */
+    float _driveRunClipSpeed {0.0f};
+    /** The appearance's top driving speed. */
     float _driveMaxSpeed {0.0f};
+    /** The appearance's driving acceleration. */
+    float _driveAcceleration {0.0f};
     bool _running {false};
     float _personalSpace {0.6f};
     float _creaturePersonalSpace {0.6f};
@@ -2893,6 +2943,7 @@ private:
     /** The kind of the round action most recently dispatched. */
     int _roundActionKind {0};
     bool _stealthMode {false};
+    bool _withinSafetyRange {false};
     bool _treatInjuryWorkDone {false};
     bool _conversationPaused {false};
     /** Milliseconds of excitement left, counted down by the frame time; 0 when not excited. */
@@ -3137,10 +3188,14 @@ private:
      * door, ends within use range of it: the trigger or an open door hears a
      * click by the creature, and at a closed door the creature runs its
      * blocked script.
+     *
+     * @param pathOffset passed to useRange()
      */
-    bool reachesWalkGoal(const Object &goal);
+    bool reachesWalkGoal(const Object &goal, std::optional<float> pathOffset);
     /** The walk or run clip \p model shows for the creature's movement. */
     MovementClip movementClip(const scene::ModelSceneNode &model) const;
+    /** The drive speed the clip of the driven creature follows: no faster than the walk clip's pace while sneaking. */
+    float drivenClipSpeed() const;
 
     /** The area whose music this creature drives: its own, when the player controls it. */
     std::shared_ptr<Area> battleMusicArea() const;
@@ -3158,8 +3213,6 @@ private:
     void updateExcitement();
     void updateForcedMove(float dt);
     AnimationUpdater animationUpdater() const;
-    /** The party follow slot, 1 or 2, or -1 outside them. */
-    int followSlot() const;
     void updateTurning();
     void rotateStep(float target);
     bool isHostileCombatTurn() const;
