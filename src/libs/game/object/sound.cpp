@@ -297,6 +297,10 @@ void Sound::updateTransform() {
     _sceneNode->setLocalTransform(transform);
 }
 
+void Sound::setVolume(int volume) {
+    _volume = static_cast<uint8_t>(std::clamp(volume, 0, kMaxVolume));
+}
+
 void Sound::setActive(bool active) {
     if (_active == active) {
         return;
