@@ -59,8 +59,12 @@ if(ENABLE_MOVIE)
 endif()
 
 if(BUILD_LAUNCHER OR BUILD_TOOLKIT)
-    find_package(wxWidgets REQUIRED core base adv stc gl aui)
-    include(${wxWidgets_USE_FILE})
+    # Prefer wxWidgets' own package config, fall back to module mode. That fixes MSYS2 build.
+    find_package(wxWidgets CONFIG QUIET COMPONENTS core base adv stc gl aui)
+    if(NOT wxWidgets_FOUND)
+        find_package(wxWidgets REQUIRED COMPONENTS core base adv stc gl aui)
+        include(${wxWidgets_USE_FILE})
+    endif()
 endif()
 
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/dearimgui)
