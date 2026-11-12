@@ -9,16 +9,11 @@
 
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
-
-#include "reone/game/game.h"
 #include "reone/game/minigame.h"
-#include "reone/game/swooprace.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/types.h"
-#include "reone/input/event.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -108,21 +103,32 @@ MinigameSpec makeSwoopSpec(int numLoops) {
     return spec;
 }
 
-// The start frame openSwoopRace derives from the hook's rest pose.
+// The hook's rest pose in the world.
 const glm::vec3 kRestStart(hookWorld(glm::vec3(0.0f)));
-constexpr float kRestFacing = 0.5235988f; // 30 degrees
 
+class NullHost : public IMinigameHost {
+public:
+    void runScript(const std::string &resRef, uint32_t callerId) override {}
+};
+
+// The bike rides the player's track at speed 100, the authored rate.
 struct SwoopRaceFixture : testing::Test {
-    TestEngine &engine {testEngine()};
-    StubConsole console;
-    Game game {resource::GameID::KotOR, "", engine.options(), engine.services(), console};
-    SwoopRace race {game};
+    NullHost host;
+    MinigameSession session {host};
 
     void startOnTrack(int numLoops) {
         auto track = buildMinigameTrack(*makeTrackModel(), kPlacement);
         ASSERT_TRUE(track.has_value());
-        race.start(makeSwoopSpec(numLoops), nullptr, nullptr, {}, kRestStart, kRestFacing, 0.0f, std::move(track));
+        session.load(makeSwoopSpec(numLoops), std::move(*track), {}, {});
+        session.setPlayerSpeed(100.0f);
+        session.setPlayerMaxSpeed(100.0f);
+        session.start();
     }
+
+    const MinigameActor &bike() const { return *session.player(); }
+
+    // Whether a track with no loops left has played to its end.
+    bool trackEnded() const { return bike().trackTime >= bike().track.length(); }
 };
 
 } // namespace
@@ -174,86 +180,88 @@ TEST(MinigameTrack, a_model_without_a_modelhook_gives_no_track) {
 TEST_F(SwoopRaceFixture, the_bike_starts_on_the_first_track_key_not_the_rest_pose) {
     startOnTrack(0);
 
-    EXPECT_TRUE(race.followsTrack());
-    expectNear(hookWorld(glm::vec3(0.0f, -10.0f, 0.0f)), race.position());
-    expectNear(yawForward(0.0f), forwardOf(race.trackHook()));
+    expectNear(hookWorld(glm::vec3(0.0f, -10.0f, 0.0f)), bike().position);
+    expectNear(yawForward(0.0f), forwardOf(bike().hook));
 }
 
 TEST_F(SwoopRaceFixture, the_bike_rides_the_track_at_speed_over_one_hundred) {
     startOnTrack(0);
 
-    // The first update ramps the speed to MovementPerSec (100) over its 3
-    // seconds, so the track plays at the authored rate: 3 seconds in.
-    race.update(3.0f);
-    EXPECT_NEAR(race.speed(), 100.0f, kEpsilon);
-    EXPECT_NEAR(race.trackTime(), 3.0f, kEpsilon);
-    expectNear(hookWorld(glm::vec3(25.0f, 90.0f, 0.0f)), race.position());
-    expectNear(yawForward(45.0f), forwardOf(race.trackHook()));
+    session.update(3.0f, MinigameInput());
+    EXPECT_NEAR(session.playerSpeed(), 100.0f, kEpsilon);
+    EXPECT_NEAR(bike().trackTime, 3.0f, kEpsilon);
+    expectNear(hookWorld(glm::vec3(25.0f, 90.0f, 0.0f)), bike().position);
+    expectNear(yawForward(45.0f), forwardOf(bike().hook));
 
-    race.update(0.5f);
-    EXPECT_NEAR(race.trackTime(), 3.5f, kEpsilon);
-    expectNear(hookWorld(glm::vec3(37.5f, 90.0f, 0.0f)), race.position());
-    EXPECT_FALSE(race.trackEnded());
+    session.update(0.5f, MinigameInput());
+    EXPECT_NEAR(bike().trackTime, 3.5f, kEpsilon);
+    expectNear(hookWorld(glm::vec3(37.5f, 90.0f, 0.0f)), bike().position);
+    EXPECT_FALSE(trackEnded());
 }
 
 TEST_F(SwoopRaceFixture, the_bike_stops_at_the_end_of_a_track_without_loops) {
     startOnTrack(0);
 
-    race.update(3.0f);
-    race.update(1.5f);
+    session.update(3.0f, MinigameInput());
+    session.update(1.5f, MinigameInput());
 
-    EXPECT_TRUE(race.trackEnded());
-    EXPECT_FLOAT_EQ(race.trackTime(), kTrackLength);
-    expectNear(hookWorld(glm::vec3(50.0f, 90.0f, 0.0f)), race.position());
+    EXPECT_TRUE(trackEnded());
+    EXPECT_FLOAT_EQ(bike().trackTime, kTrackLength);
+    expectNear(hookWorld(glm::vec3(50.0f, 90.0f, 0.0f)), bike().position);
 
-    race.update(5.0f);
-    EXPECT_FLOAT_EQ(race.trackTime(), kTrackLength);
-    expectNear(hookWorld(glm::vec3(50.0f, 90.0f, 0.0f)), race.position());
+    session.update(5.0f, MinigameInput());
+    EXPECT_FLOAT_EQ(bike().trackTime, kTrackLength);
+    expectNear(hookWorld(glm::vec3(50.0f, 90.0f, 0.0f)), bike().position);
 }
 
 TEST_F(SwoopRaceFixture, a_track_with_negative_loops_wraps_forever) {
     startOnTrack(-1);
 
-    race.update(3.0f);
-    race.update(2.0f);
+    session.update(3.0f, MinigameInput());
+    session.update(2.0f, MinigameInput());
 
-    EXPECT_FALSE(race.trackEnded());
-    EXPECT_NEAR(race.trackTime(), 1.0f, kEpsilon);
-    expectNear(hookWorld(glm::vec3(0.0f, 40.0f, 0.0f)), race.position());
+    EXPECT_FALSE(trackEnded());
+    EXPECT_NEAR(bike().trackTime, 1.0f, kEpsilon);
+    expectNear(hookWorld(glm::vec3(0.0f, 40.0f, 0.0f)), bike().position);
 }
 
 TEST_F(SwoopRaceFixture, a_track_with_two_loops_plays_twice_then_stops) {
     startOnTrack(2);
 
-    race.update(3.0f);
-    race.update(2.0f); // into the second play
-    EXPECT_FALSE(race.trackEnded());
-    EXPECT_NEAR(race.trackTime(), 1.0f, kEpsilon);
+    session.update(3.0f, MinigameInput());
+    session.update(2.0f, MinigameInput()); // into the second play
+    EXPECT_FALSE(trackEnded());
+    EXPECT_NEAR(bike().trackTime, 1.0f, kEpsilon);
 
-    race.update(3.5f); // past the end of the second play
-    EXPECT_TRUE(race.trackEnded());
-    EXPECT_FLOAT_EQ(race.trackTime(), kTrackLength);
+    session.update(3.5f, MinigameInput()); // past the end of the second play
+    EXPECT_TRUE(trackEnded());
+    EXPECT_FLOAT_EQ(bike().trackTime, kTrackLength);
 }
 
 TEST_F(SwoopRaceFixture, the_bike_strafes_along_the_hook_x_axis) {
     startOnTrack(0);
-    race.update(3.0f);
-    race.update(1.5f); // at the end, the hook turned 90 degrees
+    session.setTunnelPos(glm::vec3(50.0f, 0.0f, 0.0f));
+    session.setTunnelNeg(glm::vec3(-50.0f, 0.0f, 0.0f));
+    session.update(3.0f, MinigameInput());
+    session.update(1.5f, MinigameInput()); // at the end, the hook turned 90 degrees
 
-    race.handle(input::Event::newKeyDown(input::KeyEvent(true, input::KeyCode::D, 0, false)));
-    race.update(0.1f);
+    MinigameInput right;
+    right.steer = 1.0f;
+    session.update(0.1f, right);
 
-    ASSERT_GT(race.lateralOffset(), 0.0f);
+    ASSERT_GT(session.offset().x, 0.0f);
     // The hook's X axis now points along world +Y.
-    expectNear(translationOf(race.trackHook()) + glm::vec3(0.0f, race.lateralOffset(), 0.0f), race.position());
+    expectNear(translationOf(bike().hook) + glm::vec3(0.0f, session.offset().x, 0.0f), bike().position);
 }
 
-TEST_F(SwoopRaceFixture, a_race_without_an_animated_track_keeps_the_straight_line) {
+TEST_F(SwoopRaceFixture, without_an_animated_track_the_bike_holds_the_hook_at_rest) {
     auto track = buildMinigameTrack(*makeTrackModel(false), kPlacement);
-    race.start(makeSwoopSpec(0), nullptr, nullptr, {}, kRestStart, kRestFacing, 0.0f, std::move(track));
+    ASSERT_TRUE(track.has_value());
+    session.load(makeSwoopSpec(0), std::move(*track), {}, {});
+    session.setPlayerSpeed(100.0f);
+    session.setPlayerMaxSpeed(100.0f);
 
-    race.update(3.0f);
+    session.update(3.0f, MinigameInput());
 
-    EXPECT_FALSE(race.followsTrack());
-    expectNear(kRestStart + yawForward(30.0f) * race.progress(), race.position());
+    expectNear(kRestStart, bike().position);
 }
