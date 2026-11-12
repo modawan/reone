@@ -71,6 +71,8 @@ public:
     float fixedVariance() const { return _fixedVariance; }
 
     void setActive(bool active);
+    /** 0-127, clamped. The sound's later plays use it. */
+    void setVolume(int volume);
     void setFixedVariance(float variance) { _fixedVariance = variance; }
     void setPitchVariation(float variation) { _pitchVariation = variation; }
 

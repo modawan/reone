@@ -4816,13 +4816,16 @@ static Variable SoundObjectStop(const std::vector<Variable> &args, const Routine
 
 static Variable SoundObjectSetVolume(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
     auto nVolume = getInt(args, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectSetVolume");
+    if (sound) {
+        sound->setVolume(nVolume);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SoundObjectSetPosition(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7127,13 +7130,17 @@ static Variable GetSelectedPlanet(const std::vector<Variable> &args, const Routi
 
 static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oSound = getObject(args, 0, ctx);
+    auto sound = getSoundOrNull(args, 0, ctx);
     auto fSeconds = getFloat(args, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SoundObjectFadeAndStop");
+    // The sound scene node has no fade: the sound stops at once.
+    if (sound) {
+        sound->setActive(false);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetAreaFogColor(const std::vector<Variable> &args, const RoutineContext &ctx) {

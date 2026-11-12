@@ -155,3 +155,36 @@ TEST(QueryRoutines, sub_screen_ids_follow_the_nwscript_constants) {
     EXPECT_EQ(8, subScreenId(InGameMenuTab::Messages));
     EXPECT_EQ(0, subScreenId(InGameMenuTab::Party));
 }
+
+// The swoop race scripts set their sounds' volume and stop them with a fade.
+// Any other object is left alone, and OBJECT_INVALID (their "Wind" sound,
+// which no swoop module places) is a quiet no-op.
+TEST(SoundRoutines, set_volume_and_fade_and_stop_act_on_the_sound) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        QueryRoutineHarness harness(gameId);
+        auto sound = harness.game().newSound();
+        auto creature = harness.game().newCreature();
+        auto oSound = Variable::ofObject(sound->id());
+        auto oCreature = Variable::ofObject(creature->id());
+        auto invalid = Variable::ofObject(script::kObjectInvalid);
+
+        harness.call("SoundObjectSetVolume", {oSound, Variable::ofInt(90)});
+        EXPECT_EQ(90, sound->volume());
+        EXPECT_EQ(90, harness.call("SoundObjectGetVolume", {oSound}).intValue);
+        harness.call("SoundObjectSetVolume", {oSound, Variable::ofInt(500)});
+        EXPECT_EQ(127, sound->volume());
+        harness.call("SoundObjectSetVolume", {oSound, Variable::ofInt(-5)});
+        EXPECT_EQ(0, sound->volume());
+
+        sound->setActive(true);
+        harness.call("SoundObjectFadeAndStop", {oSound, Variable::ofFloat(2.0f)});
+        EXPECT_FALSE(sound->isActive());
+
+        harness.call("SoundObjectSetVolume", {oCreature, Variable::ofInt(90)});
+        harness.call("SoundObjectFadeAndStop", {oCreature, Variable::ofFloat(1.0f)});
+        EXPECT_EQ(0, harness.call("SoundObjectGetVolume", {oCreature}).intValue);
+
+        EXPECT_EQ(VariableType::Void, harness.call("SoundObjectSetVolume", {invalid, Variable::ofInt(90)}).type);
+        EXPECT_EQ(VariableType::Void, harness.call("SoundObjectFadeAndStop", {invalid, Variable::ofFloat(1.0f)}).type);
+    }
+}
