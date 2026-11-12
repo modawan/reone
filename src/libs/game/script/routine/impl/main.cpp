@@ -788,8 +788,8 @@ static Variable PauseGame(const std::vector<Variable> &args, const RoutineContex
 
     // Execute: play pauses with no pause indicator. A pause is refused while
     // a conversation is under way; an unpause is always taken. Neither does
-    // anything when play already is so.
-    if (bPause != ctx.game.isPaused() && (!bPause || !ctx.game.isDialogUnderWay())) {
+    // anything when play already is so, or is about to be.
+    if (bPause != ctx.game.isPausedAtFrameEnd() && (!bPause || !ctx.game.isDialogUnderWay())) {
         ctx.game.setPaused(bPause);
     }
     return Variable::ofNull();

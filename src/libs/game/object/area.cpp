@@ -426,7 +426,8 @@ void Area::passTransition(const std::shared_ptr<Object> &traveller, std::optiona
     sendAgain(*creature, id, kTransitionDelayMilliseconds);
     _game.globalFade().request(GlobalFade::Direction::Out, 0.0f, kTransitionFadeLength);
     setTransitionPending(true, id);
-    _game.setPaused(false);
+    // The transition unpauses play at once.
+    _game.setPausedNow(false);
 }
 
 void Area::loadHearing(const resource::generated::ARE &are) {

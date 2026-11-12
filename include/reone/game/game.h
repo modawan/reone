@@ -387,21 +387,25 @@ public:
     void setSceneSurfaces();
 
     void setCursorType(resource::CursorType type);
-    void setPaused(bool paused, PauseReason reason = PauseReason::Other) {
-        _paused = paused;
-        if (paused) {
-            _pauseReason = reason;
-        } else {
-            _autoPaused = false;
-        }
-    }
+    /**
+     * Asks for play to be paused or unpaused at the end of the frame. The
+     * frame takes the first request that would change the pause, and a
+     * request back to how play stands withdraws it; a request is refused
+     * while the area waits on a transition. \p autoPause marks a pause that
+     * counts as an autopause; an unpause ends any autopause.
+     */
+    void setPaused(bool paused, PauseReason reason = PauseReason::Other, bool autoPause = false);
+    /** Pauses or unpauses play at once, dropping any request. */
+    void setPausedNow(bool paused);
+    /** Whether play is paused, or will be once the frame takes its request at its end. */
+    bool isPausedAtFrameEnd() const { return _pauseRequest ? _pauseRequest->paused : _paused; }
     /**
      * The player's pause control: toggles play and ends any autopause.
-     * Returns whether play is now paused.
+     * Returns whether play will be paused.
      */
     bool togglePlayerPause() {
-        setPaused(!_paused, PauseReason::Player);
-        return _paused;
+        setPaused(!isPausedAtFrameEnd(), PauseReason::Player);
+        return isPausedAtFrameEnd();
     }
     PauseReason pauseReason() const { return _pauseReason; }
 
@@ -1976,6 +1980,19 @@ private:
     int _motionBlurPrograms {0};
     bool _autoPaused {false};
     PauseReason _pauseReason {PauseReason::Other};
+
+    /** A request to pause or unpause play, taken at the end of the frame (see setPaused). */
+    struct PauseRequest {
+        bool paused {false};
+        PauseReason reason {PauseReason::Other};
+        bool autoPause {false};
+    };
+    std::optional<PauseRequest> _pauseRequest;
+
+    /** Takes the pause request made during the frame. */
+    void applyPauseRequest();
+    /** Everything a frame updates before it takes the pause request. */
+    void updateFrame(float frameTime);
 
     // Target presentation
 
