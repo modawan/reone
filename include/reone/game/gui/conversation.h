@@ -58,7 +58,10 @@ public:
         GameGUI(game, services) {
     }
 
+    /** Input waits until the first line is spoken. */
     bool handle(const input::Event &event) override;
+    /** Nothing is drawn until the first line is spoken. */
+    void render() override;
     void update(float dt) override;
 
     /**
@@ -251,6 +254,8 @@ private:
     int _waitFlags {0};
     /** The entry that follows a reply taken without a choice, once the reply's delay and waits are over. */
     std::optional<int> _pendingEntry;
+    /** The start entry waiting until conversations may speak (Game::passDialogGate). */
+    std::optional<int> _unspokenStartEntry;
     /** A skip of the shown entry has been asked for and not yet honoured. */
     bool _entrySkipped {false};
     EntryFade _entryFade;

@@ -175,6 +175,7 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
         releaseDialogParticipants(_owner.resolve());
     }
     _pendingEntry.reset();
+    _unspokenStartEntry.reset();
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
@@ -395,7 +396,18 @@ void Conversation::loadStartEntry() {
         finish();
         return;
     }
+    if (!_game.passDialogGate()) {
+        _unspokenStartEntry = entryIdx;
+        return;
+    }
     loadEntry(entryIdx, true);
+}
+
+// Nothing is drawn until the first line is spoken.
+void Conversation::render() {
+    if (!_unspokenStartEntry) {
+        GameGUI::render();
+    }
 }
 
 int Conversation::indexOfFirstActive(const std::vector<Dialog::EntryReplyLink> &links) {
@@ -491,6 +503,7 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     _paused = false;
     _entryEnded = true;
     _pendingEntry.reset();
+    _unspokenStartEntry.reset();
     // A closed conversation keeps no replies to take.
     _replies.clear();
     stopVoice();
@@ -548,6 +561,7 @@ void Conversation::cleanupForModuleTransition() {
         return;
     }
     _pendingEntry.reset();
+    _unspokenStartEntry.reset();
     _replies.clear();
     stopVoice();
     resetEntryFade();
@@ -1232,6 +1246,10 @@ void Conversation::pickReply(int index) {
 }
 
 bool Conversation::handle(const input::Event &event) {
+    // Input waits until the first line is spoken.
+    if (_unspokenStartEntry) {
+        return false;
+    }
     if (handleConversationInput(event)) {
         return true;
     }
@@ -1428,6 +1446,14 @@ void Conversation::onReplyPicked(const Dialog::EntryReply &) {
 void Conversation::update(float dt) {
     if (_dialog && !_owner.empty() && !_owner.resolve()) {
         finish();
+        return;
+    }
+    if (_unspokenStartEntry) {
+        if (_game.passDialogGate()) {
+            const int entry = *_unspokenStartEntry;
+            _unspokenStartEntry.reset();
+            loadEntry(entry, true);
+        }
         return;
     }
     GameGUI::update(dt);

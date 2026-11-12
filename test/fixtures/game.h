@@ -313,6 +313,8 @@ public:
         std::function<void(const std::string &, uint32_t)> continuation);
     static void setCurrentScreen(Game &game, int screen);
     static void setConversation(Game &game, Conversation *conversation);
+    /** Let conversations speak at once, as a second after arriving in a module. */
+    static void letConversationsSpeak(Game &game);
     static void setDialogGUI(Game &game, std::unique_ptr<DialogGUI> dialog);
     static void raiseTimingDiscontinuity(Game &game);
     static void initConsole(Game &game);

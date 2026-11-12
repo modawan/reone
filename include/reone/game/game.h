@@ -299,6 +299,14 @@ public:
      * starts wait.
      */
     bool holdsWorld() const;
+    /**
+     * Whether a conversation may speak its first line now. Conversations may
+     * speak once a second has passed since the player arrived in a module, by
+     * a clock that runs at the game's speed and stands still while the world
+     * is held, time is stopped or a movie plays, and never while play is
+     * paused. Once passed, the wait stays passed until the next module starts.
+     */
+    bool passDialogGate();
     bool isFreeLook() const { return _freeLook; }
     /**
      * While blocked, the player's presses, pointer motion and wheel are
@@ -2222,6 +2230,22 @@ private:
     double _timeStopFraction {0.0};
     std::optional<uint64_t> _worldClockSample;
     double _playedTimeFraction {0.0};
+
+    // Conversations' first lines
+
+    /** See passDialogGate: open from the player's arrival to the next module start. */
+    bool _dialogGateOpen {false};
+    /** See passDialogGate: the wait has passed since the gate opened. */
+    bool _dialogGatePassed {false};
+    /** The time the wait has counted since the gate opened, in seconds at the game's speed. */
+    float _dialogGateWait {0.0f};
+
+    /** No conversation speaks until the gate opens again on arrival. */
+    void closeDialogGate();
+    /** Conversations may speak once the wait has passed from now. */
+    void openDialogGate();
+    /** Counts \p dt toward the wait unless the world is held, time is stopped or a movie plays. */
+    void advanceDialogGate(float dt);
 
     std::optional<SaveRequest> _pendingSave;
     std::optional<SaveResult> _lastSaveResult;

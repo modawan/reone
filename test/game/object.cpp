@@ -1082,6 +1082,7 @@ TEST(Conversation, should_finish_active_presentation_before_starting_replacement
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestGameModule::letConversationsSpeak(game);
     PresentationLifecycleConversation conversation(game, engine.services());
     auto first = std::make_shared<Dialog>();
     auto second = std::make_shared<Dialog>();
@@ -1342,6 +1343,7 @@ TEST(Conversation, should_show_script_only_auto_routing_entry_and_advance_at_the
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestGameModule::letConversationsSpeak(game);
     RoutingConversation conversation(game, engine.services());
 
     conversation.start(makeRoutingDialog(), nullptr);
@@ -1359,6 +1361,7 @@ TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestGameModule::letConversationsSpeak(game);
 
     std::vector<std::function<void(Dialog::EntryReply &)>> addPresentation {
         [](auto &entry) { entry.text = "text"; },
@@ -7061,6 +7064,7 @@ protected:
         leader = fixture->bringUpModule();
         auto &game = fixture->game;
         game.initLocalServices();
+        TestGameModule::letConversationsSpeak(game);
         auto gui = std::make_unique<AdmissionDialogGUI>(game, fixture->engine.services());
         conversation = gui.get();
         TestGameModule::setDialogGUI(game, std::move(gui));

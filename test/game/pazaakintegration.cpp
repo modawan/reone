@@ -63,6 +63,11 @@ void reone::game::TestGameModule::setConversation(Game &game, Conversation *conv
     game._conversation = conversation;
 }
 
+void reone::game::TestGameModule::letConversationsSpeak(Game &game) {
+    game.openDialogGate();
+    game._dialogGatePassed = true;
+}
+
 void reone::game::TestGameModule::initConsole(Game &game) {
     game.initConsole();
 }

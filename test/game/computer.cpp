@@ -115,6 +115,7 @@ protected:
         engine.init();
         game = std::make_unique<Game>(GetParam(), std::filesystem::path {}, engine.options(), engine.services(), console);
         game->initLocalServices();
+        TestGameModule::letConversationsSpeak(*game);
         normal = std::make_shared<NiceMock<MockGUI>>();
         camera = std::make_shared<NiceMock<MockGUI>>();
         auto &svc = engine.services();
