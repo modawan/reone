@@ -303,6 +303,13 @@ public:
     void setHiliteColor(std::optional<glm::vec3> color);
     const std::optional<glm::vec3> &hiliteColor() const { return _hiliteColor; }
 
+    /**
+     * The model's own illumination colour: its lighting moves by twice the
+     * colour less one. Attachments keep theirs.
+     */
+    void setIllumination(std::optional<glm::vec3> color) { _illumination = std::move(color); }
+    const std::optional<glm::vec3> &illumination() const { return _illumination; }
+
     /** Sets how the model looks under Force Sight and, for a glowing model, its glow colour. */
     void setForceSightStyle(ForceSightStyle style, glm::vec4 glowColor = glm::vec4 {0.0f}) {
         _forceSightStyle = style;
@@ -359,6 +366,7 @@ private:
 
     float _fadeAlpha {1.0f};
     std::optional<glm::vec3> _hiliteColor;
+    std::optional<glm::vec3> _illumination;
     ForceSightStyle _forceSightStyle {ForceSightStyle::Grey};
     glm::vec4 _forceGlowColor {0.0f};
 

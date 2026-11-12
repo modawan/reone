@@ -454,6 +454,9 @@ void MeshSceneNode::render(IRenderPass &pass) {
         material.diffuseColor *= *hilite;
         material.selfIllumColor += *hilite;
     }
+    if (const auto &illumination = _model.illumination()) {
+        material.illumination = glm::vec4(*illumination, 1.0f);
+    }
     material.staticObject = _static;
     if (_sceneGraph.hasShadowLight() && isReceivingShadows(_model, *this)) {
         material.affectedByShadows = true;

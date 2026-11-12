@@ -121,6 +121,7 @@ struct LocalUniforms {
     glm::vec4 diffuseColor;
     glm::vec4 selfIllumColor;
     glm::vec4 forceSightColor;
+    glm::vec4 illumination; /**< rgb an object's illumination colour, a 1 when it is on */
     int featureMask;
     int bumpMapFrame;
     float bumpMapScale;
@@ -142,6 +143,7 @@ struct LocalUniforms {
         diffuseColor = glm::vec4(1.0f);
         selfIllumColor = glm::vec4(0.0f);
         forceSightColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        illumination = glm::vec4(0.0f);
         featureMask = 0;
         bumpMapFrame = 0;
         bumpMapScale = 1.0f;

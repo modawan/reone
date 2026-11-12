@@ -81,7 +81,11 @@ void main() {
     float shadow = isFeatureEnabled(FEATURE_SHADOWS)
                        ? getShadow(viewPos, fragPosWorld.xyz, normal, sShadowMap, sShadowMapCube)
                        : 0.0;
-    vec3 color = min(vec3(1.0), (ambient + (1.0 - shadow) * max(vec3(0.0), diffuse))) * mainTexSample.rgb;
+    vec3 lighting = min(vec3(1.0), (ambient + (1.0 - shadow) * max(vec3(0.0), diffuse)));
+    if (uIllumination.a > 0.0) {
+        lighting = max(vec3(0.0), lighting + 2.0 * uIllumination.rgb - 1.0);
+    }
+    vec3 color = lighting * mainTexSample.rgb;
     if (uForceSight != 0) {
         color = forceSightGrey(color);
     } else if (isFeatureEnabled(FEATURE_ENVMAP)) {
