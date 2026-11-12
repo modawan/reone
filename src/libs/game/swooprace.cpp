@@ -121,7 +121,7 @@ bool SwoopRace::start(MinigameSession &session,
         }
     }
 
-    _steerLeft = _steerRight = _fireKey = _fireButton = false;
+    _steerLeft = _steerRight = _fireKey = _fireButton = _brakeKey = _brakeButton = false;
     _active = true;
     if (const auto *player = session.player(); player && !player->sounds.engine.empty()) {
         if (auto clip = _services.resource.audioClips.get(player->sounds.engine)) {
@@ -344,8 +344,16 @@ bool SwoopRace::handle(const input::Event &event) {
         case input::KeyCode::Space:
         case input::KeyCode::Up:
         case input::KeyCode::W:
+            // The shift key: fire on KotOR, accelerate on TSL.
             _fireKey = down;
             in.fire = _fireKey || _fireButton;
+            in.accelerate = in.fire;
+            return true;
+        case input::KeyCode::Down:
+        case input::KeyCode::S:
+            // Brake: the jump of the TSL swoop races.
+            _brakeKey = down;
+            in.brake = _brakeKey || _brakeButton;
             return true;
         case input::KeyCode::Escape:
         case input::KeyCode::Pause:
@@ -362,11 +370,17 @@ bool SwoopRace::handle(const input::Event &event) {
     }
     case input::EventType::MouseButtonDown:
     case input::EventType::MouseButtonUp:
+        if (event.button.button == input::MouseButton::Right) {
+            _brakeButton = event.button.pressed;
+            in.brake = _brakeKey || _brakeButton;
+            return true;
+        }
         if (event.button.button != input::MouseButton::Left) {
             return false;
         }
         _fireButton = event.button.pressed;
         in.fire = _fireKey || _fireButton;
+        in.accelerate = in.fire;
         return true;
     default:
         return false;

@@ -124,6 +124,8 @@ private:
     bool _steerRight {false};
     bool _fireKey {false};
     bool _fireButton {false};
+    bool _brakeKey {false};
+    bool _brakeButton {false};
 
     std::shared_ptr<scene::ModelSceneNode> loadModel(const std::string &resRef);
     void releaseActor(ActorModels &models);

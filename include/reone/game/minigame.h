@@ -363,6 +363,11 @@ struct MinigameInput {
 
     // Fire held. On the K1 swoop this is the gear-shift key.
     bool fire {false};
+
+    // Accelerate and brake held. The K2 swoop races shift gear on accelerate
+    // and jump on brake; each press runs the player's slot once.
+    bool accelerate {false};
+    bool brake {false};
 };
 
 enum class MinigameActorKind {
@@ -624,6 +629,8 @@ private:
     glm::vec3 _lateralVelocity {0.0f};
     glm::vec3 _previousInput {0.0f};
     bool _speedHeld {false};
+    bool _accelerateHeld {false};
+    bool _brakeHeld {false};
 
     uint64_t _ticks {0};
     float _elapsed {0.0f};

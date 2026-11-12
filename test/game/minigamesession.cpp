@@ -83,6 +83,12 @@ MinigameFollowerScriptSpec slots(std::initializer_list<std::pair<MinigameSlot, s
         case MinigameSlot::OnHitObstacle:
             result.onHitObstacle = resRef;
             break;
+        case MinigameSlot::OnAccelerate:
+            result.onAccelerate = resRef;
+            break;
+        case MinigameSlot::OnBrake:
+            result.onBrake = resRef;
+            break;
         default:
             ADD_FAILURE() << "slot not used by these tests: " << minigameSlotName(slot);
             break;
@@ -408,6 +414,36 @@ TEST(MinigameSession, fire_runs_the_owners_on_fire_while_the_gun_is_ready) {
     input.fire = false;
     session->update(kTick, input);
     EXPECT_EQ(host.count("onfire"), 5u);
+}
+
+// The TSL races shift gear on accelerate and jump on brake: each press runs
+// the player's slot once, and holding the key does not run it again.
+TEST(MinigameSession, accelerate_and_brake_run_the_players_slots_once_per_press) {
+    ScriptedHost host;
+    auto session = std::make_unique<MinigameSession>(host);
+    auto spec = swoopSpec(0);
+    spec.player.scripts = slots({{MinigameSlot::OnAccelerate, "onaccelerate"},
+                                 {MinigameSlot::OnBrake, "onjump"}});
+    session->load(spec, tarisTrack(), {}, {});
+    session->setObjectId(0, 100);
+
+    MinigameInput input;
+    input.accelerate = true;
+    for (int i = 0; i < 3; ++i) {
+        session->update(kTick, input);
+    }
+    EXPECT_EQ(host.count("onaccelerate"), 1u);
+    input.accelerate = false;
+    session->update(kTick, input);
+    input.accelerate = true;
+    session->update(kTick, input);
+    EXPECT_EQ(host.count("onaccelerate"), 2u);
+
+    input.brake = true;
+    session->update(kTick, input);
+    session->update(kTick, input);
+    EXPECT_EQ(host.count("onjump"), 1u);
+    EXPECT_EQ(host.count("onaccelerate"), 2u);
 }
 
 TEST(MinigameSession, a_trigger_pad_raises_on_hit_follower_on_both_and_dies_to_the_script) {

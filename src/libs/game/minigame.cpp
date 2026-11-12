@@ -407,6 +407,8 @@ void MinigameSession::load(const MinigameSpec &spec,
     _scriptsRun = 0;
     _started = false;
     _speedHeld = false;
+    _accelerateHeld = false;
+    _brakeHeld = false;
     _lateralVelocity = glm::vec3(0.0f);
     _previousInput = glm::vec3(0.0f);
 
@@ -561,6 +563,18 @@ void MinigameSession::update(float dt, const MinigameInput &input) {
     _elapsed += dt;
 
     auto &playerActor = _actors.front();
+    // A press of accelerate or brake runs the player's slot once; holding the
+    // key does not run it again.
+    bool accelerate = input.accelerate && !_accelerateHeld;
+    bool brake = input.brake && !_brakeHeld;
+    _accelerateHeld = input.accelerate;
+    _brakeHeld = input.brake;
+    if (!playerActor.dead && accelerate) {
+        runScriptSlot(playerActor, MinigameSlot::OnAccelerate);
+    }
+    if (!playerActor.dead && brake) {
+        runScriptSlot(playerActor, MinigameSlot::OnBrake);
+    }
     if (!playerActor.dead) {
         updatePlayerMotion(dt, input);
     }
