@@ -411,7 +411,9 @@ public:
         return _fog.color;
     }
 
+    /** The frame shows the fog's colour where nothing is drawn, whether or not the fog is on. */
     void setFog(FogProperties fog) override {
+        _frameEffects.clearColor = fog.color;
         _fog = std::move(fog);
     }
 

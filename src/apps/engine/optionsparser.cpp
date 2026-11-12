@@ -62,6 +62,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("wheelzoom", value<bool>()->default_value(options->game.wheelZoom), "zoom the follow camera with the mouse wheel")     //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
+        ("softshadows", value<bool>()->default_value(options->graphics.softShadows), "enable soft shadow edges")                //
         ("particles", value<bool>()->default_value(options->graphics.particles), "enable emitter particles")                    //
         ("pbr", value<bool>()->default_value(options->graphics.pbr), "enable physically-based rendering")                       //
         ("ssao", value<bool>()->default_value(options->graphics.ssao), "enable screen-space ambient occlusion")                 //
@@ -115,6 +116,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.vsync = vars["vsync"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
     options->graphics.shadows = vars["shadows"].as<bool>();
+    options->graphics.softShadows = vars["softshadows"].as<bool>();
     options->graphics.particles = vars["particles"].as<bool>();
     options->graphics.pbr = vars["pbr"].as<bool>();
     options->graphics.ssao = vars["ssao"].as<bool>();
