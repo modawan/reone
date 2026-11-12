@@ -451,14 +451,6 @@ void Door::close() {
     }
 }
 
-bool Door::typeShowsModel() const {
-    if (_appearance == 0) {
-        return true;
-    }
-    auto types = _services.resource.twoDas.get("doortypes");
-    return !types || types->getInt(_appearance, "visiblemodel", 1) != 0;
-}
-
 void Door::shutAtOnce() {
     // A door whose type shows no model takes the destroyed state instead.
     if (!typeShowsModel()) {
@@ -504,7 +496,7 @@ std::shared_ptr<Door> Door::linkedDoor() {
 }
 
 void Door::swingOpen(DoorTransition opening) {
-    if (!_visibleModel) {
+    if (!typeShowsModel()) {
         enterDestroyedState();
         return;
     }
@@ -521,7 +513,7 @@ void Door::swingOpen(DoorTransition opening) {
 }
 
 void Door::swingShut() {
-    if (!_visibleModel) {
+    if (!typeShowsModel()) {
         enterDestroyedState();
         return;
     }

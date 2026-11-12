@@ -415,7 +415,7 @@ private:
      */
     void updateCameraPassage();
     /** Whether the door's type shows a model: doortypes.2da's visiblemodel, for a door with an appearance. */
-    bool typeShowsModel() const;
+    bool typeShowsModel() const { return _visibleModel; }
     /** Swings this door alone open to the side the opening names; a door without a visible model stays destroyed. */
     void swingOpen(DoorTransition opening);
     /** Swings this door alone shut; a door without a visible model stays destroyed. */
