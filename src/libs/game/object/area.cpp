@@ -2609,6 +2609,7 @@ Area::DirectLineTest Area::testDirectLine(
         };
         float low = std::min(start.z, end.z);
         float high = std::max(start.z, end.z);
+        std::optional<graphics::Walkmesh::Contact> roomContact;
         if (stretch.room) {
             if (!stretch.band) {
                 test.result = DirectLine::Blocked;
@@ -2620,21 +2621,26 @@ Area::DirectLineTest Area::testDirectLine(
             high = stretch.band->high;
             const float minZ = low - kRoomWallMargin;
             const float maxZ = high + mover.collisionHeight() + kRoomWallMargin;
-            if (auto contact = sweepWalkmesh(stretch.room, blocking, start, end, radius, minZ, maxZ)) {
-                test.result = DirectLine::Blocked;
-                test.stopPoint = pointAt(contact->distance);
-                test.normal = contact->normal;
-                return test;
-            }
+            roomContact = sweepWalkmesh(stretch.room, blocking, start, end, radius, minZ, maxZ);
         }
+        // The nearer of the room's wall and a door's or placeable's stops the
+        // walk; on a tie the door or placeable does, so that a door in the
+        // way is known.
         const auto wallBand = staticWallBand(mover, low, high);
-        if (auto wall = findStaticWallContact(start, end, mover, wallBand.low, wallBand.high)) {
+        const auto wall = findStaticWallContact(start, end, mover, wallBand.low, wallBand.high);
+        if (wall && (!roomContact || wall->contact.distance <= roomContact->distance)) {
             test.result = DirectLine::Blocked;
             test.stopPoint = pointAt(wall->contact.distance);
             if (wall->object.get().type() == ObjectType::Door) {
                 test.door = static_cast<const Door &>(wall->object.get());
             }
             test.normal = wall->contact.normal;
+            return test;
+        }
+        if (roomContact) {
+            test.result = DirectLine::Blocked;
+            test.stopPoint = pointAt(roomContact->distance);
+            test.normal = roomContact->normal;
             return test;
         }
         CreatureCollision creatureCollision;

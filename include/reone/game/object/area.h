@@ -407,12 +407,12 @@ public:
      * Whether the creature can walk straight from one point to another. The
      * walk is followed over the rooms it passes (see ISceneGraph::walkRooms),
      * and settled in each room before the next, with the creature's personal
-     * space swept along it. In a room it is stopped first by the room's
-     * walls, between the heights the walk spans there less a tenth and those
-     * plus the creature's height and a tenth; then by the nearest wall of a
-     * door or placeable, between the heights staticWallBand gives; then by
-     * another creature, where floors lie over others one across the heights
-     * the walk spans. A walk from no room leaves the rooms at once, and one
+     * space swept along it. In a room it is stopped first by the nearer of
+     * the room's walls, between the heights the walk spans there less a
+     * tenth and those plus the creature's height and a tenth, and the nearest
+     * wall of a door or placeable, between the heights staticWallBand gives,
+     * the door or placeable on a tie; then by another creature, where floors
+     * lie over others one across the heights the walk spans. A walk from no room leaves the rooms at once, and one
      * entering a room where no walkable face lies, or whose faces it cannot
      * be followed across (see graphics::Walkmesh::walkFaces), is stopped
      * there. A walk that runs out of the rooms with nothing in its way leaves
