@@ -4,34 +4,58 @@
 
 ```mermaid
 flowchart TD
-    subgraph applications["applications"]
-        direction LR
-        engine([engine])
-        launcher([launcher])
-        toolkit([toolkit])
-    end
+    engine([engine])
+    toolkit([toolkit])
+    launcher([launcher])
 
-    subgraph libraries["libraries"]
+    subgraph toolslib[" "]
         direction TB
         tools([tools])
+    end
+
+    subgraph enginelibs[" "]
+        direction TB
         game([game])
         gui([gui])
         scene([scene])
         resource([resource])
         movie([movie])
-        graphics([graphics])
-        audio([audio])
-        script([script])
-        system([system])
+        input([input])
+        json([json])
 
-        tools --> game --> gui --> scene --> resource --> movie --> graphics
-        resource --> graphics
-        graphics --> audio
-        graphics --> script
-        tools & game & gui & scene & resource & movie & graphics & audio & script --> system
+        subgraph services[" "]
+            direction TB
+            graphics([graphics])
+            audio([audio])
+            script([script])
+        end
     end
 
-    applications ==> libraries
+    subgraph systemlib[" "]
+        direction TB
+        system([system])
+    end
+
+    engine --> game
+    toolkit --> tools
+    launcher --> system
+
+    tools --> game
+    game --> gui
+    gui --> scene
+    gui --> input
+    scene --> resource
+    json --> resource
+    resource --> movie
+    movie --> graphics
+
+    movie --> audio
+    resource --> script
+
+    system
+    graphics --> system
+    audio --> system
+    script --> system
 ```
 
 Source code is organized into modules, each module containing a different engine subsystem. Dependency must be from higher- to lower-level modules (top to bottom in the diagram). Circular dependencies must be avoided.
