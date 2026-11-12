@@ -1212,6 +1212,11 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
         put(record, Gff::Field::newCExoLocString("LastName", creature._lastName.id(), creature._lastName.str()));
     }
     put(record, Gff::Field::newByte("IsPC", creature._isPC));
+    // A party member's follow state: whether it was within 5 m of the leader.
+    if (_game.party().isMember(creature)) {
+        auto followInfo = Gff::Builder().field(Gff::Field::newByte("InSafetyRange", creature._withinSafetyRange)).build();
+        put(record, Gff::Field::newStruct("FollowInfo", std::move(followInfo)));
+    }
     put(record, Gff::Field::newInt("PlayerCreated", creature._playerCreated));
     put(record, Gff::Field::newByte("StealthMode", creature._stealthMode));
     if (_game.isTSL()) {

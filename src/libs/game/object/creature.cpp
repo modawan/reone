@@ -11302,6 +11302,11 @@ void Creature::deserializeAll(
     // IsPC is read before hit points are rebuilt. A player character stays
     // incapacitated and resumable through 0..-9 HP and is dead only at -10 HP.
     gff.readByte(_isPC, "IsPC");
+    if (auto followInfo = gff.findStruct("FollowInfo")) {
+        uint8_t withinSafetyRange = _withinSafetyRange;
+        followInfo->readByte(withinSafetyRange, "InSafetyRange");
+        _withinSafetyRange = withinSafetyRange != 0;
+    }
     _actsAsPC = _isPC;
     gff.readBool(_playerCreated, "PlayerCreated");
     // Only the value 1 is stealth. It shows once the model is built.
