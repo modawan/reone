@@ -290,6 +290,24 @@ TEST_P(WorldTimeFixture, calendar_pair_round_trips_across_a_day_boundary) {
         << "splitting on save and composing on load must be lossless";
 }
 
+TEST_P(WorldTimeFixture, splits_a_world_time_into_its_calendar_day_and_time_and_back) {
+    TestGameModule::setSnapshotWorldTime(game, 0, 0, 2);
+    const uint64_t worldTime = 3u * game.millisecondsPerWorldDay() + 1234u;
+
+    EXPECT_EQ(game.calendarDay(worldTime), 3u);
+    EXPECT_EQ(game.calendarTimeOfDay(worldTime), 1234u);
+    EXPECT_EQ(game.toWorldMilliseconds(3, 1234), worldTime);
+}
+
+TEST_P(WorldTimeFixture, time_since_a_moment_counts_whole_days_and_none_for_a_later_one) {
+    TestGameModule::setSnapshotWorldTime(game, 0, 0, 2);
+    const uint64_t now = game.toWorldMilliseconds(5, 1000);
+
+    EXPECT_EQ(game.millisecondsSince(now, 3, 2000), 2u * game.millisecondsPerWorldDay() - 1000u);
+    EXPECT_EQ(game.millisecondsSince(now, 5, 1000), 0u);
+    EXPECT_EQ(game.millisecondsSince(now, 6, 0), 0u);
+}
+
 TEST_P(WorldTimeFixture, missing_pause_fields_start_at_zero) {
     auto ifo = Gff::Builder().type(0xffffffff).field(Gff::Field::newDword("Mod_MinPerHour", 2)).build();
     ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *ifo));

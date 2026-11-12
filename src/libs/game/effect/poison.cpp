@@ -17,6 +17,7 @@
 
 #include "reone/game/effect/poison.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -82,16 +83,17 @@ struct PoisonState {
     }
 
     /**
-     * \p age is the time of day part of the world time since the start and
-     * \p elapsed that since the last tick; whole days do not count. A period
-     * that passes in conversation deals no damage and lengthens the poison
-     * by a period.
+     * \p age is the time in milliseconds since the start and \p elapsed that
+     * since the last tick. A period that passes while a conversation is under
+     * way deals no damage and lengthens the poison by a period. A duration or
+     * period below zero counts as 0: the poison ends, or deals its damage, at
+     * the next update.
      */
-    Step step(uint32_t age, uint32_t elapsed, uint32_t day, uint32_t time, bool conversation) {
-        if (age > static_cast<uint32_t>(durationSeconds) * 1000U) {
+    Step step(uint64_t age, uint64_t elapsed, uint32_t day, uint32_t time, bool conversation) {
+        if (age > static_cast<uint64_t>(std::max(durationSeconds, 0)) * 1000U) {
             return Step::Expired;
         }
-        if (elapsed <= static_cast<uint32_t>(periodSeconds) * 1000U) {
+        if (elapsed <= static_cast<uint64_t>(std::max(periodSeconds, 0)) * 1000U) {
             return Step::None;
         }
         if (conversation) {
@@ -124,6 +126,19 @@ PoisonState readPoisonState(const EffectInstance &record) {
     state.periodSeconds = record.integerParameter(6);
     state.factor = record.floatParameters[0];
     return state;
+}
+
+// A conversation lengthened the poison by a period: the record's own duration
+// and expiry follow, so the record lasts as long as the poison.
+void lengthenRecord(EffectInstance &record, const Game &game, int periodSeconds) {
+    const int seconds = std::max(periodSeconds, 0);
+    record.duration += static_cast<float>(seconds);
+    if (record.expiryOrigin == EffectExpiryOrigin::RuntimeAbsoluteGameTime) {
+        const uint64_t expiry = game.toWorldMilliseconds(record.expiryDay, record.expiryTime) +
+                                static_cast<uint64_t>(seconds) * 1000U;
+        record.expiryDay = game.calendarDay(expiry);
+        record.expiryTime = game.calendarTimeOfDay(expiry);
+    }
 }
 
 void storePoisonState(EffectInstance &record, const PoisonState &state) {
@@ -197,8 +212,8 @@ EffectApplicationResult PoisonEffect::onApply(Object &object, EffectInstance &in
         state.start(day, time, data.duration, data.period);
         storePoisonState(instance, state);
         instance.setIntegerParameter(7, 0);
-        // The record's own duration is the poison's, in milliseconds.
-        instance.setDuration(DurationType::Temporary, static_cast<float>(data.duration) * 1000.0f);
+        // The record's own duration is the poison's, in seconds.
+        instance.setDuration(DurationType::Temporary, static_cast<float>(std::max(data.duration, 0)));
     }
     auto visual = std::make_shared<VisualEffectMarkerEffect>(kPoisonedVisual);
     auto child = visual->saveFacingInstance();
@@ -222,13 +237,9 @@ void PoisonEffect::onUpdate(Object &object, const EffectInstance &instance, floa
     const auto day = game.activeTimeDay(object);
     const auto time = game.activeTimeOfDay(object);
     auto state = readPoisonState(instance);
-    // Only the time of day part of each difference counts.
-    uint32_t days = 0;
-    uint32_t age = 0;
-    uint32_t elapsed = 0;
-    game.subtractWorldTimes(day, time, state.startDay, state.startTime, days, age);
-    game.subtractWorldTimes(day, time, state.tickDay, state.tickTime, days, elapsed);
-    switch (state.step(age, elapsed, day, time, game.isConversationActive())) {
+    const auto age = game.activeTimeSince(object, state.startDay, state.startTime);
+    const auto elapsed = game.activeTimeSince(object, state.tickDay, state.tickTime);
+    switch (state.step(age, elapsed, day, time, game.isDialogUnderWay())) {
     case PoisonState::Step::Expired:
         queueRemoval(object, instance.id);
         return;
@@ -249,6 +260,7 @@ void PoisonEffect::onUpdate(Object &object, const EffectInstance &instance, floa
     }
     if (auto record = object.findEffectApplication(instance.applicationOrder)) {
         storePoisonState(record->get(), state);
+        lengthenRecord(record->get(), game, state.periodSeconds);
     }
 }
 
