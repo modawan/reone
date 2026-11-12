@@ -39,6 +39,13 @@ public:
     VirtualMachine(std::shared_ptr<ScriptProgram> program, std::unique_ptr<ExecutionContext> context);
 
     int run();
+    /**
+     * Goes on from where the run stopped to wait (isWaiting), as the run
+     * would have.
+     */
+    int resume();
+    /** Whether the run stopped, its context's yield set, and waits to go on. */
+    bool isWaiting() const { return _waiting; }
 
     void stackPush(Variable var) {
         _stack.push_back(std::move(var));
@@ -58,8 +65,15 @@ private:
     uint32_t _nextInstruction {0};
     int _globalCount {0};
     ExecutionState _savedState;
+    bool _waiting {false};
     std::stringstream _logStream;
     bool _logEnabled {false};
+
+    /**
+     * Runs the program from \p insOff until it ends, halts or stops to wait;
+     * a run whose context's yield is set already waits at once.
+     */
+    int execute(uint32_t insOff);
 
     void registerHandler(InstructionType type, std::function<void(VirtualMachine *, const Instruction &)> handler) {
         _handlers.insert(std::make_pair(type, std::bind(handler, this, std::placeholders::_1)));

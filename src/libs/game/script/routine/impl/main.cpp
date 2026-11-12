@@ -6962,9 +6962,12 @@ static Variable PlayMovie(const std::vector<Variable> &args, const RoutineContex
     // Transform
     auto movie = boost::to_lower_copy(sMovie);
 
-    // Execute
+    // Execute: the script waits for the movie, going on once it has played.
+    // A run that can't wait goes on at once.
     ctx.game.resetDriveAcceleration();
-    ctx.game.playVideo(movie, nStreamingMusic != 0);
+    if (ctx.game.playVideo(movie, nStreamingMusic != 0) && ctx.execution.yield) {
+        *ctx.execution.yield = true;
+    }
     return Variable::ofNull();
 }
 
@@ -7714,10 +7717,12 @@ static Variable QueueMovie(const std::vector<Variable> &args, const RoutineConte
 }
 
 static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    // Each queued movie keeps the skip setting it was queued with, whatever
-    // nAllowSkips says.
-    ctx.game.playMovieQueue();
+    // Execute: the script waits for the movies, as at PlayMovie. Each queued
+    // movie keeps the skip setting it was queued with, whatever nAllowSkips
+    // says.
+    if (ctx.game.playMovieQueue() && ctx.execution.yield) {
+        *ctx.execution.yield = true;
+    }
     return Variable::ofNull();
 }
 

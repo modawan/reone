@@ -164,6 +164,7 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
         return;
     }
     auto generation = ++_generation;
+    _heldSteps = 0;
     _fadeDialog = std::move(admission);
     if (_dialog) {
         stopVoice();
@@ -446,6 +447,7 @@ bool Conversation::isLinkActive(const Dialog::EntryReplyLink &link) {
     return link.logic == 1 ? active.value() || active2.value() : active.value() && active2.value();
 }
 
+// A condition script that stops to wait at a movie gives -1, and so holds.
 bool Conversation::evaluateCondition(const std::string &scriptResRef, const Dialog::EntryReplyLink::ConditionParams &params) {
     auto owner = _owner.resolve();
     return _game.scriptRunner().run(
@@ -462,12 +464,32 @@ void Conversation::runScript(const std::string &scriptResRef, const Dialog::Entr
     }
 }
 
-void Conversation::runScripts(const Dialog::EntryReply &node) {
+// While a step is held the conversation stands still: its entry neither ends
+// nor takes a reply.
+void Conversation::runScripts(const Dialog::EntryReply &node, std::function<void()> rest) {
     auto generation = _generation;
+    auto dialog = _dialog; // keeps the node while its scripts wait
+    auto &runner = _game.scriptRunner();
+    ++_heldSteps;
     runScript(node.script, node.actionParams);
-    if (isCurrent(generation)) {
+    auto release = [this, generation]() {
+        if (_generation == generation) {
+            _heldSteps = std::max(0, _heldSteps - 1);
+        }
+    };
+    runner.whenNoRunsWait([this, generation, dialog, &node, &runner, release, rest = std::move(rest)]() mutable {
+        if (!isCurrent(generation)) {
+            release();
+            return;
+        }
         runScript(node.script2, node.actionParams2);
-    }
+        runner.whenNoRunsWait([this, generation, release, rest = std::move(rest)]() {
+            release();
+            if (rest && isCurrent(generation)) {
+                rest();
+            }
+        });
+    });
 }
 
 void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
@@ -479,6 +501,7 @@ void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
 
 void Conversation::finish(bool runsEndScript, bool aborted) {
     auto generation = ++_generation;
+    _heldSteps = 0;
     auto dialog = _dialog;
     auto ownerRef = _owner;
     _game.globalFade().finishDialog(_fadeDialog);
@@ -538,6 +561,7 @@ void Conversation::runEndScript(const Dialog &dialog, const Object &owner) {
 
 void Conversation::cleanupForModuleTransition() {
     auto generation = ++_generation;
+    _heldSteps = 0;
     _game.globalFade().finishDialog(_fadeDialog);
     _fadeDialog.reset();
     _game.disableVideoEffect();
@@ -651,17 +675,16 @@ void Conversation::loadEntry(int index, bool start) {
                 }
             }
         }
-        runScripts(*_currentEntry);
-        if (!isCurrent(generation)) {
-            return;
-        }
-        if (!_currentEntry->replies.empty()) {
-            runScripts(_dialog->getReply(_currentEntry->replies.front().index));
-            if (!isCurrent(generation)) {
+        const Dialog::EntryReply *entry = _currentEntry;
+        runScripts(*entry, [this, entry]() {
+            if (entry->replies.empty()) {
+                finish(/*runsEndScript=*/false);
                 return;
             }
-        }
-        finish(/*runsEndScript=*/false);
+            runScripts(_dialog->getReply(entry->replies.front().index), [this]() {
+                finish(/*runsEndScript=*/false);
+            });
+        });
         return;
     }
 
@@ -704,18 +727,15 @@ void Conversation::loadEntry(int index, bool start) {
     // driving the new session with the old one's state. The replies are
     // listed when the entry ends, so their conditions see what its scripts
     // did.
-    runScripts(*_currentEntry);
-    if (!isCurrent(generation)) {
-        return;
-    }
-
-    if (_autoSkip) {
-        if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
-            if (skip.value()) {
-                requestSkip();
+    runScripts(*_currentEntry, [this]() {
+        if (_autoSkip) {
+            if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
+                if (skip.value()) {
+                    requestSkip();
+                }
             }
         }
-    }
+    });
 }
 
 void Conversation::onLoadEntry() {
@@ -1171,7 +1191,7 @@ void Conversation::refreshReplies() {
 // last one listed.
 void Conversation::pickReply(int index) {
     // Once a reply is taken, the next entry is on its way.
-    if (_pendingEntry || index >= static_cast<int>(listedReplyCount())) {
+    if (_pendingEntry || _heldSteps > 0 || index >= static_cast<int>(listedReplyCount())) {
         return;
     }
     auto generation = _generation;
@@ -1201,34 +1221,30 @@ void Conversation::pickReply(int index) {
         scheduleTakenReply(reply);
     }
 
-    // Run reply scripts
+    // Run reply scripts. A reply action can start another conversation,
+    // replacing this one; going on would advance or finish the new session in
+    // place of the old one, and runScripts goes on only while this one stands.
     auto dialog = _dialog;
-    runScripts(reply);
-
-    // A reply action can start another conversation, replacing this one. Going
-    // on would advance or finish the new session in place of the old one.
-    if (!isCurrent(generation)) {
-        return;
-    }
-
-    int entryIdx = indexOfFirstActive(reply.entries);
-    if (!isCurrent(generation)) {
-        return;
-    }
-    if (entryIdx == -1) {
-        debug("Finish (no active entries)", LogChannel::Conversation);
-        finish();
-        return;
-    }
-    // The next entry waits for the reply's own hold and for a screen the
-    // reply's script opened that pauses the world, such as a station or party
-    // selection, to close; a reply leading nowhere has ended the conversation
-    // regardless.
-    if (_game.holdsConversation() || !_endEntryTimer.elapsed() || isWaiting()) {
-        _pendingEntry = entryIdx;
-        return;
-    }
-    loadEntry(entryIdx);
+    runScripts(reply, [this, generation, dialog, &reply]() {
+        int entryIdx = indexOfFirstActive(reply.entries);
+        if (!isCurrent(generation)) {
+            return;
+        }
+        if (entryIdx == -1) {
+            debug("Finish (no active entries)", LogChannel::Conversation);
+            finish();
+            return;
+        }
+        // The next entry waits for the reply's own hold and for a screen the
+        // reply's script opened that pauses the world, such as a station or
+        // party selection, to close; a reply leading nowhere has ended the
+        // conversation regardless.
+        if (_game.holdsConversation() || !_endEntryTimer.elapsed() || isWaiting()) {
+            _pendingEntry = entryIdx;
+            return;
+        }
+        loadEntry(entryIdx);
+    });
 }
 
 bool Conversation::handle(const input::Event &event) {
@@ -1431,6 +1447,9 @@ void Conversation::update(float dt) {
         return;
     }
     GameGUI::update(dt);
+    if (_heldSteps > 0) {
+        return;
+    }
     if (!_entryEnded) {
         _endEntryTimer.update(dt);
         // A pause holds the entry, and a skip asked for meanwhile, until the

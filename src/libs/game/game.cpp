@@ -1233,8 +1233,8 @@ void Game::update(float frameTime) {
         }
     }
     // A movie runs from the frame after it is started, so the code that
-    // started it carries on as if it had already finished. While it runs,
-    // the fade is frozen and takes no requests.
+    // started it carries on as if it had already finished, save a script that
+    // waits for it. While it runs, the fade is frozen and takes no requests.
     _globalFade.setMovieOverride(static_cast<bool>(_movie));
     // Presentation advances once, before callbacks can replace its request.
     // The driver rebases frameTime after synchronous loading; movies suspend it.
@@ -1247,6 +1247,16 @@ void Game::update(float frameTime) {
         _areaMusic.updateMusicFade();
         updateMovie(dt);
         return;
+    }
+    // Scripts that wait at a movie go on once no movie is left to play, and
+    // the engine steps held for them after, before anything else the frame
+    // does. One that starts another movie stops the frame there, as a movie
+    // playing does.
+    if (_scriptRunner) {
+        _scriptRunner->resumeWaitingRuns();
+        if (_scriptRunner->hasWaitingRuns()) {
+            return;
+        }
     }
     updateMusic(frameTime);
 
@@ -2287,6 +2297,11 @@ void Game::retireRuntimeSession() {
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
     }
+    // A script waiting at a movie belongs to the session left, and never goes
+    // on; nor does what was held for it.
+    if (_scriptRunner) {
+        _scriptRunner->dropWaitingRuns();
+    }
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
@@ -3224,11 +3239,11 @@ void Game::setCursorType(CursorType type) {
     _pointer->setType(type);
 }
 
-void Game::playVideo(const std::string &name, bool streamingMusic) {
+bool Game::playVideo(const std::string &name, bool streamingMusic) {
     _moduleTransitionMovies = std::queue<std::string>();
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
-    startVideo(name, streamingMusic);
+    return startVideo(name, streamingMusic);
 }
 
 void Game::queueMovie(const std::string &name, bool skippable) {
@@ -3240,7 +3255,7 @@ void Game::queueMovie(const std::string &name, bool skippable) {
     }
 }
 
-void Game::playMovieQueue() {
+bool Game::playMovieQueue() {
     for (auto &movie : _movieQueue) {
         _queuedMoviesPlaying.push(std::move(movie));
     }
@@ -3248,6 +3263,7 @@ void Game::playMovieQueue() {
     if (!_movie) {
         playNextMovie();
     }
+    return static_cast<bool>(_movie);
 }
 
 void Game::playMusic(const std::string &resRef) {
