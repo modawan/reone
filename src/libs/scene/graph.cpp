@@ -83,6 +83,9 @@ void SceneGraph::clear() {
     _floorStacking.reset();
     _roomTest.reset();
     _activeLights.clear();
+    // An emptied scene has no fog, and the frame is black where nothing is
+    // drawn until the next area sets its fog.
+    setFog(FogProperties());
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
