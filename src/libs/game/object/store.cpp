@@ -46,6 +46,10 @@ void Store::loadFromBlueprint(const std::string &resRef) {
     deserializeAll(*utm, SerializedIdentityContext::templateResource(resRef), false);
 }
 
+// The fields a store placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {
+    "XPosition", "YPosition", "ZPosition", "XOrientation", "YOrientation", "ZOrientation"};
+
 // A store placed from its template takes everything from the template but
 // its position and orientation, which its entry gives. A saved store takes
 // everything from its record.
@@ -60,7 +64,7 @@ void Store::deserialize(
     }
     if (utm) {
         deserializeAll(*utm, SerializedIdentityContext::templateResource(templateRes), true);
-        captureAuthoredRecord(*utm, gff);
+        captureAuthoredRecord(*utm, gff, kEntryFields);
         readPlacement(gff, true);
     } else {
         deserializeAll(gff, identityContext, false);

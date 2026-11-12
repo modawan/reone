@@ -289,6 +289,8 @@ private:
     void deserializeAll(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /** Takes the record's geometry list, when it has one, even empty, in place of the trigger's. */
+    void deserializeGeometry(const resource::Gff &gff);
     /** The entering creature steps on the trap: its key disarms it, or the trap goes off. */
     void stepOnMine(bool force);
     void loadAppearance();
