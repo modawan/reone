@@ -173,6 +173,8 @@ private:
     void refreshControls();
     void updateCharacter();
 
+    /** @return whether the skill has a rank this screen placed, which minus can take back */
+    bool canDecreaseSkill(SkillType skill) const;
     bool canIncreaseSkill(SkillType skill) const;
 
     int getPointCost(SkillType skill) const;

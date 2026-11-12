@@ -54,6 +54,15 @@ public:
 
     bool isClassSkill(SkillType skill) const;
 
+    /** @return the skill points one more rank of the skill costs: 1 for a class skill, 2 for a cross-class one */
+    int skillPointCost(SkillType skill) const { return isClassSkill(skill) ? 1 : 2; }
+
+    /**
+     * @return the highest rank the skill can have at the given level: the
+     *         level + 3 for a class skill, half that for a cross-class one
+     */
+    int maxSkillRank(SkillType skill, int level) const;
+
     /**
      * @return class saving throws at the class level, from the saving throw
      *         table's row level - 1; none for a level without a row

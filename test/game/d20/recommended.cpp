@@ -703,6 +703,37 @@ TEST_F(RecommendedTest, should_recommend_the_highest_other_ability_when_the_prim
     EXPECT_FALSE(recommendLevelUpAbility(getClass(ClassType::Soldier), soldier, 18));
 }
 
+// Point costs shared by the screens and the recommendations
+
+TEST_F(RecommendedTest, should_charge_one_point_for_a_class_skill_rank_and_two_for_a_cross_class_one) {
+    const CreatureClass &soldier = getClass(ClassType::Soldier);
+    ASSERT_TRUE(soldier.isClassSkill(SkillType::Awareness));
+    ASSERT_FALSE(soldier.isClassSkill(SkillType::ComputerUse));
+
+    EXPECT_EQ(soldier.skillPointCost(SkillType::Awareness), 1);
+    EXPECT_EQ(soldier.skillPointCost(SkillType::ComputerUse), 2);
+}
+
+TEST_F(RecommendedTest, should_cap_a_class_skill_at_level_plus_three_and_a_cross_class_one_at_half_that) {
+    const CreatureClass &soldier = getClass(ClassType::Soldier);
+
+    EXPECT_EQ(soldier.maxSkillRank(SkillType::Awareness, 1), 4);
+    EXPECT_EQ(soldier.maxSkillRank(SkillType::ComputerUse, 1), 2);
+    EXPECT_EQ(soldier.maxSkillRank(SkillType::Awareness, 4), 7);
+    EXPECT_EQ(soldier.maxSkillRank(SkillType::ComputerUse, 4), 3);
+}
+
+TEST_F(RecommendedTest, should_charge_a_new_characters_ability_point_by_the_abilitys_modifier) {
+    CreatureAttributes attributes;
+    // From 8 to 13 a point costs 1, at 14 and 15 it costs 2, from 16 on 3:
+    // the modifier, which at 18 would be 4, held to 3.
+    const std::vector<std::pair<int, int>> costByScore {{8, 1}, {9, 1}, {10, 1}, {11, 1}, {12, 1}, {13, 1}, {14, 2}, {15, 2}, {16, 3}, {17, 3}, {18, 3}};
+    for (const auto &[score, cost] : costByScore) {
+        attributes.setAbilityScore(Ability::Strength, score);
+        EXPECT_EQ(attributes.getAbilityPointCost(Ability::Strength), cost) << "score " << score;
+    }
+}
+
 // Auto Level Up
 
 TEST_F(RecommendedTest, should_not_auto_level_a_leader_with_no_level_pending) {

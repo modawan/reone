@@ -196,13 +196,15 @@ void CharGenAbilities::recommend() {
         _points = 0;
     } else {
         // A level-up's point goes to the class's primary ability, from the
-        // scores the screen opened with.
+        // scores the screen opened with, at the plus button's cost.
         _attributes = _startAttributes;
         _points = _startPoints;
-        auto ability = recommendLevelUpAbility(*clazz, _attributes, kMaxAbilityScore);
-        if (ability) {
-            _attributes.setAbilityScore(*ability, _attributes.getAbilityScore(*ability) + _points);
-            _points = 0;
+        while (auto ability = recommendLevelUpAbility(*clazz, _attributes, kMaxAbilityScore)) {
+            if (_points < getPointCost(*ability)) {
+                break;
+            }
+            _points -= getPointCost(*ability);
+            _attributes.setAbilityScore(*ability, _attributes.getAbilityScore(*ability) + 1);
         }
     }
     refreshControls();
@@ -231,12 +233,15 @@ void CharGenAbilities::refreshControls() {
     _controls.WIS_POINTS_BTN->setTextMessage(std::to_string(_attributes.wisdom()));
     _controls.CHA_POINTS_BTN->setTextMessage(std::to_string(_attributes.charisma()));
 
-    _controls.STR_MINUS_BTN->setVisible(_attributes.strength() > kMinAbilityScore);
-    _controls.DEX_MINUS_BTN->setVisible(_attributes.dexterity() > kMinAbilityScore);
-    _controls.CON_MINUS_BTN->setVisible(_attributes.constitution() > kMinAbilityScore);
-    _controls.INT_MINUS_BTN->setVisible(_attributes.intelligence() > kMinAbilityScore);
-    _controls.WIS_MINUS_BTN->setVisible(_attributes.wisdom() > kMinAbilityScore);
-    _controls.CHA_MINUS_BTN->setVisible(_attributes.charisma() > kMinAbilityScore);
+    // Minus takes back only what this screen placed: a new character's
+    // scores start at the minimum, a level-up's at the character's own, so a
+    // level-up cannot trade one score for another.
+    _controls.STR_MINUS_BTN->setVisible(_attributes.strength() > _startAttributes.strength());
+    _controls.DEX_MINUS_BTN->setVisible(_attributes.dexterity() > _startAttributes.dexterity());
+    _controls.CON_MINUS_BTN->setVisible(_attributes.constitution() > _startAttributes.constitution());
+    _controls.INT_MINUS_BTN->setVisible(_attributes.intelligence() > _startAttributes.intelligence());
+    _controls.WIS_MINUS_BTN->setVisible(_attributes.wisdom() > _startAttributes.wisdom());
+    _controls.CHA_MINUS_BTN->setVisible(_attributes.charisma() > _startAttributes.charisma());
 
     _controls.STR_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Strength) && _attributes.strength() < kMaxAbilityScore);
     _controls.DEX_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Dexterity) && _attributes.dexterity() < kMaxAbilityScore);
@@ -247,7 +252,9 @@ void CharGenAbilities::refreshControls() {
 }
 
 int CharGenAbilities::getPointCost(Ability ability) const {
-    return glm::clamp(_attributes.getAbilityModifier(ability), 1, 3);
+    // A new character buys scores by the ability's modifier; a level-up's
+    // point raises any score by one.
+    return _newGame ? _attributes.getAbilityPointCost(ability) : 1;
 }
 
 static Ability getAbilityByAlias(const std::string &alias) {

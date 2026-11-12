@@ -62,11 +62,9 @@ void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAt
         return static_cast<int>(left.second) < static_cast<int>(right.second);
     });
 
-    const int maxClassSkillRank = allocationLevel + 3;
     for (const auto &[_, skill] : order) {
-        const bool classSkill = clazz.isClassSkill(skill);
-        const int maxRank = classSkill ? maxClassSkillRank : maxClassSkillRank / 2;
-        const int cost = classSkill ? 1 : 2;
+        const int maxRank = clazz.maxSkillRank(skill, allocationLevel);
+        const int cost = clazz.skillPointCost(skill);
         // A skill that cannot take another rank gives way to the next, which
         // may cost less.
         while (points >= cost && attributes.getSkillRank(skill) < maxRank) {
