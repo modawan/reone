@@ -1079,11 +1079,16 @@ void Party::applyJoiningExperience(int npc, Creature &creature) {
 // none of its own, so handing them over again, as each module load does, adds
 // nothing.
 void Party::transferInventory(Creature &creature) {
-    auto receiver = actualPlayer();
     for (const auto count : {HeldCount::Credits, HeldCount::Components, HeldCount::Chemicals}) {
         setPartyCount(count, raisedCount(partyCount(count), creature.heldCount(count)));
     }
     creature.clearHeldCounts();
+    // With no one to hold the shared inventory the creature keeps its carried
+    // items until it hands them over again.
+    const auto receiver = actualPlayer();
+    if (!receiver) {
+        return;
+    }
     const auto carried = creature.items();
     for (const auto &item : carried) {
         transferItemTo(_game, item, *receiver, ItemLossNotice::None);
@@ -1111,13 +1116,14 @@ void Party::takeItemsOnModuleLoad() {
     if (!_player) {
         return;
     }
+    const auto holder = actualPlayer();
     // The items come back to the creature that had them: none is marked anew.
     for (const auto &[slot, item] : _player->equipment()) {
         item->retakeForTop(_player);
         item->announceKept();
         _game.signalItemEquipped(*_player, slot, item);
     }
-    for (const auto &item : actualPlayer()->items()) {
+    for (const auto &item : holder->items()) {
         item->retakeForTop(_player);
         item->announceKept();
     }
@@ -1129,11 +1135,15 @@ void Party::switchControlTo(
     const std::shared_ptr<Creature> &previous,
     bool fromWorld) {
     // A creature already possessing items of the party, as the leader does,
-    // keeps them.
+    // keeps them. Control can come from no one, and stay with no one when the
+    // creature's roster slot cannot be bound, so the shared inventory may have
+    // no holder before or after.
     std::vector<std::shared_ptr<Item>> kept;
-    for (const auto &item : actualPlayer()->items()) {
-        if (item->possessorId() == creature->id()) {
-            kept.push_back(item);
+    if (const auto holder = actualPlayer()) {
+        for (const auto &item : holder->items()) {
+            if (item->possessorId() == creature->id()) {
+                kept.push_back(item);
+            }
         }
     }
     setControlledMember(npc, creature);
@@ -1143,11 +1153,13 @@ void Party::switchControlTo(
     // The party's items pass to the creature now in control, with nothing
     // told, unless it possessed them already; each is then announced kept by
     // it, once.
-    for (const auto &item : actualPlayer()->items()) {
-        if (std::find(kept.begin(), kept.end(), item) == kept.end()) {
-            item->retakeForTop(previous);
+    if (const auto holder = actualPlayer()) {
+        for (const auto &item : holder->items()) {
+            if (std::find(kept.begin(), kept.end(), item) == kept.end()) {
+                item->retakeForTop(previous);
+            }
+            item->announceKept();
         }
-        item->announceKept();
     }
     passItemsToLeader();
 }

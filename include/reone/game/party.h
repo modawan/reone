@@ -878,6 +878,11 @@ private:
      * a puppet joins the party puppet faction.
      */
     void joinRosterFaction(const RosterIdentity &identity, Creature &creature) const;
+    /**
+     * A creature hands the party its credits, components and chemicals, and
+     * its carried items to the shared inventory; with no one holding that, it
+     * keeps the items.
+     */
     void transferInventory(Creature &creature);
     /** The count the party holds for its members. */
     int partyCount(HeldCount count) const;
