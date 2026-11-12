@@ -1,4 +1,4 @@
-# Combat Research
+# Combat
 
 ## Animations
 
