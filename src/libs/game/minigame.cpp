@@ -762,6 +762,11 @@ void MinigameSession::collideObstacles() {
         if (!o.hasHitbump) {
             continue;
         }
+        // A hitbump that starts above the bike is a roof or an arch over the
+        // track (the TSL courses have them): the bike passes under it.
+        if (o.hitbumpMin.z > p.position.z) {
+            continue;
+        }
         // A hit is the bike's movement this update entering the hitbump.
         bool wasInside = p.previousPosition.x >= o.hitbumpMin.x && p.previousPosition.x <= o.hitbumpMax.x &&
                          p.previousPosition.y >= o.hitbumpMin.y && p.previousPosition.y <= o.hitbumpMax.y;

@@ -579,6 +579,29 @@ TEST(MinigameSession, a_swoop_obstacle_runs_on_hit_obstacle_once_per_crossing) {
     EXPECT_EQ(session->player()->lastObstacleHit, 2u);
 }
 
+// The TSL courses put arches over the track. Their hitbump starts above the
+// bike, which passes under it.
+TEST(MinigameSession, a_hitbump_above_the_bike_is_passed_under) {
+    ScriptedHost host;
+    auto session = std::make_unique<MinigameSession>(host);
+    MinigameSession::ObstaclePlacement arch;
+    arch.name = "510ond_mgc12";
+    arch.position = glm::vec3(100.0f, 60.0f, 0.0f);
+    arch.hasHitbump = true;
+    arch.hitbumpMin = glm::vec3(90.0f, 58.0f, 7.5f);
+    arch.hitbumpMax = glm::vec3(110.0f, 92.0f, 10.0f);
+    session->load(swoopSpec(0), tarisTrack(), {}, {arch});
+    session->setObjectId(0, 1);
+    session->setObjectId(1, 2);
+    session->setPlayerSpeed(100.0f);
+    session->setPlayerMaxSpeed(100.0f);
+    for (int i = 0; i < 60; ++i) {
+        session->update(kTick, MinigameInput());
+    }
+    EXPECT_EQ(host.count("obstacle"), 0u);
+    EXPECT_EQ(session->player()->lastObstacleHit, 0u);
+}
+
 TEST(MinigameSession, a_segment_that_passes_a_follower_still_touches_it) {
     // At speed the bike covers more than a pad's diameter in one update; the
     // test is between movement segments, not end points.
