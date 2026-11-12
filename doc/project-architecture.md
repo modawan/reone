@@ -10,7 +10,7 @@ Source code is organized into modules, each module containing a different engine
 
 - _engine_ is the engine executable
 - _launcher_ is a GUI application to configure and launch the engine
-- _toolkit_ is a GUI application to inspect game resources and invoke [tools](Tooling.md)
+- _toolkit_ is a GUI application to inspect game resources and invoke [tools](tooling.md)
 - _dataminer_ extracts information from game resources
 - _gff2json_ converts GFF resources to JSON
 - _unerf_ extracts ERF archives

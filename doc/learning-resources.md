@@ -24,4 +24,4 @@
 ## KotOR/TSL
 
 - [Game Mechanics](https://strategywiki.org/wiki/Star_Wars:_Knights_of_the_Old_Republic/Table_of_Contents)
-- [Combat Animations](research/combat.md)
+- [Combat Animations](combat-research.md)
