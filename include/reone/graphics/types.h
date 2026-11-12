@@ -208,6 +208,15 @@ struct MdlClassification {
     static constexpr int lightsaber = 0x10;
     static constexpr int placeable = 0x20;
     static constexpr int flyer = 0x40;
+    /** Left out of scene hits, such as a camera's. */
+    static constexpr int sceneHitExcluded = 0x80;
+};
+
+struct MdlSubclassification {
+    /** The model stands in every room. */
+    static constexpr int inEveryRoom = 1;
+    /** A placeable-classified model takes scene hits all the same, such as a camera's. */
+    static constexpr int hitFilterOverride = 4;
 };
 
 struct MdlNodeFlags {

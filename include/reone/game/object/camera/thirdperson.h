@@ -57,6 +57,8 @@ public:
     bool isMouseLookMode() const override;
 
     void setTargetPosition(glm::vec3 position);
+    /** The next update places the camera, whatever was placed before it. */
+    void placeAtNextUpdate() { _placedSinceUpdate = false; }
     /** The point the camera follows: the leader's camera hook. */
     const glm::vec3 &targetPosition() const { return _targetPosition; }
     void setFacing(float facing) override;
@@ -150,6 +152,13 @@ private:
 
     // END Wheel zoom
 
+    // Placement
+
+    /** Whether the camera was placed since the last update, as the target moved. */
+    bool _placedSinceUpdate {false};
+
+    // END Placement
+
     // Stiff chase
 
     /**
@@ -193,6 +202,8 @@ private:
      * the stiff chase camera mode, short of any wall in the way.
      */
     void easeStiffChase(float dt);
+    /** Where a camera wanted at \p desired stands, kept clear of walls as seen from \p from. */
+    glm::vec3 clearOfWalls(const glm::vec3 &from, const glm::vec3 &desired) const;
     /** Places the combat camera behind the target, pulled in where the view is obstructed. */
     void updateCombatSceneNode();
     /** Turns the camera outside combat by the mouse look's travel over \p dt seconds. */

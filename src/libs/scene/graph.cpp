@@ -800,9 +800,13 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
 }
 
 bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
-    auto originToDest = dest - origin;
-    auto dir = glm::normalize(originToDest);
-    float maxDistance = glm::length(originToDest);
+    const auto originToDest = dest - origin;
+    const float maxDistance = glm::length(originToDest);
+    // A line of no length meets nothing.
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    const auto dir = originToDest / maxDistance;
     float minDistance = std::numeric_limits<float>::max();
 
     // Every room and every object walkmesh is tested, however far the line
@@ -911,6 +915,168 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
     }
 
     return minDistance != std::numeric_limits<float>::max();
+}
+
+// The inverse of a unit direction for a box test, a zero component taken as
+// the largest float, so that a line starting on a box face still has a
+// number for its distance to it.
+static glm::vec3 inverseDirection(const glm::vec3 &dir) {
+    glm::vec3 inverse;
+    for (int i = 0; i < 3; ++i) {
+        inverse[i] = dir[i] != 0.0f ? 1.0f / dir[i] : std::numeric_limits<float>::max();
+    }
+    return inverse;
+}
+
+// How far along a line, in an AABB mesh's space and along a unit direction,
+// it first meets a face of one of the surfaces, from either side, within its
+// length; and which face. The tree's boxes pass over what the line misses and
+// what lies beyond the nearest face found.
+static std::optional<float> raycastAABBMesh(const ModelNode::TriangleMesh &mesh, const std::set<uint32_t> &surfaces,
+                                            const glm::vec3 &origin, const glm::vec3 &dir, float maxDistance, uint32_t &outFace) {
+    const auto &faces = mesh.mesh->faces();
+    const auto &vertices = mesh.mesh->vertices();
+    const glm::vec3 invDir {inverseDirection(dir)};
+    std::optional<float> nearest;
+    std::stack<const ModelNode::AABBTree *> nodes;
+    nodes.push(mesh.aabbTree.get());
+    while (!nodes.empty()) {
+        const auto *node = nodes.top();
+        nodes.pop();
+        const float reach = nearest.value_or(maxDistance);
+        float boxDistance = 0.0f;
+        if (!node->aabb.raycast(origin, invDir, reach, boxDistance)) {
+            continue;
+        }
+        if (node->faceIndex < 0) {
+            if (node->left) {
+                nodes.push(node->left.get());
+            }
+            if (node->right) {
+                nodes.push(node->right.get());
+            }
+            continue;
+        }
+        const auto faceIndex = static_cast<size_t>(node->faceIndex);
+        if (faceIndex >= faces.size()) {
+            continue;
+        }
+        const auto &face = faces[faceIndex];
+        if (surfaces.count(face.material) == 0 ||
+            std::any_of(face.vertices.begin(), face.vertices.end(), [&vertices](uint16_t vertex) {
+                return vertex >= vertices.size();
+            })) {
+            continue;
+        }
+        glm::vec2 baryPosition {0.0f};
+        float distance = 0.0f;
+        if (glm::intersectRayTriangle(origin, dir,
+                                      vertices[face.vertices[0]].position,
+                                      vertices[face.vertices[1]].position,
+                                      vertices[face.vertices[2]].position,
+                                      baryPosition, distance) &&
+            distance > 0.0f && distance < reach) {
+            nearest = distance;
+            outFace = static_cast<uint32_t>(faceIndex);
+        }
+    }
+    return nearest;
+}
+
+// A door's or placeable's model stops a camera unless the object lets it
+// through, or the model is classified as an effect, a tile, a character, a
+// lightsaber or excluded from scene hits, or as a placeable without the hit
+// filter override of its subclassification.
+static bool modelStopsCamera(const ModelSceneNode &root) {
+    static constexpr int kPassedClassifications = MdlClassification::effect | MdlClassification::tile |
+                                                  MdlClassification::character | MdlClassification::lightsaber |
+                                                  MdlClassification::sceneHitExcluded;
+    const auto usage = root.usage();
+    if ((usage != ModelUsage::Door && usage != ModelUsage::Placeable) || !root.isEnabled() || root.cameraPassesThrough()) {
+        return false;
+    }
+    const int classification = root.model().classification();
+    if ((classification & kPassedClassifications) != 0) {
+        return false;
+    }
+    return (classification & MdlClassification::placeable) == 0 ||
+           (root.model().subclassification() & MdlSubclassification::hitFilterOverride) != 0;
+}
+
+// A room stops a camera by the AABB mesh of its model, every room whether it
+// is shown or not. A door or placeable that does stops it by the triangles of
+// its model's meshes as they are posed.
+bool SceneGraph::testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
+    const glm::vec3 originToDest {dest - origin};
+    const float maxDistance = glm::length(originToDest);
+    // A line of no length meets nothing.
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    const glm::vec3 dir {originToDest / maxDistance};
+    float nearest = std::numeric_limits<float>::max();
+    for (auto &root : _modelRoots) {
+        if (modelStopsCamera(*root)) {
+            const auto share = root->intersectSegment(origin, dest);
+            if (!share || *share * maxDistance >= nearest) {
+                continue;
+            }
+            outCollision.user = root->user();
+            outCollision.intersection = origin + *share * originToDest;
+            outCollision.normal = -dir;
+            outCollision.material = -1;
+            nearest = *share * maxDistance;
+            continue;
+        }
+        if (root->usage() != ModelUsage::Room) {
+            continue;
+        }
+        const auto aabbNode = root->model().getAABBNode();
+        if (!aabbNode || !aabbNode->mesh()->mesh) {
+            continue;
+        }
+        // A room stands still: a line that misses its model's box misses its
+        // mesh, and is let go before its mesh's space is worked out.
+        const glm::vec3 roomOrigin {root->absoluteTransformInverse() * glm::vec4 {origin, 1.0f}};
+        const glm::vec3 roomDest {root->absoluteTransformInverse() * glm::vec4 {dest, 1.0f}};
+        const float roomLength = glm::length(roomDest - roomOrigin);
+        float boxDistance = 0.0f;
+        if (roomLength == 0.0f ||
+            !root->aabb().raycast(roomOrigin, inverseDirection((roomDest - roomOrigin) / roomLength), roomLength, boxDistance)) {
+            continue;
+        }
+        // The line is taken into the mesh's space and its hit brought back.
+        const glm::mat4 toWorld {root->absoluteTransform() * aabbNode->absoluteTransform()};
+        const glm::vec3 meshOrigin {aabbNode->absoluteTransformInverse() * glm::vec4 {roomOrigin, 1.0f}};
+        const glm::vec3 meshDest {aabbNode->absoluteTransformInverse() * glm::vec4 {roomDest, 1.0f}};
+        const float meshLength = glm::length(meshDest - meshOrigin);
+        if (meshLength == 0.0f) {
+            continue;
+        }
+        const glm::vec3 meshDir {(meshDest - meshOrigin) / meshLength};
+        uint32_t faceIndex = 0;
+        const auto hit = raycastAABBMesh(*aabbNode->mesh(), _cameraSurfaces, meshOrigin, meshDir, meshLength, faceIndex);
+        if (!hit) {
+            continue;
+        }
+        const glm::vec3 intersection {toWorld * glm::vec4 {meshOrigin + *hit * meshDir, 1.0f}};
+        const float distance = glm::length(intersection - origin);
+        if (distance >= nearest) {
+            continue;
+        }
+        const auto &face = aabbNode->mesh()->mesh->faces()[faceIndex];
+        // A face met from behind still turns its normal back along the line.
+        glm::vec3 normal {glm::normalize(glm::vec3 {toWorld * glm::vec4 {face.normal, 0.0f}})};
+        if (glm::dot(normal, dir) > 0.0f) {
+            normal = -normal;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = intersection;
+        outCollision.normal = normal;
+        outCollision.material = static_cast<int>(face.material);
+        nearest = distance;
+    }
+    return nearest != std::numeric_limits<float>::max();
 }
 
 void SceneGraph::setWalkableSurfaces(std::set<uint32_t> surfaces) {

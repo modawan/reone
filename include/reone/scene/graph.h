@@ -132,6 +132,15 @@ public:
     virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
     /**
+     * Where the line first meets what stops a camera: a face of a room
+     * model's AABB mesh, in any room, shown or not, of a camera surface
+     * (setCameraSurfaces), walkable floor included; or a triangle, as it is
+     * posed, of the model of a door or placeable that a camera does not pass
+     * through and whose classification does not let it. The normal faces
+     * back along the line.
+     */
+    virtual bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
+    /**
      * The first room walkmesh, in layout order, with a walk-check face on the
      * vertical through a point, within a thousand units above and below it; a
      * vertical that misses a room is tried on it once more, shifted 0.001
@@ -179,6 +188,8 @@ public:
     virtual void setWalkableSurfaces(std::set<uint32_t> surfaces) = 0;
     virtual void setWalkcheckSurfaces(std::set<uint32_t> surfaces) = 0;
     virtual void setLineOfSightSurfaces(std::set<uint32_t> surfaces) = 0;
+    /** The surfaces whose faces of a room model's AABB mesh stop a camera (see testCameraLine). */
+    virtual void setCameraSurfaces(std::set<uint32_t> surfaces) = 0;
     /**
      * The walkmeshes of the area's rooms, by their place in the layout; empty
      * for a room loaded without one. Walks through the rooms follow them.
@@ -360,6 +371,8 @@ public:
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
     bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
+    bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
+    void setCameraSurfaces(std::set<uint32_t> surfaces) override { _cameraSurfaces = std::move(surfaces); }
     std::shared_ptr<WalkmeshSceneNode> findRoomWalkmesh(const glm::vec3 &position) const override;
     std::optional<RoomFace> findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const override;
     bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
@@ -481,6 +494,7 @@ private:
     std::set<uint32_t> _walkableSurfaces;
     std::set<uint32_t> _walkcheckSurfaces;
     std::set<uint32_t> _lineOfSightSurfaces;
+    std::set<uint32_t> _cameraSurfaces;
     /** The walk-check surfaces that are not walkable. */
     std::set<uint32_t> _blockingSurfaces;
 

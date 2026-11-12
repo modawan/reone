@@ -54,6 +54,11 @@ public:
     virtual std::set<uint32_t> getWalkcheckSurfaces() const = 0;
     /** The surfaces whose faces block line of sight: lineofsight cell 1. */
     virtual std::set<uint32_t> getLineOfSightSurfaces() const = 0;
+    /**
+     * The surfaces whose faces stop a camera: every material a set can name
+     * but the Trigger row's, whether or not the table has a row for it.
+     */
+    virtual std::set<uint32_t> getCameraSurfaces() const = 0;
 };
 
 class Surfaces : public ISurfaces, boost::noncopyable {
@@ -73,6 +78,7 @@ public:
     std::set<uint32_t> getWalkableSurfaces() const override;
     std::set<uint32_t> getWalkcheckSurfaces() const override;
     std::set<uint32_t> getLineOfSightSurfaces() const override;
+    std::set<uint32_t> getCameraSurfaces() const override;
 
 private:
     resource::TwoDAs &_twoDas;

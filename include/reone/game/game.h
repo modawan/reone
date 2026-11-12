@@ -1953,6 +1953,8 @@ private:
     int _cameraMode {kOnAStickCameraMode};
     /** The mode the engine last set for the camera that shows the scene. */
     int _engineCameraMode {kOnAStickCameraMode};
+    /** The type of the camera last updated; none since the module started. */
+    std::optional<CameraType> _updatedCameraType;
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
     /** The sound mode the world's sounds were last paused or resumed for. */

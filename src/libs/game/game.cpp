@@ -1047,11 +1047,13 @@ void Game::setSceneSurfaces() {
     auto walkable = _services.game.surfaces.getWalkableSurfaces();
     auto walkcheck = _services.game.surfaces.getWalkcheckSurfaces();
     auto lineOfSight = _services.game.surfaces.getLineOfSightSurfaces();
+    auto camera = _services.game.surfaces.getCameraSurfaces();
     for (auto &name : _services.scene.graphs.sceneNames()) {
         auto &scene = _services.scene.graphs.get(name);
         scene.setWalkableSurfaces(walkable);
         scene.setWalkcheckSurfaces(walkcheck);
         scene.setLineOfSightSurfaces(lineOfSight);
+        scene.setCameraSurfaces(camera);
     }
 }
 
@@ -1842,6 +1844,7 @@ void Game::publishDestinationModule(const std::string &name, const resource::Gff
             // A module starts with the camera on a stick.
             _cameraMode = kOnAStickCameraMode;
             _engineCameraMode = kOnAStickCameraMode;
+            _updatedCameraType.reset();
         });
 }
 
@@ -2256,6 +2259,7 @@ void Game::retireRuntimeSession() {
     _savedCameraType = CameraType::ThirdPerson;
     _cameraMode = kOnAStickCameraMode;
     _engineCameraMode = kOnAStickCameraMode;
+    _updatedCameraType.reset();
     _followCameraZoom = 1.0f;
     _freeLook = false;
     disableVideoEffect();
@@ -5511,6 +5515,12 @@ void Game::updateCamera(float dt) {
                 thirdPerson.updateTiltLimits(_leftButtonHeld, _module->player().steersBack(), dt);
             }
         }
+        // The follow camera is placed at its first update since another
+        // camera showed the scene, whatever was placed while it was away.
+        if (_cameraType == CameraType::ThirdPerson && _updatedCameraType != CameraType::ThirdPerson) {
+            thirdPerson.placeAtNextUpdate();
+        }
+        _updatedCameraType = _cameraType;
         // An animated camera's shot stands still while the world is held, the
         // player's pause included.
         camera->update(_cameraType == CameraType::Animated && holdsWorld() ? 0.0f : dt);

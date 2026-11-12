@@ -245,6 +245,7 @@ public:
     MOCK_METHOD(std::set<uint32_t>, getWalkableSurfaces, (), (const override));
     MOCK_METHOD(std::set<uint32_t>, getWalkcheckSurfaces, (), (const override));
     MOCK_METHOD(std::set<uint32_t>, getLineOfSightSurfaces, (), (const override));
+    MOCK_METHOD(std::set<uint32_t>, getCameraSurfaces, (), (const override));
 };
 
 class MockProjectiles : public IProjectiles, boost::noncopyable {
