@@ -404,6 +404,8 @@ std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneG
         _game.newPresentationCreature(sceneGraph.name());
     character->setFacing(-glm::half_pi<float>());
     character->setAppearance(partyLeader->appearance());
+    // The leader is shown with its own good/evil.
+    character->setGoodEvil(partyLeader->goodEvil());
     // A disguise previews over the texture variation the leader shows.
     character->takeShownTextureVariation(*partyLeader);
 
