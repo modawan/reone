@@ -43,6 +43,7 @@ void WalkmeshSceneNode::init() {
         float material = glm::min(1.0f, static_cast<float>(wface.material) / static_cast<float>(kMaxWalkmeshMaterials - 1));
 
         for (glm::vec3 v : wface.vertices) {
+            _radius = std::max(_radius, glm::length(v));
             vertices.push_back(v.x);
             vertices.push_back(v.y);
             vertices.push_back(v.z);

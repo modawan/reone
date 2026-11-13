@@ -867,8 +867,10 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
             continue;
         }
         if (!root->walkmesh().isAreaWalkmesh()) {
-            float distance2 = root->getSquareDistanceTo(origin);
-            if (distance2 > reach * reach) {
+            // An object's walkmesh is passed over when all of it lies beyond
+            // the segment's reach.
+            const float range = reach + root->radius();
+            if (root->getSquareDistanceTo(origin) > range * range) {
                 continue;
             }
         }
