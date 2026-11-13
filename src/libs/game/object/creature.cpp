@@ -5068,7 +5068,7 @@ bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, Ani
         flushFireForgetQueue();
     }
     // The clip plays on the creature's head too, as any of its clips does.
-    properties.flags |= AnimationFlags::retargetRoot | AnimationFlags::propagate;
+    properties.flags |= AnimationFlags::external | AnimationFlags::propagate;
     bool started = doPlayAnimation(fireForget, [&]() {
         if (!fireForget && !storeLoop(anim->name(), properties, false, source, anim)) {
             return;
