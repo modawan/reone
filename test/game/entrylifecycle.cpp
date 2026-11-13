@@ -174,6 +174,17 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
         EXPECT_CALL(director, adoptSaveWorkingState(_))
             .Times(AnyNumber())
             .WillRepeatedly(Invoke([this](auto state) { committed = std::move(state); }));
+        // A companion following the party is made again from the roster
+        // record it was saved to, which reads its appearance.
+        EXPECT_CALL(director, findSaveWorking(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](const ResourceId &id) { return committed->find(id); }));
+        TwoDA::Builder appearances;
+        appearances.columns({"modeltype"});
+        appearances.row({"S"});
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(appearances.build())));
         EXPECT_CALL(director, saveNames())
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::set<std::string> {}));
