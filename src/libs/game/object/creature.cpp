@@ -4982,6 +4982,9 @@ void Creature::playAnimation(const std::string &name, AnimationProperties proper
     if (holdsCutsceneAnimation()) {
         return;
     }
+    // A creature's clip plays on its head along with its body: a looping
+    // pose, a scripted loop and a conversation's cut clip alike.
+    properties.flags |= AnimationFlags::propagate;
     bool fireForget = !(properties.flags & AnimationFlags::loop);
     // A clip the model lacks shows nothing and leaves the current one running.
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
@@ -5064,7 +5067,8 @@ bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, Ani
         abortFireForgetAnimation();
         flushFireForgetQueue();
     }
-    properties.flags |= AnimationFlags::external;
+    // The clip plays on the creature's head too, as any of its clips does.
+    properties.flags |= AnimationFlags::external | AnimationFlags::propagate;
     bool started = doPlayAnimation(fireForget, [&]() {
         if (!fireForget && !storeLoop(anim->name(), properties, false, source, anim)) {
             return;

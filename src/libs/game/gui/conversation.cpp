@@ -156,7 +156,8 @@ bool Conversation::isCurrent(uint64_t generation) const {
 }
 
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner,
-                         GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
+                         GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener,
+                         const std::function<void()> &opening) {
     if (!admission) {
         admission = _game.globalFade().admitDialog(/*replace=*/true);
     }
@@ -194,7 +195,7 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     loadCameraModel();
     onStart();
     if (isCurrent(generation)) {
-        loadStartEntry();
+        loadStartEntry(opening);
     }
 }
 
@@ -383,7 +384,10 @@ void Conversation::setBarkText(std::string text, float duration) {
 void Conversation::onStart() {
 }
 
-void Conversation::loadStartEntry() {
+// The start entry is chosen before the conversation opens: one that is a
+// one-liner is barked, and no start entry ends the conversation, both without
+// it opening.
+void Conversation::loadStartEntry(const std::function<void()> &opening) {
     auto generation = _generation;
     auto dialog = _dialog;
     int entryIdx = indexOfFirstActive(dialog->startEntries);
@@ -395,7 +399,23 @@ void Conversation::loadStartEntry() {
         finish();
         return;
     }
+    if (opening && !isOneLiner(dialog->getEntry(entryIdx))) {
+        opening();
+    }
     loadEntry(entryIdx, true);
+}
+
+// A conversation is a one-liner when it opens on an entry with no replies, or
+// with one reply that leads to no entry; the reply's text and condition play
+// no part. Cinematic conversations can be one-liners, and so can computer ones
+// in KotOR.
+bool Conversation::isOneLiner(const Dialog::EntryReply &entry) const {
+    const ConversationType type = _dialog->conversationType;
+    if (type != ConversationType::Cinematic && (type != ConversationType::Computer || _game.isTSL())) {
+        return false;
+    }
+    const auto &links = entry.replies;
+    return links.empty() || (links.size() == 1ll && _dialog->getReply(links.front().index).entries.empty());
 }
 
 int Conversation::indexOfFirstActive(const std::vector<Dialog::EntryReplyLink> &links) {
@@ -589,18 +609,9 @@ void Conversation::loadEntry(int index, bool start) {
         attachDialogParticipant(resolveParticipantObject(_currentEntry->speaker, ParticipantSite::Speaker));
     }
 
-    // A conversation is a one-liner when it opens on an entry with no replies,
-    // or with one reply that leads to no entry; the reply's text and condition
-    // play no part. Cinematic conversations can be one-liners, and so can
-    // computer ones in KotOR. A one-liner is barked instead of opened: it
-    // lists no replies, and neither its entry nor its reply adds a journal
-    // entry or plot experience.
-    bool oneLiner = false;
-    const ConversationType type = _dialog->conversationType;
-    if (start && (type == ConversationType::Cinematic || (type == ConversationType::Computer && !_game.isTSL()))) {
-        const auto &links = _currentEntry->replies;
-        oneLiner = links.empty() || (links.size() == 1ll && _dialog->getReply(links.front().index).entries.empty());
-    }
+    // A one-liner is barked instead of opened: it lists no replies, and
+    // neither its entry nor its reply adds a journal entry or plot experience.
+    const bool oneLiner = start && isOneLiner(*_currentEntry);
 
     // An entry's replies are listed when it ends.
     _replies.clear();

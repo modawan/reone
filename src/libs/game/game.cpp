@@ -9312,7 +9312,8 @@ void Game::startCharacterGeneration() {
 }
 
 bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
-                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
+                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener,
+                       const std::function<void()> &prepareParticipants) {
     if (_captureHUDPresentation) {
         return false;
     }
@@ -9345,14 +9346,11 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
         return false;
     }
 
-    stopMovement();
-    setRelativeMouseMode(false);
-    setCursorType(CursorType::Default);
-    changeScreen(Screen::Conversation);
     _dialogUnderWay = true;
 
     // Starting a conversation other than a computer's also quietly ends the
-    // stealth of the controlled creature and the party members.
+    // stealth of the controlled creature and the party members, a one-liner's
+    // as well.
     if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
         if (auto leader = _party.getLeader()) {
             leader->setStealthMode(false, true);
@@ -9364,7 +9362,18 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     }
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
-    _conversation->start(dialog, owner, std::move(admission), listener);
+    // Play turns to the conversation only once it opens. A one-liner is
+    // barked over play, which goes on: the player keeps moving and the screen
+    // stays as it is.
+    _conversation->start(dialog, owner, std::move(admission), listener, [this, &prepareParticipants]() {
+        if (prepareParticipants) {
+            prepareParticipants();
+        }
+        stopMovement();
+        setRelativeMouseMode(false);
+        setCursorType(CursorType::Default);
+        changeScreen(Screen::Conversation);
+    });
     return true;
 }
 
@@ -9401,21 +9410,24 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
     }
     bool started = false;
     if (target) {
-        // Each of the two stops what it was doing, unless it is the player's,
-        // and shows its pause; it faces as it did should nothing start.
+        // Once the conversation opens, each of the two stops what it was
+        // doing, unless it is the player's, and shows its pause; a one-liner
+        // leaves both as they were. Each faces as it did should nothing start.
         const auto player = _party.getLeader();
         std::vector<std::pair<std::shared_ptr<Creature>, float>> facings;
         for (const auto &object : {target, self}) {
-            auto creature = std::dynamic_pointer_cast<Creature>(object);
-            if (!creature) {
-                continue;
+            if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+                facings.emplace_back(creature, creature->getFacing());
             }
-            if (creature != player) {
-                creature->clearAllActions(true);
-            }
-            facings.emplace_back(creature, creature->getFacing());
-            creature->showDialogPause();
         }
+        auto prepareParticipants = [&facings, &player]() {
+            for (const auto &[creature, facing] : facings) {
+                if (creature != player) {
+                    creature->clearAllActions(true);
+                }
+                creature->showDialogPause();
+            }
+        };
         if (resRef.empty()) {
             resRef = self->lastConversation();
         }
@@ -9427,7 +9439,7 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
         const auto &owner = selfListens ? target : self;
         const auto &listener = selfListens ? self : target;
         const std::string dialog = resRef.empty() ? owner->conversation() : resRef;
-        started = !dialog.empty() && startDialog(owner, dialog, admission, listener);
+        started = !dialog.empty() && startDialog(owner, dialog, admission, listener, prepareParticipants);
         if (!started) {
             for (auto &[creature, facing] : facings) {
                 creature->dropOrientationLock();

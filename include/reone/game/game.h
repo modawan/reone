@@ -735,10 +735,15 @@ public:
      * from the main menu does.
      */
     void fadeOutMenuMusic();
-    /** Whether the conversation started: false when it can't be loaded or shown. */
+    /**
+     * Whether the conversation started: false when it can't be loaded or shown.
+     * Play turns to the conversation only when it opens, after
+     * \p prepareParticipants; a one-liner is barked over play instead.
+     */
     bool startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                      GlobalFade::DialogTicket admission = {},
-                     const std::shared_ptr<Object> &listener = nullptr);
+                     const std::shared_ptr<Object> &listener = nullptr,
+                     const std::function<void()> &prepareParticipants = {});
     /**
      * A request to talk from \p speaker reaches \p target as a conversation
      * event naming \p resRef, whose conversation script decides whether a
