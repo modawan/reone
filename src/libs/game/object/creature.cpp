@@ -10131,7 +10131,7 @@ Creature::Avoidance Creature::plotPathAroundCreature(const std::shared_ptr<Creat
         std::optional<std::reference_wrapper<const Creature>> standing;
         int score {0};
     };
-    const auto planWay = [&](bool left) {
+    const auto planWay = [&](bool left, bool thin) {
         Way way;
         way.points = findAvoidanceWay(hex, entry, exit, left);
         for (auto &point : way.points) {
@@ -10145,7 +10145,8 @@ Creature::Avoidance Creature::plotPathAroundCreature(const std::shared_ptr<Creat
             }
         }
         for (size_t i = 1; i < way.points.size(); ++i) {
-            auto test = area.testDirectLine(*this, way.points[i - 1], way.points[i], targetCreature);
+            auto test = thin ? area.testWalkStep(*this, way.points[i - 1], way.points[i], targetCreature)
+                             : area.testDirectLine(*this, way.points[i - 1], way.points[i], targetCreature);
             // A leg that starts with a wall within the walker's personal
             // space meets it at its start whichever way it goes: the corner
             // a way starts from, nearest the walker, lies behind it and can be
@@ -10168,9 +10169,22 @@ Creature::Avoidance Creature::plotPathAroundCreature(const std::shared_ptr<Creat
         way.score = 2;
         return way;
     };
-    const Way first = planWay(side);
-    side = !side;
-    const Way second = planWay(side);
+    const bool preferred = side;
+    Way first = planWay(preferred, false);
+    Way second = planWay(!preferred, false);
+    // With neither way clear of the walls by the walker's personal space,
+    // both are tested as the walker's steps along them will be, by the thin
+    // line. A path that runs nearer a wall than that personal space, as the
+    // pathfinder's may and a walker's steps follow, has the corner where a
+    // way rejoins it that near the wall too, so the swept test blocks the
+    // last leg of the way on the open side as well as the way between the
+    // creature and the wall, and the walk ended though the walker could
+    // step round the open side.
+    if (first.score == 0 && second.score == 0) {
+        first = planWay(preferred, true);
+        second = planWay(!preferred, true);
+    }
+    side = !preferred;
     const Way *chosen = nullptr;
     if (first.score < second.score) {
         chosen = &second;
