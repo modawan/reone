@@ -4816,6 +4816,125 @@ TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reac
     EXPECT_TRUE(action->isCompleted());
 }
 
+// Give the area a walkmesh of two rooms that a ramp joins: an upper floor at
+// height 0 from x = -12 to 2, and a lower one at height -1 from x = 4 to 12.
+void loadTwoLevelWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    graphics::Walkmesh upper;
+    upper.vertices = {
+        {-12.0f, -5.0f, 0.0f},
+        {-12.0f, 5.0f, 0.0f},
+        {2.0f, 5.0f, 0.0f},
+        {2.0f, -5.0f, 0.0f}};
+    upper.faces = {{{0, 1, 2}}, {{0, 2, 3}}};
+    upper.materials = {0, 0};
+    uniwalkLoadRoom(area.pathfinder().uni, upper, walkable);
+    graphics::Walkmesh lower;
+    lower.vertices = {
+        {2.0f, -5.0f, 0.0f},
+        {2.0f, 5.0f, 0.0f},
+        {4.0f, 5.0f, -1.0f},
+        {4.0f, -5.0f, -1.0f},
+        {12.0f, 5.0f, -1.0f},
+        {12.0f, -5.0f, -1.0f}};
+    lower.faces = {{{0, 1, 2}}, {{0, 2, 3}}, {{3, 2, 4}}, {{3, 4, 5}}};
+    lower.materials = {0, 0, 0, 0};
+    uniwalkLoadRoom(area.pathfinder().uni, lower, walkable);
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// A speaker on the upper floor and its partner on the lower one, more than ten
+// metres apart. The point halfway between them, at the height halfway between
+// theirs, lies half a metre under the upper floor, where the pathfinder finds
+// no face. The speaker walks to the ground there and sets out.
+TEST(CreatureNavigationFailure, a_conversation_approach_between_two_heights_sets_out_on_the_ground) {
+    BlockedDoorFixture fixture;
+    loadTwoLevelWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    speaker->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(10.0f, 0.0f, -1.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "two_heights");
+    speaker->addAction(action);
+    for (int i = 0; i < 30; ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(speaker->navigationFailed());
+    EXPECT_GT(speaker->position().x, -9.0f);
+}
+
+// Give the area a walkmesh of one room at height 0 in the shape of an arch:
+// two legs, x from -12 to -8 and from 8 to 12, that a bar from y = 8 to 12
+// joins over a hole between them.
+void loadArchWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    const float xs[] {-12.0f, -8.0f, 8.0f, 12.0f};
+    const float ys[] {-2.0f, 8.0f, 12.0f};
+    graphics::Walkmesh walkmesh;
+    for (float x : xs) {
+        for (float y : ys) {
+            walkmesh.vertices.push_back({x, y, 0.0f});
+        }
+    }
+    // Each cell, by its lower-left corner, joins its four corners in two faces.
+    auto vertex = [](uint32_t xi, uint32_t yi) { return xi * 3 + yi; };
+    const std::pair<uint32_t, uint32_t> cells[] {{0, 0}, {0, 1}, {1, 1}, {2, 1}, {2, 0}};
+    for (auto [xi, yi] : cells) {
+        walkmesh.faces.push_back({{vertex(xi, yi), vertex(xi, yi + 1), vertex(xi + 1, yi + 1)}});
+        walkmesh.faces.push_back({{vertex(xi, yi), vertex(xi + 1, yi + 1), vertex(xi + 1, yi)}});
+        walkmesh.materials.push_back(0);
+        walkmesh.materials.push_back(0);
+    }
+    uniwalkLoadRoom(area.pathfinder().uni, walkmesh, walkable);
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// A speaker and its partner at the feet of an arch, more than ten metres
+// apart: the point halfway between them lies in the hole under the arch, off
+// the walkmesh. The speaker heads for the partner instead, up the arch.
+TEST(CreatureNavigationFailure, a_conversation_approach_with_no_way_halfway_heads_for_the_partner) {
+    BlockedDoorFixture fixture;
+    loadArchWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    speaker->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(10.0f, 0.0f, 0.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "arch");
+    speaker->addAction(action);
+    for (int i = 0; i < 30; ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(speaker->navigationFailed());
+    EXPECT_GT(speaker->position().y, 0.5f);
+}
+
+// A partner in a room no path reaches, more than ten metres away: no way leads
+// halfway, nor to the partner, and the request ends.
+TEST(CreatureNavigationFailure, a_conversation_approach_to_a_partner_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "unreachable");
+    speaker->addAction(action);
+    for (int i = 0; i < 5 && !action->isCompleted(); ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(glm::vec3(0.0f), speaker->position());
+}
+
 // Steers a creature toward a point far along +x for the given time, moving it
 // at the given speed each frame. Counts the frames its steering turned away
 // from that point, which is what a creature judged stuck does.
