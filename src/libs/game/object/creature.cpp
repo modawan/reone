@@ -5784,6 +5784,11 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     if (getEquippedItem(slot) == item) {
         return true;
     }
+    putInSlot(slot, item);
+    return true;
+}
+
+void Creature::putInSlot(int slot, const std::shared_ptr<Item> &item) {
     auto replacementEffects = effectsWithoutEquippedSource(std::nullopt);
     appendEquippedItemEffects(replacementEffects, slot, item);
 
@@ -5800,8 +5805,6 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
          slot == InventorySlots::leftWeapon)) {
         setLightsabersPowered(true, true);
     }
-
-    return true;
 }
 
 bool Creature::canReplaceEquipment(
@@ -11917,14 +11920,9 @@ void Creature::forceEquipClothing() {
         }
         clothing->setDropable(true);
     }
-    if (!equip(InventorySlots::body, clothing)) {
-        if (repository) {
-            repository->addItem(clothing);
-        }
-        return;
-    }
+    putInSlot(InventorySlots::body, clothing);
     // The member has already joined, so the clothing breaks a no-armour forfeit.
-    _game.finishEquip(*this, InventorySlots::body, clothing);
+    _game.finishEquip(*this, InventorySlots::body, clothing, false);
 }
 
 // The credits, components and chemicals the creature holds itself; a record
@@ -12058,7 +12056,6 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         replacementEquipment.emplace(*slot, std::move(item));
                     }
                 }
-                // Carried items keep their own stacks.
                 if (replaceItems) {
                     for (const auto &itemGff : gff.getList("ItemList")) {
                         auto item = loadEntry(*itemGff, "InventoryRes");

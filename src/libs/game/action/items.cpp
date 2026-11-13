@@ -17,9 +17,14 @@
 
 #include <algorithm>
 
+#include <glm/gtx/norm.hpp>
+
+#include "reone/game/action/changefacing.h"
 #include "reone/game/action/equipitem.h"
 #include "reone/game/action/giveitem.h"
+#include "reone/game/action/movetopoint.h"
 #include "reone/game/action/pickupitem.h"
+#include "reone/game/action/playanimation.h"
 #include "reone/game/action/putdownitem.h"
 #include "reone/game/action/switchweapons.h"
 #include "reone/game/action/takeitem.h"
@@ -28,8 +33,10 @@
 #include "reone/game/equipmentoperation.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/game/statussummary.h"
@@ -226,6 +233,107 @@ std::shared_ptr<Action> TakeItemAction::restore(const SavedActionRecord &record,
     return game.newAction<TakeItemAction>(std::move(item), std::move(giver));
 }
 
+// Picking up and putting down are done within this reach of the item or the
+// point; from farther, the creature walks to a metre short of it, for a
+// pick-up where it fits, running from two metres or more. A creature still
+// out of reach after that walk gives up.
+static constexpr float kItemReachSquared = 1.21f;
+static constexpr float kItemRunDistanceSquared = 4.0f;
+static constexpr float kItemApproachDistance = 1.0f;
+static constexpr float kItemApproachRadius = 0.5f;
+// The animations of getting something from low and from waist height, and how
+// long and how fast they play.
+static constexpr int kGetLowAnimation = 10059;
+static constexpr int kGetMiddleAnimation = 10060;
+static constexpr float kGetAnimationSpeed = 1.0f;
+static constexpr float kGetAnimationSeconds = 1.5f;
+// A point more than this above the creature's feet is reached at the waist.
+static constexpr float kGetMiddleHeight = 1.0f;
+
+// A metre short of a point on the creature's side.
+static glm::vec3 pointShortOf(const Creature &creature, const glm::vec3 &point) {
+    return point + glm::normalize(creature.position() - point) * kItemApproachDistance;
+}
+
+// Where a creature walks to pick up an item: a metre short of it, where it
+// fits, or the item's own position.
+static glm::vec3 itemApproachPoint(const Creature &creature, const glm::vec3 &point) {
+    auto area = creature.game().module()->area();
+    return area->computeSafeLocation(pointShortOf(creature, point), kItemApproachRadius, creature, true).value_or(point);
+}
+
+// The item picked up is acquired as given items are, told.
+void PickUpItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (!creature || !canRunEquipmentCommand(_game, *creature) || !_item->isRuntimeLive() || _item->isHeld()) {
+        complete();
+        return;
+    }
+    const float distance2 = glm::distance2(creature->position(), _item->position());
+    if (distance2 > kItemReachSquared) {
+        if (_approached) {
+            complete();
+            return;
+        }
+        _approached = true;
+        const bool run = distance2 >= kItemRunDistanceSquared;
+        actor.addActionBefore(*this, _game.newAction<MoveToPointAction>(itemApproachPoint(*creature, _item->position()), run, 0.0f));
+        actor.addActionBefore(*this, _game.newAction<ChangeFacingAction>(_item));
+        return;
+    }
+    if (!_animationQueued) {
+        _animationQueued = true;
+        actor.addActionBefore(*this, _game.newAction<ChangeFacingAction>(_item));
+        actor.addActionBefore(*this, _game.newAction<PlayAnimationAction>(kGetLowAnimation, kGetAnimationSpeed, kGetAnimationSeconds));
+        return;
+    }
+    giveItemToCreature(_game, _item, *_game.party().sharedInventoryReceiver(_game.getObjectById(actor.id())), actor, true);
+    complete();
+}
+
+// The item put down is announced lost, told, and possessed by no one.
+void PutDownItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (!creature || !canRunEquipmentCommand(_game, *creature) || !_item->isRuntimeLive()) {
+        complete();
+        return;
+    }
+    // The creature holds the item: worn, carried or in a container it carries.
+    auto holder = _game.getObjectById(_item->owner());
+    if (auto container = std::dynamic_pointer_cast<Item>(holder)) {
+        holder = _game.getObjectById(container->owner());
+    }
+    if (holder.get() != creature) {
+        complete();
+        return;
+    }
+    const float distance2 = glm::distance2(creature->position(), _point);
+    if (distance2 > kItemReachSquared) {
+        if (_approached) {
+            complete();
+            return;
+        }
+        _approached = true;
+        const bool run = distance2 >= kItemRunDistanceSquared;
+        actor.addActionBefore(*this, _game.newAction<MoveToPointAction>(pointShortOf(*creature, _point), run, 0.0f));
+        actor.addActionBefore(*this, _game.newAction<ChangeFacingAction>(_point));
+        return;
+    }
+    if (!_animationQueued) {
+        _animationQueued = true;
+        const int animation = _point.z - creature->position().z > kGetMiddleHeight ? kGetMiddleAnimation : kGetLowAnimation;
+        actor.addActionBefore(*this, _game.newAction<ChangeFacingAction>(_point));
+        actor.addActionBefore(*this, _game.newAction<PlayAnimationAction>(animation, kGetAnimationSpeed, kGetAnimationSeconds));
+        return;
+    }
+    if (auto lying = releaseHeldItem(_game, _item)) {
+        lying->announceLoss(true);
+        lying->setPosition(_point);
+        _game.module()->area()->add(lying);
+    }
+    complete();
+}
+
 // A pick-up is kept as the item, from no container and no inventory slot.
 std::optional<SavedActionRecord> PickUpItemAction::saveFacingState() const {
     static constexpr int32_t kNoInventorySlot = 0xff;
@@ -244,16 +352,13 @@ std::shared_ptr<Action> PickUpItemAction::restore(const SavedActionRecord &recor
     return game.newAction<PickUpItemAction>(std::move(item));
 }
 
-// A put-down is kept as the item and where it goes down: at the feet of the one
-// holding it, or where it lies when nobody does.
+// A put-down is kept as the item and where it goes down.
 std::optional<SavedActionRecord> PutDownItemAction::saveFacingState() const {
-    auto holder = _game.getObjectById(_item->owner());
-    const glm::vec3 point = holder ? holder->position() : _item->position();
     return SavedActionRecord::command(SavedActionType::PutDownItem, {
                                                                         {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_item->id())},
-                                                                        {kSavedFloatParameter, point.x},
-                                                                        {kSavedFloatParameter, point.y},
-                                                                        {kSavedFloatParameter, point.z},
+                                                                        {kSavedFloatParameter, _point.x},
+                                                                        {kSavedFloatParameter, _point.y},
+                                                                        {kSavedFloatParameter, _point.z},
                                                                         {kSavedIntegerParameter, int32_t {0}},
                                                                     });
 }
@@ -263,7 +368,8 @@ std::shared_ptr<Action> PutDownItemAction::restore(const SavedActionRecord &reco
     if (!item) {
         return nullptr;
     }
-    return game.newAction<PutDownItemAction>(std::move(item));
+    const glm::vec3 point {record.floatParameter(1), record.floatParameter(2), record.floatParameter(3)};
+    return game.newAction<PutDownItemAction>(std::move(item), point);
 }
 
 void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -309,7 +415,7 @@ void UnequipItemAction::takeOff(Object &actor, ItemStacking stacking) {
         !_containerOverwritten && (_containerId == kSavedRuntimeInvalidObjectId || container);
     if (auto *creature = dyn_cast<Creature>(&actor);
         creature && containerNamed && canRunEquipmentCommand(_game, *creature))
-        runUnequip(_game, *creature, _item, container, _instant != 0, stacking);
+        runUnequip(_game, *creature, _item, container, stacking, _instant != 0);
     complete();
 }
 
@@ -388,7 +494,7 @@ void swapWeaponSets(Game &game, Creature &creature) {
     // item put away goes back on.
     for (const auto &item : {alternateLeft, alternateRight, left, right})
         if (item) {
-            runUnequip(game, creature, item, nullptr, false, ItemStacking::Own);
+            runUnequip(game, creature, item, nullptr, ItemStacking::Own, false);
         }
     if (alternateRight) {
         runEquip(game, creature, alternateRight, InventorySlots::rightWeapon, false);

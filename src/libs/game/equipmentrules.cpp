@@ -29,6 +29,7 @@
 #include "reone/game/d20/spell.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentoperation.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/area.h"
@@ -643,6 +644,28 @@ bool releaseAreaOwnedItem(
     return area && area->releaseObject(item);
 }
 
+std::shared_ptr<Item> releaseHeldItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    auto owner = game.getObjectById(item->owner());
+    if (!owner) {
+        return nullptr;
+    }
+    auto leaving = item;
+    if (auto creature = std::dynamic_pointer_cast<Creature>(owner);
+        creature && item->isEquipped()) {
+        leaving = runUnequip(game, *creature, item, nullptr, ItemStacking::Own, false);
+        if (!leaving) {
+            return nullptr;
+        }
+        owner = game.getObjectById(leaving->owner());
+        if (!owner) {
+            return nullptr;
+        }
+    }
+    return owner->removeItemStack(leaving) ? leaving : nullptr;
+}
+
 ItemTransfer transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
@@ -683,23 +706,20 @@ ItemTransfer transferItemTo(
         return {true, receiver.addItem(item)};
     }
 
-    auto owner = game.getObjectById(ownerId);
-    if (!owner)
+    auto giver = game.getObjectById(ownerId);
+    if (!giver)
         return {};
 
-    if (auto creature = std::dynamic_pointer_cast<Creature>(owner);
-        creature && item->isEquipped()) {
-        if (!creature->takeEquippedItem(item))
-            return {};
-    } else if (!owner->removeItemStack(item)) {
+    auto moving = releaseHeldItem(game, item);
+    if (!moving)
         return {};
-    }
+
     if (loss != ItemLossNotice::None) {
-        item->announceLoss(loss == ItemLossNotice::Told);
+        moving->announceLoss(loss == ItemLossNotice::Told);
     }
 
-    game.party().noteItemReceived(*item, receiver, owner.get());
-    return {true, receiver.addItem(item)};
+    game.party().noteItemReceived(*moving, receiver, giver.get());
+    return {true, receiver.addItem(moving)};
 }
 
 void announceAcquiredBy(

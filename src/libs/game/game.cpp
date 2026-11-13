@@ -7018,7 +7018,11 @@ void Game::breakEquipForfeit(const Creature &member, int slot, const Item &item)
     }
 }
 
-void Game::finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item) {
+void Game::finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item, bool instant) {
+    // A weapon in a hand readies its wearer for combat outside a conversation.
+    if (!instant && !_dialogUnderWay && (slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon)) {
+        wearer.setCombatState(true, CombatActivation::Indirect);
+    }
     signalItemEquipped(wearer, slot, item);
     breakEquipForfeit(wearer, slot, *item);
     if (slot == InventorySlots::body) {
