@@ -1303,6 +1303,15 @@ bool Party::selectNextStandingMember() {
     return false;
 }
 
+bool Party::selectStandingMember(int index) {
+    auto creature = getMember(index);
+    if (!creature || creature->isDead() || creature->isTemporarilyDead()) {
+        return false;
+    }
+    setPartyLeaderByIndex(index);
+    return true;
+}
+
 void Party::saveLeaderAttackTarget() {
     auto &member = _members.front();
     member.lastTarget = member.creature ? member.creature->getAttackTarget() : nullptr;

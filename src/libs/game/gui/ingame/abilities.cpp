@@ -124,6 +124,11 @@ void AbilitiesMenu::onGUILoaded() {
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
     });
+    if (!_game.isTSL()) {
+        // A portrait hands control to its party member.
+        _controls.BTN_CHANGE1->setOnClick([this]() { changeCharacter(1); });
+        _controls.BTN_CHANGE2->setOnClick([this]() { changeCharacter(2); });
+    }
 
     loadSkills();
 }
@@ -398,6 +403,12 @@ void AbilitiesMenu::showChange(const std::string &text, int better) {
     }
     _controls.LBL_BONUSVAL->setTextMessage(text);
     _controls.LBL_BONUSVAL->setTextColor(color);
+}
+
+void AbilitiesMenu::changeCharacter(int member) {
+    if (_game.party().selectStandingMember(member)) {
+        refreshControls();
+    }
 }
 
 void AbilitiesMenu::refreshPortraits() {

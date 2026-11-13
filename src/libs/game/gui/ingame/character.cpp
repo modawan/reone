@@ -158,6 +158,9 @@ void CharacterMenu::onGUILoaded() {
         }
 
         _controls.LBL_MORE->setVisible(false);
+        // A portrait hands control to its party member.
+        _controls.BTN_CHANGE1->setOnClick([this]() { changeCharacter(1); });
+        _controls.BTN_CHANGE2->setOnClick([this]() { changeCharacter(2); });
         _controls.BTN_SCRIPTS->setOnClick([this]() {
             openScriptSelectPanel();
         });
@@ -373,6 +376,12 @@ std::string CharacterMenu::describeClass(ClassType clazz) const {
         return "";
 
     return _services.game.classes.get(clazz)->name();
+}
+
+void CharacterMenu::changeCharacter(int member) {
+    if (_game.party().selectStandingMember(member)) {
+        refreshControls();
+    }
 }
 
 void CharacterMenu::refreshPortraits() {

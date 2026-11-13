@@ -205,6 +205,8 @@ public:
      * does; with no one else standing, control stays where it is.
      */
     bool selectNextStandingMember();
+    /** Hands control to the member at index; one who is absent or down cannot take it. */
+    bool selectStandingMember(int index);
 
     bool isEmpty() const;
     bool isSoloMode() const { return _solo; }
