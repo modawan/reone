@@ -282,15 +282,19 @@ public:
      *
      * @param streamingMusic whether area music set to play through movies
      *        plays on while it runs
+     * @return whether the movie plays
      */
-    void playVideo(const std::string &name, bool streamingMusic = false);
+    bool playVideo(const std::string &name, bool streamingMusic = false);
     /**
      * Adds a movie to the queue that playMovieQueue plays, once. A movie that
      * is not skippable plays to its end.
      */
     void queueMovie(const std::string &name, bool skippable);
-    /** Plays the queued movies in order, ahead of a transition's, and empties the queue. */
-    void playMovieQueue();
+    /**
+     * Plays the queued movies in order, ahead of a transition's, and empties
+     * the queue; whether a movie plays.
+     */
+    bool playMovieQueue();
 
     bool isPaused() const { return _paused; }
     /**

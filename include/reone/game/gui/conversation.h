@@ -266,6 +266,8 @@ private:
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
     uint64_t _generation {0};
+    /** Steps whose scripts run, or wait at a movie, before the rest of the step goes on (see runScripts). */
+    int _heldSteps {0};
     /** The objects this conversation has made its participants. */
     std::vector<RuntimeObjectRef<Object>> _dialogParticipants;
     /** The creatures this conversation has put items away for. */
@@ -395,7 +397,13 @@ private:
     bool isLinkActive(const resource::Dialog::EntryReplyLink &link);
     bool evaluateCondition(const std::string &scriptResRef, const resource::Dialog::EntryReplyLink::ConditionParams &params);
     void runScript(const std::string &scriptResRef, const resource::Dialog::EntryReply::ActionParams &params);
-    void runScripts(const resource::Dialog::EntryReply &node);
+    /**
+     * Runs the node's first and second scripts, then \p rest, while the
+     * conversation stays current. What follows a script that stops to wait at
+     * a movie goes on once no runs wait, as though the movie played inside
+     * the call.
+     */
+    void runScripts(const resource::Dialog::EntryReply &node, std::function<void()> rest = nullptr);
     void applyStatusSummaryEntries(const resource::Dialog::EntryReply &node);
     /** Set or clear the video effect for the current entry's camera shot. */
     void applyShotVideoEffect();
