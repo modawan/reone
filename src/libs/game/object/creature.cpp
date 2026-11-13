@@ -5573,8 +5573,16 @@ Creature::ScriptAnimation Creature::getScriptAnimation(int id) const {
 
 // A loop plays at once; a one-shot waits in the fire-and-forget queue.
 std::optional<int> Creature::heldScriptLoop() const {
-    const int id = _animationSource.id;
-    if (id < 0 || id == kPauseAnimationId || _animationSource.dialog ||
+    // A loop the creature's state shows - an effect's sleep, the stance of a
+    // fight - follows that state and comes back with it; only a loop asked
+    // for is held. It is held from the moment it is asked for: while the clip
+    // leading into it plays, the clip shown is not yet it.
+    if (!_storedLoop || _storedLoop->stateDriven) {
+        return std::nullopt;
+    }
+    const AnimationSource &source = _storedLoop->source;
+    const int id = source.id;
+    if (id < 0 || id == kPauseAnimationId || source.dialog ||
         _movementType != MovementType::None) {
         return std::nullopt;
     }
