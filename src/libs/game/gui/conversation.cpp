@@ -1147,8 +1147,13 @@ void Conversation::loadReplies() {
     listedIndices.insert(listedIndices.end(), inactiveIndices.rbegin(), inactiveIndices.rend());
 
     // A list of replies draws one camera angle, which each listed reply
-    // without one keeps while the conversation lasts.
-    const int drawnAngle = drawCameraAngle();
+    // without one keeps while the conversation lasts. A list that mixes
+    // replies with text and replies without draws none: those without an
+    // angle of their own keep the entry's.
+    const auto withoutText = [](const Dialog::EntryReply *reply) { return reply->text.empty(); };
+    const bool anyWithText = !std::all_of(_replies.begin(), _replies.end(), withoutText);
+    const bool anyWithoutText = std::any_of(_replies.begin(), _replies.end(), withoutText);
+    const int drawnAngle = anyWithText && anyWithoutText ? _entryCameraAngle : drawCameraAngle();
     for (size_t place = 0; place < listedIndices.size(); ++place) {
         const int index = listedIndices[place];
         int &angle = _replyCameraAngles.try_emplace(index, _dialog->getReply(index).cameraAngle).first->second;

@@ -337,6 +337,8 @@ public:
     static constexpr int kNoFuryDamageBonus = -1;
     /** The most experience a creature holds; an addition past it is refused. */
     static constexpr int kMaxExperience = std::numeric_limits<int>::max();
+    /** The node of a character's body model its head is attached at. */
+    static constexpr char kHeadHookNode[] = "headhook";
 
     // AI state
 

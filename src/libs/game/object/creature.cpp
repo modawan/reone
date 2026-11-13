@@ -644,7 +644,7 @@ static Ability getPropertyAbility(uint16_t subtype) {
 
 static std::string g_talkDummyNode("talkdummy");
 
-static const std::string g_headHookNode("headhook");
+static const std::string g_headHookNode(Creature::kHeadHookNode);
 // The talking head plays once as a layer over the body's pose, on the head too.
 static constexpr int kHeadTalkFlags = AnimationFlags::layer | AnimationFlags::propagate;
 static const std::string g_maskHookNode("gogglehook");

@@ -244,6 +244,32 @@ std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, con
     return nearest;
 }
 
+std::optional<float> ModelSceneNode::intersectAttachments(const glm::vec3 &from, const glm::vec3 &to, const std::string &skipped) const {
+    std::optional<float> nearest;
+    for (const auto &[name, attachment] : _attachments) {
+        auto *model = dynamic_cast<const ModelSceneNode *>(attachment);
+        if (!model || !model->isEnabled() || name == skipped || !model->takesSceneHits()) {
+            continue;
+        }
+        for (auto share : {model->intersectSegment(from, to), model->intersectAttachments(from, to)}) {
+            if (share && (!nearest || *share < *nearest)) {
+                nearest = share;
+            }
+        }
+    }
+    return nearest;
+}
+
+bool ModelSceneNode::takesSceneHits() const {
+    // A model faded this far or further is passed through.
+    static constexpr float kMostFadedHit = 0.25f;
+    static constexpr int kNoSceneHits = graphics::MdlClassification::effect | graphics::MdlClassification::tile |
+                                        graphics::MdlClassification::sceneHitExcluded;
+    return (_model->classification() & kNoSceneHits) == 0 &&
+           (_model->subclassification() & graphics::MdlSubclassification::inEveryRoom) == 0 &&
+           _fadeAlpha > kMostFadedHit;
+}
+
 void ModelSceneNode::setFadeAlpha(float alpha) {
     _fadeAlpha = alpha;
     for (auto &[name, attachment] : _attachments) {
