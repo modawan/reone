@@ -55,6 +55,12 @@ static int g_strRefRemove = 38456;
 static constexpr int kStrRefCannotChangeHere = 108426;
 static constexpr int kStrRefCannotChangeInCombat = 126692;
 static constexpr int kStrRefCannotChangeWhileUnconscious = 126693;
+static constexpr int kStrRefMustStayInParty = 42406;
+static constexpr int kStrRefUnableToJoinParty = 42376;
+static constexpr int kTSLStrRefUnableToLeaveParty = 108425;
+
+// The portrait of a companion that cannot be selected is drawn faint.
+static constexpr float kUnselectablePortraitAlpha = 0.25f;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 // Neither game specifies an in-party colour in the layout. K1 uses green
@@ -87,6 +93,7 @@ void PartySelection::onGUILoaded() {
             enableK2ButtonBodyFill(button);
         }
     }
+    _acceptTextColor = _controls.BTN_ACCEPT->text().color;
 
     for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &button = getNpcButton(i);
@@ -186,6 +193,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     _context = ctx;
     _availableCount = kMaxFollowerCount;
     _selectedNpc = -1;
+    _controls.BTN_ACCEPT->setTextColor(_acceptTextColor);
 
     for (int i = 0; i < kMaxNpcCount; ++i) {
         _added[i] = false;
@@ -252,11 +260,13 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
             BTN_NPC.setDisabled(false);
             BTN_NPC.setVisible(true);
             LBL_CHAR.setBorderFill(std::move(portrait));
+            LBL_CHAR.setBorderAlpha(party.isRosterSelectable({RosterKind::Npc, i}) ? 1.0f : kUnselectablePortraitAlpha);
             LBL_NA.setVisible(false);
         } else {
             BTN_NPC.setDisabled(true);
             BTN_NPC.setVisible(true);
             LBL_CHAR.setBorderFill(std::shared_ptr<Texture>(nullptr));
+            LBL_CHAR.setBorderAlpha(1.0f);
             LBL_NA.setVisible(true);
         }
     }
@@ -336,6 +346,16 @@ std::optional<int> PartySelection::partyLockStrRef() const {
     return std::nullopt;
 }
 
+std::optional<int> PartySelection::companionLockStrRef(int npc) const {
+    if (npc == _context.forceNpc1 || npc == _context.forceNpc2) {
+        return kStrRefMustStayInParty;
+    }
+    if (_game.party().isRosterSelectable({RosterKind::Npc, npc})) {
+        return std::nullopt;
+    }
+    return _game.isTSL() && _added[npc] ? kTSLStrRefUnableToLeaveParty : kStrRefUnableToJoinParty;
+}
+
 void PartySelection::onAcceptButtonClick() {
     if (auto lockStrRef = partyLockStrRef()) {
         _game.showMessagePopup(_services.resource.strings.getText(*lockStrRef));
@@ -343,13 +363,17 @@ void PartySelection::onAcceptButtonClick() {
     }
     if (_selectedNpc == -1)
         return;
+    if (auto lockStrRef = companionLockStrRef(_selectedNpc)) {
+        _game.showMessagePopup(_services.resource.strings.getText(*lockStrRef));
+        return;
+    }
 
     bool added = _added[_selectedNpc];
-    if (added && _context.forceNpc1 != _selectedNpc && _context.forceNpc2 != _selectedNpc) {
+    if (added) {
         removeNpc(_selectedNpc);
         refreshAcceptButton();
 
-    } else if (!added && _availableCount > 0) {
+    } else if (_availableCount > 0) {
         addNpc(_selectedNpc);
         refreshAcceptButton();
     }
@@ -378,6 +402,8 @@ void PartySelection::refreshAvailableCount() {
 void PartySelection::refreshAcceptButton() {
     std::string text(_services.resource.strings.getText(_added[_selectedNpc] ? g_strRefRemove : g_strRefAdd));
     _controls.BTN_ACCEPT->setTextMessage(text);
+    // The caption is greyed for a companion that cannot be changed.
+    _controls.BTN_ACCEPT->setTextColor(companionLockStrRef(_selectedNpc) ? _disabledColor : _acceptTextColor);
 }
 
 void PartySelection::removeNpc(int npc) {
