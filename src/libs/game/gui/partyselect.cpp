@@ -62,11 +62,10 @@ static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 // KotOR's layout specifies no in-party colour. It uses green for an active
 // companion.
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
-// TSL tells a slot's states apart by the colour of its frame alone: the
-// interface colour, and the layout's border colour for a companion in the
-// party. The chosen slot's frame is brighter: the interface colour by this
-// much, a companion's in the layout's highlight colour.
-static constexpr float kTSLChosenFrameBrightness = 1.3f;
+// TSL tells a slot's states apart by its frame alone: the interface colour,
+// or the layout's border colour for a companion in the party, dimmed by this
+// much unless the slot is the chosen one.
+static constexpr float kTSLUnchosenFrameBrightness = 0.67f;
 
 PartySelection::PartySelection(Game &game, ServicesView &services) :
     GameGUI(game, services) {
@@ -410,13 +409,8 @@ void PartySelection::refreshNpcButtons() {
         ToggleButton &button = getNpcButton(i);
         const bool chosen = i == _selectedNpc;
         if (tsl) {
-            glm::vec3 color;
-            if (_added[i]) {
-                color = chosen ? button.hilight().color : button.border().color;
-            } else {
-                color = chosen ? glm::min(_baseColor * kTSLChosenFrameBrightness, glm::vec3(1.0f)) : _baseColor;
-            }
-            button.setBorderColorOverride(color);
+            const glm::vec3 color = _added[i] ? button.border().color : _baseColor;
+            button.setBorderColorOverride(chosen ? color : color * kTSLUnchosenFrameBrightness);
             button.setUseBorderColorOverride(true);
             continue;
         }
