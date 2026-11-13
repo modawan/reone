@@ -1251,6 +1251,7 @@ void Game::updateFrame(float frameTime) {
     _partyKilledAutoPauseDelay = std::max(0.0f, _partyKilledAutoPauseDelay - frameTime);
     updateDeferredAutoPause(frameTime);
     float dt = frameTime * _gameSpeed * _deathTimeScale;
+    advanceDialogGate(frameTime * _gameSpeed);
     if (_movie) {
         _worldClockSample.reset();
         _areaMusic.updateMusicFade();
@@ -2083,6 +2084,9 @@ bool Game::loadPreparedModule(
                 commitStarted = true;
                 _globalFade.request(GlobalFade::Direction::Out);
                 endSourceSession(name);
+                // No conversation speaks from a module start, a transition's
+                // or a save's, until the player arrives.
+                closeDialogGate();
 
                 if (!resourcesCommitted) {
                     _services.resource.director.commitModuleLoad(
@@ -2420,6 +2424,7 @@ void Game::retireRuntimeSession() {
     _partyCombatArea.reset();
     _keepStealthInDialog = false;
     _relativeMouseMode = false;
+    closeDialogGate();
 
     _statusSummary.reset();
     if (_hud) {
@@ -5190,6 +5195,41 @@ void Game::renderScreenFill(const glm::vec3 &color, float alpha) {
     graphics.uniforms.setGlobals([&](auto &globals) { globals = previousGlobals; });
 }
 
+// The pause, an autopause included, refuses before anything else. The wait
+// passes once more than a second has counted; once passed, it stays passed.
+bool Game::passDialogGate() {
+    static constexpr float kDialogGateWait = 1.0f;
+    if (_paused) {
+        return false;
+    }
+    if (_dialogGatePassed) {
+        return true;
+    }
+    if (!_dialogGateOpen || _dialogGateWait <= kDialogGateWait) {
+        return false;
+    }
+    _dialogGatePassed = true;
+    return true;
+}
+
+void Game::closeDialogGate() {
+    _dialogGateOpen = false;
+    _dialogGatePassed = false;
+    _dialogGateWait = 0.0f;
+}
+
+void Game::openDialogGate() {
+    _dialogGateOpen = true;
+    _dialogGatePassed = false;
+    _dialogGateWait = 0.0f;
+}
+
+void Game::advanceDialogGate(float dt) {
+    if (_dialogGateOpen && !_dialogGatePassed && !holdsWorld() && !_timeStopped && !_movie) {
+        _dialogGateWait += dt;
+    }
+}
+
 void Game::settleFadeArrival() {
     if (!_fadeArrival) {
         return;
@@ -5202,6 +5242,8 @@ void Game::settleFadeArrival() {
             _areaMusic.start();
         }
         stopLoadMusic();
+        // Conversations may speak a second after arrival.
+        openDialogGate();
         _globalFade.settleArrival(_fadeArrival);
     }
     _fadeArrival.reset();

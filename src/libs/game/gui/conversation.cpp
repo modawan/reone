@@ -177,6 +177,7 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
         releaseDialogParticipants(_owner.resolve());
     }
     _pendingEntry.reset();
+    _unspokenStartEntry.reset();
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
@@ -400,10 +401,24 @@ void Conversation::loadStartEntry(const std::function<void()> &opening) {
         finish();
         return;
     }
-    if (opening && !isOneLiner(dialog->getEntry(entryIdx))) {
+    const bool oneLiner = opening && isOneLiner(dialog->getEntry(entryIdx));
+    if (opening && !oneLiner) {
         opening();
     }
+    // A conversation that opens waits to speak until conversations may
+    // (Game::passDialogGate); a one-liner is barked over play at once.
+    if (!oneLiner && !_game.passDialogGate()) {
+        _unspokenStartEntry = entryIdx;
+        return;
+    }
     loadEntry(entryIdx, true);
+}
+
+// Nothing is drawn until the first line is spoken.
+void Conversation::render() {
+    if (!_unspokenStartEntry) {
+        GameGUI::render();
+    }
 }
 
 // A conversation is a one-liner when it opens on an entry with no replies, or
@@ -541,6 +556,7 @@ void Conversation::finish(bool runsEndScript, bool aborted) {
     _paused = false;
     _entryEnded = true;
     _pendingEntry.reset();
+    _unspokenStartEntry.reset();
     // A closed conversation keeps no replies to take.
     _replies.clear();
     stopVoice();
@@ -599,6 +615,7 @@ void Conversation::cleanupForModuleTransition() {
         return;
     }
     _pendingEntry.reset();
+    _unspokenStartEntry.reset();
     _replies.clear();
     stopVoice();
     resetEntryFade();
@@ -1275,6 +1292,10 @@ void Conversation::pickReply(int index) {
 }
 
 bool Conversation::handle(const input::Event &event) {
+    // Input waits until the first line is spoken.
+    if (_unspokenStartEntry) {
+        return false;
+    }
     if (handleConversationInput(event)) {
         return true;
     }
@@ -1471,6 +1492,14 @@ void Conversation::onReplyPicked(const Dialog::EntryReply &) {
 void Conversation::update(float dt) {
     if (_dialog && !_owner.empty() && !_owner.resolve()) {
         finish();
+        return;
+    }
+    if (_unspokenStartEntry) {
+        if (_game.passDialogGate()) {
+            const int entry = *_unspokenStartEntry;
+            _unspokenStartEntry.reset();
+            loadEntry(entry, true);
+        }
         return;
     }
     GameGUI::update(dt);

@@ -199,6 +199,7 @@ protected:
         // Gives the game a real script runner over MockScripts, so dialogue
         // actions can be observed as requests for their script.
         _game->initLocalServices();
+        TestGameModule::letConversationsSpeak(*_game);
         _conversation = std::make_unique<TestConversation>(*_game, _engine.services());
     }
 
