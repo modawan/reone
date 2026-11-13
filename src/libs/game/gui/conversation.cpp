@@ -467,6 +467,13 @@ void Conversation::runScript(const std::string &scriptResRef, const Dialog::Entr
 // While a step is held the conversation stands still: its entry neither ends
 // nor takes a reply.
 void Conversation::runScripts(const Dialog::EntryReply &node, std::function<void()> rest) {
+    // A node without scripts has nothing to wait for.
+    if (node.script.empty() && node.script2.empty()) {
+        if (rest) {
+            rest();
+        }
+        return;
+    }
     auto generation = _generation;
     auto dialog = _dialog; // keeps the node while its scripts wait
     auto &runner = _game.scriptRunner();
