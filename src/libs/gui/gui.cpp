@@ -514,20 +514,26 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlAt(int x, int y,
     if (!_rootControl) {
         return std::nullopt;
     }
-    std::stack<std::reference_wrapper<Control>> controls;
-    controls.push(*_rootControl);
-    while (!controls.empty()) {
-        auto &control = controls.top().get();
-        controls.pop();
+    // A control is drawn over its parent, so where both are under the point
+    // the child is found: an arrow lying on the row it steps takes the
+    // pointer there. Among siblings the one drawn last is found first.
+    auto find = [&](auto &self, Control &control) -> Control * {
+        auto &children = control.children();
+        for (auto child = children.rbegin(); child != children.rend(); ++child) {
+            if (auto found = self(self, child->get())) {
+                return found;
+            }
+        }
         auto ctrlCoords = controlCoordinates(control, x, y);
         if (control.isVisible() && !control.isDisabled() &&
             control.extent().contains(ctrlCoords.x, ctrlCoords.y) &&
             test(control)) {
-            return control;
+            return &control;
         }
-        for (auto &child : control.children()) {
-            controls.push(child);
-        }
+        return nullptr;
+    };
+    if (auto found = find(find, _rootControl->get())) {
+        return *found;
     }
     return std::nullopt;
 }
