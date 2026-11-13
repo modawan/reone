@@ -721,6 +721,87 @@ TEST(MinigameSession, a_swoop_obstacle_runs_on_hit_obstacle_once_per_crossing) {
     EXPECT_EQ(session->player()->lastObstacleHit, 2u);
 }
 
+namespace {
+
+// A swoop session with one obstacle on the line of the Taris-shaped track,
+// 60 units ahead; the bike rides at speed 100.
+std::unique_ptr<MinigameSession> swoopWithObstacle(ScriptedHost &host,
+                                                   bool tsl,
+                                                   bool bikeScript,
+                                                   const std::string &obstacleScript) {
+    auto spec = swoopSpec(0);
+    if (!bikeScript) {
+        spec.player.scripts.onHitObstacle.clear();
+    }
+    MinigameObstacleSpec obstacleSpec;
+    obstacleSpec.name = "mgo01";
+    obstacleSpec.scripts.onHitFollower = obstacleScript;
+    spec.obstacles.push_back(obstacleSpec);
+    MinigameSession::ObstaclePlacement placement;
+    placement.name = "mgo01";
+    placement.position = glm::vec3(100.0f, 60.0f, 0.0f);
+    placement.hasHitbump = true;
+    placement.hitbumpMin = glm::vec3(97.0f, 58.0f, -1.0f);
+    placement.hitbumpMax = glm::vec3(103.0f, 62.0f, 1.0f);
+    auto session = std::make_unique<MinigameSession>(host);
+    session->setTSL(tsl);
+    session->load(spec, tarisTrack(), {}, {placement});
+    session->setObjectId(0, 1);
+    session->setObjectId(1, 2);
+    session->setPlayerSpeed(100.0f);
+    session->setPlayerMaxSpeed(100.0f);
+    return session;
+}
+
+} // namespace
+
+// KotOR: a hit runs the bike's OnHitObstacle and the obstacle's OnHitFollower.
+TEST(MinigameSession, a_kotor_obstacle_hit_runs_the_bikes_and_the_obstacles_scripts) {
+    ScriptedHost host;
+    auto session = swoopWithObstacle(host, false, true, "mine");
+    for (int i = 0; i < 60; ++i) {
+        session->update(kTick, MinigameInput());
+    }
+    EXPECT_EQ(host.count("obstacle"), 1u);
+    EXPECT_EQ(host.count("mine"), 1u);
+    EXPECT_FALSE(session->player()->dead);
+}
+
+// TSL: the obstacle's script, and the bike's only when the obstacle has none.
+TEST(MinigameSession, a_tsl_obstacle_hit_runs_the_obstacles_script_first) {
+    {
+        ScriptedHost host;
+        auto session = swoopWithObstacle(host, true, true, "mine");
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        EXPECT_EQ(host.count("mine"), 1u);
+        EXPECT_EQ(host.count("obstacle"), 0u);
+    }
+    {
+        ScriptedHost host;
+        auto session = swoopWithObstacle(host, true, true, "");
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        EXPECT_EQ(host.count("obstacle"), 1u);
+    }
+}
+
+// With no OnHitObstacle on the bike, the default wrecks it.
+TEST(MinigameSession, the_default_obstacle_hit_wrecks_the_bike) {
+    for (bool tsl : {false, true}) {
+        ScriptedHost host;
+        auto session = swoopWithObstacle(host, tsl, false, "");
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        EXPECT_TRUE(session->player()->dead) << (tsl ? "TSL" : "KotOR");
+        ASSERT_EQ(host.died.size(), 1u);
+        EXPECT_EQ(host.died.front(), "v_superbike");
+    }
+}
+
 // The TSL courses put arches over the track. Their hitbump starts above the
 // bike, which passes under it.
 TEST(MinigameSession, a_hitbump_above_the_bike_is_passed_under) {

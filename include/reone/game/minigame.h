@@ -570,7 +570,7 @@ public:
     /** SWMG_OnBulletHit. */
     void defaultBulletHit(MinigameActor &target);
 
-    /** SWMG_OnObstacleHit: the default for the follower that hit an obstacle. */
+    /** SWMG_OnObstacleHit: the default for the follower that hit an obstacle, which wrecks it. */
     void defaultObstacleHit(MinigameActor &follower);
 
     /** SWMG_DestroyMiniGameObject: out of play and out of the lists, without OnDeath. */

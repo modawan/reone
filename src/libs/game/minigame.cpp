@@ -848,8 +848,20 @@ void MinigameSession::collideObstacles() {
         }
         p.lastObstacleHit = o.objectId;
         o.lastFollowerHit = p.objectId;
-        if (!runScriptSlot(o, MinigameSlot::OnHitFollower) && !runScriptSlot(p, MinigameSlot::OnHitObstacle)) {
-            defaultObstacleHit(p);
+        if (_tsl) {
+            // TSL: the obstacle's OnHitFollower, else the bike's OnHitObstacle.
+            if (!runScriptSlot(o, MinigameSlot::OnHitFollower) && !runScriptSlot(p, MinigameSlot::OnHitObstacle)) {
+                defaultObstacleHit(p);
+            }
+        } else {
+            // KotOR: the bike's OnHitObstacle (or the default) and the
+            // obstacle's OnHitFollower both run.
+            if (!runScriptSlot(p, MinigameSlot::OnHitObstacle)) {
+                defaultObstacleHit(p);
+            }
+            if (!p.dead) {
+                runScriptSlot(o, MinigameSlot::OnHitFollower);
+            }
         }
         if (p.dead) {
             return;
@@ -858,10 +870,7 @@ void MinigameSession::collideObstacles() {
 }
 
 void MinigameSession::defaultObstacleHit(MinigameActor &follower) {
-    // A swoop bike shrugs an obstacle off by default; anything else dies.
-    if (_type == MinigameType::SwoopRace) {
-        return;
-    }
+    // An obstacle wrecks what hits it, a swoop bike included.
     kill(follower);
 }
 
