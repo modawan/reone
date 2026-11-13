@@ -58,6 +58,7 @@ const std::string kDifficultyLevelKey {"Difficulty Level"};
 const std::string kActiveKeybindsKey {"Active Keybinds"};
 const std::string kUnlockedPlanetSongsKey {"UnlockedPlanetSongs"};
 const std::string kMouseLookKey {"Mouse Look"};
+const std::string kCombatMovementKey {"Combat Movement"};
 const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
 
 // The Autopause Options keys.
@@ -160,6 +161,12 @@ public:
     std::optional<bool> flag(const std::string &section, const std::string &key) const {
         auto value = number(section, key);
         return value ? std::optional<bool>(*value != 0) : std::nullopt;
+    }
+
+    /** Whether a switch in a section is on: its number's lowest bit. None when the key is absent. */
+    std::optional<bool> bit(const std::string &section, const std::string &key) const {
+        auto value = number(section, key);
+        return value ? std::optional<bool>((*value & 1) != 0) : std::nullopt;
     }
 
     std::optional<Keybind> keybind(const std::string &section, const std::string &keyPrefix) const {
@@ -378,6 +385,19 @@ void saveDifficultyLevel(const std::filesystem::path &path, int level) {
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs) {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kUnlockedPlanetSongsKey, songs}});
+    configuration.write(path);
+}
+
+GameplayOptions GameplayOptions::load(const std::filesystem::path &path) {
+    const auto configuration = ConfigurationFile::read(path);
+    GameplayOptions result;
+    result.combatMovement = configuration.bit(kGameOptionsSection, kCombatMovementKey).value_or(result.combatMovement);
+    return result;
+}
+
+void GameplayOptions::save(const std::filesystem::path &path) const {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kCombatMovementKey, combatMovement ? 1 : 0}});
     configuration.write(path);
 }
 

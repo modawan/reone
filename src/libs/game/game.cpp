@@ -738,6 +738,7 @@ void Game::init() {
         throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.clientDifficulty));
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
+    _options.game.gameplay = GameplayOptions::load(_options.game.configurationPath);
     initConsole();
     initTables();
     resetGalaxyMap();
@@ -6643,6 +6644,10 @@ void Game::saveDifficultyLevel() const {
 
 void Game::saveMouseOptions() const {
     _options.game.mouse.save(_options.game.configurationPath);
+}
+
+void Game::saveGameplayOptions() const {
+    _options.game.gameplay.save(_options.game.configurationPath);
 }
 
 void Game::saveKeybindOptions() const {

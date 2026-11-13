@@ -1047,6 +1047,11 @@ public:
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
+    /** Whether a busy leader in combat mode may be steered. */
+    bool combatMovement() const { return _options.game.gameplay.combatMovement; }
+    void setCombatMovement(bool on) { _options.game.gameplay.combatMovement = on; }
+    /** Write the gameplay options to the configuration. */
+    void saveGameplayOptions() const;
     /**
      * How far the mouse wheel has moved the follow camera in or out: its
      * distance is scaled by this. It holds from area to area, and goes back
