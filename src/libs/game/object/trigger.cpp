@@ -270,13 +270,17 @@ glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
 }
 
 // A trigger is marked at its trap model's look-at hook, or else at the centre
-// of its outline's bounds. A trap model's own bounds are no guide: it keeps
-// the effects it shows once detected far below the ground until then.
+// of its outline's bounds, or at its position when it has no outline. A trap
+// model's own bounds are no guide: it keeps the effects it shows once
+// detected far below the ground until then.
 glm::vec3 Trigger::getSelectablePosition() const {
     if (_trapModel) {
         if (auto *hook = _trapModel->getNodeByName("lookathook")) {
             return hook->origin();
         }
+    }
+    if (_geometry.empty()) {
+        return _position;
     }
     glm::vec3 low {_geometry.front()};
     glm::vec3 high {low};
