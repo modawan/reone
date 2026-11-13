@@ -491,10 +491,12 @@ glm::vec3 Trigger::trapModelPosition() const {
     return _position - glm::vec3 {0.0f, 0.0f, _trapModelDepth};
 }
 
-// A trap's model exists only while the trap is within the farther of the
-// controlled creature's spot and listen ranges, measured across the ground,
-// or in TSL while the trap is always updated. It leaves the scene when the
-// trap goes beyond them and comes back, hidden until shown, when it returns.
+// A trap's model exists only while the trap exists for the player (see
+// Area::updatePresence): within the farther of the controlled creature's spot
+// and listen ranges, measured across the ground, once it is found or flagged
+// or while it is no enemy, or in TSL while it is always updated. It leaves the
+// scene when the trap stops existing and comes back, hidden until shown, when
+// it exists again.
 void Trigger::updateTrapPresentation() {
     if (!_isTrap) {
         return;

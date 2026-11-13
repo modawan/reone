@@ -117,6 +117,8 @@ public:
     bool isTenant(const std::shared_ptr<Object> &object) const;
     /** Whether the trigger's type makes it an area transition. */
     bool isAreaTransition() const { return _triggerType == kAreaTransitionType; }
+    /** Whether the trigger is of the generic type, neither a transition nor a trap. */
+    bool isGeneric() const { return _triggerType == 0; }
 
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
     DebugState debugState() const;
@@ -175,7 +177,7 @@ public:
     bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
     /** Point of this trigger nearest to a position: the trap radius, or the polygon outline. */
     glm::vec3 nearestPoint(const glm::vec3 &from) const;
-    /** The trap's model; none while the trap is beyond the controlled creature's perception range. */
+    /** The trap's model; none while the trap does not exist for the player (see Area::updatePresence). */
     std::shared_ptr<scene::ModelSceneNode> trapModel() const { return _trapModel; }
     /** The sound of the mine going off as it is removed (its trap type's); empty when blank. */
     const std::string &trapExplosionSound() const;
@@ -298,8 +300,8 @@ private:
     void loadTrapModel();
     /**
      * Builds or drops the trap's model as the trigger comes to exist or
-     * stops existing for the player (within the controlled creature's
-     * perception range), and has it show the shown or hidden loop.
+     * stops existing for the player (see Area::updatePresence), and has it
+     * show the shown or hidden loop.
      */
     void updateTrapPresentation();
     void setTrapCreator(const std::shared_ptr<Object> &creator);

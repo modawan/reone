@@ -4391,7 +4391,15 @@ void Area::dispatchPerceptionNotices() {
 }
 
 // Other creatures exist for the player only while the controlled creature
-// sees or hears them, or, in TSL, while they are always updated.
+// sees or hears them, or, in TSL, while they are always updated. A door, a
+// placeable that is not static, an item, an area of effect or a trigger exists
+// for the player only while it lies within the farther of the controlled
+// creature's sight and hearing ranges across the ground, or, in TSL, while it
+// is always updated. Within that range a generic trigger never exists for the
+// player (a trigger's cursor, which would show one, is not read), and a trap
+// only once the controlled creature has found it or it is flagged, or while it
+// is no enemy of the controlled creature. A static placeable always exists for
+// the player, and any other object never needs to.
 void Area::updatePresence() {
     auto leader = _game.party().getLeader();
     if (!leader || !isObjectResident(*leader)) {
@@ -4403,6 +4411,25 @@ void Area::updatePresence() {
                              perception.sees(object->id()) || perception.hears(object->id()) ||
                              (_game.isTSL() && object->forceAlwaysUpdate());
         object->setPresent(present);
+    }
+    const float range = std::max(leader->spotRange(), leader->listenRange());
+    const glm::vec2 viewer {leader->position()};
+    for (ObjectType type : {ObjectType::Door, ObjectType::Placeable, ObjectType::Item, ObjectType::AreaOfEffect, ObjectType::Trigger}) {
+        for (const auto &object : getObjectsByType(type)) {
+            if (type == ObjectType::Placeable && static_cast<const Placeable &>(*object).isStatic()) {
+                continue;
+            }
+            const glm::vec2 offset {glm::vec2(object->position()) - viewer};
+            bool present = glm::dot(offset, offset) <= range * range;
+            if (present && type == ObjectType::Trigger) {
+                const auto &trigger = static_cast<const Trigger &>(*object);
+                present = trigger.isTrap()
+                              ? trigger.trapDetection().flagged || trigger.trapDetection().isDetectedBy(leader->id()) ||
+                                    !trigger.isTrapHostileTo(*leader)
+                              : !trigger.isGeneric();
+            }
+            object->setPresent(present || (_game.isTSL() && object->forceAlwaysUpdate()));
+        }
     }
 }
 
