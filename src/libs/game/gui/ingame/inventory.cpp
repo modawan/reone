@@ -135,12 +135,18 @@ void InventoryMenu::onGUILoaded() {
     }
 
     if (!isTSL()) {
-        if (_controls.BTN_CHANGE1) {
-            _controls.BTN_CHANGE1->setSelectable(false);
-        }
-        if (_controls.BTN_CHANGE2) {
-            _controls.BTN_CHANGE2->setSelectable(false);
-        }
+        // A portrait hands control to its party member, whose stats and
+        // equipped items the screen then shows.
+        auto changeCharacter = [this](int member) {
+            if (!_backing) {
+                return;
+            }
+            _backing->changeCharacter(member);
+            refreshPortraits();
+            refreshItems();
+        };
+        _controls.BTN_CHANGE1->setOnClick([changeCharacter]() { changeCharacter(1); });
+        _controls.BTN_CHANGE2->setOnClick([changeCharacter]() { changeCharacter(2); });
         // KotOR's inventory has no party arrows.
         for (auto &arrow : {_controls.BTN_CHARLEFT, _controls.BTN_CHARRIGHT}) {
             if (arrow) {
