@@ -50,9 +50,6 @@ struct LoadFromSaveGameFixture : TestWithParam<GameID> {
         // points at.
         ON_CALL(engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(sharedSceneGraph()));
-        EXPECT_CALL(engine.gameModule().portraits(), portraits())
-            .Times(AnyNumber())
-            .WillRepeatedly(ReturnRef(portraitRows));
 
         game = std::make_unique<Game>(
             GetParam(), "", engine.options(), engine.services(), console);
@@ -129,7 +126,6 @@ struct LoadFromSaveGameFixture : TestWithParam<GameID> {
 
     TestEngine &engine {testEngine()};
     StubConsole console;
-    std::vector<Portrait> portraitRows;
     std::unique_ptr<Game> game;
     std::unique_ptr<Routines> routines;
     std::shared_ptr<Area> area;

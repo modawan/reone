@@ -135,9 +135,6 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
             .WillByDefault(Invoke([](const scene::WalkmeshSceneNode &, const glm::vec3 &position, scene::RoomFaceProbe) {
                 return std::optional<scene::RoomFace>(scene::RoomFace {0, position.z, glm::vec3(0.0f, 0.0f, 1.0f)});
             }));
-        EXPECT_CALL(engine.gameModule().portraits(), portraits())
-            .Times(AnyNumber())
-            .WillRepeatedly(ReturnRef(portraitRows));
         EXPECT_CALL(engine.resourceModule().strings(), getText(_))
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::string {}));
@@ -289,7 +286,6 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
     TestEngine &engine {testEngine()};
     bool sceneRenderWas {true};
     StubConsole console;
-    std::vector<Portrait> portraitRows;
     std::unique_ptr<Game> game;
     std::unique_ptr<Routines> routines;
     std::shared_ptr<Creature> player;

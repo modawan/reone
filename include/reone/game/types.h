@@ -32,6 +32,23 @@ constexpr int kNumClasses = 6;
 constexpr int kMinGoodEvil = 0;
 /** The good/evil value of pure good, the light side's end. */
 constexpr int kMaxGoodEvil = 100;
+/** The good/evil value halfway between the two, neither side's. */
+constexpr int kNeutralGoodEvil = 50;
+/**
+ * The tops of the dark side's good/evil bands, from the most evil up: a
+ * portrait or head has a variant for each, and the TSL body's evil texture
+ * shows through all of them, KotOR's below the top one.
+ */
+constexpr int kVeryVeryVeryEvilMaxGoodEvil = 10;
+constexpr int kVeryVeryEvilMaxGoodEvil = 20;
+constexpr int kVeryEvilMaxGoodEvil = 30;
+constexpr int kEvilMaxGoodEvil = 40;
+/**
+ * The bottoms of the light side's good/evil bands, from the least good up: a
+ * TSL head has a variant for each.
+ */
+constexpr int kGoodMinGoodEvil = 70;
+constexpr int kVeryGoodMinGoodEvil = 90;
 
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;

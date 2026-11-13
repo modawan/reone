@@ -1462,6 +1462,13 @@ static constexpr float kDefaultDriveMaxSpeed = 6.0f;
 static constexpr float kDefaultDriveAcceleration = 25.0f;
 static constexpr float kDefaultDriveRunClipSpeed = 4.0f;
 
+// The appearance.2da columns of the body's evil textures: the unarmoured
+// body's, then those of armour of body variation B, I, L and N.
+static constexpr std::array<const char *, 5> kEvilBodyTextureColumns {"texaevil", "texbevil", "texievil", "texlevil", "texnevil"};
+// The heads.2da columns of the head's textures for good/evil of 10, 20, 30
+// and 40 and below, then of 70 and 90 and above.
+static constexpr std::array<const char *, 6> kHeadAlignmentTextureColumns {"headtexvvve", "headtexvve", "headtexve", "headtexe", "headtexg", "headtexvg"};
+
 void Creature::loadAppearanceProperties() {
     auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
 
@@ -1534,12 +1541,36 @@ void Creature::loadAppearanceProperties() {
         _armourAppearances[variation] = !model.empty() && model.front() == '&' ? std::stoi(model.substr(1)) : 0;
     }
     _appearancePerceptionRange = appearances->getInt(_appearance, "perceptiondist");
-
-    if (_portraitId > 0) {
-        _portrait = _services.game.portraits.getTextureByIndex(_portraitId);
-    } else {
-        _portrait = _services.game.portraits.getTextureByAppearance(_appearance);
+    // The body's evil textures, by column, the head's model and its good/evil
+    // textures, from the most evil band up.
+    _evilBodyTextures.clear();
+    for (const char *column : kEvilBodyTextureColumns) {
+        _evilBodyTextures[column] = boost::to_lower_copy(appearances->getString(_appearance, column));
     }
+    loadHeadProperties(*appearances);
+
+    const Portrait *portraitRow = findPortrait(_services.game.portraits.portraits(), _portraitId, _appearance);
+    _portraitRow = portraitRow ? std::optional<Portrait>(*portraitRow) : std::nullopt;
+    refreshPortrait();
+}
+
+void Creature::loadHeadProperties(const TwoDA &appearances) {
+    const int head = headRow(appearances);
+    // Without heads.2da a head row names no head.
+    auto heads = head == -1 ? nullptr : _services.resource.twoDas.get("heads");
+    _headModelName = heads ? boost::to_lower_copy(heads->getString(head, "head")) : std::string();
+    for (size_t band = 0; band < kHeadAlignmentTextureColumns.size(); ++band) {
+        _headAlignmentTextures[band] = heads ? boost::to_lower_copy(heads->getString(head, kHeadAlignmentTextureColumns[band])) : std::string();
+    }
+}
+
+std::string Creature::portraitResRef() const {
+    return _portraitRow ? _portraitRow->resRefForGoodEvil(_goodEvil) : std::string();
+}
+
+void Creature::refreshPortrait() {
+    const auto resRef = portraitResRef();
+    _portrait = resRef.empty() ? nullptr : _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 void Creature::loadAppearanceMoveRate(const TwoDA &appearances) {
@@ -2630,6 +2661,7 @@ void Creature::update(float dt) {
     updateRollingFootstep();
     updateLoopingSounds();
     updateStealthXPTimer();
+    updateAlignmentTextures();
 }
 
 // A creature that newly sees the player's creature costs the area stealth
@@ -11049,6 +11081,8 @@ void Creature::finalizeModel(ModelSceneNode &body) {
             body.setMainTexture(texture.get());
         }
     }
+    _bodyAlignmentTexture.clear();
+    applyBodyAlignment(body);
 
     // Mask
 
@@ -11066,6 +11100,8 @@ void Creature::finalizeModel(ModelSceneNode &body) {
         if (headModel) {
             std::shared_ptr<ModelSceneNode> headSceneNode(sceneGraph.newModel(*headModel, ModelUsage::Creature));
             body.attach(g_headHookNode, *headSceneNode);
+            _headAlignmentTexture.clear();
+            applyHeadAlignment(*headSceneNode);
             if (maskModel) {
                 auto maskSceneNode = sceneGraph.newModel(*maskModel, ModelUsage::Equipment);
                 headSceneNode->attach(g_maskHookNode, *maskSceneNode);
@@ -11224,26 +11260,7 @@ std::string Creature::getBodyTextureName() const {
 }
 
 std::string Creature::getHeadModelName() const {
-    if (_modelType != Creature::ModelType::Character) {
-        return "";
-    }
-    std::shared_ptr<TwoDA> appearance(_services.resource.twoDas.get("appearance"));
-    if (!appearance) {
-        throw ResourceNotFoundException("appearance 2DA not found");
-    }
-    int headIdx = headRow(*appearance);
-    if (headIdx == -1) {
-        return "";
-    }
-    std::shared_ptr<TwoDA> heads(_services.resource.twoDas.get("heads"));
-    if (!heads) {
-        throw ResourceNotFoundException("heads 2DA not found");
-    }
-
-    std::string modelName(heads->getString(headIdx, "head"));
-    boost::to_lower(modelName);
-
-    return modelName;
+    return _modelType == Creature::ModelType::Character ? _headModelName : std::string();
 }
 
 int Creature::headRow(const TwoDA &appearances) const {
@@ -11258,6 +11275,7 @@ int Creature::headRow(const TwoDA &appearances) const {
 }
 
 void Creature::refreshHead() {
+    loadHeadProperties(*getRequiredTwoDA(_services.resource.twoDas, "appearance"));
     if (_sceneNode) {
         updateModel();
     }
@@ -11274,6 +11292,134 @@ void Creature::wearBackupHead() {
     if (!shown) {
         refreshHead();
     }
+}
+
+// A head has a texture for each dark side band and, in TSL, for good/evil of
+// 70 and above and of 90 and above; between them it shows its own.
+std::string Creature::getHeadAlignmentTextureName() const {
+    if (_modelType != Creature::ModelType::Character) {
+        return "";
+    }
+    if (_goodEvil <= kEvilMaxGoodEvil) {
+        const size_t band = _goodEvil <= kVeryVeryVeryEvilMaxGoodEvil ? 0
+                            : _goodEvil <= kVeryVeryEvilMaxGoodEvil   ? 1
+                            : _goodEvil <= kVeryEvilMaxGoodEvil       ? 2
+                                                                      : 3;
+        return _headAlignmentTextures[band];
+    }
+    if (_game.isTSL() && _goodEvil >= kGoodMinGoodEvil) {
+        return _headAlignmentTextures[_goodEvil >= kVeryGoodMinGoodEvil ? 5 : 4];
+    }
+    return "";
+}
+
+// TSL's evil body texture column for armour of a body variation, 0 for A:
+// those of B, I, L and N; none for the others.
+static const char *tslEvilBodyColumn(int variation) {
+    switch (variation) {
+    case 'b' - 'a':
+        return "texbevil";
+    case 'i' - 'a':
+        return "texievil";
+    case 'l' - 'a':
+        return "texlevil";
+    case 'n' - 'a':
+        return "texnevil";
+    default:
+        return nullptr;
+    }
+}
+
+std::string Creature::getEvilBodyTextureName() const {
+    // In KotOR only the unarmoured body is darkened, at 30 and below; in TSL
+    // also armour of body variation B, I, L and N, at 40 and below. A
+    // creature without a head shows no good/evil at all.
+    const bool tsl = _game.isTSL();
+    if (_goodEvil > (tsl ? kEvilMaxGoodEvil : kVeryEvilMaxGoodEvil) || getHeadModelName().empty()) {
+        return "";
+    }
+    // A presented body counts as worn armour of its variation.
+    std::optional<int> variation;
+    if (_presentation) {
+        variation = _presentation->bodyVariation;
+    } else if (auto armour = getEquippedItem(InventorySlots::body)) {
+        variation = wornBodyVariation(*armour);
+    }
+    const char *column = nullptr;
+    if (!variation) {
+        column = "texaevil";
+    } else if (tsl) {
+        column = tslEvilBodyColumn(*variation);
+    }
+    if (!column) {
+        return "";
+    }
+    // A column the appearance has not been read for names no texture.
+    const auto texture = _evilBodyTextures.find(column);
+    if (texture == _evilBodyTextures.end() || texture->second.empty()) {
+        return "";
+    }
+    return texture->second + "01";
+}
+
+void Creature::applyHeadAlignment(ModelSceneNode &head) {
+    auto name = getHeadAlignmentTextureName();
+    if (name.empty() || name == _headAlignmentTexture) {
+        return;
+    }
+    // A texture that doesn't exist leaves the head as it is.
+    if (auto texture = _services.resource.textures.get(name, TextureUsage::MainTex)) {
+        head.setMainTexture(texture.get());
+        _headAlignmentTexture = std::move(name);
+    }
+}
+
+void Creature::applyBodyAlignment(ModelSceneNode &body) {
+    _alignmentGoodEvil = _goodEvil;
+    auto name = getEvilBodyTextureName();
+    if (name.empty()) {
+        // Without an evil texture for its good/evil the body shows its own.
+        if (!_bodyAlignmentTexture.empty()) {
+            _bodyAlignmentTexture.clear();
+            const auto own = getBodyTextureName();
+            if (auto texture = own.empty() ? nullptr : _services.resource.textures.get(own, TextureUsage::MainTex)) {
+                body.setMainTexture(texture.get());
+            }
+        }
+        return;
+    }
+    if (name == _bodyAlignmentTexture) {
+        return;
+    }
+    // A texture that doesn't exist leaves the body as it is.
+    if (auto texture = _services.resource.textures.get(name, TextureUsage::MainTex)) {
+        body.setMainTexture(texture.get());
+        _bodyAlignmentTexture = std::move(name);
+    }
+}
+
+// The portrait follows good/evil whether or not the creature is drawn; the
+// body and head follow it while they are.
+void Creature::updateAlignmentTextures() {
+    if (_goodEvil == _alignmentGoodEvil) {
+        return;
+    }
+    refreshPortrait();
+    if (!_sceneNode) {
+        _alignmentGoodEvil = _goodEvil;
+        return;
+    }
+    auto body = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    applyBodyAlignment(*body);
+    auto *head = static_cast<ModelSceneNode *>(body->getAttachment(g_headHookNode));
+    if (!head) {
+        return;
+    }
+    if (!_headAlignmentTexture.empty() && getHeadAlignmentTextureName().empty()) {
+        updateModel();
+        return;
+    }
+    applyHeadAlignment(*head);
 }
 
 std::string Creature::getMaskModelName() const {

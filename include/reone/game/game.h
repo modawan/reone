@@ -1268,10 +1268,17 @@ public:
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
+    /**
+     * A creature only shown, as in a menu's 3D view. It is neither good nor
+     * evil, so it shows its own portrait, head and body until given a
+     * good/evil.
+     */
     inline std::shared_ptr<Creature> newPresentationCreature(
         std::string sceneName) {
-        return newPresentationObject<Creature>(
+        auto creature = newPresentationObject<Creature>(
             std::move(sceneName), *this, _services);
+        creature->setGoodEvil(kNeutralGoodEvil);
+        return creature;
     }
     std::shared_ptr<Creature> newCreature(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
     std::shared_ptr<Creature> newCreatureFromBlueprint(
