@@ -549,6 +549,9 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto dontClearAllActions = static_cast<bool>(bDontClearAllActions);
 
     // Execute
+    // TSL's bark bubble takes the place asked for, -1 leaving an edge to the
+    // layout, for every bark until a script places it again.
+    ctx.game.setBarkBubblePlace(nBarkX, nBarkY);
     // Whether the leader answers in conversations holds from now on, and the
     // party leader drops its actions and its orders, as the player's controls
     // clear them, even when the conversation is then refused.

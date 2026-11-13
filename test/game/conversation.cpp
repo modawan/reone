@@ -93,7 +93,7 @@ protected:
     void setReplyLines(std::vector<std::string> lines) override {}
     void setMessage(std::string message) override {}
 
-    void setBarkText(std::string text, float duration) override {
+    void setBarkText(std::string text, float duration, uint32_t speaker, bool ignoresDistance) override {
         _barkText = std::move(text);
         ++_barkCount;
     }

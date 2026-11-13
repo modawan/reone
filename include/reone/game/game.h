@@ -499,7 +499,12 @@ public:
      * starts.
      */
     bool isDialogUnderWay() const { return _dialogUnderWay; }
-    void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
+    void setDialogUnderWay(bool underWay) {
+        _dialogUnderWay = underWay;
+        if (!underWay) {
+            _conversationIgnoresStartRange = false;
+        }
+    }
 
     /**
      * Show a message box dismissed with OK, in the given colours or in those
@@ -812,7 +817,25 @@ public:
     /** A script shows placed camera \p cameraId in the running conversation; nothing happens without one. */
     void showConversationPlacedCamera(int cameraId);
 
-    void setBarkBubbleText(std::string text, float durartion);
+    /**
+     * Shows \p text in the bark bubble for \p duration seconds, barked by
+     * \p speaker, or with no speaker. A bark with a speaker shows only while
+     * the party leader is within range of it, unless \p ignoresDistance.
+     */
+    void setBarkBubbleText(std::string text, float duration, uint32_t speaker = script::kObjectInvalid,
+                           bool ignoresDistance = false);
+    /**
+     * TSL: the bark bubble's left and top edges, in the interface's authored
+     * canvas units, each unless -1, for every bark until they are set again.
+     */
+    void setBarkBubblePlace(int x, int y);
+    /**
+     * Whether the conversation last asked for ignores its start range, as a
+     * script's conversation does. Its one-liner then barks whatever the
+     * leader's distance. It no longer does once no conversation is under way.
+     */
+    bool conversationIgnoresStartRange() const { return _conversationIgnoresStartRange; }
+    void setConversationIgnoresStartRange(bool ignores) { _conversationIgnoresStartRange = ignores; }
     /**
      * \p speaker barks the talk-table line \p strRef: the bark bubble shows
      * its text for the time it takes to speak, and its sound plays as a bark.
@@ -2053,6 +2076,8 @@ private:
     std::optional<int> _envAudio;
     /** The room last rendered, so a room's sound is looked up only when the room changes. */
     const Room *_soundRoom {nullptr};
+    /** See conversationIgnoresStartRange. */
+    bool _conversationIgnoresStartRange {false};
     /** The admission of the request to talk a conversation script has still to answer. */
     GlobalFade::DialogTicket _conversationRequest;
     /** See admitConversationRequest. */

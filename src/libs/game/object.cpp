@@ -470,6 +470,9 @@ void Object::receiveConversationEvent(ConversationEvent event) {
     _matchedSubstrings = std::move(event.matchedPieces);
     _lastConversation = event.conversation;
     _privateConversation = event.privateConversation;
+    // Every conversation event sets whether the conversation ignores its
+    // start range; one that matched a pattern carries no such flag.
+    _game.setConversationIgnoresStartRange(event.ignoreStartRange);
     _game.setLastConversation(std::move(event.conversation));
     _game.admitConversationRequest();
     runConversationScript();
