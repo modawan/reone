@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <tuple>
 
 #include <boost/format.hpp>
@@ -31,6 +32,8 @@
 #include "reone/gui/control/button.h"
 #include "reone/gui/guis.h"
 #include "reone/resource/exception/notfound.h"
+#include "reone/resource/parser/gff/gui.h"
+#include "reone/resource/provider/gffs.h"
 #include "reone/resource/strings.h"
 
 using namespace reone::audio;
@@ -60,6 +63,9 @@ static constexpr int kSoundDescriptionStrRefTSL = 48688;
 // Exit Game asks this before it ends the game.
 static constexpr int kExitGameQuestionStrRef = 42348;
 
+// What an option the game takes only as it starts adds to its description.
+static const std::string kNextStartNote {"Takes effect the next time the game starts."};
+
 void OptionsMenu::showCheckBoxes(IGUI &panel) {
     for (auto &child : panel.rootControl().children()) {
         showCheckBox(child.get());
@@ -73,8 +79,16 @@ void OptionsMenu::showCheckBox(Control &control) {
 }
 
 void OptionsMenu::describe(ListBox &box, int strRef) {
+    describe(box, _services.resource.strings.getText(strRef));
+}
+
+void OptionsMenu::describe(ListBox &box, const std::string &text) {
     box.clearItems();
-    box.addTextLinesAsItems(_services.resource.strings.getText(strRef));
+    box.addTextLinesAsItems(text);
+}
+
+void OptionsMenu::describeForNextStart(ListBox &box, int strRef) {
+    describe(box, _services.resource.strings.getText(strRef) + "\n\n" + kNextStartNote);
 }
 
 void OptionsMenu::usePageTitle(const std::shared_ptr<Label> &title) {
@@ -640,7 +654,7 @@ void OptionsMenu::loadGraphicsPanel() {
     });
     controls.BTN_RESOLUTION->setOnSelectionChanged([this, tsl](bool selected) {
         if (selected) {
-            describe(*_graphicsControls.LB_DESC, tsl ? kResolutionDescriptionStrRefTSL : kResolutionDescriptionStrRef);
+            describeForNextStart(*_graphicsControls.LB_DESC, tsl ? kResolutionDescriptionStrRefTSL : kResolutionDescriptionStrRef);
         }
     });
     controls.BTN_ADVANCED->setOnClick([this]() {
@@ -705,16 +719,15 @@ void OptionsMenu::loadResolutionPanel() {
     // A click chooses a mode; OK keeps it.
     controls.LB_RESOLUTIONS->setSelectionMode(ListBox::SelectionMode::OnClick);
 
-    const auto &options = _game.options().graphics;
-    _startMode = {options.width, options.height, options.refreshRate};
-
     // The running game keeps its window: the chosen mode is the one the next
     // start opens in.
     controls.BTN_OK->setOnClick([this]() {
         const int row = _resolutionControls.LB_RESOLUTIONS->selectedItemIndex();
         if (row >= 0) {
-            _startMode = _displayModes[row];
-            saveDisplayMode(_game.options().game.configurationPath, _startMode.width, _startMode.height, _startMode.refreshRate);
+            const auto &path = _game.options().game.configurationPath;
+            auto start = StartGraphicsOptions::load(path, _game.options().graphics);
+            start.displayMode = _displayModes[row];
+            start.save(path);
         }
         closePage();
     });
@@ -747,7 +760,7 @@ void OptionsMenu::openResolutionPanel() {
     });
 
     // The game starts at the desktop's rate until a rate is chosen.
-    DisplayMode start = _startMode;
+    DisplayMode start = StartGraphicsOptions::load(_game.options().game.configurationPath, _game.options().graphics).displayMode;
     if (start.refreshRate == 0) {
         start.refreshRate = desktop.refreshRate;
     }
@@ -778,43 +791,167 @@ void OptionsMenu::openResolutionPanel() {
 
 static constexpr int kSoftShadowsDescriptionStrRef = 47953;
 static constexpr int kSoftShadowsDescriptionStrRefTSL = 48711;
+static constexpr int kTextureQualityDescriptionStrRef = 47965;
+static constexpr int kTextureQualityDescriptionStrRefTSL = 48712;
+static constexpr int kAnisotropyDescriptionStrRef = 47961;
+static constexpr int kAnisotropyDescriptionStrRefTSL = 48715;
+static constexpr int kVSyncDescriptionStrRef = 47969;
+static constexpr int kVSyncDescriptionStrRefTSL = 48716;
+
+// The levels' names, lowest first: Low, Medium and High texture quality, and
+// anisotropy from off to 16X.
+static constexpr std::array<int, 3> kTextureQualityNameStrRefs {48003, 48004, 48005};
+static constexpr std::array<int, 3> kTextureQualityNameStrRefsTSL {48617, 48618, 48619};
+static constexpr std::array<int, 5> kAnisotropyNameStrRefs {49079, 49080, 49081, 49082, 49083};
+static constexpr std::array<int, 5> kAnisotropyNameStrRefsTSL {49002, 49003, 49004, 49005, 49006};
+static constexpr int kNoAntiAliasingStrRef = 47996;
+static constexpr int kNoAntiAliasingStrRefTSL = 48738;
+
+// Anti-aliasing smooths the drawn frame: it has no sample counts to offer, so
+// its level and description are the game's own text.
+static const std::string kFXAAName {"FXAA"};
+static const std::string kAntiAliasingDescription {
+    "Anti-Aliasing\n\nFXAA: smooths jagged edges once the frame is drawn.\n\nNo Anti-aliasing: edges are left as drawn."};
+
+// The interface is sized from half to all of the largest size that fits the
+// screen, in twentieths.
+static constexpr float kMinGUIScale = 0.5f;
+static constexpr int kGUIScaleSteps = 10;
+static constexpr float kGUIScaleStep = (1.0f - kMinGUIScale) / kGUIScaleSteps;
+static const std::string kGUIScaleName {"Interface Size"};
+static const std::string kGUIScaleDescription {
+    "Interface Size\n\nThe size of the menus, the HUD and the pointer, from half to all of the largest size that fits the screen."};
+// The label sits this far below the page's last row.
+static constexpr int kGUIScaleRowGap = 4;
+
+static int guiScaleStep(float scale) {
+    return static_cast<int>(std::lround((scale - kMinGUIScale) / kGUIScaleStep));
+}
+
+static std::string guiScaleLabel(int step) {
+    return str(boost::format("%s: %d%%") % kGUIScaleName % static_cast<int>(std::lround((kMinGUIScale + step * kGUIScaleStep) * 100.0f)));
+}
+
+static int textureQualityLevel(TextureQuality quality) {
+    return static_cast<int>(TextureQuality::Low) - static_cast<int>(quality);
+}
+
+static constexpr int kAnisotropyLevels = 5;
+static constexpr int kTextureQualityLevels = 3;
 
 void OptionsMenu::loadAdvancedGraphicsPanel() {
     _advancedGraphicsGUI = loadPage(_game.isTSL() ? "optgraphicadv" : "optgraphicsadv");
     auto find = [this](const std::string &tag) { return _advancedGraphicsGUI->findControl(tag); };
     auto &controls = _advancedGraphicsControls;
+    controls.BTN_ANISOTROPY = std::static_pointer_cast<Button>(find("BTN_ANISOTROPY"));
+    controls.BTN_ANISOTROPYLEFT = std::static_pointer_cast<Button>(find("BTN_ANISOTROPYLEFT"));
+    controls.BTN_ANISOTROPYRIGHT = std::static_pointer_cast<Button>(find("BTN_ANISOTROPYRIGHT"));
+    controls.BTN_ANTIALIAS = std::static_pointer_cast<Button>(find("BTN_ANTIALIAS"));
+    controls.BTN_ANTIALIASLEFT = std::static_pointer_cast<Button>(find("BTN_ANTIALIASLEFT"));
+    controls.BTN_ANTIALIASRIGHT = std::static_pointer_cast<Button>(find("BTN_ANTIALIASRIGHT"));
     controls.BTN_BACK = std::static_pointer_cast<Button>(find("BTN_BACK"));
     controls.BTN_CANCEL = std::static_pointer_cast<Button>(find("BTN_CANCEL"));
     controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
+    controls.BTN_TEXQUAL = std::static_pointer_cast<Button>(find("BTN_TEXQUAL"));
+    controls.BTN_TEXQUALLEFT = std::static_pointer_cast<Button>(find("BTN_TEXQUALLEFT"));
+    controls.BTN_TEXQUALRIGHT = std::static_pointer_cast<Button>(find("BTN_TEXQUALRIGHT"));
     controls.CB_SOFTSHADOWS = std::static_pointer_cast<ToggleButton>(find("CB_SOFTSHADOWS"));
+    controls.CB_VSYNC = std::static_pointer_cast<ToggleButton>(find("CB_VSYNC"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
+    addInterfaceSizeSlider();
     showCheckBoxes(*_advancedGraphicsGUI);
     for (auto &button : {controls.BTN_BACK, controls.BTN_CANCEL, controls.BTN_DEFAULT}) {
         enableK2ButtonBodyFill(button);
     }
 
-    const int softShadowsDescription = _game.isTSL() ? kSoftShadowsDescriptionStrRefTSL : kSoftShadowsDescriptionStrRef;
+    const bool tsl = _game.isTSL();
+    // Each arrow steps its option one level; the page shows the new level.
+    controls.BTN_TEXQUALLEFT->setOnClick([this]() {
+        _advancedGraphics.start.textureQuality = static_cast<TextureQuality>(static_cast<int>(_advancedGraphics.start.textureQuality) + 1);
+        showAdvancedGraphics();
+    });
+    controls.BTN_TEXQUALRIGHT->setOnClick([this]() {
+        _advancedGraphics.start.textureQuality = static_cast<TextureQuality>(static_cast<int>(_advancedGraphics.start.textureQuality) - 1);
+        showAdvancedGraphics();
+    });
+    controls.BTN_ANTIALIASLEFT->setOnClick([this]() {
+        _advancedGraphics.fxaa = false;
+        showAdvancedGraphics();
+    });
+    controls.BTN_ANTIALIASRIGHT->setOnClick([this]() {
+        _advancedGraphics.fxaa = true;
+        showAdvancedGraphics();
+    });
+    controls.BTN_ANISOTROPYLEFT->setOnClick([this]() {
+        --_advancedGraphics.start.anisotropicFiltering;
+        showAdvancedGraphics();
+    });
+    controls.BTN_ANISOTROPYRIGHT->setOnClick([this]() {
+        ++_advancedGraphics.start.anisotropicFiltering;
+        showAdvancedGraphics();
+    });
     controls.CB_SOFTSHADOWS->setOnClick([this]() {
-        _softShadows = !_softShadows;
-        _advancedGraphicsControls.CB_SOFTSHADOWS->setOn(_softShadows);
+        _advancedGraphics.softShadows = !_advancedGraphics.softShadows;
+        showAdvancedGraphics();
     });
-    controls.CB_SOFTSHADOWS->setOnSelectionChanged([this, softShadowsDescription](bool selected) {
-        if (selected) {
-            describe(*_advancedGraphicsControls.LB_DESC, softShadowsDescription);
-        }
+    controls.CB_VSYNC->setOnClick([this]() {
+        _advancedGraphics.vsync = !_advancedGraphics.vsync;
+        showAdvancedGraphics();
     });
+    controls.SLI_GUISCALE->setOnValueChanged([this](int step) {
+        _advancedGraphics.start.guiScale = kMinGUIScale + step * kGUIScaleStep;
+        _advancedGraphicsControls.LBL_GUISCALE->setTextMessage(guiScaleLabel(step));
+    });
+
+    // Each option is described as it gains focus.
+    auto describeOnFocus = [](const std::shared_ptr<Control> &control, std::function<void()> describe) {
+        control->setOnSelectionChanged([describe = std::move(describe)](bool selected) {
+            if (selected) {
+                describe();
+            }
+        });
+    };
+    describeOnFocus(controls.BTN_TEXQUAL, [this, tsl]() {
+        describeForNextStart(*_advancedGraphicsControls.LB_DESC, tsl ? kTextureQualityDescriptionStrRefTSL : kTextureQualityDescriptionStrRef);
+    });
+    describeOnFocus(controls.BTN_ANTIALIAS, [this]() {
+        describe(*_advancedGraphicsControls.LB_DESC, kAntiAliasingDescription);
+    });
+    describeOnFocus(controls.BTN_ANISOTROPY, [this, tsl]() {
+        describeForNextStart(*_advancedGraphicsControls.LB_DESC, tsl ? kAnisotropyDescriptionStrRefTSL : kAnisotropyDescriptionStrRef);
+    });
+    describeOnFocus(controls.CB_SOFTSHADOWS, [this, tsl]() {
+        describe(*_advancedGraphicsControls.LB_DESC, tsl ? kSoftShadowsDescriptionStrRefTSL : kSoftShadowsDescriptionStrRef);
+    });
+    describeOnFocus(controls.CB_VSYNC, [this, tsl]() {
+        describe(*_advancedGraphicsControls.LB_DESC, tsl ? kVSyncDescriptionStrRefTSL : kVSyncDescriptionStrRef);
+    });
+    describeOnFocus(controls.SLI_GUISCALE, [this]() {
+        describe(*_advancedGraphicsControls.LB_DESC, kGUIScaleDescription + "\n\n" + kNextStartNote);
+    });
+
     controls.BTN_DEFAULT->setOnClick([this]() {
-        _softShadows = GraphicsOptions().softShadows;
-        _advancedGraphicsControls.CB_SOFTSHADOWS->setOn(_softShadows);
+        const graphics::GraphicsOptions defaults;
+        _advancedGraphics.fxaa = defaults.fxaa;
+        _advancedGraphics.softShadows = defaults.softShadows;
+        _advancedGraphics.vsync = defaults.vsync;
+        _advancedGraphics.start.textureQuality = defaults.textureQuality;
+        _advancedGraphics.start.anisotropicFiltering = defaults.anisotropicFiltering;
+        _advancedGraphics.start.guiScale = defaults.guiScale;
+        showAdvancedGraphics();
     });
-    // OK keeps the page's Soft Shadows, which bring shadows with them;
-    // Cancel, like Escape, drops it.
+    // OK applies the options the running game can change, Soft Shadows
+    // bringing shadows with them, and keeps the rest for the next start.
+    // Cancel, like Escape, drops the changes.
     controls.BTN_BACK->setOnClick([this]() {
         auto &options = _game.options().graphics;
-        options.softShadows = _softShadows;
-        if (_softShadows) {
+        options.fxaa = _advancedGraphics.fxaa;
+        options.softShadows = _advancedGraphics.softShadows;
+        if (_advancedGraphics.softShadows) {
             options.shadows = true;
         }
+        options.vsync = _advancedGraphics.vsync;
+        _advancedGraphics.start.save(_game.options().game.configurationPath);
         showGraphicsOptions();
         closePage();
     });
@@ -823,12 +960,88 @@ void OptionsMenu::loadAdvancedGraphicsPanel() {
     });
 }
 
+void OptionsMenu::addInterfaceSizeSlider() {
+    const auto gff = _services.resource.gffs.get(guiResRef("optgraphics"), ResType::Gui);
+    if (!gff) {
+        throw ResourceNotFoundException("GUI not found: " + guiResRef("optgraphics"));
+    }
+    const auto graphicsLayout = resource::generated::parseGUI(*gff);
+    auto layoutOf = [&graphicsLayout](const std::string &tag) {
+        auto control = std::find_if(graphicsLayout.CONTROLS.begin(), graphicsLayout.CONTROLS.end(), [&tag](const auto &control) {
+            return control.TAG == tag;
+        });
+        if (control == graphicsLayout.CONTROLS.end()) {
+            throw ResourceNotFoundException("GUI control not found: " + tag);
+        }
+        return *control;
+    };
+    auto label = layoutOf("LBL_GAMMA");
+    auto slider = layoutOf("SLI_GAMMA");
+    const auto &lastRow = _advancedGraphicsControls.CB_VSYNC->authoredExtent();
+    const int sliderOffset = slider.EXTENT.TOP - label.EXTENT.TOP;
+
+    label.TAG = "LBL_GUISCALE";
+    label.EXTENT.TOP = lastRow.top + lastRow.height + kGUIScaleRowGap;
+    label.TEXT->STRREF = static_cast<uint32_t>(-1);
+    label.TEXT->TEXT = guiScaleLabel(kGUIScaleSteps);
+    slider.TAG = "SLI_GUISCALE";
+    slider.EXTENT.TOP = label.EXTENT.TOP + sliderOffset;
+    slider.MAXVALUE = kGUIScaleSteps;
+    slider.CURVALUE = kGUIScaleSteps;
+
+    auto labelControl = std::shared_ptr<Control>(_advancedGraphicsGUI->newControl(ControlType::Label, label.TAG));
+    labelControl->load(label);
+    _advancedGraphicsGUI->addControlToFront(labelControl, IGUI::ControlCoordinates::Authored);
+    auto sliderControl = std::shared_ptr<Control>(_advancedGraphicsGUI->newControl(ControlType::Slider, slider.TAG));
+    sliderControl->load(slider);
+    _advancedGraphicsGUI->addControlToFront(sliderControl, IGUI::ControlCoordinates::Authored);
+    _advancedGraphicsControls.LBL_GUISCALE = std::static_pointer_cast<Label>(labelControl);
+    _advancedGraphicsControls.SLI_GUISCALE = std::static_pointer_cast<Slider>(sliderControl);
+}
+
 void OptionsMenu::openAdvancedGraphicsPanel() {
-    _softShadows = _game.options().graphics.softShadows;
-    _advancedGraphicsControls.CB_SOFTSHADOWS->setOn(_softShadows);
-    describe(*_advancedGraphicsControls.LB_DESC,
-             _game.isTSL() ? kSoftShadowsDescriptionStrRefTSL : kSoftShadowsDescriptionStrRef);
+    const auto &options = _game.options().graphics;
+    _advancedGraphics.fxaa = options.fxaa;
+    _advancedGraphics.softShadows = options.softShadows;
+    _advancedGraphics.vsync = options.vsync;
+    _advancedGraphics.start = StartGraphicsOptions::load(_game.options().game.configurationPath, options);
+    // The page offers the levels it names; a configured anisotropy beyond
+    // them shows as the nearest.
+    auto &anisotropy = _advancedGraphics.start.anisotropicFiltering;
+    anisotropy = std::clamp(anisotropy, 0, kAnisotropyLevels - 1);
+    showAdvancedGraphics();
+    describeForNextStart(*_advancedGraphicsControls.LB_DESC,
+                         _game.isTSL() ? kTextureQualityDescriptionStrRefTSL : kTextureQualityDescriptionStrRef);
     openPage(*_advancedGraphicsGUI, [] {});
+}
+
+void OptionsMenu::showAdvancedGraphics() {
+    const auto &controls = _advancedGraphicsControls;
+    const auto &choices = _advancedGraphics;
+    const bool tsl = _game.isTSL();
+    auto &strings = _services.resource.strings;
+    auto showLevel = [](Button &name, Button &left, Button &right, const std::string &text, int level, int levels) {
+        name.setTextMessage(text);
+        left.setVisible(level > 0);
+        right.setVisible(level < levels - 1);
+    };
+
+    const int quality = textureQualityLevel(choices.start.textureQuality);
+    showLevel(*controls.BTN_TEXQUAL, *controls.BTN_TEXQUALLEFT, *controls.BTN_TEXQUALRIGHT,
+              strings.getText((tsl ? kTextureQualityNameStrRefsTSL : kTextureQualityNameStrRefs).at(quality)),
+              quality, kTextureQualityLevels);
+    showLevel(*controls.BTN_ANTIALIAS, *controls.BTN_ANTIALIASLEFT, *controls.BTN_ANTIALIASRIGHT,
+              choices.fxaa ? kFXAAName : strings.getText(tsl ? kNoAntiAliasingStrRefTSL : kNoAntiAliasingStrRef),
+              choices.fxaa ? 1 : 0, 2);
+    const int anisotropy = choices.start.anisotropicFiltering;
+    showLevel(*controls.BTN_ANISOTROPY, *controls.BTN_ANISOTROPYLEFT, *controls.BTN_ANISOTROPYRIGHT,
+              strings.getText((tsl ? kAnisotropyNameStrRefsTSL : kAnisotropyNameStrRefs).at(anisotropy)),
+              anisotropy, kAnisotropyLevels);
+    controls.CB_SOFTSHADOWS->setOn(choices.softShadows);
+    controls.CB_VSYNC->setOn(choices.vsync);
+    const int step = guiScaleStep(choices.start.guiScale);
+    controls.SLI_GUISCALE->setValue(step);
+    controls.LBL_GUISCALE->setTextMessage(guiScaleLabel(controls.SLI_GUISCALE->value()));
 }
 
 // Sound

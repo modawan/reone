@@ -15,6 +15,7 @@
 
 #include "reone/audio/options.h"
 #include "reone/graphics/options.h"
+#include "reone/graphics/types.h"
 #include "reone/input/event.h"
 
 namespace reone {
@@ -109,10 +110,32 @@ void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs);
 
 /** Write the sound options' volumes and Force Software into the configuration, keeping every other line. */
 void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options);
-/** Write the graphics options' Shadows, Soft Shadows and Grass into the configuration, keeping every other line. */
+/**
+ * Write the graphics options the running game applies at once (Shadows, Soft
+ * Shadows, Grass, anti-aliasing and V-Sync) into the configuration, keeping
+ * every other line.
+ */
 void saveGraphicsOptions(const std::filesystem::path &path, const graphics::GraphicsOptions &options);
-/** Write the display mode the game starts in into the configuration, keeping every other line. */
-void saveDisplayMode(const std::filesystem::path &path, int width, int height, int refreshRate);
+
+/**
+ * The graphics options the game takes only as it starts: the display mode, the
+ * texture pack, the textures' anisotropic filtering and the interface size.
+ * The options pages keep them in the configuration for the next start, while
+ * the running game goes on with the ones it started with.
+ */
+struct StartGraphicsOptions {
+    graphics::DisplayMode displayMode;
+    graphics::TextureQuality textureQuality {graphics::TextureQuality::High};
+    /** The filtering's samples as a power of two: 0 is none, 4 is 16. */
+    int anisotropicFiltering {0};
+    /** The interface's share of the largest size that fits the screen. */
+    float guiScale {1.0f};
+
+    /** The options the next start takes; a key the configuration lacks starts as \p running did. */
+    static StartGraphicsOptions load(const std::filesystem::path &path, const graphics::GraphicsOptions &running);
+    /** Write the options into the configuration, keeping every other line. */
+    void save(const std::filesystem::path &path) const;
+};
 
 /** How the mouse turns the camera, kept in the configuration's Game Options section. */
 struct MouseOptions {

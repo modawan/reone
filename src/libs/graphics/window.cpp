@@ -86,7 +86,8 @@ void Window::init() {
     if (!_context) {
         throw std::runtime_error("SDL_GL_CreateContext failed: " + std::string(SDL_GetError()));
     }
-    SDL_GL_SetSwapInterval(_options.vsync ? 1 : 0);
+    _vsync = _options.vsync;
+    SDL_GL_SetSwapInterval(_vsync ? 1 : 0);
 
     _inited = true;
 }
@@ -159,7 +160,12 @@ bool Window::handleKeyDownEvent(const SDL_KeyboardEvent &event) {
     return false;
 }
 
+// V-Sync follows the option as the options pages change it.
 void Window::swap() {
+    if (_vsync != _options.vsync) {
+        _vsync = _options.vsync;
+        SDL_GL_SetSwapInterval(_vsync ? 1 : 0);
+    }
     SDL_GL_SwapWindow(_window);
 }
 
