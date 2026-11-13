@@ -130,6 +130,9 @@ void CharacterMenu::onGUILoaded() {
     }
 
     turnK1PartyArrowRight();
+    // The alignment meter shows the character's alignment; it is not moved.
+    _controls.SLD_ALIGN->setDisabled(true);
+    _controls.BTN_AUTO->setDisabled(true);
     // The level-up buttons' texts pulse until the pointer first leaves them.
     _controls.BTN_AUTO->setTextPulsing(true);
     _controls.BTN_LEVELUP->setTextPulsing(true);
@@ -307,6 +310,7 @@ static std::string describeAbilityModifier(int value) {
 void CharacterMenu::refreshControls() {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     CreatureAttributes &attributes = partyLeader->attributes();
+    _controls.SLD_ALIGN->setValue(partyLeader->goodEvil());
 
     if (!_game.isTSL()) {
         _controls.LBL_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));

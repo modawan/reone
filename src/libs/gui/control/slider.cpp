@@ -43,8 +43,15 @@ void Slider::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIte
 }
 
 // The thumb keeps its image's width, grown with the layout, and the track's
-// height. It travels the track's width less its own.
+// height. It travels the track's width less its own. On a track taller than
+// it is wide, the alignment meter's, it keeps its image's height and the
+// track's width instead, and travels upwards as the value grows.
 Control::Extent Slider::thumbExtent() const {
+    if (_extent.height > _extent.width) {
+        int height = static_cast<int>(getImageSize(*_thumb).y * _frameLayoutScale);
+        int top = _extent.top + (_extent.height - height) * (_maxValue - _value) / _maxValue;
+        return Extent(_extent.left, top, _extent.width, height);
+    }
     int width = static_cast<int>(getImageSize(*_thumb).x * _frameLayoutScale);
     int left = _extent.left + (_extent.width - width) * _value / _maxValue;
     return Extent(left, _extent.top, width, _extent.height);

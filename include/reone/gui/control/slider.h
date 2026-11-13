@@ -28,6 +28,10 @@ namespace gui {
  * track. The player drags the thumb, clicks the track either side of it to
  * step the value by one, or steps it with Left and Right while the slider has
  * the focus.
+ *
+ * A track taller than it is wide stands upright, its thumb higher as the
+ * value grows. The games' one such track, the alignment meter, only shows
+ * its value.
  */
 class Slider : public Control {
 public:
