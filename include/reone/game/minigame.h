@@ -353,8 +353,10 @@ std::optional<MinigameTrack> buildMinigameTrack(const graphics::Model &model, co
  */
 constexpr float kMinigameTrackRateDivisor = 100.0f;
 
-// The pull on a jumping swoop bike, units per second squared.
-constexpr float kMinigameGravity = 9.8f;
+// The pull on a jumping swoop bike, units per second squared. Only the TSL
+// races jump. A jump at the speed the TSL jump script gives (30) is about
+// 1.3 s in the air.
+constexpr float kMinigameGravity = 45.8f;
 
 /**
  * Player intent for a minigame. The keyboard and mouse handlers of the view

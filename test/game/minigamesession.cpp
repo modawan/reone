@@ -628,6 +628,32 @@ TEST(MinigameSession, a_jump_rises_to_the_tunnel_ceiling_and_lands) {
     EXPECT_FLOAT_EQ(session->jumpSpeed(), 0.0f);
 }
 
+// Without a ceiling, a jump at 30 units per second (the speed the TSL jump
+// script gives) stays in the air 2 * 30 / 45.8 = 1.31 s.
+TEST(MinigameSession, a_jump_stays_in_the_air_for_the_time_gravity_gives) {
+    ScriptedHost host;
+    auto session = makeSwoop(host, 0, {});
+    session->setTunnelPos(glm::vec3(13.0f, 3.0f, 100.0f));
+    session->setTunnelNeg(glm::vec3(-13.0f, -3.0f, 0.0f));
+    float ground = session->offset().z;
+
+    session->setJumpSpeed(30.0f);
+    int airborne = 0;
+    float peak = ground;
+    for (int i = 0; i < 300; ++i) {
+        session->update(kTick, MinigameInput());
+        if (session->offset().z <= ground) {
+            break;
+        }
+        peak = glm::max(peak, session->offset().z);
+        ++airborne;
+    }
+    float expected = 2.0f * 30.0f / kMinigameGravity;
+    EXPECT_NEAR(airborne * kTick, expected, 2.0f * kTick);
+    // Stepped at 1/30 s, the peak is within one update's rise of v^2 / 2g.
+    EXPECT_NEAR(peak - ground, 30.0f * 30.0f / (2.0f * kMinigameGravity), 30.0f * kTick);
+}
+
 // A barrier across the track (the TSL courses have them) stops a bike on the
 // ground. A bike that jumps before it passes over.
 TEST(MinigameSession, a_jumping_bike_passes_over_a_hitbump) {
