@@ -129,6 +129,8 @@ enum class SavedSignalEventType : uint16_t {
     /** A creature walked up to the trigger or door it was heading for. */
     Clicked = 30,
     FailToOpen = 34,
+    /** A player character levelled up; the caller is the one who did. */
+    PlayerLevelUp = 37,
     ItemEquipped = 38,
 };
 

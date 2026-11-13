@@ -1528,7 +1528,7 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
         using Signal = SavedSignalEventType;
         static const std::set<Signal> delivered {
             Signal::Heartbeat, Signal::SpellCastAt, Signal::Damaged, Signal::Conversation, Signal::Death,
-            Signal::UserDefined,
+            Signal::UserDefined, Signal::PlayerLevelUp,
             Signal::Entered, Signal::Exited, Signal::ModuleLoaded, Signal::ItemActivated, Signal::ItemAcquired,
             Signal::ItemLost, Signal::EncounterExhausted, Signal::InventoryOpened, Signal::InventoryClosed,
             Signal::Disarmed, Signal::Used, Signal::InventoryDisturbed, Signal::Locked, Signal::Unlocked, Signal::Clicked,

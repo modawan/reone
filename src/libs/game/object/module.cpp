@@ -341,6 +341,7 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onEquipItem = boost::to_lower_copy(ifo.Mod_OnEquipItem);
     _info.onPlayerDeath = boost::to_lower_copy(ifo.Mod_OnPlrDeath);
     _info.onClientEnter = boost::to_lower_copy(ifo.Mod_OnClientEntr);
+    _info.onPlayerLevelUp = boost::to_lower_copy(ifo.Mod_OnPlrLvlUp);
     _onHeartbeat = boost::to_lower_copy(ifo.Mod_OnHeartbeat);
 
     _info.dawnHour = ifo.Mod_DawnHour;
@@ -1169,6 +1170,8 @@ void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::s
     } else if (target.get() == this && (type == Signal::ItemActivated || type == Signal::ItemAcquired ||
                                         type == Signal::ItemLost || type == Signal::ItemEquipped)) {
         receiveItemEvent(event, savedEvent.caller);
+    } else if (target.get() == this && type == Signal::PlayerLevelUp) {
+        receivePlayerLevelUpEvent(savedEvent.caller);
     } else if (target.get() == this && type == Signal::ModuleLoaded) {
         receiveLoadedSignal(!event.integers.empty() && event.integers[0] != 0);
     } else if (auto store = dyn_cast<Store>(target); store && type == Signal::InventoryOpened) {
@@ -1549,6 +1552,12 @@ void Module::receivePlayerDeathEvent(const SavedObjectReference &caller) {
     auto fallen = caller.boundObject();
     _lastPlayerDied = fallen ? fallen->id() : script::kObjectInvalid;
     _game.scriptRunner().run(_info.onPlayerDeath, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+}
+
+void Module::receivePlayerLevelUpEvent(const SavedObjectReference &caller) {
+    auto levelling = caller.boundObject();
+    _pcLevellingUp = levelling ? levelling->id() : script::kObjectInvalid;
+    _game.scriptRunner().run(_info.onPlayerLevelUp, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
 // The usable items of the party's shared inventory, which the player carries

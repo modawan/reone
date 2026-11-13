@@ -632,12 +632,31 @@ public:
      * once round the party, until that member leads.
      */
     void finishPostDialogCharacterSwitch();
-    void openLevelUp();
+    /**
+     * Open the controlled creature's level-up. A forced level-up, opened by a
+     * script, pauses play and cannot be cancelled. False, opening nothing,
+     * when there is no controlled creature with a level to gain, a level-up
+     * is already open or the screen cannot be loaded.
+     */
+    bool openLevelUp(bool forced = false);
+    /**
+     * Leave a finished or cancelled level-up: back to play, or after a forced
+     * level-up, which lifts the pause it put on, to the screen it was opened
+     * over, or to play when that was a conversation that has ended meanwhile.
+     */
+    void closeLevelUp(bool forced);
     /**
      * A party member has enough experience to level up; newly when this
      * award brought it there. The level-up chime is the main interface's.
      */
     void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
+    /** After a level-up, the controlled creature is told when it can level up again. */
+    void notifyLevelUpStillAvailable(const Creature &creature);
+    /**
+     * A player character has levelled up: the module hears of it through its
+     * event queue, as with any other module event.
+     */
+    void signalPlayerLevelUp(const Creature &creature);
     void openContainer(const std::shared_ptr<Object> &container);
     void closeContainer(const Object &container);
     /**
@@ -1887,6 +1906,10 @@ private:
     // END Tables
 
     Screen _screen {Screen::None};
+    /** The screen a forced level-up was opened over, which it returns to. */
+    Screen _levelUpReturnScreen {Screen::InGame};
+    /** Whether a forced level-up paused play, which it unpauses when done. */
+    bool _levelUpPaused {false};
     std::map<int, float> _baseItemCostMultipliers;
     bool _soloModeQueryOpen {false};
     bool _freeLook {false};
@@ -2391,6 +2414,10 @@ private:
 
     /** TSL: runs the level-up dialog script the first time only. */
     void runLevelUpDialogOnce();
+    /** Opens the controlled creature's level-up screen, whether or not a level is waiting (see openLevelUp). */
+    bool openLevelUpScreen(bool forced);
+    /** Return to \p underneath; a conversation that ended under the closing screen, or went with the session, is gone. */
+    void returnToScreen(Screen underneath);
 
     void advanceWorldTime(double dt);
     /** Sets \p event due at the world time \p milliseconds, as a day and a time of day. */
