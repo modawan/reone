@@ -3973,15 +3973,19 @@ void Creature::restoreSerializedVitality() {
         Object::setCurrentHitPoints(
             rebuildSavedPool(savedHitPoints, _hitPoints, _vitalityConstitutionModifier, level) +
             beyondAbilityTerms(maxHitPoints(), _hitPoints, _vitalityConstitutionModifier));
+        // A creature without a Force pool has no maximum to count from, and
+        // takes back no ability term either: its record holds its points as
+        // they are, so adding the term would grow them on every load. The
+        // game's own saves show that growth (a level 1 droid at 9, a medic
+        // droid at 240); it is left out here.
+        const int maximumForce = maxForcePoints();
         int forceModifier = 0;
-        if (level > 0) {
+        if (level > 0 && maximumForce > 0) {
             forceModifier = getEffectiveAbilityModifier(Ability::Wisdom);
             if (!_game.isTSL()) {
                 forceModifier += getEffectiveAbilityModifier(Ability::Charisma);
             }
         }
-        // A creature without a Force pool has no maximum to count from.
-        const int maximumForce = maxForcePoints();
         _currentForce = rebuildSavedPool(savedForce, _forcePoints, forceModifier, level) +
                         (maximumForce > 0 ? beyondAbilityTerms(maximumForce, _forcePoints, forceModifier) : 0);
     }
