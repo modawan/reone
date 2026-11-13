@@ -21,22 +21,7 @@ stdenv.mkDerivation {
   pname = "reone";
   inherit version;
 
-  # Only what CMake reads. Keeps nix/, flake files and docs edits from
-  # invalidating the build.
-  src = lib.fileset.toSource {
-    root = ../.;
-    fileset = lib.fileset.unions [
-      ../CMakeLists.txt
-      ../cmake
-      ../extern
-      ../glsl
-      ../include
-      ../src
-      ../test
-      ../assets
-      ../.clang-format
-    ];
-  };
+  src = import ./source.nix { inherit lib; };
 
   nativeBuildInputs = [
     cmake

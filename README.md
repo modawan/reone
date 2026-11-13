@@ -52,6 +52,24 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+#### macOS binaries from Linux
+
+The same Linux machine can build the engine, the command-line tools and the tests binary for Apple silicon Macs, without a Mac: zig's bundled clang and its Mach-O linker produce the code, the macOS SDK (the copy nixpkgs downloads for its own Darwin builds, served by cache.nixos.org) provides the framework headers and link stubs, and every library the engine links is cross-built statically with the same toolchain, FFmpeg cut down to the game's Bink movies. The launcher and toolkit (wxWidgets) are not part of it.
+
+```sh
+nix build .#reone-aarch64-darwin           # result/bin: engine, tests, dataminer, gff2json, unerf, ncsrun, shaderpack.erf
+nix develop .#aarch64-darwin               # the cross toolchain and libraries; it prints the cmake and ninja lines
+cmake -B build/darwin -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_LAUNCHER=OFF -DBUILD_TOOLKIT=OFF
+ninja -C build/darwin engine               # named targets only; the default target would run the Mach-O shaderpack tool
+nix build .#reone-shaderpack -o result-shaderpack && cp result-shaderpack/share/reone/shaderpack.erf build/darwin/bin/
+```
+
+The "Build for macOS on Linux" workflow does the first line on an ordinary Linux runner for every pull request and keeps `result/bin` as the `reone-macos-arm64` artifact of the run. With the repository variable `CACHIX_NAME` and the secret `CACHIX_AUTH_TOKEN` set, it keeps the toolchain, the SDK and the cross-built libraries in that [Cachix](https://www.cachix.org) cache between runs.
+
+Copy `engine` and `shaderpack.erf` into one folder on the Mac and run `./engine --game /path/to/swkotor` there; nothing built this way can run on the Linux machine, the tests included. The binaries carry the ad-hoc signature zig's linker writes, which is what Apple silicon requires for a local run; they are not notarized, so a copy that arrives through a browser or AirDrop is quarantined and Gatekeeper blocks it until `xattr -d com.apple.quarantine engine` (scp does not set the attribute).
+
+The SDK's licence: Apple's Xcode and Apple SDKs Agreement grants its installation on Apple-branded computers only (section 2.2.A) and forbids using it on any other computer, or enabling others to (sections 2.5 and 2.7). Every build with it on Linux is outside that licence, the workflow's included; osxcross works the same way and says so in its README, while nixpkgs uses the SDK on Darwin only. Removing `.github/workflows/build-macos-cross.yml` is all it takes to stop doing it in CI; `nix flake check` does not build this package.
+
 ## Usage
 
 Use launcher application to choose a game directory and launch reone. Alternatively, reone can be started from the command line: `engine --game GAME_DIR` (`engine.exe` on Windows).

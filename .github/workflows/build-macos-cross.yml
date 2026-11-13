@@ -1,0 +1,43 @@
+name: Build for macOS on Linux
+# arm64 macOS binaries cross-built on a Linux runner through the Nix flake
+# (nix/darwin-cross): a compile-and-link check for macOS on every pull
+# request, in a fraction of the macOS runners' build time and queue, plus an
+# engine a Mac user can download from the run. It cannot run the tests:
+# nothing it builds runs on Linux. The macOS workflow stays the only test run
+# on a Mac.
+#
+# Cachix: set the repository variable CACHIX_NAME and the secret
+# CACHIX_AUTH_TOKEN to keep the toolchain, the SDK and the cross-built
+# libraries between runs. Without them every run builds those from scratch
+# (a few minutes); pull requests from forks pull from the cache and never
+# push to it.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # Only pushes to master share a group; other runs remain independent.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.ref || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v17
+        if: ${{ vars.CACHIX_NAME != '' }}
+        with:
+          name: ${{ vars.CACHIX_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+      - name: Build the engine, tools and tests binary for arm64 macOS
+        run: nix build -L .#reone-aarch64-darwin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reone-macos-arm64
+          path: result/bin/
