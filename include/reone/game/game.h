@@ -755,6 +755,11 @@ public:
      */
     void setLoadMusicForModule(const std::string &moduleName);
     /**
+     * The music the loading-screen table gives the module named
+     * \p moduleName, leaving the music of the next loading screens as it is.
+     */
+    std::string loadMusicForModule(const std::string &moduleName);
+    /**
      * A script's music volume, from 0 to 1, in place of the music volume the
      * options keep, until that is next set.
      */
@@ -942,6 +947,12 @@ public:
         std::shared_ptr<resource::Gff> are;
         std::shared_ptr<resource::Gff> git;
         ModuleLoadContext context {ModuleLoadContext::FreshModule};
+        /**
+         * The party starts at the entry waypoint even though the world is
+         * restored: an autosave taken on the way into a module the game had
+         * already saved.
+         */
+        bool placesPartyAtEntry {false};
     };
 
     /**
@@ -1701,10 +1712,16 @@ public:
         uint32_t id,
         const SerializedIdentityContext &identityContext) const;
     std::shared_ptr<Object> getObjectBySavedId(uint32_t id) const;
+    /**
+     * Registers the saved identity id for object. assignIdentity false claims
+     * the mapping without renaming the object, for a representation that is
+     * owned by a record in another identity domain.
+     */
     void registerSavedObjectIdentity(
         uint32_t id,
         const std::shared_ptr<Object> &object,
-        const SerializedIdentityContext &identityContext);
+        const SerializedIdentityContext &identityContext,
+        bool assignIdentity = true);
 
     const SaveResourceShadows &saveResourceShadows() const {
         return _saveResourceShadows;
@@ -1827,6 +1844,13 @@ public:
     void deserializeParty(
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,
+        const SerializedIdentityContext &moduleIdentityContext);
+    /**
+     * Lets the party's current representations claim the saved identities a
+     * restored module graph gave the party identities they stand for.
+     */
+    void registerSavedPartyIdentities(
+        const resource::Gff &ifoGff,
         const SerializedIdentityContext &moduleIdentityContext);
     void publishPartyRuntimeState(
         resource::Gff &ifoGff,
@@ -2310,6 +2334,8 @@ private:
     double _timeStopFraction {0.0};
     std::optional<uint64_t> _worldClockSample;
     double _playedTimeFraction {0.0};
+    /** Played time since the last save, load or new game, which decides when an autosave is due. */
+    double _secondsSinceSave {0.0};
 
     std::optional<SaveRequest> _pendingSave;
     std::optional<SaveResult> _lastSaveResult;
@@ -2484,11 +2510,37 @@ private:
     void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
     void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
+    /** The modules whose saved state entering \p destination discards. */
+    std::set<std::string> modulesDiscardedOnEntering(const std::string &destination);
+    /**
+     * The working state as the current module is left for \p destination: the
+     * module stored when saves include it, the bound roster records
+     * refreshed, and the destination's delete group discarded.
+     */
     std::shared_ptr<const resource::SaveWorkingState>
-    prepareCurrentModuleWorkingState();
+    prepareCurrentModuleWorkingState(const std::string &destination);
+    /** Whether entering \p module writes the autosave first. */
+    bool autosavesOnEntering(const std::string &module);
+    /**
+     * Writes the autosave taken on the way into a module, from the working
+     * state the game is leaving and before the destination exists.
+     */
+    void writeEntryAutosave(
+        const PreparedDestinationModule &destination,
+        const std::string &entry,
+        std::shared_ptr<const resource::SaveWorkingState> workingState);
     void processPendingSave();
     void finalizeSaveRequest(const SaveRequest &request, SaveResult result);
     SaveResult executeSave(SaveRequest request);
+    /**
+     * Serializes and publishes a save over \p workingState. A template-world
+     * save stores no state for the module it names.
+     */
+    SaveResult publishSave(
+        const SaveRequest &request,
+        std::shared_ptr<const resource::SaveWorkingState> workingState,
+        std::optional<TemplateWorldSave> templateWorld,
+        bool adoptPublished);
     SaveMetadataInput buildSaveMetadata(const SaveRequest &request) const;
     resource::SaveSlotDescriptor saveTarget(const SaveRequest &request) const;
     std::map<std::string, ByteBuffer> currentLooseSavePassthrough() const;

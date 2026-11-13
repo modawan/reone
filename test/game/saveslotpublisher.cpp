@@ -482,11 +482,67 @@ TEST(SaveSlotPublisher, rejects_missing_required_outer_resource_and_bad_module) 
 
     auto badTarget = descriptor(prepared.rootDirectory.path / "bad-module");
     auto bad = prepared.input(badTarget);
-    bad.currentModule.archiveBytes = {'n', 'o', 't', 'm', 'o', 'd'};
+    bad.currentModule->archiveBytes = {'n', 'o', 't', 'm', 'o', 'd'};
     auto badResult = SaveSlotPublisher().publish(std::move(bad));
     EXPECT_FALSE(badResult);
     EXPECT_EQ(badResult.error, SaveSlotPublishError::InvalidInput);
     EXPECT_FALSE(std::filesystem::exists(badTarget.directory));
+}
+
+TEST(SaveSlotPublisher, template_world_save_lists_its_player_in_the_player_info) {
+    PreparedSave prepared;
+    auto playerInfo = [](bool primary) {
+        auto player = Gff::Builder().type(0xbead)
+                          .field(Gff::Field::newCExoString("Tag", "player"))
+                          .field(Gff::Field::newByte("Mod_IsPrimaryPlr", primary))
+                          .build();
+        return encode("IFO ", *root({Gff::Field::newList("Mod_PlayerList", {player})}));
+    };
+    // An autosave taken on the way into a module has no state for it: the
+    // player comes from the player info instead.
+    auto templateWorld = [&](const std::string &name, std::optional<ByteBuffer> info) {
+        auto input = prepared.input(descriptor(prepared.rootDirectory.path / name));
+        input.currentModule.reset();
+        auto params = Gff::Builder()
+                          .field(Gff::Field::newCExoString("STARTWAYPOINT", "*"))
+                          .build();
+        auto nfo = structured("NFO ", {
+            Gff::Field::newCExoString("LASTMODULE", "module_b"),
+            Gff::Field::newCExoString("AREANAME", "Human-readable area"),
+            Gff::Field::newStruct("AUTOSAVEPARAMS", params)});
+        input.saveWide.looseSlotResources[ResourceId("savenfo", ResType::Res)] = nfo;
+        input.saveWide.semanticResources[ResourceId("savenfo", ResType::Res)] = decode(nfo);
+        if (info) {
+            input.saveWide.looseSlotResources.emplace(
+                ResourceId("pifo", ResType::Ifo), *info);
+            input.saveWide.semanticResources.emplace(
+                ResourceId("pifo", ResType::Ifo), decode(*info));
+        }
+        return input;
+    };
+
+    auto saved = templateWorld("template", playerInfo(true));
+    auto target = saved.target;
+    auto result = SaveSlotPublisher().publish(std::move(saved));
+
+    ASSERT_TRUE(result) << result.message;
+    ASSERT_TRUE(std::filesystem::exists(target.directory / "pifo.ifo"));
+    auto written = decode(readBytes(target.directory / "pifo.ifo"));
+    ASSERT_EQ(1u, written->getList("Mod_PlayerList").size());
+    EXPECT_EQ("player", written->getList("Mod_PlayerList").front()->getString("Tag"));
+
+    // Without the player info, or with a player that is not the primary one,
+    // nothing is written.
+    for (auto [name, info] : {std::pair {"no-info", std::optional<ByteBuffer>()},
+                              std::pair {"not-primary", std::optional(playerInfo(false))}}) {
+        SCOPED_TRACE(name);
+        auto rejected = templateWorld(name, info);
+        auto rejectedTarget = rejected.target;
+        auto rejectedResult = SaveSlotPublisher().publish(std::move(rejected));
+        EXPECT_FALSE(rejectedResult);
+        EXPECT_EQ(rejectedResult.error, SaveSlotPublishError::InvalidInput);
+        EXPECT_FALSE(std::filesystem::exists(rejectedTarget.directory));
+    }
 }
 
 TEST(SaveSlotPublisher, postbackup_failure_rolls_back_old_target) {

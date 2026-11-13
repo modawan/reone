@@ -2018,7 +2018,7 @@ bool Game::loadPreparedModule(
             return false;
         }
         clearDepartingActions();
-        sourceWorkingState = prepareCurrentModuleWorkingState();
+        sourceWorkingState = prepareCurrentModuleWorkingState(name);
         if (!sourceWorkingState) {
             return false;
         }
@@ -2034,9 +2034,12 @@ bool Game::loadPreparedModule(
         }
 
         // Re-entering the same module must inspect the snapshot just captured,
-        // not the previously committed visit. Other destinations are
-        // unaffected because the candidate changed only the source archive.
-        if (boost::iequals(_module->name(), name)) {
+        // not the previously committed visit, and a module that discards its
+        // own saved state on entry is built afresh. Other destinations are
+        // unaffected because the candidate changed only the source archive
+        // and the discarded group.
+        if (boost::iequals(_module->name(), name) ||
+            modulesDiscardedOnEntering(name).count(boost::to_lower_copy(name)) > 0) {
             try {
                 prepared = prepareDestinationModule(
                     name, initialSaveRestore, sourceWorkingState);
@@ -2045,6 +2048,13 @@ bool Game::loadPreparedModule(
                       "': " + e.what());
                 return false;
             }
+        }
+
+        // Entering a module can write the autosave first, from the state the
+        // game is leaving and before the destination exists, so loading it
+        // enters the module again.
+        if (autosavesOnEntering(name)) {
+            writeEntryAutosave(prepared, entry, sourceWorkingState);
         }
     }
 
@@ -2163,6 +2173,16 @@ bool Game::loadPreparedModule(
                 // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
                 // remains explicit and graph-local; only publication moves ahead
                 // of the entry hooks.
+                //
+                // A restored world names the party's representations by party
+                // identity. The roster is bound on every path by now - rebuilt
+                // from the save on a disk load, carried over on a revisit - so
+                // each one claims its identity before saved values bind
+                // through it.
+                if (restoringSavedWorld) {
+                    registerSavedPartyIdentities(
+                        *ifo, SerializedIdentityContext::moduleGraph(name));
+                }
                 bindSavedRuntimeState();
 
                 restorePartyTransitionState(partyTransitionState);
@@ -2191,7 +2211,9 @@ bool Game::loadPreparedModule(
                 if (_party.player() && _party.getLeader() != _party.player()) {
                     _party.passItemsToLeader();
                 }
-                destination->loadParty(entry, preservesSavedPlacement(context));
+                destination->loadParty(
+                    entry,
+                    preservesSavedPlacement(context) && !prepared.placesPartyAtEntry);
                 if (!stillCurrent()) {
                     return;
                 }
@@ -2490,6 +2512,8 @@ void Game::resetGame() {
     _floatingText.reset();
     _cheatUsed = false;
     _playedTimeFraction = 0.0;
+    // A new game and a load each start the autosave interval afresh.
+    _secondsSinceSave = 0.0;
     _services.resource.director.onNewGame();
 }
 
@@ -2529,20 +2553,28 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
         prepared.nfo.lastModule,
         /*initialSaveRestore=*/true,
         prepared.session->workingState());
-    if (prepared.destination.context ==
-        ModuleLoadContext::InitialTemplateRestore) {
+    // A save with no state for its module, and an autosave taken on the way
+    // into a module, rebuild the player from the save's own player list and
+    // start the party where the save's parameters say. An autosave into a
+    // module the game had already saved restores that module's world.
+    auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
+    const bool templateWorld = prepared.destination.context ==
+                               ModuleLoadContext::InitialTemplateRestore;
+    if (templateWorld || params) {
         prepared.playerInfo = decodeSaveGff(
             prepared.session->findMetadata(ResourceId("pifo", ResType::Ifo)));
         if (!prepared.playerInfo ||
             prepared.playerInfo->getList("Mod_PlayerList").empty()) {
             throw ValidationException(
-                "Template-world save restore requires pifo.ifo player state");
+                templateWorld
+                    ? "Template-world save restore requires pifo.ifo player state"
+                    : "Autosave restore requires pifo.ifo player state");
         }
-        auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
         if (!params) {
             throw ValidationException(
                 "Template-world save restore requires AUTOSAVEPARAMS");
         }
+        prepared.destination.placesPartyAtEntry = !templateWorld;
         PreparedSaveLoad::AutosaveRestoreState autosave;
         autosave.startWaypoint = params->getString("STARTWAYPOINT");
         if (autosave.startWaypoint == "*") {
@@ -2645,7 +2677,17 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
             *prepared.destination.git,
             moduleIdentityContext,
             SerializedGraphRoot::AreaGit);
-        deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        if (prepared.autosave) {
+            restoreWorldTime(
+                *ifo, prepared.autosave->pauseDay, prepared.autosave->pauseTime);
+            deserializeParty(
+                *prepared.playerInfo,
+                prepared.partyTable,
+                SerializedIdentityContext::detachedRecord("pifo.ifo"));
+            entry = prepared.autosave->startWaypoint;
+        } else {
+            deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        }
     } else {
         if (!prepared.autosave || !prepared.playerInfo) {
             throw ValidationException(
@@ -2879,6 +2921,46 @@ void Game::publishPartyRuntimeState(
         deserializeJournal(*ptGff);
     } else {
         _party.addMember(kNpcPlayer, actualPlayer);
+    }
+}
+
+void Game::registerSavedPartyIdentities(
+    const resource::Gff &ifoGff,
+    const SerializedIdentityContext &moduleIdentityContext) {
+    auto claim = [&](const resource::Gff &record) {
+        uint32_t kind = 0;
+        if (!record.readDword(kind, "PartyIdKind")) {
+            return;
+        }
+        const int slot = record.getInt("PartyIdSlot");
+        std::shared_ptr<Creature> creature;
+        switch (kind) {
+        case kSavedPartyIdentityCanonicalPlayer:
+            creature = _party.actualPlayer();
+            break;
+        case kSavedPartyIdentityPuppet:
+            creature = _party.rosterCreature({RosterKind::Puppet, slot});
+            break;
+        case kSavedPartyIdentityNpc:
+            creature = _party.rosterCreature({RosterKind::Npc, slot});
+            break;
+        default:
+            break;
+        }
+        // A slot the party no longer holds leaves its identity unclaimed, and
+        // a saved value that names it reads as the invalid object.
+        if (!creature) {
+            return;
+        }
+        registerSavedObjectIdentity(
+            record.getUint("ObjectId"), creature, moduleIdentityContext,
+            /*assignIdentity=*/false);
+    };
+    for (const auto &player : ifoGff.getList("Mod_PlayerList")) {
+        claim(*player);
+    }
+    for (const auto &record : ifoGff.getList("Mod_PartyObjIds")) {
+        claim(*record);
     }
 }
 
@@ -3368,10 +3450,14 @@ void Game::playMusic(const std::string &resRef) {
 // A new game, TSL's character generation and the module picker set the
 // loading-screen music from the module's row of the loading-screen table.
 void Game::setLoadMusicForModule(const std::string &moduleName) {
+    _loadMusicResRef = loadMusicForModule(moduleName);
+}
+
+std::string Game::loadMusicForModule(const std::string &moduleName) {
     if (!_loadScreen) {
         _loadScreen = tryLoadGUI<LoadingScreen>();
     }
-    _loadMusicResRef = _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
+    return _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
 }
 
 // Every loading screen shown with music starts it: the menu music stops;
@@ -4217,7 +4303,8 @@ void Game::registerObject(
 void Game::registerSavedObjectIdentity(
     uint32_t id,
     const std::shared_ptr<Object> &object,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool assignIdentity) {
     if (!identityContext.hasAuthoritativeObjectIds()) {
         throw ValidationException(
             "Cannot register a non-authoritative saved object identity");
@@ -4263,7 +4350,12 @@ void Game::registerSavedObjectIdentity(
                             ? _stagedRuntimeObjectGraph->savedIdByObject[object.get()]
                             : _savedIdByObject[object.get()];
     canonicalId = id;
-    object->assignSerializedObjectIdentity({identityContext, id});
+    // A roster-bound representation is owned by its own detached record and
+    // keeps that record's identity: the module graph only needs to be able to
+    // reach it by the identity it gave it, not to rename it.
+    if (assignIdentity) {
+        object->assignSerializedObjectIdentity({identityContext, id});
+    }
 }
 
 void Game::registerSavedModuleReferenceTarget(
@@ -4596,6 +4688,7 @@ void Game::publishSavedRuntimeState() {
         if (!actor) {
             continue;
         }
+        actor->resumeSavedScriptLoop();
         for (const auto &action : actor->actions()) {
             const auto &saved = action->originalSavedAction();
             if (saved && saved->round) {

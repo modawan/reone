@@ -331,6 +331,9 @@ public:
     static size_t objectRegistrySize(const Game &game);
     static size_t loadedModuleCount(const Game &game);
     static uint32_t nextObjectId(const Game &game);
+    // The autosave timer is private and only advances in a running module.
+    static void advancePlayedTime(Game &game, float dt);
+    static bool autosavesOnEntering(Game &game, const std::string &module);
     static std::shared_ptr<Item> newItemAtRuntimeId(Game &game, uint32_t id);
     static uint64_t runtimeSessionGeneration(const Game &game);
     static uint64_t savedGraphGeneration(const Game &game);
@@ -436,6 +439,12 @@ public:
     // Stand in for a save record that reports the creature as already spawned.
     static void markSpawnScriptFired(Creature &creature);
     static void setSnapshotDoorState(Door &door, DoorState state);
+    // A one-shot the door is playing holds back any swing it is given.
+    static void setSnapshotDoorOneShot(Door &door, std::string clip);
+    static void registerSavedPartyIdentities(
+        Game &game, const resource::Gff &ifo,
+        const SerializedIdentityContext &identityContext);
+    static std::optional<int> savedScriptLoop(const Creature &creature);
     static void setDoorClosedWalkmesh(Door &door, std::shared_ptr<scene::WalkmeshSceneNode> walkmesh);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
@@ -447,7 +456,7 @@ public:
         Game &game, SaveOrchestrationSeams seams);
     static void processPendingSave(Game &game);
     static std::shared_ptr<const resource::SaveWorkingState>
-    prepareCurrentModuleWorkingState(Game &game);
+    prepareCurrentModuleWorkingState(Game &game, const std::string &destination = {});
     static void setSnapshotModuleName(Game &game, std::string name);
     static void setSoundPitchVariation(Sound &sound, float pitchVariation);
     static bool hasPendingSave(const Game &game);

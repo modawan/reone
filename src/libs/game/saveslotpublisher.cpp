@@ -57,6 +57,7 @@ constexpr const char *kArchiveName = "SAVEGAME.sav";
 constexpr const char *kGlobalsName = "GLOBALVARS.res";
 constexpr const char *kPartyName = "PARTYTABLE.res";
 constexpr const char *kNfoName = "savenfo.res";
+constexpr const char *kPlayerInfoName = "pifo.ifo";
 constexpr const char *kScreenshotName = "Screen.tga";
 constexpr const char *kMarkerMagic = "SAVE_TRANSACTION";
 
@@ -77,7 +78,7 @@ struct TransactionMarker {
 struct ExpectedSlot {
     std::map<std::string, ByteBuffer> files;
     std::set<ResourceId> outerIds;
-    ResourceId activeModule;
+    std::optional<ResourceId> activeModule;
     std::string moduleName;
     std::string areaName;
     resource::GameID gameId {resource::GameID::KotOR};
@@ -366,14 +367,18 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
     if (!input.committedWorkingState) {
         throw std::invalid_argument("A committed save working state is required");
     }
-    if (input.currentModule.target.type != ResType::Sav ||
-        input.currentModule.archiveBytes.empty() || !input.currentModule.ifo ||
-        !input.currentModule.are || !input.currentModule.git) {
+    if (input.saveWide.moduleName.empty() || input.saveWide.areaName.empty()) {
+        throw std::invalid_argument("Save-wide active module is not named");
+    }
+    const auto &current = input.currentModule;
+    if (current &&
+        (current->target.type != ResType::Sav ||
+         current->archiveBytes.empty() || !current->ifo ||
+         !current->are || !current->git)) {
         throw std::invalid_argument("Current module snapshot is incomplete");
     }
-    if (input.saveWide.moduleName.empty() || input.saveWide.areaName.empty() ||
-        input.currentModule.target.resRef.value() !=
-            lower(input.saveWide.moduleName)) {
+    if (current &&
+        current->target.resRef.value() != lower(input.saveWide.moduleName)) {
         throw std::invalid_argument(
             "Save-wide active module does not match the current module artifact");
     }
@@ -382,30 +387,32 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
         throw std::invalid_argument(
             "Save-wide snapshot lacks inventory.res or repute.fac");
     }
-    validateNestedModule(input.currentModule.archiveBytes);
-    ErfResourceContainer currentArchive {
-        Storage(ByteBuffer(input.currentModule.archiveBytes))};
-    currentArchive.init();
-    auto archiveIfo = currentArchive.findResourceData({"module", ResType::Ifo});
-    auto archiveAre = currentArchive.findResourceData(
-        {input.saveWide.areaName, ResType::Are});
-    auto archiveGit = currentArchive.findResourceData(
-        {input.saveWide.areaName, ResType::Git});
-    if (!archiveIfo || !archiveAre || !archiveGit ||
-        *archiveIfo != input.currentModule.ifoBytes ||
-        *archiveAre != input.currentModule.areBytes ||
-        *archiveGit != input.currentModule.gitBytes ||
-        resource::GffWriter(
-            resource::GffFileFormat::v32("IFO "),
-            *input.currentModule.ifo).toBytes() != input.currentModule.ifoBytes ||
-        resource::GffWriter(
-            resource::GffFileFormat::v32("ARE "),
-            *input.currentModule.are).toBytes() != input.currentModule.areBytes ||
-        resource::GffWriter(
-            resource::GffFileFormat::v32("GIT "),
-            *input.currentModule.git).toBytes() != input.currentModule.gitBytes) {
-        throw std::invalid_argument(
-            "Current module semantic, encoded and nested archive forms disagree");
+    if (current) {
+        validateNestedModule(current->archiveBytes);
+        ErfResourceContainer currentArchive {
+            Storage(ByteBuffer(current->archiveBytes))};
+        currentArchive.init();
+        auto archiveIfo = currentArchive.findResourceData({"module", ResType::Ifo});
+        auto archiveAre = currentArchive.findResourceData(
+            {input.saveWide.areaName, ResType::Are});
+        auto archiveGit = currentArchive.findResourceData(
+            {input.saveWide.areaName, ResType::Git});
+        if (!archiveIfo || !archiveAre || !archiveGit ||
+            *archiveIfo != current->ifoBytes ||
+            *archiveAre != current->areBytes ||
+            *archiveGit != current->gitBytes ||
+            resource::GffWriter(
+                resource::GffFileFormat::v32("IFO "),
+                *current->ifo).toBytes() != current->ifoBytes ||
+            resource::GffWriter(
+                resource::GffFileFormat::v32("ARE "),
+                *current->are).toBytes() != current->areBytes ||
+            resource::GffWriter(
+                resource::GffFileFormat::v32("GIT "),
+                *current->git).toBytes() != current->gitBytes) {
+            throw std::invalid_argument(
+                "Current module semantic, encoded and nested archive forms disagree");
+        }
     }
     if (input.screenshot) {
         validateTga(*input.screenshot);
@@ -416,13 +423,18 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
         {kPartyName, {"partytable", ResType::Res}},
         {kNfoName, {"savenfo", ResType::Res}},
     };
-    for (const auto &[name, id] : loose) {
+    auto required = loose;
+    // A save without its module's state rebuilds the player from its own list.
+    if (!current) {
+        required.emplace(kPlayerInfoName, ResourceId("pifo", ResType::Ifo));
+    }
+    for (const auto &[name, id] : required) {
         auto found = input.saveWide.looseSlotResources.find(id);
         if (found == input.saveWide.looseSlotResources.end()) {
             throw std::invalid_argument("Save-wide snapshot lacks " + name);
         }
     }
-    if (input.saveWide.looseSlotResources.size() != loose.size()) {
+    if (input.saveWide.looseSlotResources.size() != required.size()) {
         throw std::invalid_argument(
             "Save-wide snapshot contains an unsupported loose managed resource");
     }
@@ -441,6 +453,10 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
             "Save metadata does not identify the active module");
     }
     (void)resource::parseNFO(*nfo);
+    if (!current && !nfo->findStruct("AUTOSAVEPARAMS")) {
+        throw std::invalid_argument(
+            "A save without its module's state lacks AUTOSAVEPARAMS");
+    }
 
     std::set<ResourceId> encodedIds;
     for (const auto &[id, bytes] : input.saveWide.looseSlotResources) {
@@ -473,6 +489,7 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
         if (id == ResourceId("globalvars", ResType::Res)) signature = "GVT ";
         else if (id == ResourceId("partytable", ResType::Res)) signature = "PT  ";
         else if (id == ResourceId("savenfo", ResType::Res)) signature = "NFO ";
+        else if (id == ResourceId("pifo", ResType::Ifo)) signature = "IFO ";
         else if (id == ResourceId("inventory", ResType::Res)) signature = "INV ";
         else if (id == ResourceId("repute", ResType::Fac)) signature = "FAC ";
         else if (id.type == ResType::Utc) signature = "UTC ";
@@ -517,13 +534,23 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
         pcExpected) {
         throw std::invalid_argument("PARTYTABLE and pc.utc topology disagree");
     }
-    auto players = input.currentModule.ifo->getList("Mod_PlayerList");
     // The single player is the primary one, whichever creature it controls.
-    if (players.size() != 1 ||
-        players.front()->getUint("ObjectId", UINT32_MAX) == UINT32_MAX ||
-        !players.front()->getBool("Mod_IsPrimaryPlr")) {
-        throw std::invalid_argument(
-            "The current module's player list is not a single primary player");
+    // A save of the template world lists it in the player info instead.
+    if (current) {
+        auto players = current->ifo->getList("Mod_PlayerList");
+        if (players.size() != 1 ||
+            players.front()->getUint("ObjectId", UINT32_MAX) == UINT32_MAX ||
+            !players.front()->getBool("Mod_IsPrimaryPlr")) {
+            throw std::invalid_argument(
+                "The current module's player list is not a single primary player");
+        }
+    } else {
+        auto playerInfo = readGff(
+            input.saveWide.looseSlotResources.at({"pifo", ResType::Ifo}), "IFO V3.2");
+        auto listedPlayers = playerInfo->getList("Mod_PlayerList");
+        if (listedPlayers.size() != 1 || !listedPlayers.front()->getBool("Mod_IsPrimaryPlr")) {
+            throw std::invalid_argument("The player info is not a single primary player");
+        }
     }
     if (input.saveWide.gameId == resource::GameID::TSL) {
         auto availablePuppets = party->getList("PT_AVAIL_PUPS");
@@ -573,13 +600,16 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
 ExpectedSlot compose(const SaveSlotPackageInput &input) {
     auto candidate = SaveWorkingStateCandidate::fromCommitted(
         input.committedWorkingState);
-    candidate.replaceModule(
-        input.currentModule.target,
-        input.currentModule.archiveBytes,
-        ResourceId(input.currentModule.target.resRef, ResType::Rsv));
+    const auto &current = input.currentModule;
+    if (current) {
+        candidate.replaceModule(
+            current->target,
+            current->archiveBytes,
+            ResourceId(current->target.resRef, ResType::Rsv));
+    }
     input.saveWide.applyTo(candidate);
 
-    auto validation = candidate.validate([&input](
+    auto validation = candidate.validate([&input, &current](
         const SaveWorkingStateCandidate &value,
         resource::SaveWorkingStateCandidateValidation &result) {
         if (!value.contains({"inventory", ResType::Res})) {
@@ -588,11 +618,10 @@ ExpectedSlot compose(const SaveSlotPackageInput &input) {
         if (!value.contains({"repute", ResType::Fac})) {
             result.addError("Missing repute.fac");
         }
-        if (!value.contains(input.currentModule.target)) {
+        if (current && !value.contains(current->target)) {
             result.addError("Missing active saved module");
         }
-        if (value.contains(
-                {input.currentModule.target.resRef, ResType::Rsv})) {
+        if (current && value.contains({current->target.resRef, ResType::Rsv})) {
             result.addError("Matching active module .rsv was not tombstoned");
         }
         for (const auto &id : {
@@ -633,6 +662,11 @@ ExpectedSlot compose(const SaveSlotPackageInput &input) {
     expected.files.emplace(
         kNfoName,
         input.saveWide.looseSlotResources.at({"savenfo", ResType::Res}));
+    if (!current) {
+        expected.files.emplace(
+            kPlayerInfoName,
+            input.saveWide.looseSlotResources.at({"pifo", ResType::Ifo}));
+    }
     if (input.screenshot) {
         expected.files.emplace(kScreenshotName, *input.screenshot);
     }
@@ -640,7 +674,9 @@ ExpectedSlot compose(const SaveSlotPackageInput &input) {
         input.loosePassthrough.begin(), input.loosePassthrough.end());
     auto finalIds = candidate.deterministicResourceIds();
     expected.outerIds = std::set<ResourceId>(finalIds.begin(), finalIds.end());
-    expected.activeModule = input.currentModule.target;
+    if (current) {
+        expected.activeModule = current->target;
+    }
     expected.moduleName = input.saveWide.moduleName;
     expected.areaName = input.saveWide.areaName;
     expected.gameId = input.saveWide.gameId;
@@ -690,7 +726,7 @@ ValidatedSlot validateSlot(
             nestedModules += validateNestedModule(state->find(id)->data);
         }
     }
-    if (nestedModules == 0) {
+    if (nestedModules == 0 && !nfo->findStruct("AUTOSAVEPARAMS")) {
         throw std::runtime_error("Published outer archive contains no saved module");
     }
 
@@ -708,15 +744,21 @@ ValidatedSlot validateSlot(
         if (actual != expected->outerIds) {
             throw std::runtime_error("Published outer archive identity set differs");
         }
-        if (!state->contains(expected->activeModule) ||
-            state->contains(
-                {expected->activeModule.resRef, ResType::Rsv})) {
-            throw std::runtime_error("Published active module topology is invalid");
-        }
         if (lower(nfo->getString("LASTMODULE")) != lower(expected->moduleName)) {
             throw std::runtime_error("Published metadata cross-link is invalid");
         }
-        auto active = state->find(expected->activeModule);
+        auto screenshot = std::filesystem::exists(directory / kScreenshotName);
+        if (screenshot != expected->screenshotPresent) {
+            throw std::runtime_error("Published screenshot presence is wrong");
+        }
+    }
+    if (expected && expected->activeModule) {
+        const auto &activeModule = *expected->activeModule;
+        if (!state->contains(activeModule) ||
+            state->contains({activeModule.resRef, ResType::Rsv})) {
+            throw std::runtime_error("Published active module topology is invalid");
+        }
+        auto active = state->find(activeModule);
         ErfResourceContainer module {Storage(ByteBuffer(active->data))};
         module.init();
         auto ifoBytes = module.findResourceData({"module", ResType::Ifo});
@@ -824,10 +866,6 @@ ValidatedSlot validateSlot(
             throw std::runtime_error(
                 "Published Mod_NextCharId0 does not descend below reserved party IDs");
         }
-        auto screenshot = std::filesystem::exists(directory / kScreenshotName);
-        if (screenshot != expected->screenshotPresent) {
-            throw std::runtime_error("Published screenshot presence is wrong");
-        }
     }
     return {std::move(state), nestedModules};
 }
@@ -840,7 +878,7 @@ SaveSlotManifest makeManifest(
     }
     manifest.outerResourceCount = expected.outerIds.size();
     manifest.nestedModuleCount = nestedModules;
-    manifest.activeModule = expected.activeModule;
+    manifest.activeModule = expected.activeModule.value_or(ResourceId());
     manifest.gameId = expected.gameId;
     manifest.screenshotPresent = expected.screenshotPresent;
     return manifest;
@@ -1245,10 +1283,12 @@ SaveSlotPublishResult SaveSlotPublisher::publish(
 
         // The returned state above was constructed from the durable target.
         // Representative reads ensure it is usable before old bytes disappear.
-        auto active = published.state->find(expected.activeModule);
+        // A save without its module's state has no active module to read.
+        const bool activeReadable =
+            !expected.activeModule || published.state->find(*expected.activeModule);
         auto inventory = published.state->find({"inventory", ResType::Res});
         auto repute = published.state->find({"repute", ResType::Fac});
-        if (!active || !inventory || !repute) {
+        if (!activeReadable || !inventory || !repute) {
             auto recovered = recoverInternal(input.target);
             (void)recovered;
             return failure(

@@ -539,6 +539,52 @@ uint32_t ModuleObjectIdContext::nextCharacterId(uint32_t retainedCursor) const {
     return std::min(retainedCursor, *_characterIds.begin() - 1);
 }
 
+std::vector<std::shared_ptr<Creature>>
+ModuleSnapshotBuilder::rosterRepresentations(const Module &module) const {
+    std::vector<std::shared_ptr<Creature>> result;
+    auto modulePlayer = _game._party.player();
+    for (const auto &object : _game._party.runtimeObjects()) {
+        auto creature = std::dynamic_pointer_cast<Creature>(object);
+        if (!creature || creature == modulePlayer) {
+            continue;
+        }
+        // A creature already written as a record owns its own identity there.
+        const auto limbo = std::find(
+            module._limboCreatures.begin(), module._limboCreatures.end(), creature);
+        if (limbo != module._limboCreatures.end()) {
+            continue;
+        }
+        // A representation the Area still writes as a record - an inactive
+        // bound puppet, for one - owns its identity there. Only the ones the
+        // record lists leave out need the graph to name them.
+        if (!_game._party.isRetainedRuntimeRepresentation(*creature)) {
+            continue;
+        }
+        const bool roster = _game._party.rosterIdentity(*creature).has_value();
+        const bool canonicalPlayer = creature == _game._party.actualPlayer();
+        if (!roster && !canonicalPlayer) {
+            continue;
+        }
+        result.push_back(std::move(creature));
+    }
+    return result;
+}
+
+void ModuleSnapshotBuilder::putPartyIdentity(
+    Gff &record, const Creature &creature) const {
+    auto identity = _game._party.rosterIdentity(creature);
+    if (!identity && &creature != _game._party.actualPlayer().get()) {
+        return;
+    }
+    const uint32_t kind =
+        !identity ? kSavedPartyIdentityCanonicalPlayer
+                  : identity->kind == RosterKind::Puppet
+                        ? kSavedPartyIdentityPuppet
+                        : kSavedPartyIdentityNpc;
+    put(record, Gff::Field::newDword("PartyIdKind", kind));
+    put(record, Gff::Field::newInt("PartyIdSlot", identity ? identity->slot : -1));
+}
+
 ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     const Module &module, const Area &area) const {
     ModuleObjectIdContext ids(
@@ -603,6 +649,18 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
         if (!creature) continue;
         addObject(*creature, true);
         addCreatureItems(*creature, true);
+    }
+    // A roster-bound companion or puppet, and the canonical player while a
+    // companion is controlled, keep their runtime representation across the
+    // save without being Area or limbo records: the roster record holds them.
+    // They still need an identity in this graph. Without one, every saved
+    // value that names them - a VM object on a delayed command's stack, an
+    // action parameter, an Effect creator, a timed event's target - has
+    // nothing to point at and is written as the invalid object. The identity
+    // is written beside the roster slot it belongs to, so the slot claims the
+    // same identity when its representation is rebuilt.
+    for (const auto &object : rosterRepresentations(module)) {
+        addObject(*object, true);
     }
     // Reserve every identity already authoritative in this exact destination
     // graph before importing anything. Detached/local numbers never enter the
@@ -1315,10 +1373,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
             return kDeadAnimation;
         }
     };
+    const auto heldLoop = creature.heldScriptLoop();
     put(record, Gff::Field::newInt("Animation",
                                    creature.liesDead()            ? deadAnimation()
                                    : creature._damageFlinchHeld   ? kDamageFlinchAnimation
                                    : creature._combatState.active ? kReadyAnimation
+                                   : heldLoop                     ? *heldLoop
                                                                   : kPauseAnimation));
     put(record, Gff::Field::newByte(
                     "CreatnScrptFird", creature._spawnScriptFired));
@@ -1517,7 +1577,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     put(*result, Gff::Field::newDword("Appearance", door._appearance));
     put(*result, Gff::Field::newByte("GenericType", door._genericType));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(door._faction)));
-    put(*result, Gff::Field::newByte("OpenState", static_cast<uint8_t>(door._state)));
+    // A door standing in a resting state saves that state. One still swinging
+    // saves the state it is swinging to: the record has one OpenState field
+    // and no slot for a transition, the OnOpen/OnClosed script for the swing
+    // has already run and must not run again, so the door comes back at the
+    // pose the finished swing leaves it in.
+    put(*result, Gff::Field::newByte(
+                     "OpenState", static_cast<uint8_t>(door.actionState())));
     put(*result, Gff::Field::newByte("Locked", door.lock().isLocked()));
     put(*result, Gff::Field::newByte("Lockable", door.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
@@ -2072,11 +2138,28 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     }
     put(*result, Gff::Field::newList("ProjectileState", std::move(projectiles)));
 
+    // The identities of the roster-bound representations this graph names,
+    // each beside the party identity it stands for. A reader that does not
+    // know the list does not resolve references to a companion.
+    std::vector<std::shared_ptr<Gff>> rosterIds;
+    for (const auto &creature : rosterRepresentations(module)) {
+        auto entry = Gff::Builder()
+                         .type(kSavedPartyIdentityStructType)
+                         .field(Gff::Field::newDword("ObjectId", ids.objectId(*creature)))
+                         .build();
+        putPartyIdentity(*entry, *creature);
+        rosterIds.push_back(std::move(entry));
+    }
+    put(*result, Gff::Field::newList("Mod_PartyObjIds", std::move(rosterIds)));
+
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
     auto player = writeCreature(
         *modulePlayer, kPlayerEntryStructType, ids.objectId(*modulePlayer), ids, false);
     writePlayerEntry(*player, *modulePlayer);
+    // The controlled creature is named the same way, so a later visit, whose
+    // party may be controlled by someone else, finds who this record was.
+    putPartyIdentity(*player, *modulePlayer);
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
 
     std::vector<std::shared_ptr<Gff>> limbo;

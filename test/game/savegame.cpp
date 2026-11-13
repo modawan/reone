@@ -93,8 +93,9 @@ void reone::game::TestGameModule::processPendingSave(Game &game) {
 }
 
 std::shared_ptr<const SaveWorkingState>
-reone::game::TestGameModule::prepareCurrentModuleWorkingState(Game &game) {
-    return game.prepareCurrentModuleWorkingState();
+reone::game::TestGameModule::prepareCurrentModuleWorkingState(
+    Game &game, const std::string &destination) {
+    return game.prepareCurrentModuleWorkingState(destination);
 }
 
 void reone::game::TestGameModule::setSnapshotModuleName(
@@ -671,6 +672,54 @@ TEST_F(SaveFixture, transition_working_state_is_normalized_across_a_b_a_without_
     EXPECT_FALSE(committed->contains({"module_a", ResType::Rsv}));
     EXPECT_FALSE(committed->contains({"module_b", ResType::Rsv}));
     EXPECT_EQ(2, committed->resourceIds().size());
+}
+
+TEST_F(SaveFixture, module_save_table_decides_what_a_transition_stores_and_discards) {
+    auto &director = engine.resourceModule().director();
+    resource::ModuleSaveRules excluded;
+    excluded.includeInSave = false;
+    resource::ModuleSaveRules discardsGroup;
+    discardsGroup.deleteSaveGroupOnEnter = 4;
+    EXPECT_CALL(director, moduleSaveRules(_))
+        .WillRepeatedly(Return(resource::ModuleSaveRules {}));
+    EXPECT_CALL(director, moduleSaveRules("module_x"))
+        .WillRepeatedly(Return(excluded));
+    EXPECT_CALL(director, moduleSaveRules("module_d"))
+        .WillRepeatedly(Return(discardsGroup));
+    EXPECT_CALL(director, saveGroupModules(4))
+        .WillRepeatedly(Return(std::vector<std::string> {"module_b", "module_c"}));
+    auto leave = [&](const std::string &module, const std::string &destination) {
+        TestGameModule::setSnapshotModuleName(*game, module);
+        committed = TestGameModule::prepareCurrentModuleWorkingState(*game, destination);
+        ASSERT_TRUE(committed);
+        director.adoptSaveWorkingState(committed);
+    };
+
+    // Each module is stored as it is left.
+    leave("module_b", "module_a");
+    leave("module_c", "module_a");
+    EXPECT_TRUE(committed->contains({"module_b", ResType::Sav}));
+    EXPECT_TRUE(committed->contains({"module_c", ResType::Sav}));
+
+    // A module left out of saved games is not, so it is built afresh next time.
+    leave("module_x", "module_a");
+    EXPECT_FALSE(committed->contains({"module_x", ResType::Sav}));
+    EXPECT_TRUE(committed->contains({"module_b", ResType::Sav}));
+
+    // Entering a module that discards a save group drops every module in the
+    // group, and the module being left is stored as usual.
+    leave("module_a", "module_d");
+    EXPECT_TRUE(committed->contains({"module_a", ResType::Sav}));
+    EXPECT_FALSE(committed->contains({"module_b", ResType::Sav}));
+    EXPECT_FALSE(committed->contains({"module_c", ResType::Sav}));
+
+    // A module in the group it discards is not stored as it is left either.
+    leave("module_b", "module_a");
+    ASSERT_TRUE(committed->contains({"module_b", ResType::Sav}));
+    EXPECT_CALL(director, moduleSaveRules("module_b"))
+        .WillRepeatedly(Return(discardsGroup));
+    leave("module_b", "module_b");
+    EXPECT_FALSE(committed->contains({"module_b", ResType::Sav}));
 }
 
 TEST_F(SaveFixture, transition_snapshot_failure_aborts_before_source_teardown) {

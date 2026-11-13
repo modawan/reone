@@ -182,6 +182,14 @@ Pointer continuity and runtime ObjectId continuity are not logical continuity.
 
 The canonical PC remains distinct from the currently controlled creature. A controlled companion retains its saved authored Tag; `player` is synthesized only when the source player representation has no meaningful authored Tag. This preserves script lookup behavior without making Tag a roster identity.
 
+### 5.1 Saved references to party representations
+
+A companion, a puppet, and the canonical PC while a companion is controlled are held by their roster records, not by the module graph, so a saved module graph has no record of its own for them. The graph still gives each one a saved identity and names it beside the party identity it stands for — `(RosterKind, slot)` or the canonical PC — in `Mod_PartyObjIds`; the controlled creature's `Mod_PlayerList` record carries the same two fields. Saved values that name party members (VM objects on a delayed command's stack, action parameters, Effect creators, event targets) therefore export as ordinary graph identities.
+
+When a saved graph is restored — by a disk load or by revisiting a module — the party is bound first, and then each current representation claims the identity recorded for the party identity it stands for, before saved references bind. The claim does not rename the representation: it keeps the identity of its own detached record. A party identity this session does not hold leaves its saved identity unclaimed, and references to it read as the invalid object.
+
+The game itself respawns party members with fresh object numbers on load and does not remap saved references to them, so a delayed command naming a companion loses it across a save. This engine keeps such references; the extra fields are additive, and a reader that ignores them sees an ordinary module graph.
+
 ## 6. Area residency
 
 Area residency is distinct from both logical Party identity and runtime-object existence.
@@ -210,11 +218,13 @@ OnExit -> snapshot durable state -> full Area retirement -> Module destruction
 
 For ordinary module travel, supported Party actions and timed commands continue through serialization and reconstruction rather than by retaining outgoing live action objects. This project captures their save-facing forms while the source graph is authoritative, binds reference-bearing values to exact runtime incarnations, retires the live execution objects with the source Area, and republishes the supported continuation after destination publication. Outgoing-Area-only targets fail closed and cannot capture a destination object through numeric equality. Timed commands retain their original absolute world-time schedule and are not appended twice on repeated travel.
 
-Full disk restoration follows the game's independently recovered `CreateParty` policy: detached NPC/PUP action queues are cleared when those representations are respawned, while saved module/player runtime state follows the saved-world restoration rules. Same-Area control transfer crosses no serialization or reconstruction boundary.
+Full disk restoration follows the game's party-creation policy: detached NPC/PUP action queues are cleared when those representations are respawned, while saved module/player runtime state follows the saved-world restoration rules. Control transfer updates the outgoing companion's roster record but crosses no module serialization or reconstruction boundary.
 
-### 6.2 Same-Area reposition or control transfer
+### 6.2 Same-Area reposition and control transfer
 
-`SwitchPlayerCharacter`, Party repositioning, and selection/control transfer do not end the Area lifetime. They preserve action queues, delayed commands, effects, saved-graph generation, combat/perception state unless a specific gameplay rule changes it, and logical roster bindings. They adjust only control, formation, transform, Room calculation, and scene residency needed by the same Area.
+Party repositioning and leader selection do not end the Area lifetime. They preserve action queues, delayed commands, effects, saved-graph generation, combat/perception state unless a specific gameplay rule changes it, and logical roster bindings. They adjust only formation, transform, Room calculation, and scene residency needed by the same Area.
+
+`SwitchPlayerCharacter` is different: the creature giving up control leaves the world. A companion giving up control has its roster record saved as it stands and its creature killed; the canonical PC giving up control has its pending events dropped and its Area residency retired, and stays the canonical PC held by the Party — saved as `pc.utc` while a companion is controlled, and placed again when it takes control back. Every other travelling companion leaves the party and its creature is taken out of the world unless the party refuses to let it go. The incoming creature arrives where the outgoing one stood, or keeps its place if it was already in the Area. This is Area departure for the outgoing creature only; the Area, the saved graph and the rest of the world are untouched.
 
 The separate APIs make module-boundary retirement unavailable as a convenient reposition helper.
 
@@ -336,9 +346,12 @@ C4 makes each object/owned graph correct at this post-commit boundary. The autho
 ```text
 prepare destination L plan and validate IFO/ARE/GIT/LYT
     -> source Area OnExit
-    -> build frozen source-module snapshot / candidate SaveWorkingState
+    -> build the candidate SaveWorkingState: store the frozen source-module
+       snapshot when the source is included in saves, refresh bound roster
+       records, and discard the destination's delete group (§11.7)
     -> capture supported Party action/delay continuation against source incarnations
     -> if re-entering the same module, reprepare against that snapshot
+    -> write the entry autosave when the destination calls for one (§11.7)
     -> prepare loading-screen presentation
     -> COMMIT STARTS
     -> retire source Area runtime and ordinary source runtime objects
@@ -385,7 +398,7 @@ The exact `SaveSlotDescriptor` is retained from enumeration through preparation 
 
 ### 11.3 Template-world disk autosave
 
-The game's transition autosaves may have a complete save session but no archived current-module graph. That is a distinct, valid topology:
+The game's transition autosaves may have a complete save session but no archived current-module graph. That is a distinct, valid topology. This project writes the same shape for its own entry autosaves and for a save made inside a module that is not included in saves (§11.7):
 
 ```text
 prepare unpublished save session and installed destination resources
@@ -404,18 +417,23 @@ prepare unpublished save session and installed destination resources
     -> start music and publish Screen::InGame
 ```
 
-`*` denotes no explicit start waypoint. Template object numbers never enter saved-ID reservation or binding. The canonical PC remains distinct when `pifo.ifo` represents a controlled companion, and the saved authored companion Tag is preserved. Full disk `CreateParty` semantics clear detached follower NPC/PUP action queues where the game respawns those representations; this is intentionally different from ordinary module-travel continuation.
+`*` denotes no explicit start waypoint. Template object numbers never enter saved-ID reservation or binding. The canonical PC remains distinct when `pifo.ifo` represents a controlled companion, and the saved authored companion Tag is preserved. Full disk party creation clears detached follower NPC/PUP action queues where the game respawns those representations; this is intentionally different from ordinary module-travel continuation.
 
-### 11.4 Same-Area control transfer
+An autosave can also lead into a module the game had already saved on an earlier visit. That module restores its saved `ModuleGraph`, but the save is still an autosave: the player is rebuilt from `pifo.ifo` as it stood on the way in, the world time comes from `AUTOSAVEPARAMS`, and the party starts at `STARTWAYPOINT` rather than where the graph's older player record stood. The saved graph's references to that older player record bind through its party identity (§5.1).
+
+### 11.4 Control transfer (`SwitchPlayerCharacter`)
 
 ```text
 resolve canonical PC or explicit roster slot
+    -> outgoing companion: save its roster record, kill its creature
+       outgoing canonical PC: drop its pending events, retire its Area residency
+    -> remove the other travelling companions from the party
     -> establish the explicit Party runtime binding/control state
-    -> transfer the outgoing leader transform to the incoming controlled actor
-    -> recalculate same-Area placement/camera state
+    -> place the incoming actor at the outgoing leader's transform unless already resident
+    -> recalculate placement/camera state
 ```
 
-There is no snapshot, resource activation, saved-graph retirement, or full Area retirement.
+There is no snapshot, resource activation, saved-graph retirement, or Area retirement beyond the outgoing creature's own residency.
 
 ### 11.5 Full runtime-session retirement
 
@@ -434,6 +452,22 @@ mark session non-playable and advance runtime-session generation
 ```
 
 Full session retirement is stronger than ordinary module retirement; ordinary travel preserves save-wide and logical Party state.
+
+### 11.6 Fresh game
+
+Clearing and initialising are separate steps. Session retirement and `Party::reset()` only clear state. A new game then establishes its defaults explicitly through `Party::initializeNewGameState()` — today the starting Pazaak collection and empty side deck — when character generation finishes or a default party is formed. A disk load never takes that step: a loaded PARTYTABLE is authoritative, and new-game defaults are never inferred from Party membership.
+
+### 11.7 Module save rules
+
+The module save table (`modulesave.2da`) decides how each module takes part in saved games. A module the table does not describe is included and autosaves on every entry.
+
+| Column | Effect |
+|---|---|
+| `IncludeInSave` | Whether the module's state is stored when it is left and restored when it is entered. A module left out is never stored, so it is always entered afresh. A save made inside it stores nothing for it: it is written in the template-world shape (§11.3) and a load builds the module from its templates, starting the party at its entry. |
+| `SaveGroup` / `DeleteSaveGroupOnEnter` | Entering a module discards the saved state of every module whose `SaveGroup` is the entered module's `DeleteSaveGroupOnEnter`. The discard is made in the transition's candidate working state, so it is adopted only when the destination is published. |
+| `AutoSaveOnEnter` | `force`, or no value: autosave on every entry. `no`: never. `yes`: when the player's autosave option is on and fifteen minutes of played time have passed since the last save, load or new game. Any other value: when that interval has passed. There is no autosave option setting yet, so it counts as on. |
+
+The entry autosave is taken from a loaded module only: after the source `OnExit`, the source snapshot and the group discard, and before the destination exists. It is a template-world save of the destination — its working state is the transition's candidate, its player record the controlled creature as it leaves — so loading it enters the destination again. A failed autosave is reported and does not stop the transition, and the session does not adopt the autosave slot as its own.
 
 ## 12. Authored-script boundary
 
@@ -592,7 +626,10 @@ The architecture is modestly larger than this project before the E series becaus
 - The game's world time is restored and written through `Mod_PauseDay`/`Mod_PauseTime`, with autosave time coming from `AUTOSAVEPARAMS`.
 - Saved mechanically/query-visible runtime state is bound and published before destination entry hooks.
 - Source working-state mutation is adopted after destination resource publication rather than merely when a snapshot was produced.
-- Full Area retirement is not used for same-Area control switching.
+- Control switching retires only the outgoing creature's Area residency; it never retires the Area.
+- Saved references to party representations bind through their party identity on a disk load and on a revisit (§5.1).
+- The module save table's inclusion, delete-group and autosave rules are applied on every module entry (§11.7).
+- A door saved while swinging is saved in the state the swing reaches; a creature saved holding a looping animation takes it up again once its world is published. The pause, the ready stance and a flinch follow the creature's state and are never held this way.
 - Ordinary travel reconstructs supported Party action/delay continuation after retiring outgoing live execution state.
 - Party availability mutation does not own or destroy an independently existing runtime creature.
 - Item transfers and equipment replacement now express the displaced ownership receiver explicitly; generic Creature ownership no longer chooses KOTOR Party inventory policy.

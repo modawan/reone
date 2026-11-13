@@ -1644,6 +1644,10 @@ void Creature::updateModel() {
     if (!replacement) {
         return;
     }
+    // A loop a script has the creature hold carries over to the new model, at
+    // the speed it was playing.
+    const auto heldLoop = heldScriptLoop();
+    const float heldSpeed = _animationSource.speed;
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     // Visual effects and special-attack weapon visuals carry over to the new
     // model without starting over, and the latest shell covers its new head
@@ -1667,6 +1671,9 @@ void Creature::updateModel() {
     VisualEffect::showLatestShell(*this);
     _oneShot.reset();
     _animDirty = true;
+    if (heldLoop) {
+        playScriptAnimation(getScriptAnimation(*heldLoop), heldSpeed);
+    }
 }
 
 void Creature::loadTransformFromGIT(const resource::generated::GIT_Creature_List &git) {
@@ -5029,7 +5036,7 @@ void Creature::playAnimation(const std::string &name, AnimationProperties proper
         return;
     }
 
-    doPlayAnimation(fireForget, [&]() {
+    const bool started = doPlayAnimation(fireForget, [&]() {
         if (!fireForget && !storeLoop(name, properties, false, source)) {
             return;
         }
@@ -5039,6 +5046,11 @@ void Creature::playAnimation(const std::string &name, AnimationProperties proper
         }
         setAnimationSource(source);
     });
+    // A loop chosen while a state-driven refresh is pending is the pose: the
+    // refresh must not put the idle back over it.
+    if (started && !fireForget) {
+        _animDirty = false;
+    }
 }
 
 bool Creature::doPlayAnimation(bool fireForget, const std::function<void()> &callback) {
@@ -5506,6 +5518,31 @@ Creature::ScriptAnimation Creature::getScriptAnimation(int id) const {
 }
 
 // A loop plays at once; a one-shot waits in the fire-and-forget queue.
+std::optional<int> Creature::heldScriptLoop() const {
+    const int id = _animationSource.id;
+    if (id < 0 || id == kPauseAnimationId || _animationSource.dialog ||
+        _movementType != MovementType::None) {
+        return std::nullopt;
+    }
+    const auto animation = getScriptAnimation(id);
+    if (animation.clip.empty() || !animation.loop) {
+        return std::nullopt;
+    }
+    return id;
+}
+
+void Creature::resumeSavedScriptLoop() {
+    if (!_savedScriptLoop) {
+        return;
+    }
+    const auto animation = getScriptAnimation(*_savedScriptLoop);
+    _savedScriptLoop.reset();
+    // Only a loop is held; a one-shot has played out.
+    if (animation.loop) {
+        playScriptAnimation(animation, 1.0f);
+    }
+}
+
 void Creature::playScriptAnimation(const ScriptAnimation &animation, float speed) {
     if (animation.clip.empty()) {
         return;
@@ -5518,7 +5555,9 @@ void Creature::playScriptAnimation(const ScriptAnimation &animation, float speed
     AnimationProperties properties;
     properties.speed = speed;
     properties.flags |= AnimationFlags::loop;
-    playAnimation(animation.clip, std::move(properties), animation.source);
+    auto source = animation.source;
+    source.speed = speed;
+    playAnimation(animation.clip, std::move(properties), source);
 }
 
 // A creature idling in its plain pause glances or fidgets now and then: first
@@ -11505,6 +11544,14 @@ void Creature::deserializeRecord(
         _deathPose = animation == kDeadAnimationId    ? DeathPose::Dead
                      : animation == kDead3AnimationId ? DeathPose::Dead3
                                                       : DeathPose::Dead1;
+    } else if (int32_t animation = kPauseAnimationId;
+               gff.readInt(animation, "Animation") && animation != kPauseAnimationId &&
+               animation != kReadyAnimationId && animation != kDamageFlinchAnimationId) {
+        // A living creature saved holding another animation takes it up again
+        // once the world it belongs to is published. The pause and the ready
+        // stance follow the creature's state, and a flinch has passed, so a
+        // creature saved in one of them is not held in it.
+        _savedScriptLoop = animation;
     }
 
     updateTransform();

@@ -152,6 +152,18 @@ private:
         const Creature &creature, uint32_t structType,
         std::optional<uint32_t> serializedId,
         const SerializedIdentityContext &outputIdentityContext) const;
+    /**
+     * The party's roster-bound runtime representations that this graph has to
+     * name itself: no Area record and no limbo record holds them.
+     */
+    std::vector<std::shared_ptr<Creature>> rosterRepresentations(
+        const Module &module) const;
+    /**
+     * Writes which party identity creature stands for - its roster slot, or
+     * the canonical player - into a record that carries its saved identity.
+     * Writes nothing for a creature that stands for neither.
+     */
+    void putPartyIdentity(resource::Gff &record, const Creature &creature) const;
     std::shared_ptr<resource::Gff> writeCreature(
         const Creature &creature, uint32_t structType,
         std::optional<uint32_t> serializedId,

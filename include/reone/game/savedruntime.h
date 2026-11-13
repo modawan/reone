@@ -46,6 +46,20 @@ constexpr uint32_t kSavedRuntimeMaxCharacterObjectId = 0x7fffffff;
 // IFO contains no owned Module record or explicit Module ObjectId field.
 constexpr uint32_t kSavedRuntimeModuleObjectId = 0;
 
+/**
+ * The party identities a saved record can stand for. A roster-bound companion
+ * or puppet, and the canonical player while a companion is controlled, are
+ * held by their roster record rather than by an Area or limbo record, so the
+ * module graph names their identities beside the party identity they stand
+ * for. The controlled creature's record is named the same way, because the
+ * party that later revisits the module may be controlled by someone else.
+ */
+constexpr uint32_t kSavedPartyIdentityNpc = 0;
+constexpr uint32_t kSavedPartyIdentityPuppet = 1;
+constexpr uint32_t kSavedPartyIdentityCanonicalPlayer = 2;
+/** The struct type a saved party-identity record is written with. */
+constexpr uint32_t kSavedPartyIdentityStructType = 0x7a7a;
+
 /** A saved object identity which is deliberately unbound while B is built. */
 struct SavedObjectReference {
     uint32_t id {kSavedRuntimeInvalidObjectId};
