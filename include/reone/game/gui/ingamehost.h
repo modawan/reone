@@ -47,8 +47,9 @@ public:
     InGameMenuHost(resource::GameID gameId, const graphics::GraphicsOptions &options,
                    PresentationServices services,
                    std::function<void(InGameMenuTab)> navigate,
-                   std::function<InGameMenuFooter()> footer = {}) :
-        PresentationGUI(gameId, options, services), _navigate(std::move(navigate)), _footer(std::move(footer)) {
+                   std::function<InGameMenuFooter()> footer = {},
+                   std::function<void(int)> changeCharacter = {}) :
+        PresentationGUI(gameId, options, services), _navigate(std::move(navigate)), _footer(std::move(footer)), _changeCharacter(std::move(changeCharacter)) {
         _resRef = guiResRef("top");
     }
 
@@ -132,6 +133,8 @@ private:
     InGameMenuTab _tab {InGameMenuTab::None};
     std::function<void(InGameMenuTab)> _navigate;
     std::function<InGameMenuFooter()> _footer;
+    /** Hands control to the party member a footer portrait shows. */
+    std::function<void(int)> _changeCharacter;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;

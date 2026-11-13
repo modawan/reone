@@ -48,7 +48,8 @@ static constexpr int kInventoryTutorial = 20;
 
 void InGameMenu::init() {
     _host = std::make_unique<InGameMenuHost>(_game.gameId(), _game.options().graphics,
-        _presentation, [this](InGameMenuTab tab) { navigate(tab); }, [this]() { return footer(); });
+        _presentation, [this](InGameMenuTab tab) { navigate(tab); }, [this]() { return footer(); },
+        [this](int member) { changeCharacter(member); });
     _host->init();
     loadEquipment();
     loadInventory();
@@ -254,6 +255,22 @@ void InGameMenu::navigate(InGameMenuTab tab) {
     case InGameMenuTab::Map: openMap(); break;
     case InGameMenuTab::Options: openOptions(); break;
     default: break;
+    }
+}
+
+void InGameMenu::changeCharacter(int member) {
+    if (!_game.party().selectStandingMember(member)) {
+        return;
+    }
+    switch (activeTab()) {
+    case InGameMenuTab::Equipment:
+    case InGameMenuTab::Inventory:
+    case InGameMenuTab::Character:
+    case InGameMenuTab::Abilities:
+        navigate(activeTab());
+        break;
+    default:
+        break;
     }
 }
 

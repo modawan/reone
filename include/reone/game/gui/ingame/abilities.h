@@ -153,6 +153,8 @@ private:
 
     void loadSkills();
     void refreshPortraits();
+    /** Hands control to a party member, whom the screen then shows. */
+    void changeCharacter(int member);
 };
 
 } // namespace game

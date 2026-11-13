@@ -103,6 +103,8 @@ private:
 
     InGameMenuFooter footer() const;
     void navigate(InGameMenuTab tab);
+    /** Hands control to a party member; a screen that shows the leader then shows them. */
+    void changeCharacter(int member);
 
     void loadCharacter();
     void loadEquipment();

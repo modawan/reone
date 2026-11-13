@@ -262,6 +262,8 @@ private:
     }
 
     void refreshPortraits();
+    /** Hands control to a party member, whom the screen then shows. */
+    void changeCharacter(int member);
     void refresh3D();
     /** Show, in TSL, the line describing the leader's Pure Good or Pure Evil Force mastery. */
     void refreshForceMastery(const Creature &leader);
