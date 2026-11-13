@@ -453,6 +453,68 @@ TEST(MinigameSession, with_inertia_a_curve_pushes_the_bike_outward) {
     EXPECT_FLOAT_EQ(drift(false), 0.0f);
 }
 
+// TSL: a bike that is not steered comes back to the centre of the tunnel.
+// KotOR leaves it where it is.
+TEST(MinigameSession, on_tsl_the_bike_is_pulled_back_to_centre_without_steering) {
+    auto offsetAfterRelease = [](bool tsl) {
+        ScriptedHost host;
+        auto session = makeSwoop(host, 0, {});
+        session->setTSL(tsl);
+        session->setTunnelPos(glm::vec3(20.0f, 0.0f, 0.0f));
+        session->setTunnelNeg(glm::vec3(-20.0f, 0.0f, 0.0f));
+        session->setPlayerOffset(glm::vec3(10.0f, 0.0f, 0.0f));
+        for (int i = 0; i < 150; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        return session->offset().x;
+    };
+    EXPECT_NEAR(offsetAfterRelease(true), 0.0f, 0.5f);
+    EXPECT_FLOAT_EQ(offsetAfterRelease(false), 10.0f);
+}
+
+// TSL: steering against a fast slide brakes it harder than the steering alone.
+TEST(MinigameSession, on_tsl_steering_against_a_fast_slide_brakes_it) {
+    auto speedAfterCounterSteer = [](bool tsl) {
+        ScriptedHost host;
+        auto session = makeSwoop(host, 0, {});
+        session->setTSL(tsl);
+        session->setTunnelPos(glm::vec3(1e6f, 0.0f, 0.0f));
+        session->setTunnelNeg(glm::vec3(-1e6f, 0.0f, 0.0f));
+        MinigameInput input;
+        input.steer = 1.0f;
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, input);
+        }
+        EXPECT_GT(session->lateralVelocity().x, 90.0f);
+        input.steer = -1.0f;
+        for (int i = 0; i < 3; ++i) {
+            session->update(kTick, input);
+        }
+        return session->lateralVelocity().x;
+    };
+    float tsl = speedAfterCounterSteer(true);
+    float kotor = speedAfterCounterSteer(false);
+    EXPECT_LT(tsl, kotor - 10.0f);
+
+    // A slow slide is not braked: below the threshold both games agree.
+    auto slow = [](bool tsl) {
+        ScriptedHost host;
+        auto session = makeSwoop(host, 0, {});
+        session->setTSL(tsl);
+        session->setTunnelPos(glm::vec3(1e6f, 0.0f, 0.0f));
+        session->setTunnelNeg(glm::vec3(-1e6f, 0.0f, 0.0f));
+        MinigameInput input;
+        input.steer = 0.3f;
+        for (int i = 0; i < 90; ++i) {
+            session->update(kTick, input);
+        }
+        input.steer = -1.0f;
+        session->update(kTick, input);
+        return session->lateralVelocity().x;
+    };
+    EXPECT_FLOAT_EQ(slow(true), slow(false));
+}
+
 TEST(MinigameSession, creation_scripts_run_player_first_then_enemies) {
     ScriptedHost host;
     auto spec = swoopSpec(2);

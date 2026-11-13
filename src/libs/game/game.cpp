@@ -7707,6 +7707,7 @@ bool Game::startSwoopRace() {
 
     auto host = std::make_unique<GameMinigameHost>(*_scriptRunner, _swoopRace);
     auto session = std::make_unique<MinigameSession>(*host);
+    session->setTSL(isTSL());
 
     // Tracks and obstacles are placed by the area layout.
     auto layout = _services.resource.layouts.get(area->name());

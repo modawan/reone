@@ -366,6 +366,21 @@ constexpr float kMinigameGravity = 45.8f;
 constexpr float kMinigameCurveDrift = 1.0f;
 
 /**
+ * TSL steering. With no steering input the bike is pulled back toward the
+ * centre of the tunnel (its starting offset): an acceleration of
+ * kMinigameCentrePull per second squared for each unit off centre.
+ */
+constexpr float kMinigameCentrePull = 2.0f;
+
+/**
+ * TSL steering. Steering against a lateral slide faster than this share of
+ * MovementPerSec brakes the slide hard: the lateral speed falls at
+ * kMinigameSlideBrakeRate per second (exponentially), on top of the steering.
+ */
+constexpr float kMinigameSlideBrakeShare = 0.5f;
+constexpr float kMinigameSlideBrakeRate = 10.0f;
+
+/**
  * The outward acceleration on a swoop bike, along the hook's X axis, as its
  * track hook moves from \p previousHook to \p hook in \p dt seconds (see
  * kMinigameCurveDrift). The hook's X axis is the steering axis and Z is up;
@@ -522,6 +537,13 @@ public:
 
     void setObjectId(size_t actorIndex, uint32_t id) { _actors[actorIndex].objectId = id; }
 
+    /**
+     * The game's rules where KotOR and TSL differ: the TSL steering pulls back
+     * to centre and brakes a slide. Kept across load().
+     */
+    void setTSL(bool tsl) { _tsl = tsl; }
+    bool isTSL() const { return _tsl; }
+
     /** Run every OnCreate: the player first, then the enemies, then the obstacles. */
     void start();
 
@@ -628,6 +650,7 @@ private:
     IMinigameHost &_host;
 
     MinigameType _type {MinigameType::None};
+    bool _tsl {false};
     std::vector<MinigameActor> _actors;
     std::vector<size_t> _enemyList;
     std::vector<size_t> _obstacleList;

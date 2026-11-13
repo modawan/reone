@@ -674,11 +674,13 @@ void MinigameSession::updatePlayerMotion(float dt, const MinigameInput &input) {
 
 void MinigameSession::steerPlayer(float dt, const MinigameInput &input, float drift) {
     // The lateral speed follows the steering through a lag:
-    //   dv/dt = L * u - (L / M) * v + drift
+    //   dv/dt = L * u - (L / M) * v + drift - pull
     // with L the lateral acceleration, M the top lateral speed (MovementPerSec)
     // and u the steering, blended from the previous update's to this one's.
     // At full steering the speed settles at M, in a time of about M / L. The
-    // drift is the outward push of a curve (UseInertia). 4th-order Runge-Kutta.
+    // drift is the outward push of a curve (UseInertia). On TSL, the pull
+    // brings a bike that is not steered back to the centre of the tunnel, and
+    // steering against a fast slide brakes it. 4th-order Runge-Kutta.
     glm::vec3 in(glm::clamp(input.steer, -1.0f, 1.0f), 0.0f, 0.0f);
     float top = _movementPerSec;
     glm::vec3 delta(0.0f);
@@ -689,18 +691,27 @@ void MinigameSession::steerPlayer(float dt, const MinigameInput &input, float dr
         glm::vec3 um = (_previousInput + in) * 0.5f;
         glm::vec3 u1 = in;
         glm::vec3 v = _lateralVelocity;
-        auto accel = [&](const glm::vec3 &vel, const glm::vec3 &u) {
+        if (_tsl && in.x * v.x < 0.0f && glm::abs(v.x) > kMinigameSlideBrakeShare * top) {
+            v.x *= glm::exp(-kMinigameSlideBrakeRate * dt);
+        }
+        bool pull = _tsl && in.x == 0.0f;
+        float centre = _startOffset.x;
+        float x0 = _offset.x;
+        auto accel = [&](const glm::vec3 &vel, const glm::vec3 &u, float x) {
             glm::vec3 a = L * u - damping * vel;
             a.x += drift;
+            if (pull) {
+                a.x -= kMinigameCentrePull * (x - centre);
+            }
             return a;
         };
-        glm::vec3 k1v = accel(v, u0);
+        glm::vec3 k1v = accel(v, u0, x0);
         glm::vec3 k1x = v;
-        glm::vec3 k2v = accel(v + 0.5f * dt * k1v, um);
+        glm::vec3 k2v = accel(v + 0.5f * dt * k1v, um, x0 + 0.5f * dt * k1x.x);
         glm::vec3 k2x = v + 0.5f * dt * k1v;
-        glm::vec3 k3v = accel(v + 0.5f * dt * k2v, um);
+        glm::vec3 k3v = accel(v + 0.5f * dt * k2v, um, x0 + 0.5f * dt * k2x.x);
         glm::vec3 k3x = v + 0.5f * dt * k2v;
-        glm::vec3 k4v = accel(v + dt * k3v, u1);
+        glm::vec3 k4v = accel(v + dt * k3v, u1, x0 + dt * k3x.x);
         glm::vec3 k4x = v + dt * k3v;
         _lateralVelocity = v + (dt / 6.0f) * (k1v + 2.0f * k2v + 2.0f * k3v + k4v);
         delta = (dt / 6.0f) * (k1x + 2.0f * k2x + 2.0f * k3x + k4x);
