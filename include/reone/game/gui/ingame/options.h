@@ -157,16 +157,40 @@ private:
 
     /**
      * The advanced graphics options page, opened from the graphics page's
-     * BTN_ADVANCED. Soft Shadows is handled; the other controls are drawn as
-     * laid out. Its changes wait for OK (BTN_BACK); Cancel and Escape drop
-     * them.
+     * BTN_ADVANCED, with an Interface Size slider below its own rows. Its
+     * changes wait for OK (BTN_BACK); Cancel and Escape drop them. OK applies
+     * Anti-aliasing, Soft Shadows and V-Sync at once, and keeps Texture
+     * Quality, Anisotropy and Interface Size for the next start. Frame Buffer
+     * Effects is drawn as laid out.
      */
     struct AdvancedGraphicsControls {
+        std::shared_ptr<gui::Button> BTN_ANISOTROPY;
+        std::shared_ptr<gui::Button> BTN_ANISOTROPYLEFT;
+        std::shared_ptr<gui::Button> BTN_ANISOTROPYRIGHT;
+        std::shared_ptr<gui::Button> BTN_ANTIALIAS;
+        std::shared_ptr<gui::Button> BTN_ANTIALIASLEFT;
+        std::shared_ptr<gui::Button> BTN_ANTIALIASRIGHT;
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_CANCEL;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::Button> BTN_TEXQUAL;
+        std::shared_ptr<gui::Button> BTN_TEXQUALLEFT;
+        std::shared_ptr<gui::Button> BTN_TEXQUALRIGHT;
         std::shared_ptr<gui::ToggleButton> CB_SOFTSHADOWS;
+        std::shared_ptr<gui::ToggleButton> CB_VSYNC;
         std::shared_ptr<gui::ListBox> LB_DESC;
+        /** The interface size label and slider, which the page's layout lacks. */
+        std::shared_ptr<gui::Label> LBL_GUISCALE;
+        std::shared_ptr<gui::Slider> SLI_GUISCALE;
+    };
+
+    /** The advanced graphics page's choices as it shows them, until OK keeps them. */
+    struct AdvancedGraphicsChoices {
+        bool fxaa {false};
+        bool softShadows {false};
+        bool vsync {false};
+        /** Texture Quality, Anisotropy and Interface Size, with the display mode the next start keeps. */
+        StartGraphicsOptions start;
     };
 
     /** The sound options page, opened from BTN_SOUND: a volume slider for each kind of audio. */
@@ -236,13 +260,10 @@ private:
     ResolutionControls _resolutionControls;
     /** The modes the resolution list offers, by row. */
     std::vector<graphics::DisplayMode> _displayModes;
-    /** The display mode the game starts in, as last chosen. */
-    graphics::DisplayMode _startMode;
 
     std::shared_ptr<gui::IGUI> _advancedGraphicsGUI;
     AdvancedGraphicsControls _advancedGraphicsControls;
-    /** Soft Shadows as the advanced graphics page shows it, until OK keeps it. */
-    bool _softShadows {false};
+    AdvancedGraphicsChoices _advancedGraphics;
 
     std::shared_ptr<gui::IGUI> _soundGUI;
     SoundControls _soundControls;
@@ -267,6 +288,9 @@ private:
     void closePage();
     /** Show \p strRef in a page's description box. */
     void describe(gui::ListBox &box, int strRef);
+    void describe(gui::ListBox &box, const std::string &text);
+    /** Show \p strRef in a page's description box, saying the option takes effect at the next start. */
+    void describeForNextStart(gui::ListBox &box, int strRef);
     /**
      * A page's title. In the TSL in-game menu the menu's own title bar names
      * the tab, so the page leaves its title out.
@@ -312,8 +336,12 @@ private:
 
     /** Load the advanced graphics options page and wire its controls. */
     void loadAdvancedGraphicsPanel();
-    /** Open the advanced graphics page on the current options, describing Soft Shadows. */
+    /** Add the Interface Size label and slider below the page's last row, drawn as the graphics page's Brightness. */
+    void addInterfaceSizeSlider();
+    /** Open the advanced graphics page on the current options, describing Texture Quality. */
     void openAdvancedGraphicsPanel();
+    /** Show the page's choices: each level's name between its arrows, the checkboxes and the slider. */
+    void showAdvancedGraphics();
 
     /** Load the sound options page and wire its sliders and buttons. */
     void loadSoundPanel();
