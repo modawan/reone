@@ -315,6 +315,13 @@ void Control::renderBorder(const Border &border,
     int topHeight = std::min(border.dimension, std::max(0, (size.y + 1) / 2));
     int bottomHeight = std::min(border.dimension, std::max(0, size.y - topHeight));
     glm::ivec2 fillSize {size.x - leftWidth - rightWidth, size.y - topHeight - bottomHeight};
+    // A border without a frame has nothing to make room for. Where its
+    // dimension would leave the fill no room at all, as on the options pages'
+    // left arrows (32 on buttons 24 to 28 across), the fill covers the control.
+    if (!border.corner && !border.edge && (fillSize.x <= 0 || fillSize.y <= 0)) {
+        leftWidth = rightWidth = topHeight = bottomHeight = 0;
+        fillSize = size;
+    }
 
     if (part != BorderRenderPart::Frame && border.fill && fillSize.x > 0 && fillSize.y > 0) {
         if (border.fillTransform == Border::FillTransform::Rotate180) {
