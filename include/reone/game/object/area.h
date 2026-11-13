@@ -634,8 +634,10 @@ public:
 
     /**
      * The object whose model is under a screen point, as the party leader
-     * sees it; a kept corpse is answered by its body bag. Empty without a
-     * leader or when no object's model is there.
+     * sees it; a kept corpse is answered by its body bag. A point on no
+     * object's model answers the nearby object whose reticle point it is
+     * nearest, within reach (Game::nearestObjectToPointer). Empty without a
+     * leader or with no object there or near.
      */
     std::optional<std::reference_wrapper<Object>> getObjectAt(int x, int y) const;
 

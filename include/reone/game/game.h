@@ -583,6 +583,14 @@ public:
      * In combat mode only visible hostile creatures qualify while any remain.
      */
     std::shared_ptr<Object> selectNearestObject(int direction);
+    /**
+     * The object nearest a screen point, for a pointer that is on none: of
+     * the nearby objects the leader sees, the one whose reticle point lies
+     * closest on screen, within a tenth of the screen's width and of its
+     * height taken together. Objects on the far side of the camera from the
+     * leader are passed over.
+     */
+    std::shared_ptr<Object> nearestObjectToPointer(const Creature &leader, int x, int y);
     void setKeepStealthInDialog(bool value) { _keepStealthInDialog = value; }
     /**
      * A conversation showing an entry or its replies quietly ends the stealth

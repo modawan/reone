@@ -4660,6 +4660,10 @@ std::optional<std::reference_wrapper<Object>> Area::getObjectAt(int x, int y) co
     auto &scene = _services.scene.graphs.get(kSceneMain);
     auto model = scene.pickModelAt(x, y, partyLeader.get());
     if (!model) {
+        // A pointer on no object's model picks the object it is nearest.
+        if (auto nearest = _game.nearestObjectToPointer(*partyLeader, x, y)) {
+            return std::ref(*nearest);
+        }
         return std::nullopt;
     }
     // A kept corpse is picked as its body bag.
