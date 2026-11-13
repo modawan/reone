@@ -1783,15 +1783,14 @@ static Variable GetItemStackSize(const std::vector<Variable> &args, const Routin
 
 static Variable GetAbilityScore(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
     auto nAbilityType = getInt(args, 1);
 
-    // Transform
-    auto creature = checkCreature(oCreature);
-    auto ability = static_cast<Ability>(nAbilityType);
-
     // Execute
-    return Variable::ofInt(creature->getEffectiveAbilityScore(ability));
+    if (!creature || !isScriptAbility(nAbilityType)) {
+        return Variable::ofInt(0);
+    }
+    return Variable::ofInt(creature->getEffectiveAbilityScore(static_cast<Ability>(nAbilityType)));
 }
 
 // A creature counts as dead when it has died or, in the party, is down; any
@@ -3855,12 +3854,14 @@ static Variable GetAbilityModifier(const std::vector<Variable> &args, const Rout
                       ? getObjectOrNull(args, 1, ctx)
                       : getCaller(ctx);
     auto creature = object ? dyn_cast<Creature>(object.get()) : nullptr;
-    if (!creature || abilityValue < static_cast<int>(Ability::Strength) || abilityValue > static_cast<int>(Ability::Charisma)) {
+    if (!creature || !isScriptAbility(abilityValue)) {
         return Variable::ofInt(0);
     }
 
-    return Variable::ofInt(creature->getEffectiveAbilityModifier(
-        static_cast<Ability>(abilityValue)));
+    const auto ability = static_cast<Ability>(abilityValue);
+    return Variable::ofInt(ability == Ability::Dexterity
+                               ? creature->getDexterityModifier(false)
+                               : creature->getEffectiveAbilityModifier(ability));
 }
 
 static Variable GetIdentified(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7970,7 +7971,7 @@ static Variable AdjustCreatureAttributes(const std::vector<Variable> &args, cons
 
     // Execute
     // Only creatures and the six abilities are adjusted; anything else is ignored.
-    if (!creature || nAttribute < static_cast<int>(Ability::Strength) || nAttribute > static_cast<int>(Ability::Charisma)) {
+    if (!creature || !isScriptAbility(nAttribute)) {
         return Variable::ofNull();
     }
     creature->adjustBaseAbilityScore(static_cast<Ability>(nAttribute), nAmount);
