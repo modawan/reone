@@ -3961,10 +3961,18 @@ void Creature::restoreSerializedVitality() {
         Object::setCurrentHitPoints(savedHitPoints + maxHitPoints() - _hitPoints);
         _currentForce = savedForce + maxForcePoints() - _forcePoints;
     } else {
-        // Other creatures take back only the ability terms.
+        // Other creatures take back the ability terms, and with them what
+        // else their maximum counts: a feat's vitality, a bonus to the Force
+        // pool. The record leaves out the whole maximum, so a pool rebuilt
+        // from the ability terms alone would come back short by the rest on
+        // every load.
         const int level = _attributes.getAggregateLevel();
-        Object::setCurrentHitPoints(rebuildSavedPool(
-            savedHitPoints, _hitPoints, _vitalityConstitutionModifier, level));
+        const auto beyondAbilityTerms = [level](int maximum, int base, int modifier) {
+            return level > 0 ? maximum - std::max(level, base + modifier * level) : 0;
+        };
+        Object::setCurrentHitPoints(
+            rebuildSavedPool(savedHitPoints, _hitPoints, _vitalityConstitutionModifier, level) +
+            beyondAbilityTerms(maxHitPoints(), _hitPoints, _vitalityConstitutionModifier));
         int forceModifier = 0;
         if (level > 0) {
             forceModifier = getEffectiveAbilityModifier(Ability::Wisdom);
@@ -3972,7 +3980,10 @@ void Creature::restoreSerializedVitality() {
                 forceModifier += getEffectiveAbilityModifier(Ability::Charisma);
             }
         }
-        _currentForce = rebuildSavedPool(savedForce, _forcePoints, forceModifier, level);
+        // A creature without a Force pool has no maximum to count from.
+        const int maximumForce = maxForcePoints();
+        _currentForce = rebuildSavedPool(savedForce, _forcePoints, forceModifier, level) +
+                        (maximumForce > 0 ? beyondAbilityTerms(maximumForce, _forcePoints, forceModifier) : 0);
     }
     updateDeathFromCurrentHitPoints();
 }
