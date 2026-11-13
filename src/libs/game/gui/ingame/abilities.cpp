@@ -162,12 +162,15 @@ void AbilitiesMenu::refreshControls() {
     setView(_view);
 }
 
-// A character whose newest class is not a Jedi one has no powers view; the
-// skills view takes its place. The chosen view's button is lit, and the feats
-// view has no value readout.
+// A character without a Jedi class has no powers view; the skills view takes
+// its place. The chosen view's button is lit, and the feats view has no value
+// readout.
 void AbilitiesMenu::setView(View view) {
     auto leader = _game.party().getLeader();
-    const bool jedi = leader->attributes().classLevels().back().first->isJedi();
+    const auto &classLevels = leader->attributes().classLevels();
+    const bool jedi = std::any_of(classLevels.begin(), classLevels.end(), [](const auto &classLevel) {
+        return classLevel.first->isJedi();
+    });
     _controls.BTN_POWERS->setVisible(jedi);
     if (view == View::Powers && !jedi) {
         view = View::Skills;
