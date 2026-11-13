@@ -171,6 +171,17 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
         EXPECT_CALL(director, adoptSaveWorkingState(_))
             .Times(AnyNumber())
             .WillRepeatedly(Invoke([this](auto state) { committed = std::move(state); }));
+        // A companion following the party is made again from the roster
+        // record it was saved to, which reads its appearance.
+        EXPECT_CALL(director, findSaveWorking(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](const ResourceId &id) { return committed->find(id); }));
+        TwoDA::Builder appearances;
+        appearances.columns({"modeltype"});
+        appearances.row({"S"});
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(appearances.build())));
         EXPECT_CALL(director, saveNames())
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::set<std::string> {}));
@@ -719,7 +730,9 @@ TEST_P(EntryLifecycleFixture, rejected_destination_preserves_source_fade_and_adm
     EXPECT_NEAR(.4f, game->globalFade().opacity(), .001f);
 }
 
-TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_target) {
+// A companion following the party is made again from its roster record in the
+// module it arrives in, so an action aimed at the one that left has no target.
+TEST_P(EntryLifecycleFixture, ordinary_transition_makes_a_following_companion_again) {
     serveModule(/*savedModuleSnapshot=*/false);
     auto companion = game->newCreature();
     ASSERT_TRUE(game->party().addAvailableMember(0, companion));
@@ -734,15 +747,16 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_t
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
-    ASSERT_EQ(1u, player->actions().size());
-    auto restored = std::dynamic_pointer_cast<AttackObjectAction>(
-        player->actions().front());
-    ASSERT_TRUE(restored);
-    EXPECT_EQ(companion, restored->target());
+    auto arrived = game->party().getMemberByNPC(0);
+    ASSERT_TRUE(arrived);
+    EXPECT_NE(companion, arrived);
+    EXPECT_FALSE(game->isRuntimeObjectLive(*companion));
+    EXPECT_FALSE(arrived->spawnScriptFired());
     EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_TRUE(player->actions().empty());
 }
 
-TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_physical_feat_for_retained_target) {
+TEST_P(EntryLifecycleFixture, ordinary_transition_drops_physical_feat_aimed_at_a_following_companion) {
     serveModule(/*savedModuleSnapshot=*/false);
     auto companion = game->newCreature();
     ASSERT_TRUE(game->party().addAvailableMember(0, companion));
@@ -760,18 +774,9 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_physical_feat_for
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
-    ASSERT_EQ(1u, player->actions().size());
-    auto restored = std::dynamic_pointer_cast<UseFeatAction>(
-        player->actions().front());
-    ASSERT_TRUE(restored);
-    EXPECT_NE(restored, outgoing);
-    EXPECT_EQ(restored->target(), companion);
-    EXPECT_EQ(restored->feat(), FeatType::ImprovedPowerAttack);
-    EXPECT_EQ(restored->result(), AttackResultType::Invalid);
-    EXPECT_TRUE(restored->runtimeDependenciesLive());
     EXPECT_TRUE(outgoing->isCancelled());
-    // The retained action brings its started round with it.
-    EXPECT_EQ(1u, game->combat().roundCount());
+    EXPECT_TRUE(player->actions().empty());
+    EXPECT_EQ(0u, game->combat().roundCount());
 }
 
 TEST_P(EntryLifecycleFixture, ordinary_transition_drops_outgoing_area_action_target) {

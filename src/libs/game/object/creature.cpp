@@ -6094,10 +6094,12 @@ int Creature::experienceToNextLevel() const {
 
 void Creature::runSpawnScript() {
     // The creation script fires at most once per creature rather than once
-    // per area attachment. A party member carried through an ordinary module
-    // transition is the same creature: the destination area takes it in
-    // without recreating it, and its OnSpawn does not run a second time. The
-    // flag is set whether or not a script was authored.
+    // per area attachment. The player character, and a companion under
+    // control, carried through an ordinary module transition is the same
+    // creature: the destination area takes it in without recreating it, and
+    // its OnSpawn does not run a second time. A companion or puppet made from
+    // its roster record is a new creature and runs it again. The flag is set
+    // whether or not a script was authored.
     if (_spawnScriptFired) {
         return;
     }

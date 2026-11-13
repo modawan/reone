@@ -1910,6 +1910,61 @@ void Game::restorePartyTransitionState(std::vector<PartyTransitionState> &states
     }
 }
 
+// A companion following the party out of a module, and in TSL a puppet in the
+// party, is saved to its roster record as it leaves, while what it refers to
+// is still there. The player character and a companion under control cross as
+// they are.
+std::vector<Game::TravellingCompanion> Game::captureTravellingCompanions() {
+    std::vector<TravellingCompanion> companions;
+    const auto &residentCreatures = _module->area()->getObjectsByType(ObjectType::Creature);
+    const auto travel = [&](const RosterIdentity &identity, const std::shared_ptr<Creature> &creature) {
+        if (std::find(residentCreatures.begin(), residentCreatures.end(), creature) == residentCreatures.end()) {
+            return;
+        }
+        TravellingCompanion companion;
+        companion.identity = identity;
+        companion.creature = creature;
+        companion.record = SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature);
+        companions.push_back(std::move(companion));
+    };
+    for (const auto &member : _party.members()) {
+        const auto &creature = member.creature;
+        if (!creature || !_party.isCompanion(member) || creature == _party.player() ||
+            creature == _party.actualPlayer()) {
+            continue;
+        }
+        const auto identity = _party.rosterIdentity(*creature);
+        if (identity && identity->kind == RosterKind::Npc && identity->slot == member.npc) {
+            travel(*identity, creature);
+        }
+    }
+    for (int puppet : _party.persistedState().puppetIds) {
+        const RosterIdentity identity {RosterKind::Puppet, puppet};
+        if (auto creature = _party.rosterCreature(identity)) {
+            travel(identity, creature);
+        }
+    }
+    return companions;
+}
+
+// Each companion and puppet is made again from its roster record in the
+// module it arrives in: a new object that takes up its effects anew and runs
+// its creation script again. A companion's place in the party stays, naming
+// no one, until the vacant followers come back from their records; a puppet
+// stays in the party's puppets until it is made again.
+void Game::retireTravellingCompanions(std::vector<TravellingCompanion> &companions) {
+    for (auto &companion : companions) {
+        auto creature = companion.creature.resolve();
+        if (!creature || _party.rosterCreature(companion.identity) != creature) {
+            continue;
+        }
+        saveRosterRecord(companion.identity, std::move(companion.record));
+        _party.vacateMemberEntries(*creature);
+        _party.releaseRosterSlot(*creature);
+        destroyRuntimeObjectGraph(creature);
+    }
+}
+
 // The TSL globals that count a human, beast or droid confusion power as at work.
 static constexpr std::array<const char *, 3> kConfusionActiveGlobals {"000_Human_Conf_Active", "000_Beast_Conf_Active", "000_Droid_Conf_Active"};
 
@@ -1943,6 +1998,7 @@ bool Game::loadPreparedModule(
     } loadFromSaveGuard {_loadingFromSaveGame};
 
     std::vector<PartyTransitionState> partyTransitionState;
+    std::vector<TravellingCompanion> travellingCompanions;
 
     // Exit scripts are part of the source module's last observable state. The
     // resulting working state remains a candidate until the resource/runtime
@@ -1969,6 +2025,7 @@ bool Game::loadPreparedModule(
 
         try {
             partyTransitionState = captureResidentPartyActions();
+            travellingCompanions = captureTravellingCompanions();
         } catch (const std::exception &e) {
             error(
                 "Unable to snapshot Party transition state: " +
@@ -2008,6 +2065,7 @@ bool Game::loadPreparedModule(
                                  resourcesCommitted,
                                  &sourceWorkingState,
                                  &partyTransitionState,
+                                 &travellingCompanions,
                                  &commitStarted,
                                  &loaded,
                                  partyCarriedOver]() {
@@ -2090,9 +2148,16 @@ bool Game::loadPreparedModule(
                 if (_party.isEmpty() && !_party.actualPlayer()) {
                     loadDefaultParty();
                 }
-                // A follower whose creature was destroyed is still listed with
-                // the party, and comes back from its roster record.
+                // A companion or puppet that followed the party here is
+                // made again from the record it left with. A follower whose
+                // creature was destroyed is still listed with the party, and
+                // comes back from its roster record. The party's puppets are
+                // made again here too, before the area places the party.
+                retireTravellingCompanions(travellingCompanions);
                 _party.respawnVacantFollowers();
+                for (int puppet : _party.persistedState().puppetIds) {
+                    _party.getAvailablePuppet(puppet, true);
+                }
 
                 // The game makes restored effects, actions and events visible before
                 // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
@@ -3017,6 +3082,12 @@ void Game::saveNpcState(int npc) {
 void Game::saveRosterState(
     const RosterIdentity &identity,
     const Creature &creature) {
+    saveRosterRecord(identity, SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
+}
+
+void Game::saveRosterRecord(
+    const RosterIdentity &identity,
+    ByteBuffer record) {
     if (!_party.isRosterIdentityValid(identity)) {
         throw ValidationException("Roster slot is outside the title range");
     }
@@ -3030,7 +3101,7 @@ void Game::saveRosterState(
         resource::SaveWorkingStateCandidate::fromCommitted(std::move(committed));
     candidate.put(
         ResourceId(prefix + std::to_string(identity.slot), ResType::Utc),
-        SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
+        std::move(record));
     _services.resource.director.adoptSaveWorkingState(candidate.freeze());
 }
 
@@ -3056,6 +3127,10 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         return nullptr;
     }
 
+    // A creature made from its roster record is a new creature: it runs its
+    // creation script again, whatever the record says of the one it was made
+    // from.
+    removeSaveField(*record, "CreatnScrptFird");
     const auto context =
         SerializedIdentityContext::detachedRecord(name + ".utc");
     auto creature = newCreature(*record, context);
