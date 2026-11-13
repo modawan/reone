@@ -40,6 +40,9 @@ public:
         return _enabledChannels.count(channel) > 0;
     }
 
+    /** Whether messages are written yet; before init they are dropped. */
+    bool isInited() const { return _inited; }
+
 private:
     static thread_local std::optional<std::reference_wrapper<std::ostringstream>> buffer;
 
