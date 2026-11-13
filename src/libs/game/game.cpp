@@ -453,7 +453,8 @@ void Game::applySoundMode() {
     } else if (!_movie && _module) {
         if (isSoundPausingMenu(_screen)) {
             mode = SoundMode::Menu;
-        } else if (_paused && (_screen != Screen::Conversation || !isTSL())) {
+        } else if (isPausedAtFrameEnd() && (_screen != Screen::Conversation || !isTSL())) {
+            // Sound pauses as soon as a pause is asked for.
             mode = SoundMode::PlayerPause;
         }
     }
@@ -1211,7 +1212,14 @@ std::optional<glm::ivec2> Game::consumePointerWarp() {
     return warp;
 }
 
+// The frame runs as play stood when it began, input handled before it
+// included; a pause asked for during it is taken at its end.
 void Game::update(float frameTime) {
+    updateFrame(frameTime);
+    applyPauseRequest();
+}
+
+void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
@@ -2204,7 +2212,7 @@ void Game::retireActiveModuleRuntime() {
     // Leaving a module ends the player's pause and a time stop, and the stop's
     // exclusions go with it. A Time Stop effect applied again afterwards, a
     // restored one included, stops time anew.
-    setPaused(false);
+    setPausedNow(false);
     _timeStopped = false;
     _timeStopExclusions.clear();
     _module.reset();
@@ -2314,7 +2322,7 @@ void Game::retireRuntimeSession() {
     _scriptVideoEffectHeld = false;
     _playerInputBlocked = false;
     _postDialogCharacterSwitch.reset();
-    _paused = false;
+    setPausedNow(false);
     _timeStopped = false;
     _timeStopExclusions.clear();
     _timeStopMilliseconds = 0;
@@ -6458,7 +6466,7 @@ void Game::showSoloModeQuery(bool forStealth) {
     } else if (_party.isSoloMode()) {
         strRef = leader->isStealthed() ? kSoloModeOffStealthedStrRef : kSoloModeOffStrRef;
     }
-    const bool pausedBefore = _paused;
+    const bool pausedBefore = isPausedAtFrameEnd();
     if (!pausedBefore) {
         setPaused(true);
     }
@@ -6524,7 +6532,7 @@ void Game::requestAutoPause(AutoPauseReason reason) {
 
 void Game::autoPause(AutoPauseReason reason) {
     // Autopause never stacks on an existing pause.
-    if (_autoPaused || _paused) {
+    if (_autoPaused || isPausedAtFrameEnd()) {
         return;
     }
     // Within the delay window the request is deferred, even one made during
@@ -6552,8 +6560,46 @@ void Game::autoPause(AutoPauseReason reason) {
         {AutoPauseReason::PartyKilled, PauseReason::PartyKilled},
         {AutoPauseReason::MineSighted, PauseReason::MineSighted},
         {AutoPauseReason::NewTargetSelected, PauseReason::NewTargetSelected}};
-    setPaused(true, kPauseReasons.at(reason));
-    _autoPaused = true;
+    setPaused(true, kPauseReasons.at(reason), true);
+}
+
+void Game::setPaused(bool paused, PauseReason reason, bool autoPause) {
+    // A transition under way has unpaused play and keeps it so.
+    if (_module && _module->area() && _module->area()->transitionPending()) {
+        return;
+    }
+    if (_pauseRequest) {
+        if (paused == _paused) {
+            _pauseRequest.reset();
+        }
+        return;
+    }
+    if (paused != _paused) {
+        _pauseRequest = PauseRequest {paused, reason, autoPause};
+    }
+}
+
+void Game::setPausedNow(bool paused) {
+    _pauseRequest.reset();
+    _paused = paused;
+    if (!paused) {
+        _autoPaused = false;
+    }
+}
+
+void Game::applyPauseRequest() {
+    if (!_pauseRequest) {
+        return;
+    }
+    const PauseRequest request {*_pauseRequest};
+    _pauseRequest.reset();
+    _paused = request.paused;
+    if (request.paused) {
+        _pauseReason = request.reason;
+        _autoPaused = request.autoPause;
+    } else {
+        _autoPaused = false;
+    }
 }
 
 void Game::delayNextEnemyAutoPause() {
@@ -6672,7 +6718,7 @@ void Game::commitTutorialWindow() {
     _party.setTutorialShown(request.id);
     // A window already open takes the new text; the game stays as it was paused.
     if (!_tutorial) {
-        _tutorialPausedGame = !_paused;
+        _tutorialPausedGame = !isPausedAtFrameEnd();
         if (_tutorialPausedGame) {
             setPaused(true);
         }
