@@ -405,6 +405,13 @@ struct MinigameInput {
     bool brake {false};
 };
 
+/**
+ * The swoop race's shift key, held or released. KotOR shifts gear in the
+ * player's OnFire, so the key is fire there. TSL shifts gear in OnAccelerate,
+ * so the key is accelerate there, and does not fire.
+ */
+void setMinigameShiftKey(MinigameInput &input, bool held, bool tsl);
+
 enum class MinigameActorKind {
     Player,
     Enemy,

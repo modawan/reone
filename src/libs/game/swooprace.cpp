@@ -346,8 +346,7 @@ bool SwoopRace::handle(const input::Event &event) {
         case input::KeyCode::W:
             // The shift key: fire on KotOR, accelerate on TSL.
             _fireKey = down;
-            in.fire = _fireKey || _fireButton;
-            in.accelerate = in.fire;
+            setMinigameShiftKey(in, _fireKey || _fireButton, _game.isTSL());
             return true;
         case input::KeyCode::Down:
         case input::KeyCode::S:
@@ -379,8 +378,7 @@ bool SwoopRace::handle(const input::Event &event) {
             return false;
         }
         _fireButton = event.button.pressed;
-        in.fire = _fireKey || _fireButton;
-        in.accelerate = in.fire;
+        setMinigameShiftKey(in, _fireKey || _fireButton, _game.isTSL());
         return true;
     default:
         return false;

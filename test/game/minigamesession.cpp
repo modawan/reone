@@ -588,6 +588,19 @@ TEST(MinigameSession, accelerate_and_brake_run_the_players_slots_once_per_press)
     EXPECT_EQ(host.count("onaccelerate"), 2u);
 }
 
+TEST(MinigameSession, the_shift_key_fires_on_kotor_and_accelerates_on_tsl) {
+    MinigameInput input;
+    setMinigameShiftKey(input, true, false);
+    EXPECT_TRUE(input.fire);
+    EXPECT_FALSE(input.accelerate);
+    setMinigameShiftKey(input, true, true);
+    EXPECT_FALSE(input.fire);
+    EXPECT_TRUE(input.accelerate);
+    setMinigameShiftKey(input, false, true);
+    EXPECT_FALSE(input.fire);
+    EXPECT_FALSE(input.accelerate);
+}
+
 TEST(MinigameSession, a_trigger_pad_raises_on_hit_follower_on_both_and_dies_to_the_script) {
     ScriptedHost host;
     std::vector<glm::vec3> pads {{100.0f, 30.0f, 2.0f}};

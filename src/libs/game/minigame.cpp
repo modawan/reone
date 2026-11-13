@@ -415,6 +415,11 @@ float minigameCurveDrift(const glm::mat4 &previousHook, const glm::mat4 &hook, f
     return kMinigameCurveDrift * forward * turn / dt;
 }
 
+void setMinigameShiftKey(MinigameInput &input, bool held, bool tsl) {
+    input.fire = held && !tsl;
+    input.accelerate = held && tsl;
+}
+
 // Session
 
 void MinigameSession::load(const MinigameSpec &spec,
