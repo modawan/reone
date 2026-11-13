@@ -1556,7 +1556,8 @@ void Creature::loadAppearanceProperties() {
 
 void Creature::loadHeadProperties(const TwoDA &appearances) {
     const int head = headRow(appearances);
-    auto heads = head == -1 ? nullptr : getRequiredTwoDA(_services.resource.twoDas, "heads");
+    // Without heads.2da a head row names no head.
+    auto heads = head == -1 ? nullptr : _services.resource.twoDas.get("heads");
     _headModelName = heads ? boost::to_lower_copy(heads->getString(head, "head")) : std::string();
     for (size_t band = 0; band < kHeadAlignmentTextureColumns.size(); ++band) {
         _headAlignmentTextures[band] = heads ? boost::to_lower_copy(heads->getString(head, kHeadAlignmentTextureColumns[band])) : std::string();
