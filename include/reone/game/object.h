@@ -130,6 +130,13 @@ public:
         const SerializedIdentityContext &identityContext);
     /** Places the object at a record's position, facing its orientation or bearing. */
     void deserializePlacement(const resource::Gff &gff);
+    /** Places the object at the position its area entry names; a coordinate the entry lacks is 0. */
+    void placeAtEntryPosition(const resource::Gff &entry);
+    /**
+     * Places the object at the point its area entry names by X, Y and Z,
+     * facing its bearing; a value the entry lacks is 0.
+     */
+    void placeAtEntryPoint(const resource::Gff &entry);
 
     virtual void update(float dt);
     /**
@@ -589,10 +596,20 @@ public:
         SaveRecordOrigin origin = {});
     /**
      * Keep the record an object placed from a blueprint was made from: the
-     * blueprint's fields, with those the placement gives in their place. A
-     * save writes the object over it.
+     * blueprint's fields, with every field the placement gives in their place.
+     * A save writes the object over it.
      */
     void captureAuthoredRecord(const resource::Gff &blueprint, const resource::Gff &placement);
+    /**
+     * Keep the record an object placed from a blueprint was made from: the
+     * blueprint's fields, with those of \p placementFields the placement gives
+     * in their place. The object takes these fields, and only these, from its
+     * placement. A save writes the object over the record.
+     */
+    void captureAuthoredRecord(
+        const resource::Gff &blueprint,
+        const resource::Gff &placement,
+        const std::vector<std::string> &placementFields);
     const std::optional<SaveRecordProvenance> &saveRecordProvenance() const {
         return _saveRecordProvenance;
     }

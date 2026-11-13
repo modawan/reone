@@ -571,8 +571,23 @@ void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityConte
     }
 }
 
+// An entry of a module's area places its template: one that names no
+// template, or whose template is missing, places nothing. A saved entry
+// places its own record.
+static bool placesObject(IGffs &gffs, const Gff &entry, const SerializedIdentityContext &identityContext,
+                         const std::string &templateField, ResType templateType) {
+    if (identityContext.isSerializedState()) {
+        return true;
+    }
+    std::string templateResRef;
+    return entry.readResRef(templateResRef, templateField) && gffs.get(templateResRef, templateType);
+}
+
 void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &doorGff : gff.getList("Door List")) {
+        if (!placesObject(_services.resource.gffs, *doorGff, identityContext, "TemplateResRef", ResType::Utd)) {
+            continue;
+        }
         auto door = _game.newDoor(*doorGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             door->captureSaveRecord(*doorGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -583,6 +598,9 @@ void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &
 
 void Area::loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &placeableGff : gff.getList("Placeable List")) {
+        if (!placesObject(_services.resource.gffs, *placeableGff, identityContext, "TemplateResRef", ResType::Utp)) {
+            continue;
+        }
         auto placeable = _game.newPlaceable(*placeableGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             placeable->captureSaveRecord(*placeableGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -605,6 +623,9 @@ void Area::loadWaypoints(const resource::Gff &gff, const SerializedIdentityConte
 
 void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &triggerGff : gff.getList("TriggerList")) {
+        if (!placesObject(_services.resource.gffs, *triggerGff, identityContext, "TemplateResRef", ResType::Utt)) {
+            continue;
+        }
         auto trigger = _game.newTrigger(*triggerGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             trigger->captureSaveRecord(*triggerGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -615,6 +636,9 @@ void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContex
 
 void Area::loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &soundGff : gff.getList("SoundList")) {
+        if (!placesObject(_services.resource.gffs, *soundGff, identityContext, "TemplateResRef", ResType::Uts)) {
+            continue;
+        }
         auto sound = _game.newSound(*soundGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             sound->captureSaveRecord(*soundGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -641,8 +665,18 @@ void Area::loadCameras(const resource::Gff &gff, const SerializedIdentityContext
     }
 }
 
+// Whether a record lists geometry without points.
+static bool hasEmptyGeometryList(const Gff &record) {
+    return record.has("Geometry") && record.getList("Geometry").empty();
+}
+
+// An encounter whose entry has a geometry list without points is not placed.
 void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &encounterGff : gff.getList("Encounter List")) {
+        if (!placesObject(_services.resource.gffs, *encounterGff, identityContext, "TemplateResRef", ResType::Ute) ||
+            hasEmptyGeometryList(*encounterGff)) {
+            continue;
+        }
         auto encounter = _game.newEncounter(*encounterGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             encounter->captureSaveRecord(*encounterGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -653,6 +687,9 @@ void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityCont
 
 void Area::loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &storeGff : gff.getList("StoreList")) {
+        if (!placesObject(_services.resource.gffs, *storeGff, identityContext, "ResRef", ResType::Utm)) {
+            continue;
+        }
         auto store = _game.newStore(*storeGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             store->captureSaveRecord(*storeGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
