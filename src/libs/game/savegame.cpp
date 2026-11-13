@@ -368,8 +368,11 @@ SaveMetadataInput Game::buildSaveMetadata(const SaveRequest &request) const {
     }
 
     // A save shows each member's portrait for its good/evil.
-    auto livePortrait = [](const std::shared_ptr<Creature> &creature) {
-        return creature ? creature->portraitResRef() : std::string();
+    const auto &portraitRows = _services.game.portraits.portraits();
+    auto livePortrait = [&portraitRows](const std::shared_ptr<Creature> &creature) {
+        if (!creature) return std::string();
+        const Portrait *row = findPortrait(portraitRows, creature->portraitId(), creature->appearance());
+        return row ? row->resRefForGoodEvil(creature->goodEvil()) : std::string();
     };
     for (size_t i = 0; i < metadata.portraits.size(); ++i) {
         auto creature = i < _party.members().size()

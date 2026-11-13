@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include "types.h"
 
@@ -52,6 +54,23 @@ struct Portrait {
         return variant.empty() ? resRef : variant;
     }
 };
+
+/**
+ * The row of \p rows a creature's portrait comes from: the one \p portraitId
+ * names or, without an ID, the first row for \p appearance. Null when there
+ * is none.
+ */
+inline const Portrait *findPortrait(const std::vector<Portrait> &rows, int portraitId, int appearance) {
+    if (portraitId > 0) {
+        return portraitId < static_cast<int>(rows.size()) ? &rows[portraitId] : nullptr;
+    }
+    auto found = std::find_if(rows.begin(), rows.end(), [appearance](const Portrait &portrait) {
+        return portrait.appearanceNumber == appearance ||
+               portrait.appearanceS == appearance ||
+               portrait.appearanceL == appearance;
+    });
+    return found == rows.end() ? nullptr : &*found;
+}
 
 } // namespace game
 

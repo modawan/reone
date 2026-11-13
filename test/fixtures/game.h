@@ -190,6 +190,9 @@ public:
     MOCK_METHOD(std::shared_ptr<graphics::Texture>, getTextureByIndex, (int index), (const override));
     MOCK_METHOD(std::shared_ptr<graphics::Texture>, getTextureByAppearance, (int appearance), (const override));
     MOCK_METHOD(const std::vector<Portrait> &, portraits, (), (const override));
+
+private:
+    std::vector<Portrait> _portraits;
 };
 
 class MockReputes : public IReputes, boost::noncopyable {

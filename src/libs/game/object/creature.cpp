@@ -1549,22 +1549,8 @@ void Creature::loadAppearanceProperties() {
     }
     loadHeadProperties(*appearances);
 
-    // The portrait is the row its ID names or, without one, the first row for
-    // the appearance.
-    const auto &portraitRows = _services.game.portraits.portraits();
-    _portraitRow.reset();
-    if (_portraitId > 0 && _portraitId < portraitRows.size()) {
-        _portraitRow = portraitRows[_portraitId];
-    } else if (_portraitId == 0) {
-        auto found = std::find_if(portraitRows.begin(), portraitRows.end(), [this](const Portrait &portrait) {
-            return portrait.appearanceNumber == _appearance ||
-                   portrait.appearanceS == _appearance ||
-                   portrait.appearanceL == _appearance;
-        });
-        if (found != portraitRows.end()) {
-            _portraitRow = *found;
-        }
-    }
+    const Portrait *portraitRow = findPortrait(_services.game.portraits.portraits(), _portraitId, _appearance);
+    _portraitRow = portraitRow ? std::optional<Portrait>(*portraitRow) : std::nullopt;
     refreshPortrait();
 }
 

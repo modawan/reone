@@ -43,7 +43,9 @@ MockFootstepSounds::~MockFootstepSounds() = default;
 MockGUISounds::MockGUISounds() = default;
 MockGUISounds::~MockGUISounds() = default;
 
-MockPortraits::MockPortraits() = default;
+MockPortraits::MockPortraits() {
+    ON_CALL(*this, portraits()).WillByDefault(::testing::ReturnRef(_portraits));
+}
 MockPortraits::~MockPortraits() = default;
 
 MockReputes::MockReputes() = default;
