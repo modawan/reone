@@ -426,7 +426,8 @@ void Area::passTransition(const std::shared_ptr<Object> &traveller, std::optiona
     sendAgain(*creature, id, kTransitionDelayMilliseconds);
     _game.globalFade().request(GlobalFade::Direction::Out, 0.0f, kTransitionFadeLength);
     setTransitionPending(true, id);
-    _game.setPaused(false);
+    // The transition unpauses play at once.
+    _game.setPausedNow(false);
 }
 
 void Area::loadHearing(const resource::generated::ARE &are) {
@@ -570,8 +571,23 @@ void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityConte
     }
 }
 
+// An entry of a module's area places its template: one that names no
+// template, or whose template is missing, places nothing. A saved entry
+// places its own record.
+static bool placesObject(IGffs &gffs, const Gff &entry, const SerializedIdentityContext &identityContext,
+                         const std::string &templateField, ResType templateType) {
+    if (identityContext.isSerializedState()) {
+        return true;
+    }
+    std::string templateResRef;
+    return entry.readResRef(templateResRef, templateField) && gffs.get(templateResRef, templateType);
+}
+
 void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &doorGff : gff.getList("Door List")) {
+        if (!placesObject(_services.resource.gffs, *doorGff, identityContext, "TemplateResRef", ResType::Utd)) {
+            continue;
+        }
         auto door = _game.newDoor(*doorGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             door->captureSaveRecord(*doorGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -582,6 +598,9 @@ void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &
 
 void Area::loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &placeableGff : gff.getList("Placeable List")) {
+        if (!placesObject(_services.resource.gffs, *placeableGff, identityContext, "TemplateResRef", ResType::Utp)) {
+            continue;
+        }
         auto placeable = _game.newPlaceable(*placeableGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             placeable->captureSaveRecord(*placeableGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -604,6 +623,9 @@ void Area::loadWaypoints(const resource::Gff &gff, const SerializedIdentityConte
 
 void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &triggerGff : gff.getList("TriggerList")) {
+        if (!placesObject(_services.resource.gffs, *triggerGff, identityContext, "TemplateResRef", ResType::Utt)) {
+            continue;
+        }
         auto trigger = _game.newTrigger(*triggerGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             trigger->captureSaveRecord(*triggerGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -614,6 +636,9 @@ void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContex
 
 void Area::loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &soundGff : gff.getList("SoundList")) {
+        if (!placesObject(_services.resource.gffs, *soundGff, identityContext, "TemplateResRef", ResType::Uts)) {
+            continue;
+        }
         auto sound = _game.newSound(*soundGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             sound->captureSaveRecord(*soundGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -640,8 +665,18 @@ void Area::loadCameras(const resource::Gff &gff, const SerializedIdentityContext
     }
 }
 
+// Whether a record lists geometry without points.
+static bool hasEmptyGeometryList(const Gff &record) {
+    return record.has("Geometry") && record.getList("Geometry").empty();
+}
+
+// An encounter whose entry has a geometry list without points is not placed.
 void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &encounterGff : gff.getList("Encounter List")) {
+        if (!placesObject(_services.resource.gffs, *encounterGff, identityContext, "TemplateResRef", ResType::Ute) ||
+            hasEmptyGeometryList(*encounterGff)) {
+            continue;
+        }
         auto encounter = _game.newEncounter(*encounterGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             encounter->captureSaveRecord(*encounterGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -652,6 +687,9 @@ void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityCont
 
 void Area::loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &storeGff : gff.getList("StoreList")) {
+        if (!placesObject(_services.resource.gffs, *storeGff, identityContext, "ResRef", ResType::Utm)) {
+            continue;
+        }
         auto store = _game.newStore(*storeGff, identityContext, _sceneName);
         if (identityContext.isSerializedState()) {
             store->captureSaveRecord(*storeGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
@@ -2660,12 +2698,14 @@ Area::DirectLineTest Area::testDirectLine(
                 test.door = static_cast<const Door &>(wall->object.get());
             }
             test.normal = wall->contact.normal;
+            test.contact = wall->contact.kind;
             return test;
         }
         if (roomContact) {
             test.result = DirectLine::Blocked;
             test.stopPoint = pointAt(roomContact->distance);
             test.normal = roomContact->normal;
+            test.contact = roomContact->kind;
             return test;
         }
         CreatureCollision creatureCollision;
@@ -3499,12 +3539,20 @@ bool Area::isModelInShownRoom(const ModelSceneNode &model) const {
         return true;
     }
     const glm::mat4 &transform = model.absoluteTransform();
+    const auto &box = model.model().meshBox();
     const glm::vec3 centre {(model.model().classification() & MdlClassification::character) != 0
                                 ? glm::vec3(transform[3])
-                                : glm::vec3(transform * glm::vec4(0.5f * (model.model().aabb().min() + model.model().aabb().max()), 1.0f))};
+                                : glm::vec3(transform * glm::vec4(0.5f * (box.min() + box.max()), 1.0f))};
+    return isPointInShownRoom(centre);
+}
+
+bool Area::isPointInShownRoom(const glm::vec3 &point) const {
+    if (!_cullingRooms) {
+        return true;
+    }
     bool held = false;
     for (const auto &room : _rooms) {
-        if (!room.second->boxHolds(glm::vec2(centre))) {
+        if (!room.second->boxHolds(glm::vec2(point))) {
             continue;
         }
         if (room.second->isVisible()) {
@@ -4343,7 +4391,15 @@ void Area::dispatchPerceptionNotices() {
 }
 
 // Other creatures exist for the player only while the controlled creature
-// sees or hears them, or, in TSL, while they are always updated.
+// sees or hears them, or, in TSL, while they are always updated. A door, a
+// placeable that is not static, an item, an area of effect or a trigger exists
+// for the player only while it lies within the farther of the controlled
+// creature's sight and hearing ranges across the ground, or, in TSL, while it
+// is always updated. Within that range a generic trigger never exists for the
+// player (a trigger's cursor, which would show one, is not read), and a trap
+// only once the controlled creature has found it or it is flagged, or while it
+// is no enemy of the controlled creature. A static placeable always exists for
+// the player, and any other object never needs to.
 void Area::updatePresence() {
     auto leader = _game.party().getLeader();
     if (!leader || !isObjectResident(*leader)) {
@@ -4355,6 +4411,25 @@ void Area::updatePresence() {
                              perception.sees(object->id()) || perception.hears(object->id()) ||
                              (_game.isTSL() && object->forceAlwaysUpdate());
         object->setPresent(present);
+    }
+    const float range = std::max(leader->spotRange(), leader->listenRange());
+    const glm::vec2 viewer {leader->position()};
+    for (ObjectType type : {ObjectType::Door, ObjectType::Placeable, ObjectType::Item, ObjectType::AreaOfEffect, ObjectType::Trigger}) {
+        for (const auto &object : getObjectsByType(type)) {
+            if (type == ObjectType::Placeable && static_cast<const Placeable &>(*object).isStatic()) {
+                continue;
+            }
+            const glm::vec2 offset {glm::vec2(object->position()) - viewer};
+            bool present = glm::dot(offset, offset) <= range * range;
+            if (present && type == ObjectType::Trigger) {
+                const auto &trigger = static_cast<const Trigger &>(*object);
+                present = trigger.isTrap()
+                              ? trigger.trapDetection().flagged || trigger.trapDetection().isDetectedBy(leader->id()) ||
+                                    !trigger.isTrapHostileTo(*leader)
+                              : !trigger.isGeneric();
+            }
+            object->setPresent(present || (_game.isTSL() && object->forceAlwaysUpdate()));
+        }
     }
 }
 

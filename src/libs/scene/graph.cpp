@@ -192,7 +192,7 @@ float SceneGraph::forceSightPulse() const {
 void SceneGraph::cullRoots() {
     const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
+        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !roomTest->model(*root))) {
             root->setCulled(true);
             continue;
         }
@@ -305,12 +305,16 @@ void SceneGraph::refresh() {
     _lights.clear();
     _emitters.clear();
 
+    // A room's lights go with the room, which is disabled while hidden; an
+    // object's light goes with the room it stands in itself.
+    const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        refreshFromNode(*root);
+        const bool room = root->usage() == ModelUsage::Room;
+        refreshFromNode(*root, room ? nullptr : roomTest.get(), false);
     }
 }
 
-void SceneGraph::refreshFromNode(SceneNode &node) {
+void SceneGraph::refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly) {
     // A disabled node (and its subtree) is skipped from the render lists, so
     // callers can suppress a specific mesh or emitter. The renderer otherwise
     // ignores isEnabled on child nodes.
@@ -322,14 +326,19 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
 
     switch (node.type()) {
     case SceneNodeType::Model: {
-        // Ignore models that have been culled
+        // A culled model is not drawn, but its lights shine whether it is
+        // drawn or not; one that is not rendered gives nothing.
         auto &model = static_cast<ModelSceneNode &>(node);
         if (model.isCulled()) {
-            propagate = false;
+            propagate = model.isRendered();
+            lightsOnly = true;
         }
         break;
     }
     case SceneNodeType::Mesh: {
+        if (lightsOnly) {
+            break;
+        }
         // For model nodes, determine whether they should be rendered and cast shadows
         auto &modelNode = static_cast<MeshSceneNode &>(node);
         bool shouldRender = modelNode.shouldRender();
@@ -353,10 +362,14 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
         break;
     }
     case SceneNodeType::Light:
-        _lights.push_back(static_cast<LightSceneNode *>(&node));
+        if (!roomTest || roomTest->point(node.origin())) {
+            _lights.push_back(static_cast<LightSceneNode *>(&node));
+        }
         break;
     case SceneNodeType::Emitter:
-        _emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        if (!lightsOnly) {
+            _emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        }
         break;
     default:
         break;
@@ -364,7 +377,7 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
 
     if (propagate) {
         for (auto &child : node.children()) {
-            refreshFromNode(*child);
+            refreshFromNode(*child, roomTest, lightsOnly);
         }
     }
 }
@@ -841,47 +854,6 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
     return minDistance != std::numeric_limits<float>::max();
 }
 
-bool SceneGraph::testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const {
-    const auto originToDest = dest - origin;
-    const float maxDistance = glm::length(originToDest);
-    if (maxDistance == 0.0f) {
-        return false;
-    }
-    const auto dir = originToDest / maxDistance;
-    float minDistance = std::numeric_limits<float>::max();
-    for (auto &root : _walkmeshRoots) {
-        if (!root->isEnabled() || !root->walkmesh().isAreaWalkmesh()) {
-            continue;
-        }
-        auto raycast = root->walkmesh().raycast(_lineOfSightSurfaces, origin, dir, maxDistance, /*ignoreBackface=*/false);
-        if (raycast.fail || raycast.distance > minDistance) {
-            continue;
-        }
-        outCollision.user = root->user();
-        outCollision.intersection = origin + raycast.distance * dir;
-        outCollision.normal = root->walkmesh().normals[raycast.face];
-        outCollision.material = root->walkmesh().materials[raycast.face];
-        minDistance = raycast.distance;
-    }
-    for (auto &root : _modelRoots) {
-        const auto usage = root->usage();
-        if (!root->isEnabled() || (usage != ModelUsage::Creature && usage != ModelUsage::Placeable && usage != ModelUsage::Door) ||
-            std::find(excluded.begin(), excluded.end(), root->user()) != excluded.end()) {
-            continue;
-        }
-        auto share = root->intersectSegment(origin, dest);
-        if (!share || *share * maxDistance > minDistance) {
-            continue;
-        }
-        outCollision.user = root->user();
-        outCollision.intersection = origin + *share * originToDest;
-        outCollision.normal = -dir;
-        outCollision.material = -1;
-        minDistance = *share * maxDistance;
-    }
-    return minDistance != std::numeric_limits<float>::max();
-}
-
 bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const {
     glm::vec3 originToDest(dest - origin);
     glm::vec3 dir(glm::normalize(originToDest));
@@ -985,15 +957,14 @@ static std::optional<float> raycastAABBMesh(const ModelNode::TriangleMesh &mesh,
 }
 
 // A door's or placeable's model stops a camera unless the object lets it
-// through, or the model is classified as an effect, a tile, a character, a
-// lightsaber or excluded from scene hits, or as a placeable without the hit
-// filter override of its subclassification.
+// through, it takes no scene hits, or the model is classified as a
+// character or a lightsaber, or as a placeable without the hit filter
+// override of its subclassification.
 static bool modelStopsCamera(const ModelSceneNode &root) {
-    static constexpr int kPassedClassifications = MdlClassification::effect | MdlClassification::tile |
-                                                  MdlClassification::character | MdlClassification::lightsaber |
-                                                  MdlClassification::sceneHitExcluded;
+    static constexpr int kPassedClassifications = MdlClassification::character | MdlClassification::lightsaber;
     const auto usage = root.usage();
-    if ((usage != ModelUsage::Door && usage != ModelUsage::Placeable) || !root.isEnabled() || root.cameraPassesThrough()) {
+    if ((usage != ModelUsage::Door && usage != ModelUsage::Placeable) || !root.isEnabled() || root.cameraPassesThrough() ||
+        !root.takesSceneHits()) {
         return false;
     }
     const int classification = root.model().classification();
@@ -1017,18 +988,26 @@ bool SceneGraph::testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, 
     const glm::vec3 dir {originToDest / maxDistance};
     float nearest = std::numeric_limits<float>::max();
     for (auto &root : _modelRoots) {
-        if (modelStopsCamera(*root)) {
-            const auto share = root->intersectSegment(origin, dest);
-            if (!share || *share * maxDistance >= nearest) {
-                continue;
-            }
-            outCollision.user = root->user();
-            outCollision.intersection = origin + *share * originToDest;
-            outCollision.normal = -dir;
-            outCollision.material = -1;
-            nearest = *share * maxDistance;
+        if (!modelStopsCamera(*root)) {
             continue;
         }
+        const auto share = root->intersectSegment(origin, dest);
+        if (!share || *share * maxDistance >= nearest) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + *share * originToDest;
+        outCollision.normal = -dir;
+        outCollision.material = -1;
+        nearest = *share * maxDistance;
+    }
+    testRoomModels(origin, dest, nearest, outCollision);
+    return nearest != std::numeric_limits<float>::max();
+}
+
+void SceneGraph::testRoomModels(const glm::vec3 &origin, const glm::vec3 &dest, float &nearest, Collision &outCollision) const {
+    const glm::vec3 dir {glm::normalize(dest - origin)};
+    for (auto &root : _modelRoots) {
         if (root->usage() != ModelUsage::Room) {
             continue;
         }
@@ -1076,6 +1055,43 @@ bool SceneGraph::testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, 
         outCollision.normal = normal;
         outCollision.material = static_cast<int>(face.material);
         nearest = distance;
+    }
+}
+
+// The rooms, and the posed models of creatures, placeables and doors, and of
+// what is attached to them, that take scene hits. Of the excluded objects
+// only the models attached to them count, except the one at the excluded hook.
+bool SceneGraph::testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const {
+    const glm::vec3 originToDest {dest - origin};
+    const float maxDistance = glm::length(originToDest);
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    float nearest = std::numeric_limits<float>::max();
+    testRoomModels(origin, dest, nearest, outCollision);
+    for (auto &root : _modelRoots) {
+        const auto usage = root->usage();
+        if (!root->isEnabled() || (usage != ModelUsage::Creature && usage != ModelUsage::Placeable && usage != ModelUsage::Door) ||
+            !root->takesSceneHits()) {
+            continue;
+        }
+        std::optional<float> share;
+        if (std::find(excluded.begin(), excluded.end(), root->user()) != excluded.end()) {
+            share = root->intersectAttachments(origin, dest, excludedHook);
+        } else {
+            share = root->intersectSegment(origin, dest);
+            if (auto attached = root->intersectAttachments(origin, dest); attached && (!share || *attached < *share)) {
+                share = attached;
+            }
+        }
+        if (!share || *share * maxDistance >= nearest) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + *share * originToDest;
+        outCollision.normal = -originToDest / maxDistance;
+        outCollision.material = -1;
+        nearest = *share * maxDistance;
     }
     return nearest != std::numeric_limits<float>::max();
 }

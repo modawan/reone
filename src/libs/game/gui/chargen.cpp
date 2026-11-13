@@ -284,8 +284,10 @@ void CharacterGeneration::startQuick() {
     openSteps();
 }
 
-void CharacterGeneration::startLevelUp() {
+void CharacterGeneration::startLevelUp(bool forced) {
     _type = Type::LevelUp;
+    _levelUpForced = forced;
+    _levelUp->setCanCancel(!forced);
 
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
 
@@ -481,7 +483,10 @@ void CharacterGeneration::acceptAbilities() {
 
 void CharacterGeneration::cancel() {
     if (_type == Type::LevelUp) {
-        _game.openInGame();
+        if (_levelUpForced) {
+            return;
+        }
+        _game.closeLevelUp(false);
     } else {
         _game.openMainMenu();
     }
@@ -502,7 +507,10 @@ void CharacterGeneration::finish() {
                 }
             }
         }
-        _game.openInGame();
+        _game.notifyLevelUpStillAvailable(*partyLeader);
+        _game.closeLevelUp(_levelUpForced);
+        // The module hears of a player character's level-up.
+        _game.signalPlayerLevelUp(*partyLeader);
     } else {
         // Character preview objects belong to the pre-playable character-
         // generation runtime. Retire them before publishing the new game.

@@ -159,6 +159,19 @@ public:
      * models are not tested.
      */
     std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const;
+    /**
+     * Where the segment first meets one of the shown models attached to this
+     * one that take scene hits, and theirs in turn, as intersectSegment gives
+     * it; the model attached at \p skipped, when given, left out.
+     */
+    std::optional<float> intersectAttachments(const glm::vec3 &from, const glm::vec3 &to, const std::string &skipped = "") const;
+    /**
+     * Whether a scene hit test, a camera's or a conversation shot's, can meet
+     * the model: not one classified as an effect or a tile or excluded from
+     * scene hits, nor one that stands in every room, nor one faded to a
+     * quarter or less.
+     */
+    bool takesSceneHits() const;
 
     const graphics::Model &model() const { return *_model; }
     ModelUsage usage() const { return _usage; }
@@ -367,7 +380,7 @@ private:
     void updateAnimations(float dt);
     void updateAnimationChannel(AnimationChannel &channel, float dt);
     void rearmSingleEmitters(const std::string &animationRoot);
-    void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode);
+    void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode, const graphics::ModelNode &animNode);
     void applyAnimationStates(const graphics::ModelNode &modelNode, size_t layers);
 
     static AnimationBlendMode getAnimationBlendMode(int flags);

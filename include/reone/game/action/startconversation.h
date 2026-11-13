@@ -107,6 +107,10 @@ private:
     std::optional<glm::vec3> _walkPoint;
     /** The range the walk under way closes to: the partner's use range and a metre. */
     float _walkRange {0.0f};
+    /** The walk heads for the partner's use point: no way was found to the point halfway. */
+    bool _walkingToUsePoint {false};
+    /** No way to the partner at all: the request ends. */
+    bool _unreachable {false};
 
     /** Brings the speaker close enough to its partner; true once it is. */
     bool approach(Creature &speaker, float dt);

@@ -2745,16 +2745,14 @@ std::shared_ptr<Item> UpgradeSelectionGUI::putBack(const std::shared_ptr<Item> &
     if (_game.isTSL()) {
         wearer->setCombatState(true, CombatActivation::Indirect);
     }
-    // Worn again, an item is announced to the module, and a weapon in a hand
-    // readies its wearer for combat outside a conversation.
+    // Worn again, an item goes through what follows every equip: a weapon in
+    // a hand readies its wearer for combat outside a conversation, and the
+    // module is told.
     auto putOn = [&](int slot, const std::shared_ptr<Item> &worn) -> std::shared_ptr<Item> {
         if (!wearer->equip(slot, worn)) {
             return inventory->addItem(worn);
         }
-        if ((slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon) && !_game.isDialogUnderWay()) {
-            wearer->setCombatState(true, CombatActivation::Indirect);
-        }
-        _game.finishEquip(*wearer, slot, worn);
+        _game.finishEquip(*wearer, slot, worn, false);
         return worn;
     };
     // The upgraded item is worn again only if its wearer can wear it; the

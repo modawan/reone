@@ -659,7 +659,10 @@ void Turret::startEngineSound(Follower &follower) {
         position = transformOrigin(follower.models.front()->absoluteTransform());
     }
     follower.engineSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound, soundGroup(follower.player), 1.0f, true, position);
-    follower.engineSource->setGainScale(glm::clamp(follower.sounds[0].volume / 127.0f, 0.0f, 1.0f));
+    // A clip the mixer cannot play gives no source.
+    if (follower.engineSource) {
+        follower.engineSource->setGainScale(glm::clamp(follower.sounds[0].volume / 127.0f, 0.0f, 1.0f));
+    }
 }
 
 void Turret::stopEngineSound(Follower &follower) {

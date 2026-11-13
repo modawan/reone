@@ -98,6 +98,12 @@ private:
     std::vector<ActionSlot> _actionSlots;
     glm::vec3 _hilightedScreenCoords {0.0f};
     glm::vec3 _selectedScreenCoords {0.0f};
+    /** Where the action menu of the selected object stands on screen. */
+    glm::vec3 _menuScreenCoords {0.0f};
+    /** The object the action menu last stood over. */
+    uint32_t _menuObjectId {0};
+    /** How much longer the action menu stays where it is after the pointer left it. */
+    float _menuHoldSeconds {0.0f};
     int _reticleHeight {0};
     /** The hover reticle's size in pixels, by the object's distance from the leader. */
     int _hilightedReticleSize {0};
@@ -124,7 +130,10 @@ private:
     bool handleMouseWheel(const input::MouseWheelEvent &event);
 
     void renderReticle(graphics::Texture &texture, const glm::vec3 &screenCoords, float width, float height, float alpha);
+    void updateMenuScreenCoords(const Object &object, const glm::mat4 &projection, const glm::mat4 &view, float dt);
     void renderTitleBar();
+    /** The name the title bar gives \p object. */
+    std::string nameLabel(const Object &object) const;
     void renderHealthBar();
     void renderActionBar(bool leaderDown);
 

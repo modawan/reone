@@ -75,18 +75,46 @@ static constexpr float kSwingSoundHeight = 1.5f;
 static constexpr int kLinkedToDoor = 1;
 static constexpr int kLinkedToWaypoint = 2;
 
+// The fields a door placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {
+    "TransitionDestin", "LinkedTo", "LinkedToFlags", "LinkedToModule", "Bearing", "X", "Y", "Z"};
+// The fields a TSL door also takes from its entry.
+static const std::vector<std::string> kEntryFieldsTSL {"Tag"};
+
+// A door placed from its template takes everything from the template but
+// what its entry gives: in TSL its tag when the entry has one, its transition's
+// destination name when the entry has one, its link, link flags and linked
+// module, its bearing and its position; a missing link or module reads as
+// none, and missing flags, bearing or position as 0. A saved door takes
+// everything from its record.
 void Door::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     std::string templateRes;
+    std::shared_ptr<Gff> utd;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
-        if (auto utd = _services.resource.gffs.get(templateRes, ResType::Utd)) {
-            deserializeAll(*utd, SerializedIdentityContext::templateResource(templateRes));
-            captureAuthoredRecord(*utd, gff);
-        }
+        utd = _services.resource.gffs.get(templateRes, ResType::Utd);
     }
-    deserializeAll(gff, identityContext);
+    if (utd) {
+        deserializeAll(*utd, SerializedIdentityContext::templateResource(templateRes));
+        std::vector<std::string> entryFields {kEntryFields};
+        if (_game.isTSL()) {
+            entryFields.insert(entryFields.end(), kEntryFieldsTSL.begin(), kEntryFieldsTSL.end());
+        }
+        captureAuthoredRecord(*utd, gff, entryFields);
+        gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
+        _linkedTo = gff.getString("LinkedTo");
+        _linkedToFlags = static_cast<uint8_t>(gff.getUint("LinkedToFlags", 0));
+        _linkedToModule.clear();
+        gff.readResRef(_linkedToModule, "LinkedToModule");
+        if (_game.isTSL() && gff.readString(_tag, "Tag")) {
+            boost::to_lower(_tag);
+        }
+        placeAtEntryPoint(gff);
+    } else {
+        deserializeAll(gff, identityContext);
+    }
     applyHardness(_hardness);
     loadAppearance();
     applyRestingState();

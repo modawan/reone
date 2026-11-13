@@ -47,18 +47,29 @@ void Sound::loadFromBlueprint(const std::string &resRef) {
     deserialize(*uts, SerializedIdentityContext::templateResource(resRef));
 }
 
+// The fields a sound placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {"GeneratedType", "XPosition", "YPosition", "ZPosition"};
+
+// A sound placed from its template takes everything from the template but
+// what its entry gives: its generated type and its position, 0 where the entry
+// has none. A saved sound takes everything from its record.
 void Sound::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     std::string templateRes;
+    std::shared_ptr<Gff> uts;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
-        if (auto uts = _services.resource.gffs.get(templateRes, ResType::Uts)) {
-            deserializeAll(*uts, SerializedIdentityContext::templateResource(templateRes));
-            captureAuthoredRecord(*uts, gff);
-        }
+        uts = _services.resource.gffs.get(templateRes, ResType::Uts);
     }
-    deserializeAll(gff, identityContext);
+    if (uts) {
+        deserializeAll(*uts, SerializedIdentityContext::templateResource(templateRes));
+        captureAuthoredRecord(*uts, gff, kEntryFields);
+        _generatedType = gff.getUint("GeneratedType", 0);
+        placeAtEntryPosition(gff);
+    } else {
+        deserializeAll(gff, identityContext);
+    }
     loadAppearance();
     updateTransform();
     // A list with an interval waits one before its first sound, so that the

@@ -11,13 +11,16 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <fstream>
 #include <iterator>
 #include <sstream>
-#include <stdexcept>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "reone/system/logger.h"
+#include "reone/system/logutil.h"
 
 namespace reone {
 
@@ -58,6 +61,7 @@ const std::string kDifficultyLevelKey {"Difficulty Level"};
 const std::string kActiveKeybindsKey {"Active Keybinds"};
 const std::string kUnlockedPlanetSongsKey {"UnlockedPlanetSongs"};
 const std::string kMouseLookKey {"Mouse Look"};
+const std::string kCombatMovementKey {"Combat Movement"};
 const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
 
 // The Autopause Options keys.
@@ -97,13 +101,32 @@ std::string trim(const std::string &s) {
 using ConfigurationValue = std::pair<std::string, std::optional<int>>;
 
 /**
+ * Whether a problem with the configuration has been warned of since it was
+ * last written. A run that cannot read or write it warns once, not at every
+ * save. A problem met before the log is open counts for nothing, so it is
+ * warned of the next time it is met.
+ */
+std::atomic<bool> g_configurationProblemWarned {false};
+
+void warnOfConfigurationProblem(const std::string &message) {
+    if (Logger::instance.isInited() && !g_configurationProblemWarned.exchange(true)) {
+        warn(message);
+    }
+}
+
+/**
  * The game's configuration file, kept line by line: the game reads and writes
  * its own keys, and every other line, comment and section is written back
  * unchanged.
  */
 class ConfigurationFile {
 public:
-    /** The configuration at path; a host without one (an empty path) or a file not yet written reads as empty. */
+    /**
+     * The configuration at path; a host without one (an empty path) or a file
+     * not yet written reads as empty. So does a file that cannot be read,
+     * which is warned of and never written over: its options stay at their
+     * defaults, and those chosen are kept for this run only.
+     */
     static ConfigurationFile read(const std::filesystem::path &path) {
         ConfigurationFile result;
         if (path.empty()) {
@@ -111,12 +134,21 @@ public:
         }
         std::ifstream input(path, std::ios::binary);
         if (!input) {
-            if (std::filesystem::exists(path)) {
-                throw std::runtime_error("Cannot read configuration: " + path.string());
+            std::error_code error;
+            if (std::filesystem::exists(path, error) || error) {
+                result.markUnreadable(path);
             }
             return result;
         }
-        const std::string content {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        // A read that fails part way, as on a directory, can throw from the
+        // stream's buffer.
+        std::string content;
+        try {
+            content.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        } catch (const std::ios_base::failure &) {
+            result.markUnreadable(path);
+            return result;
+        }
         std::istringstream lines(content);
         for (std::string line; std::getline(lines, line);) {
             result._lines.push_back(std::move(line));
@@ -160,6 +192,12 @@ public:
     std::optional<bool> flag(const std::string &section, const std::string &key) const {
         auto value = number(section, key);
         return value ? std::optional<bool>(*value != 0) : std::nullopt;
+    }
+
+    /** Whether a switch in a section is on: its number's lowest bit. None when the key is absent. */
+    std::optional<bool> bit(const std::string &section, const std::string &key) const {
+        auto value = number(section, key);
+        return value ? std::optional<bool>((*value & 1) != 0) : std::nullopt;
     }
 
     std::optional<Keybind> keybind(const std::string &section, const std::string &keyPrefix) const {
@@ -221,10 +259,12 @@ public:
     /**
      * Write the configuration through a sibling file, so that a failed write
      * never truncates the live configuration. A host without a configuration
-     * (an empty path) keeps its options in memory only.
+     * (an empty path) keeps its options in memory only, and so does one whose
+     * configuration cannot be read or written: that is warned of, and play
+     * goes on.
      */
     void write(const std::filesystem::path &path) const {
-        if (path.empty()) {
+        if (path.empty() || _unreadable) {
             return;
         }
         std::string content;
@@ -239,15 +279,29 @@ public:
         std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
         file << content;
         file.close();
-        if (!file) {
-            throw std::runtime_error("Cannot write configuration: " + temporary.string());
+        std::error_code error;
+        if (file) {
+            std::filesystem::rename(temporary, path, error);
         }
-        std::filesystem::rename(temporary, path);
+        if (!file || error) {
+            warnOfConfigurationProblem("Unable to write the configuration to " + path.string() + "; the options are kept for this run only");
+            std::filesystem::remove(temporary, error);
+            return;
+        }
+        g_configurationProblemWarned = false;
     }
 
 private:
     std::vector<std::string> _lines;
     bool _endsWithNewline {false};
+    /** Whether the file is there but could not be read, so must not be written over. */
+    bool _unreadable {false};
+
+    void markUnreadable(const std::filesystem::path &path) {
+        _lines.clear();
+        _unreadable = true;
+        warnOfConfigurationProblem("Unable to read the configuration at " + path.string() + "; it is left unchanged and the options are kept for this run only");
+    }
 
     /** The section a header line opens; none for any other line. */
     static std::optional<std::string> sectionHeader(const std::string &line) {
@@ -378,6 +432,19 @@ void saveDifficultyLevel(const std::filesystem::path &path, int level) {
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs) {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kUnlockedPlanetSongsKey, songs}});
+    configuration.write(path);
+}
+
+GameplayOptions GameplayOptions::load(const std::filesystem::path &path) {
+    const auto configuration = ConfigurationFile::read(path);
+    GameplayOptions result;
+    result.combatMovement = configuration.bit(kGameOptionsSection, kCombatMovementKey).value_or(result.combatMovement);
+    return result;
+}
+
+void GameplayOptions::save(const std::filesystem::path &path) const {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kCombatMovementKey, combatMovement ? 1 : 0}});
     configuration.write(path);
 }
 

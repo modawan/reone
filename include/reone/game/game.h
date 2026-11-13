@@ -282,15 +282,19 @@ public:
      *
      * @param streamingMusic whether area music set to play through movies
      *        plays on while it runs
+     * @return whether the movie plays
      */
-    void playVideo(const std::string &name, bool streamingMusic = false);
+    bool playVideo(const std::string &name, bool streamingMusic = false);
     /**
      * Adds a movie to the queue that playMovieQueue plays, once. A movie that
      * is not skippable plays to its end.
      */
     void queueMovie(const std::string &name, bool skippable);
-    /** Plays the queued movies in order, ahead of a transition's, and empties the queue. */
-    void playMovieQueue();
+    /**
+     * Plays the queued movies in order, ahead of a transition's, and empties
+     * the queue; whether a movie plays.
+     */
+    bool playMovieQueue();
 
     bool isPaused() const { return _paused; }
     /**
@@ -395,21 +399,25 @@ public:
     void setSceneSurfaces();
 
     void setCursorType(resource::CursorType type);
-    void setPaused(bool paused, PauseReason reason = PauseReason::Other) {
-        _paused = paused;
-        if (paused) {
-            _pauseReason = reason;
-        } else {
-            _autoPaused = false;
-        }
-    }
+    /**
+     * Asks for play to be paused or unpaused at the end of the frame. The
+     * frame takes the first request that would change the pause, and a
+     * request back to how play stands withdraws it; a request is refused
+     * while the area waits on a transition. \p autoPause marks a pause that
+     * counts as an autopause; an unpause ends any autopause.
+     */
+    void setPaused(bool paused, PauseReason reason = PauseReason::Other, bool autoPause = false);
+    /** Pauses or unpauses play at once, dropping any request. */
+    void setPausedNow(bool paused);
+    /** Whether play is paused, or will be once the frame takes its request at its end. */
+    bool isPausedAtFrameEnd() const { return _pauseRequest ? _pauseRequest->paused : _paused; }
     /**
      * The player's pause control: toggles play and ends any autopause.
-     * Returns whether play is now paused.
+     * Returns whether play will be paused.
      */
     bool togglePlayerPause() {
-        setPaused(!_paused, PauseReason::Player);
-        return _paused;
+        setPaused(!isPausedAtFrameEnd(), PauseReason::Player);
+        return isPausedAtFrameEnd();
     }
     PauseReason pauseReason() const { return _pauseReason; }
 
@@ -499,7 +507,12 @@ public:
      * starts.
      */
     bool isDialogUnderWay() const { return _dialogUnderWay; }
-    void setDialogUnderWay(bool underWay) { _dialogUnderWay = underWay; }
+    void setDialogUnderWay(bool underWay) {
+        _dialogUnderWay = underWay;
+        if (!underWay) {
+            _conversationIgnoresStartRange = false;
+        }
+    }
 
     /**
      * Show a message box dismissed with OK, in the given colours or in those
@@ -640,12 +653,31 @@ public:
      * once round the party, until that member leads.
      */
     void finishPostDialogCharacterSwitch();
-    void openLevelUp();
+    /**
+     * Open the controlled creature's level-up. A forced level-up, opened by a
+     * script, pauses play and cannot be cancelled. False, opening nothing,
+     * when there is no controlled creature with a level to gain, a level-up
+     * is already open or the screen cannot be loaded.
+     */
+    bool openLevelUp(bool forced = false);
+    /**
+     * Leave a finished or cancelled level-up: back to play, or after a forced
+     * level-up, which lifts the pause it put on, to the screen it was opened
+     * over, or to play when that was a conversation that has ended meanwhile.
+     */
+    void closeLevelUp(bool forced);
     /**
      * A party member has enough experience to level up; newly when this
      * award brought it there. The level-up chime is the main interface's.
      */
     void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
+    /** After a level-up, the controlled creature is told when it can level up again. */
+    void notifyLevelUpStillAvailable(const Creature &creature);
+    /**
+     * A player character has levelled up: the module hears of it through its
+     * event queue, as with any other module event.
+     */
+    void signalPlayerLevelUp(const Creature &creature);
     void openContainer(const std::shared_ptr<Object> &container);
     void closeContainer(const Object &container);
     /**
@@ -743,10 +775,15 @@ public:
      * from the main menu does.
      */
     void fadeOutMenuMusic();
-    /** Whether the conversation started: false when it can't be loaded or shown. */
+    /**
+     * Whether the conversation started: false when it can't be loaded or shown.
+     * Play turns to the conversation only when it opens, after
+     * \p prepareParticipants; a one-liner is barked over play instead.
+     */
     bool startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
                      GlobalFade::DialogTicket admission = {},
-                     const std::shared_ptr<Object> &listener = nullptr);
+                     const std::shared_ptr<Object> &listener = nullptr,
+                     const std::function<void()> &prepareParticipants = {});
     /**
      * A request to talk from \p speaker reaches \p target as a conversation
      * event naming \p resRef, whose conversation script decides whether a
@@ -788,7 +825,25 @@ public:
     /** A script shows placed camera \p cameraId in the running conversation; nothing happens without one. */
     void showConversationPlacedCamera(int cameraId);
 
-    void setBarkBubbleText(std::string text, float durartion);
+    /**
+     * Shows \p text in the bark bubble for \p duration seconds, barked by
+     * \p speaker, or with no speaker. A bark with a speaker shows only while
+     * the party leader is within range of it, unless \p ignoresDistance.
+     */
+    void setBarkBubbleText(std::string text, float duration, uint32_t speaker = script::kObjectInvalid,
+                           bool ignoresDistance = false);
+    /**
+     * TSL: the bark bubble's left and top edges, in the interface's authored
+     * canvas units, each unless -1, for every bark until they are set again.
+     */
+    void setBarkBubblePlace(int x, int y);
+    /**
+     * Whether the conversation last asked for ignores its start range, as a
+     * script's conversation does. Its one-liner then barks whatever the
+     * leader's distance. It no longer does once no conversation is under way.
+     */
+    bool conversationIgnoresStartRange() const { return _conversationIgnoresStartRange; }
+    void setConversationIgnoresStartRange(bool ignores) { _conversationIgnoresStartRange = ignores; }
     /**
      * \p speaker barks the talk-table line \p strRef: the bark bubble shows
      * its text for the time it takes to speak, and its sound plays as a bark.
@@ -1000,6 +1055,11 @@ public:
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
+    /** Whether a busy leader in combat mode may be steered. */
+    bool combatMovement() const { return _options.game.gameplay.combatMovement; }
+    void setCombatMovement(bool on) { _options.game.gameplay.combatMovement = on; }
+    /** Write the gameplay options to the configuration. */
+    void saveGameplayOptions() const;
     /**
      * How far the mouse wheel has moved the follow camera in or out: its
      * distance is scaled by this. It holds from area to area, and goes back
@@ -1089,11 +1149,13 @@ public:
      */
     void breakEquipForfeit(const Creature &member, int slot, const Item &item);
     /**
-     * What follows every item going on, in this order: the module is told
-     * (event 38), a forfeit condition may break, and in TSL body armour may
-     * change the wearer's appearance.
+     * What follows every item going on, in this order: a weapon in a hand
+     * readies the wearer for combat, unless the equip is \p instant or a
+     * conversation is under way; the module is told (event 38); a forfeit
+     * condition may break; and in TSL body armour may change the wearer's
+     * appearance.
      */
-    void finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item);
+    void finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item, bool instant);
     /**
      * Signals the module that the wearer put the item on, unless into the
      * second weapon set. The module's equip script runs on it.
@@ -1252,10 +1314,17 @@ public:
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
+    /**
+     * A creature only shown, as in a menu's 3D view. It is neither good nor
+     * evil, so it shows its own portrait, head and body until given a
+     * good/evil.
+     */
     inline std::shared_ptr<Creature> newPresentationCreature(
         std::string sceneName) {
-        return newPresentationObject<Creature>(
+        auto creature = newPresentationObject<Creature>(
             std::move(sceneName), *this, _services);
+        creature->setGoodEvil(kNeutralGoodEvil);
+        return creature;
     }
     std::shared_ptr<Creature> newCreature(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
     std::shared_ptr<Creature> newCreatureFromBlueprint(
@@ -1890,6 +1959,10 @@ private:
     // END Tables
 
     Screen _screen {Screen::None};
+    /** The screen a forced level-up was opened over, which it returns to. */
+    Screen _levelUpReturnScreen {Screen::InGame};
+    /** Whether a forced level-up paused play, which it unpauses when done. */
+    bool _levelUpPaused {false};
     std::map<int, float> _baseItemCostMultipliers;
     bool _soloModeQueryOpen {false};
     bool _freeLook {false};
@@ -1985,6 +2058,19 @@ private:
     bool _autoPaused {false};
     PauseReason _pauseReason {PauseReason::Other};
 
+    /** A request to pause or unpause play, taken at the end of the frame (see setPaused). */
+    struct PauseRequest {
+        bool paused {false};
+        PauseReason reason {PauseReason::Other};
+        bool autoPause {false};
+    };
+    std::optional<PauseRequest> _pauseRequest;
+
+    /** Takes the pause request made during the frame. */
+    void applyPauseRequest();
+    /** Everything a frame updates before it takes the pause request. */
+    void updateFrame(float frameTime);
+
     // Target presentation
 
     struct HostileHilite {
@@ -2003,6 +2089,8 @@ private:
     std::optional<int> _envAudio;
     /** The room last rendered, so a room's sound is looked up only when the room changes. */
     const Room *_soundRoom {nullptr};
+    /** See conversationIgnoresStartRange. */
+    bool _conversationIgnoresStartRange {false};
     /** The admission of the request to talk a conversation script has still to answer. */
     GlobalFade::DialogTicket _conversationRequest;
     /** See admitConversationRequest. */
@@ -2410,6 +2498,10 @@ private:
 
     /** TSL: runs the level-up dialog script the first time only. */
     void runLevelUpDialogOnce();
+    /** Opens the controlled creature's level-up screen, whether or not a level is waiting (see openLevelUp). */
+    bool openLevelUpScreen(bool forced);
+    /** Return to \p underneath; a conversation that ended under the closing screen, or went with the session, is gone. */
+    void returnToScreen(Screen underneath);
 
     void advanceWorldTime(double dt);
     /** Sets \p event due at the world time \p milliseconds, as a day and a time of day. */
@@ -2522,6 +2614,15 @@ private:
         SavedActionQueue actions;
         std::vector<bool> actionReferencesBound;
     };
+    /**
+     * A companion, or in TSL a puppet, following the party out of the source
+     * module, with its roster record as it left.
+     */
+    struct TravellingCompanion {
+        RosterIdentity identity;
+        RuntimeObjectRef<Creature> creature;
+        ByteBuffer record;
+    };
 
     void clearDepartingActions();
     std::vector<PartyTransitionState> captureResidentPartyActions();
@@ -2530,6 +2631,16 @@ private:
     /** Create the destination module and make it the current one. */
     void publishDestinationModule(const std::string &name, const resource::Gff &ifo, bool restoringSavedWorld);
     void restorePartyTransitionState(std::vector<PartyTransitionState> &states);
+    std::vector<TravellingCompanion> captureTravellingCompanions();
+    /**
+     * Each travelling companion's record replaces its roster record and its
+     * creature is destroyed, so that it is made again from the record.
+     */
+    void retireTravellingCompanions(std::vector<TravellingCompanion> &companions);
+    /** Persist an encoded roster record as AVAILNPC/AVAILPUP. */
+    void saveRosterRecord(
+        const RosterIdentity &identity,
+        ByteBuffer record);
 
     void loadDefaultParty();
     bool loadParty();

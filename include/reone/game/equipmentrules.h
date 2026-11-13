@@ -226,12 +226,24 @@ enum class ItemLossNotice {
 };
 
 /**
+ * A held Item leaves its holder, as a stack of its own. An equipped one first
+ * comes off as an unequip that is not instant does, into the wearer's
+ * inventory, drawing the hand it leaves.
+ *
+ * @return the Item that left; none when it could not leave
+ */
+std::shared_ptr<Item> releaseHeldItem(
+    Game &game,
+    const std::shared_ptr<Item> &item);
+
+/**
  * Move one complete runtime Item from its current nested or Area ownership
  * edge to receiver. An ownerless nonresident Item is not transferable. A
  * placeable receiving an Item it holds takes it back: the Item leaves its
  * list and is added to it again, as its newest item or joining a stack there.
- * An Item that leaves its holder is announced lost as \p loss asks, before
- * the receiver takes it.
+ * An equipped Item is unequipped first, drawing the hand it leaves, and moves
+ * as a stack of its own. An Item that leaves its holder is announced lost as
+ * \p loss asks, before the receiver takes it.
  *
  * @return whether it moved, and the receiver's stack that holds it
  */

@@ -94,6 +94,9 @@ static constexpr int kOffToOnSwingRow = 315;
 static constexpr int kCorpseSoundType = 53;
 static constexpr float kDefaultLightOffsetZ = 3.0f;
 
+// The fields a placeable placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {"ObjectId", "Bearing", "X", "Y", "Z"};
+
 // Calls \p apply on every light node under \p root.
 static void forEachLight(scene::SceneNode &root, const std::function<void(scene::LightSceneNode &)> &apply) {
     std::vector<scene::SceneNode *> pending {&root};
@@ -125,6 +128,9 @@ void Placeable::deserialize(
     deserializeRecord(gff, identityContext, true);
 }
 
+// A placeable placed from its template takes everything from the template;
+// its entry gives only its object id, bearing and position. A saved placeable
+// takes everything from its record.
 void Placeable::deserializeRecord(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
@@ -134,16 +140,19 @@ void Placeable::deserializeRecord(
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
         utp = _services.resource.gffs.get(templateRes, ResType::Utp);
-        if (utp) {
-            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes), placedTemplate);
-            captureAuthoredRecord(*utp, gff);
-        }
     }
-    deserializeAll(gff, identityContext, false);
+    if (utp) {
+        deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes), placedTemplate);
+        captureAuthoredRecord(*utp, gff, kEntryFields);
+        placeAtEntryPoint(gff);
+    } else {
+        deserializeAll(gff, identityContext, false);
+    }
     // The Static byte is the record's or, when the record has none, set
     // unless its Useable byte is 1. A placeable whose entry carries no object
     // id is never static, and only a Static byte of 1 makes it plot.
-    if (!gff.readByte(_static, "Static") && !(utp && utp->readByte(_static, "Static"))) {
+    const Gff &record = utp ? *utp : gff;
+    if (!record.readByte(_static, "Static")) {
         _static = _usable != 1 ? 1 : 0;
     }
     if (gff.getUint("ObjectId", kSavedRuntimeInvalidObjectId) == kSavedRuntimeInvalidObjectId) {

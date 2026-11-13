@@ -49,6 +49,8 @@ public:
     const std::string &superModelName() const { return _superModelName; }
     float animationScale() const { return _animationScale; }
     const AABB &aabb() const { return _aabb; }
+    /** The box of the meshes except saber blades, by which an object is placed in a room. */
+    const AABB &meshBox() const { return _meshBox; }
 
     void setAffectedByFog(bool affected) { _affectedByFog = affected; }
     void setSubclassification(int subclassification) { _subclassification = subclassification; }
@@ -96,6 +98,7 @@ private:
     float _animationScale;
 
     AABB _aabb;
+    AABB _meshBox;
     bool _affectedByFog;
     std::shared_ptr<Model> _superModel;
 

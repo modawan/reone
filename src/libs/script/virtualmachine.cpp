@@ -231,6 +231,27 @@ int VirtualMachine::run() {
     if (!_context->instructionsRun) {
         _context->instructionsRun = std::make_shared<int>(0);
     }
+    return execute(insOff);
+}
+
+int VirtualMachine::resume() {
+    if (!_waiting) {
+        return -1;
+    }
+    _waiting = false;
+    debug(str(boost::format("Resume '%s': Offset=%04x") % _program->name() % _nextInstruction), LogChannel::Script);
+    return execute(_nextInstruction);
+}
+
+int VirtualMachine::execute(uint32_t insOff) {
+    // A run started while the runs it shares its context's yield with wait
+    // runs nothing, and waits with them from where it would have started.
+    if (_context->yield && *_context->yield) {
+        debug(str(boost::format("Wait '%s': Offset=%04x") % _program->name() % insOff), LogChannel::Script);
+        _nextInstruction = insOff;
+        _waiting = true;
+        return -1;
+    }
     while (insOff < _program->length()) {
         if (++*_context->instructionsRun > kMaxInstructionsPerRun) {
             error(str(boost::format("Script '%s' stopped at %04x: too many instructions") % _program->name() % insOff),
@@ -263,6 +284,13 @@ int VirtualMachine::run() {
 
         if (halt) {
             debug(str(boost::format("Halt '%s'") % _program->name()), LogChannel::Script);
+            return -1;
+        }
+        // A routine asked the run to wait: it goes on from the next
+        // instruction when resumed.
+        if (_context->yield && *_context->yield) {
+            debug(str(boost::format("Wait '%s': Offset=%04x") % _program->name() % _nextInstruction), LogChannel::Script);
+            _waiting = true;
             return -1;
         }
 
@@ -397,8 +425,10 @@ void VirtualMachine::executeACTION(const Instruction &ins) {
             break;
 
         case VariableType::Action: {
+            // A stored command runs on its own later and never waits.
             auto ctx = std::make_shared<ExecutionContext>(*_context);
             ctx->savedState = std::make_shared<ExecutionState>(_savedState);
+            ctx->yield.reset();
             args.push_back(Variable::ofAction(std::move(ctx)));
             break;
         }

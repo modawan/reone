@@ -41,6 +41,10 @@ void Portraits::init() {
 
         Portrait portrait;
         portrait.resRef = resRef;
+        portrait.resRefE = boost::to_lower_copy(portraits->getString(row, "baseresrefe"));
+        portrait.resRefVE = boost::to_lower_copy(portraits->getString(row, "baseresrefve"));
+        portrait.resRefVVE = boost::to_lower_copy(portraits->getString(row, "baseresrefvve"));
+        portrait.resRefVVVE = boost::to_lower_copy(portraits->getString(row, "baseresrefvvve"));
         portrait.appearanceNumber = portraits->getInt(row, "appearancenumber");
         portrait.appearanceS = portraits->getInt(row, "appearance_s");
         portrait.appearanceL = portraits->getInt(row, "appearance_l");

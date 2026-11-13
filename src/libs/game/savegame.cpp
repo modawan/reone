@@ -93,23 +93,45 @@ constexpr uint32_t kQuickSaveSlot = 0;
 constexpr uint32_t kAutoSaveSlot = 1;
 constexpr uint32_t kMaxSemanticSlot = 999999;
 constexpr uint64_t kFileTimeEpochOffset = 116444736000000000ULL;
+constexpr uint64_t kFileTimeTicksPerSecond = 10000000ULL;
+constexpr int64_t kSecondsPerMinute = 60;
+constexpr int64_t kSecondsPerHour = 3600;
+constexpr int64_t kSecondsPerDay = 86400;
 
+// The days from 1 January 1970 to a date in the proleptic Gregorian calendar.
+int64_t daysFromCivil(int64_t year, int64_t month, int64_t day) {
+    static constexpr int64_t kDaysFromMarchOfYear0To1970 = 719468;
+    static constexpr int64_t kDaysPerEra = 146097;
+    // Years counted from March, so a leap day ends the year.
+    year -= month <= 2 ? 1 : 0;
+    const int64_t era = (year >= 0 ? year : year - 399) / 400;
+    const int64_t yearOfEra = year - era * 400;
+    const int64_t dayOfYear = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+    const int64_t dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    return era * kDaysPerEra + dayOfEra - kDaysFromMarchOfYear0To1970;
+}
+
+// A save's timestamp holds local time. It is counted in 64 bits from the
+// calendar fields of the local time; when the local time can't be had, from
+// the time in UTC.
 uint64_t currentFileTime() {
     auto now = std::chrono::system_clock::now();
     auto seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
     auto subsecondTicks = std::chrono::duration_cast<
-        std::chrono::duration<uint64_t, std::ratio<1, 10000000>>>(now - seconds);
+        std::chrono::duration<uint64_t, std::ratio<1, kFileTimeTicksPerSecond>>>(now - seconds);
     auto time = std::chrono::system_clock::to_time_t(now);
     std::tm local {};
 #ifdef _WIN32
-    localtime_s(&local, &time);
-    auto localAsUtc = _mkgmtime64(&local);
+    const bool converted = localtime_s(&local, &time) == 0;
 #else
-    localtime_r(&time, &local);
-    auto localAsUtc = timegm(&local);
+    const bool converted = localtime_r(&time, &local) != nullptr;
 #endif
+    const int64_t localSeconds = converted
+                                     ? daysFromCivil(local.tm_year + 1900, local.tm_mon + 1, local.tm_mday) * kSecondsPerDay +
+                                           local.tm_hour * kSecondsPerHour + local.tm_min * kSecondsPerMinute + local.tm_sec
+                                     : static_cast<int64_t>(time);
     return kFileTimeEpochOffset +
-           static_cast<uint64_t>(localAsUtc) * 10000000ULL +
+           static_cast<uint64_t>(localSeconds) * kFileTimeTicksPerSecond +
            subsecondTicks.count();
 }
 
@@ -367,22 +389,12 @@ SaveMetadataInput Game::buildSaveMetadata(const SaveRequest &request) const {
         }
     }
 
+    // A save shows each member's portrait for its good/evil.
     const auto &portraitRows = _services.game.portraits.portraits();
     auto livePortrait = [&portraitRows](const std::shared_ptr<Creature> &creature) {
         if (!creature) return std::string();
-        auto portraitId = creature->portraitId();
-        if (portraitId > 0 && portraitId < portraitRows.size()) {
-            return portraitRows[portraitId].resRef;
-        }
-        auto appearance = creature->appearance();
-        auto found = std::find_if(
-            portraitRows.begin(), portraitRows.end(),
-            [appearance](const Portrait &portrait) {
-                return portrait.appearanceNumber == appearance ||
-                       portrait.appearanceS == appearance ||
-                       portrait.appearanceL == appearance;
-            });
-        return found == portraitRows.end() ? std::string() : found->resRef;
+        const Portrait *row = findPortrait(portraitRows, creature->portraitId(), creature->appearance());
+        return row ? row->resRefForGoodEvil(creature->goodEvil()) : std::string();
     };
     for (size_t i = 0; i < metadata.portraits.size(); ++i) {
         auto creature = i < _party.members().size()

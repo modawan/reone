@@ -207,7 +207,9 @@ private:
         const SerializedIdentityContext &identityContext);
     void deserializeSavedRuntimeState(const resource::Gff &gff);
     void deserializeCreatures(const resource::Gff &gff);
+    /** Takes the record's geometry list, when it has one, even empty, in place of the encounter's. */
     void deserializeGeometry(const resource::Gff &gff);
+    /** Takes the record's spawn point list, when it has one, even empty, in place of the encounter's. */
     void deserializeSpawnPoints(const resource::Gff &gff);
     void deserializePendingSpawns(const resource::Gff &gff);
 

@@ -86,8 +86,13 @@ enum class RoomFaceProbe {
 
 class ModelSceneNode;
 
-/** Whether a top-level model stands in a shown room (see ISceneGraph::setRoomTest). */
-using RoomTest = std::function<bool(const ModelSceneNode &)>;
+/** What stands in a shown room (see ISceneGraph::setRoomTest). */
+struct RoomTest {
+    /** Whether a top-level model stands in a shown room. */
+    std::function<bool(const ModelSceneNode &)> model;
+    /** Whether a point, where an object's light stands, is in a shown room. */
+    std::function<bool(const glm::vec3 &)> point;
+};
 
 /** The face of a room walkmesh that a vertical probe meets first going down. */
 struct RoomFace {
@@ -158,19 +163,23 @@ public:
 
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     /**
-     * Where the line first meets a room walkmesh face that stops sight, or the
-     * posed model of a creature, placeable or door whose user is not one of
-     * \p excluded.
+     * Where the line first meets a face of a room model's AABB mesh of a
+     * camera surface, as testCameraLine has them, or the posed model of a
+     * creature, placeable or door, or a model attached to one, that takes
+     * scene hits (see ModelSceneNode::takesSceneHits). Of an object whose
+     * user is in \p excluded only the attached models count, except the one
+     * attached at \p excludedHook.
      */
-    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const = 0;
+    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
     /**
      * Where the line first meets what stops a camera: a face of a room
      * model's AABB mesh, in any room, shown or not, of a camera surface
      * (setCameraSurfaces), walkable floor included; or a triangle, as it is
      * posed, of the model of a door or placeable that a camera does not pass
-     * through and whose classification does not let it. The normal faces
-     * back along the line.
+     * through, that takes scene hits (see ModelSceneNode::takesSceneHits) and
+     * whose classification does not let it. The normal faces back along the
+     * line.
      */
     virtual bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     /**
@@ -264,9 +273,11 @@ public:
     virtual void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) = 0;
     /**
      * The test a top-level model other than a room's must pass to be drawn
-     * and picked: whether it stands in a shown room. The graph only watches
-     * the test, which its owner keeps; once the owner lets it go, or after
-     * clear, every model passes.
+     * and picked: whether it stands in a shown room. A light of such a model
+     * shines when it stands in a shown room itself, and a room's lights
+     * shine while the room is shown, whether the model is drawn or not. The
+     * graph only watches the test, which its owner keeps; once the owner lets
+     * it go, or after clear, every model and light passes.
      */
     virtual void setRoomTest(std::weak_ptr<const RoomTest> test) = 0;
 
@@ -436,7 +447,7 @@ public:
     // Collision detection and object picking
 
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
-    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const override;
+    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
     bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
     void setCameraSurfaces(std::set<uint32_t> surfaces) override { _cameraSurfaces = std::move(surfaces); }
@@ -480,6 +491,13 @@ public:
     // END Factory methods
 
 private:
+    /**
+     * Where the line, of some length, meets a face of a room model's AABB
+     * mesh of a camera surface nearer than \p nearest, which it brings in,
+     * every room whether shown or not.
+     */
+    void testRoomModels(const glm::vec3 &origin, const glm::vec3 &dest, float &nearest, Collision &outCollision) const;
+
     std::string _name;
     IRenderPipelineFactory &_renderPipelineFactory;
     graphics::GraphicsOptions &_graphicsOpt;
@@ -588,7 +606,12 @@ private:
     bool isStacked(const WalkmeshSceneNode &room) const { return floorStacking().rooms.count(&room) > 0; }
 
     void refresh();
-    void refreshFromNode(SceneNode &node);
+    /**
+     * Collects the meshes, lights and emitters under a node. Under a model
+     * that is culled but rendered, only its lights are collected. A light is
+     * collected when \p roomTest, if any, passes at its position.
+     */
+    void refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly);
 
     void updateLighting();
     void updateShadowLight(float dt);

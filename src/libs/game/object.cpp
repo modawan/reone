@@ -209,6 +209,15 @@ void Object::deserializePlot(const resource::Gff &gff, bool readInvulnerable) {
     }
 }
 
+void Object::placeAtEntryPosition(const resource::Gff &entry) {
+    _position = glm::vec3(entry.getFloat("XPosition", 0.0f), entry.getFloat("YPosition", 0.0f), entry.getFloat("ZPosition", 0.0f));
+}
+
+void Object::placeAtEntryPoint(const resource::Gff &entry) {
+    _orientation = glm::quat(glm::vec3(0.0f, 0.0f, entry.getFloat("Bearing", 0.0f)));
+    _position = glm::vec3(entry.getFloat("X", 0.0f), entry.getFloat("Y", 0.0f), entry.getFloat("Z", 0.0f));
+}
+
 void Object::deserializePlacement(const resource::Gff &gff) {
     gff.readFloat(_position[0], "X");
     gff.readFloat(_position[0], "XPosition");
@@ -470,6 +479,9 @@ void Object::receiveConversationEvent(ConversationEvent event) {
     _matchedSubstrings = std::move(event.matchedPieces);
     _lastConversation = event.conversation;
     _privateConversation = event.privateConversation;
+    // Every conversation event sets whether the conversation ignores its
+    // start range; one that matched a pattern carries no such flag.
+    _game.setConversationIgnoresStartRange(event.ignoreStartRange);
     _game.setLastConversation(std::move(event.conversation));
     _game.admitConversationRequest();
     runConversationScript();
@@ -695,9 +707,22 @@ void Object::captureSaveRecord(
 }
 
 void Object::captureAuthoredRecord(const resource::Gff &blueprint, const resource::Gff &placement) {
+    std::vector<std::string> placementFields;
+    for (const auto &field : placement.fields()) {
+        placementFields.push_back(field.label);
+    }
+    captureAuthoredRecord(blueprint, placement, placementFields);
+}
+
+void Object::captureAuthoredRecord(
+    const resource::Gff &blueprint,
+    const resource::Gff &placement,
+    const std::vector<std::string> &placementFields) {
     auto record = blueprint.deepCopy();
     for (const auto &field : placement.fields()) {
-        replaceSaveField(*record, field.deepCopy());
+        if (std::find(placementFields.begin(), placementFields.end(), field.label) != placementFields.end()) {
+            replaceSaveField(*record, field.deepCopy());
+        }
     }
     _saveRecordProvenance = SaveRecordProvenance {SaveGffShadow::capture(*record), SaveRecordOrigin {}, std::nullopt};
 }

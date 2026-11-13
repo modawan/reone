@@ -26,6 +26,7 @@
 #include "reone/game/object/sound.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/talent.h"
+#include "reone/game/types.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/routine/exception/argmissing.h"
 #include "reone/script/routine/exception/argument.h"
@@ -262,6 +263,10 @@ std::shared_ptr<Object> getObjectOrCaller(const std::vector<Variable> &args, int
     } else {
         return getObject(args, index, ctx);
     }
+}
+
+bool isScriptAbility(int ability) {
+    return ability >= static_cast<int>(Ability::Strength) && ability <= static_cast<int>(Ability::Charisma);
 }
 
 std::shared_ptr<Creature> checkCreature(const std::shared_ptr<Object> &object) {

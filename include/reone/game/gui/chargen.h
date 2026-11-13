@@ -84,7 +84,8 @@ public:
     void startCreation();
     void startQuick();
     void startCustom();
-    void startLevelUp();
+    /** Starts the controlled creature's level-up; a forced one cannot be cancelled. */
+    void startLevelUp(bool forced = false);
 
     void finish();
     void cancel();
@@ -229,6 +230,8 @@ private:
 
     CharGenScreen _screen {CharGenScreen::ClassSelection};
     Type _type {Type::Quick};
+    /** Whether the level-up under way was forced by a script, and cannot be cancelled. */
+    bool _levelUpForced {false};
     Character _character;
     LevelUpBase _levelUpBase;
     /** The panel's title as the layout gives it, which creation shows. */

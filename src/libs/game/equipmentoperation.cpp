@@ -18,6 +18,7 @@
 #include "reone/game/equipmentoperation.h"
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <map>
 #include <vector>
@@ -150,17 +151,22 @@ static EquipmentOperationOutcome equipFrom(
         return EquipmentOperationOutcome::Failed;
     }
     presentHandChange(subject, decision.actualSlot, instant);
-    game.finishEquip(subject, decision.actualSlot, candidate);
+    // Only an equip into an empty slot passes its instant flag on; a
+    // replacement readies the wearer for combat whatever its flag.
+    game.finishEquip(subject, decision.actualSlot, candidate,
+                     instant && decision.action == EquipmentCandidateAction::Equip);
     return EquipmentOperationOutcome::Applied;
 }
 
 // Removing a main-hand item promotes a weapon held in the paired off-hand slot.
-// A hand left with another weapon, or with none, is drawn anew.
-static EquipmentOperationOutcome unequipInto(
-    Game &game, Creature &subject, const std::shared_ptr<Item> &item, Object &repository, bool instant,
-    ItemStacking stacking = ItemStacking::Join) {
+// A hand left with another weapon, or with none, is drawn anew unless the
+// unequip is instant. The item joins its stacks in the repository, or not, as
+// Object::addItem does.
+static std::shared_ptr<Item> unequipInto(
+    Game &game, Creature &subject, const std::shared_ptr<Item> &item, Object &repository, ItemStacking stacking,
+    bool instant) {
     if (!item->isEquipped() || item->owner() != subject.id()) {
-        return EquipmentOperationOutcome::Rejected;
+        return nullptr;
     }
     int slot = -1;
     for (const auto &[equippedSlot, equipped] : subject.equipment())
@@ -178,22 +184,20 @@ static EquipmentOperationOutcome unequipInto(
         promoted = nullptr;
     }
 
-    if (!subject.moveEquippedItemTo(item, repository, stacking)) {
-        return EquipmentOperationOutcome::Failed;
+    auto lying = subject.moveEquippedItemTo(item, repository, stacking);
+    if (!lying) {
+        return nullptr;
     }
     if (slot == InventorySlots::body) {
         subject.updateArmourAppearance(nullptr);
     }
-    if (promoted) {
-        auto moved = subject.takeEquippedItem(promoted);
-        if (!moved || !subject.equip(slot, moved)) {
-            return EquipmentOperationOutcome::Failed;
-        }
-        // The promoted weapon counts as newly equipped in the main hand.
-        game.finishEquip(subject, slot, moved);
+    // The promoted weapon counts as newly equipped in the main hand.
+    if (auto moved = promoted ? subject.takeEquippedItem(promoted) : nullptr) {
+        subject.putInSlot(slot, moved);
+        game.finishEquip(subject, slot, moved, false);
     }
     presentHandChange(subject, slot, instant);
-    return EquipmentOperationOutcome::Applied;
+    return lying;
 }
 
 EquipmentOperationOutcome runEquip(
@@ -229,34 +233,34 @@ EquipmentOperationOutcome runEquip(
     return equipFrom(game, subject, *repository, *inventoryOwner, item, requestedSlot, instant);
 }
 
-EquipmentOperationOutcome runUnequip(
+std::shared_ptr<Item> runUnequip(
     Game &game,
     Creature &subject,
     const std::shared_ptr<Item> &item,
     const std::shared_ptr<Item> &container,
-    bool instant,
-    ItemStacking stacking) {
+    ItemStacking stacking,
+    bool instant) {
     if (!isLiveObject(game, subject) || !item) {
-        return EquipmentOperationOutcome::Rejected;
+        return nullptr;
     }
     std::shared_ptr<Object> repository;
     if (container) {
         if (!isLiveObject(game, *container) || container->owner() != subject.id() || container == item) {
-            return EquipmentOperationOutcome::Rejected;
+            return nullptr;
         }
         repository = container;
     } else {
         repository = inventoryOwnerOf(game, subject);
     }
     if (!repository) {
-        return EquipmentOperationOutcome::Rejected;
+        return nullptr;
     }
     // A party member's item taken off but not at once sounds as it goes.
-    const auto outcome = unequipInto(game, subject, item, *repository, instant, stacking);
-    if (outcome == EquipmentOperationOutcome::Applied && !instant && game.party().isMember(subject)) {
+    auto lying = unequipInto(game, subject, item, *repository, stacking, instant);
+    if (lying && !instant && game.party().isMember(subject)) {
         item->playDropSound();
     }
-    return outcome;
+    return lying;
 }
 
 // The weapons of the inventory, then the one taken from the hand being chosen
@@ -367,7 +371,7 @@ static void chooseMeleeWeapon(
                    (versusCreature ? subject.getMaximumElementalDamageBonus(*versusCreature) : 0);
         });
         // Measuring a weapon counts as putting it on.
-        game.finishEquip(subject, decision->actualSlot, candidate);
+        game.finishEquip(subject, decision->actualSlot, candidate, false);
         if (damage >= best) {
             best = damage;
             choice = candidate;
@@ -375,7 +379,7 @@ static void chooseMeleeWeapon(
     }
     // The held weapon goes back on after the measuring.
     if (held) {
-        game.finishEquip(subject, slot, held);
+        game.finishEquip(subject, slot, held, false);
     }
     if (choice) {
         if (choice != held) {
@@ -439,7 +443,7 @@ bool equipMostDamagingRangedWeapon(
             return subject.getAttackBonusBreakdown(versusCreature, candidate, false).total();
         });
         // Measuring a weapon counts as putting it on.
-        game.finishEquip(subject, decision->actualSlot, candidate);
+        game.finishEquip(subject, decision->actualSlot, candidate, false);
         if (attack > best) {
             best = attack;
             choice = candidate;
@@ -447,7 +451,7 @@ bool equipMostDamagingRangedWeapon(
     }
     // The held weapon goes back on after the measuring.
     if (held) {
-        game.finishEquip(subject, InventorySlots::rightWeapon, held);
+        game.finishEquip(subject, InventorySlots::rightWeapon, held, false);
     }
     if (!choice || choice == held) {
         return false;
@@ -521,7 +525,8 @@ EquipmentOperationOutcome applyEquipmentOperation(
             reportArmorChangeRefused(game, subject, false);
             return EquipmentOperationOutcome::Rejected;
         }
-        return equipFrom(game, subject, sourceInventory, sourceInventory, item, requestedSlot, false);
+        // KotOR's screen equips are instant, TSL's are not.
+        return equipFrom(game, subject, sourceInventory, sourceInventory, item, requestedSlot, !game.isTSL());
     }
 
     auto decision = evaluateEquipmentCandidate(subject, requestedSlot, nullptr);
@@ -539,14 +544,20 @@ EquipmentOperationOutcome applyEquipmentOperation(
     if ((equipped && !isLiveObject(game, *equipped)) || (paired && !isLiveObject(game, *paired))) {
         return EquipmentOperationOutcome::Rejected;
     }
-    // Clearing both hands releases the off-hand first so it is not promoted.
-    for (const auto &clear : {paired, equipped}) {
+    // Clearing both hands: KotOR releases the off hand first, so it is not
+    // promoted; TSL releases the main hand first, promoting the off-hand
+    // weapon, which then leaves the main hand. What KotOR's screen takes off
+    // joins a matching stack and goes undrawn; what TSL's takes off keeps a
+    // stack of its own.
+    const auto order = game.isTSL() ? std::array<std::shared_ptr<Item>, 2> {equipped, paired}
+                                    : std::array<std::shared_ptr<Item>, 2> {paired, equipped};
+    const auto stacking = game.isTSL() ? ItemStacking::Own : ItemStacking::Join;
+    for (const auto &clear : order) {
         if (!clear) {
             continue;
         }
-        const auto outcome = unequipInto(game, subject, clear, sourceInventory, false);
-        if (outcome != EquipmentOperationOutcome::Applied) {
-            return outcome;
+        if (!unequipInto(game, subject, clear, sourceInventory, stacking, !game.isTSL())) {
+            return EquipmentOperationOutcome::Failed;
         }
         // TSL's screen takes the item off not at once, so it sounds; KotOR's at once.
         if (game.isTSL()) {

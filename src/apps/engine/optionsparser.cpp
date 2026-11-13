@@ -18,6 +18,9 @@
 #include "optionsparser.h"
 
 #include <cmath>
+#include <fstream>
+#include <iostream>
+#include <optional>
 
 #include "reone/system/types.h"
 
@@ -95,8 +98,21 @@ std::unique_ptr<Options> OptionsParser::parse() {
 
     variables_map vars;
     store(parse_command_line(_argc, _argv, descCmdLine), vars);
-    if (std::filesystem::exists(kConfigFilename)) {
-        store(parse_config_file<char>(kConfigFilename, descCommon, true), vars);
+    // A configuration that is there but cannot be read, whether it fails to
+    // open or part way through, leaves the options at their defaults; the log
+    // is not open yet, so this is said on the error stream.
+    std::error_code configError;
+    if (std::filesystem::exists(kConfigFilename, configError) || configError) {
+        std::ifstream config(kConfigFilename);
+        std::optional<parsed_options> parsed;
+        if (config) {
+            parsed = parse_config_file<char>(config, descCommon, true);
+        }
+        if (parsed && !config.bad()) {
+            store(*parsed, vars);
+        } else {
+            std::cerr << "Unable to read the configuration at " << kConfigFilename << "; the options are left at their defaults" << std::endl;
+        }
     }
     notify(vars);
 

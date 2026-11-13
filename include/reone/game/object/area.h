@@ -131,6 +131,8 @@ public:
         std::optional<std::reference_wrapper<const Door>> door;
         /** The normal where the walk is stopped: the wall's, or for a creature the way out from its centre. */
         glm::vec3 normal {0.0f};
+        /** How the walker meets the wall that stops it, when a swept wall test found it. */
+        std::optional<graphics::Walkmesh::ContactKind> contact;
     };
 
     using SearchCriteriaList = std::vector<std::pair<CreatureType, int>>;
@@ -429,15 +431,15 @@ public:
         const glm::vec3 &to,
         std::optional<std::reference_wrapper<const Creature>> ignored = std::nullopt) const;
     /**
-     * Whether a walking creature, or a driven leader, can take a step from
-     * one point to another. Walls are found by a thin level line just above
-     * the ground. A walk from no room leaves the rooms at once; otherwise
-     * only what stands before the point where the walk runs out of the rooms
-     * counts, a door or placeable wall within the creature's personal space of
-     * that point included, and with nothing there it leaves them at that
-     * point. The walk is settled room by room: a creature in an earlier room
-     * stops it before a wall in a later one. What is reported is as for
-     * testDirectLine.
+     * Whether a walking creature can take a step from one point to another,
+     * or a driven leader that starts with a wall within its personal space.
+     * Walls are found by a thin level line just above the ground. A walk from
+     * no room leaves the rooms at once; otherwise only what stands before the
+     * point where the walk runs out of the rooms counts, a door or placeable
+     * wall within the creature's personal space of that point included, and
+     * with nothing there it leaves them at that point. The walk is settled
+     * room by room: a creature in an earlier room stops it before a wall in a
+     * later one. What is reported is as for testDirectLine.
      */
     DirectLineTest testWalkStep(
         const Creature &mover,
@@ -508,11 +510,16 @@ public:
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
-     * centre of its bounding box for any other. A model no box holds, one
-     * whose subclassification marks it so, or an object's model placed at the
-     * world origin, is in every room.
+     * centre of the box of its meshes except saber blades for any other. A
+     * model no box holds, one whose subclassification marks it so, or an
+     * object's model placed at the world origin, is in every room.
      */
     bool isModelInShownRoom(const scene::ModelSceneNode &model) const;
+    /**
+     * Whether a point is in a shown room: in each room whose box holds it
+     * seen from above, or in every room when none does.
+     */
+    bool isPointInShownRoom(const glm::vec3 &point) const;
     /**
      * Where the room shown around is looked for: the leader's position, or
      * the camera of a conversation under way that uses one of its own; none
@@ -1018,8 +1025,9 @@ private:
     /** Whether only some rooms are shown this frame. */
     bool _cullingRooms {false};
     /** The test the scene graph culls models by while this area lasts (see ISceneGraph::setRoomTest). */
-    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(
-        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); })};
+    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(scene::RoomTest {
+        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); },
+        [this](const glm::vec3 &point) { return isPointInShownRoom(point); }})};
     CameraStyle _camStyleDefault;
     CameraStyle _camStyleCombat;
     AmbientAudio _ambientAudio;

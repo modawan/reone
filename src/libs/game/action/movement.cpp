@@ -516,80 +516,93 @@ static constexpr int kDriveTries = 6;
 // that does: square rings out to about a metre.
 static constexpr float kDriveNudgeRadius = -1.01f;
 
-// The driven creature steps along a straight line to a point a step ahead. A
-// companion or puppet in the way is pushed aside first; when someone is still
-// in the way and the creature stands where it does not fit, it first moves to
-// the nearest spot that does. A point the creature cannot walk straight to is
-// slid: past a creature, onto the line through where they meet, across the way
-// out from that creature's centre; along a wall, as far along the wall from
-// where the creature stands. The creature steps only to a point it can walk
-// straight to. A step that would bring a door or placeable wall within its
-// personal space is slid round that object, unless it stands that close
-// already. It stays where it is once six lines have failed, or when two
-// meetings in a row turn it opposite ways across its path, as in a corner.
-static void stepDriven(Game &game, Area &area, const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, float step) {
-    static constexpr glm::vec3 kUp {0.0f, 0.0f, 1.0f};
+// The driven creature steps along a straight line to a point a step ahead,
+// its personal space swept along it against walls, doors, placeables and
+// creatures. A companion or puppet in the way is pushed aside first; when
+// someone is still in the way and the creature stands where it does not fit,
+// it first moves to the nearest spot that does. A step that meets a wall's
+// face, a door's or placeable's, or a creature, is projected onto it from
+// where it is stopped; one that meets a corner sidesteps it, at a pace that
+// does not hang on the frame rate. A creature that starts with a wall within
+// its personal space, as a walk can leave it, steps as a walk does, so that it
+// can always move off. The creature steps only to a point it can walk
+// straight to, and stays where it is once six lines have failed, or when two
+// walls in a row face against each other across its path with no corner
+// between them.
+static void stepDriven(Game &game, Area &area, const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, float speed, float dt) {
+    using ContactKind = graphics::Walkmesh::ContactKind;
+    // A step that meets a corner is tried again across the drive at this
+    // pace, in metres a second; one that meets a corner between two walls
+    // facing against each other, at half of it.
+    static constexpr float kCornerSidestepSpeed = 3.6f;
+    static constexpr float kWedgedSidestepSpeed = 1.8f;
+    const float step = speed * dt;
     const glm::vec3 start {creature->position()};
     glm::vec3 target {start.x + dir.x * step, start.y + dir.y * step, start.z};
     const glm::vec2 back {-dir};
+    // Left of the drive.
+    const glm::vec2 across {-dir.y, dir.x};
     glm::vec2 previousNormal {0.0f};
+    const auto testStep = [&area, &creature](const glm::vec3 &to) {
+        auto line = area.testDirectLine(*creature, creature->position(), to);
+        if (line.contact == ContactKind::StartInside) {
+            line = area.testWalkStep(*creature, creature->position(), to);
+        }
+        return line;
+    };
     for (int attempt = 1;; ++attempt) {
-        auto line = area.testWalkStep(*creature, creature->position(), target);
+        auto line = testStep(target);
         if (line.result == Area::DirectLine::CreatureBlocked) {
             creature->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), creature->position(), target, dir);
-            line = area.testWalkStep(*creature, creature->position(), target);
+            line = testStep(target);
             if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(creature->position(), *creature)) {
                 if (auto spot = area.computeSafeLocation(creature->position(), kDriveNudgeRadius, *creature, true)) {
                     creature->setPosition(*spot);
                     area.determineObjectRoom(*creature);
                 }
-                line = area.testWalkStep(*creature, creature->position(), target);
+                line = testStep(target);
             }
         }
         if (line.result == Area::DirectLine::Clear) {
-            const glm::vec3 position {creature->position()};
-            // Door and placeable walls count across the heights
-            // Area::staticWallBand gives for where the creature stands.
-            const auto wallBand = area.staticWallBand(*creature, position.z, position.z);
-            const auto wall = area.findStaticWallAlong(target, target, *creature, wallBand.low, wallBand.high);
-            if (!wall || area.findStaticWallAlong(position, position, *creature, wallBand.low, wallBand.high)) {
-                // The room under the step is looked for from height 0, or
-                // where floors lie over others from the creature's height.
-                area.stepCreatureTo(creature, glm::vec3(glm::vec2(target), area.roomLookupHeight(position.z)), Area::MoveFacing::Keep);
-                return;
-            }
-            // The creature slides across the way out from the object's
-            // centre; heading straight at it, the creature stays where it is.
-            const glm::vec2 away {glm::vec2(position) - glm::vec2(wall->get().position())};
-            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
-            if (glm::length(away) == 0.0f || glm::dot(way, glm::vec2(-away.y, away.x)) == 0.0f) {
-                return;
-            }
-            line.result = Area::DirectLine::Blocked;
-            line.normal = glm::vec3(glm::normalize(away), 0.0f);
-        }
-        if (attempt == kDriveTries) {
+            // The room under the step is looked for from height 0, or where
+            // floors lie over others from the creature's height.
+            area.stepCreatureTo(creature, glm::vec3(glm::vec2(target), area.roomLookupHeight(creature->position().z)), Area::MoveFacing::Keep);
             return;
         }
-
-        const glm::vec2 across {line.normal};
-        if (attempt > 1) {
-            const float now = glm::dot(back, glm::vec2(-across.y, across.x));
-            const float before = glm::dot(back, glm::vec2(-previousNormal.y, previousNormal.x));
-            if ((now > 0.0f && before < 0.0f) || (now < 0.0f && before > 0.0f)) {
+        // A step that leaves the rooms goes nowhere.
+        if (line.result == Area::DirectLine::LeavesRooms || attempt == kDriveTries) {
+            return;
+        }
+        const glm::vec2 normal {line.normal};
+        const glm::vec3 position {creature->position()};
+        const bool corner = line.contact == ContactKind::Corner;
+        // Which side of the drive a wall's normal lies on.
+        const auto side = [&back](const glm::vec2 &n) {
+            return glm::dot(back, glm::vec2(-n.y, n.x));
+        };
+        const bool wedged = attempt > 1 && ((side(normal) > 0.0f && side(previousNormal) < 0.0f) ||
+                                            (side(normal) < 0.0f && side(previousNormal) > 0.0f));
+        // A step that meets a corner sidesteps it across the drive; between
+        // two walls facing against each other only a corner leaves a way.
+        if (wedged || corner) {
+            if (wedged && !corner) {
                 return;
             }
-        }
-        if (line.result == Area::DirectLine::CreatureBlocked) {
-            target -= glm::vec3(across, 0.0f) * glm::dot(across, glm::vec2(target - line.stopPoint));
+            // A corner whose normal points right of the drive is sidestepped
+            // to the right, away from it; between walls facing against each
+            // other, the other way.
+            const float sidestep = (wedged ? kWedgedSidestepSpeed : kCornerSidestepSpeed) * dt;
+            const bool normalRight = dir.y * normal.x - dir.x * normal.y > 0.0f;
+            const float sign = wedged ? (normalRight ? 1.0f : -1.0f) : (normalRight ? -1.0f : 1.0f);
+            target = position + glm::vec3(across * (sign * sidestep), 0.0f);
         } else {
-            const glm::vec3 position {creature->position()};
-            const glm::vec2 way {glm::vec2(target) - glm::vec2(position)};
-            const glm::vec2 along {glm::normalize(glm::vec2(glm::cross(kUp, line.normal)))};
-            const glm::vec2 slide {along * (glm::sign(glm::dot(way, along)) * glm::length(way))};
-            target = glm::vec3(position.x + slide.x, position.y + slide.y, position.z);
+            // A step that meets a wall's face, or a creature, is projected
+            // onto it from where it is stopped: what lies past the stop
+            // point keeps only its part along the wall.
+            const glm::vec3 beyond {target - line.stopPoint};
+            target -= glm::vec3(normal, 0.0f) * glm::dot(glm::vec3(normal, 0.0f), beyond);
         }
-        previousNormal = across;
+        previousNormal = normal;
     }
 }
 
@@ -617,7 +630,7 @@ void DriveAction::execute(std::shared_ptr<Action> self, Object &actor, float dt)
     creature->dropOrientationLock();
     creature->setEngagedExchange(false);
     creature->setFacing(-glm::atan(_direction.x, _direction.y));
-    stepDriven(_game, *_game.module()->area(), creature, _direction, speed(*creature) * dt);
+    stepDriven(_game, *_game.module()->area(), creature, _direction, speed(*creature), dt);
     creature->setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
     creature->setRunning(run);
 

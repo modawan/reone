@@ -453,7 +453,8 @@ void Game::applySoundMode() {
     } else if (!_movie && _module) {
         if (isSoundPausingMenu(_screen)) {
             mode = SoundMode::Menu;
-        } else if (_paused && (_screen != Screen::Conversation || !isTSL())) {
+        } else if (isPausedAtFrameEnd() && (_screen != Screen::Conversation || !isTSL())) {
+            // Sound pauses as soon as a pause is asked for.
             mode = SoundMode::PlayerPause;
         }
     }
@@ -737,6 +738,7 @@ void Game::init() {
         throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.clientDifficulty));
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
+    _options.game.gameplay = GameplayOptions::load(_options.game.configurationPath);
     initConsole();
     initTables();
     resetGalaxyMap();
@@ -1211,7 +1213,14 @@ std::optional<glm::ivec2> Game::consumePointerWarp() {
     return warp;
 }
 
+// The frame runs as play stood when it began, input handled before it
+// included; a pause asked for during it is taken at its end.
 void Game::update(float frameTime) {
+    updateFrame(frameTime);
+    applyPauseRequest();
+}
+
+void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
@@ -1233,8 +1242,8 @@ void Game::update(float frameTime) {
         }
     }
     // A movie runs from the frame after it is started, so the code that
-    // started it carries on as if it had already finished. While it runs,
-    // the fade is frozen and takes no requests.
+    // started it carries on as if it had already finished, save a script that
+    // waits for it. While it runs, the fade is frozen and takes no requests.
     _globalFade.setMovieOverride(static_cast<bool>(_movie));
     // Presentation advances once, before callbacks can replace its request.
     // The driver rebases frameTime after synchronous loading; movies suspend it.
@@ -1248,6 +1257,16 @@ void Game::update(float frameTime) {
         _areaMusic.updateMusicFade();
         updateMovie(dt);
         return;
+    }
+    // Scripts that wait at a movie go on once no movie is left to play, and
+    // the engine steps held for them after, before anything else the frame
+    // does. One that starts another movie stops the frame there, as a movie
+    // playing does.
+    if (_scriptRunner) {
+        _scriptRunner->resumeWaitingRuns();
+        if (_scriptRunner->hasWaitingRuns()) {
+            return;
+        }
     }
     updateMusic(frameTime);
 
@@ -1892,6 +1911,61 @@ void Game::restorePartyTransitionState(std::vector<PartyTransitionState> &states
     }
 }
 
+// A companion following the party out of a module, and in TSL a puppet in the
+// party, is saved to its roster record as it leaves, while what it refers to
+// is still there. The player character and a companion under control cross as
+// they are.
+std::vector<Game::TravellingCompanion> Game::captureTravellingCompanions() {
+    std::vector<TravellingCompanion> companions;
+    const auto &residentCreatures = _module->area()->getObjectsByType(ObjectType::Creature);
+    const auto travel = [&](const RosterIdentity &identity, const std::shared_ptr<Creature> &creature) {
+        if (std::find(residentCreatures.begin(), residentCreatures.end(), creature) == residentCreatures.end()) {
+            return;
+        }
+        TravellingCompanion companion;
+        companion.identity = identity;
+        companion.creature = creature;
+        companion.record = SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature);
+        companions.push_back(std::move(companion));
+    };
+    for (const auto &member : _party.members()) {
+        const auto &creature = member.creature;
+        if (!creature || !_party.isCompanion(member) || creature == _party.player() ||
+            creature == _party.actualPlayer()) {
+            continue;
+        }
+        const auto identity = _party.rosterIdentity(*creature);
+        if (identity && identity->kind == RosterKind::Npc && identity->slot == member.npc) {
+            travel(*identity, creature);
+        }
+    }
+    for (int puppet : _party.persistedState().puppetIds) {
+        const RosterIdentity identity {RosterKind::Puppet, puppet};
+        if (auto creature = _party.rosterCreature(identity)) {
+            travel(identity, creature);
+        }
+    }
+    return companions;
+}
+
+// Each companion and puppet is made again from its roster record in the
+// module it arrives in: a new object that takes up its effects anew and runs
+// its creation script again. A companion's place in the party stays, naming
+// no one, until the vacant followers come back from their records; a puppet
+// stays in the party's puppets until it is made again.
+void Game::retireTravellingCompanions(std::vector<TravellingCompanion> &companions) {
+    for (auto &companion : companions) {
+        auto creature = companion.creature.resolve();
+        if (!creature || _party.rosterCreature(companion.identity) != creature) {
+            continue;
+        }
+        saveRosterRecord(companion.identity, std::move(companion.record));
+        _party.vacateMemberEntries(*creature);
+        _party.releaseRosterSlot(*creature);
+        destroyRuntimeObjectGraph(creature);
+    }
+}
+
 // The TSL globals that count a human, beast or droid confusion power as at work.
 static constexpr std::array<const char *, 3> kConfusionActiveGlobals {"000_Human_Conf_Active", "000_Beast_Conf_Active", "000_Droid_Conf_Active"};
 
@@ -1925,6 +1999,7 @@ bool Game::loadPreparedModule(
     } loadFromSaveGuard {_loadingFromSaveGame};
 
     std::vector<PartyTransitionState> partyTransitionState;
+    std::vector<TravellingCompanion> travellingCompanions;
 
     // Exit scripts are part of the source module's last observable state. The
     // resulting working state remains a candidate until the resource/runtime
@@ -1951,6 +2026,7 @@ bool Game::loadPreparedModule(
 
         try {
             partyTransitionState = captureResidentPartyActions();
+            travellingCompanions = captureTravellingCompanions();
         } catch (const std::exception &e) {
             error(
                 "Unable to snapshot Party transition state: " +
@@ -1990,6 +2066,7 @@ bool Game::loadPreparedModule(
                                  resourcesCommitted,
                                  &sourceWorkingState,
                                  &partyTransitionState,
+                                 &travellingCompanions,
                                  &commitStarted,
                                  &loaded,
                                  partyCarriedOver]() {
@@ -2023,7 +2100,7 @@ bool Game::loadPreparedModule(
 
                 _services.scene.graphs.get(kSceneMain).clear();
                 // A module starts with no conversation under way or asked for.
-                _dialogUnderWay = false;
+                setDialogUnderWay(false);
                 dropConversationRequest();
                 _conversationRequestAdmitted = false;
                 if (isTSL()) {
@@ -2075,9 +2152,16 @@ bool Game::loadPreparedModule(
                 if (_party.isEmpty() && !_party.actualPlayer()) {
                     loadDefaultParty();
                 }
-                // A follower whose creature was destroyed is still listed with
-                // the party, and comes back from its roster record.
+                // A companion or puppet that followed the party here is
+                // made again from the record it left with. A follower whose
+                // creature was destroyed is still listed with the party, and
+                // comes back from its roster record. The party's puppets are
+                // made again here too, before the area places the party.
+                retireTravellingCompanions(travellingCompanions);
                 _party.respawnVacantFollowers();
+                for (int puppet : _party.persistedState().puppetIds) {
+                    _party.getAvailablePuppet(puppet, true);
+                }
 
                 // The game makes restored effects, actions and events visible before
                 // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
@@ -2198,7 +2282,7 @@ void Game::retireActiveModuleRuntime() {
     // Leaving a module ends the player's pause and a time stop, and the stop's
     // exclusions go with it. A Time Stop effect applied again afterwards, a
     // restored one included, stops time anew.
-    setPaused(false);
+    setPausedNow(false);
     _timeStopped = false;
     _timeStopExclusions.clear();
     _module.reset();
@@ -2291,6 +2375,11 @@ void Game::retireRuntimeSession() {
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
     }
+    // A script waiting at a movie belongs to the session left, and never goes
+    // on; nor does what was held for it.
+    if (_scriptRunner) {
+        _scriptRunner->dropWaitingRuns();
+    }
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
@@ -2303,7 +2392,7 @@ void Game::retireRuntimeSession() {
     _scriptVideoEffectHeld = false;
     _playerInputBlocked = false;
     _postDialogCharacterSwitch.reset();
-    _paused = false;
+    setPausedNow(false);
     _timeStopped = false;
     _timeStopExclusions.clear();
     _timeStopMilliseconds = 0;
@@ -2998,6 +3087,12 @@ void Game::saveNpcState(int npc) {
 void Game::saveRosterState(
     const RosterIdentity &identity,
     const Creature &creature) {
+    saveRosterRecord(identity, SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
+}
+
+void Game::saveRosterRecord(
+    const RosterIdentity &identity,
+    ByteBuffer record) {
     if (!_party.isRosterIdentityValid(identity)) {
         throw ValidationException("Roster slot is outside the title range");
     }
@@ -3011,7 +3106,7 @@ void Game::saveRosterState(
         resource::SaveWorkingStateCandidate::fromCommitted(std::move(committed));
     candidate.put(
         ResourceId(prefix + std::to_string(identity.slot), ResType::Utc),
-        SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
+        std::move(record));
     _services.resource.director.adoptSaveWorkingState(candidate.freeze());
 }
 
@@ -3037,6 +3132,10 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         return nullptr;
     }
 
+    // A creature made from its roster record is a new creature: it runs its
+    // creation script again, whatever the record says of the one it was made
+    // from.
+    removeSaveField(*record, "CreatnScrptFird");
     const auto context =
         SerializedIdentityContext::detachedRecord(name + ".utc");
     auto creature = newCreature(*record, context);
@@ -3229,11 +3328,11 @@ void Game::setCursorType(CursorType type) {
     _pointer->setType(type);
 }
 
-void Game::playVideo(const std::string &name, bool streamingMusic) {
+bool Game::playVideo(const std::string &name, bool streamingMusic) {
     _moduleTransitionMovies = std::queue<std::string>();
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
-    startVideo(name, streamingMusic);
+    return startVideo(name, streamingMusic);
 }
 
 void Game::queueMovie(const std::string &name, bool skippable) {
@@ -3245,7 +3344,7 @@ void Game::queueMovie(const std::string &name, bool skippable) {
     }
 }
 
-void Game::playMovieQueue() {
+bool Game::playMovieQueue() {
     for (auto &movie : _movieQueue) {
         _queuedMoviesPlaying.push(std::move(movie));
     }
@@ -3253,6 +3352,7 @@ void Game::playMovieQueue() {
     if (!_movie) {
         playNextMovie();
     }
+    return static_cast<bool>(_movie);
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -6484,7 +6584,7 @@ void Game::showSoloModeQuery(bool forStealth) {
     } else if (_party.isSoloMode()) {
         strRef = leader->isStealthed() ? kSoloModeOffStealthedStrRef : kSoloModeOffStrRef;
     }
-    const bool pausedBefore = _paused;
+    const bool pausedBefore = isPausedAtFrameEnd();
     if (!pausedBefore) {
         setPaused(true);
     }
@@ -6550,7 +6650,7 @@ void Game::requestAutoPause(AutoPauseReason reason) {
 
 void Game::autoPause(AutoPauseReason reason) {
     // Autopause never stacks on an existing pause.
-    if (_autoPaused || _paused) {
+    if (_autoPaused || isPausedAtFrameEnd()) {
         return;
     }
     // Within the delay window the request is deferred, even one made during
@@ -6578,8 +6678,46 @@ void Game::autoPause(AutoPauseReason reason) {
         {AutoPauseReason::PartyKilled, PauseReason::PartyKilled},
         {AutoPauseReason::MineSighted, PauseReason::MineSighted},
         {AutoPauseReason::NewTargetSelected, PauseReason::NewTargetSelected}};
-    setPaused(true, kPauseReasons.at(reason));
-    _autoPaused = true;
+    setPaused(true, kPauseReasons.at(reason), true);
+}
+
+void Game::setPaused(bool paused, PauseReason reason, bool autoPause) {
+    // A transition under way has unpaused play and keeps it so.
+    if (_module && _module->area() && _module->area()->transitionPending()) {
+        return;
+    }
+    if (_pauseRequest) {
+        if (paused == _paused) {
+            _pauseRequest.reset();
+        }
+        return;
+    }
+    if (paused != _paused) {
+        _pauseRequest = PauseRequest {paused, reason, autoPause};
+    }
+}
+
+void Game::setPausedNow(bool paused) {
+    _pauseRequest.reset();
+    _paused = paused;
+    if (!paused) {
+        _autoPaused = false;
+    }
+}
+
+void Game::applyPauseRequest() {
+    if (!_pauseRequest) {
+        return;
+    }
+    const PauseRequest request {*_pauseRequest};
+    _pauseRequest.reset();
+    _paused = request.paused;
+    if (request.paused) {
+        _pauseReason = request.reason;
+        _autoPaused = request.autoPause;
+    } else {
+        _autoPaused = false;
+    }
 }
 
 void Game::delayNextEnemyAutoPause() {
@@ -6623,6 +6761,10 @@ void Game::saveDifficultyLevel() const {
 
 void Game::saveMouseOptions() const {
     _options.game.mouse.save(_options.game.configurationPath);
+}
+
+void Game::saveGameplayOptions() const {
+    _options.game.gameplay.save(_options.game.configurationPath);
 }
 
 void Game::saveKeybindOptions() const {
@@ -6698,7 +6840,7 @@ void Game::commitTutorialWindow() {
     _party.setTutorialShown(request.id);
     // A window already open takes the new text; the game stays as it was paused.
     if (!_tutorial) {
-        _tutorialPausedGame = !_paused;
+        _tutorialPausedGame = !isPausedAtFrameEnd();
         if (_tutorialPausedGame) {
             setPaused(true);
         }
@@ -6998,7 +7140,11 @@ void Game::breakEquipForfeit(const Creature &member, int slot, const Item &item)
     }
 }
 
-void Game::finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item) {
+void Game::finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item, bool instant) {
+    // A weapon in a hand readies its wearer for combat outside a conversation.
+    if (!instant && !_dialogUnderWay && (slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon)) {
+        wearer.setCombatState(true, CombatActivation::Indirect);
+    }
     signalItemEquipped(wearer, slot, item);
     breakEquipForfeit(wearer, slot, *item);
     if (slot == InventorySlots::body) {
@@ -7335,7 +7481,8 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
     auto &reputes = _services.game.reputes;
     std::vector<Candidate> candidates;
     for (const auto &object : area.objects()) {
-        if (object.get() == &leader) {
+        // Only what exists for the player can be listed.
+        if (object.get() == &leader || !object->isPresent()) {
             continue;
         }
         bool rangeHostile = false;
@@ -9280,18 +9427,60 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakOriginScreen = Screen::None;
 }
 
-void Game::openLevelUp() {
+bool Game::openLevelUp(bool forced) {
+    auto leader = _party.getLeader();
+    // A level-up already open is not opened again.
+    if (!leader || !leader->isLevelUpPending() || _screen == Screen::CharacterGeneration) {
+        return false;
+    }
+    return openLevelUpScreen(forced);
+}
+
+bool Game::openLevelUpScreen(bool forced) {
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
     }
     if (!_charGen) {
-        return;
+        return false;
     }
 
+    if (forced) {
+        _levelUpReturnScreen = _screen;
+        _levelUpPaused = !_paused;
+        if (_levelUpPaused) {
+            setPaused(true);
+        }
+    }
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
-    _charGen->startLevelUp();
+    _charGen->startLevelUp(forced);
     changeScreen(Screen::CharacterGeneration);
+    return true;
+}
+
+// Finishing a forced level-up resumes play if the level-up paused it; a pause
+// the player had put on stays.
+void Game::closeLevelUp(bool forced) {
+    if (!forced) {
+        openInGame();
+        return;
+    }
+    if (_levelUpPaused) {
+        _levelUpPaused = false;
+        setPaused(false);
+    }
+    returnToScreen(_levelUpReturnScreen);
+}
+
+// A conversation that a script ended under the closing screen, or that went
+// with the session, is gone.
+void Game::returnToScreen(Screen underneath) {
+    const bool conversationGone = underneath == Screen::Conversation && (!_conversation || !_conversation->isRunning());
+    if (underneath == Screen::InGame || conversationGone) {
+        openInGame();
+        return;
+    }
+    changeScreen(underneath);
 }
 
 static constexpr int kLevelUpAvailableStrRef = 1438;
@@ -9314,6 +9503,19 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
         runLevelUpDialogOnce();
     }
+}
+
+void Game::notifyLevelUpStillAvailable(const Creature &creature) {
+    if (creature.isLevelUpPending()) {
+        addFeedbackMessage(kLevelUpAvailableStrRef);
+    }
+}
+
+void Game::signalPlayerLevelUp(const Creature &creature) {
+    if (!_module || !creature.isPC()) {
+        return;
+    }
+    queueScriptEvent(*_module, creature, Event(static_cast<int>(SavedSignalEventType::PlayerLevelUp)));
 }
 
 void Game::runLevelUpDialogOnce() {
@@ -9354,7 +9556,8 @@ void Game::startCharacterGeneration() {
 }
 
 bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
-                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
+                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener,
+                       const std::function<void()> &prepareParticipants) {
     if (_captureHUDPresentation) {
         return false;
     }
@@ -9369,13 +9572,13 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     } catch (const std::exception &e) {
         warn("Game: conversation load failed: " + resRef + ": " + e.what());
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
     if (!dialog) {
         warn("Game: conversation not found or invalid: " + resRef);
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
 
@@ -9383,18 +9586,15 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     auto conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
     if (!conversation) {
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
 
-    stopMovement();
-    setRelativeMouseMode(false);
-    setCursorType(CursorType::Default);
-    changeScreen(Screen::Conversation);
     _dialogUnderWay = true;
 
     // Starting a conversation other than a computer's also quietly ends the
-    // stealth of the controlled creature and the party members.
+    // stealth of the controlled creature and the party members, a one-liner's
+    // as well.
     if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
         if (auto leader = _party.getLeader()) {
             leader->setStealthMode(false, true);
@@ -9406,7 +9606,18 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     }
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
-    _conversation->start(dialog, owner, std::move(admission), listener);
+    // Play turns to the conversation only once it opens. A one-liner is
+    // barked over play, which goes on: the player keeps moving and the screen
+    // stays as it is.
+    _conversation->start(dialog, owner, std::move(admission), listener, [this, &prepareParticipants]() {
+        if (prepareParticipants) {
+            prepareParticipants();
+        }
+        stopMovement();
+        setRelativeMouseMode(false);
+        setCursorType(CursorType::Default);
+        changeScreen(Screen::Conversation);
+    });
     return true;
 }
 
@@ -9443,21 +9654,24 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
     }
     bool started = false;
     if (target) {
-        // Each of the two stops what it was doing, unless it is the player's,
-        // and shows its pause; it faces as it did should nothing start.
+        // Once the conversation opens, each of the two stops what it was
+        // doing, unless it is the player's, and shows its pause; a one-liner
+        // leaves both as they were. Each faces as it did should nothing start.
         const auto player = _party.getLeader();
         std::vector<std::pair<std::shared_ptr<Creature>, float>> facings;
         for (const auto &object : {target, self}) {
-            auto creature = std::dynamic_pointer_cast<Creature>(object);
-            if (!creature) {
-                continue;
+            if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+                facings.emplace_back(creature, creature->getFacing());
             }
-            if (creature != player) {
-                creature->clearAllActions(true);
-            }
-            facings.emplace_back(creature, creature->getFacing());
-            creature->showDialogPause();
         }
+        auto prepareParticipants = [&facings, &player]() {
+            for (const auto &[creature, facing] : facings) {
+                if (creature != player) {
+                    creature->clearAllActions(true);
+                }
+                creature->showDialogPause();
+            }
+        };
         if (resRef.empty()) {
             resRef = self->lastConversation();
         }
@@ -9469,7 +9683,7 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
         const auto &owner = selfListens ? target : self;
         const auto &listener = selfListens ? self : target;
         const std::string dialog = resRef.empty() ? owner->conversation() : resRef;
-        started = !dialog.empty() && startDialog(owner, dialog, admission, listener);
+        started = !dialog.empty() && startDialog(owner, dialog, admission, listener, prepareParticipants);
         if (!started) {
             for (auto &[creature, facing] : facings) {
                 creature->dropOrientationLock();
@@ -9479,7 +9693,7 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
     }
     if (!started) {
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
     }
     return started;
 }
@@ -9700,13 +9914,21 @@ GameGUI *Game::guiForScreen(Screen screen) const {
     }
 }
 
-void Game::setBarkBubbleText(std::string text, float duration) {
-    _hud->barkBubble().setBarkText(text, duration);
+void Game::setBarkBubbleText(std::string text, float duration, uint32_t speaker, bool ignoresDistance) {
+    if (_hud) {
+        _hud->barkBubble().setBarkText(text, duration, speaker, ignoresDistance);
+    }
+}
+
+void Game::setBarkBubblePlace(int x, int y) {
+    if (_hud) {
+        _hud->barkBubble().setPlace(x, y);
+    }
 }
 
 void Game::bark(Object &speaker, int strRef) {
     const std::string text = getInterfaceText(strRef);
-    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text), speaker.id());
     playBarkSound(speaker, _services.resource.strings.getSound(strRef));
 }
 
@@ -10165,7 +10387,8 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
     if (!_module || !_party.getLeader()) {
         throw std::runtime_error("Character-generation capture screens require a loaded party");
     }
-    openLevelUp();
+    // A capture opens the level-up whether or not a level is waiting.
+    openLevelUpScreen(false);
     if (!_charGen) {
         throw std::runtime_error("Character generation GUI is unavailable");
     }

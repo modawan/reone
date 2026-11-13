@@ -24,6 +24,14 @@ namespace reone {
 
 namespace game {
 
+/**
+ * A creature picks up an item lying in its area. Farther than 1.1 metres from
+ * the item it first walks to a metre short of it, running from two metres,
+ * and turns to it; beside it, it turns to it and plays the get-from-low
+ * animation, then takes the item into its inventory. The dead, a party member
+ * at no vitality, an item gone or held by anyone, and an item still out of
+ * reach after the walk end it.
+ */
 class PickUpItemAction : public Action {
 public:
     PickUpItemAction(Game &game,
@@ -38,9 +46,7 @@ public:
         return from->type() == ActionType::PickUpItem;
     }
 
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
-        complete();
-    }
+    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
 
     /** A saved PickUpItem command; none once the item is gone. */
@@ -48,6 +54,10 @@ public:
 
 private:
     std::shared_ptr<Item> _item;
+    /** The walk to the item has been queued ahead of the pick-up. */
+    bool _approached {false};
+    /** The animation of getting the item has been queued ahead of the pick-up. */
+    bool _animationQueued {false};
 };
 
 } // namespace game

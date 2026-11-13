@@ -358,11 +358,16 @@ void Player::faceCombatTarget(Creature &leader, float dt) {
 // A busy leader is steered only after a wait of 0.3 s. From then on the
 // steering passes on every update, and once the drive has gathered more than
 // a quarter of a metre a second it breaks off what the leader was doing. A
-// leader that cannot be commanded is not steered while busy.
+// leader that cannot be commanded is not steered while busy. In combat mode
+// without combat movement a busy leader is not steered at all.
 glm::vec2 Player::holdBusySteering(Creature &leader, glm::vec2 steering, float dt) {
     static constexpr float kWait = 0.3f;
     static constexpr float kBreakOffSpeed = 0.25f;
     auto &game = _module.game();
+    if (leader.partyCombatMode() && !game.combatMovement()) {
+        _busySteeringWait.reset();
+        return glm::vec2(0.0f);
+    }
     if (steering == glm::vec2(0.0f)) {
         _busySteeringWait.reset();
         return steering;

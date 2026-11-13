@@ -788,8 +788,8 @@ static Variable PauseGame(const std::vector<Variable> &args, const RoutineContex
 
     // Execute: play pauses with no pause indicator. A pause is refused while
     // a conversation is under way; an unpause is always taken. Neither does
-    // anything when play already is so.
-    if (bPause != ctx.game.isPaused() && (!bPause || !ctx.game.isDialogUnderWay())) {
+    // anything when play already is so, or is about to be.
+    if (bPause != ctx.game.isPausedAtFrameEnd() && (!bPause || !ctx.game.isDialogUnderWay())) {
         ctx.game.setPaused(bPause);
     }
     return Variable::ofNull();
@@ -1783,15 +1783,14 @@ static Variable GetItemStackSize(const std::vector<Variable> &args, const Routin
 
 static Variable GetAbilityScore(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
     auto nAbilityType = getInt(args, 1);
 
-    // Transform
-    auto creature = checkCreature(oCreature);
-    auto ability = static_cast<Ability>(nAbilityType);
-
     // Execute
-    return Variable::ofInt(creature->getEffectiveAbilityScore(ability));
+    if (!creature || !isScriptAbility(nAbilityType)) {
+        return Variable::ofInt(0);
+    }
+    return Variable::ofInt(creature->getEffectiveAbilityScore(static_cast<Ability>(nAbilityType)));
 }
 
 // A creature counts as dead when it has died or, in the party, is down; any
@@ -2828,15 +2827,16 @@ static Variable ApplyEffectAtLocation(const std::vector<Variable> &args, const R
 
 static Variable GetIsPC(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto creature = getCreatureOrNull(args, 0, ctx);
 
-    // Transform
-    auto creature = checkCreature(oCreature);
-
-    // Execute: TSL returns the record's IsPC as stored; KotOR asks whether
-    // it is the creature the player controls.
+    // Execute: TSL asks whether the record marks a player character; KotOR
+    // asks whether it is the creature the player controls. Anything but a
+    // creature is no player character.
+    if (!creature) {
+        return Variable::ofInt(0);
+    }
     if (ctx.game.isTSL()) {
-        return Variable::ofInt(creature->isPCValue());
+        return Variable::ofInt(static_cast<int>(creature->isPC()));
     }
     return Variable::ofInt(static_cast<int>(creature == ctx.game.party().getLeader()));
 }
@@ -3318,7 +3318,8 @@ static Variable GetAreaOfEffectCreator(const std::vector<Variable> &args, const 
 
 static Variable ShowLevelUpGUI(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("ShowLevelUpGUI");
+    // The controlled creature's level-up opens, and cannot be cancelled.
+    return Variable::ofInt(ctx.game.openLevelUp(true) ? 1 : 0);
 }
 
 static Variable SetItemNonEquippable(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3853,12 +3854,14 @@ static Variable GetAbilityModifier(const std::vector<Variable> &args, const Rout
                       ? getObjectOrNull(args, 1, ctx)
                       : getCaller(ctx);
     auto creature = object ? dyn_cast<Creature>(object.get()) : nullptr;
-    if (!creature || abilityValue < static_cast<int>(Ability::Strength) || abilityValue > static_cast<int>(Ability::Charisma)) {
+    if (!creature || !isScriptAbility(abilityValue)) {
         return Variable::ofInt(0);
     }
 
-    return Variable::ofInt(creature->getEffectiveAbilityModifier(
-        static_cast<Ability>(abilityValue)));
+    const auto ability = static_cast<Ability>(abilityValue);
+    return Variable::ofInt(ability == Ability::Dexterity
+                               ? creature->getDexterityModifier(false)
+                               : creature->getEffectiveAbilityModifier(ability));
 }
 
 static Variable GetIdentified(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5893,7 +5896,7 @@ static Variable GetLockLockDC(const std::vector<Variable> &args, const RoutineCo
 
 static Variable GetPCLevellingUp(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetPCLevellingUp");
+    return Variable::ofObject(ctx.game.module()->pcLevellingUp());
 }
 
 static Variable GetHasFeatEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6434,8 +6437,11 @@ static Variable BarkString(const std::vector<Variable> &args, const RoutineConte
 
     // Transform
 
-    // Execute: nobody barks while a conversation is under way. A speaker
-    // that can't be found barks with no speaker.
+    // Execute: TSL's bark bubble takes the place asked for, -1 leaving an edge
+    // to the layout, even when the bark is dropped. Nobody barks while a
+    // conversation is under way. A speaker that can't be found barks with no
+    // speaker.
+    ctx.game.setBarkBubblePlace(nBarkX, nBarkY);
     if (ctx.game.isDialogUnderWay()) {
         return Variable::ofNull();
     }
@@ -6962,9 +6968,12 @@ static Variable PlayMovie(const std::vector<Variable> &args, const RoutineContex
     // Transform
     auto movie = boost::to_lower_copy(sMovie);
 
-    // Execute
+    // Execute: the script waits for the movie, going on once it has played.
+    // A run that can't wait goes on at once.
     ctx.game.resetDriveAcceleration();
-    ctx.game.playVideo(movie, nStreamingMusic != 0);
+    if (ctx.game.playVideo(movie, nStreamingMusic != 0) && ctx.execution.yield) {
+        *ctx.execution.yield = true;
+    }
     return Variable::ofNull();
 }
 
@@ -7714,10 +7723,12 @@ static Variable QueueMovie(const std::vector<Variable> &args, const RoutineConte
 }
 
 static Variable PlayMovieQueue(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    // Each queued movie keeps the skip setting it was queued with, whatever
-    // nAllowSkips says.
-    ctx.game.playMovieQueue();
+    // Execute: the script waits for the movies, as at PlayMovie. Each queued
+    // movie keeps the skip setting it was queued with, whatever nAllowSkips
+    // says.
+    if (ctx.game.playMovieQueue() && ctx.execution.yield) {
+        *ctx.execution.yield = true;
+    }
     return Variable::ofNull();
 }
 
@@ -7960,7 +7971,7 @@ static Variable AdjustCreatureAttributes(const std::vector<Variable> &args, cons
 
     // Execute
     // Only creatures and the six abilities are adjusted; anything else is ignored.
-    if (!creature || nAttribute < static_cast<int>(Ability::Strength) || nAttribute > static_cast<int>(Ability::Charisma)) {
+    if (!creature || !isScriptAbility(nAttribute)) {
         return Variable::ofNull();
     }
     creature->adjustBaseAbilityScore(static_cast<Ability>(nAttribute), nAmount);

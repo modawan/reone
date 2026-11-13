@@ -92,6 +92,15 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
     deserialize(*utt, SerializedIdentityContext::templateResource(resRef));
 }
 
+// The fields a trigger placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {
+    "LinkedToModule", "TransitionDestin", "LinkedTo", "LinkedToFlags", "XPosition", "YPosition", "ZPosition", "Geometry"};
+
+// A trigger placed from its template takes everything from the template but
+// what its entry gives: its linked module, link and link flags, none where the
+// entry has none; its transition's destination name when the entry has one;
+// its position, 0 where the entry has none; and its geometry when the entry
+// has one. A saved trigger takes everything from its record.
 void Trigger::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -101,20 +110,19 @@ void Trigger::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         utt = _services.resource.gffs.get(templateRes, ResType::Utt);
     }
-    std::string blueprintClickScript;
     if (utt) {
         deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
-        captureAuthoredRecord(*utt, gff);
-        blueprintClickScript = utt->has("OnClick") ? _onClick : _onEnter;
-    }
-    deserializeAll(gff, identityContext);
-    // The click script of a trigger placed from a blueprint comes from the
-    // blueprint alone, and otherwise from the record itself. A record without
-    // an OnClick field answers clicks with its own OnEnter script.
-    if (utt) {
-        _onClick = std::move(blueprintClickScript);
-    } else if (!gff.has("OnClick")) {
-        _onClick = _onEnter;
+        captureAuthoredRecord(*utt, gff, kEntryFields);
+        _linkedToModule.clear();
+        gff.readResRef(_linkedToModule, "LinkedToModule");
+        gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
+        _linkedTo = boost::to_lower_copy(gff.getString("LinkedTo"));
+        _linkedToFlags = 0;
+        gff.readByte(_linkedToFlags, "LinkedToFlags");
+        placeAtEntryPosition(gff);
+        deserializeGeometry(gff);
+    } else {
+        deserializeAll(gff, identityContext);
     }
     loadAppearance();
     updateTransform();
@@ -127,7 +135,10 @@ void Trigger::deserializeAll(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");
-    gff.readResRef(_onClick, "OnClick");
+    if (!gff.readResRef(_onClick, "OnClick")) {
+        // A trigger without its own click script answers clicks with its OnEnter script.
+        _onClick = _onEnter;
+    }
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     _trap.deserialize(gff);
     if (gff.readString(_linkedTo, "LinkedTo")) {
@@ -184,22 +195,26 @@ void Trigger::deserializeAll(
     gff.readBool(_setByPlayerParty, "SetByPlayerParty");
     gff.readBool(_commandable, "Commandable");
 
-    auto geometry = gff.getList("Geometry");
-    if (!geometry.empty()) {
-        _geometry.clear();
-        for (auto &point : geometry) {
-            float x = point->getFloat("PointX");
-            float y = point->getFloat("PointY");
-            float z = point->getFloat("PointZ");
-            _geometry.push_back(glm::vec3(x, y, z));
-        }
-    }
+    deserializeGeometry(gff);
 
     // Not handled:
     // - Cursor
     // - PortraitId
     // - VarTable
     // - SWVarTable
+}
+
+void Trigger::deserializeGeometry(const resource::Gff &gff) {
+    if (!gff.has("Geometry")) {
+        return;
+    }
+    _geometry.clear();
+    for (auto &point : gff.getList("Geometry")) {
+        float x = point->getFloat("PointX");
+        float y = point->getFloat("PointY");
+        float z = point->getFloat("PointZ");
+        _geometry.push_back(glm::vec3(x, y, z));
+    }
 }
 
 void Trigger::loadAppearance() {
@@ -269,8 +284,26 @@ glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
     return nearest;
 }
 
+// A trigger is marked at its trap model's look-at hook, or else at the centre
+// of its outline's bounds, or at its position when it has no outline. A trap
+// model's own bounds are no guide: it keeps the effects it shows once
+// detected far below the ground until then.
 glm::vec3 Trigger::getSelectablePosition() const {
-    return _trapModel ? _trapModel->getWorldCenterOfAABB() : _position;
+    if (_trapModel) {
+        if (auto *hook = _trapModel->getNodeByName("lookathook")) {
+            return hook->origin();
+        }
+    }
+    if (_geometry.empty()) {
+        return _position;
+    }
+    glm::vec3 low {_geometry.front()};
+    glm::vec3 high {low};
+    for (const glm::vec3 &point : _geometry) {
+        low = glm::min(low, point);
+        high = glm::max(high, point);
+    }
+    return _position + 0.5f * (low + high);
 }
 
 std::shared_ptr<Creature> Trigger::trapCreator() const {
@@ -458,10 +491,12 @@ glm::vec3 Trigger::trapModelPosition() const {
     return _position - glm::vec3 {0.0f, 0.0f, _trapModelDepth};
 }
 
-// A trap's model exists only while the trap is within the farther of the
-// controlled creature's spot and listen ranges, measured across the ground,
-// or in TSL while the trap is always updated. It leaves the scene when the
-// trap goes beyond them and comes back, hidden until shown, when it returns.
+// A trap's model exists only while the trap exists for the player (see
+// Area::updatePresence): within the farther of the controlled creature's spot
+// and listen ranges, measured across the ground, once it is found or flagged
+// or while it is no enemy, or in TSL while it is always updated. It leaves the
+// scene when the trap stops existing and comes back, hidden until shown, when
+// it exists again.
 void Trigger::updateTrapPresentation() {
     if (!_isTrap) {
         return;
