@@ -139,6 +139,8 @@ public:
     virtual void noteItemViewed(uint64_t handle) = 0;
     /** The items the player has looked at since the inventory opened are no longer new. */
     virtual void markViewedItemsSeen() = 0;
+    /** Gives control to the party member at the index; one who is down cannot take it. */
+    virtual void changeCharacter(int member) = 0;
 };
 
 class IEquipmentMenuBacking {

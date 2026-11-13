@@ -409,7 +409,9 @@ void Equipment::updatePortraits() {
     if (isTSL()) return;
     _controls.LBL_PORTRAIT->setBorderFill(_view.subject.portraits[0]);
     _controls.BTN_CHANGE1->setBorderFill(_view.subject.portraits[1]);
+    _controls.BTN_CHANGE1->setHilightFill(_view.subject.portraits[1]);
     _controls.BTN_CHANGE2->setBorderFill(_view.subject.portraits[2]);
+    _controls.BTN_CHANGE2->setHilightFill(_view.subject.portraits[2]);
 }
 
 void Equipment::selectSlot(Slot slot) {
