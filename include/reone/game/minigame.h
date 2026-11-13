@@ -359,6 +359,21 @@ constexpr float kMinigameTrackRateDivisor = 100.0f;
 constexpr float kMinigameGravity = 45.8f;
 
 /**
+ * The share of a curve's centripetal acceleration (forward speed times turn
+ * rate) that pushes a swoop bike to the outside of the curve when the area
+ * sets UseInertia: 1 is all of it, as if the bike kept its momentum.
+ */
+constexpr float kMinigameCurveDrift = 1.0f;
+
+/**
+ * The outward acceleration on a swoop bike, along the hook's X axis, as its
+ * track hook moves from \p previousHook to \p hook in \p dt seconds (see
+ * kMinigameCurveDrift). The hook's X axis is the steering axis and Z is up;
+ * a left turn pushes toward +X.
+ */
+float minigameCurveDrift(const glm::mat4 &previousHook, const glm::mat4 &hook, float dt);
+
+/**
  * Player intent for a minigame. The keyboard and mouse handlers of the view
  * write it; the session reads it once per update.
  */
@@ -650,6 +665,8 @@ private:
     bool runScriptSlot(MinigameActor &actor, MinigameSlot slot);
     void clampOffset(glm::vec3 &offset) const;
     void updatePlayerMotion(float dt, const MinigameInput &input);
+    void steerPlayer(float dt, const MinigameInput &input, float drift);
+    void updateJump(float dt);
     void advanceTrack(MinigameActor &actor, float dt);
     void placeActor(MinigameActor &actor);
     void updateFollower(MinigameActor &actor, float dt);

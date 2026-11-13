@@ -111,6 +111,28 @@ MinigameTrack tarisTrack() {
                          48.0f);
 }
 
+// A track that turns left (counter-clockwise seen from above) on a circle of
+// radius 200 at 0.25 radians per second, for 20 s. The hook's X axis points
+// out of the circle, its Y axis along the track and its Z axis up.
+MinigameTrack leftCurveTrack() {
+    graphics::KeyframeTrack<glm::vec3> positions;
+    graphics::KeyframeTrack<glm::quat> orientations;
+    constexpr float kRadius = 200.0f;
+    constexpr float kRate = 0.25f;
+    for (int i = 0; i <= 200; ++i) {
+        float time = 0.1f * static_cast<float>(i);
+        float angle = kRate * time;
+        positions.add(time, glm::vec3(kRadius * glm::cos(angle), kRadius * glm::sin(angle), 0.0f));
+        orientations.add(time, glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f)));
+    }
+    return MinigameTrack(glm::mat4(1.0f),
+                         glm::vec3(0.0f),
+                         glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                         std::move(positions),
+                         std::move(orientations),
+                         20.0f);
+}
+
 MinigameSpec swoopSpec(size_t pads) {
     MinigameSpec spec;
     spec.type = MinigameType::SwoopRace;
@@ -371,6 +393,64 @@ TEST(MinigameSession, with_inertia_the_lateral_speed_settles_at_movement_per_sec
         session->update(kTick, input);
     }
     EXPECT_NEAR(session->lateralVelocity().x, 50.0f, 0.01f);
+}
+
+// The steering lag does not depend on UseInertia.
+TEST(MinigameSession, without_inertia_the_steering_is_still_smoothed) {
+    ScriptedHost host;
+    auto spec = swoopSpec(0);
+    spec.useInertia = false;
+    MinigameSession session(host);
+    session.load(spec, tarisTrack(), {}, {});
+    session.setTunnelPos(glm::vec3(1e6f, 0.0f, 0.0f));
+    session.setTunnelNeg(glm::vec3(-1e6f, 0.0f, 0.0f));
+    MinigameInput input;
+    input.steer = 0.5f;
+    session.update(kTick, input);
+    EXPECT_GT(session.lateralVelocity().x, 0.0f);
+    EXPECT_LT(session.lateralVelocity().x, 50.0f);
+    for (int i = 0; i < 300; ++i) {
+        session.update(kTick, input);
+    }
+    EXPECT_NEAR(session.lateralVelocity().x, 50.0f, 0.01f);
+}
+
+TEST(MinigameSession, the_curve_drift_is_the_centripetal_acceleration_toward_the_outside) {
+    // 10 units forward while turning 0.01 radians left, in 0.1 s: 100 units
+    // per second at 0.1 radians per second.
+    glm::mat4 before(1.0f);
+    glm::mat4 after = glm::translate(glm::vec3(0.0f, 10.0f, 0.0f)) *
+                      glm::mat4_cast(glm::angleAxis(0.01f, glm::vec3(0.0f, 0.0f, 1.0f)));
+    EXPECT_NEAR(minigameCurveDrift(before, after, 0.1f), kMinigameCurveDrift * 100.0f * 0.1f, 1e-3f);
+    // A right turn pushes the other way, and a straight track not at all.
+    glm::mat4 right = glm::translate(glm::vec3(0.0f, 10.0f, 0.0f)) *
+                      glm::mat4_cast(glm::angleAxis(-0.01f, glm::vec3(0.0f, 0.0f, 1.0f)));
+    EXPECT_NEAR(minigameCurveDrift(before, right, 0.1f), -kMinigameCurveDrift * 100.0f * 0.1f, 1e-3f);
+    EXPECT_FLOAT_EQ(minigameCurveDrift(before, glm::translate(glm::vec3(0.0f, 10.0f, 0.0f)), 0.1f), 0.0f);
+}
+
+// UseInertia: on a curve the bike drifts to the outside unless it is steered
+// against it.
+TEST(MinigameSession, with_inertia_a_curve_pushes_the_bike_outward) {
+    auto drift = [](bool inertia) {
+        ScriptedHost host;
+        auto spec = swoopSpec(0);
+        spec.useInertia = inertia;
+        MinigameSession session(host);
+        session.load(spec, leftCurveTrack(), {}, {});
+        session.setTunnelPos(glm::vec3(20.0f, 0.0f, 0.0f));
+        session.setTunnelNeg(glm::vec3(-20.0f, 0.0f, 0.0f));
+        session.setPlayerSpeed(100.0f);
+        session.setPlayerMaxSpeed(100.0f);
+        for (int i = 0; i < 60; ++i) {
+            session.update(kTick, MinigameInput());
+        }
+        return session.offset().x;
+    };
+    // 200 * 0.25 = 50 units per second at 0.25 radians per second: 12.5 units
+    // per second squared outward, against a damping of 300 / 100 per second.
+    EXPECT_GT(drift(true), 1.0f);
+    EXPECT_FLOAT_EQ(drift(false), 0.0f);
 }
 
 TEST(MinigameSession, creation_scripts_run_player_first_then_enemies) {

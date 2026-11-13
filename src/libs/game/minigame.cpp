@@ -18,6 +18,7 @@
 #include "reone/game/minigame.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <boost/algorithm/string.hpp>
 
@@ -393,6 +394,27 @@ bool minigameSegmentHitsBox2D(const glm::vec3 &p0, const glm::vec3 &p1, const gl
     return true;
 }
 
+float minigameCurveDrift(const glm::mat4 &previousHook, const glm::mat4 &hook, float dt) {
+    if (dt <= 0.0f) {
+        return 0.0f;
+    }
+    // The hook's X axis is the steering axis and its Z axis is up: the turn
+    // is the angle the X axis swept about Z. A left turn is positive, and
+    // its outside is +X.
+    glm::vec3 x0 = glm::vec3(previousHook[0]);
+    glm::vec3 x1 = glm::vec3(hook[0]);
+    glm::vec3 up = glm::vec3(hook[2]);
+    if (glm::length(x0) < 1e-6f || glm::length(x1) < 1e-6f || glm::length(up) < 1e-6f) {
+        return 0.0f;
+    }
+    x0 = glm::normalize(x0);
+    x1 = glm::normalize(x1);
+    up = glm::normalize(up);
+    float turn = std::atan2(glm::dot(glm::cross(x0, x1), up), glm::dot(x0, x1));
+    float forward = glm::length(glm::vec3(hook[3]) - glm::vec3(previousHook[3])) / dt;
+    return kMinigameCurveDrift * forward * turn / dt;
+}
+
 // Session
 
 void MinigameSession::load(const MinigameSpec &spec,
@@ -634,70 +656,88 @@ void MinigameSession::updatePlayerMotion(float dt, const MinigameInput &input) {
     }
     _speedHeld = false;
 
-    // Lateral steering (translation minigames). The turret reports its aim
-    // through setPlayerAim instead.
-    if (_type == MinigameType::SwoopRace) {
-        glm::vec3 in(glm::clamp(input.steer, -1.0f, 1.0f), 0.0f, 0.0f);
-        glm::vec3 delta(0.0f);
-        float top = _movementPerSec;
-        if (_useInertia && top > 0.0f) {
-            // dv/dt = L * u - (L / M) * v, the input blended from the previous
-            // update's to this one's; 4th-order Runge-Kutta.
-            float L = _lateralAccel;
-            float damping = L / top;
-            glm::vec3 u0 = _previousInput;
-            glm::vec3 um = (_previousInput + in) * 0.5f;
-            glm::vec3 u1 = in;
-            glm::vec3 v = _lateralVelocity;
-            auto accel = [&](const glm::vec3 &vel, const glm::vec3 &u) {
-                return L * u - damping * vel;
-            };
-            glm::vec3 k1v = accel(v, u0);
-            glm::vec3 k1x = v;
-            glm::vec3 k2v = accel(v + 0.5f * dt * k1v, um);
-            glm::vec3 k2x = v + 0.5f * dt * k1v;
-            glm::vec3 k3v = accel(v + 0.5f * dt * k2v, um);
-            glm::vec3 k3x = v + 0.5f * dt * k2v;
-            glm::vec3 k4v = accel(v + dt * k3v, u1);
-            glm::vec3 k4x = v + dt * k3v;
-            _lateralVelocity = v + (dt / 6.0f) * (k1v + 2.0f * k2v + 2.0f * k3v + k4v);
-            delta = (dt / 6.0f) * (k1x + 2.0f * k2x + 2.0f * k3x + k4x);
-        } else {
-            _lateralVelocity = in * top;
-            delta = _lateralVelocity * dt;
-        }
-        _previousInput = in;
-
-        glm::vec3 unclamped = _offset + delta;
-        glm::vec3 clamped = unclamped;
-        clampOffset(clamped);
-        if (glm::abs(unclamped.x - clamped.x) > kTunnelWallTolerance) {
-            _lateralVelocity = glm::vec3(0.0f);
-        }
-        _offset = clamped;
-
-        // A jump (TSL): the vertical speed lifts the bike off the track and
-        // gravity brings it back. The tunnel's Z limit is the ceiling: the
-        // bike stops rising there. It lands at its starting height.
-        if (_jumpSpeed != 0.0f || _offset.z > _startOffset.z) {
-            glm::vec3 lifted = _offset;
-            lifted.z += _jumpSpeed * dt;
-            _jumpSpeed -= kMinigameGravity * dt;
-            glm::vec3 held = lifted;
-            clampOffset(held);
-            if (held.z < lifted.z - kTunnelWallTolerance) {
-                _jumpSpeed = glm::min(_jumpSpeed, 0.0f);
-            }
-            if (held.z <= _startOffset.z) {
-                held.z = _startOffset.z;
-                _jumpSpeed = 0.0f;
-            }
-            _offset.z = held.z;
-        }
-    }
-
+    // The track moves first: the steering reads how it turned this update.
+    glm::mat4 previousHook = p.hook;
+    float previousTrackTime = p.trackTime;
     advanceTrack(p, dt);
+    if (_type == MinigameType::SwoopRace) {
+        float drift = 0.0f;
+        // A track that looped this update jumped back to its start: no curve.
+        if (_useInertia && p.trackTime >= previousTrackTime) {
+            drift = minigameCurveDrift(previousHook, p.track.hookAt(p.trackTime), dt);
+        }
+        steerPlayer(dt, input, drift);
+        updateJump(dt);
+    }
     placeActor(p);
+}
+
+void MinigameSession::steerPlayer(float dt, const MinigameInput &input, float drift) {
+    // The lateral speed follows the steering through a lag:
+    //   dv/dt = L * u - (L / M) * v + drift
+    // with L the lateral acceleration, M the top lateral speed (MovementPerSec)
+    // and u the steering, blended from the previous update's to this one's.
+    // At full steering the speed settles at M, in a time of about M / L. The
+    // drift is the outward push of a curve (UseInertia). 4th-order Runge-Kutta.
+    glm::vec3 in(glm::clamp(input.steer, -1.0f, 1.0f), 0.0f, 0.0f);
+    float top = _movementPerSec;
+    glm::vec3 delta(0.0f);
+    if (top > 0.0f) {
+        float L = _lateralAccel;
+        float damping = L / top;
+        glm::vec3 u0 = _previousInput;
+        glm::vec3 um = (_previousInput + in) * 0.5f;
+        glm::vec3 u1 = in;
+        glm::vec3 v = _lateralVelocity;
+        auto accel = [&](const glm::vec3 &vel, const glm::vec3 &u) {
+            glm::vec3 a = L * u - damping * vel;
+            a.x += drift;
+            return a;
+        };
+        glm::vec3 k1v = accel(v, u0);
+        glm::vec3 k1x = v;
+        glm::vec3 k2v = accel(v + 0.5f * dt * k1v, um);
+        glm::vec3 k2x = v + 0.5f * dt * k1v;
+        glm::vec3 k3v = accel(v + 0.5f * dt * k2v, um);
+        glm::vec3 k3x = v + 0.5f * dt * k2v;
+        glm::vec3 k4v = accel(v + dt * k3v, u1);
+        glm::vec3 k4x = v + dt * k3v;
+        _lateralVelocity = v + (dt / 6.0f) * (k1v + 2.0f * k2v + 2.0f * k3v + k4v);
+        delta = (dt / 6.0f) * (k1x + 2.0f * k2x + 2.0f * k3x + k4x);
+    } else {
+        _lateralVelocity = glm::vec3(0.0f);
+    }
+    _previousInput = in;
+
+    glm::vec3 unclamped = _offset + delta;
+    glm::vec3 clamped = unclamped;
+    clampOffset(clamped);
+    if (glm::abs(unclamped.x - clamped.x) > kTunnelWallTolerance) {
+        _lateralVelocity = glm::vec3(0.0f);
+    }
+    _offset = clamped;
+}
+
+void MinigameSession::updateJump(float dt) {
+    // A jump (TSL): the vertical speed lifts the bike off the track and
+    // gravity brings it back. The tunnel's Z limit is the ceiling: the bike
+    // stops rising there. It lands at its starting height.
+    if (_jumpSpeed == 0.0f && _offset.z <= _startOffset.z) {
+        return;
+    }
+    glm::vec3 lifted = _offset;
+    lifted.z += _jumpSpeed * dt;
+    _jumpSpeed -= kMinigameGravity * dt;
+    glm::vec3 held = lifted;
+    clampOffset(held);
+    if (held.z < lifted.z - kTunnelWallTolerance) {
+        _jumpSpeed = glm::min(_jumpSpeed, 0.0f);
+    }
+    if (held.z <= _startOffset.z) {
+        held.z = _startOffset.z;
+        _jumpSpeed = 0.0f;
+    }
+    _offset.z = held.z;
 }
 
 void MinigameSession::clampOffset(glm::vec3 &offset) const {
