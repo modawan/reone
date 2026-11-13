@@ -3997,7 +3997,16 @@ int Creature::serializedCurrentHitPoints() const {
 }
 
 int Creature::serializedCurrentForce() const {
-    return _currentForce - maxForcePoints() + _forcePoints;
+    // A creature other than the player without a Force pool has no maximum
+    // to leave out, and a load reads its points as they are: they are
+    // written as they are. Leaving out a maximum of none would add its
+    // base on at every save (the game's own saves hold Bao-Dur, base 48,
+    // at 4664).
+    const int maximum = maxForcePoints();
+    if (!_isPC && maximum == 0) {
+        return _currentForce;
+    }
+    return _currentForce - maximum + _forcePoints;
 }
 
 void Creature::recalculatePermanentVitality() {
