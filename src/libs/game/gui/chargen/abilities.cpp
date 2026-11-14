@@ -25,7 +25,6 @@
 #include "reone/resource/strings.h"
 
 #include "reone/game/d20/classes.h"
-#include "reone/game/d20/recommended.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
@@ -42,7 +41,9 @@ namespace game {
 
 static constexpr int kStartingPoints = 30;
 static constexpr int kMinAbilityScore = 8;
-static constexpr int kMaxAbilityScore = 18;
+// The highest score a new character can buy. A level-up's point raises any
+// score.
+static constexpr int kMaxNewCharacterAbilityScore = 18;
 
 static const std::unordered_map<std::string, Ability> g_abilityByAlias {
     {"STR", Ability::Strength},
@@ -199,12 +200,11 @@ void CharGenAbilities::recommend() {
         // scores the screen opened with, at the plus button's cost.
         _attributes = _startAttributes;
         _points = _startPoints;
-        while (auto ability = recommendLevelUpAbility(*clazz, _attributes, kMaxAbilityScore)) {
-            if (_points < getPointCost(*ability)) {
-                break;
+        if (const auto primary = clazz->primaryAbility()) {
+            while (_points >= getPointCost(*primary)) {
+                _points -= getPointCost(*primary);
+                _attributes.setAbilityScore(*primary, _attributes.getAbilityScore(*primary) + 1);
             }
-            _points -= getPointCost(*ability);
-            _attributes.setAbilityScore(*ability, _attributes.getAbilityScore(*ability) + 1);
         }
     }
     refreshControls();
@@ -243,12 +243,18 @@ void CharGenAbilities::refreshControls() {
     _controls.WIS_MINUS_BTN->setVisible(_attributes.wisdom() > _startAttributes.wisdom());
     _controls.CHA_MINUS_BTN->setVisible(_attributes.charisma() > _startAttributes.charisma());
 
-    _controls.STR_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Strength) && _attributes.strength() < kMaxAbilityScore);
-    _controls.DEX_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Dexterity) && _attributes.dexterity() < kMaxAbilityScore);
-    _controls.CON_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Constitution) && _attributes.constitution() < kMaxAbilityScore);
-    _controls.INT_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Intelligence) && _attributes.intelligence() < kMaxAbilityScore);
-    _controls.WIS_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Wisdom) && _attributes.wisdom() < kMaxAbilityScore);
-    _controls.CHA_PLUS_BTN->setVisible(_points >= getPointCost(Ability::Charisma) && _attributes.charisma() < kMaxAbilityScore);
+    // Plus raises a score the points can pay for; only a new character's
+    // scores stop at a highest one.
+    const auto canRaise = [this](Ability ability) {
+        return _points >= getPointCost(ability) &&
+               (!_newGame || _attributes.getAbilityScore(ability) < kMaxNewCharacterAbilityScore);
+    };
+    _controls.STR_PLUS_BTN->setVisible(canRaise(Ability::Strength));
+    _controls.DEX_PLUS_BTN->setVisible(canRaise(Ability::Dexterity));
+    _controls.CON_PLUS_BTN->setVisible(canRaise(Ability::Constitution));
+    _controls.INT_PLUS_BTN->setVisible(canRaise(Ability::Intelligence));
+    _controls.WIS_PLUS_BTN->setVisible(canRaise(Ability::Wisdom));
+    _controls.CHA_PLUS_BTN->setVisible(canRaise(Ability::Charisma));
 }
 
 int CharGenAbilities::getPointCost(Ability ability) const {
