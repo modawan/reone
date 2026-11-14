@@ -1569,13 +1569,13 @@ void ItemUpgradePanel::build3DViews() {
     auto build = [&](ItemView &view, const gui::Label &control) {
         _services.scene.graphs.reset(view.sceneName);
         auto &graph = _services.scene.graphs.get(view.sceneName);
-        auto light = graph.newModel(*lightModel, ModelUsage::GUI);
+        auto light = graph.newModel(lightModel, ModelUsage::GUI);
         const auto &extent = control.extent();
         SceneInitializer {graph}
             .aspect(extent.width / static_cast<float>(extent.height))
             .depth(kItemViewClipPlaneNear, kItemViewClipPlaneFar)
             .perspective(glm::radians(kItemViewAngle))
-            .room(roomModel ? graph.newModel(*roomModel, ModelUsage::Room) : nullptr)
+            .room(roomModel ? graph.newModel(roomModel, ModelUsage::Room) : nullptr)
             .modelSupplier([light](ISceneGraph &) { return light; })
             .invoke();
         view.light = std::move(light);
@@ -1627,7 +1627,7 @@ void ItemUpgradePanel::refresh3D() {
     if (!itemModel) {
         return;
     }
-    _itemModel = graph.newModel(*itemModel, ModelUsage::GUI);
+    _itemModel = graph.newModel(itemModel, ModelUsage::GUI);
     if (_type == UpgradableType::Armor) {
         // Armour is drawn with its look's texture of the item's texture
         // variation, a variation below 1 being 1; without that texture, with
@@ -1640,8 +1640,8 @@ void ItemUpgradePanel::refresh3D() {
             if (!_itemTexture) {
                 _itemTexture = _services.resource.textures.get(look.model + "01", TextureUsage::MainTex);
             }
-            _itemModel->setMainTexture(_itemTexture ? _itemTexture.get()
-                                                    : &_services.graphics.textureRegistry.get(TextureName::default2dRgb));
+            _itemModel->setMainTexture(_itemTexture ? _itemTexture
+                                                    : _services.graphics.textureRegistry.get(TextureName::default2dRgb));
         }
     }
     const std::string rotateHook = "rotatehook" + suffix;

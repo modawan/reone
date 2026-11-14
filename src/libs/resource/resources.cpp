@@ -28,46 +28,58 @@ namespace reone {
 
 namespace resource {
 
+namespace {
+
+/// Whether a container has the resource. A container builds its ids and its
+/// index together, so holding an id means reading it succeeds.
+auto holds(const ResourceId &id) {
+    return [&id](const ResourceContainerPair &container) {
+        return container.provider->resourceIds().count(id) != 0;
+    };
+}
+
+} // namespace
+
 void Resources::addKEY(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<KeyBifResourceContainer>(path);
     provider->init();
-    add(std::move(provider), ResourceOwner::Global, bucket);
+    mount(std::move(provider), ResourceSourceForm::KeyBif, path, ResourceOwner::Global, bucket);
 }
 
 void Resources::addERF(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ErfResourceContainer>(path);
     provider->init();
-    add(std::move(provider), owner, bucket);
+    mount(std::move(provider), ResourceSourceForm::Erf, path, owner, bucket);
 }
 
 void Resources::addMemERF(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ErfResourceContainer>(std::move(buffer));
     provider->init();
-    add(std::move(provider), owner, bucket);
+    mount(std::move(provider), ResourceSourceForm::Erf, {}, owner, bucket);
 }
 
 void Resources::addRIM(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<RimResourceContainer>(path);
     provider->init();
-    add(std::move(provider), owner, bucket);
+    mount(std::move(provider), ResourceSourceForm::Rim, path, owner, bucket);
 }
 
 void Resources::addMemRIM(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<RimResourceContainer>(buffer);
     provider->init();
-    add(std::move(provider), owner, bucket);
+    mount(std::move(provider), ResourceSourceForm::Rim, {}, owner, bucket);
 }
 
 void Resources::addEXE(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ExeResourceContainer>(path);
     provider->init();
-    add(std::move(provider), ResourceOwner::Global, bucket);
+    mount(std::move(provider), ResourceSourceForm::Executable, path, ResourceOwner::Global, bucket);
 }
 
 void Resources::addFolder(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<FolderResourceContainer>(path);
     provider->init();
-    add(std::move(provider), owner, bucket);
+    mount(std::move(provider), ResourceSourceForm::Folder, path, owner, bucket);
 }
 
 Resource Resources::get(const ResourceId &id) {
@@ -85,16 +97,27 @@ std::optional<Resource> Resources::find(const ResourceId &id) {
 std::optional<Resource> Resources::findExcludingOwners(
     const ResourceId &id,
     const std::set<ResourceOwner> &excludedOwners) {
-    for (auto &container : _containers) {
-        if (excludedOwners.count(container.owner) != 0) {
-            continue;
-        }
-        auto data = container.provider->findResourceData(id);
-        if (data) {
-            return Resource {*data};
-        }
+    auto container = _containers.resolve(holds(id), excludedOwners);
+    if (!container) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return Resource {*container->provider->findResourceData(id), ResourceContainerList::sourceRef(*container)};
+}
+
+std::optional<ResourceSourceRef> Resources::locate(const ResourceId &id) const {
+    auto container = _containers.resolve(holds(id));
+    if (!container) {
+        return std::nullopt;
+    }
+    return ResourceContainerList::sourceRef(*container);
+}
+
+std::vector<ResourceSourceRef> Resources::explain(const ResourceId &id) const {
+    std::vector<ResourceSourceRef> sources;
+    for (auto container : _containers.candidates(holds(id))) {
+        sources.push_back(ResourceContainerList::sourceRef(*container));
+    }
+    return sources;
 }
 
 } // namespace resource

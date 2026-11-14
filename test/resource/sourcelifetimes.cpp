@@ -433,6 +433,9 @@ public:
         const std::set<ResourceOwner> &excludedOwners) override {
         return _backend->findExcludingOwners(id, excludedOwners);
     }
+    std::optional<ResourceSourceRef> locate(const ResourceId &id) const override { return _backend->locate(id); }
+    std::vector<ResourceSourceRef> explain(const ResourceId &id) const override { return _backend->explain(id); }
+    std::uint64_t generation() const override { return _backend->generation(); }
 
 private:
     void reject(const std::filesystem::path &path) const {
@@ -471,13 +474,11 @@ protected:
     }
 
     std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath,
-                                                   GameID game = GameID::TSL,
-                                                   IGffs *gffs = nullptr) {
+                                                   GameID game = GameID::TSL) {
         _gamePath = gamePath;
         return std::make_unique<ResourceDirector>(
             game, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            _dialogs, gffs ? *gffs : static_cast<IGffs &>(_gffs), _lips, _paths,
-            *_resources, *_auxResources, _scripts, _twoDas);
+            *_resources, *_auxResources, _twoDas);
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {
@@ -500,11 +501,6 @@ protected:
     graphics::TestGraphicsModule _graphics;
     script::TestScriptModule _script;
 
-    NiceMock<MockDialogs> _dialogs;
-    NiceMock<MockGffs> _gffs;
-    NiceMock<MockLips> _lips;
-    NiceMock<MockPaths> _paths;
-    NiceMock<MockScripts> _scripts;
     NiceMock<MockTwoDAs> _twoDas;
 
     std::filesystem::path _gamePath;
@@ -574,9 +570,10 @@ TEST_P(SourceLifetimeDirectorTest, a_save_working_state_is_replaced_when_another
 /**
  * Save-session validation happens before the commit-side cache invalidation.
  *
- * A successful commit clears decoded results that may refer to the prior
- * session. A rejected candidate leaves both the active working state and its
- * still-valid decoded cache untouched.
+ * A successful commit retires what was decoded from the prior session's
+ * sources, and a lookup falls back to what they shadowed. A rejected candidate
+ * leaves both the active working state and its still-valid decoded cache
+ * untouched.
  */
 TEST_P(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_entries) {
     TmpDir game("reone_test_lifetime_save_cache");
@@ -588,7 +585,7 @@ TEST_P(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_e
     game.mkdir("saves/slot_broken");
 
     Gffs gffs(*_resources);
-    auto director = makeDirector(game.path, GameID::TSL, &gffs);
+    auto director = makeDirector(game.path, GameID::TSL);
     {
         CwdGuard guard(cwd.path);
         director->init();
@@ -597,6 +594,11 @@ TEST_P(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_e
         erfBytes(ErfWriter::FileType::ERF,
                  {{"cacheprobe", ResType::Res, emptyGff()}}),
         ResourceOwner::Global,
+        ResourceSourceBucket::EncapsulatedClass1);
+    _resources->addMemERF(
+        erfBytes(ErfWriter::FileType::ERF,
+                 {{"cacheprobe", ResType::Res, emptyGff()}}),
+        ResourceOwner::SaveSlot,
         ResourceSourceBucket::EncapsulatedClass1);
 
     auto beforeCommit = gffs.get("cacheprobe", ResType::Res);

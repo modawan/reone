@@ -19,12 +19,16 @@
 
 #include "reone/system/types.h"
 
+#include "sourcelist.h"
+
 namespace reone {
 
 namespace resource {
 
 struct Resource {
     ByteBuffer data;
+    /// The source that answered the lookup.
+    ResourceSourceRef source;
 };
 
 } // namespace resource

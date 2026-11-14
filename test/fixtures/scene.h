@@ -93,8 +93,8 @@ public:
     MOCK_METHOD(void, setRenderTriggers, (bool), (override));
 
     MOCK_METHOD(std::shared_ptr<CameraSceneNode>, newCamera, (), (override));
-    MOCK_METHOD(std::shared_ptr<ModelSceneNode>, newModel, (graphics::Model &, ModelUsage), (override));
-    MOCK_METHOD(std::shared_ptr<WalkmeshSceneNode>, newWalkmesh, (graphics::Walkmesh & walkmesh), (override));
+    MOCK_METHOD(std::shared_ptr<ModelSceneNode>, newModel, (std::shared_ptr<graphics::Model>, ModelUsage), (override));
+    MOCK_METHOD(std::shared_ptr<WalkmeshSceneNode>, newWalkmesh, (std::shared_ptr<graphics::Walkmesh> walkmesh), (override));
     MOCK_METHOD(std::shared_ptr<TriggerSceneNode>, newTrigger, (std::vector<glm::vec3> geometry), (override));
     MOCK_METHOD(std::shared_ptr<SoundSceneNode>, newSound, (), (override));
     MOCK_METHOD(std::shared_ptr<DummySceneNode>, newDummy, (graphics::ModelNode & modelNode), (override));

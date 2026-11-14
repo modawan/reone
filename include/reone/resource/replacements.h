@@ -34,6 +34,9 @@ public:
 
     virtual std::optional<Resource> findResourceReplacement(const ResourceId &id) const = 0;
     virtual uint64_t revision(const ResourceId &id) const = 0;
+
+    /// Changes whenever any replacement is set or removed.
+    virtual uint64_t generation() const = 0;
 };
 
 class ResourceReplacements : public IResourceReplacements, boost::noncopyable {
@@ -44,6 +47,7 @@ public:
 
     std::optional<Resource> findResourceReplacement(const ResourceId &id) const override;
     uint64_t revision(const ResourceId &id) const override;
+    uint64_t generation() const override { return _nextRevision; }
 
 private:
     std::unordered_map<ResourceId, std::shared_ptr<const ByteBuffer>> _resources;

@@ -41,13 +41,8 @@ struct ScriptServices;
 
 namespace resource {
 
-class IDialogs;
 class Gff;
-class IGffs;
-class ILips;
-class IPaths;
 class IResources;
-class IScripts;
 class ITwoDAs;
 class PreparedModuleLoadTestFactory;
 
@@ -204,13 +199,8 @@ public:
                      const graphics::GraphicsOptions &graphicsOpt,
                      graphics::GraphicsServices &graphicsSvc,
                      script::ScriptServices &scriptSvc,
-                     IDialogs &dialogs,
-                     IGffs &gffs,
-                     ILips &lips,
-                     IPaths &paths,
                      IResources &resources,
                      IResources &auxResources,
-                     IScripts &scripts,
                      ITwoDAs &twoDas,
                      OdysseyResourceRoots odysseyRoots = {}) :
         _gameId(gameId),
@@ -219,13 +209,8 @@ public:
         _graphicsOpt(graphicsOpt),
         _graphicsSvc(graphicsSvc),
         _scriptSvc(scriptSvc),
-        _dialogs(dialogs),
-        _gffs(gffs),
-        _lips(lips),
-        _paths(paths),
         _resources(resources),
         _auxResources(auxResources),
-        _scripts(scripts),
         _twoDas(twoDas) {
         if (!_odysseyRoots.nwmFiles) {
             _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
@@ -269,13 +254,8 @@ private:
     const graphics::GraphicsOptions &_graphicsOpt;
     graphics::GraphicsServices &_graphicsSvc;
     script::ScriptServices &_scriptSvc;
-    IDialogs &_dialogs;
-    IGffs &_gffs;
-    ILips &_lips;
-    IPaths &_paths;
     IResources &_resources;
     IResources &_auxResources;
-    IScripts &_scripts;
     ITwoDAs &_twoDas;
 
     std::unique_ptr<SaveSessionState> _saveSession;

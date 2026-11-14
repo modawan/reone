@@ -24,6 +24,14 @@ namespace reone {
 
 namespace resource {
 
+/**
+ * A backend with the runtime replacement store above every source it holds.
+ *
+ * A replaced id is answered by its replacement. Every other id is answered by
+ * the backend, and its reference carries the id's current replacement
+ * revision, so setting or removing a replacement changes how the id is
+ * reported even where the backend's answer stays the same.
+ */
 class ReplacementResources : public IResources, boost::noncopyable {
 public:
     ReplacementResources(std::unique_ptr<IResources> backend,
@@ -62,6 +70,9 @@ public:
     std::optional<Resource> findExcludingOwners(
         const ResourceId &id,
         const std::set<ResourceOwner> &excludedOwners) override;
+    std::optional<ResourceSourceRef> locate(const ResourceId &id) const override;
+    std::vector<ResourceSourceRef> explain(const ResourceId &id) const override;
+    std::uint64_t generation() const override;
 
 private:
     std::unique_ptr<IResources> _backend;

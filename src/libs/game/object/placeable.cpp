@@ -283,7 +283,7 @@ void Placeable::loadAppearance() {
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
 
-    auto sceneNode = sceneGraph.newModel(*model, ModelUsage::Placeable);
+    auto sceneNode = sceneGraph.newModel(model, ModelUsage::Placeable);
     sceneNode->setUser(*this);
     // A camera passes through a placeable whose appearance is not hit checked.
     sceneNode->setCameraPassesThrough(placeables->getInt(_appearance, "hitcheck", 0) == 0);
@@ -293,7 +293,7 @@ void Placeable::loadAppearance() {
     _light.reset();
     if (auto colorRow = placeables->getIntOpt(_appearance, "lightcolor")) {
         if (auto lightModel = _services.resource.models.get(kLightModelResRef)) {
-            auto light = sceneGraph.newModel(*lightModel, ModelUsage::Placeable);
+            auto light = sceneGraph.newModel(lightModel, ModelUsage::Placeable);
             light->setLocalTransform(glm::translate(glm::vec3(
                 placeables->getFloat(_appearance, "lightoffsetx", 0.0f),
                 placeables->getFloat(_appearance, "lightoffsety", 0.0f),
@@ -311,7 +311,7 @@ void Placeable::loadAppearance() {
 
     auto walkmesh = _services.resource.walkmeshes.get(modelName, ResType::Pwk);
     if (walkmesh) {
-        _walkmesh = sceneGraph.newWalkmesh(*walkmesh);
+        _walkmesh = sceneGraph.newWalkmesh(walkmesh);
     }
 }
 

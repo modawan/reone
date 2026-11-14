@@ -238,7 +238,7 @@ void Trigger::loadTrapModel() {
         throw ResourceNotFoundException("Trap model not found: " + modelName);
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-    _trapModel = sceneGraph.newModel(*model, ModelUsage::Placeable);
+    _trapModel = sceneGraph.newModel(model, ModelUsage::Placeable);
     _trapModel->setLocalTransform(glm::translate(trapModelPosition()));
     _trapModel->setDrawDistance(_game.options().graphics.drawDistance);
     _trapShown = false;

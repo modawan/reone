@@ -177,7 +177,7 @@ protected:
         _gamePath = p;
         return std::make_unique<ResourceDirector>(
             game, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            _dialogs, _gffs, _lips, _paths, *_resources, *_auxResources, _scripts, _twoDas, std::move(roots));
+            *_resources, *_auxResources, _twoDas, std::move(roots));
     }
 
     /// An installation with a modules directory and the shader pack the
@@ -198,11 +198,6 @@ protected:
     graphics::GraphicsOptions _graphicsOpt;
     graphics::TestGraphicsModule _graphics;
     script::TestScriptModule _script;
-    NiceMock<MockDialogs> _dialogs;
-    NiceMock<MockGffs> _gffs;
-    NiceMock<MockLips> _lips;
-    NiceMock<MockPaths> _paths;
-    NiceMock<MockScripts> _scripts;
     NiceMock<MockTwoDAs> _twoDas;
     std::filesystem::path _gamePath;
     std::unique_ptr<IResources> _resources;

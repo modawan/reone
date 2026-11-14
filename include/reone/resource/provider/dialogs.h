@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <optional>
-
+#include "../decodedcache.h"
 #include "../dialog.h"
 #include "../parser/gff/dlg.h"
 
@@ -59,12 +58,9 @@ public:
     }
 
     std::shared_ptr<Dialog> get(const std::string &key) override {
-        auto maybeObject = _objects.find(key);
-        if (maybeObject != _objects.end()) {
-            return maybeObject->second;
-        }
-        auto object = doGet(key);
-        return _objects.insert(make_pair(key, std::move(object))).first->second;
+        return _objects.get(key, [this, &key](ResourceReads &reads) {
+            return doGet(key, reads);
+        }).value;
     }
 
 private:
@@ -84,16 +80,14 @@ private:
     Strings &_strings;
     TwoDAs &_twoDas;
     GameID _game;
-    /** TSL: the alien speech tables, read with the first dialog. */
-    std::optional<AlienSpeechTables> _alienSpeechTables;
 
-    std::unordered_map<std::string, std::shared_ptr<Dialog>> _objects;
+    DecodedCache<std::string, Dialog> _objects;
 
-    std::shared_ptr<Dialog> doGet(std::string resRef);
+    std::shared_ptr<Dialog> doGet(const std::string &resRef, ResourceReads &reads);
 
-    std::unique_ptr<Dialog> loadDialog(const generated::DLG &dlg);
-    /** TSL: the alien speech tables, read once. */
-    const AlienSpeechTables &alienSpeechTables();
+    std::unique_ptr<Dialog> loadDialog(const generated::DLG &dlg, ResourceReads &reads);
+    /** TSL: the alien speech tables, recording the lookups they were read from. */
+    AlienSpeechTables alienSpeechTables(ResourceReads &reads);
 
     Dialog::EntryReplyLink getEntryReplyLink(const generated::DLG_EntryReplyList_EntriesRepliesList &dlg) const;
     /**

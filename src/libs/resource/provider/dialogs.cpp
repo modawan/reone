@@ -37,18 +37,19 @@ static constexpr int kSoundIsVoice = 1;
 static constexpr int kSoundTakesVariation = 2;
 static constexpr int kSoundVariationAdded = 4;
 
-std::shared_ptr<Dialog> Dialogs::doGet(std::string resRef) {
-    auto dlg = _gffs.get(resRef, ResType::Dlg);
-    if (!dlg) {
+std::shared_ptr<Dialog> Dialogs::doGet(const std::string &resRef, ResourceReads &reads) {
+    auto &dlg = _gffs.entry(resRef, ResType::Dlg);
+    reads.add(dlg.reads);
+    if (!dlg.value) {
         return nullptr;
     }
-    auto dlgParsed = resource::generated::parseDLG(*dlg);
-    auto dialog = loadDialog(dlgParsed);
-    dialog->resRef = ResRef(std::move(resRef)).value();
+    auto dlgParsed = resource::generated::parseDLG(*dlg.value);
+    auto dialog = loadDialog(dlgParsed, reads);
+    dialog->resRef = ResRef(resRef).value();
     return dialog;
 }
 
-std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg) {
+std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg, ResourceReads &reads) {
     auto dialog = std::make_unique<Dialog>();
 
     dialog->skippable = dlg.Skippable;
@@ -66,7 +67,7 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
 
     std::optional<AlienSpeech> alienSpeech;
     if (_game == GameID::TSL) {
-        alienSpeech = AlienSpeech {alienSpeechTables(), dlg.AlienRaceOwner};
+        alienSpeech = AlienSpeech {alienSpeechTables(reads), dlg.AlienRaceOwner};
     }
     for (auto &entry : dlg.EntryList) {
         dialog->entries.push_back(getEntryReply(entry, alienSpeech));
@@ -85,11 +86,12 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
 }
 
 // A table the game data lacks finds nothing.
-const Dialogs::AlienSpeechTables &Dialogs::alienSpeechTables() {
-    if (!_alienSpeechTables) {
-        _alienSpeechTables = AlienSpeechTables {_twoDas.get(kEmotionsResRef), _twoDas.get(kAlienVoicesResRef)};
-    }
-    return *_alienSpeechTables;
+Dialogs::AlienSpeechTables Dialogs::alienSpeechTables(ResourceReads &reads) {
+    auto &emotions = _twoDas.entry(kEmotionsResRef);
+    reads.add(emotions.reads);
+    auto &voices = _twoDas.entry(kAlienVoicesResRef);
+    reads.add(voices.reads);
+    return AlienSpeechTables {emotions.value, voices.value};
 }
 
 Dialog::EntryReplyLink Dialogs::getEntryReplyLink(const resource::generated::DLG_EntryReplyList_EntriesRepliesList &dlg) const {

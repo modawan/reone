@@ -25,12 +25,13 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<Path> Paths::doGet(std::string resRef) {
-    auto pth = _gffs.get(resRef, ResType::Pth);
-    if (!pth) {
+std::shared_ptr<Path> Paths::doGet(const std::string &resRef, ResourceReads &reads) {
+    auto &pth = _gffs.entry(resRef, ResType::Pth);
+    reads.add(pth.reads);
+    if (!pth.value) {
         return nullptr;
     }
-    auto pthParsed = resource::generated::parsePTH(*pth);
+    auto pthParsed = resource::generated::parsePTH(*pth.value);
     return loadPath(pthParsed);
 }
 

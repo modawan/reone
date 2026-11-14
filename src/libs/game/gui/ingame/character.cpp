@@ -433,7 +433,7 @@ std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneG
     character->loadAppearance();
     character->updateModelAnimation();
 
-    auto sceneModel = sceneGraph.newModel(*_services.resource.models.get("charmain_light"), ModelUsage::GUI);
+    auto sceneModel = sceneGraph.newModel(_services.resource.models.get("charmain_light"), ModelUsage::GUI);
     sceneModel->attach("charmain_light", *character->sceneNode());
 
     return sceneModel;

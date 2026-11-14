@@ -1447,14 +1447,14 @@ std::shared_ptr<DummySceneNode> SceneGraph::newDummy(ModelNode &modelNode) {
     return std::move(node);
 }
 
-std::shared_ptr<ModelSceneNode> SceneGraph::newModel(Model &model, ModelUsage usage) {
-    auto node = newSceneNode<ModelSceneNode, Model &, ModelUsage>(model, usage);
+std::shared_ptr<ModelSceneNode> SceneGraph::newModel(std::shared_ptr<Model> model, ModelUsage usage) {
+    auto node = newSceneNode<ModelSceneNode, std::shared_ptr<Model>, ModelUsage>(std::move(model), usage);
     node->init();
     return std::move(node);
 }
 
-std::shared_ptr<WalkmeshSceneNode> SceneGraph::newWalkmesh(Walkmesh &walkmesh) {
-    auto node = newSceneNode<WalkmeshSceneNode, Walkmesh &>(walkmesh);
+std::shared_ptr<WalkmeshSceneNode> SceneGraph::newWalkmesh(std::shared_ptr<Walkmesh> walkmesh) {
+    auto node = newSceneNode<WalkmeshSceneNode, std::shared_ptr<Walkmesh>>(std::move(walkmesh));
     node->init();
     return std::move(node);
 }

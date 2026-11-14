@@ -36,10 +36,10 @@ void WalkmeshSceneNode::init() {
     std::vector<float> vertices;
     std::vector<Mesh::Face> faces;
 
-    for (size_t i = 0; i < _walkmesh.faces.size(); ++i) {
+    for (size_t i = 0; i < _walkmesh->faces.size(); ++i) {
         size_t vertIdxStart = vertices.size() / 7;
 
-        Walkmesh::Face wface = _walkmesh.getFace(i);
+        Walkmesh::Face wface = _walkmesh->getFace(i);
         float material = glm::min(1.0f, static_cast<float>(wface.material) / static_cast<float>(kMaxWalkmeshMaterials - 1));
 
         for (glm::vec3 v : wface.vertices) {

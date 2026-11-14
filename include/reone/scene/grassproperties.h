@@ -32,7 +32,7 @@ struct GrassProperties {
     float quadSize {0.0f};
     glm::vec4 probabilities {0.0f};
     std::set<uint32_t> materials;
-    graphics::Texture *texture {nullptr};
+    std::shared_ptr<graphics::Texture> texture;
 };
 
 } // namespace scene

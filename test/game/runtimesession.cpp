@@ -832,7 +832,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     configureRuntimeMocks(engine, sceneGraph);
     Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
     Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    graphics::Walkmesh destinationRoomNodeWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> destinationRoomNodeWalkmesh {std::make_shared<graphics::Walkmesh>()};
     auto destinationRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
         destinationRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
     destinationRoomNode->setUser(destinationRoom);
@@ -921,7 +921,7 @@ TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
     Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    graphics::Walkmesh savedRoomNodeWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> savedRoomNodeWalkmesh {std::make_shared<graphics::Walkmesh>()};
     auto savedRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
         savedRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
     savedRoomNode->setUser(savedRoom);
@@ -986,7 +986,7 @@ struct PartyTransferHarness {
     NiceMock<scene::MockSceneGraph> sceneGraph;
     StubConsole console;
     Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr, nullptr};
-    graphics::Walkmesh roomWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     std::unique_ptr<Game> game;
     std::shared_ptr<Creature> player;
@@ -1228,11 +1228,11 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     auto root = std::make_shared<graphics::ModelNode>(
         0, "retained", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
-    auto model = std::make_unique<graphics::Model>(
+    auto model = std::make_shared<graphics::Model>(
         "retained", 0, root,
         std::vector<std::shared_ptr<graphics::Animation>>(), "", 1.0f);
     auto sceneNode = std::make_shared<scene::ModelSceneNode>(
-        *model, scene::ModelUsage::Creature, sceneGraph,
+        model, scene::ModelUsage::Creature, sceneGraph,
         engine.graphicsModule().services(),
         engine.audioModule().services(),
         engine.resourceModule().services());
@@ -2389,11 +2389,11 @@ TEST(RuntimeObjectOwnership, git_shaped_world_item_releases_every_area_edge) {
     auto root = std::make_shared<graphics::ModelNode>(
         0, "world_item", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
-    auto model = std::make_unique<graphics::Model>(
+    auto model = std::make_shared<graphics::Model>(
         "world_item", 0, root,
         std::vector<std::shared_ptr<graphics::Animation>>(), "", 1.0f);
     auto sceneNode = std::make_shared<scene::ModelSceneNode>(
-        *model, scene::ModelUsage::Placeable, sceneGraph,
+        model, scene::ModelUsage::Placeable, sceneGraph,
         engine.graphicsModule().services(),
         engine.audioModule().services(),
         engine.resourceModule().services());
@@ -2488,11 +2488,11 @@ TEST(RuntimeObjectOwnership, equip_action_refuses_area_item_and_keeps_its_area_e
     auto root = std::make_shared<graphics::ModelNode>(
         0, "world_equip", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
-    auto model = std::make_unique<graphics::Model>(
+    auto model = std::make_shared<graphics::Model>(
         "world_equip", 0, root,
         std::vector<std::shared_ptr<graphics::Animation>>(), "", 1.0f);
     auto sceneNode = std::make_shared<scene::ModelSceneNode>(
-        *model, scene::ModelUsage::Placeable, sceneGraph,
+        model, scene::ModelUsage::Placeable, sceneGraph,
         engine.graphicsModule().services(),
         engine.audioModule().services(),
         engine.resourceModule().services());
@@ -3142,7 +3142,7 @@ TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_id
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
     Room room("partial", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    graphics::Walkmesh roomNodeWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> roomNodeWalkmesh {std::make_shared<graphics::Walkmesh>()};
     auto roomNode = std::make_shared<scene::WalkmeshSceneNode>(
         roomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
     roomNode->setUser(room);

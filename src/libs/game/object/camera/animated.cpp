@@ -114,7 +114,7 @@ void AnimatedCamera::setModel(std::shared_ptr<Model> model) {
 
     if (model) {
         auto &scene = _services.scene.graphs.get(_sceneName);
-        _model = scene.newModel(*model, ModelUsage::Camera);
+        _model = scene.newModel(model, ModelUsage::Camera);
         _model->attach("camerahook", *_sceneNode);
     } else {
         _model.reset();

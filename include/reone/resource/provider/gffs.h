@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include "reone/system/cache.h"
-
+#include "../decodedcache.h"
 #include "../gff.h"
 #include "../id.h"
 #include "../types.h"
@@ -26,8 +25,6 @@
 namespace reone {
 
 namespace resource {
-
-class IResources;
 
 class IGffs {
 public:
@@ -48,12 +45,17 @@ public:
         _cache.clear();
     }
 
-    std::shared_ptr<Gff> get(const std::string &resRef, ResType type) override;
+    std::shared_ptr<Gff> get(const std::string &resRef, ResType type) override {
+        return entry(resRef, type).value;
+    }
+
+    /// The cached GFF with the lookups it was read from, for a value built from it.
+    const DecodedCache<ResourceId, Gff>::Entry &entry(const std::string &resRef, ResType type);
 
 private:
     IResources &_resources;
 
-    Cache<ResourceId, Gff> _cache;
+    DecodedCache<ResourceId, Gff> _cache;
 };
 
 } // namespace resource
