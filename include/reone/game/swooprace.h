@@ -115,6 +115,7 @@ private:
     std::vector<ActorModels> _actors;
     scene::SceneNode *_cameraHook {nullptr};
     MinigameAnimator _animator;
+    std::string _bankAnimation; // the lean frame playing on the player's models, "" when level
 
     // The bike's engine loop (the player's Sounds.Engine), pitched with its speed.
     std::shared_ptr<audio::AudioSource> _engineSound;
@@ -133,6 +134,7 @@ private:
     void updateCamera();
     void setCameraProjection(float fovDegrees, float nearClip, float farClip);
     void publishInput();
+    void updateBank();
 };
 
 } // namespace game
