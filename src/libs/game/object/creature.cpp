@@ -1888,7 +1888,12 @@ void Creature::playWeaponSound(int weaponSoundRow, const std::string &column) {
 // surface under its feet once, at its feet, unmasked by other sounds; another
 // surface, or a sound set with no sound for the surface, plays nothing.
 void Creature::playFallSound() {
-    const auto sound = fallSound(_game.module()->area()->getSurfaceMaterial(_position));
+    // A creature outside an area falls without a sound, as it steps without one.
+    const auto area = spatialArea();
+    if (!area) {
+        return;
+    }
+    const auto sound = fallSound(area->get().getSurfaceMaterial(_position));
     if (!sound) {
         return;
     }
