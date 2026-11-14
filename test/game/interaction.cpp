@@ -22,6 +22,7 @@
 
 #include "../fixtures/engine.h"
 
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/console.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
@@ -137,6 +138,44 @@ TEST_F(CreatureInteractionTest, creature_that_is_hostile_to_the_leader_is_presen
     ASSERT_FALSE(pending.empty());
     EXPECT_EQ(1, pending.front().type);
     EXPECT_THAT(contextActionTypes(), Contains(ActionType::AttackObject));
+}
+
+// A player's click on a second hostile in combat, while the leader is still on
+// its way to the first, retargets: the walk to the first goes, and the new
+// target is the one attempted. Before, the click only added a round entry
+// behind the stale walk, which went on for good when the first foe was boxed
+// in (the leader walked at a Vulkar 5 m off while another hit it from 1 m; every
+// click on that one said "no action queued (4 pending)").
+TEST_F(CreatureInteractionTest, clicking_another_hostile_in_combat_drops_the_walk_to_the_first) {
+    hostileOnly(kOtherFaction, kLeaderFaction);
+    auto second = _game->newCreature();
+    second->setFaction(kOtherFaction);
+    _leader->setCombatState(true, CombatActivation::Direct, false);
+    _leader->addAction(_game->newAction<MoveToObjectAction>(_other, true, 1.0f));
+    _leader->setAttemptedAttackTarget(_other->id());
+
+    TestGameModule::clickCreature(*_module, second);
+
+    for (const auto &action : _leader->actions()) {
+        auto *move = dyn_cast<MoveToObjectAction>(action.get());
+        EXPECT_FALSE(move && move->target() == _other) << "the walk to the first foe is still queued";
+    }
+    EXPECT_EQ(second->id(), _leader->getAttemptedAttackTarget());
+}
+
+// A click on the foe the leader is already after keeps the walk: it is not a
+// retarget.
+TEST_F(CreatureInteractionTest, clicking_the_same_hostile_in_combat_keeps_the_walk) {
+    hostileOnly(kOtherFaction, kLeaderFaction);
+    _leader->setCombatState(true, CombatActivation::Direct, false);
+    auto walk = _game->newAction<MoveToObjectAction>(_other, true, 1.0f);
+    _leader->addAction(walk);
+    _leader->setAttemptedAttackTarget(_other->id());
+
+    TestGameModule::clickCreature(*_module, _other);
+
+    ASSERT_FALSE(_leader->actions().empty());
+    EXPECT_EQ(walk.get(), _leader->actions().front().get());
 }
 
 TEST_F(CreatureInteractionTest, dead_creatures_are_never_hostile_regardless_of_disposition) {

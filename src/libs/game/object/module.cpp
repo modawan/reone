@@ -638,6 +638,14 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sou
             _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
         }
         if (_game.prepareMenuAttack(*partyLeader, creature)) {
+            // A click on another foe in combat retargets: the leader's
+            // orders toward the foe it was after go first. A round entry
+            // alone waited behind a walk to the old foe, which went on for
+            // good when that foe was boxed in.
+            const uint32_t attempted = partyLeader->getAttemptedAttackTarget();
+            if (partyLeader->isInCombat() && attempted != script::kObjectInvalid && attempted != creature->id()) {
+                _game.combat().clearAllOrders(*partyLeader);
+            }
             _game.sendAttack(*partyLeader, creature);
         }
     } else if (!creature->conversation().empty() && !creature->isInCombat()) {
