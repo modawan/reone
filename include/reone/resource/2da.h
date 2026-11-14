@@ -108,6 +108,12 @@ public:
      */
     int getColumnIndex(const std::string &column) const;
 
+    /**
+     * A string cell. An empty cell, or one that is "****", is missing.
+     *
+     * @return the cell's text, or \p defValue when the row, the column or
+     *         the cell's text is missing
+     */
     std::string getString(int row, const std::string &column, std::string defValue = "") const;
 
     /**
@@ -152,6 +158,12 @@ public:
     /** A cell read by its column's index rather than its name, as getFloat reads it. */
     float getFloat(int row, int column, float defValue = 0.0f) const;
 
+    /**
+     * A string cell. An empty cell, or one that is "****", is missing.
+     *
+     * @return the cell's text, or none when the row, the column or the
+     *         cell's text is missing
+     */
     std::optional<std::string> getStringOpt(int row, const std::string &column) const;
     /** A cell read by its column's index rather than its name, as getStringOpt reads it. */
     std::optional<std::string> getStringOpt(int row, int column) const;

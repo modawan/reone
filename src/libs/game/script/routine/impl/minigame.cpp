@@ -16,9 +16,12 @@
  */
 
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/party.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/script/routines.h"
+#include "reone/script/executioncontext.h"
 #include "reone/script/routine/exception/notimplemented.h"
 #include "reone/script/variable.h"
 
@@ -40,19 +43,110 @@ namespace reone {
 
 namespace game {
 
+namespace {
+
+Turret *activeTurret(const RoutineContext &ctx) {
+    auto &turret = ctx.game.turret();
+    return turret.isActive() ? &turret : nullptr;
+}
+
+Turret::Follower *activePlayer(const RoutineContext &ctx) {
+    auto turret = activeTurret(ctx);
+    return turret ? turret->player() : nullptr;
+}
+
+// The minigame object an argument names.
+Turret::Actor *actorArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto turret = activeTurret(ctx);
+    auto object = turret ? getObjectOrNull(args, index, ctx) : nullptr;
+    return object ? turret->actor(object->id()) : nullptr;
+}
+
+Turret::Follower *followerArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto turret = activeTurret(ctx);
+    auto object = turret ? getObjectOrNull(args, index, ctx) : nullptr;
+    return object ? turret->follower(object->id()) : nullptr;
+}
+
+// The gun bank a follower argument and the bank id after it name.
+Turret::GunBank *gunBankArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto follower = followerArg(args, index, ctx);
+    auto bank = getInt(args, index + 1);
+    return follower ? follower->gunBank(bank) : nullptr;
+}
+
+// The bank of an enemy's gun that aims, which the follower argument and the
+// bank id after it name; the player's guns do not aim.
+Turret::GunBank *aimingGunBankArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto follower = followerArg(args, index, ctx);
+    return follower && !follower->player ? follower->gunBank(getInt(args, index + 1)) : nullptr;
+}
+
+// The engine (0) or death (1) sound a follower argument and the index after it
+// name.
+Turret::SoundSettings *soundArg(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto follower = followerArg(args, index, ctx);
+    auto sound = getInt(args, index + 1);
+    if (!follower || sound < 0 || sound >= static_cast<int>(follower->sounds.size())) {
+        return nullptr;
+    }
+    return &follower->sounds[sound];
+}
+
+Turret::Actor *selfActor(const RoutineContext &ctx) {
+    auto turret = activeTurret(ctx);
+    const Variable *caller = ctx.execution.findArg(ArgKind::Caller);
+    return turret && caller ? turret->actor(caller->objectId) : nullptr;
+}
+
+Turret::Follower *selfFollower(const RoutineContext &ctx) {
+    auto turret = activeTurret(ctx);
+    const Variable *caller = ctx.execution.findArg(ArgKind::Caller);
+    return turret && caller ? turret->follower(caller->objectId) : nullptr;
+}
+
+// A remembered follower, forgotten once it is gone.
+uint32_t liveFollower(const RoutineContext &ctx, uint32_t &id) {
+    if (!activeTurret(ctx)->follower(id)) {
+        id = kObjectInvalid;
+    }
+    return id;
+}
+
+template <class T>
+uint32_t entryId(const std::vector<T *> &entries, int index) {
+    if (index < 0 || index >= static_cast<int>(entries.size())) {
+        return kObjectInvalid;
+    }
+    return entries[index]->id();
+}
+
+} // namespace
+
 static Variable SWMG_SetLateralAccelerationPerSecond(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto fLAPS = getFloat(args, 0);
 
     // Transform
+    // TSL scales the acceleration by the player's dexterity.
+    if (ctx.game.isTSL()) {
+        if (auto leader = ctx.game.party().getLeader()) {
+            int dexterity = leader->attributes().getAbilityModifier(Ability::Dexterity);
+            fLAPS += fLAPS * static_cast<float>(dexterity) * 0.3f;
+        }
+    }
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetLateralAccelerationPerSecond");
+    if (auto turret = activeTurret(ctx)) {
+        turret->setLateralAcceleration(fLAPS);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetLateralAccelerationPerSecond(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLateralAccelerationPerSecond");
+    auto turret = activeTurret(ctx);
+    return Variable::ofFloat(turret ? turret->lateralAcceleration() : 0.0f);
 }
 
 static Variable SWMG_SetSpeedBlurEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -71,200 +165,235 @@ static Variable SWMG_SetSpeedBlurEffect(const std::vector<Variable> &args, const
 
 static Variable SWMG_GetLastEvent(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastEvent");
+    auto self = selfActor(ctx);
+    return Variable::ofString(self ? self->lastEvent : "");
 }
 
 static Variable SWMG_GetLastEventModelName(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastEventModelName");
+    auto self = selfActor(ctx);
+    return Variable::ofString(self ? self->lastEventModel : "");
 }
 
 static Variable SWMG_GetObjectByName(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sName = getString(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetObjectByName");
+    auto turret = activeTurret(ctx);
+    auto actor = turret ? turret->actorByName(sName) : nullptr;
+    return Variable::ofObject(actor ? actor->id() : kObjectInvalid);
 }
 
 static Variable SWMG_PlayAnimation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
+    auto actor = actorArg(args, 0, ctx);
     auto sAnimName = getString(args, 1);
     auto bLooping = getIntOrElse(args, 2, 1);
-    auto bQueue = getIntOrElse(args, 3, 0);
     auto bOverlay = getIntOrElse(args, 4, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_PlayAnimation");
+    // Queueing is not supported: the animation plays at once.
+    if (actor) {
+        activeTurret(ctx)->playAnimation(*actor, sAnimName, bLooping != 0, bOverlay != 0);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetLastBulletHitDamage(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastBulletHitDamage");
+    auto self = selfActor(ctx);
+    return Variable::ofInt(self ? self->lastBulletHit.damage : -1);
 }
 
 static Variable SWMG_GetLastBulletHitTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastBulletHitTarget");
+    auto self = selfActor(ctx);
+    return Variable::ofInt(self ? static_cast<int>(self->lastBulletHit.targetType) : -1);
 }
 
 static Variable SWMG_GetLastBulletHitShooter(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastBulletHitShooter");
+    auto self = selfActor(ctx);
+    if (!self) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    return Variable::ofObject(liveFollower(ctx, self->lastBulletShooter));
 }
 
 static Variable SWMG_AdjustFollowerHitPoints(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
     auto nHP = getInt(args, 1);
     auto nAbsolute = getIntOrElse(args, 2, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_AdjustFollowerHitPoints");
+    if (follower) {
+        activeTurret(ctx)->adjustHitPoints(*follower, nHP);
+    }
+    // Nothing is returned but what the script passed as nAbsolute.
+    return Variable::ofInt(nAbsolute);
 }
 
 static Variable SWMG_OnBulletHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_OnBulletHit");
+    if (auto self = selfActor(ctx)) {
+        activeTurret(ctx)->onBulletHit(*self, true);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_OnObstacleHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_OnObstacleHit");
+    if (auto self = selfFollower(ctx)) {
+        activeTurret(ctx)->onObstacleHit(*self, true);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetLastFollowerHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastFollowerHit");
+    auto self = selfActor(ctx);
+    if (!self) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    return Variable::ofObject(liveFollower(ctx, self->lastFollowerHit));
 }
 
 static Variable SWMG_GetLastObstacleHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastObstacleHit");
+    auto self = selfFollower(ctx);
+    if (!self) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    if (!activeTurret(ctx)->obstacle(self->lastObstacleHit)) {
+        self->lastObstacleHit = kObjectInvalid;
+    }
+    return Variable::ofObject(self->lastObstacleHit);
 }
 
 static Variable SWMG_GetLastBulletFiredDamage(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastBulletFiredDamage");
+    auto self = selfFollower(ctx);
+    return Variable::ofInt(self ? self->lastBulletFired.damage : -1);
 }
 
 static Variable SWMG_GetLastBulletFiredTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastBulletFiredTarget");
+    auto self = selfFollower(ctx);
+    return Variable::ofInt(self ? static_cast<int>(self->lastBulletFired.targetType) : -1);
 }
 
 static Variable SWMG_GetObjectName(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oid = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto actor = actorArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetObjectName");
+    return Variable::ofString(actor ? actor->name : "");
 }
 
 static Variable SWMG_OnDeath(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_OnDeath");
+    if (auto self = selfFollower(ctx)) {
+        activeTurret(ctx)->onDeath(*self, true);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_IsFollower(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oid = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_IsFollower");
+    return Variable::ofInt(follower ? 1 : 0);
 }
 
 static Variable SWMG_IsPlayer(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oid = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_IsPlayer");
+    return Variable::ofInt(follower && follower->player ? 1 : 0);
 }
 
 static Variable SWMG_IsEnemy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oid = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_IsEnemy");
+    return Variable::ofInt(follower && !follower->player ? 1 : 0);
 }
 
 static Variable SWMG_IsTrigger(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oid = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_IsTrigger");
+    return Variable::ofInt(follower && follower->trigger ? 1 : 0);
 }
 
 static Variable SWMG_IsObstacle(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oid = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
+    auto actor = actorArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_IsObstacle");
+    // A trigger enemy counts as an obstacle too.
+    if (!actor) {
+        return Variable::ofInt(0);
+    }
+    auto turret = activeTurret(ctx);
+    auto follower = turret->follower(actor->id());
+    return Variable::ofInt(!follower || follower->trigger ? 1 : 0);
 }
 
 static Variable SWMG_SetFollowerHitPoints(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
     auto nHP = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetFollowerHitPoints");
+    if (follower && nHP > 0) {
+        follower->hitPoints = nHP;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_OnDamage(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_OnDamage");
+    if (auto self = selfFollower(ctx)) {
+        activeTurret(ctx)->onDamage(*self, true);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetLastHPChange(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastHPChange");
+    auto self = selfFollower(ctx);
+    return Variable::ofInt(self ? self->hitPointAdjust : 0);
 }
 
 static Variable SWMG_RemoveAnimation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
+    auto actor = actorArg(args, 0, ctx);
     auto sAnimName = getString(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_RemoveAnimation");
+    if (actor) {
+        activeTurret(ctx)->removeAnimation(*actor, sAnimName);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetCameraNearClip(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetCameraNearClip");
+    auto turret = activeTurret(ctx);
+    return Variable::ofFloat(turret ? turret->nearClip() : 0.0f);
 }
 
 static Variable SWMG_GetCameraFarClip(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetCameraFarClip");
+    auto turret = activeTurret(ctx);
+    return Variable::ofFloat(turret ? turret->farClip() : 0.0f);
 }
 
 static Variable SWMG_SetCameraClip(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -272,330 +401,322 @@ static Variable SWMG_SetCameraClip(const std::vector<Variable> &args, const Rout
     auto fNear = getFloat(args, 0);
     auto fFar = getFloat(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetCameraClip");
+    if (auto turret = activeTurret(ctx)) {
+        turret->setCameraClip(fNear, fFar);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetPlayer(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayer");
+    auto player = activePlayer(ctx);
+    return Variable::ofObject(player ? player->id() : kObjectInvalid);
 }
 
 static Variable SWMG_GetEnemyCount(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetEnemyCount");
+    auto turret = activeTurret(ctx);
+    return Variable::ofInt(turret ? static_cast<int>(turret->listedEnemies().size()) : 0);
 }
 
 static Variable SWMG_GetEnemy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nEntry = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetEnemy");
+    auto turret = activeTurret(ctx);
+    if (!turret) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    return Variable::ofObject(entryId(turret->listedEnemies(), nEntry));
 }
 
 static Variable SWMG_GetObstacleCount(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetObstacleCount");
+    auto turret = activeTurret(ctx);
+    return Variable::ofInt(turret ? static_cast<int>(turret->listedObstacles().size()) : 0);
 }
 
 static Variable SWMG_GetObstacle(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nEntry = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetObstacle");
+    auto turret = activeTurret(ctx);
+    if (!turret) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    return Variable::ofObject(entryId(turret->listedObstacles(), nEntry));
 }
 
 static Variable SWMG_GetHitPoints(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetHitPoints");
+    return Variable::ofInt(follower ? follower->hitPoints : 0);
 }
 
 static Variable SWMG_GetMaxHitPoints(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetMaxHitPoints");
+    return Variable::ofInt(follower ? follower->maxHitPoints : 0);
 }
 
 static Variable SWMG_SetMaxHitPoints(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
     auto nMaxHP = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetMaxHitPoints");
+    if (follower && nMaxHP > 0) {
+        follower->maxHitPoints = nMaxHP;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetSphereRadius(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetSphereRadius");
+    return Variable::ofFloat(follower ? follower->sphereRadius : 0.0f);
 }
 
 static Variable SWMG_SetSphereRadius(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
     auto fRadius = getFloat(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetSphereRadius");
+    if (follower && fRadius >= 0.0f) {
+        follower->sphereRadius = fRadius;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetNumLoops(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetNumLoops");
+    return Variable::ofInt(follower ? follower->numLoops : 0);
 }
 
 static Variable SWMG_SetNumLoops(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
     auto nNumLoops = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetNumLoops");
+    if (follower) {
+        activeTurret(ctx)->setNumLoops(*follower, nNumLoops);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetPosition(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto actor = actorArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPosition");
+    // A follower is where its first model is. KotOR has no position for an
+    // obstacle.
+    if (!actor || actor->models.empty()) {
+        return Variable::ofVector(glm::vec3(0.0f));
+    }
+    if (!activeTurret(ctx)->follower(actor->id()) && !ctx.game.isTSL()) {
+        return Variable::ofVector(glm::vec3(0.0f));
+    }
+    return Variable::ofVector(glm::vec3(actor->models.front()->absoluteTransform()[3]));
 }
 
 static Variable SWMG_GetGunBankCount(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankCount");
+    return Variable::ofInt(follower ? follower->gunBankCount() : 0);
 }
 
 static Variable SWMG_GetGunBankBulletModel(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankBulletModel");
+    return Variable::ofString(bank ? bank->spec.bullet.modelResRef : "");
 }
 
 static Variable SWMG_GetGunBankGunModel(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankGunModel");
+    return Variable::ofString(bank ? bank->spec.gunModelResRef : "");
 }
 
 static Variable SWMG_GetGunBankDamage(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankDamage");
+    return Variable::ofInt(bank ? static_cast<int>(bank->spec.bullet.damage) : 0);
 }
 
 static Variable SWMG_GetGunBankTimeBetweenShots(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankTimeBetweenShots");
+    return Variable::ofFloat(bank ? bank->spec.bullet.rateOfFire : 0.0f);
 }
 
 static Variable SWMG_GetGunBankLifespan(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankLifespan");
+    return Variable::ofFloat(bank ? bank->spec.bullet.lifespan : 0.0f);
 }
 
 static Variable SWMG_GetGunBankSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankSpeed");
+    return Variable::ofFloat(bank ? bank->spec.bullet.speed : 0.0f);
 }
 
 static Variable SWMG_GetGunBankTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankTarget");
+    return Variable::ofInt(bank ? static_cast<int>(bank->spec.bullet.targetType) : 0);
 }
 
 static Variable SWMG_SetGunBankBulletModel(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = gunBankArg(args, 0, ctx);
     auto sBulletModel = getString(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankBulletModel");
+    if (bank) {
+        bank->spec.bullet.modelResRef = sBulletModel;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankGunModel(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto follower = followerArg(args, 0, ctx);
+    auto bank = gunBankArg(args, 0, ctx);
     auto sGunModel = getString(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankGunModel");
+    if (bank) {
+        activeTurret(ctx)->setGunModel(*follower, *bank, sGunModel);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankDamage(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = gunBankArg(args, 0, ctx);
     auto nDamage = getInt(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankDamage");
+    if (bank) {
+        bank->spec.bullet.damage = static_cast<uint32_t>(nDamage);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankTimeBetweenShots(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = gunBankArg(args, 0, ctx);
     auto fTBS = getFloat(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankTimeBetweenShots");
+    if (bank && fTBS >= 0.0f) {
+        bank->spec.bullet.rateOfFire = fTBS;
+        bank->timer.setRateOfFire(fTBS);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankLifespan(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = gunBankArg(args, 0, ctx);
     auto fLifespan = getFloat(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankLifespan");
+    if (bank && fLifespan > 0.0f) {
+        bank->spec.bullet.lifespan = fLifespan;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = gunBankArg(args, 0, ctx);
     auto fSpeed = getFloat(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankSpeed");
+    if (bank && fSpeed >= 0.0f) {
+        bank->spec.bullet.speed = fSpeed;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = gunBankArg(args, 0, ctx);
     auto nTarget = getInt(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankTarget");
+    // A target type is made of the player's bit, 1, and the enemies', 2.
+    if (bank && (nTarget & ~3) == 0) {
+        bank->spec.bullet.targetType = static_cast<uint32_t>(nTarget);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetLastBulletHitPart(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetLastBulletHitPart");
+    auto self = selfActor(ctx);
+    return Variable::ofString(self ? self->lastBulletHitPart : "");
 }
 
 static Variable SWMG_IsGunBankTargetting(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
+    auto bank = gunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_IsGunBankTargetting");
+    // Enemy gun banks aim; the player's do not.
+    return Variable::ofInt(bank && !follower->player ? 1 : 0);
 }
 
 static Variable SWMG_GetPlayerOffset(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerOffset");
+    auto player = activePlayer(ctx);
+    return Variable::ofVector(player ? activeTurret(ctx)->aim().offset() : glm::vec3(0.0f));
 }
 
 static Variable SWMG_GetPlayerInvincibility(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerInvincibility");
+    auto player = activePlayer(ctx);
+    return Variable::ofFloat(player ? player->invincibility : 0.0f);
 }
 
 static Variable SWMG_GetPlayerSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerSpeed");
+    auto player = activePlayer(ctx);
+    return Variable::ofFloat(player ? activeTurret(ctx)->speed() : 0.0f);
 }
 
 static Variable SWMG_GetPlayerMinSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -610,37 +731,42 @@ static Variable SWMG_GetPlayerAccelerationPerSecond(const std::vector<Variable> 
 
 static Variable SWMG_GetPlayerTunnelPos(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerTunnelPos");
+    auto player = activePlayer(ctx);
+    return Variable::ofVector(player ? activeTurret(ctx)->aim().tunnelPositive() : glm::vec3(0.0f));
 }
 
 static Variable SWMG_SetPlayerOffset(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto vOffset = getVector(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerOffset");
+    if (activePlayer(ctx)) {
+        activeTurret(ctx)->aim().setOffset(vOffset);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetPlayerInvincibility(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto fInvincibility = getFloat(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerInvincibility");
+    auto player = activePlayer(ctx);
+    if (player && fInvincibility >= 0.0f) {
+        player->invincibility = fInvincibility;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetPlayerSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto fSpeed = getFloat(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerSpeed");
+    if (activePlayer(ctx)) {
+        activeTurret(ctx)->setSpeed(fSpeed);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetPlayerMinSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -667,152 +793,146 @@ static Variable SWMG_SetPlayerTunnelPos(const std::vector<Variable> &args, const
     // Load
     auto vTunnel = getVector(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerTunnelPos");
+    if (activePlayer(ctx)) {
+        activeTurret(ctx)->aim().setTunnelPositive(vTunnel);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetPlayerTunnelNeg(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerTunnelNeg");
+    auto player = activePlayer(ctx);
+    return Variable::ofVector(player ? activeTurret(ctx)->aim().tunnelNegative() : glm::vec3(0.0f));
 }
 
 static Variable SWMG_SetPlayerTunnelNeg(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto vTunnel = getVector(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerTunnelNeg");
+    if (activePlayer(ctx)) {
+        activeTurret(ctx)->aim().setTunnelNegative(vTunnel);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetPlayerOrigin(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerOrigin");
+    auto player = activePlayer(ctx);
+    return Variable::ofVector(player ? activeTurret(ctx)->aim().origin() : glm::vec3(0.0f));
 }
 
 static Variable SWMG_SetPlayerOrigin(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto vOrigin = getVector(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerOrigin");
+    if (activePlayer(ctx)) {
+        auto turret = activeTurret(ctx);
+        turret->aim().setOrigin(vOrigin, turret->trackPlaying());
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetGunBankHorizontalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankHorizontalSpread");
+    return Variable::ofFloat(bank ? bank->spec.horizSpread : 0.0f);
 }
 
 static Variable SWMG_GetGunBankVerticalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankVerticalSpread");
+    return Variable::ofFloat(bank ? bank->spec.vertSpread : 0.0f);
 }
 
 static Variable SWMG_GetGunBankSensingRadius(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankSensingRadius");
+    return Variable::ofFloat(bank ? bank->spec.sensingRadius : 0.0f);
 }
 
 static Variable SWMG_GetGunBankInaccuracy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetGunBankInaccuracy");
+    return Variable::ofFloat(bank ? bank->spec.inaccuracy : 0.0f);
 }
 
+// A spread is an angle either way in degrees, or -1 for none.
 static Variable SWMG_SetGunBankHorizontalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-    auto fHorizontalSpread = getFloat(args, 2);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fSpread = getFloat(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankHorizontalSpread");
+    if (bank && (fSpread >= 0.0f || fSpread == -1.0f)) {
+        bank->spec.horizSpread = fSpread;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankVerticalSpread(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-    auto fVerticalSpread = getFloat(args, 2);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fSpread = getFloat(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankVerticalSpread");
+    if (bank && (fSpread >= 0.0f || fSpread == -1.0f)) {
+        bank->spec.vertSpread = fSpread;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankSensingRadius(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
-    auto fSensingRadius = getFloat(args, 2);
-
-    // Transform
+    auto bank = aimingGunBankArg(args, 0, ctx);
+    auto fRadius = getFloat(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankSensingRadius");
+    if (bank && fRadius >= 0.0f) {
+        bank->spec.sensingRadius = fRadius;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetGunBankInaccuracy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oEnemy = getObject(args, 0, ctx);
-    auto nGunBank = getInt(args, 1);
+    auto bank = aimingGunBankArg(args, 0, ctx);
     auto fInaccuracy = getFloat(args, 2);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetGunBankInaccuracy");
+    if (bank && fInaccuracy >= 0.0f) {
+        bank->spec.inaccuracy = fInaccuracy;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetIsInvulnerable(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetIsInvulnerable");
+    return Variable::ofInt(follower && follower->invincibilityTimer > 0.0f ? 1 : 0);
 }
 
 static Variable SWMG_StartInvulnerability(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-
-    // Transform
+    auto follower = followerArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_StartInvulnerability");
+    if (follower) {
+        follower->invincibilityTimer = follower->invincibility;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetPlayerMaxSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -832,86 +952,80 @@ static Variable SWMG_SetPlayerMaxSpeed(const std::vector<Variable> &args, const 
 
 static Variable SWMG_GetSoundFrequency(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nSound = getInt(args, 1);
-
-    // Transform
+    auto sound = soundArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetSoundFrequency");
+    return Variable::ofInt(sound ? sound->frequency : 0);
 }
 
 static Variable SWMG_SetSoundFrequency(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nSound = getInt(args, 1);
-    auto nFrequency = getInt(args, 2);
-
-    // Transform
+    auto sound = soundArg(args, 0, ctx);
+    auto nValue = getInt(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetSoundFrequency");
+    if (sound) {
+        sound->frequency = nValue;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetSoundFrequencyIsRandom(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nSound = getInt(args, 1);
-
-    // Transform
+    auto sound = soundArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetSoundFrequencyIsRandom");
+    return Variable::ofInt(sound ? sound->frequencyIsRandom : 0);
 }
 
 static Variable SWMG_SetSoundFrequencyIsRandom(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nSound = getInt(args, 1);
-    auto bIsRandom = getInt(args, 2);
-
-    // Transform
+    auto sound = soundArg(args, 0, ctx);
+    auto nValue = getInt(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetSoundFrequencyIsRandom");
+    if (sound) {
+        sound->frequencyIsRandom = nValue;
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetSoundVolume(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
-    auto nSound = getInt(args, 1);
-
-    // Transform
+    auto sound = soundArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetSoundVolume");
+    return Variable::ofInt(sound ? sound->volume : 0);
 }
 
 static Variable SWMG_SetSoundVolume(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oFollower = getObject(args, 0, ctx);
+    auto follower = followerArg(args, 0, ctx);
     auto nSound = getInt(args, 1);
-    auto nVolume = getInt(args, 2);
-
-    // Transform
+    auto nValue = getInt(args, 2);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetSoundVolume");
+    if (follower) {
+        activeTurret(ctx)->setSoundVolume(*follower, nSound, nValue);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetPlayerTunnelInfinite(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SWMG_GetPlayerTunnelInfinite");
+    auto player = activePlayer(ctx);
+    return Variable::ofVector(player ? activeTurret(ctx)->aim().tunnelInfinite() : glm::vec3(0.0f));
 }
 
 static Variable SWMG_SetPlayerTunnelInfinite(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto vInfinite = getVector(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetPlayerTunnelInfinite");
+    if (activePlayer(ctx)) {
+        activeTurret(ctx)->aim().setTunnelInfinite(vInfinite);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetSwoopUpgrade(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -946,12 +1060,17 @@ static Variable SWMG_SetFollowerPosition(const std::vector<Variable> &args, cons
 
 static Variable SWMG_DestroyMiniGameObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oObject = getObject(args, 0, ctx);
-
-    // Transform
+    auto actor = actorArg(args, 0, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_DestroyMiniGameObject");
+    // An obstacle leaves the obstacle list and the scene, and keeps its object.
+    if (actor) {
+        auto turret = activeTurret(ctx);
+        if (auto obstacle = turret->obstacle(actor->id())) {
+            turret->removeObstacle(*obstacle);
+        }
+    }
+    return Variable::ofNull();
 }
 
 static Variable SWMG_SetJumpSpeed(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -123,8 +123,6 @@ void CharacterMenu::onGUILoaded() {
         _lblBar.push_back(_controls.LBL_BAR6);
 
     if (_game.isTSL()) {
-        _controls.LBL_STATSBORDER->setTintBorderFill(true);
-        _controls.LBL_XP_BACK->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_TITLE);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
         _controls.BTN_CHANGE1 = _inGameMenu.getBtnChange2();
@@ -250,6 +248,8 @@ void CharacterMenu::loadScriptSelectPanel() {
     controls.BTN_Back->setOnClick([this]() {
         closeScriptSelectPanel();
     });
+    // The list holds the keyboard until the pointer gives it to another control.
+    _scriptSelectGUI->setActiveControl(list);
 }
 
 // The panel opens for the leader with its current style marked and focused,
@@ -412,6 +412,10 @@ std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneG
         _game.newPresentationCreature(sceneGraph.name());
     character->setFacing(-glm::half_pi<float>());
     character->setAppearance(partyLeader->appearance());
+    // The leader is shown with its own good/evil.
+    character->setGoodEvil(partyLeader->goodEvil());
+    // A disguise previews over the texture variation the leader shows.
+    character->takeShownTextureVariation(*partyLeader);
 
     for (auto &item : partyLeader->equipment()) {
         switch (item.first) {

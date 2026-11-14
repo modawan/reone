@@ -17,6 +17,8 @@
 
 #include "audio.h"
 
+#include "reone/system/threadutil.h"
+
 namespace reone {
 
 namespace audio {
@@ -29,6 +31,21 @@ MockMp3ReaderFactory::~MockMp3ReaderFactory() = default;
 
 MockContext::MockContext() = default;
 MockContext::~MockContext() = default;
+
+bool openTestContext(Context &context) {
+#ifdef _WIN32
+    _putenv_s("ALSOFT_DRIVERS", "null");
+#else
+    setenv("ALSOFT_DRIVERS", "null", 1);
+#endif
+    markMainThread();
+    try {
+        context.init();
+    } catch (const std::runtime_error &) {
+        return false;
+    }
+    return true;
+}
 
 MockAudioMixer::MockAudioMixer() = default;
 MockAudioMixer::~MockAudioMixer() = default;

@@ -294,6 +294,8 @@ public:
     MOCK_METHOD(void, adoptPublishedSave, (SaveSlotDescriptor descriptor, std::shared_ptr<const SaveWorkingState> state), (override));
     MOCK_METHOD(std::set<std::string>, moduleNames, (), (override));
     MOCK_METHOD(std::set<std::string>, saveNames, (), (override));
+    MOCK_METHOD(ModuleSaveRules, moduleSaveRules, (const std::string &module), (override));
+    MOCK_METHOD(std::vector<std::string>, saveGroupModules, (int group), (override));
 };
 
 class TestResourceModule : boost::noncopyable {

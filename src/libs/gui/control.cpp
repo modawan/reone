@@ -22,6 +22,7 @@
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/textureutil.h"
 #include "reone/graphics/textutil.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/resource/gff.h"
@@ -75,7 +76,6 @@ void Control::Extent::getCenter(int &x, int &y) const {
 void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
     loadExtent(gui.EXTENT);
     loadBorder(gui.BORDER);
-    _tintBorderFill = _gui.tintBorderFills();
     _isProtoItem = protoItem;
     // A button's text pulses while the button is selected, and so does an
     // image button's where the GUI says so.
@@ -99,6 +99,8 @@ void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
         auto &controlStruct = *static_cast<const resource::generated::GUI_CONTROLS *>(&gui);
         _id = controlStruct.ID;
         _padding = controlStruct.PADDING;
+        _moveTo = {controlStruct.MOVETO.UP, controlStruct.MOVETO.LEFT, controlStruct.MOVETO.DOWN, controlStruct.MOVETO.RIGHT};
+        _layoutMoveTo = _moveTo;
         if (controlStruct.TEXT) {
             loadText(*controlStruct.TEXT);
         }
@@ -135,6 +137,7 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
         border->fill = _resourceSvc.textures.get(fill, TextureUsage::GUI);
     }
 
+    border->fillStyle = static_cast<Border::FillStyle>(gui.FILLSTYLE);
     border->dimension = gui.DIMENSION;
     border->innerOffset = gui.INNEROFFSET;
     border->color = gui.COLOR;
@@ -164,7 +167,7 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
 void Control::updateTextLines() {
     _textLines.clear();
     if (_text.font && !_text.text.empty()) {
-        _textLines = breakText(_text.text, *_text.font, _extent.width, _scale);
+        _textLines = breakText(_text.text, *_text.font, textExtent().width, _scale);
     }
 }
 
@@ -208,6 +211,7 @@ void Control::update(float dt) {
     if (!_visible) {
         return;
     }
+    _textureTime += dt;
     for (auto &child : _children) {
         child.get().update(dt);
     }
@@ -222,7 +226,12 @@ void Control::render(const glm::ivec2 &screenSize,
     if (!_visible) {
         return;
     }
-    glm::ivec2 size(_extent.width, _extent.height);
+    const Extent borderArea = borderExtent();
+    const glm::ivec2 borderOffset(offset.x + borderArea.left - _extent.left, offset.y + borderArea.top - _extent.top);
+    const glm::ivec2 borderSize(borderArea.width, borderArea.height);
+    const Extent textArea = textExtent();
+    const glm::ivec2 textOffset(offset.x + textArea.left - _extent.left, offset.y + textArea.top - _extent.top);
+    const glm::ivec2 textSize(textArea.width, textArea.height);
 
     // The borders this control is currently showing, in the order they stack:
     // its own border, its HILIGHT border, or - where the hilight is authored to
@@ -240,15 +249,15 @@ void Control::render(const glm::ivec2 &screenSize,
     renderControlLayers(
         ArrayRef<const Border *>(borderStorage.data(), borderCount),
         !_sceneName.empty() && _gui.sceneRenderEnabled(),
-        [this, &offset, &size, &pass](const Border &border, BorderRenderPart part) {
-            renderBorder(border, offset, size, pass, part);
+        [this, &borderOffset, &borderSize, &pass](const Border &border, BorderRenderPart part) {
+            renderBorder(border, borderOffset, borderSize, pass, part);
         },
         [this, &screenSize, &offset, &pass]() {
             renderScene(screenSize, offset, pass);
         },
-        [this, &offset, &size, &pass]() {
+        [this, &textOffset, &textSize, &pass]() {
             if (!_textLines.empty()) {
-                renderText(_textLines, offset, size, pass);
+                renderText(_textLines, textOffset, textSize, pass);
             }
         });
 }
@@ -310,14 +319,55 @@ void Control::renderBorder(const Border &border,
         auto blending = border.fill->features().blending == Texture::Blending::Additive
                             ? BlendMode::Additive
                             : BlendMode::Normal;
-        _graphicsSvc.context.withBlendMode(blending, [&]() {
+        glm::ivec2 fillPosition {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y};
+        int frame = getCycleFrame(*border.fill, _textureTime);
+        auto drawFill = [&](const glm::ivec2 &position, const glm::ivec2 &drawSize) {
             pass.drawImage(
                 *border.fill,
-                {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
-                fillSize,
-                glm::vec4(_tintBorderFill ? color : glm::vec3(1.0f), fillAlpha),
+                position,
+                drawSize,
+                glm::vec4(color, fillAlpha),
                 uv,
-                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
+                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default,
+                frame);
+        };
+        // Tiles and a centred image are as big as the image is authored,
+        // grown with the layout - and never less than a pixel, so that
+        // there is always a whole number of them.
+        glm::ivec2 imageSize = glm::max(
+            glm::ivec2(1),
+            glm::ivec2(glm::vec2(getImageSize(*border.fill)) * _frameLayoutScale));
+        _graphicsSvc.context.withBlendMode(blending, [&]() {
+            switch (border.fillStyle) {
+            case Border::FillStyle::Tile: {
+                // As many whole images as fit along each axis, or one where
+                // none does, with what is left over shared out a pixel each
+                // from the first.
+                glm::ivec2 count = glm::max(glm::ivec2(1), fillSize / imageSize);
+                glm::ivec2 tileSize = fillSize / count;
+                glm::ivec2 widened = fillSize - tileSize * count;
+                int x = fillPosition.x;
+                for (int column = 0; column < count.x; ++column) {
+                    int width = tileSize.x + (column < widened.x ? 1 : 0);
+                    int y = fillPosition.y;
+                    for (int row = 0; row < count.y; ++row) {
+                        int height = tileSize.y + (row < widened.y ? 1 : 0);
+                        drawFill({x, y}, {width, height});
+                        y += height;
+                    }
+                    x += width;
+                }
+                break;
+            }
+            case Border::FillStyle::Center: {
+                glm::ivec2 drawSize = glm::min(imageSize, fillSize);
+                drawFill(fillPosition + (fillSize - drawSize) / 2, drawSize);
+                break;
+            }
+            case Border::FillStyle::Stretch:
+                drawFill(fillPosition, fillSize);
+                break;
+            }
         });
     }
 
@@ -447,7 +497,12 @@ void Control::renderText(const std::vector<std::string> &lines,
     glm::vec3 linePosition(0.0f);
     const auto &hilight = shownHilight();
     const bool pulsing = _text.pulsing || (_selected && _text.hilightPulsing);
-    glm::vec4 color {(_selected && hilight) ? hilight->color : _text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    glm::vec4 color {_text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    if (_selected && _text.selectedColor) {
+        color = glm::vec4(*_text.selectedColor, color.a);
+    } else if (_selected && hilight) {
+        color = glm::vec4(hilight->color, color.a);
+    }
 
     for (auto &line : lines) {
         linePosition.x = static_cast<float>(position.x + offset.x);
@@ -557,6 +612,7 @@ void Control::setPresentationScale(float frameLayoutScale, float textLayoutScale
     // Text and frame slices do not follow the extent on their own. Keeping
     // this separate lets compound controls give their contents an independent
     // density while retaining the parent's layout rectangle.
+    _frameLayoutScale = frameLayoutScale;
     _scale = textLayoutScale * _gui.textScale();
     if (_border) {
         _border->dimension = static_cast<int>(_authoredBorderDimension * frameLayoutScale * _gui.borderScale());
@@ -678,7 +734,8 @@ void Control::setHilightColor(glm::vec3 color) {
     if (!_hilight) {
         _hilight = std::make_shared<Border>();
     }
-    _hilight->color = std::move(color);
+    _hilight->color = color;
+    _text.selectedColor = color;
 }
 
 void Control::setHilightPulsing(bool frame, bool fill) {

@@ -93,7 +93,7 @@ protected:
     void setReplyLines(std::vector<std::string> lines) override {}
     void setMessage(std::string message) override {}
 
-    void setBarkText(std::string text, float duration) override {
+    void setBarkText(std::string text, float duration, uint32_t speaker, bool ignoresDistance) override {
         _barkText = std::move(text);
         ++_barkCount;
     }
@@ -199,6 +199,7 @@ protected:
         // Gives the game a real script runner over MockScripts, so dialogue
         // actions can be observed as requests for their script.
         _game->initLocalServices();
+        TestGameModule::letConversationsSpeak(*_game);
         _conversation = std::make_unique<TestConversation>(*_game, _engine.services());
     }
 
@@ -214,7 +215,7 @@ protected:
             .WillOnce(Return(nullptr));
         EXPECT_CALL(_engine.resourceModule().audioClips(), get("test_voice"))
             .WillOnce(Return(clip));
-        EXPECT_CALL(static_cast<audio::MockAudioMixer &>(_engine.services().audio.mixer), play(_, AudioType::Voice, _, _, _))
+        EXPECT_CALL(static_cast<audio::MockAudioMixer &>(_engine.services().audio.mixer), play(_, AudioType::Voice, _, _, _, _, _, _))
             .WillOnce(Return(source));
 
         _conversation->start(makeDialog(-1, true), nullptr);

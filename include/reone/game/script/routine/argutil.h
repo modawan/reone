@@ -64,6 +64,9 @@ glm::vec3 getVectorOrElse(const std::vector<script::Variable> &args, int index, 
 std::shared_ptr<Object> getObjectOrNull(const std::vector<script::Variable> &args, int index, const RoutineContext &ctx);
 std::shared_ptr<Object> getObjectOrCaller(const std::vector<script::Variable> &args, int index, const RoutineContext &ctx);
 
+/** Whether a script's ability is one of Strength to Charisma. */
+bool isScriptAbility(int ability);
+
 std::shared_ptr<Creature> checkCreature(const std::shared_ptr<Object> &object);
 std::shared_ptr<Door> checkDoor(const std::shared_ptr<Object> &object);
 std::shared_ptr<Placeable> checkPlaceable(const std::shared_ptr<Object> &object);

@@ -126,6 +126,21 @@ void InGameMenu::loadOptions() {
     _host->registerScreen(InGameMenuTab::Options, _options);
 }
 
+void InGameMenu::leaveTab(InGameMenuTab next) {
+    if (next != InGameMenuTab::Equipment) {
+        closeEquipment();
+    }
+    const InGameMenuTab left = activeTab();
+    if (left == next) {
+        return;
+    }
+    if (left == InGameMenuTab::Inventory) {
+        _inventory->markViewedItemsSeen();
+    } else if (left == InGameMenuTab::Journal) {
+        _journal->markReadQuestsSeen();
+    }
+}
+
 void InGameMenu::closeEquipment() {
     if (_equipmentOpen) {
         _equip->endSession();
@@ -145,6 +160,7 @@ std::shared_ptr<Creature> InGameMenu::equipmentCharacter() const {
 }
 
 void InGameMenu::openEquipment() {
+    leaveTab(InGameMenuTab::Equipment);
     if (!_equipmentOpen) {
         _equip->beginSession();
         _equipmentOpen = true;
@@ -154,6 +170,7 @@ void InGameMenu::openEquipment() {
 }
 
 void InGameMenu::openEquipmentItems() {
+    leaveTab(InGameMenuTab::Equipment);
     if (!_equipmentOpen) {
         _equip->beginSession();
         _equipmentOpen = true;
@@ -163,7 +180,7 @@ void InGameMenu::openEquipmentItems() {
 }
 
 void InGameMenu::openInventory() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Inventory);
     _inventory->refreshPortraits();
     _inventory->refreshItems();
     _host->changeTab(InGameMenuTab::Inventory);
@@ -171,13 +188,13 @@ void InGameMenu::openInventory() {
 }
 
 void InGameMenu::openCharacter() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Character);
     _character->refreshControls();
     _host->changeTab(InGameMenuTab::Character);
 }
 
 void InGameMenu::openAbilities() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Abilities);
     _abilities->refreshControls();
     _host->changeTab(InGameMenuTab::Abilities);
     // TSL opens abilities on the skills view.
@@ -187,7 +204,7 @@ void InGameMenu::openAbilities() {
 }
 
 void InGameMenu::openPartySelection() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Party);
     // The tab being left lets go of what it showed before the party screen
     // brings its companions into being.
     _host->changeTab(InGameMenuTab::Party);
@@ -195,7 +212,7 @@ void InGameMenu::openPartySelection() {
 }
 
 void InGameMenu::openMessages() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Messages);
     _messages->refresh();
     _messages->resetFilter();
     _host->changeTab(InGameMenuTab::Messages);
@@ -203,20 +220,20 @@ void InGameMenu::openMessages() {
 }
 
 void InGameMenu::openJournal() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Journal);
     _journal->refresh();
     _host->changeTab(InGameMenuTab::Journal);
 }
 
 void InGameMenu::openMap() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Map);
     _map->refreshControls();
     _host->changeTab(InGameMenuTab::Map);
     _game.requestTutorialWindow(kMapTutorial);
 }
 
 void InGameMenu::openOptions() {
-    closeEquipment();
+    leaveTab(InGameMenuTab::Options);
     _host->changeTab(InGameMenuTab::Options);
 }
 

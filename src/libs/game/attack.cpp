@@ -873,12 +873,8 @@ bool AttackBuffer::resolvePostRoll(Attack &attack, size_t logicalIndex,
             }
             attack.reportsEffectOutcome = true;
         } else if (tsl && isRangedPowerBlastFeat(feat) && attack.result == AttackResultType::CriticalHit) {
-            // Armor does not limit this Dexterity modifier, but a debilitated
-            // attacker's positive modifier still counts as zero.
-            int dexterity = attacker.getEffectiveAbilityModifier(Ability::Dexterity);
-            if (attacker.isDebilitated(true)) {
-                dexterity = std::min(dexterity, 0);
-            }
+            // Armour does not limit this Dexterity modifier.
+            const int dexterity = attacker.getDexterityModifier(false);
             const int dc = level + 2 * dexterity;
             auto effect = attacker.game().newEffect<ForcePushedEffect>();
             effect->setSaveFacingCreator(attack.sourceActor.resolve());
@@ -3699,6 +3695,10 @@ std::optional<PhysicalAttackSwing> beginPhysicalAttack(
     // A swing that rolls its attacks shortens its own creature's round by its
     // length; an attack taken up without a swing does not.
     combat.shortenRounds(attacker, kPhysicalAttackPauseMilliseconds);
+    // An attack on the player's creature brings a running stealth experience loss forward.
+    if (const auto victim = Creature::asCreature(target)) {
+        attacker.hastenStealthXPTimer(victim->get());
+    }
     // A ranged main-hand weapon makes the swing ranged, whatever the off hand holds.
     const auto main = attacker.getEquippedItem(InventorySlots::rightWeapon);
     swing.ranged = main && main->isRanged();

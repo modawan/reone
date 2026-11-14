@@ -31,23 +31,12 @@ struct EnvMapDerivedRequest {
     EnvMapDerivedRequest(Texture &texture) :
         texture(texture) {
     }
-};
 
-} // namespace graphics
-
-} // namespace reone
-
-template <>
-struct std::less<reone::graphics::EnvMapDerivedRequest> {
-    bool operator()(const reone::graphics::EnvMapDerivedRequest &lhs,
-                    const reone::graphics::EnvMapDerivedRequest &rhs) const {
-        return lhs.texture.name() < rhs.texture.name();
+    /** Requests are ordered, and told apart, by their texture's name. */
+    bool operator<(const EnvMapDerivedRequest &rhs) const {
+        return texture.name() < rhs.texture.name();
     }
 };
-
-namespace reone {
-
-namespace graphics {
 
 class IContext;
 class IMeshRegistry;

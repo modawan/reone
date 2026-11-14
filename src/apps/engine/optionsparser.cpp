@@ -18,6 +18,9 @@
 #include "optionsparser.h"
 
 #include <cmath>
+#include <fstream>
+#include <iostream>
+#include <optional>
 
 #include "reone/system/types.h"
 
@@ -59,6 +62,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("fullscreen", value<bool>()->default_value(options->graphics.fullscreen), "enable fullscreen")                         //
         ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
+        ("wheelzoom", value<bool>()->default_value(options->game.wheelZoom), "zoom the follow camera with the mouse wheel")     //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
         ("particles", value<bool>()->default_value(options->graphics.particles), "enable emitter particles")                    //
@@ -80,6 +84,10 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
         ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
+        ("voices2d", value<int>()->default_value(options->audio.voices2D), "number of 2D voices, half for streams")             //
+        ("voices3d", value<int>()->default_value(options->audio.voices3D), "number of 3D voices")                               //
+        ("envstreaming", value<bool>()->default_value(options->audio.streamedReverb), "reverb streamed 3D sounds")              //
+        ("envnonstreaming", value<bool>()->default_value(options->audio.unstreamedReverb), "reverb unstreamed 3D sounds")       //
         ("logsev", value<int>()->default_value(static_cast<int>(options->logging.severity)), "minimum log severity")            //
         ("logch", value<int>()->default_value(defaultLogChannels), "log channel mask");
 
@@ -90,8 +98,21 @@ std::unique_ptr<Options> OptionsParser::parse() {
 
     variables_map vars;
     store(parse_command_line(_argc, _argv, descCmdLine), vars);
-    if (std::filesystem::exists(kConfigFilename)) {
-        store(parse_config_file<char>(kConfigFilename, descCommon, true), vars);
+    // A configuration that is there but cannot be read, whether it fails to
+    // open or part way through, leaves the options at their defaults; the log
+    // is not open yet, so this is said on the error stream.
+    std::error_code configError;
+    if (std::filesystem::exists(kConfigFilename, configError) || configError) {
+        std::ifstream config(kConfigFilename);
+        std::optional<parsed_options> parsed;
+        if (config) {
+            parsed = parse_config_file<char>(config, descCommon, true);
+        }
+        if (parsed && !config.bad()) {
+            store(*parsed, vars);
+        } else {
+            std::cerr << "Unable to read the configuration at " << kConfigFilename << "; the options are left at their defaults" << std::endl;
+        }
     }
     notify(vars);
 
@@ -99,6 +120,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
 
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
     options->game.developer = vars["dev"].as<bool>();
+    options->game.wheelZoom = vars["wheelzoom"].as<bool>();
     options->game.configurationPath = std::filesystem::absolute(kConfigFilename);
     options->game.menuPresentation = game::MenuPresentation::load(options->game.configurationPath);
     options->graphics.width = vars["width"].as<int>();
@@ -128,6 +150,10 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->audio.voiceVolume = vars["voicevol"].as<int>();
     options->audio.soundVolume = vars["soundvol"].as<int>();
     options->audio.movieVolume = vars["movievol"].as<int>();
+    options->audio.voices2D = vars["voices2d"].as<int>();
+    options->audio.voices3D = vars["voices3d"].as<int>();
+    options->audio.streamedReverb = vars["envstreaming"].as<bool>();
+    options->audio.unstreamedReverb = vars["envnonstreaming"].as<bool>();
     options->logging.severity = static_cast<LogSeverity>(vars["logsev"].as<int>());
 
     std::set<LogChannel> logChannels;

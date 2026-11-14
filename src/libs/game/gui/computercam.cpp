@@ -28,6 +28,7 @@ void ComputerCamGUI::preload(gui::IGUI &gui) {
 }
 
 void ComputerCamGUI::onGUILoaded() {
+    _gui->setHilightFollowsKeyboard(true);
     _returnLabel = findControl<gui::Label>("LBL_RETURN");
 }
 

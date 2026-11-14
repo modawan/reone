@@ -19,6 +19,7 @@
 
 #include "reone/audio/source.h"
 #include "reone/graphics/options.h"
+#include "reone/gui/control/listbox.h"
 #include "reone/gui/gui.h"
 #include "reone/input/event.h"
 #include "reone/resource/types.h"
@@ -133,8 +134,18 @@ protected:
      * this; calling it there is a no-op.
      */
     void useBakedItemSlotArt(gui::ListBox &listBox);
-    void tintK2InGameFooter();
-    void tintK2InGameHeader();
+    /**
+     * KotOR draws the entries of its item and quest lists, item icon frames
+     * included, in the GUI's base colour, and in its hilight colour while
+     * selected, whatever colours the list's prototype is authored in.
+     */
+    void useK1ListEntryColors(gui::Control &protoItem);
+    /**
+     * KotOR draws a list entry the player has not looked at yet in its new
+     * colour, selected or not, with its frames at half opacity while
+     * unselected.
+     */
+    void useK1NewEntryStyle(gui::ListBox::Item &entry) const;
     void enableK2ButtonBodyFill(gui::Control &control);
     void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
@@ -149,6 +160,8 @@ protected:
     virtual void configureControls() {}
     void onClick(const std::string &control) override;
     void onSelectionChanged(const std::string &control, bool selected) override;
+    /** Entering a control, or a list's row, plays the enter sound. */
+    void onEntered(const std::string &control) override;
 
     std::string guiResRef(const std::string &base) const;
 

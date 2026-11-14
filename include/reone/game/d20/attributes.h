@@ -141,8 +141,6 @@ public:
 
     // Skills
 
-    bool hasSkill(SkillType skill) const;
-
     int getSkillRank(SkillType skill) const;
 
     const std::map<SkillType, int> &skillRanks() const { return _skillRanks; }

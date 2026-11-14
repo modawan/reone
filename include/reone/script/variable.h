@@ -104,7 +104,6 @@ enum class ArgKind {
     Caller,
     ScriptVar,
     UserDefinedEventNumber,
-    ClickingObject,
     LastClosedBy,
     LastOpenedBy,
     LastDisturbed,

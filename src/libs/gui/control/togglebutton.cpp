@@ -17,11 +17,19 @@
 
 #include "reone/gui/control/togglebutton.h"
 
+#include <cmath>
+
 #include "reone/graphics/renderbuffer.h"
 
 namespace reone {
 
 namespace gui {
+
+// A checkbox's box is 25 pixels square, at the button's left and two pixels
+// below its middle; the text starts 30 pixels in.
+static constexpr int kCheckBoxSize = 25;
+static constexpr int kCheckBoxDrop = 2;
+static constexpr int kCheckBoxTextInset = 30;
 
 void ToggleButton::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
     Button::load(gui, protoItem);
@@ -52,8 +60,45 @@ void ToggleButton::load(const resource::generated::GUI_BASECONTROL &gui, bool pr
 }
 
 void ToggleButton::setPresentationScale(float frameLayoutScale, float textLayoutScale) {
+    // A checkbox lays its text out beside the box, so the box must be sized
+    // before the text is broken into lines.
+    _layoutScale = frameLayoutScale;
     Button::setPresentationScale(frameLayoutScale, textLayoutScale);
     scaleOnFrames();
+}
+
+void ToggleButton::showAsCheckBox(const glm::vec3 &color, const glm::vec3 &hilightColor) {
+    _checkBox = true;
+    for (auto *border : {&_border, &_onBorder}) {
+        if (*border) {
+            (*border)->color = color;
+        }
+    }
+    for (auto *border : {&_hilight, &_onHilight}) {
+        if (*border) {
+            (*border)->color = hilightColor;
+        }
+    }
+    _text.color = color;
+    _text.selectedColor = hilightColor;
+    updateTextLines();
+}
+
+Control::Extent ToggleButton::borderExtent() const {
+    if (!_checkBox) {
+        return Button::borderExtent();
+    }
+    const int size = static_cast<int>(std::lround(kCheckBoxSize * _layoutScale));
+    const int drop = static_cast<int>(std::lround(kCheckBoxDrop * _layoutScale));
+    return Extent(_extent.left, _extent.top + (_extent.height - size) / 2 + drop, size, size);
+}
+
+Control::Extent ToggleButton::textExtent() const {
+    if (!_checkBox) {
+        return Button::textExtent();
+    }
+    const int inset = static_cast<int>(std::lround(kCheckBoxTextInset * _layoutScale));
+    return Extent(_extent.left + inset, _extent.top, _extent.width - inset, _extent.height);
 }
 
 void ToggleButton::scaleOnFrames() {

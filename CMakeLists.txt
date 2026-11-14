@@ -36,17 +36,15 @@ option(ENABLE_ASAN "enable address sanitizer" OFF)
 
 # Dependencies
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+list(PREPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 find_package(Boost REQUIRED COMPONENTS program_options exception json)
 find_package(OpenGL REQUIRED)
 find_package(MAD REQUIRED)
-
+find_package(OpenAL REQUIRED)
 if(MSVC)
-    find_package(OpenAL CONFIG REQUIRED)
     find_package(SDL3 CONFIG REQUIRED)
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(OpenAL REQUIRED openal)
     pkg_check_modules(SDL3 REQUIRED sdl3)
     find_package(Threads REQUIRED)
 endif()
@@ -61,8 +59,12 @@ if(ENABLE_MOVIE)
 endif()
 
 if(BUILD_LAUNCHER OR BUILD_TOOLKIT)
-    find_package(wxWidgets REQUIRED core base adv stc gl aui)
-    include(${wxWidgets_USE_FILE})
+    # Prefer wxWidgets' own package config, fall back to module mode. That fixes MSYS2 build.
+    find_package(wxWidgets CONFIG QUIET COMPONENTS core base adv stc gl aui)
+    if(NOT wxWidgets_FOUND)
+        find_package(wxWidgets REQUIRED COMPONENTS core base adv stc gl aui)
+        include(${wxWidgets_USE_FILE})
+    endif()
 endif()
 
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/dearimgui)
@@ -92,6 +94,12 @@ if(ENABLE_ASAN)
         add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
         add_link_options(-fsanitize=address)
     endif()
+endif()
+
+# Clang stamps a precompiled header with the mtimes of the headers it includes,
+# so without this a fresh checkout or a branch switch misses ccache everywhere.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fno-pch-timestamp>")
 endif()
 
 # END Compile options

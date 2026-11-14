@@ -17,6 +17,7 @@ set(AUDIO_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/audio)
 set(AUDIO_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/audio)
 
 set(AUDIO_HEADERS
+    ${AUDIO_INCLUDE_DIR}/arbiter.h
     ${AUDIO_INCLUDE_DIR}/clip.h
     ${AUDIO_INCLUDE_DIR}/context.h
     ${AUDIO_INCLUDE_DIR}/di/module.h
@@ -29,6 +30,7 @@ set(AUDIO_HEADERS
     ${AUDIO_INCLUDE_DIR}/types.h)
 
 set(AUDIO_SOURCES
+    ${AUDIO_SOURCE_DIR}/arbiter.cpp
     ${AUDIO_SOURCE_DIR}/clip.cpp
     ${AUDIO_SOURCE_DIR}/context.cpp
     ${AUDIO_SOURCE_DIR}/di/module.cpp
@@ -41,9 +43,4 @@ add_library(audio STATIC ${AUDIO_HEADERS} ${AUDIO_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(audio PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
 set_target_properties(audio PROPERTIES DEBUG_POSTFIX "d")
 target_precompile_headers(audio PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
-target_link_libraries(audio PRIVATE ${MAD_LIBRARY})
-if(MSVC)
-    target_link_libraries(audio PRIVATE OpenAL::OpenAL)
-else()
-    target_link_libraries(audio PRIVATE ${OpenAL_LIBRARIES})
-endif()
+target_link_libraries(audio PRIVATE ${MAD_LIBRARY} OpenAL::OpenAL)

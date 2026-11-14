@@ -24,6 +24,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/doorsaber.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/di/services.h"
@@ -63,6 +64,12 @@ static constexpr int kTitleBarWidth = 250;
 static constexpr int kTitleBarPadding = 6;
 static constexpr int kHealthBarHeight = 6;
 static constexpr float kObjectTitleScale = 2.0f / 3.0f;
+static constexpr float kMenuHeight = 1.75f;
+static constexpr float kTallMenuHeight = 2.0f;
+static constexpr float kMenuHoverHoldSeconds = 0.5f;
+static constexpr int kEmptyStrRef = 125550;
+static constexpr int kNothingStrRef = 125551;
+static constexpr int kEnglishLanguageId = 0;
 static constexpr int kActionBarMargin = 3;
 static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
@@ -116,9 +123,6 @@ static bool isKnownHostileTrap(const TrappedObject &object, const Creature &lead
            (detection.flagged || detection.isDetectedBy(leader.id()));
 }
 
-// A placeable regarding the leader at this standing or less is hostile to it.
-static constexpr int kHighestHostileReputation = 10;
-
 // The hover reticle is hostile for a hostile creature, for a door or placeable
 // whose trap is hostile to the leader and known to it, and for a placeable of
 // a hostile appearance that regards the leader at 10 or less.
@@ -131,7 +135,7 @@ static bool isHoverHostile(const Object &object, const Creature &leader, const M
     case ObjectType::Placeable: {
         const auto &placeable = static_cast<const Placeable &>(object);
         return isKnownHostileTrap(placeable, leader) ||
-               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestHostileReputation);
+               (placeable.isHostileAppearance() && getObjectReputation(placeable, leader, game) <= kHighestEnemyReputation);
     }
     default:
         return false;
@@ -330,6 +334,35 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         order = [this, leader, selectedObject, feat = ctxAction.feat]() { _game.sendAttack(*leader, selectedObject, feat); };
         break;
     case ActionType::UseSkill:
+        if (ctxAction.skill == SkillType::Security) {
+            // Security, alone or with a spike, first clears the leader's
+            // orders on a door, and with a spike on any lock; Security alone
+            // on a door also delays the next autopause. A leader that can be
+            // commanded then clears its actions unless busy and, when the
+            // object is still locked, works at the lock, or is told it cannot
+            // use the skill.
+            const bool door = selectedObject->type() == ObjectType::Door;
+            if (ctxAction.item || door) {
+                _game.combat().clearAllOrders(*leader);
+            }
+            if (door && !ctxAction.item) {
+                _game.delayNextEnemyAutoPause();
+            }
+            order = [this, leader, selectedObject, item = ctxAction.item]() {
+                if (!leader->isCommandable()) {
+                    return;
+                }
+                leader->clearOrdersUnlessBusy();
+                const auto lock = selectedObject->findLock();
+                if (!lock || !lock->get().isLocked() || !UnlockObjectAction::admits(*leader)) {
+                    return;
+                }
+                auto action = _game.newAction<UnlockObjectAction>(selectedObject, item);
+                action->setUserAction(true);
+                leader->addAction(action);
+            };
+            break;
+        }
         if (ctxAction.item) {
             // Setting a mine on a door or placeable.
             if (!area->playerCanSetMines()) {
@@ -341,19 +374,18 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
                 break;
             }
         }
-        // Security on a door first clears the leader's orders, as the
-        // player's controls clear them, and delays the next autopause.
-        if (ctxAction.skill == SkillType::Security && selectedObject->type() == ObjectType::Door) {
-            _game.combat().clearAllOrders(*leader);
-            _game.delayNextEnemyAutoPause();
+        // Setting a mine is the use of its kit, which clears the leader's
+        // actions unless the leader is busy, then follows them. The other mine
+        // work is a use of the skill.
+        if (ctxAction.item) {
+            queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
+            order = [leader, queued = std::move(order)]() {
+                leader->clearOrdersUnlessBusy();
+                queued();
+            };
+        } else if (auto action = leader->useSkill(ctxAction.skill, selectedObject, ctxAction.subSkill)) {
+            queue(std::move(action));
         }
-        // Security and mine work clear the leader's actions unless the leader
-        // is busy, then follow them.
-        queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
-        order = [leader, queued = std::move(order)]() {
-            leader->clearOrdersUnlessBusy();
-            queued();
-        };
         break;
     case ActionType::DoorSaber: {
         // The door saber first clears the leader's orders, as the player's
@@ -376,6 +408,15 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
             order = [this, leader, item = ctxAction.item, selectedObject]() {
                 _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
                                   selectedObject->position());
+            };
+            break;
+        }
+        if (ctxAction.containerUse) {
+            // A plot item used on a locked container goes out as the use of
+            // its first power on the container.
+            order = [this, leader, item = ctxAction.item, selectedObject]() {
+                _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
+                                  menuItemLocation(*leader, *selectedObject));
             };
             break;
         }
@@ -491,6 +532,7 @@ void SelectionOverlay::update(float dt) {
 
         if (_selectedScreenCoords.z < 1.0f) {
             _selectedObject = selectedObject;
+            updateMenuScreenCoords(*selectedObject, projection, view, dt);
 
             for (int i = 0; i < kNumActionSlots; ++i) {
                 _actionSlots[i].actions.clear();
@@ -506,7 +548,8 @@ void SelectionOverlay::update(float dt) {
                         _actionSlots[0].actions.push_back(action);
                         break;
                     case ActionType::UseSkill:
-                        if (action.item) {
+                        // Mine kits take the third column; spikes follow Security.
+                        if (action.item && action.skill == SkillType::Demolitions) {
                             _actionSlots[2].actions.push_back(action);
                         } else if (action.skill == SkillType::Demolitions && action.subSkill == 0) {
                             _actionSlots[0].actions.push_back(action);
@@ -517,7 +560,8 @@ void SelectionOverlay::update(float dt) {
                     case ActionType::CastSpellAtObject: {
                         // Items other than a droid's item powers, and powers
                         // against a mine, take the third column.
-                        if ((action.item && !action.equipmentPower) || selectedObject->type() == ObjectType::Trigger) {
+                        if ((action.item && !action.equipmentPower && !action.containerUse) ||
+                            selectedObject->type() == ObjectType::Trigger) {
                             _actionSlots[2].actions.push_back(action);
                         } else {
                             _actionSlots[1].actions.push_back(action);
@@ -607,13 +651,51 @@ void SelectionOverlay::renderReticle(Texture &texture, const glm::vec3 &screenCo
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
+// A creature's action menu stands on a point above its feet, which its
+// animations do not move: 1.75 m up, or 2 m for the tall Zaalbar and HK-47.
+// Any other object's menu stands where its reticle does. While the pointer is
+// on the menu, and for half a second after it leaves, the menu stays put.
+void SelectionOverlay::updateMenuScreenCoords(const Object &object, const glm::mat4 &projection, const glm::mat4 &view,
+                                              float dt) {
+    _menuHoldSeconds = _selectedActionSlot != -1 ? kMenuHoverHoldSeconds : std::max(0.0f, _menuHoldSeconds - dt);
+    if (object.id() == _menuObjectId && _menuHoldSeconds > 0.0f) {
+        return;
+    }
+    _menuObjectId = object.id();
+    if (object.type() != ObjectType::Creature) {
+        _menuScreenCoords = _selectedScreenCoords;
+        return;
+    }
+    const bool tall = boost::iequals(object.tag(), "zaalbar") || boost::iequals(object.tag(), "hk47");
+    const glm::vec3 anchor {object.position() + glm::vec3(0.0f, 0.0f, tall ? kTallMenuHeight : kMenuHeight)};
+    static const glm::vec4 viewport(0.0f, 0.0f, 1.0f, 1.0f);
+    _menuScreenCoords = glm::project(anchor, view, projection, viewport);
+}
+
+// A placeable with an inventory that holds nothing says so after its name:
+// "(Empty)", or in TSL "(Nothing)" for one searched rather than opened. KotOR
+// has no words of its own for it, so its English names read "(Empty)" and
+// other languages mark the name with an asterisk.
+std::string SelectionOverlay::nameLabel(const Object &object) const {
+    std::string name = object.name();
+    const auto *placeable = dyn_cast<Placeable>(&object);
+    if (!placeable || !placeable->hasInventory() || !placeable->items().empty()) {
+        return name;
+    }
+    auto &strings = _services.resource.strings;
+    if (_game.isTSL()) {
+        return name + " (" + strings.getText(placeable->useSearch() ? kNothingStrRef : kEmptyStrRef) + ")";
+    }
+    return name + (strings.languageId() == kEnglishLanguageId ? " (Empty)" : " *");
+}
+
 void SelectionOverlay::renderTitleBar() {
     // Object-local feedback has priority over the menu error. The error is
     // UI-owned: changing it must not alter the object's script feedback text.
     auto title = !_selectedObject->feedbackText().empty()
                      ? _selectedObject->feedbackText()
                  : _feedback.active() ? _feedback.text(_game)
-                                      : _selectedObject->name();
+                                      : nameLabel(*_selectedObject);
     // TSL shows the title with its actions hidden.
     if (_game.isTSL()) {
         title = _game.substituteLogTokens(std::move(title));
@@ -634,8 +716,8 @@ void SelectionOverlay::renderTitleBar() {
     float actionHeight = kActionHeight * scale;
     float actionMargin = kActionBarMargin * scale;
     {
-        float x = opts.width * _selectedScreenCoords.x - barWidth / 2;
-        float y = opts.height * (1.0f - _selectedScreenCoords.y) - reticleHeight / 2.0f - barHeight - offsetToReticle - healthBarHeight - scale;
+        float x = opts.width * _menuScreenCoords.x - barWidth / 2;
+        float y = opts.height * (1.0f - _menuScreenCoords.y) - reticleHeight / 2.0f - barHeight - offsetToReticle - healthBarHeight - scale;
 
         if (_hasActions) {
             y -= actionHeight + 2 * actionMargin;
@@ -654,8 +736,8 @@ void SelectionOverlay::renderTitleBar() {
         _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
     }
     {
-        float x = opts.width * _selectedScreenCoords.x;
-        float y = opts.height * (1.0f - _selectedScreenCoords.y) - (reticleHeight + barHeight) / 2 - offsetToReticle - healthBarHeight - scale;
+        float x = opts.width * _menuScreenCoords.x;
+        float y = opts.height * (1.0f - _menuScreenCoords.y) - (reticleHeight + barHeight) / 2 - offsetToReticle - healthBarHeight - scale;
         if (_hasActions) {
             y -= actionHeight + 2 * actionMargin;
         }
@@ -670,8 +752,8 @@ void SelectionOverlay::renderHealthBar() {
     float titleScale = scale * kObjectTitleScale;
     float barWidth = kTitleBarWidth * titleScale;
     float healthBarHeight = kHealthBarHeight * titleScale;
-    float x = opts.width * _selectedScreenCoords.x - barWidth / 2;
-    float y = opts.height * (1.0f - _selectedScreenCoords.y) - _reticleHeight * scale / 2.0f - healthBarHeight - kOffsetToReticle * scale;
+    float x = opts.width * _menuScreenCoords.x - barWidth / 2;
+    float y = opts.height * (1.0f - _menuScreenCoords.y) - _reticleHeight * scale / 2.0f - healthBarHeight - kOffsetToReticle * scale;
     float w = glm::clamp(_selectedObject->currentHitPoints() / static_cast<float>(_selectedObject->maxHitPoints()), 0.0f, 1.0f) * barWidth;
 
     if (_hasActions) {
@@ -772,8 +854,8 @@ bool SelectionOverlay::getActionScreenCoords(int index, float &x, float &y) cons
 
     const GraphicsOptions &opts = _game.options().graphics;
     float scale = layoutScale();
-    x = opts.width * _selectedScreenCoords.x + ((static_cast<float>(index - 1) - 0.5f) * kActionWidth + (index - 1) * kActionBarMargin) * scale;
-    y = opts.height * (1.0f - _selectedScreenCoords.y) - (_reticleHeight / 2.0f + kActionHeight + kOffsetToReticle + kActionBarMargin) * scale;
+    x = opts.width * _menuScreenCoords.x + ((static_cast<float>(index - 1) - 0.5f) * kActionWidth + (index - 1) * kActionBarMargin) * scale;
+    y = opts.height * (1.0f - _menuScreenCoords.y) - (_reticleHeight / 2.0f + kActionHeight + kOffsetToReticle + kActionBarMargin) * scale;
 
     return true;
 }
@@ -790,7 +872,7 @@ void SelectionOverlay::renderActionIcon(int index, bool leaderDown) {
 
     const GraphicsOptions &opts = _game.options().graphics;
     float scale = layoutScale();
-    float y = opts.height * (1.0f - _selectedScreenCoords.y) - ((_reticleHeight + kActionHeight + kActionWidth) / 2.0f + kOffsetToReticle + kActionBarMargin) * scale;
+    float y = opts.height * (1.0f - _menuScreenCoords.y) - ((_reticleHeight + kActionHeight + kActionWidth) / 2.0f + kOffsetToReticle + kActionBarMargin) * scale;
 
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, glm::vec3(frameX, y, 0.0f));

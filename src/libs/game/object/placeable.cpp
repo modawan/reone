@@ -18,6 +18,7 @@
 #include "reone/game/object/placeable.h"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 
 #include "reone/audio/clip.h"
@@ -28,6 +29,7 @@
 #include "reone/game/attack.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/death.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -51,6 +53,7 @@
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/scene/node/light.h"
 #include "reone/scene/node/model.h"
 #include "reone/script/types.h"
 
@@ -65,8 +68,13 @@ namespace game {
 
 static constexpr int kDefaultAnimationId = 10000;
 static constexpr int kDeadAnimationId = 10072;
+static constexpr int kActivateAnimationId = 10073;
+static constexpr int kDeactivateAnimationId = 10074;
 static constexpr int kOpenAnimationId = 10075;
 static constexpr int kCloseAnimationId = 10076;
+// The clips a record's animation state names, by state.
+static constexpr std::array<int, 6> kAnimationStateClips {
+    kDefaultAnimationId, kOpenAnimationId, kCloseAnimationId, kDeadAnimationId, kActivateAnimationId, kDeactivateAnimationId};
 // The animations.2da row of a destroyed placeable's pose.
 static constexpr int kDestroyedAnimation = 307;
 static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Damaged);
@@ -74,38 +82,101 @@ static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Dama
 // breaks; in TSL only when that creature is within this reach.
 static constexpr float kBrokenOpenReach = 3.0f;
 static constexpr uint32_t kBrokenOpenDelayMilliseconds = 1000;
+// The light a placeable with a light colour carries, raised this far above
+// its model's root unless its row says otherwise.
+static constexpr char kLightModelResRef[] = "fx_placeable01";
+// The animations.2da rows of the swings that sound.
+static constexpr int kDieSwingRow = 306;
+static constexpr int kOpenToCloseSwingRow = 313;
+static constexpr int kOnToOffSwingRow = 314;
+static constexpr int kOffToOnSwingRow = 315;
+// The placeableobjsnds.2da row of a corpse.
+static constexpr int kCorpseSoundType = 53;
+static constexpr float kDefaultLightOffsetZ = 3.0f;
+
+// The fields a placeable placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {"ObjectId", "Bearing", "X", "Y", "Z"};
+
+// Calls \p apply on every light node under \p root.
+static void forEachLight(scene::SceneNode &root, const std::function<void(scene::LightSceneNode &)> &apply) {
+    std::vector<scene::SceneNode *> pending {&root};
+    while (!pending.empty()) {
+        auto node = pending.back();
+        pending.pop_back();
+        if (node->type() == SceneNodeType::Light) {
+            apply(static_cast<scene::LightSceneNode &>(*node));
+        }
+        for (auto child : node->children()) {
+            pending.push_back(child);
+        }
+    }
+}
 
 void Placeable::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> utp(_services.resource.gffs.get(resRef, ResType::Utp));
     if (!utp) {
         return;
     }
-    deserialize(*utp, SerializedIdentityContext::templateResource(resRef));
+    deserializeRecord(*utp, SerializedIdentityContext::templateResource(resRef), false);
 }
 
+// An area's entry or a save's record; a template it names is that of an
+// area-placed placeable.
 void Placeable::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    deserializeRecord(gff, identityContext, true);
+}
+
+// A placeable placed from its template takes everything from the template;
+// its entry gives only its object id, bearing and position. A saved placeable
+// takes everything from its record.
+void Placeable::deserializeRecord(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     std::string templateRes;
+    std::shared_ptr<Gff> utp;
     if (!identityContext.isSerializedState() &&
         gff.readResRef(templateRes, "TemplateResRef")) {
-        if (auto utp = _services.resource.gffs.get(templateRes, ResType::Utp)) {
-            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes));
-            captureAuthoredRecord(*utp, gff);
-        }
+        utp = _services.resource.gffs.get(templateRes, ResType::Utp);
     }
-    deserializeAll(gff, identityContext);
+    if (utp) {
+        deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes), placedTemplate);
+        captureAuthoredRecord(*utp, gff, kEntryFields);
+        placeAtEntryPoint(gff);
+    } else {
+        deserializeAll(gff, identityContext, false);
+    }
+    // The Static byte is the record's or, when the record has none, set
+    // unless its Useable byte is 1. A placeable whose entry carries no object
+    // id is never static, and only a Static byte of 1 makes it plot.
+    const Gff &record = utp ? *utp : gff;
+    if (!record.readByte(_static, "Static")) {
+        _static = _usable != 1 ? 1 : 0;
+    }
+    if (gff.getUint("ObjectId", kSavedRuntimeInvalidObjectId) == kSavedRuntimeInvalidObjectId) {
+        _static = 0;
+    }
+    if (_static == 1) {
+        _plot = true;
+    }
     applyHardness(_hardness);
     loadAppearance();
+    // A placeable loaded destroyed shows its pose, and in any other state that
+    // state's loop.
     if (_animation == kDeadAnimationId) {
         enterDestroyedState();
+    } else {
+        showAnimationLoop(_animation);
     }
     updateTransform();
 }
 
 void Placeable::deserializeAll(
     const resource::Gff &gff,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
@@ -113,17 +184,14 @@ void Placeable::deserializeAll(
     if (gff.readLocString(_locName, "LocName", _services.resource.strings)) {
         _name = _locName.str();
     }
-    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
     gff.readEnum(_faction, "Faction");
-    gff.readBool(_plot, "Plot");
+    deserializePlot(gff, true);
     gff.readBool(_minOneHP, "Min1HP");
-    gff.readByte(_openLockDC, "OpenLockDC");
-    gff.readString(_keyName, "KeyName");
+    _lock.deserialize(gff, _game.isTSL(), true);
     _trap.deserialize(gff);
     // A placeable keeps the DCs its record stores, saved or placed.
     _trap.deserializeArming(gff, _game, false);
-    gff.readBool(_usable, "Useable");
-    gff.readBool(_static, "Static");
+    gff.readByte(_usable, "Useable");
     gff.readBool(_notBlastable, "NotBlastable");
     gff.readBool(_groundPile, "GroundPile");
     gff.readDword(_appearance, "Appearance");
@@ -135,11 +203,7 @@ void Placeable::deserializeAll(
     gff.readByte(_fort, "Fort");
     gff.readByte(_will, "Will");
     gff.readByte(_ref, "Ref");
-    gff.readBool(_lockable, "Lockable");
-    gff.readBool(_locked, "Locked");
     gff.readBool(_hasInventory, "HasInventory");
-    gff.readBool(_keyRequired, "KeyRequired");
-    gff.readByte(_closeLockDC, "CloseLockDC");
     gff.readBool(_open, "Open");
     gff.readBool(_partyInteract, "PartyInteract");
     // The two highest portrait IDs name no row and leave the portrait to its
@@ -159,16 +223,21 @@ void Placeable::deserializeAll(
     gff.readResRef(_onHeartbeat, "OnHeartbeat");
     gff.readResRef(_onInvDisturbed, "OnInvDisturbed");
     gff.readResRef(_onFailToOpen, "OnFailToOpen");
-    gff.readResRef(_onLock, "OnLock");
     gff.readResRef(_onMeleeAttacked, "OnMeleeAttacked");
     gff.readResRef(_onOpen, "OnOpen");
     gff.readResRef(_onSpellCastAt, "OnSpellCastAt");
-    gff.readResRef(_onUnlock, "OnUnlock");
     gff.readResRef(_onUsed, "OnUsed");
     gff.readResRef(_onUserDefined, "OnUserDefined");
     gff.readResRef(_onDialog, "OnDialog");
     gff.readResRef(_onEndDialogue, "OnEndDialogue");
-    gff.readInt(_animation, "Animation");
+    // An open placeable shows its open state; any other its record's
+    // animation or, when the record names none, the clip of its animation
+    // state. A state past those shows none.
+    if (_open) {
+        _animation = kOpenAnimationId;
+    } else if (uint8_t state = 0; !gff.readInt(_animation, "Animation") && gff.readByte(state, "AnimationState")) {
+        _animation = state < kAnimationStateClips.size() ? kAnimationStateClips[state] : kDefaultAnimationId;
+    }
     {
         float bearing;
         if (gff.readFloat(bearing, "Bearing")) {
@@ -187,7 +256,8 @@ void Placeable::deserializeAll(
         gff,
         identityContext,
         SaveRecordOriginKind::PlaceableItem,
-        true);
+        {},
+        placedTemplate);
 
     // FIXME: deserialize EffectList, ActionList
 }
@@ -197,11 +267,15 @@ void Placeable::loadAppearance() {
     std::string modelName(boost::to_lower_copy(placeables->getString(_appearance, "modelname")));
     _hostileAppearance = placeables->getInt(_appearance, "hostile", 0) == 1;
     _preciseUse = placeables->getInt(_appearance, "preciseuse", 0) == 1;
+    _useSearch = placeables->getInt(_appearance, "usesearch", 0) != 0;
     _appearanceNameStrRef = placeables->getInt(_appearance, "strref", -1);
+    _canSeeHeight = placeables->getFloat(_appearance, "canseeheight", kEyeHeight);
     auto sounds = getRequiredTwoDA(_services.resource.twoDas, "placeableobjsnds");
     const auto soundType = placeables->getIntOpt(_appearance, "soundapptype");
     _soundArmorType = boost::to_lower_copy(sounds->getString(soundType.value_or(0), "armortype"));
     _openedSound = soundType ? boost::to_lower_copy(sounds->getString(*soundType, "opened")) : std::string();
+    _soundType = soundType;
+    _lock.setLockedSound(soundType ? sounds->getString(*soundType, "locked") : std::string());
 
     auto model = _services.resource.models.get(modelName);
     if (!model) {
@@ -211,8 +285,29 @@ void Placeable::loadAppearance() {
 
     auto sceneNode = sceneGraph.newModel(*model, ModelUsage::Placeable);
     sceneNode->setUser(*this);
+    // A camera passes through a placeable whose appearance is not hit checked.
+    sceneNode->setCameraPassesThrough(placeables->getInt(_appearance, "hitcheck", 0) == 0);
     sceneNode->setDrawDistance(_game.options().graphics.drawDistance);
+    // An appearance with a light colour carries the placeable light, in the
+    // colour of its lightcolor.2da row. The games carry it uncoloured.
+    _light.reset();
+    if (auto colorRow = placeables->getIntOpt(_appearance, "lightcolor")) {
+        if (auto lightModel = _services.resource.models.get(kLightModelResRef)) {
+            auto light = sceneGraph.newModel(*lightModel, ModelUsage::Placeable);
+            light->setLocalTransform(glm::translate(glm::vec3(
+                placeables->getFloat(_appearance, "lightoffsetx", 0.0f),
+                placeables->getFloat(_appearance, "lightoffsety", 0.0f),
+                placeables->getFloat(_appearance, "lightoffsetz", kDefaultLightOffsetZ))));
+            if (auto colors = _services.resource.twoDas.get("lightcolor")) {
+                const glm::vec3 color(colors->getFloat(*colorRow, "red"), colors->getFloat(*colorRow, "green"), colors->getFloat(*colorRow, "blue"));
+                forEachLight(*light, [&color](scene::LightSceneNode &node) { node.setColor(color); });
+            }
+            sceneNode->attach(model->rootNode()->name(), *light);
+            _light = std::move(light);
+        }
+    }
     _sceneNode = std::move(sceneNode);
+    showLight();
 
     auto walkmesh = _services.resource.walkmeshes.get(modelName, ResType::Pwk);
     if (walkmesh) {
@@ -268,7 +363,7 @@ void Placeable::damage(
     // opens for the controlled creature a second later; in TSL only when that
     // creature is close by.
     _plot = true;
-    _locked = false;
+    _lock.setLocked(false);
     auto leader = _game.party().getLeader();
     if (!leader || (_game.isTSL() && glm::distance(leader->position(), _position) >= kBrokenOpenReach)) {
         return;
@@ -303,13 +398,6 @@ void Placeable::onFailToOpen(uint32_t openerId) {
     _game.scriptRunner().run(
         _onFailToOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)}});
-}
-
-void Placeable::onLocked() {
-    if (_onLock.empty()) {
-        return;
-    }
-    _game.scriptRunner().run(_onLock, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
 }
 
 void Placeable::onClosed(uint32_t closerId) {
@@ -376,17 +464,37 @@ void Placeable::enterDestroyedState() {
     if (auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode)) {
         model->playAnimation(_services.game.animations.getNameById(kDestroyedAnimation));
         // A destroyed placeable's lights go out.
-        std::vector<scene::SceneNode *> pending {model.get()};
-        while (!pending.empty()) {
-            auto node = pending.back();
-            pending.pop_back();
-            if (node->type() == SceneNodeType::Light) {
-                node->setEnabled(false);
-            }
-            for (auto child : node->children()) {
-                pending.push_back(child);
-            }
-        }
+        forEachLight(*model, [](scene::LightSceneNode &node) { node.setEnabled(false); });
+    }
+}
+
+void Placeable::playDestroyedSound() {
+    playSwingSound(kDieSwingRow);
+}
+
+// The death swing plays the destroyed sound, the closing swing the closed
+// sound and the switching swings the used sound. KotOR sounds a hidden body
+// bag as a corpse.
+void Placeable::playSwingSound(int swingRow) {
+    const char *column = nullptr;
+    if (swingRow == kDieSwingRow) {
+        column = "destroyed";
+    } else if (swingRow == kOpenToCloseSwingRow) {
+        column = "closed";
+    } else if (swingRow == kOnToOffSwingRow || swingRow == kOffToOnSwingRow) {
+        column = "used";
+    }
+    const auto row = !_game.isTSL() && isBodyBagHidden() ? std::optional<int>(kCorpseSoundType) : _soundType;
+    auto sounds = _services.resource.twoDas.get("placeableobjsnds");
+    if (!column || !row || !sounds) {
+        return;
+    }
+    const std::string resRef = boost::to_lower_copy(sounds->getString(*row, column));
+    if (resRef.empty()) {
+        return;
+    }
+    if (auto clip = _services.resource.audioClips.get(resRef)) {
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, _position);
     }
 }
 
@@ -452,6 +560,16 @@ static bool hasLight(ITwoDAs &twoDas, int appearance) {
     return placeables && placeables->getIntOpt(appearance, "lightcolor").has_value();
 }
 
+// The placeable light shows while it is on and the placeable stands. The games
+// show it whatever its state.
+void Placeable::showLight() {
+    if (!_light) {
+        return;
+    }
+    const bool shown = _lightState != 0 && _animation != kDeadAnimationId;
+    forEachLight(*_light, [shown](scene::LightSceneNode &node) { node.setEnabled(shown); });
+}
+
 int Placeable::lightState() const {
     return hasLight(_services.resource.twoDas, _appearance) ? _lightState : 0;
 }
@@ -459,6 +577,7 @@ int Placeable::lightState() const {
 void Placeable::setLightState(int state) {
     if (_lightState != state && hasLight(_services.resource.twoDas, _appearance)) {
         _lightState = static_cast<uint8_t>(state);
+        showLight();
     }
 }
 
@@ -480,6 +599,8 @@ int Placeable::savingThrow(SavingThrow save) const {
 // The setter's Demolitions rank counts at a twentieth in a mine's blast at a
 // placeable.
 static constexpr int kMineBlastRankDivisor = 20;
+// A fragmentation mine's blast at a placeable goes off this far below it.
+static constexpr float kFragmentationMineDrop = 2.0f;
 
 void Placeable::triggerTrap(const std::shared_ptr<Creature> &caller, bool force) {
     if (caller) {
@@ -494,17 +615,31 @@ void Placeable::armMine(int trapType, int detectDC, int disarmDC, int ownerDemol
                   linkedMine, setter, blastBonus, blast);
 }
 
-// A blast that breaks the lock unlocks the placeable at once.
+// A blast that breaks the lock, checked against the DC to open it, unlocks
+// the placeable at once and tells it that its setter unlocked it. Either way
+// the setter becomes the placeable's latest entrant.
 void Placeable::updateMineBlast(float dt) {
-    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _openLockDC);
+    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _lock.unlockDC(_game));
     if (!blast) {
         return;
     }
-    if (blast->opens) {
-        _locked = false;
-        _game.scriptRunner().run(_onUnlock, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+    // A minor, average or deadly fragmentation mine marked by a TSL mine
+    // trigger goes off below the placeable.
+    if (auto mine = _trap.linkedMine()) {
+        const int type = mine->trapBaseType();
+        if (type >= static_cast<int>(TrapBaseType::FragmentationMineMinor) &&
+            type <= static_cast<int>(TrapBaseType::FragmentationMineDeadly)) {
+            mine->lowerTrapModel(kFragmentationMineDrop);
+        }
     }
-    _trap.reportMineBlast(_game, *blast);
+    if (blast->opens) {
+        _lock.setLocked(false);
+        _lock.signalUnlocked(*this, blast->setter);
+    }
+    _trap.reportPlaceableMineBlast(_game, *blast);
+    if (blast->setter) {
+        _lastEnteredId = blast->setter->id();
+    }
 }
 
 // END Traps
@@ -562,13 +697,13 @@ void Placeable::loadBodyBag(int appearance) {
     _tag = "body bag";
     _faction = Faction::Hostile1;
     _trap.setDisarmDC(kBodyBagDisarmDC);
-    _openLockDC = kBodyBagOpenLockDC;
+    _lock.setOpenDC(kBodyBagOpenLockDC, LockDifficulty::Standard, 0);
     _appearance = appearance;
     _hitPoints = _maxHitPoints = kBodyBagHitPoints;
     _currentHitPoints = kBodyBagHitPoints;
     _hardness = _appearance == kRancorCorpseAppearance ? kRancorCorpseHardness : kBodyBagHardness;
     _fort = kBodyBagFortitude;
-    _usable = true;
+    _usable = 1;
     _hasInventory = true;
     _portrait = kBodyBagPortrait;
     _description = LocString(kBodyBagDescriptionStrRef, "", strings);
@@ -598,8 +733,9 @@ void Placeable::fillBodyBag(Object &source, bool corpse, std::optional<int> name
     setFacing(source.getFacing());
 }
 
-// A creature gives up its droppable items, equipment first, and all its gold
-// as a stack of credits; a placeable gives up everything.
+// A creature gives up its droppable items, equipment first, each announced
+// lost, and all its gold as a stack of credits; a placeable gives up
+// everything.
 void Placeable::acquireItemsFrom(Object &source) {
     if (auto *creature = dyn_cast<Creature>(&source)) {
         for (const auto &item : creature->dropableItems()) {
@@ -609,6 +745,7 @@ void Placeable::acquireItemsFrom(Object &source) {
             } else {
                 creature->removeItemStack(item);
             }
+            item->announceLoss(true);
             addItem(item);
         }
         if (const int gold = creature->gold()) {
@@ -652,7 +789,7 @@ static constexpr int kInventoryClosedEvent = 23;
 static constexpr float kBodilessOpeningWait = 0.5f;
 
 // The opened sound is the placeable sounds row named by the appearance's
-// sound type.
+// sound type, a one-shot positional sound.
 static std::shared_ptr<audio::AudioClip> findOpenedSound(ServicesView &services, const std::string &resRef) {
     return resRef.empty() ? nullptr : services.resource.audioClips.get(resRef);
 }
@@ -668,7 +805,7 @@ float Placeable::beginOpeningInventory() {
     }
     auto sound = findOpenedSound(_services, _openedSound);
     if (sound) {
-        _services.audio.mixer.play(sound, audio::AudioType::Sound, 1.0f, false, _position);
+        _services.audio.mixer.play(sound, audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, _position);
         if (sound->duration() > wait && wait != 0.0f) {
             wait = sound->duration();
         }
@@ -686,7 +823,7 @@ void Placeable::completeOpeningInventory(Object &opener) {
 void Placeable::playOpenedSound() {
     _inventoryOpenPending = false;
     if (auto sound = findOpenedSound(_services, _openedSound)) {
-        _services.audio.mixer.play(sound, audio::AudioType::Sound, 1.0f, false, _position);
+        _services.audio.mixer.play(sound, audio::AudioType::Sound, kSingleShotPositionalSoundGroup, 1.0f, false, _position);
     }
 }
 
@@ -704,12 +841,29 @@ void Placeable::openInventory(Object &opener) {
     _open = true;
 }
 
+// The tag of the TSL container whose take-all shows each datapad taken.
+static constexpr char kDatapadShowingContainerTag[] = "lockertsfinv";
+
 void Placeable::closeInventory(Object &closer, bool takeAll) {
     if (!_open) {
         return;
     }
     if (takeAll && &closer == _game.party().getLeader().get()) {
-        moveAllItemsTo(closer);
+        for (const auto &moved : moveAllItemsTo(closer)) {
+            // In TSL each datapad taken is marked shown; one taken from the
+            // container that shows them has its text shown, unless it was
+            // shown before.
+            if (_game.isTSL() && moved.item->itemType() == Item::kDatapadItemType) {
+                if (!boost::iequals(_tag, kDatapadShowingContainerTag)) {
+                    moved.item->setLocalBoolean(Item::kDatapadShownBoolean, true);
+                } else if (!moved.item->getLocalBoolean(Item::kDatapadShownBoolean)) {
+                    _game.showDatapad(*moved.item);
+                }
+            }
+            // Each is acquired by the one possessing it as it is stored, then
+            // passes to the closer, unless the closer possesses it already.
+            announceStoredFor(moved.item, moved.held, _id, closer);
+        }
     }
     _game.queueScriptEvent(*this, closer, Event(kInventoryClosedEvent));
     setStateAnimation(kCloseAnimationId);
@@ -717,8 +871,23 @@ void Placeable::closeInventory(Object &closer, bool takeAll) {
     if (!_hasInventory || !_dieWhenEmpty || !_items.empty()) {
         return;
     }
-    _usable = false;
+    _usable = 0;
     _game.postObjectDestruction(*this, _id, 0.0f, false);
+}
+
+std::shared_ptr<Item> Placeable::receiveItem(const std::shared_ptr<Item> &item, const std::shared_ptr<Item> &split, bool lossFeedback) {
+    const uint32_t previousPossessor = item->possessorId();
+    const auto delivered = split ? ItemTransfer {true, addItem(split)}
+                                 : transferItemTo(_game, item, *this, lossFeedback ? ItemLossNotice::Told : ItemLossNotice::Event);
+    if (!delivered) {
+        return nullptr;
+    }
+    if (delivered.held == (split ? split : item)) {
+        delivered.held->announceAcquisition(previousPossessor, *this, true, true);
+        return delivered.held;
+    }
+    delivered.held->announceKept();
+    return delivered.held;
 }
 
 // The clip an animation ID shows on a placeable: the one its row names, else
@@ -748,6 +917,9 @@ void Placeable::setStateAnimation(int animation) {
     }
     const auto swingRow = stateLoopSwingRow(_shownAnimation, _shownAnimation, animation, false);
     _shownAnimation = animation;
+    if (swingRow) {
+        playSwingSound(*swingRow);
+    }
     _openStateLoop = loop;
     const std::string swing = swingRow ? animations.getNameById(static_cast<uint32_t>(*swingRow)) : std::string();
     if (!swing.empty() && model->model().getAnimation(swing)) {
@@ -769,6 +941,10 @@ float Placeable::animationLength(int id) const {
 bool Placeable::playsAnimationOnce(int id) const {
     const int row = placeableAnimationRow(id);
     return isFireForgetCutClip(id) || (row >= 0 && _services.game.animations.isFireForgetById(static_cast<uint32_t>(row)));
+}
+
+bool Placeable::isClosed() const {
+    return _animation == kCloseAnimationId;
 }
 
 // The loop that follows a one-shot stands where the placeable does.

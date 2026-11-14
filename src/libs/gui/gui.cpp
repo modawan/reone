@@ -106,8 +106,8 @@ void GUI::loadControl(const resource::generated::GUI_CONTROLS &gui) {
         return;
     }
     control->load(gui);
-    if (_hasDefaultHilightColor) {
-        control->setHilightColor(_defaultHilightColor);
+    if (_selectedTextColor) {
+        control->setSelectedTextColor(*_selectedTextColor);
     }
 
     _tagToControl.insert({tag, *control});
@@ -243,6 +243,7 @@ bool GUI::handle(const input::Event &event) {
         if (_selection) {
             auto ctrlCoords = controlCoordinates(_selection->get(), event.motion.x, event.motion.y);
             _selection->get().handleMouseMotion(ctrlCoords.x, ctrlCoords.y);
+            enterList(_selection->get(), ctrlCoords);
         }
         break;
     }
@@ -261,7 +262,9 @@ bool GUI::handle(const input::Event &event) {
                 debug("Control clicked: " + control->get().tag(), LogChannel::GUI);
                 onClick(control->get().tag());
                 auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
-                return control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
+                const bool handled = control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
+                enterListSelection(control->get());
+                return handled;
             }
         }
         break;
@@ -302,7 +305,11 @@ bool GUI::handleKeyUp(input::KeyCode key) {
 void GUI::updateSelection(int screenX, int screenY) {
     auto control = findControlAt(
         screenX, screenY,
-        [](const auto &control) { return control.isSelectable(); });
+        [](const auto &control) { return control.isSelectable() && control.isSelectedOnHover(); });
+    if (_hilightFollowsKeyboard) {
+        followPointer(control);
+        return;
+    }
     if ((!_selection && !control) ||
         (_selection && control && _selection->get().id() == control->get().id())) {
         return;
@@ -312,10 +319,173 @@ void GUI::updateSelection(int screenX, int screenY) {
         onSelectionChanged(_selection->get().tag(), false);
     }
     _selection = control;
+    _listEntered = false;
     if (control) {
         control->get().setSelected(true);
         onSelectionChanged(control->get().tag(), true);
+        // A list is entered by its rows. Any other control is entered as the
+        // pointer comes onto it, and a navigable one takes the keyboard.
+        if (control->get().type() != ControlType::ListBox) {
+            onEntered(control->get().tag());
+            if (control->get().isNavigable()) {
+                _activeControl = control;
+            }
+        }
     }
+}
+
+void GUI::followPointer(const std::optional<std::reference_wrapper<Control>> &control) {
+    if (control && hilightFollowsKeyboard(control->get()) && !holdsKeyboard(control->get())) {
+        auto &target = control->get();
+        if (!target.isSelected()) {
+            onEntered(target.tag());
+        }
+        setActiveControl(target);
+        hilight(target);
+    }
+    if ((!_selection && !control) ||
+        (_selection && control && &_selection->get() == &control->get())) {
+        return;
+    }
+    if (control && !control->get().isSelected()) {
+        hilight(control->get());
+        // A list is entered by its rows.
+        if (control->get().type() != ControlType::ListBox) {
+            onEntered(control->get().tag());
+        }
+    }
+    if (_selection) {
+        auto &left = _selection->get();
+        if (!hilightFollowsKeyboard(left) || (control && hilightFollowsKeyboard(control->get()))) {
+            unhilight(left);
+        }
+    }
+    _selection = control;
+    _listEntered = false;
+}
+
+bool GUI::hilightFollowsKeyboard(const Control &control) const {
+    return _hilightFollowsKeyboard && control.isNavigable() && control.type() != ControlType::ListBox;
+}
+
+void GUI::hilight(Control &control) {
+    control.setSelected(true);
+    onSelectionChanged(control.tag(), true);
+}
+
+void GUI::unhilight(Control &control) {
+    if (control.isSelected()) {
+        control.setSelected(false);
+        onSelectionChanged(control.tag(), false);
+    }
+}
+
+void GUI::releaseKeyboard() {
+    if (_activeControl && _hilightFollowsKeyboard && _activeControl->get().type() != ControlType::ListBox) {
+        unhilight(_activeControl->get());
+    }
+    _activeControl.reset();
+}
+
+void GUI::setActiveControl(Control &control) {
+    if (holdsKeyboard(control)) {
+        return;
+    }
+    releaseKeyboard();
+    _activeControl = control;
+    // The list holds the keyboard before it selects, so a row handler giving
+    // it the keyboard again changes nothing.
+    if (control.type() == ControlType::ListBox) {
+        static_cast<ListBox &>(control).takeKeyboard();
+    }
+}
+
+void GUI::selectActiveControl(Control &control) {
+    if (holdsKeyboard(control)) {
+        return;
+    }
+    setActiveControl(control);
+    hilight(control);
+}
+
+void GUI::enterListSelection(Control &control) {
+    if (control.type() == ControlType::ListBox && static_cast<ListBox &>(control).takeSelectionEntered()) {
+        onEntered(control.tag());
+    }
+}
+
+void GUI::enterList(Control &control, const glm::ivec2 &coords) {
+    if (control.type() != ControlType::ListBox) {
+        return;
+    }
+    auto &list = static_cast<ListBox &>(control);
+    bool entered = list.takeSelectionEntered();
+    if (!_listEntered && !holdsKeyboard(list) && list.hasSelectableItemAt(coords.x, coords.y)) {
+        _listEntered = true;
+        entered = true;
+        if (list.isNavigable()) {
+            setActiveControl(list);
+        }
+    }
+    // Reaching a row and moving the selection onto it at once sound once.
+    if (entered) {
+        onEntered(list.tag());
+    }
+}
+
+bool GUI::holdsKeyboard(const Control &control) const {
+    return _activeControl && &_activeControl->get() == &control;
+}
+
+std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) const {
+    if (id < 0) {
+        return std::nullopt;
+    }
+    for (auto &control : _controls) {
+        if (control->id() == id) {
+            return *control;
+        }
+    }
+    return std::nullopt;
+}
+
+// A disabled control is passed over along the same direction; links that only
+// lead round disabled controls lead nowhere.
+// The keys move through buttons, lists and sliders.
+static bool isNavigable(const Control &control) {
+    switch (control.type()) {
+    case ControlType::Button:
+    case ControlType::ToggleButton:
+    case ControlType::Slider:
+    case ControlType::ListBox:
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly) const {
+    const auto takes = [visibleOnly](const Control &target) {
+        return !target.isDisabled() && (!visibleOnly || target.isVisible());
+    };
+    std::reference_wrapper<const Control> from = control;
+    for (size_t step = 0; step < _controls.size(); ++step) {
+        auto next = findControlById(from.get().moveTo(direction));
+        if (!next || &next->get() == &control) {
+            return std::nullopt;
+        }
+        if (!isNavigable(next->get())) {
+            if (visibleOnly && !takes(next->get())) {
+                return std::nullopt;
+            }
+            return next;
+        }
+        if (takes(next->get())) {
+            return next;
+        }
+        from = next->get();
+    }
+    return std::nullopt;
 }
 
 std::optional<std::reference_wrapper<Control>> GUI::findControlAt(int x, int y,

@@ -43,6 +43,7 @@ public:
     MOCK_METHOD(bool, isSpeedBlurEnabled, (), (const override));
     MOCK_METHOD(void, setVideoEffect, (std::optional<VideoEffect>), (override));
     MOCK_METHOD(bool, isForceSightEnabled, (), (const override));
+    MOCK_METHOD(void, clearForceSight, (), (override));
     MOCK_METHOD(float, forceSightPulse, (), (const override));
     MOCK_METHOD(float, textureTime, (), (const override));
 
@@ -59,11 +60,14 @@ public:
     MOCK_METHOD(void, removeRoot, (SoundSceneNode &), (override));
 
     MOCK_METHOD(bool, testLineOfSight, (const glm::vec3 &, const glm::vec3 &, Collision &), (const override));
-    MOCK_METHOD(bool, testSceneHit, (const glm::vec3 &, const glm::vec3 &, const std::vector<const IUser *> &, Collision &), (const override));
+    MOCK_METHOD(bool, testSceneHit, (const glm::vec3 &, const glm::vec3 &, const std::vector<const IUser *> &, const std::string &, Collision &), (const override));
     MOCK_METHOD(bool, testWalk, (const glm::vec3 &, const glm::vec3 &, const IUser *, Collision &), (const override));
+    MOCK_METHOD(bool, testCameraLine, (const glm::vec3 &, const glm::vec3 &, Collision &), (const override));
     MOCK_METHOD(std::shared_ptr<WalkmeshSceneNode>, findRoomWalkmesh, (const glm::vec3 &), (const override));
     MOCK_METHOD(std::optional<RoomFace>, findRoomFace, (const WalkmeshSceneNode &, const glm::vec3 &, RoomFaceProbe), (const override));
     MOCK_METHOD(bool, testRoomWalk, (const glm::vec3 &, const glm::vec3 &, float, float, std::optional<int>, std::vector<float> &, Collision &), (const override));
+    MOCK_METHOD(bool, hasStackedFloors, (), (const override));
+    MOCK_METHOD(RoomWalkEnd, walkRooms, (const glm::vec3 &, const glm::vec3 &, std::optional<int>, bool, std::vector<RoomStretch> &, Collision &), (const override));
 
     MOCK_METHOD(ModelSceneNode *, pickModelAt, (int, int, IUser *), (const override));
     MOCK_METHOD(std::optional<std::reference_wrapper<ModelSceneNode>>, pickModelRay, (const glm::vec3 &, const glm::vec3 &), (const override));
@@ -79,6 +83,7 @@ public:
     MOCK_METHOD(void, setRoomWalkmeshes, (std::vector<std::shared_ptr<WalkmeshSceneNode>>), (override));
     MOCK_METHOD(void, setRoomTest, (std::weak_ptr<const RoomTest>), (override));
     MOCK_METHOD(void, setLineOfSightSurfaces, (std::set<uint32_t>), (override));
+    MOCK_METHOD(void, setCameraSurfaces, (std::set<uint32_t>), (override));
 
     MOCK_METHOD(void, setActiveCamera, (CameraSceneNode *), (override));
     MOCK_METHOD(void, setUpdateRoots, (bool), (override));

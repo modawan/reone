@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../control.h"
 
 namespace reone {
@@ -38,17 +40,26 @@ public:
             resourceSvc) {
 
         _selectable = true;
+        _navigable = true;
     }
 
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
 
+    /**
+     * Draws the button as a row: its frame, its icon in its frame with the
+     * icon text beside it, and its text.
+     *
+     * @param iconTextColor the icon text's colour; none for the colour of the
+     *        frame drawn
+     */
     void render(
         const glm::ivec2 &offset,
         const std::vector<std::string> &text,
         const std::string &iconText,
         const std::shared_ptr<graphics::Texture> &iconTexture,
         const std::shared_ptr<graphics::Texture> &iconFrame,
-        scene::IRenderPass &pass);
+        scene::IRenderPass &pass,
+        const std::optional<glm::vec3> &iconTextColor = std::nullopt);
 
     /**
      * While selected, the icon frame takes this colour (unset, the hilight's)
@@ -58,6 +69,8 @@ public:
         _iconFrameHilightColor = std::move(color);
         _iconFrameHilightPulsing = pulsing;
     }
+    /** Sets the font the icon text is drawn in. */
+    void setIconFont(std::shared_ptr<graphics::Font> font) { _iconFont = std::move(font); }
 
 private:
     /** The selected icon frame's colour; unset, the hilight's. */
@@ -67,12 +80,14 @@ private:
     std::shared_ptr<graphics::Texture> _iconFrame;
     std::shared_ptr<graphics::Font> _iconFont;
 
+    /** Draws the icon in its frame and the icon text, in the given colour or the frame's. */
     void renderIcon(
         const glm::ivec2 &offset,
         const std::string &iconText,
         const std::shared_ptr<graphics::Texture> &iconTexture,
         const std::shared_ptr<graphics::Texture> &iconFrame,
-        scene::IRenderPass &pass);
+        scene::IRenderPass &pass,
+        const std::optional<glm::vec3> &iconTextColor);
 };
 
 } // namespace gui

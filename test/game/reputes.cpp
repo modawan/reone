@@ -25,6 +25,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/reputes.h"
+#include "reone/game/savedruntime.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/format/gffwriter.h"
@@ -627,6 +628,17 @@ void reone::game::TestGameModule::publishPartyRuntimeState(
     const SerializedIdentityContext &identityContext) {
     game.publishPartyRuntimeState(
         ifoGff, ptGff, pcGff, identityContext);
+}
+
+void reone::game::TestGameModule::registerSavedPartyIdentities(
+    Game &game, const Gff &ifo,
+    const SerializedIdentityContext &identityContext) {
+    game.registerSavedPartyIdentities(ifo, identityContext);
+}
+
+std::optional<int> reone::game::TestGameModule::savedScriptLoop(
+    const Creature &creature) {
+    return creature._savedScriptLoop;
 }
 
 void reone::game::TestGameModule::deserializeCustomTokens(
@@ -1238,4 +1250,97 @@ TEST(SavedPlayerRestoration,
     EXPECT_FALSE(fixture.game.party().isMember(*fixture.game.party().actualPlayer()));
     EXPECT_EQ(1, fixture.game.party().getSize());
     EXPECT_EQ(8, fixture.game.party().persistedState().controlledNpc);
+}
+
+TEST(SavedPlayerRestoration, controlled_companion_and_player_each_claim_their_saved_identity) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        SCOPED_TRACE(gameId == GameID::TSL ? "TSL" : "KotOR");
+        Fixture fixture(gameId);
+        EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+            .WillRepeatedly(Return(appearanceTable()));
+        EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+        EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                    getTextureByAppearance(_))
+            .Times(AnyNumber());
+
+        // Saved while companion 0 is controlled: its record is the module's
+        // player and names its roster slot, and the player character, held by
+        // its roster record, is listed beside its party identity.
+        auto controlled = Gff::Builder()
+                              .field(Gff::Field::newCExoString("Tag", "companion"))
+                              .field(Gff::Field::newDword("ObjectId", 330))
+                              .field(Gff::Field::newByte("Mod_IsPrimaryPlr", 1))
+                              .field(Gff::Field::newDword("PartyIdKind", kSavedPartyIdentityNpc))
+                              .field(Gff::Field::newInt("PartyIdSlot", 0))
+                              .field(Gff::Field::newDword("Appearance_Type", 0))
+                              .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                              .field(Gff::Field::newByte("BodyBag", 0xff))
+                              .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                              .build();
+        auto canonicalIdentity = Gff::Builder()
+                                     .type(kSavedPartyIdentityStructType)
+                                     .field(Gff::Field::newDword("ObjectId", 331))
+                                     .field(Gff::Field::newDword(
+                                         "PartyIdKind", kSavedPartyIdentityCanonicalPlayer))
+                                     .field(Gff::Field::newInt("PartyIdSlot", -1))
+                                     .build();
+        auto ifo = Gff::Builder()
+                       .field(Gff::Field::newList("Mod_PlayerList", {controlled}))
+                       .field(Gff::Field::newList("Mod_PartyObjIds", {canonicalIdentity}))
+                       .build();
+        const auto context = SerializedIdentityContext::moduleGraph("test-module");
+
+        TestGameModule::publishPartyRuntimeState(
+            fixture.game, *ifo, emptyPartyTable(0),
+            savedPlayer("canonical_pc", 2147483646u, false), context);
+        // The controlled creature is already the one that holds the slot, so
+        // its claim names the identity it was built with.
+        ASSERT_NO_THROW(TestGameModule::registerSavedPartyIdentities(
+            fixture.game, *ifo, context));
+
+        auto player = fixture.game.party().player();
+        auto actualPlayer = fixture.game.party().actualPlayer();
+        ASSERT_TRUE(player);
+        ASSERT_TRUE(actualPlayer);
+        EXPECT_NE(player, actualPlayer);
+        EXPECT_EQ(player, fixture.game.party().rosterCreature({RosterKind::Npc, 0}));
+        EXPECT_EQ(player, fixture.game.getObjectBySavedId(330));
+        EXPECT_EQ(actualPlayer, fixture.game.getObjectBySavedId(331));
+    }
+}
+
+TEST(SavedPlayerRestoration, a_held_loop_comes_back_but_a_state_pose_does_not) {
+    Fixture fixture(GameID::TSL);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+    uint32_t nextId = 400;
+    auto restore = [&](int animation) {
+        auto record = Gff::Builder()
+                          .field(Gff::Field::newDword("ObjectId", nextId++))
+                          .field(Gff::Field::newCExoString("Tag", "posed"))
+                          .field(Gff::Field::newDword("Appearance_Type", 0))
+                          .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                          .field(Gff::Field::newByte("BodyBag", 0xff))
+                          .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                          .field(Gff::Field::newShort("HitPoints", 10))
+                          .field(Gff::Field::newShort("MaxHitPoints", 10))
+                          .field(Gff::Field::newShort("CurrentHitPoints", 10))
+                          .field(Gff::Field::newInt("Animation", animation))
+                          .build();
+        auto creature = fixture.game.newCreature(
+            *record, SerializedIdentityContext::moduleGraph("test-module"));
+        return TestGameModule::savedScriptLoop(*creature);
+    };
+
+    // A loop a script held the creature in is taken up again.
+    EXPECT_EQ(std::optional<int>(10156), restore(10156));
+    // The pause and the ready stance follow the creature's state, and a
+    // flinch has passed by the time the save is loaded.
+    EXPECT_FALSE(restore(10000));
+    EXPECT_FALSE(restore(10001));
+    EXPECT_FALSE(restore(10302));
 }

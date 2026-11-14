@@ -28,6 +28,8 @@ class Texture;
 enum class MaterialType {
     OpaqueModel,
     TransparentModel,
+    /** The depth of a blended model mesh, written where it shows before it is blended. */
+    BlendedModelDepth,
     DirLightShadow,
     PointLightShadow,
     Walkmesh

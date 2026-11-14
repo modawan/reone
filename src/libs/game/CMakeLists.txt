@@ -29,6 +29,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/closedoor.h
     ${GAME_INCLUDE_DIR}/action/docommand.h
     ${GAME_INCLUDE_DIR}/action/doorsaber.h
+    ${GAME_INCLUDE_DIR}/action/drive.h
     ${GAME_INCLUDE_DIR}/action/equipitem.h
     ${GAME_INCLUDE_DIR}/action/follow.h
     ${GAME_INCLUDE_DIR}/action/followleader.h
@@ -47,6 +48,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/orientcamera.h
     ${GAME_INCLUDE_DIR}/action/pickupitem.h
     ${GAME_INCLUDE_DIR}/action/playanimation.h
+    ${GAME_INCLUDE_DIR}/action/playsound.h
     ${GAME_INCLUDE_DIR}/action/putdownitem.h
     ${GAME_INCLUDE_DIR}/action/randomwalk.h
     ${GAME_INCLUDE_DIR}/action/resumeconversation.h
@@ -182,6 +184,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/footstepsounds.h
     ${GAME_INCLUDE_DIR}/floatingtext.h
     ${GAME_INCLUDE_DIR}/forcerules.h
+    ${GAME_INCLUDE_DIR}/areamapstate.h
     ${GAME_INCLUDE_DIR}/galaxymapstate.h
     ${GAME_INCLUDE_DIR}/game.h
     ${GAME_INCLUDE_DIR}/globalfade.h
@@ -210,6 +213,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/confirmpopup.h
     ${GAME_INCLUDE_DIR}/gui/container.h
     ${GAME_INCLUDE_DIR}/gui/conversation.h
+    ${GAME_INCLUDE_DIR}/gui/crafting.h
     ${GAME_INCLUDE_DIR}/gui/credits.h
     ${GAME_INCLUDE_DIR}/gui/deathdisplay.h
     ${GAME_INCLUDE_DIR}/gui/dialog.h
@@ -301,6 +305,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/selectoverlay.h
     ${GAME_INCLUDE_DIR}/gui/sounds.h
     ${GAME_INCLUDE_DIR}/gui/statussummary.h
+    ${GAME_INCLUDE_DIR}/gui/store.h
     ${GAME_INCLUDE_DIR}/journal.h
     ${GAME_INCLUDE_DIR}/statussummary.h
     ${GAME_INCLUDE_DIR}/location.h
@@ -323,6 +328,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/object/door.h
     ${GAME_INCLUDE_DIR}/object/encounter.h
     ${GAME_INCLUDE_DIR}/object/item.h
+    ${GAME_INCLUDE_DIR}/object/minigameobject.h
     ${GAME_INCLUDE_DIR}/object/module.h
     ${GAME_INCLUDE_DIR}/object/placeable.h
     ${GAME_INCLUDE_DIR}/object/sound.h
@@ -413,6 +419,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/equipmentrules.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp
     ${GAME_SOURCE_DIR}/floatingtext.cpp
+    ${GAME_SOURCE_DIR}/areamapstate.cpp
     ${GAME_SOURCE_DIR}/galaxymapstate.cpp
     ${GAME_SOURCE_DIR}/game.cpp
     ${GAME_SOURCE_DIR}/globalfade.cpp
@@ -439,6 +446,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/confirmpopup.cpp
     ${GAME_SOURCE_DIR}/gui/container.cpp
     ${GAME_SOURCE_DIR}/gui/conversation.cpp
+    ${GAME_SOURCE_DIR}/gui/crafting.cpp
     ${GAME_SOURCE_DIR}/gui/credits.cpp
     ${GAME_SOURCE_DIR}/gui/dialog.cpp
     ${GAME_SOURCE_DIR}/gui/galaxymap.cpp
@@ -465,6 +473,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/selectoverlay.cpp
     ${GAME_SOURCE_DIR}/gui/sounds.cpp
     ${GAME_SOURCE_DIR}/gui/statussummary.cpp
+    ${GAME_SOURCE_DIR}/gui/store.cpp
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
     ${GAME_SOURCE_DIR}/listenpattern.cpp

@@ -17,31 +17,96 @@
 
 #pragma once
 
+#include "types.h"
+
 namespace reone {
 
 namespace audio {
+
+class AudioSource;
 
 class IContext {
 public:
     virtual ~IContext() = default;
 
+    /** Where every positional sound is heard from. */
+    virtual glm::vec3 listenerPosition() const = 0;
+
     virtual void setListenerPosition(glm::vec3 position) = 0;
+    /** Turns the listener to face \p forward with \p up above it, both unit vectors. */
+    virtual void setListenerOrientation(glm::vec3 forward, glm::vec3 up) = 0;
+    /** Scales the gain of every sound. */
+    virtual void setListenerGain(float gain) = 0;
+
+    /**
+     * Renders \p environment from now on. Standard reverb takes only the
+     * preset's EAX 2 properties. Does nothing without a reverb.
+     */
+    virtual void setEnvironment(Environment environment) = 0;
+
+    /**
+     * Sends \p gain, from 0 to 1, of \p source to the reverb; 0 detaches it.
+     * Does nothing without a reverb, or before the source is inited.
+     */
+    virtual void setReverbSend(AudioSource &source, float gain) = 0;
+};
+
+/** The fullest reverb the device renders, which decides how much of an environment is heard. */
+enum class ReverbTier {
+    /** No effects extension or no auxiliary send: every sound is dry. */
+    None,
+    /** EFX's standard reverb, which carries EAX 2's properties. */
+    Reverb,
+    /** EFX's EAX reverb, which carries EAX 3's properties. */
+    EaxReverb
 };
 
 class Context : public IContext, boost::noncopyable {
 public:
     ~Context() { deinit(); }
 
+    /**
+     * Opens the default device and makes its context current, then sets up
+     * the reverb slot at the fullest tier the device takes.
+     *
+     * Throws std::runtime_error when the device or context cannot be opened.
+     * A device without effects is not an error: its tier is ReverbTier::None.
+     */
     void init();
     void deinit();
 
+    glm::vec3 listenerPosition() const override { return _listenerPosition; }
+
     void setListenerPosition(glm::vec3 position) override;
+    void setListenerOrientation(glm::vec3 forward, glm::vec3 up) override;
+    void setListenerGain(float gain) override;
+
+    ReverbTier reverbTier() const { return _reverbTier; }
+
+    void setEnvironment(Environment environment) override;
+    void setReverbSend(AudioSource &source, float gain) override;
 
 private:
-    ALCdevice *_device {nullptr};
-    ALCcontext *_context {nullptr};
+    /**
+     * OpenAL's device and context. They are held opaque so that this header
+     * needs no OpenAL, whose implementations name the two types differently.
+     */
+    void *_device {nullptr};
+    void *_context {nullptr};
+
+    ReverbTier _reverbTier {ReverbTier::None};
+    /** The reverb effect and the slot that renders it; 0 at ReverbTier::None. */
+    uint32_t _reverbEffect {0};
+    uint32_t _reverbSlot {0};
+    /** The filter a reverb send carries its gain in. */
+    uint32_t _reverbSendFilter {0};
 
     glm::vec3 _listenerPosition {0.0f};
+    glm::vec3 _listenerForward {0.0f};
+    glm::vec3 _listenerUp {0.0f};
+
+    void initReverb();
+    void deinitReverb();
 };
 
 } // namespace audio

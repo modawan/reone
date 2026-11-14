@@ -17,6 +17,8 @@
 
 #include "reone/game/object/trigger.h"
 
+#include <utility>
+
 #include "reone/game/animations.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
@@ -90,6 +92,15 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
     deserialize(*utt, SerializedIdentityContext::templateResource(resRef));
 }
 
+// The fields a trigger placed from its template takes from its area entry.
+static const std::vector<std::string> kEntryFields {
+    "LinkedToModule", "TransitionDestin", "LinkedTo", "LinkedToFlags", "XPosition", "YPosition", "ZPosition", "Geometry"};
+
+// A trigger placed from its template takes everything from the template but
+// what its entry gives: its linked module, link and link flags, none where the
+// entry has none; its transition's destination name when the entry has one;
+// its position, 0 where the entry has none; and its geometry when the entry
+// has one. A saved trigger takes everything from its record.
 void Trigger::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -99,20 +110,19 @@ void Trigger::deserialize(
         gff.readResRef(templateRes, "TemplateResRef")) {
         utt = _services.resource.gffs.get(templateRes, ResType::Utt);
     }
-    std::string blueprintClickScript;
     if (utt) {
         deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
-        captureAuthoredRecord(*utt, gff);
-        blueprintClickScript = utt->has("OnClick") ? _onClick : _onEnter;
-    }
-    deserializeAll(gff, identityContext);
-    // The click script of a trigger placed from a blueprint comes from the
-    // blueprint alone, and otherwise from the record itself. A record without
-    // an OnClick field answers clicks with its own OnEnter script.
-    if (utt) {
-        _onClick = std::move(blueprintClickScript);
-    } else if (!gff.has("OnClick")) {
-        _onClick = _onEnter;
+        captureAuthoredRecord(*utt, gff, kEntryFields);
+        _linkedToModule.clear();
+        gff.readResRef(_linkedToModule, "LinkedToModule");
+        gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
+        _linkedTo = boost::to_lower_copy(gff.getString("LinkedTo"));
+        _linkedToFlags = 0;
+        gff.readByte(_linkedToFlags, "LinkedToFlags");
+        placeAtEntryPosition(gff);
+        deserializeGeometry(gff);
+    } else {
+        deserializeAll(gff, identityContext);
     }
     loadAppearance();
     updateTransform();
@@ -125,7 +135,10 @@ void Trigger::deserializeAll(
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");
-    gff.readResRef(_onClick, "OnClick");
+    if (!gff.readResRef(_onClick, "OnClick")) {
+        // A trigger without its own click script answers clicks with its OnEnter script.
+        _onClick = _onEnter;
+    }
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
     _trap.deserialize(gff);
     if (gff.readString(_linkedTo, "LinkedTo")) {
@@ -182,22 +195,26 @@ void Trigger::deserializeAll(
     gff.readBool(_setByPlayerParty, "SetByPlayerParty");
     gff.readBool(_commandable, "Commandable");
 
-    auto geometry = gff.getList("Geometry");
-    if (!geometry.empty()) {
-        _geometry.clear();
-        for (auto &point : geometry) {
-            float x = point->getFloat("PointX");
-            float y = point->getFloat("PointY");
-            float z = point->getFloat("PointZ");
-            _geometry.push_back(glm::vec3(x, y, z));
-        }
-    }
+    deserializeGeometry(gff);
 
     // Not handled:
     // - Cursor
     // - PortraitId
     // - VarTable
     // - SWVarTable
+}
+
+void Trigger::deserializeGeometry(const resource::Gff &gff) {
+    if (!gff.has("Geometry")) {
+        return;
+    }
+    _geometry.clear();
+    for (auto &point : gff.getList("Geometry")) {
+        float x = point->getFloat("PointX");
+        float y = point->getFloat("PointY");
+        float z = point->getFloat("PointZ");
+        _geometry.push_back(glm::vec3(x, y, z));
+    }
 }
 
 void Trigger::loadAppearance() {
@@ -215,7 +232,6 @@ void Trigger::loadTrapModel() {
     if (!_isTrap || _trapModel) {
         return;
     }
-    // Every trap type names its model.
     const std::string &modelName = _game.trapType(_trap.type()).model;
     auto model = _services.resource.models.get(modelName);
     if (!model) {
@@ -223,13 +239,17 @@ void Trigger::loadTrapModel() {
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     _trapModel = sceneGraph.newModel(*model, ModelUsage::Placeable);
-    _trapModel->setLocalTransform(glm::translate(_position));
+    _trapModel->setLocalTransform(glm::translate(trapModelPosition()));
     _trapModel->setDrawDistance(_game.options().graphics.drawDistance);
     _trapShown = false;
     _trapModel->playAnimation(
         _services.game.animations.getNameById(kTrapHiddenAnimation),
         nullptr,
         AnimationProperties::fromFlags(AnimationFlags::loop));
+}
+
+const std::string &Trigger::trapExplosionSound() const {
+    return _game.trapType(_trap.type()).explosionSound;
 }
 
 glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
@@ -264,8 +284,26 @@ glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
     return nearest;
 }
 
+// A trigger is marked at its trap model's look-at hook, or else at the centre
+// of its outline's bounds, or at its position when it has no outline. A trap
+// model's own bounds are no guide: it keeps the effects it shows once
+// detected far below the ground until then.
 glm::vec3 Trigger::getSelectablePosition() const {
-    return _trapModel ? _trapModel->getWorldCenterOfAABB() : _position;
+    if (_trapModel) {
+        if (auto *hook = _trapModel->getNodeByName("lookathook")) {
+            return hook->origin();
+        }
+    }
+    if (_geometry.empty()) {
+        return _position;
+    }
+    glm::vec3 low {_geometry.front()};
+    glm::vec3 high {low};
+    for (const glm::vec3 &point : _geometry) {
+        low = glm::min(low, point);
+        high = glm::max(high, point);
+    }
+    return _position + 0.5f * (low + high);
 }
 
 std::shared_ptr<Creature> Trigger::trapCreator() const {
@@ -310,13 +348,13 @@ void Trigger::initMine(
         _locName = LocString(*nameStrRef, "", _services.resource.strings);
         _name = _locName.str();
     }
-    // A square four metres across, each corner on the ground beneath it, or
-    // level with the mine where there is no room or the ground is at height
-    // zero.
+    // A square four metres across, each corner on the ground beneath it (found
+    // from Area::roomLookupHeight of the mine's height), or level with the mine
+    // where there is no room or the ground is at height zero.
     _position = position;
     auto corner = [&](float x, float y) {
         glm::vec3 point {x, y, 0.0f};
-        const float ground = area.groundHeight(glm::vec3(position.x + x, position.y + y, 0.0f), Area::GroundFace::Locating);
+        const float ground = area.groundHeight(glm::vec3(position.x + x, position.y + y, area.roomLookupHeight(position.z)), Area::GroundFace::Locating);
         if (ground != 0.0f) {
             point.z = ground - position.z;
         }
@@ -363,6 +401,12 @@ void Trigger::enterMine(const std::shared_ptr<Creature> &creature, bool force) {
 }
 
 void Trigger::fireMine(bool force) {
+    stepOnMine(force);
+    // Set after the trap's scripts, so it holds over any removal they gave.
+    _mineRemoval = MineRemoval::Explosion;
+}
+
+void Trigger::stepOnMine(bool force) {
     auto creature = _game.getObjectById<Creature>(_lastEnteredId);
     if (!creature || !canFireMineOn(*creature, force)) {
         return;
@@ -385,19 +429,22 @@ void Trigger::fireMine(bool force) {
         }
     }
     if (key) {
+        // An auto-remove key is destroyed at once, and announced lost to no
+        // one.
         if (_autoRemoveKey) {
             if (equippedKey) {
                 creature->takeEquippedItem(key);
                 _game.destroyRuntimeObjectGraph(key);
             } else {
-                bool last = false;
-                repository->removeItem(key, last);
-                if (last) {
-                    _game.destroyRuntimeObjectGraph(key);
+                // A carried key goes whole, from wherever it is, which may
+                // be inside an item.
+                if (const auto holder = _game.getObjectById(key->owner())) {
+                    holder->removeItemStack(key);
                 }
+                _game.destroyRuntimeObjectGraph(key);
             }
         }
-        disarmTrap(creature->id());
+        _trap.receiveDisarmSignal(*this, creature->id());
         area->destroyObject(*this);
         return;
     }
@@ -412,11 +459,61 @@ void Trigger::fireMine(bool force) {
     }
 }
 
+static constexpr uint32_t kFadeExplosion = 1;
+static constexpr uint32_t kFadeDisarmed = 2;
+
+void Trigger::setMineRemovalFromFade(uint32_t fadeMilliseconds) {
+    switch (fadeMilliseconds) {
+    case kFadeExplosion:
+        _mineRemoval = MineRemoval::Explosion;
+        break;
+    case kFadeDisarmed:
+        _mineRemoval = MineRemoval::Disarmed;
+        break;
+    default:
+        _mineRemoval = MineRemoval::Plain;
+        break;
+    }
+}
+
+std::shared_ptr<ModelSceneNode> Trigger::releaseTrapModel() {
+    return std::exchange(_trapModel, nullptr);
+}
+
+void Trigger::lowerTrapModel(float depth) {
+    _trapModelDepth = depth;
+    if (_trapModel) {
+        _trapModel->setLocalTransform(glm::translate(trapModelPosition()));
+    }
+}
+
+glm::vec3 Trigger::trapModelPosition() const {
+    return _position - glm::vec3 {0.0f, 0.0f, _trapModelDepth};
+}
+
+// A trap's model exists only while the trap exists for the player (see
+// Area::updatePresence): within the farther of the controlled creature's spot
+// and listen ranges, measured across the ground, once it is found or flagged
+// or while it is no enemy, or in TSL while it is always updated. It leaves the
+// scene when the trap stops existing and comes back, hidden until shown, when
+// it exists again.
 void Trigger::updateTrapPresentation() {
-    if (!_isTrap || !_trapModel) {
+    if (!_isTrap) {
         return;
     }
+    // The trap's model exists while the trigger exists for the player.
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    if (!_present && _trapModel) {
+        sceneGraph.removeRoot(*_trapModel);
+        _trapModel.reset();
+    } else if (_present && !_trapModel) {
+        loadTrapModel();
+        sceneGraph.addRoot(_trapModel);
+    }
     auto viewer = _game.party().getLeader();
+    if (!_trapModel) {
+        return;
+    }
     const auto &detection = _trap.detection();
     const bool shown = detection.flagged ||
                        (viewer && (!isTrapHostileTo(*viewer) || detection.isDetectedBy(viewer->id())));
@@ -515,8 +612,16 @@ void Trigger::receiveClick(const std::shared_ptr<Object> &clicker) {
 
 static constexpr int kEnteredEvent = static_cast<int>(SavedSignalEventType::Entered);
 
-void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition) {
+void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::optional<int> transition, bool force) {
     _lastEnteredId = enterer ? enterer->id() : script::kObjectInvalid;
+    if (!isAreaTransition()) {
+        if (_isTrap) {
+            fireMine(force);
+        } else if (!_onEnter.empty()) {
+            _game.scriptRunner().run(_onEnter, _id);
+        }
+        return;
+    }
     auto area = spatialArea();
     if (!area) {
         return;
@@ -528,6 +633,13 @@ void Trigger::receiveEntered(const std::shared_ptr<Object> &enterer, std::option
                                    _game.queueScriptEvent(*this, *this,
                                                           Event(kEnteredEvent, {0, id}, {}, {}, {_game.getObjectById(traveller.id())}), delay);
                                });
+}
+
+void Trigger::receiveExited(const std::shared_ptr<Object> &exiter) {
+    _lastLeftId = exiter ? exiter->id() : script::kObjectInvalid;
+    if (!_onExit.empty()) {
+        _game.scriptRunner().run(_onExit, _id);
+    }
 }
 
 void Trigger::removeTenant(const Object *object, bool announce) {
@@ -556,14 +668,20 @@ bool Trigger::isIn(const glm::vec3 &point) const {
         return glm::dot(offset, offset) <= radius * radius;
     }
     auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
-    return sceneNode && sceneNode->isIn(glm::vec2(point));
+    return sceneNode && sceneNode->isIn(glm::vec2(point)) && isAtLevel(point);
 }
 
 bool Trigger::crosses(const glm::vec3 &from, const glm::vec3 &to) const {
     if (_isTrap) {
         return shape::crossesSphere(from, to, _position, trapRadius());
     }
-    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry);
+    return shape::crossesOutline(glm::vec2(from - _position), glm::vec2(to - _position), _geometry) &&
+           (isAtLevel(from) || isAtLevel(to));
+}
+
+bool Trigger::isAtLevel(const glm::vec3 &point) const {
+    const auto area = spatialArea();
+    return !area || area->get().isAtLevelOf(point, _position.z);
 }
 
 float Trigger::trapRadius() const {

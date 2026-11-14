@@ -21,7 +21,9 @@
 #include <deque>
 #include <functional>
 #include <optional>
+#include <set>
 
+#include "reone/game/areamapstate.h"
 #include "reone/game/minigame.h"
 #include "reone/game/transitioncandidate.h"
 #include "reone/graphics/aabb.h"
@@ -45,6 +47,20 @@
 
 namespace reone {
 
+namespace audio {
+
+class AudioSource;
+
+}
+
+namespace scene {
+
+class IAnimationEventListener;
+class ModelNodeSceneNode;
+class ModelSceneNode;
+
+} // namespace scene
+
 namespace game {
 
 const float kHeartbeatInterval = 6.0f;
@@ -63,6 +79,9 @@ using ObjectList = std::vector<std::shared_ptr<Object>>;
 
 class Area : public Object {
 public:
+    /** How far talk carries: the farthest any talk volume reaches. */
+    static constexpr float kTalkRange = 1000.0f;
+
     struct Grass {
         std::shared_ptr<graphics::Texture> texture;
         float density {0.0f};
@@ -112,6 +131,8 @@ public:
         std::optional<std::reference_wrapper<const Door>> door;
         /** The normal where the walk is stopped: the wall's, or for a creature the way out from its centre. */
         glm::vec3 normal {0.0f};
+        /** How the walker meets the wall that stops it, when a swept wall test found it. */
+        std::optional<graphics::Walkmesh::ContactKind> contact;
     };
 
     using SearchCriteriaList = std::vector<std::pair<CreatureType, int>>;
@@ -275,8 +296,8 @@ public:
      * for a hundredth of a metre back along x and y and a tenth of a metre
      * below the point), no blocking walkmesh face within its personal space
      * across its height, and no other creature within their combined creature
-     * personal space, other than the dead and party members down at no
-     * vitality.
+     * personal space (where floors lie over others, one across its height),
+     * other than the dead and party members down at no vitality.
      */
     bool isSafeLocationPoint(const glm::vec3 &point, const Creature &creature) const;
     /**
@@ -295,7 +316,7 @@ public:
     /** Which face of the room under a point gives the ground height there. */
     enum class GroundFace {
         Locating, /**< the walk-check face by which the room is found, within a thousand units of the point's height */
-        Top       /**< the topmost face of any material in the room */
+        Top       /**< the topmost face of any material in the room, unless the room lays floors over floors and that is one over the point's own */
     };
     /**
      * The ground height at a point: the height of a face of the room found
@@ -312,6 +333,37 @@ public:
     glm::vec3 groundNormal(const glm::vec3 &position) const;
     /** Whether a room lies under a point (see ISceneGraph::findRoomWalkmesh). */
     bool hasRoomAt(const glm::vec3 &position) const;
+    /**
+     * Whether the area lays floors over floors (see
+     * scene::ISceneGraph::hasStackedFloors). Where it does, creatures,
+     * triggers, encounters and door outlines, and door and placeable walls,
+     * count only at the level of what meets them.
+     */
+    bool hasStackedFloors() const;
+    /**
+     * Whether a point stands at the level of something placed at a height,
+     * as the outline of a trigger, encounter or door is: always, unless
+     * floors lie over others; then whether the floor found under the point
+     * from that height (see scene::ISceneGraph::findRoomWalkmesh and
+     * scene::RoomFaceProbe::Locating), or the height itself over no room,
+     * lies within graphics::Walkmesh::kFloorHeadroom of the point.
+     */
+    bool isAtLevelOf(const glm::vec3 &point, float height) const;
+    /**
+     * The height the room under a point at \p height is looked for from when
+     * the point's own height is not settled, as for a random destination, a
+     * driven step or a mine's corner: \p height where floors lie over
+     * others, so the point keeps to its floor; otherwise 0.
+     */
+    float roomLookupHeight(float height) const;
+    /**
+     * The heights between which door and placeable walls stop a walker whose
+     * walk spans the heights from \p low to \p high: whatever their height,
+     * a thousand units further out; where floors lie over others, from
+     * graphics::Walkmesh::kFloorHeadroom below \p low to the walker's height
+     * and a tenth over \p high.
+     */
+    graphics::Walkmesh::HeightBand staticWallBand(const Creature &walker, float low, float high) const;
     /**
      * Whether a point stands on walkable ground for placing a creature or
      * choosing a use point. Only the room found under the point counts (see
@@ -354,20 +406,42 @@ public:
      */
     std::optional<std::reference_wrapper<const Creature>> findBlockingCreature(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to) const;
     /**
-     * Whether the creature can walk straight from one point to another. A
-     * walk from no room leaves the rooms at once; otherwise only what stands
-     * before the point where the walk runs out of the rooms counts, a door or
-     * placeable wall at that point included, and with nothing there it leaves
-     * them at that point. The walk is settled room by room: a creature in an
-     * earlier room stops it before a wall in a later one. When only another creature
-     * stands in the way, that creature is reported. The point where the walk
-     * is stopped, by a wall, by that creature or by leaving the rooms, is
-     * reported too, and the door, when a door's wall stops it. The normal
-     * there is the wall's or the room edge's, or for a creature the way out
-     * from its centre through that point. The ignored creature never stands
-     * in the way.
+     * Whether the creature can walk straight from one point to another. The
+     * walk is followed over the rooms it passes (see ISceneGraph::walkRooms),
+     * and settled in each room before the next, with the creature's personal
+     * space swept along it. In a room it is stopped first by the nearer of
+     * the room's walls, between the heights the walk spans there less a
+     * tenth and those plus the creature's height and a tenth, and the nearest
+     * wall of a door or placeable, between the heights staticWallBand gives,
+     * the door or placeable on a tie; then by another creature, where floors
+     * lie over others one across the heights the walk spans. A walk from no room leaves the rooms at once, and one
+     * entering a room where no walkable face lies, or whose faces it cannot
+     * be followed across (see graphics::Walkmesh::walkFaces), is stopped
+     * there. A walk that runs out of the rooms with nothing in its way leaves
+     * them where it does. When only another creature stands in the way, that
+     * creature is reported. The point where the walk is stopped, short of a
+     * wall, by that creature or by leaving the rooms, is reported too, and the
+     * door, when a door's wall stops it. The normal there is the wall's or the
+     * room edge's, or for a creature the way out from its centre through that
+     * point. The ignored creature never stands in the way.
      */
     DirectLineTest testDirectLine(
+        const Creature &mover,
+        const glm::vec3 &from,
+        const glm::vec3 &to,
+        std::optional<std::reference_wrapper<const Creature>> ignored = std::nullopt) const;
+    /**
+     * Whether a walking creature can take a step from one point to another,
+     * or a driven leader that starts with a wall within its personal space.
+     * Walls are found by a thin level line just above the ground. A walk from
+     * no room leaves the rooms at once; otherwise only what stands before the
+     * point where the walk runs out of the rooms counts, a door or placeable
+     * wall within the creature's personal space of that point included, and
+     * with nothing there it leaves them at that point. The walk is settled
+     * room by room: a creature in an earlier room stops it before a wall in a
+     * later one. What is reported is as for testDirectLine.
+     */
+    DirectLineTest testWalkStep(
         const Creature &mover,
         const glm::vec3 &from,
         const glm::vec3 &to,
@@ -398,8 +472,9 @@ public:
      */
     glm::vec3 computeAwayPoint(const Creature &mover, const glm::vec3 &threat, float distance) const;
     /**
-     * A random point within range of a creature that it can walk straight to.
-     * A blocked point is brought in by a quarter, or once that would leave it
+     * A random point within range of a creature that it can walk straight to,
+     * on the ground found from roomLookupHeight of the creature's height. A
+     * blocked point is brought in by a quarter, or once that would leave it
      * nearer than two and a half metres, tried again at full distance in a
      * new direction. After 22 tries, or once the distance falls under a metre,
      * the creature's own position is the answer.
@@ -407,8 +482,9 @@ public:
     glm::vec3 randomDestination(const Creature &mover, int range) const;
     /**
      * A random point for a random walk: up to seven whole metres either way
-     * on each axis from its home, on the ground, which the walker can walk
-     * straight to from where it stands. A blocked point is brought in by a
+     * on each axis from its home, on the ground found from roomLookupHeight
+     * of the home's height, which the walker can walk straight to from where
+     * it stands. A blocked point is brought in by a
      * quarter while it stays at least three tenths of the full distance away;
      * then the same bearing is tried level with the walker at full distance.
      * After 22 tries, or once the distance falls under a metre, there is none.
@@ -429,14 +505,21 @@ public:
      * before any room, everything is drawn.
      */
     void updateRoomVisibility();
+    /** Reveals the map around each party member where it stands. */
+    void updateMapData();
     /**
      * Whether a model is in a shown room. A model is in each room whose box
      * holds its centre seen from above: the origin of a character model, the
-     * centre of its bounding box for any other. A model no box holds, one
-     * whose subclassification marks it so, or an object's model placed at the
-     * world origin, is in every room.
+     * centre of the box of its meshes except saber blades for any other. A
+     * model no box holds, one whose subclassification marks it so, or an
+     * object's model placed at the world origin, is in every room.
      */
     bool isModelInShownRoom(const scene::ModelSceneNode &model) const;
+    /**
+     * Whether a point is in a shown room: in each room whose box holds it
+     * seen from above, or in every room when none does.
+     */
+    bool isPointInShownRoom(const glm::vec3 &point) const;
     /**
      * Where the room shown around is looked for: the leader's position, or
      * the camera of a conversation under way that uses one of its own; none
@@ -520,6 +603,16 @@ public:
      * ARE entry.
      */
     int getRoomForceRating(const glm::vec3 &position) const;
+    /** The first room whose WalkCheck walkmesh lies under a position, or none. */
+    const Room *roomUnder(const glm::vec3 &position) const;
+    /** The room's ARE EnvAudio; 0 for a room without an ARE entry. */
+    int roomEnvAudio(const Room &room) const;
+    /**
+     * Plays a room's numbered script loop, "scriptloopNN", looping on the
+     * room's model: over the room's own loops in KotOR, in place of them in
+     * TSL. A room the area does not have plays nothing.
+     */
+    void playRoomAnimation(const std::string &roomName, int animation);
     /**
      * The surface material under a point: that of the room's face of any
      * material on the point's vertical (see ISceneGraph::findRoomFace),
@@ -584,11 +677,15 @@ public:
         }
         return _transitionPendingNextId;
     }
-    bool playerRestrictMode() const { return _playerRestrictMode; }
-    /** Turning restrict mode on ends the party's stealth. */
-    void setPlayerRestrictMode(bool value);
+    /** The restrict mode as set, 0 for off; any other value restricts. */
+    int playerRestrictMode() const { return _playerRestrictMode; }
+    /** Setting restrict mode on, or to another value, ends the party's stealth. */
+    void setPlayerRestrictMode(int value);
     const ObjectList &objects() const { return _objects; }
     const std::string &localizedName() const { return _localizedName; }
+    /** The area's map: where world points sit on it, and what the party has explored. */
+    AreaMapState &mapState() { return _mapState; }
+    const AreaMapState &mapState() const { return _mapState; }
     const RoomMap &rooms() const { return _rooms; }
     const Grass &grass() const { return _grass; }
     const glm::vec3 &ambientColor() const { return _ambientColor; }
@@ -651,12 +748,9 @@ public:
 
     bool isObjectSeen(const Creature &subject, const Object &object) const;
     void refreshPerceptionFor(Creature &creature);
-    /**
-     * Listen penalty for what lies between two creatures' eyes, or none when
-     * no sound reaches from one to the other.
-     */
-    std::optional<int> soundOcclusion(const Creature &listener, const Creature &source,
-                                      const glm::vec3 &listenerEye, const glm::vec3 &sourceEye) const;
+    /** Listen penalty for what lies between two creatures' eyes; sound always gets through. */
+    int soundOcclusion(const Creature &listener, const Creature &source, const glm::vec3 &listenerEye,
+                       const glm::vec3 &sourceEye) const;
     int modListenCheck() const { return _modListenCheck; }
     /** Have a creature look around at once, as when it stops leading the party. */
     void perceiveNow(const std::shared_ptr<Creature> &observer);
@@ -774,16 +868,35 @@ public:
 
     // Stealth
 
-    bool isStealthXPEnabled() const { return _stealthXPEnabled; }
+    /** Whether the area pays stealth experience: any value but 0. */
+    bool isStealthXPEnabled() const { return _stealthXPEnabled != 0; }
+    /** Whether the area pays stealth experience, as the value a script gave. */
+    int stealthXPEnabled() const { return _stealthXPEnabled; }
 
-    int maxStealthXP() const { return _maxStealthXP; }
-    int currentStealthXP() const { return _currentStealthXP; }
-    int stealthXPDecrement() const { return _stealthXPDecrement; }
+    /**
+     * The area's stealth experience: the most the pool holds, the pool, and
+     * what a sighting takes from it. The amounts are unsigned: a negative
+     * amount a script gives reads as a very large one.
+     */
+    uint32_t maxStealthXP() const { return _maxStealthXP; }
+    uint32_t currentStealthXP() const { return _currentStealthXP; }
+    uint32_t stealthXPDecrement() const { return _stealthXPDecrement; }
 
-    void setStealthXPEnabled(bool value);
-    void setMaxStealthXP(int value);
-    void setCurrentStealthXP(int value);
-    void setStealthXPDecrement(int value);
+    void setStealthXPEnabled(int value);
+    /** A lower maximum lowers the pool to it. */
+    void setMaxStealthXP(uint32_t value);
+    /** The pool holds at most the maximum. */
+    void setCurrentStealthXP(uint32_t value);
+    void setStealthXPDecrement(uint32_t value);
+    /** A sighting of the player's creature takes the decrement from the pool, down to nothing. */
+    void loseStealthXP();
+    /**
+     * Pays out the pool once, when the area pays stealth experience and the
+     * pool is not empty: the party gains it as experience, the status summary
+     * shows the pool even when too large to pay, and the area then has no
+     * pool and pays no stealth experience.
+     */
+    void awardStealthXP();
 
     // END Stealth
 
@@ -856,8 +969,44 @@ private:
 
     Pathfinder _pathfinder;
     std::string _localizedName;
-    resource::generated::ARE_Map _map;
+    AreaMapState _mapState;
     RoomMap _rooms;
+
+    /**
+     * A sound a room loops where a part of its model is: at once, or from the
+     * first time the room's model signals its omen event.
+     */
+    struct PartSound {
+        std::string roomName;
+        std::string part;
+        std::string omenEvent;
+        std::string resRef;
+        std::shared_ptr<scene::ModelSceneNode> roomModel;
+        /** The part of the room model the sound plays at, owned by the model. */
+        scene::ModelNodeSceneNode *partNode {nullptr};
+        std::shared_ptr<audio::AudioSource> source;
+    };
+    /** The rooms' part sounds, from the area file's room list. */
+    std::vector<PartSound> _partSounds;
+    /** The room models' listeners for the omen events of their part sounds. */
+    std::vector<std::unique_ptr<scene::IAnimationEventListener>> _partSoundListeners;
+
+    // TSL weather, as far as its thunder goes
+
+    /** The chances, out of 100, of rain, snow and lightning; none in an interior. */
+    int _chanceRain {0};
+    int _chanceSnow {0};
+    int _chanceLightning {0};
+    /** The rooms where weather is off, by name. */
+    std::set<std::string> _weatherlessRooms;
+    /** Rain or snow falls. */
+    bool _weatherOn {false};
+    /** Seconds of play until the weather is rolled again. */
+    float _weatherTimer {0.0f};
+    /** Seconds until lightning may strike again. */
+    float _lightningDelay {0.0f};
+
+    // END TSL weather
     /**
      * Room lookup is first walkable hit in LYT order, not nearest
      * visible room. Keep that order separately from the name index.
@@ -866,6 +1015,8 @@ private:
     /** The rooms' walkmeshes by their place in the layout; empty for a room loaded without one. */
     std::vector<std::shared_ptr<scene::WalkmeshSceneNode>> _layoutWalkmeshes;
     std::unordered_map<std::string, int> _roomForceRatings;
+    /** Each ARE room's EnvAudio by lower-case room name. */
+    std::unordered_map<std::string, int> _roomEnvAudio;
     resource::Visibility _visibility;
     /** Whether the area's visibility was loaded, so rooms and objects are culled by it. */
     bool _visibilityGraph {false};
@@ -874,12 +1025,13 @@ private:
     /** Whether only some rooms are shown this frame. */
     bool _cullingRooms {false};
     /** The test the scene graph culls models by while this area lasts (see ISceneGraph::setRoomTest). */
-    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(
-        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); })};
+    std::shared_ptr<const scene::RoomTest> _roomTest {std::make_shared<const scene::RoomTest>(scene::RoomTest {
+        [this](const scene::ModelSceneNode &model) { return isModelInShownRoom(model); },
+        [this](const glm::vec3 &point) { return isPointInShownRoom(point); }})};
     CameraStyle _camStyleDefault;
     CameraStyle _camStyleCombat;
     AmbientAudio _ambientAudio;
-    bool _playerRestrictMode {false};
+    int _playerRestrictMode {0};
     uint32_t _lastEnteredId {script::kObjectInvalid};
     uint32_t _lastLeftId {script::kObjectInvalid};
     bool _transitionPending {false};
@@ -980,9 +1132,27 @@ private:
         std::shared_ptr<scene::ModelSceneNode> model;
     };
     std::vector<HitSpark> _hitSparks;
+    /** A removed mine's model, kept while it is shown leaving. */
+    struct RemovedMine {
+        /** The mine's model, no longer pickable. */
+        std::shared_ptr<scene::ModelSceneNode> model;
+        /** Seconds until the model goes. */
+        float remaining {0.0f};
+    };
+    /** Removed mines still shown leaving. */
+    std::vector<RemovedMine> _removedMines;
 
     /** Keep the body of a destroyed object in the scene, as a fading body, a kept corpse or a corpse bag's body. */
     void releaseDestroyedBody(const std::shared_ptr<Object> &object);
+    /**
+     * A mine removed with its explosion plays its explosion sound where its
+     * model is drawn, in the one-shot positional sound group, and its
+     * activate clip; a disarmed one plays its deactivate clip. Its model
+     * stays, unpickable, for the clip and half a second more. A mine removed
+     * any other way, or without a model because it is beyond the controlled
+     * creature's perception range, leaves at once.
+     */
+    void presentMineRemoval(Trigger &mine);
     /** Fade and remove released bodies and effect models, and show kept ones. */
     void updateReleasedPresentation(float dt);
 
@@ -990,10 +1160,11 @@ private:
 
     // Stealth
 
-    bool _stealthXPEnabled {false};
-    int _maxStealthXP {0};
-    int _currentStealthXP {0};
-    int _stealthXPDecrement {0};
+    /** Whether stealth experience is paid, as the value a script gave. */
+    int _stealthXPEnabled {0};
+    uint32_t _maxStealthXP {0};
+    uint32_t _currentStealthXP {0};
+    uint32_t _stealthXPDecrement {0};
 
     // END Stealth
 
@@ -1010,6 +1181,21 @@ private:
     void init();
 
     void loadLYT();
+    /** Reads the rooms' part sounds from the area file's room list. */
+    void loadPartSounds(const resource::Gff &are);
+    /** Gives each part sound its room's model, and starts those without an omen event. */
+    void attachPartSounds();
+    /** Starts the part sounds of \p roomModel waiting for \p event that are not playing. */
+    void playPartSounds(const scene::ModelSceneNode &roomModel, const std::string &event);
+    /** Keeps each part sound where its part is. */
+    void updatePartSounds();
+    /**
+     * TSL: every five minutes of play the weather is rolled again; while rain
+     * or snow falls with a chance of lightning, lightning may strike every
+     * five to ten seconds, and the thunder of a strike is heard, close or
+     * distant, unless the controlled creature's room has weather off.
+     */
+    void updateWeather(float dt);
     void loadVIS();
     void applySceneProperties();
     void attachRoomToSceneGraph(Room &room);
@@ -1041,6 +1227,21 @@ private:
      * @return whether a wall stands along the walk
      */
     bool findWalkLineWall(const Creature &mover, const glm::vec3 &from, const glm::vec3 &to, scene::Collision &outCollision) const;
+
+    /** A door or placeable wall a swept walker meets (see findStaticWallContact). */
+    struct StaticWallContact {
+        std::reference_wrapper<const Object> object;
+        graphics::Walkmesh::Contact contact;
+    };
+
+    /**
+     * The nearest wall, as it stands, of a door or placeable that the
+     * creature's personal space, swept along the level line between two
+     * points, meets between two heights. The contact's normal is in world
+     * coordinates.
+     */
+    std::optional<StaticWallContact> findStaticWallContact(
+        const glm::vec3 &from, const glm::vec3 &to, const Creature &creature, float minZ, float maxZ) const;
 
     bool findCreatureCollision(
         const Creature &creature,
@@ -1136,8 +1337,15 @@ private:
     void loadCameraStyle(const resource::generated::ARE &are);
     void loadAmbientColor(const resource::generated::ARE &are);
     void loadScripts(const resource::generated::ARE &are);
-    void loadMap(const resource::generated::ARE &are);
-    void loadStealthXP(const resource::generated::ARE &are);
+    void loadMap(const resource::Gff &are);
+    /**
+     * Stealth experience as the area file or the saved area properties give
+     * it: the maximum, then the pool, which starts full unless given and
+     * holds at most the maximum, the decrement and whether it is paid. A
+     * field left out keeps its value.
+     */
+    void loadStealthXP(std::optional<uint32_t> max, std::optional<uint32_t> current,
+                       std::optional<uint32_t> decrement, std::optional<uint32_t> enabled);
     void loadHearing(const resource::generated::ARE &are);
     void loadGrass(const resource::generated::ARE &are);
     void loadFog(const resource::generated::ARE &are);
@@ -1151,6 +1359,11 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
 
+    /**
+     * Take the GIT's area properties (stealth experience, restrict mode,
+     * pending transition, fog colour, music and ambient sound) over the area
+     * file's; a field left out keeps its value.
+     */
     void loadProperties(const resource::Gff &git);
     void loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
     void loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext);

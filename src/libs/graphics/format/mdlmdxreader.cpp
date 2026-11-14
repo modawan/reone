@@ -709,13 +709,15 @@ void MdlMdxReader::prepareSkinMeshes() {
         }
         auto skin = node->mesh()->skin;
         for (size_t i = 0; i < skin->boneMap.size(); ++i) {
+            // -1 marks a node that is not a bone. Converting it to an
+            // unsigned type is undefined, so it is skipped while a float.
+            if (skin->boneMap[i] < 0.0f) {
+                continue;
+            }
             auto boneIdx = static_cast<uint16_t>(skin->boneMap[i]);
             if (boneIdx >= skin->boneNodeNumber.size()) {
                 skin->boneSerial.resize(boneIdx + 1);
                 skin->boneNodeNumber.resize(boneIdx + 1);
-            }
-            if (boneIdx == 0xffff) {
-                continue;
             }
             auto boneNode = _nodes[i];
             skin->boneSerial[boneIdx] = i;
@@ -814,8 +816,15 @@ void MdlMdxReader::readVectorController(const ControllerKey &key,
     ensureNumColumnsEquals(key.type, 3, numColumns);
     for (uint16_t i = 0; i < key.numRows; ++i) {
         float time = data[key.timeIndex + i];
-        glm::vec3 value(glm::make_vec3(&data[key.dataIndex + (bezier ? 9 : 3) * i]));
-        track.add(time, value);
+        const float *row = &data[key.dataIndex + (bezier ? 9 : 3) * i];
+        glm::vec3 value(glm::make_vec3(row));
+        if (bezier) {
+            // A curved key's row holds its value, then its incoming and
+            // outgoing handles.
+            track.addCurved(time, value, glm::make_vec3(row + 3), glm::make_vec3(row + 6));
+        } else {
+            track.add(time, value);
+        }
     }
     track.update();
 }

@@ -65,14 +65,24 @@ float stepAcceleratedRate(
 float stepKeyboardTurn(float &velocity, float &previousInput, float input, float dt);
 
 /**
- * Mouse travel gathered over a frame as a strength from -1 to 1: a hundred
- * counts is full strength, and rightward or downward travel reads negative.
+ * Mouse travel gathered over \p dt seconds as a strength from -1 to 1, by the
+ * speed it moved at: the travel it would make in a 60th of a second, a
+ * hundred counts of which is full strength. Rightward or downward travel
+ * reads negative; no time passed reads none.
  */
-float mouseFrameStrength(float travel);
+float mouseSpeedStrength(float travel, float dt);
 
 /**
- * The degrees a full-strength frame of mouse travel is worth at a sensitivity
- * setting: 10 at 0, rising by 45 for every 100 of the setting.
+ * Mouse travel gathered over \p dt seconds as full-strength 60ths of a second:
+ * its speed's strength (mouseSpeedStrength) for each 60th of a second that
+ * passed. However the travel falls into frames, a hundred counts make one, up
+ * to one for each 60th of a second; no time passed reads none.
+ */
+float mouseTravelStrength(float travel, float dt);
+
+/**
+ * The degrees a full-strength 60th of a second of mouse travel is worth at a
+ * sensitivity setting: 10 at 0, rising by 45 for every 100 of the setting.
  */
 float mouseSensitivity(int setting);
 
@@ -145,11 +155,8 @@ public:
     void releaseViewAngleHold(uint32_t hold);
 
     float facing() const { return _facing; }
-    /**
-     * Whether the mouse turns the camera: while the right button or a Ctrl key
-     * is held, or, with the Mouse Look option, while neither is.
-     */
-    bool isMouseLookMode() const;
+    /** Whether the mouse turns the camera: with the Mouse Look option. */
+    virtual bool isMouseLookMode() const;
 
 protected:
     /** A linear move of the view angle, in seconds and degrees. */
@@ -174,7 +181,6 @@ protected:
     float _fieldOfView {0.0f};
 
     float _facing {0.0f};
-    bool _mouseLookHeld {false};
 
     int _projectionWidth {-1};
     int _projectionHeight {-1};

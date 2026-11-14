@@ -39,8 +39,10 @@ void reportArmorChangeRefused(Game &game, const Creature &subject, bool removal)
 /**
  * Equip an Item held in the subject's inventory, a container it owns, or the
  * shared party inventory. Displaced occupants return to the subject's
- * inventory owner before the candidate is taken, main hand before its pair.
- * A weapon that newly fills a hand is drawn unless the change is instant.
+ * inventory owner, joining matching stacks, before the candidate is taken,
+ * main hand before its pair. A weapon put in a primary hand is drawn unless
+ * the change is instant. A hand weapon readies the wearer for combat outside
+ * a conversation, unless it is an instant equip into an empty slot.
  */
 EquipmentOperationOutcome runEquip(
     Game &game,
@@ -51,21 +53,28 @@ EquipmentOperationOutcome runEquip(
 
 /**
  * Unequip an Item into an owned container, or into the subject's inventory
- * owner when no container is given. Removing a main-hand item promotes a
- * weapon held in the paired off-hand slot, which is drawn unless instant.
+ * owner when no container is given; the item joins its stacks there, or
+ * not, as Object::addItem does. Removing a main-hand item promotes a weapon
+ * held in the paired off-hand slot, which readies the wearer for combat
+ * outside a conversation. A primary hand the item leaves, emptied or given
+ * the promoted weapon, is drawn unless the unequip is \p instant.
+ *
+ * @return the Item as it lies after leaving its slot, itself or the stack it
+ *         joined; none when it did not leave the slot
  */
-EquipmentOperationOutcome runUnequip(
+std::shared_ptr<Item> runUnequip(
     Game &game,
     Creature &subject,
     const std::shared_ptr<Item> &item,
     const std::shared_ptr<Item> &container,
+    ItemStacking stacking,
     bool instant);
 
 /**
  * Chooses the melee weapon, from the inventory and the weapon in the hand,
  * that deals the most damage to \p versus and queues its equip. A ranged
  * weapon in that hand returns to the inventory at once, the off-hand item with
- * a main-hand one.
+ * a main-hand one; each goes in by name, in its own stack.
  */
 void equipMostDamagingMeleeWeapon(
     Game &game,
@@ -76,8 +85,8 @@ void equipMostDamagingMeleeWeapon(
 /**
  * Chooses the ranged weapon with the best attack against \p versus and queues
  * its equip into the main hand. Whenever the main hand holds anything the
- * off-hand item returns to the inventory at once. False when no better ranged
- * weapon than the one held was found.
+ * off-hand item returns to the inventory at once, by name, in its own stack.
+ * False when no better ranged weapon than the one held was found.
  */
 bool equipMostDamagingRangedWeapon(
     Game &game,

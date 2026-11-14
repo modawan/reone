@@ -17,7 +17,9 @@
 
 #include "reone/scene/graph.h"
 
+#include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
+#include "reone/audio/source.h"
 #include "reone/graphics/camera/perspective.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
@@ -49,7 +51,6 @@ namespace reone {
 namespace scene {
 
 static constexpr int kMaxFlareLights = 4;
-static constexpr int kMaxSoundCount = 4;
 
 static constexpr float kShadowFadeSpeed = 2.0f;
 
@@ -81,6 +82,7 @@ void SceneGraph::clear() {
     _soundRoots.clear();
     _grassRoots.clear();
     _roomWalkmeshes.clear();
+    _floorStacking.reset();
     _roomTest.reset();
     _activeLights.clear();
 }
@@ -190,7 +192,7 @@ float SceneGraph::forceSightPulse() const {
 void SceneGraph::cullRoots() {
     const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !(*roomTest)(*root))) {
+        if (!root->isEnabled() || !root->isRendered() || (roomTest && root->usage() != ModelUsage::Room && !roomTest->model(*root))) {
             root->setCulled(true);
             continue;
         }
@@ -282,45 +284,14 @@ void SceneGraph::updateFlareLights() {
     });
 }
 
+// A sound is audible while it is enabled and, when positional, within its
+// maximum distance of the listener, as when it plays. Which audible sounds
+// play is the mixer's to share out, by their groups and the voices.
 void SceneGraph::updateSounds() {
-    std::vector<std::pair<SoundSceneNode *, float>> distances;
-    glm::vec3 cameraPos(_activeCamera->localTransform()[3]);
-
-    // For each sound, calculate its distance to the camera
+    const glm::vec3 listener {_audioSvc.context.listenerPosition()};
     for (auto &root : _soundRoots) {
-        if (!root->isEnabled()) {
-            continue;
-        }
-        float dist2 = root->getSquareDistanceTo(cameraPos);
-        float maxDist2 = root->maxDistance() * root->maxDistance();
-        if (root->isPositional() && dist2 > maxDist2) {
-            continue;
-        }
-        distances.push_back(std::make_pair(root.get(), dist2));
-    }
-
-    // Take up to N most closest sounds to the camera
-    sort(distances.begin(), distances.end(), [](auto &left, auto &right) {
-        int leftPriority = left.first->priority();
-        int rightPriority = right.first->priority();
-        if (leftPriority < rightPriority) {
-            return true;
-        }
-        if (leftPriority > rightPriority) {
-            return false;
-        }
-        return left.second < right.second;
-    });
-    if (distances.size() > kMaxSoundCount) {
-        distances.erase(distances.begin() + kMaxSoundCount, distances.end());
-    }
-
-    // A sound is audible exactly when it is among the closest, so one that
-    // stays audible keeps playing.
-    for (auto &root : _soundRoots) {
-        bool audible = std::any_of(distances.begin(), distances.end(), [&root](auto &pair) {
-            return pair.first == root.get();
-        });
+        const bool audible = root->isEnabled() &&
+                             (!root->isPositional() || audio::AudioSource::isWithinRange(root->origin(), root->maxDistance(), listener));
         root->setAudible(audible);
     }
 }
@@ -328,17 +299,22 @@ void SceneGraph::updateSounds() {
 void SceneGraph::refresh() {
     _opaqueMeshes.clear();
     _transparentMeshes.clear();
+    _blendedDepthMeshes.clear();
     _shellMeshes.clear();
     _shadowMeshes.clear();
     _lights.clear();
     _emitters.clear();
 
+    // A room's lights go with the room, which is disabled while hidden; an
+    // object's light goes with the room it stands in itself.
+    const auto roomTest = _roomTest.lock();
     for (auto &root : _modelRoots) {
-        refreshFromNode(*root);
+        const bool room = root->usage() == ModelUsage::Room;
+        refreshFromNode(*root, room ? nullptr : roomTest.get(), false);
     }
 }
 
-void SceneGraph::refreshFromNode(SceneNode &node) {
+void SceneGraph::refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly) {
     // A disabled node (and its subtree) is skipped from the render lists, so
     // callers can suppress a specific mesh or emitter. The renderer otherwise
     // ignores isEnabled on child nodes.
@@ -350,14 +326,19 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
 
     switch (node.type()) {
     case SceneNodeType::Model: {
-        // Ignore models that have been culled
+        // A culled model is not drawn, but its lights shine whether it is
+        // drawn or not; one that is not rendered gives nothing.
         auto &model = static_cast<ModelSceneNode &>(node);
         if (model.isCulled()) {
-            propagate = false;
+            propagate = model.isRendered();
+            lightsOnly = true;
         }
         break;
     }
     case SceneNodeType::Mesh: {
+        if (lightsOnly) {
+            break;
+        }
         // For model nodes, determine whether they should be rendered and cast shadows
         auto &modelNode = static_cast<MeshSceneNode &>(node);
         bool shouldRender = modelNode.shouldRender();
@@ -365,6 +346,9 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
             // Sort model nodes into transparent and opaque
             if (modelNode.isTransparent()) {
                 _transparentMeshes.push_back(&modelNode);
+                if (modelNode.writesBlendedDepth()) {
+                    _blendedDepthMeshes.push_back(&modelNode);
+                }
             } else {
                 _opaqueMeshes.push_back(&modelNode);
             }
@@ -378,10 +362,14 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
         break;
     }
     case SceneNodeType::Light:
-        _lights.push_back(static_cast<LightSceneNode *>(&node));
+        if (!roomTest || roomTest->point(node.origin())) {
+            _lights.push_back(static_cast<LightSceneNode *>(&node));
+        }
         break;
     case SceneNodeType::Emitter:
-        _emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        if (!lightsOnly) {
+            _emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        }
         break;
     default:
         break;
@@ -389,7 +377,7 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
 
     if (propagate) {
         for (auto &child : node.children()) {
-            refreshFromNode(*child);
+            refreshFromNode(*child, roomTest, lightsOnly);
         }
     }
 }
@@ -565,6 +553,11 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
         }
         pipeline.inRenderPass(RenderPassName::OpaqueGeometry, [this](auto &pass) {
             renderOpaque(pass);
+        });
+        pipeline.inRenderPass(RenderPassName::BlendedGeometryDepth, [this](auto &pass) {
+            for (auto &mesh : _blendedDepthMeshes) {
+                mesh->renderBlendedDepth(pass);
+            }
         });
         pipeline.inRenderPass(RenderPassName::TransparentGeometry, [this](auto &pass) {
             renderTransparent(pass);
@@ -821,9 +814,13 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
 }
 
 bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
-    auto originToDest = dest - origin;
-    auto dir = glm::normalize(originToDest);
-    float maxDistance = glm::length(originToDest);
+    const auto originToDest = dest - origin;
+    const float maxDistance = glm::length(originToDest);
+    // A line of no length meets nothing.
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    const auto dir = originToDest / maxDistance;
     float minDistance = std::numeric_limits<float>::max();
 
     // Every room and every object walkmesh is tested, however far the line
@@ -854,47 +851,6 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         minDistance = raycast.distance;
     }
 
-    return minDistance != std::numeric_limits<float>::max();
-}
-
-bool SceneGraph::testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const {
-    const auto originToDest = dest - origin;
-    const float maxDistance = glm::length(originToDest);
-    if (maxDistance == 0.0f) {
-        return false;
-    }
-    const auto dir = originToDest / maxDistance;
-    float minDistance = std::numeric_limits<float>::max();
-    for (auto &root : _walkmeshRoots) {
-        if (!root->isEnabled() || !root->walkmesh().isAreaWalkmesh()) {
-            continue;
-        }
-        auto raycast = root->walkmesh().raycast(_lineOfSightSurfaces, origin, dir, maxDistance, /*ignoreBackface=*/false);
-        if (raycast.fail || raycast.distance > minDistance) {
-            continue;
-        }
-        outCollision.user = root->user();
-        outCollision.intersection = origin + raycast.distance * dir;
-        outCollision.normal = root->walkmesh().normals[raycast.face];
-        outCollision.material = root->walkmesh().materials[raycast.face];
-        minDistance = raycast.distance;
-    }
-    for (auto &root : _modelRoots) {
-        const auto usage = root->usage();
-        if (!root->isEnabled() || (usage != ModelUsage::Creature && usage != ModelUsage::Placeable && usage != ModelUsage::Door) ||
-            std::find(excluded.begin(), excluded.end(), root->user()) != excluded.end()) {
-            continue;
-        }
-        auto share = root->intersectSegment(origin, dest);
-        if (!share || *share * maxDistance > minDistance) {
-            continue;
-        }
-        outCollision.user = root->user();
-        outCollision.intersection = origin + *share * originToDest;
-        outCollision.normal = -dir;
-        outCollision.material = -1;
-        minDistance = *share * maxDistance;
-    }
     return minDistance != std::numeric_limits<float>::max();
 }
 
@@ -934,9 +890,216 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
     return minDistance != std::numeric_limits<float>::max();
 }
 
+// The inverse of a unit direction for a box test, a zero component taken as
+// the largest float, so that a line starting on a box face still has a
+// number for its distance to it.
+static glm::vec3 inverseDirection(const glm::vec3 &dir) {
+    glm::vec3 inverse;
+    for (int i = 0; i < 3; ++i) {
+        inverse[i] = dir[i] != 0.0f ? 1.0f / dir[i] : std::numeric_limits<float>::max();
+    }
+    return inverse;
+}
+
+// How far along a line, in an AABB mesh's space and along a unit direction,
+// it first meets a face of one of the surfaces, from either side, within its
+// length; and which face. The tree's boxes pass over what the line misses and
+// what lies beyond the nearest face found.
+static std::optional<float> raycastAABBMesh(const ModelNode::TriangleMesh &mesh, const std::set<uint32_t> &surfaces,
+                                            const glm::vec3 &origin, const glm::vec3 &dir, float maxDistance, uint32_t &outFace) {
+    const auto &faces = mesh.mesh->faces();
+    const auto &vertices = mesh.mesh->vertices();
+    const glm::vec3 invDir {inverseDirection(dir)};
+    std::optional<float> nearest;
+    std::stack<const ModelNode::AABBTree *> nodes;
+    nodes.push(mesh.aabbTree.get());
+    while (!nodes.empty()) {
+        const auto *node = nodes.top();
+        nodes.pop();
+        const float reach = nearest.value_or(maxDistance);
+        float boxDistance = 0.0f;
+        if (!node->aabb.raycast(origin, invDir, reach, boxDistance)) {
+            continue;
+        }
+        if (node->faceIndex < 0) {
+            if (node->left) {
+                nodes.push(node->left.get());
+            }
+            if (node->right) {
+                nodes.push(node->right.get());
+            }
+            continue;
+        }
+        const auto faceIndex = static_cast<size_t>(node->faceIndex);
+        if (faceIndex >= faces.size()) {
+            continue;
+        }
+        const auto &face = faces[faceIndex];
+        if (surfaces.count(face.material) == 0 ||
+            std::any_of(face.vertices.begin(), face.vertices.end(), [&vertices](uint16_t vertex) {
+                return vertex >= vertices.size();
+            })) {
+            continue;
+        }
+        glm::vec2 baryPosition {0.0f};
+        float distance = 0.0f;
+        if (glm::intersectRayTriangle(origin, dir,
+                                      vertices[face.vertices[0]].position,
+                                      vertices[face.vertices[1]].position,
+                                      vertices[face.vertices[2]].position,
+                                      baryPosition, distance) &&
+            distance > 0.0f && distance < reach) {
+            nearest = distance;
+            outFace = static_cast<uint32_t>(faceIndex);
+        }
+    }
+    return nearest;
+}
+
+// A door's or placeable's model stops a camera unless the object lets it
+// through, it takes no scene hits, or the model is classified as a
+// character or a lightsaber, or as a placeable without the hit filter
+// override of its subclassification.
+static bool modelStopsCamera(const ModelSceneNode &root) {
+    static constexpr int kPassedClassifications = MdlClassification::character | MdlClassification::lightsaber;
+    const auto usage = root.usage();
+    if ((usage != ModelUsage::Door && usage != ModelUsage::Placeable) || !root.isEnabled() || root.cameraPassesThrough() ||
+        !root.takesSceneHits()) {
+        return false;
+    }
+    const int classification = root.model().classification();
+    if ((classification & kPassedClassifications) != 0) {
+        return false;
+    }
+    return (classification & MdlClassification::placeable) == 0 ||
+           (root.model().subclassification() & MdlSubclassification::hitFilterOverride) != 0;
+}
+
+// A room stops a camera by the AABB mesh of its model, every room whether it
+// is shown or not. A door or placeable that does stops it by the triangles of
+// its model's meshes as they are posed.
+bool SceneGraph::testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
+    const glm::vec3 originToDest {dest - origin};
+    const float maxDistance = glm::length(originToDest);
+    // A line of no length meets nothing.
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    const glm::vec3 dir {originToDest / maxDistance};
+    float nearest = std::numeric_limits<float>::max();
+    for (auto &root : _modelRoots) {
+        if (!modelStopsCamera(*root)) {
+            continue;
+        }
+        const auto share = root->intersectSegment(origin, dest);
+        if (!share || *share * maxDistance >= nearest) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + *share * originToDest;
+        outCollision.normal = -dir;
+        outCollision.material = -1;
+        nearest = *share * maxDistance;
+    }
+    testRoomModels(origin, dest, nearest, outCollision);
+    return nearest != std::numeric_limits<float>::max();
+}
+
+void SceneGraph::testRoomModels(const glm::vec3 &origin, const glm::vec3 &dest, float &nearest, Collision &outCollision) const {
+    const glm::vec3 dir {glm::normalize(dest - origin)};
+    for (auto &root : _modelRoots) {
+        if (root->usage() != ModelUsage::Room) {
+            continue;
+        }
+        const auto aabbNode = root->model().getAABBNode();
+        if (!aabbNode || !aabbNode->mesh()->mesh) {
+            continue;
+        }
+        // A room stands still: a line that misses its model's box misses its
+        // mesh, and is let go before its mesh's space is worked out.
+        const glm::vec3 roomOrigin {root->absoluteTransformInverse() * glm::vec4 {origin, 1.0f}};
+        const glm::vec3 roomDest {root->absoluteTransformInverse() * glm::vec4 {dest, 1.0f}};
+        const float roomLength = glm::length(roomDest - roomOrigin);
+        float boxDistance = 0.0f;
+        if (roomLength == 0.0f ||
+            !root->aabb().raycast(roomOrigin, inverseDirection((roomDest - roomOrigin) / roomLength), roomLength, boxDistance)) {
+            continue;
+        }
+        // The line is taken into the mesh's space and its hit brought back.
+        const glm::mat4 toWorld {root->absoluteTransform() * aabbNode->absoluteTransform()};
+        const glm::vec3 meshOrigin {aabbNode->absoluteTransformInverse() * glm::vec4 {roomOrigin, 1.0f}};
+        const glm::vec3 meshDest {aabbNode->absoluteTransformInverse() * glm::vec4 {roomDest, 1.0f}};
+        const float meshLength = glm::length(meshDest - meshOrigin);
+        if (meshLength == 0.0f) {
+            continue;
+        }
+        const glm::vec3 meshDir {(meshDest - meshOrigin) / meshLength};
+        uint32_t faceIndex = 0;
+        const auto hit = raycastAABBMesh(*aabbNode->mesh(), _cameraSurfaces, meshOrigin, meshDir, meshLength, faceIndex);
+        if (!hit) {
+            continue;
+        }
+        const glm::vec3 intersection {toWorld * glm::vec4 {meshOrigin + *hit * meshDir, 1.0f}};
+        const float distance = glm::length(intersection - origin);
+        if (distance >= nearest) {
+            continue;
+        }
+        const auto &face = aabbNode->mesh()->mesh->faces()[faceIndex];
+        // A face met from behind still turns its normal back along the line.
+        glm::vec3 normal {glm::normalize(glm::vec3 {toWorld * glm::vec4 {face.normal, 0.0f}})};
+        if (glm::dot(normal, dir) > 0.0f) {
+            normal = -normal;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = intersection;
+        outCollision.normal = normal;
+        outCollision.material = static_cast<int>(face.material);
+        nearest = distance;
+    }
+}
+
+// The rooms, and the posed models of creatures, placeables and doors, and of
+// what is attached to them, that take scene hits. Of the excluded objects
+// only the models attached to them count, except the one at the excluded hook.
+bool SceneGraph::testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const {
+    const glm::vec3 originToDest {dest - origin};
+    const float maxDistance = glm::length(originToDest);
+    if (maxDistance == 0.0f) {
+        return false;
+    }
+    float nearest = std::numeric_limits<float>::max();
+    testRoomModels(origin, dest, nearest, outCollision);
+    for (auto &root : _modelRoots) {
+        const auto usage = root->usage();
+        if (!root->isEnabled() || (usage != ModelUsage::Creature && usage != ModelUsage::Placeable && usage != ModelUsage::Door) ||
+            !root->takesSceneHits()) {
+            continue;
+        }
+        std::optional<float> share;
+        if (std::find(excluded.begin(), excluded.end(), root->user()) != excluded.end()) {
+            share = root->intersectAttachments(origin, dest, excludedHook);
+        } else {
+            share = root->intersectSegment(origin, dest);
+            if (auto attached = root->intersectAttachments(origin, dest); attached && (!share || *attached < *share)) {
+                share = attached;
+            }
+        }
+        if (!share || *share * maxDistance >= nearest) {
+            continue;
+        }
+        outCollision.user = root->user();
+        outCollision.intersection = origin + *share * originToDest;
+        outCollision.normal = -originToDest / maxDistance;
+        outCollision.material = -1;
+        nearest = *share * maxDistance;
+    }
+    return nearest != std::numeric_limits<float>::max();
+}
+
 void SceneGraph::setWalkableSurfaces(std::set<uint32_t> surfaces) {
     _walkableSurfaces = std::move(surfaces);
     updateBlockingSurfaces();
+    _floorStacking.reset();
 }
 
 void SceneGraph::setWalkcheckSurfaces(std::set<uint32_t> surfaces) {
@@ -953,36 +1116,121 @@ void SceneGraph::updateBlockingSurfaces() {
     }
 }
 
-// Room surfaces are looked for from this high above a point down to as far
-// below it.
-static constexpr float kRoomSurfaceReach = 1000.0f;
-
-// Casts down through the faces of the given materials of a room walkmesh from
-// a point in the walkmesh's own coordinates, over twice kRoomSurfaceReach; a
-// cast that meets none is tried once more, shifted 0.001 along the diagonal of
-// x and y.
-static Raycast raycastRoomSurface(const WalkmeshSceneNode &room, const std::set<uint32_t> &surfaces, const glm::vec3 &top) {
-    static const glm::vec3 kRetryShift {0.001f * glm::normalize(glm::vec3 {1.0f, 1.0f, 0.0f})};
-    const glm::vec3 down {0.0f, 0.0f, -1.0f};
-    auto raycast = room.walkmesh().raycast(surfaces, top, down, 2.0f * kRoomSurfaceReach, /*ignoreBackface=*/true);
-    if (raycast.fail != RAYCAST_OK) {
-        raycast = room.walkmesh().raycast(surfaces, top + kRetryShift, down, 2.0f * kRoomSurfaceReach, /*ignoreBackface=*/true);
+void SceneGraph::setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) {
+    // An area made active again sets the same rooms, whose floors are known.
+    if (rooms == _roomWalkmeshes) {
+        return;
     }
-    return raycast;
+    _roomWalkmeshes = std::move(rooms);
+    _floorStacking.reset();
 }
 
-std::shared_ptr<WalkmeshSceneNode> SceneGraph::findRoomWalkmesh(const glm::vec3 &position) const {
-    const glm::vec3 top {position + glm::vec3 {0.0f, 0.0f, kRoomSurfaceReach}};
+const SceneGraph::FloorStacking &SceneGraph::floorStacking() const {
+    if (_floorStacking) {
+        return *_floorStacking;
+    }
+    FloorStacking stacking;
+    // The rooms with walkable faces, each with the level box round them and
+    // its floor normals, worked out once for every pair it is in.
+    struct Floors {
+        const WalkmeshSceneNode *room {nullptr};
+        glm::vec2 low {std::numeric_limits<float>::max()};
+        glm::vec2 high {-std::numeric_limits<float>::max()};
+        Walkmesh::FloorNormals normals;
+    };
+    std::vector<Floors> floors;
     for (const auto &room : _roomWalkmeshes) {
         if (!room) {
             continue;
         }
-        const glm::vec3 local {room->absoluteTransformInverse() * glm::vec4(top, 1.0f)};
-        if (raycastRoomSurface(*room, _walkcheckSurfaces, local).fail == RAYCAST_OK) {
-            return room;
+        const Walkmesh &walkmesh = room->walkmesh();
+        Floors box {room.get()};
+        for (size_t index = 0; index < walkmesh.faces.size(); ++index) {
+            if (!Walkmesh::hasSurfaceMaterial(_walkableSurfaces, walkmesh.materials[index])) {
+                continue;
+            }
+            for (uint32_t vertex : walkmesh.faces[index].indices) {
+                const glm::vec2 point {room->absoluteTransform() * glm::vec4(walkmesh.vertices[vertex], 1.0f)};
+                box.low = glm::min(box.low, point);
+                box.high = glm::max(box.high, point);
+            }
+        }
+        if (box.low.x > box.high.x) {
+            continue;
+        }
+        box.normals = walkmesh.floorNormals(_walkableSurfaces);
+        if (walkmesh.hasFloorOverFloor(box.normals)) {
+            stacking.rooms.insert(room.get());
+        }
+        floors.push_back(std::move(box));
+    }
+    stacking.area = !stacking.rooms.empty();
+    for (size_t i = 0; i < floors.size() && !stacking.area; ++i) {
+        for (size_t j = i + 1; j < floors.size() && !stacking.area; ++j) {
+            const Floors &a = floors[i];
+            const Floors &b = floors[j];
+            if (a.high.x < b.low.x || b.high.x < a.low.x || a.high.y < b.low.y || b.high.y < a.low.y) {
+                continue;
+            }
+            stacking.area = a.room->walkmesh().hasFloorOver(a.normals, b.room->walkmesh(), b.normals,
+                                                            a.room->absoluteTransformInverse() * b.room->absoluteTransform());
         }
     }
-    return nullptr;
+    if (stacking.area) {
+        debug("Scene '" + _name + "' lays floors over floors: " +
+              (stacking.rooms.empty() ? std::string("rooms lay floors over one another")
+                                      : std::to_string(stacking.rooms.size()) + " rooms lay floors over their own"));
+    }
+    _floorStacking = std::move(stacking);
+    return *_floorStacking;
+}
+
+// Room surfaces are looked for from this high above a point down to as far
+// below it.
+static constexpr float kRoomSurfaceReach = 1000.0f;
+
+// The face of the given materials of a room walkmesh that a point, in the
+// walkmesh's own coordinates, stands on (see Walkmesh::standingFace), going
+// down from a height over twice kRoomSurfaceReach; a vertical that meets none
+// is tried once more, shifted 0.001 along the diagonal of x and y.
+static std::optional<Walkmesh::Standing> standingRoomFace(const WalkmeshSceneNode &room, const std::set<uint32_t> &surfaces,
+                                                          const std::set<uint32_t> &walkable, const glm::vec3 &point, float top,
+                                                          bool stacked) {
+    static const glm::vec3 kRetryShift {0.001f * glm::normalize(glm::vec3 {1.0f, 1.0f, 0.0f})};
+    auto found = room.walkmesh().standingFace(surfaces, walkable, point, top, 2.0f * kRoomSurfaceReach, stacked);
+    if (!found) {
+        found = room.walkmesh().standingFace(surfaces, walkable, point + kRetryShift, top, 2.0f * kRoomSurfaceReach, stacked);
+    }
+    return found;
+}
+
+std::shared_ptr<WalkmeshSceneNode> SceneGraph::findRoomWalkmesh(const glm::vec3 &position) const {
+    // The first room met; where floors lie over others, the first whose floor
+    // under the point is at its level comes before it.
+    const bool stacked = hasStackedFloors();
+    std::shared_ptr<WalkmeshSceneNode> first;
+    for (const auto &room : _roomWalkmeshes) {
+        if (!room) {
+            continue;
+        }
+        const glm::mat4 &toLocal = room->absoluteTransformInverse();
+        const glm::vec3 local {toLocal * glm::vec4(position, 1.0f)};
+        const float top = (toLocal * glm::vec4(position + glm::vec3 {0.0f, 0.0f, kRoomSurfaceReach}, 1.0f)).z;
+        const auto face = standingRoomFace(*room, _walkcheckSurfaces, _walkableSurfaces, local, top, isStacked(*room));
+        if (!face) {
+            continue;
+        }
+        if (!stacked) {
+            return room;
+        }
+        if (std::abs(face->height - local.z) <= Walkmesh::kFloorHeadroom) {
+            return room;
+        }
+        if (!first) {
+            first = room;
+        }
+    }
+    return first;
 }
 
 std::optional<RoomFace> SceneGraph::findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const {
@@ -994,17 +1242,15 @@ std::optional<RoomFace> SceneGraph::findRoomFace(const WalkmeshSceneNode &room, 
         return all;
     }();
     const glm::vec3 local {room.absoluteTransformInverse() * glm::vec4(position, 1.0f)};
-    glm::vec3 top {local};
-    if (probe == RoomFaceProbe::Locating) {
-        top = glm::vec3 {room.absoluteTransformInverse() * glm::vec4(position + glm::vec3 {0.0f, 0.0f, kRoomSurfaceReach}, 1.0f)};
-    } else {
-        top.z = kRoomSurfaceReach;
-    }
-    const auto raycast = raycastRoomSurface(room, probe == RoomFaceProbe::Any ? kAllSurfaces : _walkcheckSurfaces, top);
-    if (raycast.fail != RAYCAST_OK) {
+    const float top = probe == RoomFaceProbe::Locating
+                          ? (room.absoluteTransformInverse() * glm::vec4(position + glm::vec3 {0.0f, 0.0f, kRoomSurfaceReach}, 1.0f)).z
+                          : kRoomSurfaceReach;
+    const auto standing = standingRoomFace(room, probe == RoomFaceProbe::Any ? kAllSurfaces : _walkcheckSurfaces, _walkableSurfaces, local, top,
+                                           isStacked(room));
+    if (!standing) {
         return std::nullopt;
     }
-    const Walkmesh::Face face {room.walkmesh().getFace(raycast.face)};
+    const Walkmesh::Face face {room.walkmesh().getFace(standing->face)};
     // The face's plane is taken at the point itself; an upright plane gives
     // height 0.
     float localHeight = 0.0f;
@@ -1016,65 +1262,120 @@ std::optional<RoomFace> SceneGraph::findRoomFace(const WalkmeshSceneNode &room, 
     return RoomFace {face.material, point.z, glm::vec3 {room.absoluteTransform() * glm::vec4(face.normal, 0.0f)}};
 }
 
-bool SceneGraph::testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
-                              std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const {
+RoomWalkEnd SceneGraph::walkRooms(const glm::vec3 &origin, const glm::vec3 &dest, std::optional<int> maxRooms, bool withBands,
+                                  std::vector<RoomStretch> &outStretches, Collision &outCollision) const {
     // A perimeter crossing this close to where the walk entered a room, or to
     // where it ends, is that point itself.
     static constexpr float kPerimeterTolerance = 1e-4f;
-    // Blocking faces are looked for this far beyond the heights the walk spans.
-    static constexpr float kBandMargin = 0.1f;
 
     const glm::vec3 line {dest - origin};
     const glm::vec2 level {line};
     const float length = glm::length(level);
+    const glm::vec3 back {length > 0.0f ? glm::vec3(-level / length, 0.0f) : glm::vec3(0.0f)};
     auto room = findRoomWalkmesh(origin);
     if (!room) {
         outCollision.user = nullptr;
         outCollision.intersection = origin;
-        outCollision.normal = length > 0.0f ? glm::vec3(-level / length, 0.0f) : glm::vec3(0.0f);
-        return true;
+        outCollision.normal = back;
+        return RoomWalkEnd::OffRooms;
     }
-    if (length <= kPerimeterTolerance) {
-        return false;
-    }
-    const float tolerance = kPerimeterTolerance / length;
+    const float tolerance = length > kPerimeterTolerance ? kPerimeterTolerance / length : 1.0f;
     float entered = 0.0f;
+    // The height of the floor at the perimeter edge the walk last crossed,
+    // where the faces it walked across give it.
+    std::optional<float> edgeHeight;
     for (int rooms = 1;; ++rooms) {
-        const glm::vec3 entry {origin + line * entered};
+        glm::vec3 entry {origin + line * entered};
+        if (edgeHeight) {
+            entry.z = *edgeHeight;
+        }
         if (maxRooms && rooms > *maxRooms) {
             outCollision.user = room->user();
             outCollision.intersection = entry;
-            outCollision.normal = glm::vec3(-level / length, 0.0f);
-            return true;
+            outCollision.normal = back;
+            return RoomWalkEnd::RoomLimit;
         }
         const glm::mat4 &toLocal = room->absoluteTransformInverse();
-        const auto crossing = room->walkmesh().findPerimeterCrossing(
-            glm::vec2(toLocal * glm::vec4(origin, 1.0f)),
-            glm::vec2(toLocal * glm::vec4(dest, 1.0f)),
-            entered + tolerance);
+        const glm::vec3 localEntry {toLocal * glm::vec4(entry, 1.0f)};
+        const glm::vec3 localDest {toLocal * glm::vec4(dest, 1.0f)};
+        const float shift = localEntry.z - entry.z;
+        // In a room that lays floors over floors, the walk leaves it where it
+        // leaves the faces it crosses, not where its level line first meets
+        // the perimeter of any.
+        const bool stacked = isStacked(*room);
+        std::optional<graphics::Walkmesh::FaceWalk> faceWalk;
+        if (withBands || stacked) {
+            faceWalk = room->walkmesh().walkFaces(_walkcheckSurfaces, _walkableSurfaces, localEntry, localDest, stacked);
+        }
+        std::optional<graphics::Walkmesh::HeightBand> band;
+        if (withBands && faceWalk) {
+            band = graphics::Walkmesh::HeightBand {faceWalk->band.low - shift, faceWalk->band.high - shift};
+        }
+        outStretches.push_back(RoomStretch {room, entered, band});
+        if (length <= kPerimeterTolerance) {
+            return RoomWalkEnd::Dest;
+        }
+        // A face walk that leaves the faces no further on than where it
+        // entered the room gives way to the level line.
+        std::optional<graphics::Walkmesh::PerimeterCrossing> crossing;
+        bool walked = stacked && faceWalk;
+        edgeHeight.reset();
+        if (walked && faceWalk->exit) {
+            crossing = faceWalk->exit;
+            crossing->fraction = entered + (1.0f - entered) * crossing->fraction;
+            if (crossing->fraction > entered + tolerance) {
+                edgeHeight = faceWalk->exitHeight - shift;
+            } else {
+                crossing.reset();
+                walked = false;
+            }
+        }
+        if (!walked) {
+            crossing = room->walkmesh().findPerimeterCrossing(
+                glm::vec2(toLocal * glm::vec4(origin, 1.0f)),
+                glm::vec2(localDest),
+                entered + tolerance);
+        }
         if (!crossing || crossing->fraction >= 1.0f - tolerance) {
-            return false;
+            return RoomWalkEnd::Dest;
         }
         const int next = crossing->transition;
         if (next >= 0 && next < static_cast<int>(_roomWalkmeshes.size()) && _roomWalkmeshes[next]) {
             room = _roomWalkmeshes[next];
             entered = crossing->fraction;
-            outCrossings.push_back(entered);
             continue;
         }
-        const glm::vec3 exit {origin + line * crossing->fraction};
-        const glm::vec3 localExit {toLocal * glm::vec4(exit, 1.0f)};
-        const float shift = localExit.z - exit.z;
-        const float minZ = std::min(entry.z, exit.z) - kBandMargin + shift;
-        const float maxZ = std::max(entry.z, exit.z) + height + kBandMargin + shift;
-        if (room->walkmesh().hasFaceWithin(_blockingSurfaces, localExit, localExit, radius, minZ, maxZ)) {
-            return false;
-        }
         outCollision.user = room->user();
-        outCollision.intersection = exit;
+        outCollision.intersection = origin + line * crossing->fraction;
+        if (edgeHeight) {
+            outCollision.intersection.z = *edgeHeight;
+        }
         outCollision.normal = room->absoluteTransform() * glm::vec4(crossing->normal, 0.0f, 0.0f);
-        return true;
+        return RoomWalkEnd::Edge;
     }
+}
+
+bool SceneGraph::testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
+                              std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const {
+    // Blocking faces are looked for this far beyond the heights the walk spans.
+    static constexpr float kBandMargin = 0.1f;
+
+    std::vector<RoomStretch> stretches;
+    const RoomWalkEnd end = walkRooms(origin, dest, maxRooms, /*withBands=*/false, stretches, outCollision);
+    for (size_t i = 1; i < stretches.size(); ++i) {
+        outCrossings.push_back(stretches[i].from);
+    }
+    if (end != RoomWalkEnd::Edge) {
+        return end != RoomWalkEnd::Dest;
+    }
+    const auto &room = stretches.back().room;
+    const glm::vec3 entry {origin + (dest - origin) * stretches.back().from};
+    const glm::vec3 exit {outCollision.intersection};
+    const glm::vec3 localExit {room->absoluteTransformInverse() * glm::vec4(exit, 1.0f)};
+    const float shift = localExit.z - exit.z;
+    const float minZ = std::min(entry.z, exit.z) - kBandMargin + shift;
+    const float maxZ = std::max(entry.z, exit.z) + height + kBandMargin + shift;
+    return !room->walkmesh().hasFaceWithin(_blockingSurfaces, localExit, localExit, radius, minZ, maxZ);
 }
 
 ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {

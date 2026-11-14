@@ -36,6 +36,8 @@ public:
             sceneGraphs,
             graphicsSvc,
             resourceSvc) {
+
+        _navigable = true;
     }
 };
 

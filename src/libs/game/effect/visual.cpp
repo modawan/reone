@@ -95,6 +95,12 @@ static constexpr float kShellOffset = 0.02f;
 // The model a missed beam ends at.
 static constexpr const char *kBeamStandInModel = "c_dummy";
 
+// A visual at a point loops its duration sound above the point; one on an
+// object loops it where the object stands.
+static glm::vec3 durationSoundPosition(const std::optional<glm::vec3> &location, const Object &object) {
+    return location ? *location + glm::vec3 {0.0f, 0.0f, kEffectSoundHeight} : object.position();
+}
+
 static float impactDuration(const std::shared_ptr<graphics::Model> &model,
                             const std::shared_ptr<audio::AudioClip> &sound) {
     auto animation = model ? model->getAnimation("impact") : nullptr;
@@ -444,7 +450,7 @@ void VisualEffect::updateMotionBlurProgram(Object &object) {
         game.addMotionBlurProgram(true);
         _motionBlurApplied = true;
     }
-    const float speed = creature->driveSpeed() / creature->driveMaxSpeed();
+    const float speed = creature->driveSpeed() / creature->driveTopSpeed();
     game.setSpeedBlurRatio(speed > 1.0f ? kMotionBlurRatio : kMotionBlurRatio * speed);
 }
 
@@ -930,15 +936,15 @@ EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &in
         if (!_kept) {
             presentationDuration = std::max(presentationDuration, nodeModelsPresentationLength());
         }
-        // The impact sound plays where the visual lands: a missed beam's
-        // stand-in, otherwise the object or point.
+        // The impact sound plays above where the visual lands: a missed
+        // beam's stand-in, otherwise the object or point.
         if (!instance.restoring && desc.soundImpact) {
-            const glm::vec3 soundPosition = _beamEnd ? _beamEnd->origin() : position;
-            _services.audio.mixer.play(desc.soundImpact, audio::AudioType::Sound, 1.0f, false, soundPosition);
+            const glm::vec3 soundPosition = (_beamEnd ? _beamEnd->origin() : position) + glm::vec3 {0.0f, 0.0f, kEffectSoundHeight};
+            _services.audio.mixer.play(desc.soundImpact, audio::AudioType::Sound, kSpellEffectSoundGroup, 1.0f, false, soundPosition);
             presentationDuration = std::max(presentationDuration, desc.soundImpact->duration());
         }
         if (desc.soundDuration) {
-            _durationSound = _services.audio.mixer.play(desc.soundDuration, audio::AudioType::Sound, 1.0f, true, position);
+            _durationSound = _services.audio.mixer.play(desc.soundDuration, audio::AudioType::Sound, kSpellEffectSoundGroup, 1.0f, true, durationSoundPosition(_location, object));
         }
     }
     if (_kept) {
@@ -983,7 +989,7 @@ void VisualEffect::onUpdate(Object &object, const EffectInstance &instance, floa
     }
     updateNodeModels(dt);
     if (_durationSound) {
-        _durationSound->setPosition(object.position());
+        _durationSound->setPosition(durationSoundPosition(_location, object));
     }
     if (_beam) {
         const auto ends = resolveBeamEnds(object, instance);
@@ -1016,6 +1022,14 @@ void VisualEffect::onRemove(Object &object, const EffectInstance &instance) {
         return;
     }
     endSoundsAndBeams();
+    // The cessation sound plays once above the object or point, in the
+    // spell effects group, while the object is in an area.
+    if (object.spatialArea()) {
+        if (const auto row = _services.game.visualEffects.get(saveFacingInteger(0)); row && row->get().soundCessation) {
+            const glm::vec3 soundPosition = _location.value_or(object.position()) + glm::vec3 {0.0f, 0.0f, kEffectSoundHeight};
+            _services.audio.mixer.play(row->get().soundCessation, audio::AudioType::Sound, kSpellEffectSoundGroup, 1.0f, false, soundPosition);
+        }
+    }
     const auto modelsDone = startNodeModelCessation();
     std::optional<float> programDone;
     switch (_programPhase) {

@@ -17,7 +17,11 @@
 
 #pragma once
 
-#include "reone/graphics/texture.h"
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "types.h"
 
 namespace reone {
 
@@ -31,7 +35,42 @@ struct Portrait {
     /** The forpc cell; zero for a portrait no player character uses. */
     int forPC {0};
     int sex {0};
+    /** The variants shown at good/evil 40 and below, 30, 20 and 10; blank cells are empty. */
+    std::string resRefE;
+    std::string resRefVE;
+    std::string resRefVVE;
+    std::string resRefVVVE;
+
+    /**
+     * The portrait shown for \p goodEvil: the variant of its band, or the base
+     * above 40 or when the variant's cell is blank.
+     */
+    const std::string &resRefForGoodEvil(int goodEvil) const {
+        const std::string &variant = goodEvil <= kVeryVeryVeryEvilMaxGoodEvil ? resRefVVVE
+                                     : goodEvil <= kVeryVeryEvilMaxGoodEvil   ? resRefVVE
+                                     : goodEvil <= kVeryEvilMaxGoodEvil       ? resRefVE
+                                     : goodEvil <= kEvilMaxGoodEvil           ? resRefE
+                                                                              : resRef;
+        return variant.empty() ? resRef : variant;
+    }
 };
+
+/**
+ * The row of \p rows a creature's portrait comes from: the one \p portraitId
+ * names or, without an ID, the first row for \p appearance. Null when there
+ * is none.
+ */
+inline const Portrait *findPortrait(const std::vector<Portrait> &rows, int portraitId, int appearance) {
+    if (portraitId > 0) {
+        return portraitId < static_cast<int>(rows.size()) ? &rows[portraitId] : nullptr;
+    }
+    auto found = std::find_if(rows.begin(), rows.end(), [appearance](const Portrait &portrait) {
+        return portrait.appearanceNumber == appearance ||
+               portrait.appearanceS == appearance ||
+               portrait.appearanceL == appearance;
+    });
+    return found == rows.end() ? nullptr : &*found;
+}
 
 } // namespace game
 

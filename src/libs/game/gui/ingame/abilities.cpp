@@ -48,8 +48,6 @@ static constexpr int kStrRefTotalRank = 41904;
 void AbilitiesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
-    tintK2InGameFooter();
-    tintK2InGameHeader();
     turnK1PartyArrowRight();
 
     _controls.BTN_SKILLS->setDisabled(true);
@@ -73,18 +71,13 @@ void AbilitiesMenu::onGUILoaded() {
         updateK2FilterButton(_controls.BTN_SKILLS, true);
         updateK2FilterButton(_controls.BTN_POWERS, false);
         updateK2FilterButton(_controls.BTN_FEATS, false);
-        _controls.LB_ABILITY->setTintBorderFill(true);
-        _controls.LB_DESC->setTintBorderFill(true);
-        _controls.LB_DESC_FEATS->setTintBorderFill(true);
-        _controls.LBL_INFOBG->setTintBorderFill(true);
-        _controls.LBL_NAME->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_ABILITIES);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
         enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
-        protoItem.setTintBorderFill(true);
     }
+    useK1ListEntryColors(protoItem);
     // The active row's frames pulse; TSL's icon frame is white.
     protoItem.setHilightPulsing(true, false);
     if (_game.isTSL()) {
@@ -93,20 +86,7 @@ void AbilitiesMenu::onGUILoaded() {
         protoItem.setIconFrameHilight(std::nullopt, true);
     }
     _controls.LB_ABILITY->setOnItemClick([this](const std::string &item) {
-        auto skill = static_cast<SkillType>(stoi(item));
-        auto maybeSkillInfo = _skills.find(skill);
-        if (maybeSkillInfo == _skills.end())
-            return;
-
-        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-
-        _controls.LBL_RANKVAL->setTextMessage(std::to_string(partyLeader->attributes().getSkillRank(skill)));
-        _controls.LBL_BONUSVAL->setTextMessage("0");
-        _controls.LBL_TOTALVAL->setTextMessage(std::to_string(partyLeader->attributes().getSkillRank(skill)));
-        _controls.LBL_NAME->setTextMessage(maybeSkillInfo->second.name);
-
-        _controls.LB_DESC->clearItems();
-        _controls.LB_DESC->addTextLinesAsItems(maybeSkillInfo->second.description);
+        showSkill(item);
     });
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
@@ -142,6 +122,32 @@ void AbilitiesMenu::loadSkills() {
 
 void AbilitiesMenu::refreshControls() {
     refreshPortraits();
+    // The list takes the keyboard afresh, which selects and shows its first
+    // skill; an empty list shows none.
+    _controls.LB_ABILITY->clearSelection();
+    _gui->clearActiveControl();
+    _gui->setActiveControl(*_controls.LB_ABILITY);
+    const int row = _controls.LB_ABILITY->selectedItemIndex();
+    if (row >= 0) {
+        showSkill(_controls.LB_ABILITY->getItemAt(row).tag);
+    }
+}
+
+void AbilitiesMenu::showSkill(const std::string &item) {
+    auto skill = static_cast<SkillType>(stoi(item));
+    auto maybeSkillInfo = _skills.find(skill);
+    if (maybeSkillInfo == _skills.end())
+        return;
+
+    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+
+    _controls.LBL_RANKVAL->setTextMessage(std::to_string(partyLeader->attributes().getSkillRank(skill)));
+    _controls.LBL_BONUSVAL->setTextMessage("0");
+    _controls.LBL_TOTALVAL->setTextMessage(std::to_string(partyLeader->attributes().getSkillRank(skill)));
+    _controls.LBL_NAME->setTextMessage(maybeSkillInfo->second.name);
+
+    _controls.LB_DESC->clearItems();
+    _controls.LB_DESC->addTextLinesAsItems(maybeSkillInfo->second.description);
 }
 
 void AbilitiesMenu::refreshPortraits() {

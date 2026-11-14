@@ -71,6 +71,8 @@ private:
     void loadMaterials();
     void loadNormals();
     void loadAABB();
+    /** Reads, for each edge of each walkable face, the edge of another walkable face it is shared with. */
+    void loadAdjacency();
     /** Reads the perimeter edges of an area walkmesh and the rooms they lead into. */
     void loadPerimeter();
 };

@@ -54,7 +54,8 @@ void ImageButton::render(
     const std::string &iconText,
     const std::shared_ptr<Texture> &iconTexture,
     const std::shared_ptr<Texture> &iconFrame,
-    IRenderPass &pass) {
+    IRenderPass &pass,
+    const std::optional<glm::vec3> &iconTextColor) {
 
     if (!_visible)
         return;
@@ -70,7 +71,7 @@ void ImageButton::render(
         renderBorder(*_border, borderOffset, size, pass);
     }
 
-    renderIcon(offset, iconText, iconTexture, iconFrame, pass);
+    renderIcon(offset, iconText, iconTexture, iconFrame, pass, iconTextColor);
 
     if (!text.empty()) {
         renderText(text, borderOffset, size, pass);
@@ -82,22 +83,21 @@ void ImageButton::renderIcon(
     const std::string &iconText,
     const std::shared_ptr<Texture> &iconTexture,
     const std::shared_ptr<Texture> &iconFrame,
-    IRenderPass &pass) {
+    IRenderPass &pass,
+    const std::optional<glm::vec3> &iconTextColor) {
 
     if (!iconFrame && !iconTexture)
         return;
 
-    glm::vec3 color(1.0f);
-    if (_selected && _hilight) {
-        color = _hilight->color;
-    } else if (_border) {
-        color = _border->color;
-    }
+    // The icon frame and the count take the colour the frames show, and the
+    // icon frame their opacity while the button is not selected.
+    const glm::vec3 color = _border ? getBorderColor() : glm::vec3(1.0f);
 
     if (iconFrame) {
         auto frameColor = color;
-        auto frameAlpha = 1.0f;
+        auto frameAlpha = _border ? _border->alpha : 1.0f;
         if (_selected && _hilight) {
+            frameAlpha = 1.0f;
             frameColor = _iconFrameHilightColor.value_or(color);
             if (_iconFrameHilightPulsing) {
                 frameAlpha = _gui.pulsingAlpha();
@@ -121,7 +121,7 @@ void ImageButton::renderIcon(
         glm::vec3 position(0.0f);
         position.x = static_cast<float>(offset.x + _extent.left + _extent.height);
         position.y = static_cast<float>(offset.y + _extent.top + _extent.height - 0.5f * _iconFont->height() * _scale);
-        _iconFont->render(iconText, position, color, TextGravity::LeftCenter, _scale);
+        _iconFont->render(iconText, position, iconTextColor.value_or(color), TextGravity::LeftCenter, _scale);
     }
 }
 

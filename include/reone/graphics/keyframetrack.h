@@ -36,10 +36,42 @@ public:
         _keyframes.push_back(std::move(kf));
     }
 
+    /**
+     * Adds a key of a curved track. Its handles are offsets from its value:
+     * the incoming one shapes the curve from the key before, the outgoing one
+     * the curve to the key after. A track's keys are all curved or none is.
+     */
+    void addCurved(float time, Value value, Value incoming, Value outgoing) {
+        add(time, std::move(value));
+        _handles.push_back({std::move(incoming), std::move(outgoing)});
+    }
+
     void update() {
-        std::sort(_keyframes.begin(), _keyframes.end(), [](const auto &lhs, const auto &rhs) {
+        auto byTime = [](const auto &lhs, const auto &rhs) {
             return lhs.time < rhs.time;
+        };
+        if (_handles.empty()) {
+            std::sort(_keyframes.begin(), _keyframes.end(), byTime);
+            return;
+        }
+        // The handles move with their keys.
+        std::vector<size_t> order(_keyframes.size());
+        for (size_t index = 0; index < order.size(); ++index) {
+            order[index] = index;
+        }
+        std::stable_sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+            return byTime(_keyframes[lhs], _keyframes[rhs]);
         });
+        std::vector<Keyframe> keyframes;
+        std::vector<Handles> handles;
+        keyframes.reserve(order.size());
+        handles.reserve(order.size());
+        for (size_t index : order) {
+            keyframes.push_back(std::move(_keyframes[index]));
+            handles.push_back(std::move(_handles[index]));
+        }
+        _keyframes = std::move(keyframes);
+        _handles = std::move(handles);
     }
 
     bool valueAtTime(float time, Value &value) const {
@@ -48,6 +80,11 @@ public:
         }
         if (_keyframes.size() == 1ll || _keyframes[0].time >= time) {
             value = _keyframes[0].value;
+            return true;
+        }
+        // From its last key on, a track holds its last value.
+        if (_keyframes.back().time <= time) {
+            value = _keyframes.back().value;
             return true;
         }
         int rightKfIdx;
@@ -64,7 +101,8 @@ public:
             value = leftKeyframe.value;
         } else {
             float factor = (time - leftKeyframe.time) / (rightKeyframe.time - leftKeyframe.time);
-            value = interpolateKeyframes(leftKeyframe, rightKeyframe, factor);
+            value = _handles.empty() ? interpolateKeyframes(leftKeyframe, rightKeyframe, factor)
+                                     : curveBetween(leftKfIdx, rightKfIdx, factor);
         }
         return true;
     }
@@ -74,7 +112,29 @@ public:
     }
 
 private:
+    struct Handles {
+        Value incoming {Value()};
+        Value outgoing {Value()};
+    };
+
     std::vector<Keyframe> _keyframes;
+    /** One per key of a curved track; empty for a track of straight segments. */
+    std::vector<Handles> _handles;
+
+    // A curved segment is the cubic Bezier curve from the left key's value to
+    // the right key's, pulled towards the left key's outgoing handle and the
+    // right key's incoming one.
+    Value curveBetween(int left, int right, float factor) const {
+        const Value &from = _keyframes[left].value;
+        const Value &to = _keyframes[right].value;
+        const Value fromHandle = from + _handles[left].outgoing;
+        const Value toHandle = to + _handles[right].incoming;
+        const float rest = 1.0f - factor;
+        return (rest * rest * rest) * from +
+               (3.0f * rest * rest * factor) * fromHandle +
+               (3.0f * rest * factor * factor) * toHandle +
+               (factor * factor * factor) * to;
+    }
 
     template <typename T = Value,
               typename std::enable_if_t<!std::is_same<glm::quat, T>::value, int> = 0>

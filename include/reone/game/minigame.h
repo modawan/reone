@@ -219,8 +219,9 @@ struct MinigameObstacleSpec {
 };
 
 /**
- * Minigame mouse-axis bindings. Axis IDs are retained as opaque values;
- * only the flip flags currently affect input.
+ * Minigame mouse-axis bindings: the axis of the aim each mouse axis turns, 1
+ * the pitch, 2 the roll and 3 the yaw, or 0 for none, and whether it turns it
+ * the other way.
  */
 struct MinigameMouseSpec {
     uint32_t axisX {0};

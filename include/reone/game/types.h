@@ -28,9 +28,35 @@ constexpr int kEngineTypeInvalid = -1;
 constexpr float kDefaultFollowDistance = 5.0f;
 constexpr char kObjectTagPlayer[] = "player";
 constexpr int kNumClasses = 6;
+/** The good/evil value of pure evil, the dark side's end. */
+constexpr int kMinGoodEvil = 0;
+/** The good/evil value of pure good, the light side's end. */
+constexpr int kMaxGoodEvil = 100;
+/** The good/evil value halfway between the two, neither side's. */
+constexpr int kNeutralGoodEvil = 50;
+/**
+ * The tops of the dark side's good/evil bands, from the most evil up: a
+ * portrait or head has a variant for each, and the TSL body's evil texture
+ * shows through all of them, KotOR's below the top one.
+ */
+constexpr int kVeryVeryVeryEvilMaxGoodEvil = 10;
+constexpr int kVeryVeryEvilMaxGoodEvil = 20;
+constexpr int kVeryEvilMaxGoodEvil = 30;
+constexpr int kEvilMaxGoodEvil = 40;
+/**
+ * The bottoms of the light side's good/evil bands, from the least good up: a
+ * TSL head has a variant for each.
+ */
+constexpr int kGoodMinGoodEvil = 70;
+constexpr int kVeryGoodMinGoodEvil = 90;
 
 constexpr float kSelectionDistance = 16.0f;
 constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;
+
+/** The name of the Security skill, which also names its use on a lock in the log and the target menu. */
+constexpr int kSecurityStrRef = 329;
+/** The name of recovering a mine, in the log and the target menu. */
+constexpr int kRecoverActionStrRef = 1531;
 
 constexpr char kSceneMain[] = "main";
 constexpr char kSceneMainMenu[] = "mainmenu";
@@ -38,10 +64,14 @@ constexpr char kSceneCharGen[] = "chargen";
 constexpr char kSceneClassSelect[] = "classselect";
 constexpr char kScenePortraitSelect[] = "portraitselect";
 constexpr char kSceneCharacter[] = "character";
+constexpr char kSceneUpgrade[] = "upgrade";
+constexpr char kSceneUpgradeLightsaber[] = "upgradelightsaber";
 
 constexpr glm::vec3 kGUIColorBase = glm::vec3(0.0f, 0.639216f, 0.952941f);
 constexpr glm::vec3 kGUIColorHilight = glm::vec3(0.980392f, 1.0f, 0.0f);
 constexpr glm::vec3 kGUIColorDisabled = glm::vec3(0.0f, 0.349020f, 0.549020f);
+/** KotOR's colour for what the player has not looked at yet: a new item or quest. */
+constexpr glm::vec3 kGUIColorNew = glm::vec3(0.95f, 0.0f, 0.85f);
 
 constexpr glm::vec3 kTSLGUIColorBase = glm::vec3(0.192157f, 0.768627f, 0.647059f);
 constexpr glm::vec3 kTSLGUIColorHilight = glm::vec3(0.768627f, 0.768627f, 0.686275f);
@@ -55,11 +85,46 @@ constexpr glm::vec3 kTravelRefusedTextColor {0.0f, 0.33f, 0.49f};
 constexpr glm::vec3 kTravelRefusedBorderColor {0.35f, 0.35f, 0.35f};
 constexpr glm::vec3 kTSLTravelRefusedTextColor {0.4f, 0.4f, 0.3f};
 
+/** KotOR's in-game screens show plain values in blue. */
+constexpr glm::vec3 kK1ColorBlue = glm::vec3(0.0f, 0.66f, 0.98f);
+/** KotOR: a workbench button's text with nothing to act on. */
+constexpr glm::vec3 kK1ColorDisabledText = glm::vec3(0.0f, 0.33f, 0.49f);
+/** KotOR: a workbench button's frame with something to act on. */
+constexpr glm::vec3 kK1ColorEnabledIcon = glm::vec3(1.0f);
+/** KotOR: a workbench button's frame with nothing to act on. */
+constexpr glm::vec3 kK1ColorDisabledIcon = glm::vec3(0.35f);
+/** KotOR's in-game screens light the active entry in yellow. */
+constexpr glm::vec3 kK1ColorYellow = glm::vec3(0.98f, 1.0f, 0.0f);
+
+/** The colour of lowered values on TSL's in-game screens. */
+constexpr glm::vec3 kTSLColorRed = glm::vec3(0.74f, 0.11f, 0.0f);
+/** The colour of the active entry's text on TSL's in-game screens. */
+constexpr glm::vec3 kTSLColorNewHighlight = glm::vec3(0.7f, 0.7f, 0.6f);
+/** The text colour of the entries on TSL's crafting screens. */
+constexpr glm::vec3 kTSLColorUpgradeText = glm::vec3(0.0f, 0.66f, 0.98f);
+/** The border colour of the entries on TSL's crafting screens. */
+constexpr glm::vec3 kTSLColorUpgradeBorder = glm::vec3(0.0f, 0.33f, 0.5f);
+/** The text colour of an entry that can't be chosen on TSL's crafting screens. */
+constexpr glm::vec3 kTSLColorDisabledText = glm::vec3(0.4f, 0.4f, 0.3f);
+/** TSL's interface green: frames, and the colour a message box takes when it closes. */
+constexpr glm::vec3 kTSLColorNewGreen = glm::vec3(0.05f, 0.35f, 0.27f);
+/** The frame of TSL's store message boxes. */
+constexpr glm::vec3 kTSLColorDarkGold = glm::vec3(0.31f, 0.25f, 0.09f);
+
+/** Whether an item joins a matching stack where it lands, or keeps a stack of its own. */
+enum class ItemStacking {
+    Join,
+    Own
+};
+
 enum class BackgroundType {
     None,
     Menu,
     Load,
-    Computer
+    Computer,
+    Store,
+    /** The upgrade bench's panels: the menu backdrop, which TSL looks for too. */
+    Upgrade
 };
 
 enum class WeaponType {
@@ -306,6 +371,8 @@ enum class ObjectType {
     Area = 0x1001,
     Room = 0x1002,
     Camera = 0x1003,
+    /** A minigame's player, enemy or obstacle, as its scripts see it. */
+    MinigameObject = 0x1004,
 
     All = 0x7fff,
     Invalid = 0x7fff
@@ -498,6 +565,88 @@ enum class Ability {
     Charisma = 5
 };
 
+/** The most credits, components or chemicals a creature or the party holds. */
+constexpr int kMaxHeldCount = 999999999;
+
+/**
+ * The counts a creature holds itself, and the party holds for its members:
+ * credits, and TSL's components and chemicals, which the crafting stations
+ * make items from and break items down into.
+ */
+enum class HeldCount {
+    Credits,
+    Components,
+    Chemicals
+};
+
+// Sound priority groups
+
+/** The sound priority group of sounds no other sound masks, such as a creature hitting the ground. */
+constexpr int kUnmaskableSoundGroup = 0;
+/** The sound priority group of music stingers, which every pause but a full one keeps playing. */
+constexpr int kStingerSoundGroup = 1;
+/** The sound priority group of music, which every pause but a full one keeps playing. */
+constexpr int kMusicSoundGroup = 2;
+/** The sound priority group of area-wide ambients, which the player's pause keeps playing. */
+constexpr int kAreaWideAmbientSoundGroup = 4;
+/** The sound priority group of looping positional ambients. */
+constexpr int kLoopingPositionalAmbientSoundGroup = 5;
+/** The sound priority group of the controlled creature's own loops: its creature loop and a lit light source. */
+constexpr int kLoopingPlayerSoundGroup = 6;
+/** The sound priority group of other creatures' loops. */
+constexpr int kLoopingNonPlayerSoundGroup = 7;
+/** The sound priority group of the controlled creature's sound set. */
+constexpr int kPlayerChatSoundGroup = 8;
+/** The sound priority group of conversation voices and other players' creatures' chat. */
+constexpr int kNonPlayerChatSoundGroup = 9;
+/** The sound priority group of the sounds scripts play. */
+constexpr int kScriptedPlaySoundGroup = 10;
+/** The sound priority group of the GUI's sounds, which every pause but a full one keeps playing. */
+constexpr int kGuiSoundGroup = 11;
+/** The sound priority group of an area of effect's sounds. */
+constexpr int kAreaOfEffectSoundGroup = 12;
+/** The sound priority group of visual effects', spell casts' and conjuring sounds. */
+constexpr int kSpellEffectSoundGroup = 13;
+/** The sound priority group of a projectile's flight and impact. */
+constexpr int kProjectileSoundGroup = 14;
+/** The sound priority group of combat: swings, hits, shots and bouncing grenades. */
+constexpr int kCombatSoundGroup = 15;
+/** The sound priority group of a large creature's sound set. */
+constexpr int kLargeCreatureVocalizationSoundGroup = 16;
+/** The sound priority group of a medium or small creature's sound set. */
+constexpr int kCreatureVocalizationSoundGroup = 17;
+/** The sound priority group of a large creature's footsteps. */
+constexpr int kLargeCreatureFootstepSoundGroup = 18;
+/** The sound priority group of the controlled creature's footsteps. */
+constexpr int kPlayerFootstepSoundGroup = 19;
+/** The sound priority group of a medium or small creature's footsteps. */
+constexpr int kCreatureFootstepSoundGroup = 20;
+/** The sound priority group of one-shot sounds heard everywhere. */
+constexpr int kSingleShotGlobalSoundGroup = 21;
+/** The sound priority group of one-shot positional sounds. */
+constexpr int kSingleShotPositionalSoundGroup = 22;
+/**
+ * The default sound priority group: the group a sound has until one is set.
+ * The player's minigame sounds stay in it.
+ */
+constexpr int kDefaultSoundGroup = 23;
+/** The sound priority group of the minigame enemies' sounds. */
+constexpr int kMinigameEnemySoundGroup = 24;
+/** The sound priority group of the sounds rooms loop where parts of their models are. */
+constexpr int kRoomSoundGroup = 25;
+/** The sound priority group of barked lines, which every sound mode pauses. */
+constexpr int kBarkSoundGroup = 26;
+
+// END Sound priority groups
+
+/**
+ * How far above its place a spell cast's sound, a conjure's sounds, an area
+ * of effect's sounds, and a visual effect's impact and cessation sounds,
+ * play; a visual at a point also loops its duration sound this high, and a
+ * projectile its flight sound.
+ */
+constexpr float kEffectSoundHeight = 1.5f;
+
 enum class SkillType {
     Invalid = -1,
     ComputerUse = 0,
@@ -509,6 +658,9 @@ enum class SkillType {
     Security = 6,
     TreatInjury = 7
 };
+
+/** A skill effect on this skill applies to every skill. */
+constexpr int kAllSkills = 255;
 
 enum class FeatType {
     Invalid = 0,
@@ -1044,6 +1196,8 @@ enum class ActionType {
     DoorSaber = 0x1029,
     ChangeFacing = 0x102a,
     OrientCamera = 0x102b,
+    PlaySound = 0x102c,
+    Drive = 0x102d,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe

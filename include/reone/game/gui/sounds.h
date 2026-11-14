@@ -30,48 +30,73 @@ class TwoDAs;
 namespace audio {
 
 class AudioClip;
+class AudioSource;
+class IAudioMixer;
 
-}
+} // namespace audio
 
 namespace game {
+
+/** A sound of the interface: a row of guisounds.2da. */
+struct GUISound {
+    int row {0};
+};
 
 class IGUISounds {
 public:
     virtual ~IGUISounds() = default;
 
-    virtual std::shared_ptr<audio::AudioClip> getOnClick() const = 0;
-    virtual std::shared_ptr<audio::AudioClip> getOnEnter() const = 0;
+    /** The sound of a click. */
+    virtual GUISound getOnClick() const = 0;
+    /** The sound of entering a control, or a list's row. */
+    virtual GUISound getOnEnter() const = 0;
     /** The sound of an accepted action-menu selection. */
-    virtual std::shared_ptr<audio::AudioClip> getActionAccepted() const = 0;
+    virtual GUISound getActionAccepted() const = 0;
     /** The sound of a refused action-menu selection. */
-    virtual std::shared_ptr<audio::AudioClip> getActionUnavailable() const = 0;
+    virtual GUISound getActionUnavailable() const = 0;
     /** The sound of an action menu scrolling to another entry. */
-    virtual std::shared_ptr<audio::AudioClip> getActionMenuScroll() const = 0;
-    virtual std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const = 0;
+    virtual GUISound getActionMenuScroll() const = 0;
+    /** The sound of a level-up becoming available. */
+    virtual GUISound getOnLevelUpNotify() const = 0;
     /** The notice of a new or advanced quest on the status summary. */
-    virtual std::shared_ptr<audio::AudioClip> getQuestNewNotify() const = 0;
+    virtual GUISound getQuestNewNotify() const = 0;
     /** The notice of a completed quest on the status summary. */
-    virtual std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const = 0;
+    virtual GUISound getQuestCompleteNotify() const = 0;
     /** The click of a toggle button. */
-    virtual std::shared_ptr<audio::AudioClip> getCheckboxCheck() const = 0;
+    virtual GUISound getCheckboxCheck() const = 0;
+    /** An item made and added to the inventory. */
+    virtual GUISound getInventoryAdd() const = 0;
     /** The sound of an item chosen for an equipment slot. */
-    virtual std::shared_ptr<audio::AudioClip> getInventorySelect() const = 0;
+    virtual GUISound getInventorySelect() const = 0;
+    /** An item's upgrades assembled at a workbench. */
+    virtual GUISound getUpgrade() const = 0;
     /** The sound of an item cleared from an equipment slot. */
-    virtual std::shared_ptr<audio::AudioClip> getInventoryDrop() const = 0;
+    virtual GUISound getInventoryDrop() const = 0;
     /** TSL: the sting of a light (true) or dark side shift on the status summary. */
-    virtual std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const = 0;
-    /** The sound of an item taken into an inventory. */
-    virtual std::shared_ptr<audio::AudioClip> getInventoryAdd() const { return nullptr; }
+    virtual GUISound getAlignmentShift(bool light) const = 0;
     /** The sounds of a full-screen panel shown and taken away. */
-    virtual std::shared_ptr<audio::AudioClip> getPanelAdded() const { return nullptr; }
-    virtual std::shared_ptr<audio::AudioClip> getPanelRemoved() const { return nullptr; }
+    virtual GUISound getPanelAdded() const = 0;
+    virtual GUISound getPanelRemoved() const = 0;
+
+    /**
+     * Plays one of these sounds, as playInterfaceSound does. Each row plays
+     * from a source of its own: playing it again while it plays starts it
+     * over.
+     *
+     * @return the playing sound, or none when the row has no sound to play
+     */
+    virtual std::shared_ptr<audio::AudioSource> play(GUISound sound) = 0;
 };
 
+/**
+ * The interface sounds, one for each row of guisounds.2da, played by row.
+ */
 class GUISounds : public IGUISounds, boost::noncopyable {
 public:
-    GUISounds(resource::AudioClips &audioClips, resource::TwoDAs &twoDas) :
+    GUISounds(resource::AudioClips &audioClips, resource::TwoDAs &twoDas, audio::IAudioMixer &mixer) :
         _audioClips(audioClips),
-        _twoDas(twoDas) {
+        _twoDas(twoDas),
+        _mixer(mixer) {
     }
 
     ~GUISounds() { deinit(); }
@@ -79,47 +104,43 @@ public:
     void init();
     void deinit();
 
-    std::shared_ptr<audio::AudioClip> getOnClick() const override { return _onClick; }
-    std::shared_ptr<audio::AudioClip> getOnEnter() const override { return _onEnter; }
-    std::shared_ptr<audio::AudioClip> getActionAccepted() const override { return _actionAccepted; }
-    std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return _actionUnavailable; }
-    std::shared_ptr<audio::AudioClip> getActionMenuScroll() const override { return _actionMenuScroll; }
-    std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return _onLevelUpNotify; }
-    std::shared_ptr<audio::AudioClip> getQuestNewNotify() const override { return _questNewNotify; }
-    std::shared_ptr<audio::AudioClip> getQuestCompleteNotify() const override { return _questCompleteNotify; }
-    std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return _checkboxCheck; }
-    std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return _inventorySelect; }
-    std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return _inventoryDrop; }
-    std::shared_ptr<audio::AudioClip> getAlignmentShift(bool light) const override {
-        return light ? _lightSide : _darkSide;
-    }
-    std::shared_ptr<audio::AudioClip> getInventoryAdd() const override { return _inventoryAdd; }
-    std::shared_ptr<audio::AudioClip> getPanelAdded() const override { return _panelAdded; }
-    std::shared_ptr<audio::AudioClip> getPanelRemoved() const override { return _panelRemoved; }
+    GUISound getOnClick() const override;
+    GUISound getOnEnter() const override;
+    GUISound getActionAccepted() const override;
+    GUISound getActionUnavailable() const override;
+    GUISound getActionMenuScroll() const override;
+    GUISound getOnLevelUpNotify() const override;
+    GUISound getQuestNewNotify() const override;
+    GUISound getQuestCompleteNotify() const override;
+    GUISound getCheckboxCheck() const override;
+    GUISound getInventoryAdd() const override;
+    GUISound getInventorySelect() const override;
+    GUISound getUpgrade() const override;
+    GUISound getInventoryDrop() const override;
+    GUISound getAlignmentShift(bool light) const override;
+    GUISound getPanelAdded() const override;
+    GUISound getPanelRemoved() const override;
+
+    std::shared_ptr<audio::AudioSource> play(GUISound sound) override;
 
 private:
     resource::AudioClips &_audioClips;
     resource::TwoDAs &_twoDas;
+    audio::IAudioMixer &_mixer;
 
-    std::shared_ptr<audio::AudioClip> _onClick;
-    std::shared_ptr<audio::AudioClip> _onEnter;
-    std::shared_ptr<audio::AudioClip> _onLevelUpNotify;
-    std::shared_ptr<audio::AudioClip> _questNewNotify;
-    std::shared_ptr<audio::AudioClip> _questCompleteNotify;
-    std::shared_ptr<audio::AudioClip> _actionAccepted;
-    std::shared_ptr<audio::AudioClip> _actionUnavailable;
-    std::shared_ptr<audio::AudioClip> _actionMenuScroll;
-    std::shared_ptr<audio::AudioClip> _checkboxCheck;
-    std::shared_ptr<audio::AudioClip> _inventorySelect;
-    std::shared_ptr<audio::AudioClip> _inventoryDrop;
-    std::shared_ptr<audio::AudioClip> _inventoryAdd;
-    std::shared_ptr<audio::AudioClip> _panelAdded;
-    std::shared_ptr<audio::AudioClip> _panelRemoved;
-    std::shared_ptr<audio::AudioClip> _darkSide;
-    std::shared_ptr<audio::AudioClip> _lightSide;
-
-    void loadSound(const resource::TwoDA &twoDa, const std::string &label, std::shared_ptr<audio::AudioClip> &sound);
+    /** By guisounds.2da row, the row's sound; none for a row without one. */
+    std::vector<std::shared_ptr<audio::AudioClip>> _sounds;
+    /** By guisounds.2da row, the source the row's sound last played from. */
+    std::unordered_map<int, std::shared_ptr<audio::AudioSource>> _sources;
 };
+
+/**
+ * Plays a sound of the interface's own. It is in the GUI's priority group,
+ * which the menus and the player's pause keep playing.
+ *
+ * @return the playing sound, or none when there is no clip to play
+ */
+std::shared_ptr<audio::AudioSource> playInterfaceSound(audio::IAudioMixer &mixer, std::shared_ptr<audio::AudioClip> clip);
 
 } // namespace game
 

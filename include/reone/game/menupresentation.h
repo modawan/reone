@@ -118,6 +118,20 @@ struct MouseOptions {
     void save(const std::filesystem::path &path) const;
 };
 
+/** Gameplay switches, stored in the configuration's Game Options section. */
+struct GameplayOptions {
+    /**
+     * The leader in combat mode may be steered with the movement keys and the
+     * mouse while it is busy. Off, a busy leader in combat mode is not
+     * steered.
+     */
+    bool combatMovement {true};
+
+    /** The options in the configuration; an option it does not set keeps its default. */
+    static GameplayOptions load(const std::filesystem::path &path);
+    void save(const std::filesystem::path &path) const;
+};
+
 /** Situations that pause play on their own, stored in the configuration's Autopause Options section. */
 struct AutoPauseOptions {
     /** A combat round ends. */

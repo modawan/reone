@@ -63,7 +63,11 @@ struct SaveSlotManifest {
 
 struct SaveSlotPackageInput {
     std::shared_ptr<const resource::SaveWorkingState> committedWorkingState;
-    SavedModuleSnapshot currentModule;
+    /**
+     * The current module's state. None for a save that holds no state for
+     * the module it names, whose metadata carries AUTOSAVEPARAMS instead.
+     */
+    std::optional<SavedModuleSnapshot> currentModule;
     SaveWideSnapshot saveWide;
     resource::SaveSlotDescriptor target;
     std::optional<ByteBuffer> screenshot;

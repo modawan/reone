@@ -39,13 +39,24 @@ namespace game {
 // The description of the first autopause option, shown when the panel opens.
 static constexpr int kStrRefEndOfRoundDescription = 42445;
 
+void OptionsMenu::showCheckBoxes(IGUI &panel) {
+    for (auto &child : panel.rootControl().children()) {
+        showCheckBox(child.get());
+    }
+}
+
+void OptionsMenu::showCheckBox(Control &control) {
+    if (auto toggle = dynamic_cast<ToggleButton *>(&control)) {
+        toggle->showAsCheckBox(_baseColor, _hilightColor);
+    }
+}
+
 void OptionsMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        _controls.LB_DESC->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_TITLE);
         for (auto &button : {
                  _controls.BTN_SAVEGAME,
@@ -158,6 +169,7 @@ void OptionsMenu::clearSelection() {
     _game.saveFeedbackOptions();
     _game.saveDifficultyLevel();
     _game.saveMouseOptions();
+    _game.saveGameplayOptions();
     _game.saveKeybindOptions();
 }
 
@@ -173,6 +185,7 @@ void OptionsMenu::loadFeedbackPanel() {
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.LB_OPTIONS = std::static_pointer_cast<ListBox>(find("LB_OPTIONS"));
+    showCheckBox(controls.LB_OPTIONS->protoItem());
 
     const bool tsl = _game.isTSL();
     if (tsl) {
@@ -182,7 +195,6 @@ void OptionsMenu::loadFeedbackPanel() {
         useK2ShellTitle(controls.LBL_TITLE);
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DESC->setTintBorderFill(true);
     }
 
     // Row order and names: TSL has eight rows, KotOR adds small fonts before tooltips.
@@ -223,8 +235,10 @@ void OptionsMenu::loadFeedbackPanel() {
 
 void OptionsMenu::openFeedbackPanel() {
     showFeedbackOptions();
-    // The panel opens on its first row.
-    showFeedbackDescription(0);
+    // The panel opens with its list holding the keyboard, which selects and
+    // describes the first row.
+    _feedbackGUI->clearActiveControl();
+    _feedbackGUI->setActiveControl(*_feedbackControls.LB_OPTIONS);
     _feedbackOpen = true;
 }
 
@@ -262,6 +276,7 @@ static constexpr int kDifficultyDescriptionStrRef = 42265;
 static constexpr int kDefaultDifficultyLevel = 1;
 static constexpr int kMouseLookDescriptionStrRef = 48014;
 static constexpr int kMouseLookDescriptionStrRefTSL = 48697;
+static constexpr int kCombatMovementDescriptionStrRef = 42484;
 
 void OptionsMenu::loadGameplayPanel() {
     _gameplayGUI = _services.gui.guis.get(guiResRef("optgameplay"), [this](IGUI &gui) { preload(gui); });
@@ -275,15 +290,16 @@ void OptionsMenu::loadGameplayPanel() {
     controls.BTN_DIFFICULTY = std::static_pointer_cast<Button>(find("BTN_DIFFICULTY"));
     controls.BTN_DIFFLEFT = std::static_pointer_cast<Button>(find("BTN_DIFFLEFT"));
     controls.BTN_DIFFRIGHT = std::static_pointer_cast<Button>(find("BTN_DIFFRIGHT"));
+    controls.CB_DISABLEMOVE = std::static_pointer_cast<ToggleButton>(find("CB_DISABLEMOVE"));
     controls.CB_INVERTCAM = std::static_pointer_cast<ToggleButton>(find("CB_INVERTCAM"));
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
+    showCheckBoxes(*_gameplayGUI);
 
     if (_game.isTSL()) {
         useK2ShellTitle(controls.LBL_TITLE);
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DESC->setTintBorderFill(true);
     }
 
     // The level changes at once; the configuration is written when the options close.
@@ -302,8 +318,8 @@ void OptionsMenu::loadGameplayPanel() {
         _gameplayControls.LB_DESC->addTextLinesAsItems(
             _services.resource.strings.getText(kDifficultyDescriptionStrRef));
     });
-    // The mouse look box changes the option at once and describes itself
-    // when it gains focus.
+    // The mouse look and combat movement boxes change their options at once
+    // and describe themselves when they gain focus.
     controls.CB_INVERTCAM->setOnClick([this]() {
         _gameplayControls.CB_INVERTCAM->toggle();
         _game.setMouseLook(_gameplayControls.CB_INVERTCAM->isOn());
@@ -316,12 +332,27 @@ void OptionsMenu::loadGameplayPanel() {
         _gameplayControls.LB_DESC->addTextLinesAsItems(_services.resource.strings.getText(
             _game.isTSL() ? kMouseLookDescriptionStrRefTSL : kMouseLookDescriptionStrRef));
     });
-    // The defaults are the normal difficulty and mouse look off.
+    controls.CB_DISABLEMOVE->setOnClick([this]() {
+        _gameplayControls.CB_DISABLEMOVE->toggle();
+        _game.setCombatMovement(_gameplayControls.CB_DISABLEMOVE->isOn());
+    });
+    controls.CB_DISABLEMOVE->setOnSelectionChanged([this](bool selected) {
+        if (!selected) {
+            return;
+        }
+        _gameplayControls.LB_DESC->clearItems();
+        _gameplayControls.LB_DESC->addTextLinesAsItems(
+            _services.resource.strings.getText(kCombatMovementDescriptionStrRef));
+    });
+    // The defaults are the normal difficulty, mouse look off and combat
+    // movement on.
     controls.BTN_DEFAULT->setOnClick([this]() {
         _game.setDifficultyLevel(kDefaultDifficultyLevel);
         _game.setMouseLook(false);
+        _game.setCombatMovement(true);
         showDifficulty();
         _gameplayControls.CB_INVERTCAM->setOn(false);
+        _gameplayControls.CB_DISABLEMOVE->setOn(true);
     });
     controls.BTN_BACK->setOnClick([this]() {
         closeGameplayPanel();
@@ -331,6 +362,7 @@ void OptionsMenu::loadGameplayPanel() {
 void OptionsMenu::openGameplayPanel() {
     showDifficulty();
     _gameplayControls.CB_INVERTCAM->setOn(_game.mouseLook());
+    _gameplayControls.CB_DISABLEMOVE->setOn(_game.combatMovement());
     _gameplayControls.LB_DESC->clearItems();
     _gameplayOpen = true;
 }
@@ -391,11 +423,11 @@ void OptionsMenu::loadAutoPausePanel() {
     controls.CB_PARTYKILLED = std::static_pointer_cast<ToggleButton>(find("CB_PARTYKILLED"));
     controls.CB_TRIGGERS = std::static_pointer_cast<ToggleButton>(find("CB_TRIGGERS"));
     controls.LB_DETAILS = std::static_pointer_cast<ListBox>(find("LB_DETAILS"));
+    showCheckBoxes(*_autoPauseGUI);
 
     if (_game.isTSL()) {
         enableK2ButtonBodyFill(controls.BTN_BACK);
         enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-        controls.LB_DETAILS->setTintBorderFill(true);
     }
 
     // Each checkbox describes itself when it gains focus; a click only flips it.

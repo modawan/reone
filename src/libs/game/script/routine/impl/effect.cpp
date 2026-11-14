@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/d20/skills.h"
+#include "reone/game/di/services.h"
 #include "reone/game/effect/abilitydecrease.h"
 #include "reone/game/effect/abilityincrease.h"
 #include "reone/game/effect/acdecrease.h"
@@ -118,6 +120,18 @@ namespace reone {
 
 namespace game {
 
+// A script's ability effect on an ability outside Strength to Charisma is
+// on Strength.
+static Ability scriptEffectAbility(int ability) {
+    return isScriptAbility(ability) ? static_cast<Ability>(ability) : Ability::Strength;
+}
+
+// A script's skill effect names a skill of the skill table after Computer
+// Use, or every skill; on any other it is an invalid effect.
+static bool isScriptSkillEffectSkill(int skill, const RoutineContext &ctx) {
+    return skill == kAllSkills || (skill > 0 && ctx.services.game.skills.get(static_cast<SkillType>(skill)));
+}
+
 static Variable EffectAssuredHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
     auto effect = ctx.game.newEffect<AssuredHitEffect>();
@@ -189,7 +203,7 @@ static Variable EffectAbilityIncrease(const std::vector<Variable> &args, const R
     auto nModifyBy = getInt(args, 1);
 
     // Transform
-    auto abilityToIncrease = static_cast<Ability>(nAbilityToIncrease);
+    auto abilityToIncrease = scriptEffectAbility(nAbilityToIncrease);
 
     // Execute
     auto effect = ctx.game.newEffect<AbilityIncreaseEffect>(abilityToIncrease, nModifyBy);
@@ -581,12 +595,12 @@ static Variable EffectSkillIncrease(const std::vector<Variable> &args, const Rou
     // Load
     auto nSkill = getInt(args, 0);
     auto nValue = getInt(args, 1);
-
-    // Transform
-    auto skill = static_cast<SkillType>(nSkill);
+    if (!isScriptSkillEffectSkill(nSkill, ctx)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
 
     // Execute
-    auto effect = ctx.game.newEffect<SkillIncreaseEffect>(skill, nValue);
+    auto effect = ctx.game.newEffect<SkillIncreaseEffect>(static_cast<SkillType>(nSkill), nValue);
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -660,7 +674,7 @@ static Variable EffectAbilityDecrease(const std::vector<Variable> &args, const R
     auto nModifyBy = getInt(args, 1);
 
     // Transform
-    auto ability = static_cast<Ability>(nAbility);
+    auto ability = scriptEffectAbility(nAbility);
 
     // Execute
     auto effect = ctx.game.newEffect<AbilityDecreaseEffect>(ability, nModifyBy);
@@ -749,12 +763,12 @@ static Variable EffectSkillDecrease(const std::vector<Variable> &args, const Rou
     // Load
     auto nSkill = getInt(args, 0);
     auto nValue = getInt(args, 1);
-
-    // Transform
-    auto skill = static_cast<SkillType>(nSkill);
+    if (!isScriptSkillEffectSkill(nSkill, ctx)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
 
     // Execute
-    auto effect = ctx.game.newEffect<SkillDecreaseEffect>(skill, nValue);
+    auto effect = ctx.game.newEffect<SkillDecreaseEffect>(static_cast<SkillType>(nSkill), nValue);
     return Variable::ofEffect(std::move(effect));
 }
 

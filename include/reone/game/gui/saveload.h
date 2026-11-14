@@ -147,8 +147,16 @@ private:
     }
 
     void activateSelection();
-    void refreshSavedGames();
+    /**
+     * Lists the saved games afresh and gives the list the keyboard.
+     *
+     * @param row the row whose game is then selected and shown, the last
+     *        when the list is shorter; the first game is shown for row 0
+     */
+    void refreshSavedGames(int row = 0);
     void refreshSelection();
+    /** The game of the row tagged \p tag is chosen and shown, as a click on the row does. */
+    void chooseGame(const std::string &tag);
     void showStatus(std::string message);
     void showSaveName(uint32_t slot, std::string name);
     void hideSaveName();

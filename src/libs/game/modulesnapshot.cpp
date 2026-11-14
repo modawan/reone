@@ -9,6 +9,7 @@
 
 #include "reone/game/modulesnapshot.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -54,6 +55,16 @@ namespace reone {
 namespace game {
 
 namespace {
+
+// A current hit point or Force value is a Short in the save, but damage can
+// take it far below what a Short holds: the console's kill deals 100000.
+// Saved as it is, -99975 would come back as 31097 and the dead would rise.
+// Clamping keeps the sign, and with it whether the object is dead.
+int32_t currentPointsField(int value) {
+    return std::clamp(value,
+                      static_cast<int>(std::numeric_limits<int16_t>::min()),
+                      static_cast<int>(std::numeric_limits<int16_t>::max()));
+}
 
 using resource::Gff;
 using resource::ResType;
@@ -528,6 +539,52 @@ uint32_t ModuleObjectIdContext::nextCharacterId(uint32_t retainedCursor) const {
     return std::min(retainedCursor, *_characterIds.begin() - 1);
 }
 
+std::vector<std::shared_ptr<Creature>>
+ModuleSnapshotBuilder::rosterRepresentations(const Module &module) const {
+    std::vector<std::shared_ptr<Creature>> result;
+    auto modulePlayer = _game._party.player();
+    for (const auto &object : _game._party.runtimeObjects()) {
+        auto creature = std::dynamic_pointer_cast<Creature>(object);
+        if (!creature || creature == modulePlayer) {
+            continue;
+        }
+        // A creature already written as a record owns its own identity there.
+        const auto limbo = std::find(
+            module._limboCreatures.begin(), module._limboCreatures.end(), creature);
+        if (limbo != module._limboCreatures.end()) {
+            continue;
+        }
+        // A representation the Area still writes as a record - an inactive
+        // bound puppet, for one - owns its identity there. Only the ones the
+        // record lists leave out need the graph to name them.
+        if (!_game._party.isRetainedRuntimeRepresentation(*creature)) {
+            continue;
+        }
+        const bool roster = _game._party.rosterIdentity(*creature).has_value();
+        const bool canonicalPlayer = creature == _game._party.actualPlayer();
+        if (!roster && !canonicalPlayer) {
+            continue;
+        }
+        result.push_back(std::move(creature));
+    }
+    return result;
+}
+
+void ModuleSnapshotBuilder::putPartyIdentity(
+    Gff &record, const Creature &creature) const {
+    auto identity = _game._party.rosterIdentity(creature);
+    if (!identity && &creature != _game._party.actualPlayer().get()) {
+        return;
+    }
+    const uint32_t kind =
+        !identity ? kSavedPartyIdentityCanonicalPlayer
+                  : identity->kind == RosterKind::Puppet
+                        ? kSavedPartyIdentityPuppet
+                        : kSavedPartyIdentityNpc;
+    put(record, Gff::Field::newDword("PartyIdKind", kind));
+    put(record, Gff::Field::newInt("PartyIdSlot", identity ? identity->slot : -1));
+}
+
 ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     const Module &module, const Area &area) const {
     ModuleObjectIdContext ids(
@@ -592,6 +649,18 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
         if (!creature) continue;
         addObject(*creature, true);
         addCreatureItems(*creature, true);
+    }
+    // A roster-bound companion or puppet, and the canonical player while a
+    // companion is controlled, keep their runtime representation across the
+    // save without being Area or limbo records: the roster record holds them.
+    // They still need an identity in this graph. Without one, every saved
+    // value that names them - a VM object on a delayed command's stack, an
+    // action parameter, an Effect creator, a timed event's target - has
+    // nothing to point at and is written as the invalid object. The identity
+    // is written beside the roster slot it belongs to, so the slot claims the
+    // same identity when its representation is rebuilt.
+    for (const auto &object : rosterRepresentations(module)) {
+        addObject(*object, true);
     }
     // Reserve every identity already authoritative in this exact destination
     // graph before importing anything. Detached/local numbers never enter the
@@ -764,7 +833,21 @@ void ModuleSnapshotBuilder::writeObjectState(
     }
     put(record, Gff::Field::newByte("Commandable", object._commandable));
     put(record, Gff::Field::newByte("Min1HP", object._minOneHP));
-    put(record, Gff::Field::newByte("Plot", object._plot));
+    // Only creatures, items, doors and placeables record their plot flag; no
+    // other record carries one. An input-only Invulnerable value is removed
+    // from the resource shadow so it cannot override Plot on the next load.
+    switch (object._type) {
+    case ObjectType::Creature:
+    case ObjectType::Item:
+    case ObjectType::Door:
+    case ObjectType::Placeable:
+        put(record, Gff::Field::newByte("Plot", object._plot));
+        break;
+    default:
+        removeSaveField(record, "Plot");
+        break;
+    }
+    removeSaveField(record, "Invulnerable");
     put(record, Gff::Field::newStruct("SWVarTable", writeLocals(object)));
 
     std::vector<std::shared_ptr<Gff>> effects;
@@ -1067,16 +1150,71 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     put(*result, Gff::Field::newDword("AddCost", item._addCost));
     put(*result, Gff::Field::newByte("Stolen", item._stolen));
     put(*result, Gff::Field::newWord("StackSize", item._stackSize));
-    put(*result, Gff::Field::newDword("Upgrades", item._upgrades));
+    // Upgrades holds the installed rows 0 to 31, a bit each; a row past them
+    // is listed in UpgradeRows, which a record has only when such a row is
+    // installed.
+    uint32_t recordedUpgrades = 0;
+    std::vector<std::shared_ptr<Gff>> upgradeRows;
+    for (int row = 0; row < Item::kUpgradeRowCount; ++row) {
+        if (!item._upgrades.test(static_cast<size_t>(row))) {
+            continue;
+        }
+        if (row < Item::kRecordedUpgradeBits) {
+            recordedUpgrades |= uint32_t {1} << row;
+        } else {
+            upgradeRows.push_back(Gff::Builder().type(0).field(Gff::Field::newInt("Row", row)).build());
+        }
+    }
+    put(*result, Gff::Field::newDword("Upgrades", recordedUpgrades));
+    if (upgradeRows.empty()) {
+        removeSaveField(*result, "UpgradeRows");
+    } else {
+        put(*result, Gff::Field::newList("UpgradeRows", std::move(upgradeRows)));
+    }
+    if (_game.isTSL()) {
+        put(*result, Gff::Field::newByte("UpgradeLevel", static_cast<uint8_t>(item._upgradeLevel)));
+        // Every slot is saved, an empty one as kSavedEmptyUpgradeSlot, so an
+        // upgrade of upgrade.2da row 0 comes back from a save as well.
+        for (size_t slot = 0; slot < item._upgradeSlots.size(); ++slot) {
+            const int row = item._upgradeSlots[slot].value_or(Item::kSavedEmptyUpgradeSlot);
+            put(*result, Gff::Field::newInt("UpgradeSlot" + std::to_string(slot), row));
+        }
+    }
     put(*result, Gff::Field::newByte("Identified", item._identified));
     put(*result, Gff::Field::newByte("ModelVariation", item._modelVariation));
-    put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
-    put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
+    // Only an item drawn as its wearer's body model records its body and
+    // texture variations.
+    if (item.isBodyModel()) {
+        put(*result, Gff::Field::newByte("BodyVariation", item._bodyVariation));
+        put(*result, Gff::Field::newByte("TextureVar", item._textureVariation));
+    } else {
+        removeSaveField(*result, "BodyVariation");
+        removeSaveField(*result, "TextureVar");
+    }
     put(*result, Gff::Field::newByte("Dropable", item._dropable));
+    put(*result, Gff::Field::newByte("Pickpocketable", item._pickpocketable));
     put(*result, Gff::Field::newByte("NonEquippable", item._nonEquippable));
+    put(*result, Gff::Field::newByte("NewItem", item._newlyAcquired));
     std::vector<std::shared_ptr<Gff>> properties;
     for (const auto &property : item._properties) {
-        properties.push_back(Gff::Builder().type(0).field(Gff::Field::newByte("ChanceAppear", property.chanceAppear)).field(Gff::Field::newByte("CostTable", property.costTable)).field(Gff::Field::newWord("CostValue", property.costValue)).field(Gff::Field::newByte("Param1", property.paramTable)).field(Gff::Field::newByte("Param1Value", property.paramValue)).field(Gff::Field::newWord("PropertyName", property.propertyName)).field(Gff::Field::newWord("Subtype", property.subtype)).field(Gff::Field::newByte("UpgradeType", property.upgradeType)).field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay))).field(Gff::Field::newByte("Useable", property.usable)).field(Gff::Field::newDword("UsedDay", property.usedDay)).field(Gff::Field::newDword("UsedTime", property.usedTime)).build());
+        Gff::Builder record;
+        record.type(0)
+            .field(Gff::Field::newByte("ChanceAppear", property.chanceAppear))
+            .field(Gff::Field::newByte("CostTable", property.costTable))
+            .field(Gff::Field::newWord("CostValue", property.costValue))
+            .field(Gff::Field::newByte("Param1", property.paramTable))
+            .field(Gff::Field::newByte("Param1Value", property.paramValue))
+            .field(Gff::Field::newWord("PropertyName", property.propertyName))
+            .field(Gff::Field::newWord("Subtype", property.subtype))
+            .field(Gff::Field::newByte("UpgradeType", property.upgradeType))
+            .field(Gff::Field::newByte("UsesPerDay", property.usesPerDay.value_or(Item::PropertyEntry::kUnrecordedUsesPerDay)))
+            .field(Gff::Field::newByte("Useable", property.usable))
+            .field(Gff::Field::newDword("UsedDay", property.usedDay))
+            .field(Gff::Field::newDword("UsedTime", property.usedTime));
+        if (_game.isTSL()) {
+            record.field(Gff::Field::newWord("PropUpgrade", property.upgradeMark));
+        }
+        properties.push_back(record.build());
     }
     put(*result, Gff::Field::newList("PropertiesList", std::move(properties)));
     return result;
@@ -1123,6 +1261,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     return result;
 }
 
+// The single player's community name is the talk table's first string, and
+// the single player is the primary one, whichever creature it controls.
+void ModuleSnapshotBuilder::writePlayerEntry(Gff &record, const Creature &player) const {
+    put(record, Gff::Field::newCExoString("Mod_CommntyName", _game._services.resource.strings.getText(0)));
+    put(record, Gff::Field::newByte("Mod_IsPrimaryPlr", 1));
+    put(record, Gff::Field::newCExoLocString("Mod_FirstName", player._firstName.id(), player._firstName.str()));
+    put(record, Gff::Field::newCExoLocString("Mod_LastName", player._lastName.id(), player._lastName.str()));
+}
+
 void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &creature) const {
     putTransform(record, creature);
     const auto direction = glm::vec3(
@@ -1138,6 +1285,11 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
         put(record, Gff::Field::newCExoLocString("LastName", creature._lastName.id(), creature._lastName.str()));
     }
     put(record, Gff::Field::newByte("IsPC", creature._isPC));
+    // A party member's follow state: whether it was within 5 m of the leader.
+    if (_game.party().isMember(creature)) {
+        auto followInfo = Gff::Builder().field(Gff::Field::newByte("InSafetyRange", creature._withinSafetyRange)).build();
+        put(record, Gff::Field::newStruct("FollowInfo", std::move(followInfo)));
+    }
     put(record, Gff::Field::newInt("PlayerCreated", creature._playerCreated));
     put(record, Gff::Field::newByte("StealthMode", creature._stealthMode));
     if (_game.isTSL()) {
@@ -1155,10 +1307,10 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newShort("HitPoints", creature._hitPoints));
     put(record, Gff::Field::newShort("MaxHitPoints", creature.maxHitPoints()));
     put(record, Gff::Field::newShort(
-                    "CurrentHitPoints", creature.serializedCurrentHitPoints()));
+                    "CurrentHitPoints", currentPointsField(creature.serializedCurrentHitPoints())));
     put(record, Gff::Field::newByte("Dead", creature._dead));
     put(record, Gff::Field::newShort("ForcePoints", creature._forcePoints));
-    put(record, Gff::Field::newShort("CurrentForce", creature.serializedCurrentForce()));
+    put(record, Gff::Field::newShort("CurrentForce", currentPointsField(creature.serializedCurrentForce())));
     put(record, Gff::Field::newShort("MaxForcePoints", creature.maxForcePoints()));
     if (_game.isTSL()) {
         put(record, Gff::Field::newChar("FuryDamageBonus", creature._furyDamageBonus));
@@ -1184,6 +1336,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     }
     put(record, Gff::Field::newDword("Experience", static_cast<uint32_t>(creature._xp)));
     put(record, Gff::Field::newInt("JoiningXP", creature._joiningXP));
+    // A record holds the creature's own counts, never the party's.
+    put(record, Gff::Field::newDword("Gold", static_cast<uint32_t>(creature._gold)));
+    if (_game.isTSL()) {
+        put(record, Gff::Field::newDword("ItemComponent", static_cast<uint32_t>(creature._components)));
+        put(record, Gff::Field::newDword("Chemicals", static_cast<uint32_t>(creature._chemicals)));
+    }
     put(record, Gff::Field::newByte("GoodEvil", creature._goodEvil));
     // A field label holds sixteen characters, so the base alignment's is cut short.
     if (_game.isTSL()) {
@@ -1215,10 +1373,12 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
             return kDeadAnimation;
         }
     };
+    const auto heldLoop = creature.heldScriptLoop();
     put(record, Gff::Field::newInt("Animation",
                                    creature.liesDead()            ? deadAnimation()
                                    : creature._damageFlinchHeld   ? kDamageFlinchAnimation
                                    : creature._combatState.active ? kReadyAnimation
+                                   : heldLoop                     ? *heldLoop
                                                                   : kPauseAnimation));
     put(record, Gff::Field::newByte(
                     "CreatnScrptFird", creature._spawnScriptFired));
@@ -1269,9 +1429,9 @@ void ModuleSnapshotBuilder::writeCreatureAttributes(Gff &record, const Creature 
         auto skill = static_cast<size_t>(index) < oldSkills.size()
                          ? oldSkills[static_cast<size_t>(index)]->deepCopy()
                          : emptyRecord(0);
+        // A rank is saved held within -127 to 127.
         put(*skill, Gff::Field::newByte(
-            "Rank", creature._attributes.getSkillRank(
-                        static_cast<SkillType>(index))));
+                        "Rank", static_cast<uint8_t>(std::clamp(creature._attributes.getSkillRank(static_cast<SkillType>(index)), -127, 127))));
         skills.push_back(std::move(skill));
     }
     put(record, Gff::Field::newList("SkillList", std::move(skills)));
@@ -1400,25 +1560,36 @@ void ModuleSnapshotBuilder::writeCreaturePerception(
     put(record, Gff::Field::newList("PerceptionList", std::move(perceptions)));
 }
 
+// TSL keeps how a lock's DC to open it is counted: the kind, its modifier and
+// the PC level the object took.
+static void putLockDifficulty(Gff &record, const Lock &lock) {
+    put(record, Gff::Field::newByte("OpenLockDiff", static_cast<uint32_t>(lock.difficulty())));
+    put(record, Gff::Field::newChar("OpenLockDiffMod", lock.difficultyModifier()));
+    put(record, Gff::Field::newByte("PCLevelAtSpawn", lock.pcLevelAtSpawn()));
+}
+
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     const Door &door, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(door, ResType::Utd, 8);
-    // Write current Plot state. Remove an input-only Invulnerable value from the
-    // resource shadow so it cannot override Plot on the next load.
-    removeSaveField(*result, "Invulnerable");
     writeObjectState(*result, door, ids);
     put(*result, Gff::Field::newByte("Static", door._static));
     putTransform(*result, door, true);
     put(*result, Gff::Field::newDword("Appearance", door._appearance));
     put(*result, Gff::Field::newByte("GenericType", door._genericType));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(door._faction)));
-    put(*result, Gff::Field::newByte("OpenState", static_cast<uint8_t>(door._state)));
-    put(*result, Gff::Field::newByte("Locked", door._locked));
-    put(*result, Gff::Field::newByte("Lockable", door._lockable));
+    // A door standing in a resting state saves that state. One still swinging
+    // saves the state it is swinging to: the record has one OpenState field
+    // and no slot for a transition, the OnOpen/OnClosed script for the swing
+    // has already run and must not run again, so the door comes back at the
+    // pose the finished swing leaves it in.
+    put(*result, Gff::Field::newByte(
+                     "OpenState", static_cast<uint8_t>(door.actionState())));
+    put(*result, Gff::Field::newByte("Locked", door.lock().isLocked()));
+    put(*result, Gff::Field::newByte("Lockable", door.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", door._hitPoints));
-    put(*result, Gff::Field::newShort("CurrentHP", door._currentHitPoints));
+    put(*result, Gff::Field::newShort("CurrentHP", currentPointsField(door._currentHitPoints)));
     put(*result, Gff::Field::newByte("Dead", door.isDead()));
-    put(*result, Gff::Field::newByte("TrapFlag", door.isTrapped()));
+    put(*result, Gff::Field::newByte("TrapFlag", door.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", door.trapBaseType()));
     put(*result, Gff::Field::newByte("TrapDisarmable", door.trapDisarmable()));
     put(*result, Gff::Field::newByte("TrapDetectable", door.trapDetectable()));
@@ -1429,10 +1600,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
     if (_game.isTSL()) {
         put(*result, Gff::Field::newInt("OwnerDemolitions", door.ownerDemolitionsSkill()));
     }
-    put(*result, Gff::Field::newByte("KeyRequired", door._keyRequired));
-    put(*result, Gff::Field::newByte("AutoRemoveKey", door._autoRemoveKey));
-    put(*result, Gff::Field::newByte("OpenLockDC", door._openLockDC));
-    put(*result, Gff::Field::newByte("CloseLockDC", door._closeLockDC));
+    put(*result, Gff::Field::newByte("KeyRequired", door.lock().isKeyRequired()));
+    put(*result, Gff::Field::newByte("AutoRemoveKey", door.lock().isAutoRemoveKey()));
+    put(*result, Gff::Field::newByte("OpenLockDC", door.lock().openDC()));
+    if (_game.isTSL()) {
+        putLockDifficulty(*result, door.lock());
+    }
+    put(*result, Gff::Field::newByte("CloseLockDC", door.lock().closeDC()));
     put(*result, Gff::Field::newByte("LinkedToFlags", door._linkedToFlags));
     put(*result, Gff::Field::newCExoString("LinkedTo", door._linkedTo));
     put(*result, Gff::Field::newResRef("LinkedToModule", door._linkedToModule));
@@ -1449,14 +1623,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newInt("Animation", placeable._animation));
     put(*result, Gff::Field::newByte("Open", placeable._open));
     put(*result, Gff::Field::newDword("Faction", static_cast<uint32_t>(placeable._faction)));
-    put(*result, Gff::Field::newByte("Locked", placeable._locked));
-    put(*result, Gff::Field::newByte("Lockable", placeable._lockable));
+    put(*result, Gff::Field::newByte("Locked", placeable.lock().isLocked()));
+    put(*result, Gff::Field::newByte("Lockable", placeable.lock().isLockable()));
     put(*result, Gff::Field::newShort("HP", placeable._hitPoints));
-    put(*result, Gff::Field::newShort("CurrentHP", placeable._currentHitPoints));
+    put(*result, Gff::Field::newShort("CurrentHP", currentPointsField(placeable._currentHitPoints)));
     put(*result, Gff::Field::newByte("Dead", placeable.isDead()));
     put(*result, Gff::Field::newByte("Useable", placeable._usable));
+    put(*result, Gff::Field::newByte("Static", placeable._static));
     put(*result, Gff::Field::newByte("HasInventory", placeable._hasInventory));
-    put(*result, Gff::Field::newByte("TrapFlag", placeable.isTrapped()));
+    put(*result, Gff::Field::newByte("TrapFlag", placeable.trapFlag()));
     put(*result, Gff::Field::newByte("TrapType", placeable.trapBaseType()));
     put(*result, Gff::Field::newByte("TrapDisarmable", placeable.trapDisarmable()));
     put(*result, Gff::Field::newByte("TrapDetectable", placeable.trapDetectable()));
@@ -1466,6 +1641,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("TrapOneShot", placeable.trapOneShot()));
     if (_game.isTSL()) {
         put(*result, Gff::Field::newInt("OwnerDemolitions", placeable.ownerDemolitionsSkill()));
+        putLockDifficulty(*result, placeable.lock());
     }
     // A portrait ID naming a row is saved in place of the portrait resref.
     if (placeable._portraitId != Placeable::kNoPortraitId) {
@@ -1480,12 +1656,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
         put(*result, Gff::Field::newDword("Appearance", placeable._appearance));
         put(*result, Gff::Field::newCExoLocString("LocName", placeable._locName.id(), placeable._locName.str()));
         put(*result, Gff::Field::newCExoLocString("Description", placeable._description.id(), placeable._description.str()));
-        put(*result, Gff::Field::newByte("OpenLockDC", placeable._openLockDC));
+        put(*result, Gff::Field::newByte("OpenLockDC", placeable.lock().openDC()));
         put(*result, Gff::Field::newByte("Hardness", placeable._hardness));
         put(*result, Gff::Field::newByte("Fort", placeable._fort));
         put(*result, Gff::Field::newByte("Will", placeable._will));
         put(*result, Gff::Field::newByte("Ref", placeable._ref));
-        put(*result, Gff::Field::newByte("Static", placeable._static));
         put(*result, Gff::Field::newByte("PartyInteract", placeable._partyInteract));
         put(*result, Gff::Field::newByte("BodyBag", placeable._bodyBagId));
         put(*result, Gff::Field::newByte("DieWhenEmpty", placeable._dieWhenEmpty));
@@ -1665,13 +1840,19 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
     const auto direction = glm::vec3(-std::sin(store.getFacing()), std::cos(store.getFacing()), 0.0f);
     put(*result, Gff::Field::newFloat("XOrientation", direction.x));
     put(*result, Gff::Field::newFloat("YOrientation", direction.y));
+    put(*result, Gff::Field::newCExoLocString("LocName", store._locName.id(), store._locName.str()));
     put(*result, Gff::Field::newInt("MarkDown", store._markDown));
     put(*result, Gff::Field::newInt("MarkUp", store._markUp));
     put(*result, Gff::Field::newResRef("OnOpenStore", store._onOpenStore));
     put(*result, Gff::Field::newByte("BuySellFlag", store._buySellFlag));
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : store._items) if (item) items.push_back(
-        writeItem(*item, 0, ids.objectId(*item), &ids));
+    for (const auto &item : store._items) {
+        if (item) {
+            auto entry = writeItem(*item, 0, ids.objectId(*item), &ids);
+            put(*entry, Gff::Field::newByte("Infinite", item->isInfinite()));
+            items.push_back(std::move(entry));
+        }
+    }
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }
@@ -1750,10 +1931,6 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
         result = emptyRecord(std::numeric_limits<uint32_t>::max());
     }
     put(*result, Gff::Field::newCExoString("Tag", area._tag));
-    put(*result, Gff::Field::newByte("StealthXPEnabled", area._stealthXPEnabled));
-    put(*result, Gff::Field::newDword("StealthXPMax", static_cast<uint32_t>(std::max(0, area._maxStealthXP))));
-    put(*result, Gff::Field::newDword("StealthXPCurrent", static_cast<uint32_t>(std::max(0, area._currentStealthXP))));
-    put(*result, Gff::Field::newDword("StealthXPLoss", static_cast<uint32_t>(std::max(0, area._stealthXPDecrement))));
     return result;
 }
 
@@ -1783,10 +1960,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     put(*result, Gff::Field::newByte("TransPendNextID", area._transitionPendingNextId));
     put(*result, Gff::Field::newByte("TransPendCurrID", area._transitionPendingCurrentId));
 
-    // The area properties carry the music and ambient sound settings, then the
-    // area flags and the fog colour; what is playing is not saved.
+    // The area properties carry the music and ambient sound settings and the
+    // stealth experience, then the area flags and the fog colour; what is
+    // playing is not saved. Whether stealth experience is paid is saved as on
+    // or off.
     const auto &audio = area._ambientAudio;
-    auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).build();
+    auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).field(Gff::Field::newDword("StealthXPMax", area._maxStealthXP)).field(Gff::Field::newDword("StealthXPCurrent", area._currentStealthXP)).field(Gff::Field::newDword("StealthXPLoss", area._stealthXPDecrement)).field(Gff::Field::newByte("StealthXPEnabled", area.isStealthXPEnabled() ? 1 : 0)).build();
     put(*properties, Gff::Field::newByte("Unescapable", area._unescapable));
     if (_game.isTSL()) {
         put(*properties, Gff::Field::newByte("DisableTransit", area._transitDisabled));
@@ -1797,6 +1976,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     put(*properties, Gff::Field::newByte("TransPendCurrID", area._transitionPendingCurrentId));
     put(*properties, Gff::Field::newDword("SunFogColor", area._sunFogColor));
     put(*result, Gff::Field::newStruct("AreaProperties", std::move(properties)));
+
+    // An area carrying a map records what the party has explored of it.
+    if (auto areaMap = area._mapState.writeToGit()) {
+        put(*result, Gff::Field::newStruct("AreaMap", std::move(areaMap)));
+    }
 
     std::map<std::string, std::vector<std::shared_ptr<Gff>>> lists {
         {"Creature List", {}}, {"Door List", {}}, {"Placeable List", {}}, {"TriggerList", {}}, {"Encounter List", {}}, {"StoreList", {}}, {"WaypointList", {}}, {"SoundList", {}}, {"List", {}}, {"AreaEffectList", {}}};
@@ -1954,12 +2138,28 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     }
     put(*result, Gff::Field::newList("ProjectileState", std::move(projectiles)));
 
+    // The identities of the roster-bound representations this graph names,
+    // each beside the party identity it stands for. A reader that does not
+    // know the list does not resolve references to a companion.
+    std::vector<std::shared_ptr<Gff>> rosterIds;
+    for (const auto &creature : rosterRepresentations(module)) {
+        auto entry = Gff::Builder()
+                         .type(kSavedPartyIdentityStructType)
+                         .field(Gff::Field::newDword("ObjectId", ids.objectId(*creature)))
+                         .build();
+        putPartyIdentity(*entry, *creature);
+        rosterIds.push_back(std::move(entry));
+    }
+    put(*result, Gff::Field::newList("Mod_PartyObjIds", std::move(rosterIds)));
+
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
     auto player = writeCreature(
-        *modulePlayer, 4, ids.objectId(*modulePlayer), ids, false);
-    put(*player, Gff::Field::newByte(
-        "Mod_IsPrimaryPlr", modulePlayer == _game._party.actualPlayer()));
+        *modulePlayer, kPlayerEntryStructType, ids.objectId(*modulePlayer), ids, false);
+    writePlayerEntry(*player, *modulePlayer);
+    // The controlled creature is named the same way, so a later visit, whose
+    // party may be controlled by someone else, finds who this record was.
+    putPartyIdentity(*player, *modulePlayer);
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
 
     std::vector<std::shared_ptr<Gff>> limbo;

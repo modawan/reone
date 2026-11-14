@@ -114,6 +114,25 @@ private:
  */
 bool usesBucketedLookup(GameID game);
 
+/** When entering a module writes the autosave. */
+enum class ModuleAutosave {
+    Never,
+    Always,
+    /** When the player's autosave option is on and an autosave is due. */
+    WhenEnabledAndDue,
+    /** When an autosave is due. */
+    WhenDue,
+};
+
+/** How a module's state takes part in saved games, as the module save table sets it. */
+struct ModuleSaveRules {
+    /** The module's state is stored with the game and restored when it is entered again. */
+    bool includeInSave {true};
+    /** Entering the module discards the saved state of every module in this group. */
+    std::optional<int> deleteSaveGroupOnEnter;
+    ModuleAutosave autosaveOnEnter {ModuleAutosave::Never};
+};
+
 class IResourceDirector {
 public:
     virtual ~IResourceDirector() = default;
@@ -172,6 +191,10 @@ public:
 
     virtual std::set<std::string> moduleNames() = 0;
     virtual std::set<std::string> saveNames() = 0;
+
+    virtual ModuleSaveRules moduleSaveRules(const std::string &module) = 0;
+    /** Every module whose saved state belongs to the save group. */
+    virtual std::vector<std::string> saveGroupModules(int group) = 0;
 };
 
 class ResourceDirector : public IResourceDirector, boost::noncopyable {
@@ -236,6 +259,9 @@ public:
     std::set<std::string> moduleNames() override;
     std::set<std::string> saveNames() override;
 
+    ModuleSaveRules moduleSaveRules(const std::string &module) override;
+    std::vector<std::string> saveGroupModules(int group) override;
+
 private:
     GameID _gameId;
     const std::filesystem::path &_gamePath;
@@ -290,7 +316,6 @@ private:
         const std::string &moduleRoot,
         const std::shared_ptr<const SaveWorkingState> &workingState,
         RuntimeModuleSourceIndex &index);
-    bool includeModuleInSave(const std::string &moduleRoot);
 
 };
 

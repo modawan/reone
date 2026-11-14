@@ -19,6 +19,7 @@
 #include <cmath>
 
 #include "reone/game/action/changefacing.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/followowner.h"
@@ -489,7 +490,9 @@ void MoveToPointAction::execute(std::shared_ptr<Action> self, Object &actor, flo
     if (_goal) {
         goal = *_goal;
     }
-    if (creatureActor->walkToward(goal, _point, _run, _range, dt, goal, false)) {
+    // A walk that finds no way to its point ends where the walker stands.
+    if (creatureActor->walkToward(goal, _point, _run, _range, dt, goal, false) ||
+        creatureActor->navigationFailed()) {
         complete();
     }
 }
@@ -505,6 +508,169 @@ std::optional<SavedActionRecord> MoveToPointAction::saveFacingState() const {
     SavedActionRecord result;
     command.toAction(result);
     return result;
+}
+
+// A driven step is tried at most this many times.
+static constexpr int kDriveTries = 6;
+// How far a driven creature standing where it does not fit looks for a spot
+// that does: square rings out to about a metre.
+static constexpr float kDriveNudgeRadius = -1.01f;
+
+// The driven creature steps along a straight line to a point a step ahead,
+// its personal space swept along it against walls, doors, placeables and
+// creatures. A companion or puppet in the way is pushed aside first; when
+// someone is still in the way and the creature stands where it does not fit,
+// it first moves to the nearest spot that does. A step that meets a wall's
+// face, a door's or placeable's, or a creature, is projected onto it from
+// where it is stopped; one that meets a corner sidesteps it, at a pace that
+// does not hang on the frame rate. A creature that starts with a wall within
+// its personal space, as a walk can leave it, steps as a walk does, so that it
+// can always move off. The creature steps only to a point it can walk
+// straight to, and stays where it is once six lines have failed, or when two
+// walls in a row face against each other across its path with no corner
+// between them.
+static void stepDriven(Game &game, Area &area, const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, float speed, float dt) {
+    using ContactKind = graphics::Walkmesh::ContactKind;
+    // A step that meets a corner is tried again across the drive at this
+    // pace, in metres a second; one that meets a corner between two walls
+    // facing against each other, at half of it.
+    static constexpr float kCornerSidestepSpeed = 3.6f;
+    static constexpr float kWedgedSidestepSpeed = 1.8f;
+    const float step = speed * dt;
+    const glm::vec3 start {creature->position()};
+    glm::vec3 target {start.x + dir.x * step, start.y + dir.y * step, start.z};
+    const glm::vec2 back {-dir};
+    // Left of the drive.
+    const glm::vec2 across {-dir.y, dir.x};
+    glm::vec2 previousNormal {0.0f};
+    const auto testStep = [&area, &creature](const glm::vec3 &to) {
+        auto line = area.testDirectLine(*creature, creature->position(), to);
+        if (line.contact == ContactKind::StartInside) {
+            line = area.testWalkStep(*creature, creature->position(), to);
+        }
+        return line;
+    };
+    for (int attempt = 1;; ++attempt) {
+        auto line = testStep(target);
+        if (line.result == Area::DirectLine::CreatureBlocked) {
+            creature->pushAside(*game.getObjectById<Creature>(line.blocker->get().id()), creature->position(), target, dir);
+            line = testStep(target);
+            if (line.result == Area::DirectLine::CreatureBlocked && !area.isSafeLocationPoint(creature->position(), *creature)) {
+                if (auto spot = area.computeSafeLocation(creature->position(), kDriveNudgeRadius, *creature, true)) {
+                    creature->setPosition(*spot);
+                    area.determineObjectRoom(*creature);
+                }
+                line = testStep(target);
+            }
+        }
+        if (line.result == Area::DirectLine::Clear) {
+            // The room under the step is looked for from height 0, or where
+            // floors lie over others from the creature's height.
+            area.stepCreatureTo(creature, glm::vec3(glm::vec2(target), area.roomLookupHeight(creature->position().z)), Area::MoveFacing::Keep);
+            return;
+        }
+        // A step that leaves the rooms goes nowhere.
+        if (line.result == Area::DirectLine::LeavesRooms || attempt == kDriveTries) {
+            return;
+        }
+        const glm::vec2 normal {line.normal};
+        const glm::vec3 position {creature->position()};
+        const bool corner = line.contact == ContactKind::Corner;
+        // Which side of the drive a wall's normal lies on.
+        const auto side = [&back](const glm::vec2 &n) {
+            return glm::dot(back, glm::vec2(-n.y, n.x));
+        };
+        const bool wedged = attempt > 1 && ((side(normal) > 0.0f && side(previousNormal) < 0.0f) ||
+                                            (side(normal) < 0.0f && side(previousNormal) > 0.0f));
+        // A step that meets a corner sidesteps it across the drive; between
+        // two walls facing against each other only a corner leaves a way.
+        if (wedged || corner) {
+            if (wedged && !corner) {
+                return;
+            }
+            // A corner whose normal points right of the drive is sidestepped
+            // to the right, away from it; between walls facing against each
+            // other, the other way.
+            const float sidestep = (wedged ? kWedgedSidestepSpeed : kCornerSidestepSpeed) * dt;
+            const bool normalRight = dir.y * normal.x - dir.x * normal.y > 0.0f;
+            const float sign = wedged ? (normalRight ? 1.0f : -1.0f) : (normalRight ? -1.0f : 1.0f);
+            target = position + glm::vec3(across * (sign * sidestep), 0.0f);
+        } else {
+            // A step that meets a wall's face, or a creature, is projected
+            // onto it from where it is stopped: what lies past the stop
+            // point keeps only its part along the wall.
+            const glm::vec3 beyond {target - line.stopPoint};
+            target -= glm::vec3(normal, 0.0f) * glm::dot(glm::vec3(normal, 0.0f), beyond);
+        }
+        previousNormal = normal;
+    }
+}
+
+bool DriveAction::runs(const Creature &creature) const {
+    return _run && !creature.isRunLimited();
+}
+
+float DriveAction::speed(const Creature &creature) const {
+    if (_speed) {
+        return *_speed;
+    }
+    return runs(creature) ? creature.runSpeed() : creature.walkSpeed();
+}
+
+void DriveAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // Only a creature drives; a drive on anything else ends at once.
+    auto creature = _game.getObjectById<Creature>(actor.id());
+    if (!creature) {
+        complete();
+        return;
+    }
+    const bool run = runs(*creature);
+    // Driving releases the creature's orientation lock and ends its engaged
+    // exchange, and the creature faces where it is steered.
+    creature->dropOrientationLock();
+    creature->setEngagedExchange(false);
+    creature->setFacing(-glm::atan(_direction.x, _direction.y));
+    stepDriven(_game, *_game.module()->area(), creature, _direction, speed(*creature), dt);
+    creature->setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
+    creature->setRunning(run);
+
+    _timeLeft -= dt;
+    if (_timeLeft <= 0.0f) {
+        creature->setMovementType(Creature::MovementType::None);
+        complete();
+    }
+}
+
+// A saved drive keeps its movement as flags, forward at a walk or at a run,
+// and the time it has left as slices of 0.4 seconds.
+static constexpr int32_t kDriveWalkFlags = 1;
+static constexpr int32_t kDriveRunFlags = 3;
+static constexpr float kDriveSliceSeconds = 0.4f;
+
+// A drive is kept as where it was given, its heading in tenths of a degree, a
+// path number, its movement, the slices it has left and whether its way is
+// still to be worked out, which a drive under way has done.
+std::optional<SavedActionRecord> DriveAction::saveFacingState() const {
+    const float degrees = glm::degrees(std::atan2(_direction.y, _direction.x));
+    const int32_t heading = static_cast<int32_t>((degrees < 0.0f ? degrees + 360.0f : degrees) * 10.0f);
+    const int32_t slices = static_cast<int32_t>(std::ceil(_timeLeft / kDriveSliceSeconds));
+    return SavedActionRecord::command(SavedActionType::Drive, {
+                                                                  {kSavedFloatParameter, _start.x},
+                                                                  {kSavedFloatParameter, _start.y},
+                                                                  {kSavedIntegerParameter, heading},
+                                                                  {kSavedIntegerParameter, int32_t {0}},
+                                                                  {kSavedIntegerParameter, _run ? kDriveRunFlags : kDriveWalkFlags},
+                                                                  {kSavedIntegerParameter, slices},
+                                                                  {kSavedIntegerParameter, int32_t {0}},
+                                                              });
+}
+
+std::shared_ptr<Action> DriveAction::restore(const SavedActionRecord &record, Game &game) {
+    const float heading = glm::radians(record.integerParameter(2) / 10.0f);
+    return game.newAction<DriveAction>(glm::vec2(std::cos(heading), std::sin(heading)),
+                                       (record.integerParameter(4) & kDriveRunFlags) == kDriveRunFlags,
+                                       glm::vec2(record.floatParameter(0), record.floatParameter(1)),
+                                       record.integerParameter(5) * kDriveSliceSeconds);
 }
 
 // A creature moving away pauses this long before each leg, less when the
@@ -601,6 +767,44 @@ static constexpr float kPartyFollowPause = 0.025f;
 // rounds (squared metres).
 static constexpr float kCaughtUp2 = 0.01f;
 
+// The point a distance in front of an object, where it stands and faces.
+static glm::vec3 pointInFront(const Object &object, float distance) {
+    const float facing = object.getFacing();
+    return object.position() + distance * glm::vec3(-std::sin(facing), std::cos(facing), 0.0f);
+}
+
+// A follow is saved in the form the follower's place in the party gives: in
+// the party, an offset from the follow anchor; otherwise a point in the area.
+// Whichever form the follow keeps, the point it heads for now is put in that
+// form. A restored follow not yet queued is saved as it was loaded.
+static glm::vec2 savedFollowPoint(std::optional<bool> anchored, const glm::vec2 &point, std::optional<uint32_t> followerId,
+                                  const Object &followed, Game &game) {
+    if (!anchored) {
+        return point;
+    }
+    const Party &party = game.party();
+    const glm::vec3 target = *anchored ? party.followAnchorPoint(point) : pointInFront(followed, point.x);
+    const auto follower = followerId ? game.getObjectById(*followerId) : nullptr;
+    if (follower && party.isMember(*follower)) {
+        return *anchored ? point : party.followAnchorOffset(target);
+    }
+    return glm::vec2(target);
+}
+
+// A restored follow or check takes the form of its point from the follower's
+// place in the party, and unanchored, its distance back as how far the saved
+// point lies from the one followed.
+static void settleAnchored(std::optional<bool> &anchored, glm::vec2 &point, Game &game, const Object &follower,
+                           const Object &followed) {
+    if (anchored) {
+        return;
+    }
+    anchored = game.party().isMember(follower);
+    if (!*anchored) {
+        point = glm::vec2(glm::distance(glm::vec2(followed.position()), point), 0.0f);
+    }
+}
+
 void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
     if (!creatureActor) {
@@ -608,12 +812,13 @@ void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt
         return;
     }
 
-    // A party member heads for its place by the party's follow anchor, anyone
-    // else for its point beside the one it follows, at that one's height. The
-    // point last headed for is kept at zero height.
+    // A follower given its place by the party's follow anchor heads there,
+    // anyone else for the point its distance in front of the one it follows,
+    // where that one now stands and faces. The point last headed for is kept
+    // at zero height.
     Party &party = _game.party();
     const bool member = party.isMember(*creatureActor);
-    const glm::vec3 target = member ? party.followAnchorPoint(_point) : glm::vec3(_point, _follow->position().z);
+    const glm::vec3 target = *_anchored ? party.followAnchorPoint(_point) : pointInFront(*_follow, _point.x);
     const glm::vec3 moved {target - glm::vec3(_last, 0.0f)};
     const float moved2 = glm::dot(moved, moved);
     bool caughtUp;
@@ -631,20 +836,26 @@ void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt
     // The follower walks onto the point, or into use range of the one
     // followed, pauses, and follows again.
     const auto group = creatureActor->actionGroup(*this);
-    creatureActor->addActionOnTop(_game.newAction<FollowAction>(_follow, _run, _point, caughtUp, glm::vec2(target)));
+    creatureActor->addActionOnTop(_game.newAction<FollowAction>(_follow, _run, _point, _anchored, caughtUp, glm::vec2(target)));
     creatureActor->addActionOnTop(_game.newAction<WaitAction>(member ? kPartyFollowPause : kFollowPause), group);
     creatureActor->addActionOnTop(_game.newAction<MoveToPointAction>(target, _run, 0.0f, _follow), group);
     complete();
 }
 
+void FollowAction::onQueued(Object &actor) {
+    _followerId = actor.id();
+    settleAnchored(_anchored, _point, _game, actor, *_follow);
+}
+
 std::optional<SavedActionRecord> FollowAction::saveFacingState() const {
-    // The one followed, a run, the point heading for, whether the follower
-    // caught up, and the point last headed for.
+    // The one followed, a run, the point heading for as saved, whether the
+    // follower caught up, and the point last headed for.
+    const glm::vec2 point = savedFollowPoint(_anchored, _point, _followerId, *_follow, _game);
     return SavedActionRecord::command(SavedActionType::Follow, {
                                                                    {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_follow->id())},
                                                                    {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
-                                                                   {kSavedFloatParameter, _point.x},
-                                                                   {kSavedFloatParameter, _point.y},
+                                                                   {kSavedFloatParameter, point.x},
+                                                                   {kSavedFloatParameter, point.y},
                                                                    {kSavedIntegerParameter, int32_t {_caughtUp ? 1 : 0}},
                                                                    {kSavedFloatParameter, _last.x},
                                                                    {kSavedFloatParameter, _last.y},
@@ -657,24 +868,30 @@ std::shared_ptr<Action> FollowAction::restore(const SavedActionRecord &record, G
         return nullptr;
     }
     return game.newAction<FollowAction>(std::move(target), record.integerParameter(1) != 0,
-                                        glm::vec2(record.floatParameter(2), record.floatParameter(3)),
+                                        glm::vec2(record.floatParameter(2), record.floatParameter(3)), std::nullopt,
                                         record.integerParameter(4) != 0,
                                         glm::vec2(record.floatParameter(5), record.floatParameter(6)));
 }
 
 void FollowCheckAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    actor.addActionOnTop(_game.newAction<FollowCheckAction>(_follow, _run, _point));
-    actor.addActionOnTop(_game.newAction<FollowAction>(_follow, _run, _point, false, glm::vec2(actor.position())));
+    actor.addActionOnTop(_game.newAction<FollowCheckAction>(_follow, _run, _point, _anchored));
+    actor.addActionOnTop(_game.newAction<FollowAction>(_follow, _run, _point, _anchored, false, glm::vec2(actor.position())));
     complete();
 }
 
+void FollowCheckAction::onQueued(Object &actor) {
+    _followerId = actor.id();
+    settleAnchored(_anchored, _point, _game, actor, *_follow);
+}
+
 std::optional<SavedActionRecord> FollowCheckAction::saveFacingState() const {
-    // The one followed, a run and the point heading for.
+    // The one followed, a run and the point heading for as saved.
+    const glm::vec2 point = savedFollowPoint(_anchored, _point, _followerId, *_follow, _game);
     return SavedActionRecord::command(SavedActionType::FollowCheck, {
                                                                         {kSavedObjectParameter, SavedObjectReference::fromRuntimeId(_follow->id())},
                                                                         {kSavedIntegerParameter, int32_t {_run ? 1 : 0}},
-                                                                        {kSavedFloatParameter, _point.x},
-                                                                        {kSavedFloatParameter, _point.y},
+                                                                        {kSavedFloatParameter, point.x},
+                                                                        {kSavedFloatParameter, point.y},
                                                                     });
 }
 
@@ -684,7 +901,7 @@ std::shared_ptr<Action> FollowCheckAction::restore(const SavedActionRecord &reco
         return nullptr;
     }
     return game.newAction<FollowCheckAction>(std::move(target), record.integerParameter(1) != 0,
-                                             glm::vec2(record.floatParameter(2), record.floatParameter(3)));
+                                             glm::vec2(record.floatParameter(2), record.floatParameter(3)), std::nullopt);
 }
 
 static constexpr float kGlanceDistance = 8.0f;

@@ -41,6 +41,7 @@ public:
     }
 
     void render() override;
+    bool handle(const input::Event &event) override;
 
     void refreshControls();
 
@@ -65,12 +66,17 @@ private:
 
     Controls _controls;
 
+    /** Every map note the area places, in order of world X. */
     std::vector<std::shared_ptr<Waypoint>> _notes;
-    int _selectedNoteIdx {0};
+    /** The selected note, or -1 when the map opened showing none. */
+    int _selectedNoteIdx {-1};
     /** KotOR, as the map opened: why travel is refused, or 0 while it is open. */
     int _travelRefusal {0};
     /** KotOR, as the map opened: travel is open and the return offered. */
     bool _returnOpen {false};
+    /** The map image's fill and fill style as authored, which the static replaces while the party's map is disabled. */
+    std::shared_ptr<graphics::Texture> _mapFill;
+    gui::Control::Border::FillStyle _mapFillStyle {gui::Control::Border::FillStyle::Stretch};
 
     void onGUILoaded() override;
 
@@ -99,6 +105,12 @@ private:
         _controls.LBL_TITLE = findControl<gui::Label>("LBL_TITLE");
     }
 
+    /** The rect the map control gives the map, in screen coordinates. */
+    glm::vec4 mapBounds() const;
+
+    /** Selects the next note the map shows, \p step notes along. */
+    void selectAdjacentNote(int step);
+    void selectNote(const std::shared_ptr<Waypoint> &waypoint);
     void refreshSelectedNote();
 };
 

@@ -31,6 +31,7 @@
 
 #include "reone/game/galaxymapstate.h"
 #include "reone/game/runtimeref.h"
+#include "reone/game/types.h"
 #include "reone/input/event.h"
 
 namespace reone {
@@ -53,7 +54,7 @@ constexpr int kPartyFollowSlots = 3;
 enum class XPSource {
     Plot,
     Combat,
-    Stealth,
+    Stealth, /**< an area's pool; its payer shows the status summary */
     Console,
     Skill, /**< disarming and recovering mines */
     Script /**< a script award naming a creature outside the party, or a class gained */
@@ -111,10 +112,12 @@ public:
     /** PT_TUT_WND_SHOWN holds one bit per tutorial window: six bytes in KotOR, 33 in TSL. */
     static constexpr size_t kK1TutorialShownBytes = 6;
     static constexpr size_t kTutorialShownBytes = 33;
-    // Forfeit conditions: no Force powers, no items, no item but a shield.
+    /** The combat-mode line shown while the player drives the leader. */
+    static constexpr int kMovingCombatMessage = 42476;
     /** The combat-mode line shown while the leader moves to attack its target. */
     static constexpr int kMovingToAttackCombatMessage = 42477;
 
+    // Forfeit conditions: no Force powers, no items, no item but a shield.
     static constexpr int kForfeitNoForcePowers = 1;
     static constexpr int kForfeitNoItems = 2;
     static constexpr int kForfeitNoItemButShield = 128;
@@ -190,7 +193,7 @@ public:
     void retireRuntimeSession();
 
     void clear();
-    /** The next member takes the lead; the one leading goes to the back. */
+    /** The next member takes the lead; the one leading goes to the back. A new leader's drive starts at rest. */
     void switchLeader(bool sound = true);
     /**
      * Rotate the lead, up to three times, to the next member neither dead nor
@@ -236,6 +239,10 @@ public:
     /** The party-wide AI style scripts set and read. */
     int aiStyle() const { return _persistedState.aiState; }
     void setAIStyle(int style) { _persistedState.aiState = style; }
+    /** Whether the party's map is disabled (TSL). */
+    bool isMapDisabled() const { return _persistedState.mapDisabled; }
+    /** Disables or enables the party's map (TSL). */
+    void setMapDisabled(bool disabled) { _persistedState.mapDisabled = disabled; }
     bool isHealthRegenerationDisabled() const { return _persistedState.regenerationDisabled; }
     void setHealthRegenerationDisabled(bool disabled) { _persistedState.regenerationDisabled = disabled; }
     bool isTutorialShown(int id) const { return _persistedState.tutorialsShown.count(id) != 0; }
@@ -290,8 +297,9 @@ public:
     void loadPersistedState(PersistedState state);
 
     /**
-     * Hand the lead to a member. For kNpcPlayer a downed player character is
-     * stood up first and made raiseable, even when it already leads.
+     * Hand the lead to a member, with no select sound. For kNpcPlayer a
+     * downed player character is stood up first and made raiseable, even when
+     * it already leads.
      *
      * @param npc roster NPC number, or kNpcPlayer for the player character
      * @return false when an NPC number names no member, true otherwise
@@ -299,8 +307,8 @@ public:
     bool setPartyLeader(int npc);
     /**
      * Hand the lead to the first member that is a player character, with no
-     * select sound; nothing changes when it already leads or no member is
-     * one.
+     * select sound; nothing changes when no member is one. One that already
+     * leads a party of more than one takes the party's items again.
      */
     void leadWithPlayerCharacter();
     /**
@@ -314,8 +322,8 @@ public:
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     /** Leaving solo mode ends the party's stealth. */
     void setSoloMode(bool value);
-    /** End stealth for the controlled creature and the other members. */
-    void endStealth();
+    /** End stealth for the controlled creature and the other members; quiet as Creature::setStealthMode. */
+    void endStealth(bool quiet = false);
     /** Members other than the player's own creature. */
     int companionCount() const;
     /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
@@ -485,6 +493,56 @@ public:
     void respawnVacantFollowers();
     /** Rebuilding the party drops the entries that name nothing. */
     void removeVacantMembers();
+    /**
+     * The creature under control is read as a party member's as the party
+     * enters a module from another module: it holds no counts of its own.
+     */
+    void readPlayerAsMember();
+    /**
+     * Forms the party again in a module it is carried into from another: the
+     * player, when someone is under control, is read as a party member's,
+     * every other member but the player character hands the party its own
+     * credits, components, chemicals and carried items again.
+     */
+    void formAgainOnModuleLoad();
+    /**
+     * At every module load the creature under control takes the party's
+     * items: first what it wears, then everything in the shared inventory,
+     * which it comes to possess. Each item becomes dropable and pickpocketable
+     * when that creature is a player character, and is announced acquired by
+     * it to the module, with nothing told; each worn item then tells the
+     * module it was put on.
+     */
+    void takeItemsOnModuleLoad();
+    /**
+     * The leader takes every item in the shared inventory, as whenever the
+     * lead or control passes to a creature: an item it does not possess yet
+     * passes to it with nothing announced or told.
+     */
+    void passItemsToLeader();
+    /**
+     * A companion already in the world, and not travelling with the party,
+     * takes control: it hands the party its own credits, components,
+     * chemicals and carried items again.
+     */
+    void takeControlFromWorld(Creature &creature) { transferInventory(creature); }
+    /**
+     * A character switch hands control to a creature (setControlledMember);
+     * a companion already in the world that isn't travelling with the party
+     * then hands the party what it carries (takeControlFromWorld). The party's items
+     * pass to the creature now in control, with nothing told, unless it
+     * possessed them already, and each is announced kept by it once; the
+     * leader then takes them (passItemsToLeader).
+     *
+     * @param previous the creature in control before, none when there was none
+     * @param fromWorld whether the creature is a companion already in the
+     *                  world that isn't travelling with the party
+     */
+    void switchControlTo(
+        int npc,
+        const std::shared_ptr<Creature> &creature,
+        const std::shared_ptr<Creature> &previous,
+        bool fromWorld);
     std::shared_ptr<Creature> rosterCreature(
         const RosterIdentity &identity) const;
     std::shared_ptr<Creature> rosterCreature(
@@ -514,28 +572,33 @@ public:
 
     // END Default party
 
-    // Credits
+    // Held counts
     //
-    // KOTOR stores credits as a single party-shared pool, not per creature.
-    // Gold script routines (GetGold/GiveGoldToCreature/TakeGoldFromCreature)
-    // that target a party member operate on this pool.
+    // Credits, components and chemicals are held by the party for its
+    // members, and by any other creature itself.
 
     int gold() const { return _gold; }
-    /** The party's credits rise by amount, up to 999999999. */
+    /** The party's credits rise by amount, up to kMaxHeldCount. */
     void giveGold(int amount);
     /** The party's credits fall by amount, down to none. */
     void takeGold(int amount);
 
-    /** A creature's credits: the shared pool for a party member, its own otherwise. */
-    int creatureGold(const Creature &creature) const;
+    /** A creature's count: the party's for a party member, its own otherwise. */
+    int creatureCount(const Creature &creature, HeldCount count) const;
     /**
-     * Credits a creature gains, up to 999999999, or loses, down to none. The
-     * creature the player controls is told the change. Returns the change.
+     * A creature's count rises by amount, up to kMaxHeldCount. The creature
+     * the player controls is told the change. Returns the change.
      */
-    int addCreatureGold(Creature &creature, int amount);
+    int addCreatureCount(Creature &creature, HeldCount count, int amount);
+    /** Sets a creature's count, up to kMaxHeldCount. */
+    void setCreatureCount(Creature &creature, HeldCount count, int value);
+    /**
+     * A creature's credits fall by amount, down to none. The creature the
+     * player controls is told the change. Returns the change.
+     */
     int removeCreatureGold(Creature &creature, int amount);
 
-    // END Credits
+    // END Held counts
 
     /**
      * Credits, chemicals (TSL), components (TSL) and pazaak cards a creature
@@ -543,11 +606,32 @@ public:
      */
     bool isCountedItem(const Item &item) const;
     /**
-     * A creature acquires a counted item: credits become its credits,
-     * chemicals and components the party's counts, and pazaak cards join the
-     * party's collection. The caller discards the item.
+     * A creature acquires a counted item: credits, chemicals and components
+     * become its counts, a party member's gained through the leader, who is
+     * told the change; pazaak cards join the party's collection. The caller
+     * discards the item.
      */
     void acquireCountedItem(Creature &acquirer, const Item &item);
+    /**
+     * The player, read as a party member's, carries a counted item: credits,
+     * chemicals and components become the party's, up to kMaxHeldCount, and
+     * the player is told each change; pazaak cards are acquired as any
+     * creature's are. The caller discards the item.
+     */
+    void acquireCountedItemAsPlayer(Creature &player, const Item &item);
+    /**
+     * Whether an item \p receiver receives is counted rather than kept: a
+     * creature counts what isCountedItem names, and the creature possessing a
+     * container item counts the credits and pazaak cards put into it.
+     */
+    bool countsReceivedItem(const Object &receiver, const Item &item) const;
+    /**
+     * The creature that counts an item \p receiver receives acquires it, as
+     * acquireCountedItem does, except that credits put into a carried
+     * container become the carrier's own credits, told as its own gain is.
+     * The caller discards the item.
+     */
+    void acquireReceivedItem(Object &receiver, const Item &item);
 
     // Pazaak state stored in PARTYTABLE.res. The final ownership slot is retained
     // verbatim even though side decks only use the card-type IDs before it.
@@ -638,6 +722,13 @@ public:
     // when the receiver is a creature that draws on them
     // (Creature::itemRepositoryOwner), otherwise the receiver itself.
     std::shared_ptr<Object> sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const;
+    /**
+     * An item the party's items receive from anything outside the party, or
+     * from nothing, is new to the party until the player looks at it in the
+     * inventory. \p receiver is where the item goes, \p source where it came
+     * from.
+     */
+    void noteItemReceived(Item &item, const Object &receiver, const Object *source) const;
 
     // END Inventory
 
@@ -668,6 +759,14 @@ public:
      */
     void updateFollowPath();
     /**
+     * The party's follower scripts over \p dt seconds of world time. A
+     * follower at least the PartyEscape range from the leader runs
+     * k_hen_retreat once that range's seconds have passed since a follower
+     * last did; one that leaves 5 m of the leader runs k_hen_exit5m, and one
+     * that comes within it k_hen_enter5m.
+     */
+    void runFollowerScripts(float dt);
+    /**
      * The way a following member faces: where it last moved, or the leader
      * it turned to. Its model turns to it, and the party turning back is
      * noticed from it.
@@ -692,6 +791,8 @@ public:
     std::optional<glm::vec2> forceFollowOffset(const Creature &member) const;
     /** The point \p offset gives from the follow anchor, turned to the anchor's facing. */
     glm::vec3 followAnchorPoint(const glm::vec2 &offset) const;
+    /** The offset from the follow anchor that gives \p point (see followAnchorPoint). */
+    glm::vec2 followAnchorOffset(const glm::vec3 &point) const;
 
     // END Follow path
 
@@ -767,6 +868,8 @@ private:
     /** The point ordered follows of party members are taken from, and its facing. */
     glm::vec3 _followAnchor {0.0f};
     float _followAnchorFacing {0.0f};
+    /** Seconds of world time since a follower last ran k_hen_retreat, up to the retreat interval. */
+    float _retreatScriptTimer {0.0f};
 
     // END Follow path
 
@@ -793,10 +896,31 @@ private:
      * a puppet joins the party puppet faction.
      */
     void joinRosterFaction(const RosterIdentity &identity, Creature &creature) const;
+    /**
+     * A creature hands the party its credits, components and chemicals, and
+     * its carried items to the shared inventory; with no one holding that, it
+     * keeps the items.
+     */
     void transferInventory(Creature &creature);
+    /** The count the party holds for its members. */
+    int partyCount(HeldCount count) const;
+    /** Sets the count the party holds for its members. */
+    void setPartyCount(HeldCount count, int value);
+    /** A count of \p holder's: the party's when \p partyHeld, its own otherwise. */
+    int holderCount(const Creature &holder, HeldCount count, bool partyHeld) const;
+    /** Sets a count of \p holder's, up to kMaxHeldCount: the party's when \p partyHeld, its own otherwise. */
+    void setHolderCount(Creature &holder, HeldCount count, int value, bool partyHeld);
+    /**
+     * A count of \p holder's rises by amount, up to kMaxHeldCount: the party's
+     * when \p partyHeld, its own otherwise. The player is told the change when
+     * \p told. Returns the change.
+     */
+    int addHolderCount(Creature &holder, HeldCount count, int amount, bool partyHeld, bool told);
 
     void saveLeaderAttackTarget();
     void onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound = true);
+    /** The player's change of leader: a leader other than \p previous starts with its drive at rest. */
+    void restNewLeaderDrive(const std::shared_ptr<Creature> &previous);
     void playLeaderSelectSound();
 
     void resetFollowSlots();

@@ -43,6 +43,13 @@ void requestScriptAnimation(Game &game, Object &caller, int constant, float spee
  */
 void showAnimation(Object &object, int animation);
 
+/**
+ * The clip plays for its length at the speed given, and a loop given a
+ * duration plays for that long; a clip the model lacks takes a second. The
+ * work clips of locks and mines, and TSL's door saber, play their sound,
+ * whatever queued them: the controlled creature hears it a set time into the
+ * clip, any other object at once.
+ */
 class PlayAnimationAction : public Action {
 public:
     /**
@@ -92,6 +99,13 @@ private:
     /** The animation is being timed since the action was made or loaded. */
     bool _playing {false};
     bool _shown {false}; /**< the clip was put on the actor since the action was made or loaded */
+    /** Seconds until the clip's work sound is heard; none once heard, or for a clip without one. */
+    std::optional<float> _workSoundDue;
+
+    /** Sets when the clip's work sound is heard, as the clip starts being timed. */
+    void scheduleWorkSound(const Object &actor);
+    /** Plays the clip's work sound once it is due. */
+    void playDueWorkSound();
 };
 
 } // namespace game

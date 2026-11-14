@@ -239,12 +239,19 @@ static Variable ActionPutDownItem(const std::vector<Variable> &args, const Routi
     // Transform
     auto item = checkItem(oItem);
 
-    // Execute
+    // Execute: the item goes down where the caller stands. Body armour worn
+    // in combat is refused, before a caller that takes no commands is.
+    auto caller = getCaller(ctx);
+    if (auto *creature = dyn_cast<Creature>(caller.get());
+        creature && creature->isInCombat() && creature->getEquippedItem(InventorySlots::body) == item) {
+        reportArmorChangeRefused(ctx.game, *creature, true);
+        return Variable::ofNull();
+    }
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
     }
-    auto action = ctx.game.newAction<PutDownItemAction>(std::move(item));
-    getCaller(ctx)->addAction(std::move(action));
+    auto action = ctx.game.newAction<PutDownItemAction>(std::move(item), caller->position());
+    caller->addAction(std::move(action));
     return Variable::ofNull();
 }
 
@@ -457,17 +464,18 @@ static Variable ActionForceFollowObject(const std::vector<Variable> &args, const
     // Execute
     // Only a creature follows. A party member heads for its place by the
     // party's follow anchor; anyone else for the point the distance in front
-    // of the one followed. The follow sets out running from where the
-    // follower stands, a check queued behind it.
+    // of the one followed, wherever that one goes. Which it is stays as the
+    // order finds it. The follow sets out running from where the follower
+    // stands, a check queued behind it.
     auto *creature = dyn_cast<Creature>(caller.get());
     if (!creature) {
         return Variable::ofNull();
     }
-    const float facing = oFollow->getFacing();
-    const glm::vec2 point = ctx.game.party().forceFollowOffset(*creature).value_or(
-        glm::vec2(oFollow->position()) + fFollowDistance * glm::vec2(-std::sin(facing), std::cos(facing)));
-    caller->addAction(ctx.game.newAction<FollowAction>(oFollow, true, point, false, glm::vec2(caller->position())));
-    caller->addAction(ctx.game.newAction<FollowCheckAction>(std::move(oFollow), true, point));
+    const auto offset = ctx.game.party().forceFollowOffset(*creature);
+    const glm::vec2 point = offset.value_or(glm::vec2(fFollowDistance, 0.0f));
+    const bool anchored = offset.has_value();
+    caller->addAction(ctx.game.newAction<FollowAction>(oFollow, true, point, anchored, false, glm::vec2(caller->position())));
+    caller->addAction(ctx.game.newAction<FollowCheckAction>(std::move(oFollow), true, point, anchored));
     return Variable::ofNull();
 }
 
@@ -541,6 +549,9 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto dontClearAllActions = static_cast<bool>(bDontClearAllActions);
 
     // Execute
+    // TSL's bark bubble takes the place asked for, -1 leaving an edge to the
+    // layout, for every bark until a script places it again.
+    ctx.game.setBarkBubblePlace(nBarkX, nBarkY);
     // Whether the leader answers in conversations holds from now on, and the
     // party leader drops its actions and its orders, as the player's controls
     // clear them, even when the conversation is then refused.
@@ -719,32 +730,36 @@ static Variable ActionUseFeat(const std::vector<Variable> &args, const RoutineCo
 static Variable ActionUseSkill(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nSkill = getInt(args, 0);
-
-    // Stealth is used at once rather than queued, by a creature in an area,
-    // and only on a target that exists.
-    if (static_cast<SkillType>(nSkill) == SkillType::Stealth) {
-        auto creature = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
-        if (creature && creature->spatialArea() && getObjectOrNull(args, 1, ctx)) {
-            creature->useStealthSkill();
-        }
-        return Variable::ofNull();
-    }
-
-    auto oTarget = getObject(args, 1, ctx);
     auto nSubSkill = getIntOrElse(args, 2, 0);
-    auto oItemUsed = getObjectOrNull(args, 3, ctx);
+    auto oTarget = getObjectOrNull(args, 1, ctx);
+    // The item is optional: only healing and a spike on a lock use one.
+    auto itemUsed = std::dynamic_pointer_cast<Item>(getObjectOrNull(args, 3, ctx));
 
     // Transform
     auto skill = static_cast<SkillType>(nSkill);
-    // The item is optional: only setting a mine and healing use one.
-    auto itemUsed = std::dynamic_pointer_cast<Item>(oItemUsed);
 
     // Execute
-    if (refusesCommand(ctx)) {
+    // A skill is used by a creature in an area, on a target that exists.
+    auto creature = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+    if (!creature || !creature->spatialArea() || !oTarget) {
         return Variable::ofNull();
     }
-    auto action = ctx.game.newAction<UseSkillAction>(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
-    getCaller(ctx)->addAction(std::move(action));
+    // A subskill passed as the skill queues nothing, though a creature that
+    // cannot use Demolitions is told so.
+    const bool subSkillId = nSkill >= static_cast<int>(SubSkill::FlagTrap) && nSkill <= static_cast<int>(SubSkill::ExamineTrap);
+    if (subSkillId) {
+        creature->admitSkillUse(SkillType::Demolitions);
+        return Variable::ofNull();
+    }
+    // Mine work goes by the subskill and never sets a mine.
+    if (skill == SkillType::Demolitions) {
+        itemUsed.reset();
+    }
+    auto action = creature->useSkill(skill, std::move(oTarget), nSubSkill, std::move(itemUsed));
+    if (!action || refusesCommand(ctx)) {
+        return Variable::ofNull();
+    }
+    creature->addAction(std::move(action));
     return Variable::ofNull();
 }
 
@@ -958,7 +973,7 @@ static Variable ActionUnlockObject(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    if (refusesCommand(ctx)) {
+    if (!UnlockObjectAction::admits(*getCaller(ctx))) {
         return Variable::ofNull();
     }
     auto action = ctx.game.newAction<UnlockObjectAction>(std::move(oTarget));
@@ -973,7 +988,7 @@ static Variable ActionLockObject(const std::vector<Variable> &args, const Routin
     // Transform
 
     // Execute
-    if (refusesCommand(ctx)) {
+    if (!LockObjectAction::admits(*getCaller(ctx))) {
         return Variable::ofNull();
     }
     auto action = ctx.game.newAction<LockObjectAction>(std::move(oTarget));

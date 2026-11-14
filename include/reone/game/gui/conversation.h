@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <map>
 
 #include "reone/audio/source.h"
@@ -58,16 +59,23 @@ public:
         GameGUI(game, services) {
     }
 
+    /** Input waits until the first line is spoken. */
     bool handle(const input::Event &event) override;
+    /** Nothing is drawn until the first line is spoken. */
+    void render() override;
     void update(float dt) override;
 
     /**
      * Start \p dialog owned by \p owner. \p listener is the object that
-     * started the conversation with the owner, when there is one.
+     * started the conversation with the owner, when there is one. A
+     * conversation that opens calls \p opening before its first entry shows;
+     * one that starts on a one-liner barks it without opening, and one with no
+     * active start entry ends without opening.
      */
     void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner,
                GlobalFade::DialogTicket admission = {},
-               const std::shared_ptr<Object> &listener = nullptr);
+               const std::shared_ptr<Object> &listener = nullptr,
+               const std::function<void()> &opening = {});
     void cleanupForModuleTransition();
 
     /** True from start() until the conversation has finished or been cleaned up. */
@@ -208,8 +216,11 @@ protected:
     /** One line per reply, in reply order; an empty line stands for a reply that is not listed. */
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
 
-    // How a one-liner presents its entry, alongside setMessage/setReplyLines.
-    virtual void setBarkText(std::string text, float duration);
+    /**
+     * How a one-liner presents its entry, alongside setMessage/setReplyLines:
+     * barked by \p speaker, or with no speaker, near it unless \p ignoresDistance.
+     */
+    virtual void setBarkText(std::string text, float duration, uint32_t speaker, bool ignoresDistance);
 
     virtual void onStart();
     virtual void onFinish();
@@ -251,6 +262,8 @@ private:
     int _waitFlags {0};
     /** The entry that follows a reply taken without a choice, once the reply's delay and waits are over. */
     std::optional<int> _pendingEntry;
+    /** The start entry waiting until conversations may speak (Game::passDialogGate). */
+    std::optional<int> _unspokenStartEntry;
     /** A skip of the shown entry has been asked for and not yet honoured. */
     bool _entrySkipped {false};
     EntryFade _entryFade;
@@ -261,8 +274,12 @@ private:
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
     uint64_t _generation {0};
+    /** Steps whose scripts run, or wait at a movie, before the rest of the step goes on (see runScripts). */
+    int _heldSteps {0};
     /** The objects this conversation has made its participants. */
     std::vector<RuntimeObjectRef<Object>> _dialogParticipants;
+    /** The creatures this conversation has put items away for. */
+    std::vector<RuntimeObjectRef<Creature>> _unequippedCreatures;
 
     /**
      * A walk through a cycle of values, which starts where the dialog's name
@@ -316,15 +333,32 @@ private:
 
     /** Make \p object a participant of this conversation, unless another conversation still holds it. */
     void attachDialogParticipant(const std::shared_ptr<Object> &object);
-    /** Release the participants that \p owner's conversation still holds. */
+    /**
+     * Release the participants that \p owner's conversation still holds, and
+     * give back the items it put away.
+     */
     void releaseDialogParticipants(const std::shared_ptr<Object> &owner);
+    /**
+     * A dialog that unequips puts away the items of the creatures a node
+     * shows: an entry's speaker and listener, the player character, and the
+     * creatures it animates; a reply's listener and the creatures it animates.
+     */
+    void unequipEntryParticipants();
+    void unequipReplyParticipants();
+    void unequipNodeParticipant(const std::shared_ptr<Object> &object);
+    void unequipNodeAnimationParticipants(const resource::Dialog::EntryReply &node);
     /** Run the end-dialogue scripts of the creatures and placeables in \p owner's area. */
     void runAreaEndDialogScripts(const Object &owner);
 
     bool isCurrent(uint64_t generation) const;
 
     void loadCameraModel();
-    void loadStartEntry();
+    void loadStartEntry(const std::function<void()> &opening);
+    /**
+     * Whether the conversation, starting on \p entry, is a one-liner: an
+     * entry with no replies, or with one reply that leads to no entry.
+     */
+    bool isOneLiner(const resource::Dialog::EntryReply &entry) const;
     /** Plays the current entry's voice: \p sound, or else its voice-over. */
     void loadVoiceOver(const std::string &sound);
     void scheduleEndOfEntry();
@@ -371,7 +405,13 @@ private:
     bool isLinkActive(const resource::Dialog::EntryReplyLink &link);
     bool evaluateCondition(const std::string &scriptResRef, const resource::Dialog::EntryReplyLink::ConditionParams &params);
     void runScript(const std::string &scriptResRef, const resource::Dialog::EntryReply::ActionParams &params);
-    void runScripts(const resource::Dialog::EntryReply &node);
+    /**
+     * Runs the node's first and second scripts, then \p rest, while the
+     * conversation stays current. What follows a script that stops to wait at
+     * a movie goes on once no runs wait, as though the movie played inside
+     * the call.
+     */
+    void runScripts(const resource::Dialog::EntryReply &node, std::function<void()> rest = nullptr);
     void applyStatusSummaryEntries(const resource::Dialog::EntryReply &node);
     /** Set or clear the video effect for the current entry's camera shot. */
     void applyShotVideoEffect();

@@ -362,13 +362,15 @@ int DialogCamera::blocked(const glm::vec3 &from, const glm::vec3 &to) const {
     return blockedAt(from, to) ? 1 : 0;
 }
 
-// The rooms and the models of everyone and everything but the pair hide them.
+// The rooms and the models of everyone and everything but the pair hide them;
+// of the pair, the models attached to them do, except their heads.
 std::optional<glm::vec3> DialogCamera::blockedAt(const glm::vec3 &from, const glm::vec3 &to) const {
+    static const std::string kHeadHook(Creature::kHeadHookNode);
     Collision collision;
     auto &scene = _services.scene.graphs.get(_sceneName);
     auto speaker = _speaker.resolve();
     auto listener = _listener.resolve();
-    if (!scene.testSceneHit(from, to, {speaker.get(), listener.get()}, collision)) {
+    if (!scene.testSceneHit(from, to, {speaker.get(), listener.get()}, kHeadHook, collision)) {
         return std::nullopt;
     }
     return collision.intersection;

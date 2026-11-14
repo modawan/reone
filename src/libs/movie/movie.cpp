@@ -80,7 +80,7 @@ void Movie::update(float dt) {
         return;
     }
     if (!_audioSource && _audioStream) {
-        _audioSource = _audioPlayer.play(_audioStream, AudioType::Movie);
+        _audioSource = _audioPlayer.play(_audioStream, AudioType::Movie, std::nullopt);
     }
     _time += dt;
     _videoStream->seek(_time);

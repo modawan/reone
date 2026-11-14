@@ -48,7 +48,9 @@ public:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
 
+    bool hasMapNote() const { return _hasMapNote; }
     bool isMapNoteEnabled() const { return _mapNoteEnabled; }
+    void setMapNoteEnabled(bool enabled) { _mapNoteEnabled = enabled; }
 
     const std::string &mapNote() const { return _mapNote.str(); }
 

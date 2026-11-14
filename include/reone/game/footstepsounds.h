@@ -39,7 +39,10 @@ struct FootstepTypeSounds {
      * surface name followed by its variant, 0 to 2: dirt0, puddles2.
      */
     std::map<std::string, std::string> cells;
-    /** How far a step's pitch may stray: up by as much, or down by half as much. */
+    /**
+     * How far a step's pitch may stray: up by as much, or down by half as
+     * much. Zero leaves it to the step's priority group.
+     */
     float pitchOffset {0.0f};
 };
 

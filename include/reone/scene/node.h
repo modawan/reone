@@ -105,6 +105,14 @@ public:
 
     void setLocalTransform(glm::mat4 transform);
 
+    /**
+     * Sets the local transform and leaves the absolute transforms of this
+     * node and its subtree stale. The caller must recompute them from an
+     * ancestor before anything reads them, which lets an animated model pose
+     * every node and then recompute once.
+     */
+    void setLocalTransformDeferred(glm::mat4 transform) { _localTransform = std::move(transform); }
+
     // END Transformations
 
 protected:

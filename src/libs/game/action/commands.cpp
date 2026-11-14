@@ -17,9 +17,12 @@
 
 #include <cmath>
 
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/action/appear.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/playsound.h"
 #include "reone/game/action/surrendertoenemies.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/animationutil.h"
@@ -30,8 +33,12 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/party.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/savedsituation.h"
+#include "reone/resource/di/services.h"
+#include "reone/resource/provider/audioclips.h"
+#include "reone/resource/resref.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
 #include "reone/script/program.h"
@@ -176,8 +183,6 @@ void showAnimation(Object &object, int animation) {
     }
 }
 
-// The clip plays for its length at the speed given, and a loop given a
-// duration plays for that long; without a clip the action takes a second.
 // From 30 seconds on, the same animation queued right behind it at the same
 // speed is dropped. A placeable or door takes the animation as its state on
 // every update while the action runs, and keeps it at the end; a creature
@@ -193,6 +198,9 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
     }
     if (_playing) {
         _timer.update(dt);
+        if (_workSoundDue) {
+            *_workSoundDue -= dt;
+        }
     } else {
         float length = 0.0f;
         bool fireForget = false;
@@ -215,6 +223,7 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         }
         _timer.reset(duration);
         _playing = true;
+        scheduleWorkSound(actor);
         _firstRun = false;
     }
     if (_durationSeconds >= kCoalescingSeconds) {
@@ -226,6 +235,7 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
             return other.animation() == _animation && other.speed() == _speed;
         });
     }
+    playDueWorkSound();
     if (!_timer.elapsed()) {
         if (placeable) {
             placeable->setStateAnimation(_animation);
@@ -241,6 +251,31 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         creature->refreshPauseAnimation();
     }
     complete();
+}
+
+// The controlled creature hears a work clip's sound its set time into the
+// clip; any other object, or an action taken up again after it had run, hears
+// it at once.
+void PlayAnimationAction::scheduleWorkSound(const Object &actor) {
+    const auto sound = workSound(_animation, _game.isTSL());
+    if (!sound) {
+        return;
+    }
+    const bool leader = _game.party().getLeader().get() == &actor;
+    _workSoundDue = _firstRun && leader ? sound->delaySeconds : 0.0f;
+}
+
+// The sound is not tied to a place, though it plays at the volume of the
+// one-shot positional sounds.
+void PlayAnimationAction::playDueWorkSound() {
+    if (!_workSoundDue || *_workSoundDue > 0.0f) {
+        return;
+    }
+    _workSoundDue.reset();
+    const auto sound = workSound(_animation, _game.isTSL());
+    if (auto clip = _services.resource.audioClips.get(sound->resRef)) {
+        _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound, kSingleShotPositionalSoundGroup);
+    }
 }
 
 std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
@@ -282,6 +317,37 @@ std::optional<SavedActionRecord> AppearAction::saveFacingState() const {
 
 std::shared_ptr<Action> AppearAction::restore(const SavedActionRecord &record, Game &game) {
     return game.newAction<AppearAction>();
+}
+
+// The sound plays once, at the actor; from a waypoint, store or encounter it
+// plays without a place. It is heard only while the leader stands in the
+// actor's area within talk range, and the action ends at once either way.
+void PlaySoundAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    const auto leader = _game.party().getLeader();
+    const bool heard = leader && actor.spatialArea() && leader->sharesSpatialArea(actor) &&
+                       leader->getSquareDistanceTo(actor) <= Area::kTalkRange * Area::kTalkRange;
+    if (heard) {
+        if (auto clip = _services.resource.audioClips.get(resource::ResRef {_sound}.value())) {
+            const auto type = actor.type();
+            const bool placeless = type == ObjectType::Waypoint || type == ObjectType::Store || type == ObjectType::Encounter;
+            _services.audio.mixer.play(
+                std::move(clip),
+                audio::AudioType::Sound,
+                kScriptedPlaySoundGroup,
+                1.0f,
+                false,
+                placeless ? std::nullopt : std::make_optional(actor.position()));
+        }
+    }
+    complete();
+}
+
+std::optional<SavedActionRecord> PlaySoundAction::saveFacingState() const {
+    return SavedActionRecord::command(SavedActionType::PlaySound, {{kSavedStringParameter, _sound}});
+}
+
+std::shared_ptr<Action> PlaySoundAction::restore(const SavedActionRecord &record, Game &game) {
+    return game.newAction<PlaySoundAction>(record.stringParameter(0));
 }
 
 void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

@@ -114,8 +114,8 @@ private:
 
     /**
      * Gameplay options panel, opened over the menu from BTN_GAMEPLAY. Only
-     * the difficulty level and mouse look are handled; the other options are
-     * drawn as laid out.
+     * the difficulty level, mouse look and combat movement are handled; the
+     * other options are drawn as laid out.
      */
     struct GameplayControls {
         std::shared_ptr<gui::Button> BTN_BACK;
@@ -123,6 +123,7 @@ private:
         std::shared_ptr<gui::Button> BTN_DIFFICULTY;
         std::shared_ptr<gui::Button> BTN_DIFFLEFT;
         std::shared_ptr<gui::Button> BTN_DIFFRIGHT;
+        std::shared_ptr<gui::ToggleButton> CB_DISABLEMOVE;
         std::shared_ptr<gui::ToggleButton> CB_INVERTCAM;
         std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
@@ -162,6 +163,10 @@ private:
     void closeAutoPausePanel();
     void showAutoPauseOptions(const AutoPauseOptions &options);
     void showAutoPauseDescription(int strRef);
+
+    /** Every toggle on an options panel, and every row of its option list, is a checkbox drawn in the GUI's colours. */
+    void showCheckBoxes(gui::IGUI &panel);
+    void showCheckBox(gui::Control &control);
 
     void bindControls() {
         _controls.BTN_AUTOPAUSE = findControl<gui::Button>("BTN_AUTOPAUSE");

@@ -50,6 +50,8 @@ public:
         int state {0};
         uint32_t date {0};
         uint32_t time {0};
+        /** The quest arrived or moved on, and the player has not read it in the journal since. Not saved. */
+        bool unread {false};
     };
 
     Journal(resource::IGffs &gffs, resource::IStrings &strings, resource::ITwoDAs &twoDas) :
@@ -78,6 +80,9 @@ public:
 
     /** Set quest state verbatim, e.g. when restoring from a savegame. */
     void restoreEntry(std::string plotId, int state, uint32_t date, uint32_t time);
+
+    /** The player has read the quest with the given plot ID in the journal. */
+    void markRead(const std::string &plotId);
 
     /** @return state of the quest with the given plot ID, or 0 if not present */
     int getEntryState(const std::string &plotId) const;

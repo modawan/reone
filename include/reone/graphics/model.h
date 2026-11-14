@@ -49,6 +49,8 @@ public:
     const std::string &superModelName() const { return _superModelName; }
     float animationScale() const { return _animationScale; }
     const AABB &aabb() const { return _aabb; }
+    /** The box of the meshes except saber blades, by which an object is placed in a room. */
+    const AABB &meshBox() const { return _meshBox; }
 
     void setAffectedByFog(bool affected) { _affectedByFog = affected; }
     void setSubclassification(int subclassification) { _subclassification = subclassification; }
@@ -62,7 +64,8 @@ public:
     std::shared_ptr<ModelNode> getNodeByNumber(uint16_t number) const;
     std::shared_ptr<ModelNode> getNodeByName(const std::string &name) const;
     std::shared_ptr<ModelNode> getNodeByNameRecursive(const std::string &name) const;
-    std::shared_ptr<ModelNode> getAABBNode() const;
+    /** The model's AABB mesh node, found once when the model is made; none without one. */
+    std::shared_ptr<ModelNode> getAABBNode() const { return _aabbNode; }
 
     // END Nodes
 
@@ -70,6 +73,14 @@ public:
 
     std::vector<std::string> getAnimationNames() const;
     std::shared_ptr<Animation> getAnimation(const std::string &name) const;
+
+    /**
+     * The scale of the positions of \p animation, played by this model: the
+     * product of the animation scales of each model of the supermodel chain
+     * that comes before the model that owns it. An animation of this model
+     * plays unscaled. \p animation must belong to a model of the chain.
+     */
+    float animationScaleFor(const Animation &animation) const;
 
     const std::unordered_map<std::string, std::shared_ptr<Animation>> &animations() const {
         return _animations;
@@ -87,11 +98,13 @@ private:
     float _animationScale;
 
     AABB _aabb;
+    AABB _meshBox;
     bool _affectedByFog;
     std::shared_ptr<Model> _superModel;
 
     std::unordered_map<uint16_t, std::shared_ptr<ModelNode>> _nodeByNumber;
     std::unordered_map<std::string, std::shared_ptr<ModelNode>> _nodeByName;
+    std::shared_ptr<ModelNode> _aabbNode;
 
     void fillLookups(const std::shared_ptr<ModelNode> &node);
     void computeAABB();

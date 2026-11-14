@@ -366,6 +366,13 @@ Texture &PBRRenderPipeline::render(const FrameEffects &effects) {
                                  0, 0,
                                  FramebufferBlitFlags::depth);
 
+        // Blended model meshes write their depth first, so that what they
+        // cover stays hidden when they are blended
+        if (_passCallbacks.count(RenderPassName::BlendedGeometryDepth) > 0) {
+            _context.bindDrawFramebuffer(*_targets.fbTransparentGeometry, {});
+            _passCallbacks.at(RenderPassName::BlendedGeometryDepth)(pass);
+        }
+
         // Transparent geometry pass
         beginTransparentGeometryPass();
         if (_passCallbacks.count(RenderPassName::TransparentGeometry) > 0) {

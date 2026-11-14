@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
 #include "reone/input/event.h"
@@ -74,6 +76,14 @@ public:
         CenterBottom = 0x1000
     };
 
+    /** A direction the arrow keys move the keyboard in, from one control to another. */
+    enum class MoveDirection {
+        Up,
+        Left,
+        Down,
+        Right
+    };
+
     struct Extent {
         int left {0};
         int top {0};
@@ -93,6 +103,16 @@ public:
             Rotate180
         };
 
+        /** How the fill covers the area inside the frame, as FILLSTYLE authors it. */
+        enum class FillStyle {
+            /** Whole copies of the image, each stretched by a share of what is left over. */
+            Tile,
+            /** The image at its own size in the middle, squeezed only along an axis it overflows. */
+            Center,
+            /** The image stretched over the whole area. */
+            Stretch
+        };
+
         std::shared_ptr<graphics::Texture> corner;
         std::shared_ptr<graphics::Texture> edge;
         std::shared_ptr<graphics::Texture> fill;
@@ -103,6 +123,7 @@ public:
         /** How far the inner area sits inside the frame, as authored. */
         int innerOffset {0};
         FillTransform fillTransform {FillTransform::None};
+        FillStyle fillStyle {FillStyle::Stretch};
         /** While set, the corners and edges are drawn at the GUI's pulsing alpha instead of alpha. */
         bool pulseFrame {false};
         /** While set, the fill is drawn at the GUI's pulsing alpha instead of alpha. */
@@ -122,6 +143,8 @@ public:
          * alpha; deselecting the control stops the text's pulse.
          */
         bool hilightPulsing {false};
+        /** The colour of the text while the control is selected; without one, the hilight's. */
+        std::optional<glm::vec3> selectedColor;
     };
 
     static ControlType getType(const resource::generated::GUI_BASECONTROL &gui);
@@ -146,11 +169,19 @@ public:
 
     bool isVisible() const { return _visible; }
     bool isSelectable() const { return _selectable; }
+    /** Whether pointing at the control selects it; one that isn't is selected only by its screen. */
+    bool isSelectedOnHover() const { return _selectedOnHover; }
     bool isSelected() const { return _selected; }
     bool isDisabled() const { return _disabled; }
+    /** Whether the control takes the keyboard when the pointer comes onto it. */
+    bool isNavigable() const { return _navigable; }
     bool isHilightOverBorder() const { return _hilightOverBorder; }
 
     int id() const { return _id; }
+    /** The kind of control this is. */
+    ControlType type() const { return _type; }
+    /** The ID of the control the arrow key of \p direction moves the keyboard to from this one. */
+    int moveTo(MoveDirection direction) const { return _moveTo[static_cast<size_t>(direction)]; }
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
     const Extent &authoredExtent() const { return _authoredExtent; }
@@ -167,6 +198,10 @@ public:
     /** Applies independent frame and text layout scales without changing the control's rectangle. */
     virtual void setPresentationScale(float frameLayoutScale, float textLayoutScale);
     const Extent &extent() const { return _extent; }
+    /** The area the borders are drawn over: the whole extent, unless the control lays them out apart from its text. */
+    virtual Extent borderExtent() const { return _extent; }
+    /** The area the text is laid out in: the whole extent, unless the control lays it out apart from its borders. */
+    virtual Extent textExtent() const { return _extent; }
     const Border &hilight() const { return *_hilight; }
     const std::string &borderFillResRef() const { return _borderFillResRef; }
     const std::string &hilightFillResRef() const { return _hilightFillResRef; }
@@ -186,13 +221,22 @@ public:
     void setBorderAlpha(float alpha);
     void setBorderColorOverride(glm::vec3 color);
     void setDisabled(bool disabled);
+    /** Sets whether the control takes the keyboard when the pointer comes onto it. */
+    void setNavigable(bool navigable) { _navigable = navigable; }
+    /** Sets the ID of the control the arrow key of \p direction moves the keyboard to from this one. */
+    void setMoveTo(MoveDirection direction, int id) { _moveTo[static_cast<size_t>(direction)] = id; }
+    /** Puts back the links the layout gave the control, undoing setMoveTo. */
+    void restoreLayoutMoves() { _moveTo = _layoutMoveTo; }
     virtual void setExtent(Extent extent);
     virtual void setExtentHeight(int height);
     void setExtentTop(int top);
     virtual void setSelected(bool selected);
     void setSelectable(bool selectable);
+    /** Sets whether pointing at the control selects it. */
+    void setSelectedOnHover(bool selectedOnHover) { _selectedOnHover = selectedOnHover; }
     void setHeight(int height);
     void setHilight(Border hilight);
+    /** The hilight and the text take \p color while the control is selected. */
     void setHilightColor(glm::vec3 color);
     void setHilightFill(std::string resRef);
     void setHilightFill(std::shared_ptr<graphics::Texture> texture);
@@ -203,6 +247,8 @@ public:
     void setText(Text text);
     void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
+    /** The text alone takes \p color while the control is selected. */
+    void setSelectedTextColor(glm::vec3 color) { _text.selectedColor = color; }
     /** Sets whether the text is drawn at the GUI's pulsing alpha. */
     void setTextPulsing(bool pulsing) { _text.pulsing = pulsing; }
     /** The hilight's frame and fill pulse, as chosen; a control without a hilight is left alone. */
@@ -213,9 +259,10 @@ public:
     void setTextFont(std::shared_ptr<graphics::Font> font);
     void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
     int textPaddingLeft() const;
-    void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
+    bool usesBorderColorOverride() const { return _useBorderColorOverride; }
+    const glm::vec3 &borderColorOverride() const { return _borderColorOverride; }
     void setVisible(bool visible);
 
     void setTextLines(std::vector<std::string> lines) {
@@ -267,6 +314,8 @@ protected:
     Extent _authoredExtent;
     int _authoredBorderDimension {0};
     int _authoredHilightDimension {0};
+    /** How many screen pixels each authored pixel of the frame and fill covers. */
+    float _frameLayoutScale {1.0f};
     float _scale {1.0f};
     Extent _extent;
     std::shared_ptr<Border> _border;
@@ -283,8 +332,15 @@ protected:
     bool _selectable {false};
     /** Whether this control is a list's prototype, drawn once for each row. */
     bool _isProtoItem {false};
-    bool _tintBorderFill {false};
+    bool _selectedOnHover {true};
+    bool _navigable {false};
+    /** By MoveDirection, the IDs of the controls the arrow keys move the keyboard to. */
+    std::array<int, 4> _moveTo {};
+    /** The links as the layout gave them. */
+    std::array<int, 4> _layoutMoveTo {};
     bool _sharpenBorderFillAlpha {false};
+    /** Seconds the control has been updated while shown, which runs its fills that cycle through frames. */
+    float _textureTime {0.0f};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};
     std::vector<std::string> _textLines;

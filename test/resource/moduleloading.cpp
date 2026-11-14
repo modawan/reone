@@ -540,6 +540,64 @@ TEST_P(K2ModuleLoadingTest, includes_a_module_the_save_table_does_not_mention) {
     EXPECT_EQ("staged archive", find("state"));
 }
 
+TEST_P(K2ModuleLoadingTest, reads_each_module_save_rule_from_the_save_table) {
+    TmpDir game("reone_test_k2_save_rules");
+    TmpDir cwd("reone_test_k2_save_rules_cwd");
+    makeInstallation(game, cwd);
+
+    // Shaped as the shipped tables are, values in any case, with empty cells.
+    std::shared_ptr<TwoDA> table = TwoDA::Builder()
+                     .columns({"modulename", "includeinsave", "autosaveonenter",
+                               "areaname", "savegroup", "deletesavegrouponenter"})
+                     .row("forced", {"forced", "1", "force", "", "2", ""})
+                     .row("never", {"never", "0", "NO", "", "", ""})
+                     .row("enabled", {"enabled", "1", "Yes", "", "2", "3"})
+                     .row("other", {"other", "1", "later", "", "3", ""})
+                     .row("blank", {"blank", "", "", "", "", ""})
+                     .row("Upper", {"UPPER", "1", "yes", "", "3", ""})
+                     .build();
+    EXPECT_CALL(_twoDas, get("modulesave")).WillRepeatedly(Return(table));
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    auto forced = director->moduleSaveRules("forced");
+    EXPECT_TRUE(forced.includeInSave);
+    EXPECT_EQ(ModuleAutosave::Always, forced.autosaveOnEnter);
+    EXPECT_FALSE(forced.deleteSaveGroupOnEnter);
+
+    auto never = director->moduleSaveRules("never");
+    EXPECT_FALSE(never.includeInSave);
+    EXPECT_EQ(ModuleAutosave::Never, never.autosaveOnEnter);
+
+    auto enabled = director->moduleSaveRules("enabled");
+    EXPECT_EQ(ModuleAutosave::WhenEnabledAndDue, enabled.autosaveOnEnter);
+    EXPECT_EQ(std::optional<int>(3), enabled.deleteSaveGroupOnEnter);
+
+    EXPECT_EQ(ModuleAutosave::WhenDue, director->moduleSaveRules("other").autosaveOnEnter);
+
+    // A row with no values, and a module the table does not list, are saved
+    // and autosave on every entry.
+    for (const auto &module : {"blank", "absent"}) {
+        SCOPED_TRACE(module);
+        auto rules = director->moduleSaveRules(module);
+        EXPECT_TRUE(rules.includeInSave);
+        EXPECT_EQ(ModuleAutosave::Always, rules.autosaveOnEnter);
+        EXPECT_FALSE(rules.deleteSaveGroupOnEnter);
+    }
+
+    // A module is found by its row label in any case.
+    EXPECT_FALSE(director->moduleSaveRules("NEVER").includeInSave);
+
+    // A save group lists its modules by name, in lower case.
+    EXPECT_EQ((std::vector<std::string> {"forced", "enabled"}), director->saveGroupModules(2));
+    EXPECT_EQ((std::vector<std::string> {"other", "upper"}), director->saveGroupModules(3));
+    EXPECT_TRUE(director->saveGroupModules(5).empty());
+}
+
 // Module names.
 
 TEST_P(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {

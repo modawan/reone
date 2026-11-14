@@ -17,7 +17,11 @@
 
 #pragma once
 
+#include <array>
+#include <bitset>
 #include <limits>
+#include <optional>
+#include <set>
 
 #include "reone/audio/clip.h"
 #include "reone/audio/source.h"
@@ -50,8 +54,11 @@ public:
     static constexpr int kGauntletsItemType = 19;
     static constexpr int kForearmBandsItemType = 20;
     static constexpr int kCreditsItemType = 23;
+    static constexpr int kDatapadItemType = 24;
     static constexpr int kStimItemType = 25;
     static constexpr int kDroidRepairItemType = 26;
+    /** Security spikes, which add to an unlock and offer themselves on a locked object's menu. */
+    static constexpr int kSecuritySpikeItemType = 27;
     static constexpr int kTrapKitItemType = 28;
     /** Body armour of armour classes 4 to 9, the first of six item types. */
     static constexpr int kArmorClass4ItemType = 31;
@@ -60,6 +67,7 @@ public:
     static constexpr int kLastBodyItemType = 38;
     /** Double-bladed, short and ordinary lightsabers, the first of three item types. */
     static constexpr int kDoubleLightsaberItemType = 39;
+    static constexpr int kShortLightsaberItemType = 40;
     static constexpr int kLightsaberItemType = 41;
     static constexpr int kPazaakCardItemType = 42;
     static constexpr int kPazaakSideboardItemType = 43;
@@ -70,6 +78,12 @@ public:
     static constexpr int kRocketItemType = 49;
     static constexpr int kChemicalsItemType = 50;
     static constexpr int kComponentsItemType = 51;
+
+    /** The local boolean set on a datapad once its text has been shown, or once it is taken without being shown. */
+    static constexpr int kDatapadShownBoolean = 94;
+
+    /** The baseitems.2da model type of an item drawn as its wearer's body model. */
+    static constexpr int kBodyModelType = 1;
 
     /**
      * Activate Item cost values (iprp_chargecost.2da): how a cast-spell
@@ -89,6 +103,18 @@ public:
 
     /** The template of a stack of credits. */
     static constexpr char kCreditsResRef[] = "g_i_credits001";
+
+    /** TSL: the upgrade slots of an item. */
+    static constexpr int kUpgradeSlotCount = 6;
+    /** TSL: the upgrade.2da row an empty upgrade slot is saved with. */
+    static constexpr int kSavedEmptyUpgradeSlot = -1;
+    /**
+     * The upgrade.2da rows an item can have installed, 0 to 254: a property's
+     * upgrade type is a byte whose 255 keys it to no upgrade.
+     */
+    static constexpr int kUpgradeRowCount = 255;
+    /** The installed rows a record's Upgrades field holds, one bit each: rows 0 to 31. */
+    static constexpr int kRecordedUpgradeBits = 32;
 
     /** Who a base item is limited to (baseitems.2da DroidOrHuman). */
     enum class DroidOrHuman {
@@ -113,6 +139,8 @@ public:
         static constexpr uint8_t kNoUpgrade = 0xff;
         /** The saved uses per day of a property that records none. */
         static constexpr int kUnrecordedUsesPerDay = 255;
+        /** TSL: the upgrade mark of a property no upgrade added. */
+        static constexpr uint16_t kNoUpgradeMark = 0xff;
 
         uint8_t chanceAppear {0};
         uint8_t costTable {0};
@@ -122,6 +150,11 @@ public:
         uint16_t propertyName {0};
         uint16_t subtype {0};
         uint8_t upgradeType {kNoUpgrade};
+        /**
+         * TSL: the slot plus one of the upgrade that added the property. Any
+         * other value names no slot, and is kept and saved as it was read.
+         */
+        uint16_t upgradeMark {kNoUpgradeMark};
         /** The uses left today of a property used so many times a day; none when not recorded. */
         std::optional<int> usesPerDay;
         bool usable {true};
@@ -132,7 +165,12 @@ public:
         uint32_t usedDay {0};
         uint32_t usedTime {0};
 
+        /** TSL: the upgrade mark of a property the upgrade in \p slot adds. */
+        static uint16_t markOfSlot(int slot) { return static_cast<uint16_t>(slot + 1); }
+
         ItemProperty type() const { return static_cast<ItemProperty>(propertyName); }
+        /** TSL: whether the upgrade in \p slot added the property. */
+        bool addedBySlot(int slot) const { return upgradeMark == markOfSlot(slot); }
     };
 
     Item(
@@ -151,7 +189,14 @@ public:
         return from->type() == ObjectType::Item;
     }
 
-    void loadFromBlueprint(const std::string &resRef);
+    /** Reads the item's template; false when there is none. */
+    bool loadFromBlueprint(const std::string &resRef);
+    /**
+     * Makes a new item whose template is missing what such an item is: base
+     * item 30 in model variation 1 with 50 charges, droppable, its tag, name
+     * and cost left empty.
+     */
+    void loadBlank();
     /**
      * Reads a saved item record whole. Any other entry that names a template
      * (see entryTemplate) is that template with the entry's Dropable flag,
@@ -164,7 +209,17 @@ public:
     static std::optional<std::string> entryTemplate(const resource::Gff &entry);
     /** Whether an entry names a template that does not exist; such an entry makes no item. */
     static bool namesMissingTemplate(const resource::Gff &entry, resource::IGffs &gffs);
+    /**
+     * Takes another item's tag, name and item state. The plot flag and the
+     * stolen mark are not taken: a copy starts as not plot and not stolen,
+     * dropable and pickpocketable.
+     */
     void clone(const Item &from);
+    /**
+     * Takes the plot flag and the stolen, dropable and pickpocketable marks
+     * of the stack this item was split off, which a copy doesn't take.
+     */
+    void keepMarksOf(const Item &stack);
 
     void update(float dt) override;
 
@@ -173,15 +228,34 @@ public:
     /**
      * Powers the item up or down at \p position. The power-up and power-down
      * sounds play only with the \p transition; the item's lit state and its
-     * hum change either way.
+     * hum change either way. An item the player cannot hear (\p audible
+     * false) plays no power sound and starts no hum.
      */
-    void powerUp(glm::vec3 position, bool transition);
-    void powerDown(glm::vec3 position, bool transition);
+    void powerUp(glm::vec3 position, bool transition, bool audible);
+    void powerDown(glm::vec3 position, bool transition, bool audible);
+    /** Starts the hum of a powered item at \p position, unless it is humming already. */
+    void startPoweredSound(glm::vec3 position);
+    /**
+     * Plays the sound of the item put down, picked up or taken off: the
+     * inventorysnds.2da row its base item's inventory sound type names, heard
+     * everywhere in the GUI's group.
+     */
+    void playDropSound() const;
+    /** Stops the hum; the item stays powered. */
+    void stopPoweredSound();
     void updatePoweredSoundPosition(glm::vec3 position);
     bool isPowered() const { return _isPowered; }
+    /**
+     * The item's model, named by its class and model variation. A base item
+     * whose models differ by gender also names the given gender letter
+     * between the two; without a letter, no gender is named. The name is
+     * cut to the length of a resource name.
+     */
+    std::string modelResRef(std::optional<char> genderLetter = std::nullopt) const;
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
+    /** Whether another item of a stack joins this one: a stackable item identical to it. */
     bool isStackCompatibleWith(const Item &other) const;
     /**
      * Whether \p other is the same item: base item, tag, name, plot flag,
@@ -192,6 +266,10 @@ public:
     bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemType == kCreditsItemType; }
     bool isDropable() const { return _dropable; }
+    /** Whether the item may be picked from its holder's pocket. */
+    bool isPickpocketable() const { return _pickpocketable; }
+    /** Whether the base item is drawn as its wearer's body model. */
+    bool isBodyModel() const { return _modelType == kBodyModelType; }
     /** Scripts can mark an item as never equippable. */
     bool isNonEquippable() const { return _nonEquippable; }
     void setNonEquippable(bool nonEquippable) { _nonEquippable = nonEquippable; }
@@ -202,6 +280,9 @@ public:
     /** Bit per subrace that cannot equip the base item. */
     uint32_t deniedSubraces() const { return _deniedSubraces; }
     bool isIdentified() const { return _identified; }
+    /** The party took the item in and has not yet looked at it in the inventory. */
+    bool isNewlyAcquired() const { return _newlyAcquired; }
+    void setNewlyAcquired(bool newlyAcquired) { _newlyAcquired = newlyAcquired; }
     bool isEquipped() const { return _equipped; }
     bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
     /** Whether the base item is a ranged weapon (baseitems.2da RangedWeapon). */
@@ -209,10 +290,20 @@ public:
     /** A mine kit: a trap-kit base item carrying a usable Trap property. */
     bool isMineKit() const;
 
-    const std::string &baseBodyVariation() const { return _baseBodyVariation; }
+    /**
+     * The body variation of the base item, 0 for the first (A): a single
+     * upper-case letter names one, KotOR's from A to J and TSL's from A to Z,
+     * and anything else, a blank cell included, names the first.
+     */
+    int baseBodyVariation() const { return _baseBodyVariation; }
     const std::string &itemClass() const { return _itemClass; }
     const std::string &localizedName() const { return _localizedName.str(); }
     float attackRange() const { return _attackRange; }
+    /**
+     * The body variation the item gives its wearer's body model, counted from
+     * 1 for the first (A): its base item's for an item drawn as its wearer's
+     * body model, and 0 for any other.
+     */
     int bodyVariation() const { return _bodyVariation; }
     /** The base item's row of weapon sounds. */
     int weaponMaterialType() const { return _weaponMaterialType; }
@@ -222,6 +313,8 @@ public:
     int damageFlags() const { return _damageFlags; }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
+    /** Whether the base item plays its powered animation. */
+    bool isPoweredItem() const { return _poweredItem; }
     int numDice() const { return _numDice; }
     /** The dice of the first Monster Damage property as {count, sides}; {0, 0} without one. */
     std::pair<int, int> monsterDamageDice() const;
@@ -241,8 +334,23 @@ public:
     const std::string &description() const { return _description.str(); }
     const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
-    /** The item's value: none for a plot item, else its added cost scaled by its base item, at least 1. */
+    /**
+     * The item's value: none when it is plot, else its added
+     * cost, a signed number, scaled by its base item and held within an int,
+     * and 1 when that is 0 or 1. KotOR raises a negative cost to 0; TSL keeps
+     * it negative.
+     */
     int cost(float baseCostMultiplier) const;
+    /**
+     * TSL: what the item is worth in components at a workbench: a twentieth
+     * of its cost, and 1 below a cost of 20.
+     */
+    int componentValue(float baseCostMultiplier) const;
+    /**
+     * TSL: what the item is worth in chemicals at a lab station: half its
+     * cost, and 1 below a cost of 2.
+     */
+    int chemicalValue(float baseCostMultiplier) const;
     int itemType() const { return _itemType; }
     /** Where the base item is sorted among the store's and inventory's lists (baseitems.2da StorePanelSort). */
     int storePanelSort() const { return _storePanelSort; }
@@ -255,7 +363,7 @@ public:
      * The armour class that limits its wearer's Dexterity: the base armour
      * class of an item drawn as the wearer's body model, else none.
      */
-    int bodyArmorClass() const { return _bodyModel ? _baseDefense : 0; }
+    int bodyArmorClass() const { return isBodyModel() ? _baseDefense : 0; }
     int maxDexterityBonus() const { return _maxDexterityBonus; }
     /** TSL: the sum of the cost values of the Max Dexterity Bonus properties in force; zero in KotOR. */
     int maxDexterityBonusAdjustment() const;
@@ -300,10 +408,12 @@ public:
     /** The On Hit properties in force, each with its save, chance and duration. */
     std::vector<ItemOnHitProperty> itemOnHitProperties() const;
 
-    /** Whether the item's upgrades leave the property in force. */
+    /**
+     * Whether the item's upgrades leave the property in force: one keyed to no
+     * upgrade always is, and one keyed to an upgrade.2da row while that row is
+     * installed.
+     */
     bool isPropertyActive(const PropertyEntry &property) const;
-    /** Whether \p upgrades leave a property of \p upgradeType in force. */
-    static bool isPropertyActive(uint32_t upgrades, int upgradeType);
 
     /** Codes 2 to 6: the property costs charges a use. */
     static constexpr bool isChargedUse(int costValue) {
@@ -329,7 +439,33 @@ public:
      * a bonus tied to an upgrade that is not installed is left out.
      */
     int armorValue(bool installedUpgradesOnly) const;
-    uint32_t upgrades() const { return _upgrades; }
+    /** The installed upgrade.2da rows, one bit each. */
+    const std::bitset<kUpgradeRowCount> &upgrades() const { return _upgrades; }
+    /** KotOR: installs or removes an upgrade.2da row; a row past the rows an item can have does nothing. */
+    void setUpgradeInstalled(int row, bool installed);
+    /** Whether an upgrade.2da row is installed. */
+    bool isUpgradeInstalled(int row) const { return row >= 0 && row < kUpgradeRowCount && _upgrades.test(static_cast<size_t>(row)); }
+    /** Replaces the installed rows with another item's. */
+    void setUpgrades(const std::bitset<kUpgradeRowCount> &upgrades) { _upgrades = upgrades; }
+    /** TSL: the item's upgrade level. */
+    int upgradeLevel() const { return _upgradeLevel; }
+    /** TSL: the upgrade.2da row installed in each of the item's slots; none when a slot is empty. */
+    const std::array<std::optional<int>, kUpgradeSlotCount> &upgradeSlots() const { return _upgradeSlots; }
+    /** TSL: installs an upgrade.2da row in a slot, or empties the slot. */
+    void setUpgradeSlot(int slot, std::optional<int> row) { _upgradeSlots[slot] = row; }
+    /**
+     * TSL: the upgrade's properties, apart from its use properties, are added
+     * to the item, marked as the slot's.
+     */
+    void addUpgrade(const Item &upgrade, int slot);
+    /** TSL: takes off the properties the upgrade in \p slot added, and no others. */
+    void removeUpgrade(int slot);
+    /** Whether the item is marked stolen. */
+    bool stolen() const { return _stolen; }
+    /** Marks the item stolen or not. */
+    void setStolen(bool stolen) { _stolen = stolen; }
+    /** TSL: whether any of the item's slots holds an upgrade. */
+    bool hasInstalledUpgrade() const;
 
     /** Latches set by applying an item property, which removing it does not clear. */
     void enableSniperBonus() { _sniperBonus = true; }
@@ -347,15 +483,114 @@ public:
     int disguiseAppearance() const { return _disguiseAppearance; }
 
     void setDropable(bool dropable);
+    /** Marks the item as one that may be picked from its holder's pocket, or not. */
+    void setPickpocketable(bool pickpocketable) { _pickpocketable = pickpocketable; }
     void setStackSize(int size);
     void setIdentified(bool value);
+    /** Whether a store holds the item without end: a stack that never runs out. */
+    bool isInfinite() const { return _infinite; }
+    void setInfinite(bool infinite) { _infinite = infinite; }
     void setEquipped(bool equipped);
 
     uint32_t owner() const { return _ownerId; }
     /** Whether a creature or a container holds the item. */
     bool isHeld() const { return _ownerId != script::kObjectInvalid; }
-    void setOwner(uint32_t id) { _ownerId = id; }
-    void clearOwner() { _ownerId = script::kObjectInvalid; }
+    /**
+     * The object possessing the item: in the party's shared inventory, the
+     * creature possessing it there; otherwise its holder. Invalid when nothing
+     * holds it.
+     */
+    uint32_t possessorId() const;
+    /** The object possessing the item; none when nothing holds it. */
+    std::shared_ptr<Object> possessor() const;
+    /**
+     * Gives the item to a holder: a creature, a container, or an item holding
+     * it. An item coming to the party's shared inventory, kept on the player
+     * character, is possessed there by the creature in control. When the
+     * creature at the top, the one possessing the item or the item that holds
+     * it, is a player character and was not at the item's top before, the
+     * item becomes dropable and pickpocketable. An item with no holder is
+     * compared with the one possessing it when it last left a holder, so an
+     * item moving within one creature's belongings is not marked again.
+     */
+    void setOwner(const Object &holder);
+    /**
+     * Gives the item back to the holder a save records it with, as setOwner
+     * does, its dropable and pickpocketable marks staying as they were read.
+     */
+    void restoreOwner(const Object &holder);
+    /**
+     * Takes the item again for the creature now in control: one in the shared
+     * inventory comes to be possessed by that creature, and one worn stays
+     * with its wearer. The item becomes dropable and pickpocketable when the
+     * creature at its top is a player character other than \p previousTop.
+     *
+     * @param previousTop the creature at the item's top before, none when the
+     *                    item had none
+     */
+    void retakeForTop(const std::shared_ptr<Creature> &previousTop);
+    /** Takes the item from its holder, which is remembered until the item is given to another. */
+    void clearOwner() {
+        _releasedFrom = _ownerId;
+        _ownerId = script::kObjectInvalid;
+    }
+    /**
+     * Announces that the item has passed to a possessor: a creature, a
+     * placeable, or an item holding it. A creature coming to possess an item
+     * in the shared inventory possesses it there from then on; the item
+     * becomes dropable and pickpocketable when that creature is a player
+     * character and was not at the item's top before. The module's
+     * acquisition event names the creature at the top, the possessor or the
+     * one possessing the item that is the possessor, when there is one. That
+     * creature, when it leads the party and was not at the item's top before,
+     * is told it gained the item. With the events, a placeable the item left
+     * and a placeable it came to, unless destroyed once empty, have their
+     * inventory disturbed (removed, added), each by the creature at the top on
+     * the other side or else by the other placeable, and not without either;
+     * a placeable taking back an item it held is disturbed both ways.
+     *
+     * @param previousPossessor the object possessing the item before, invalid when none
+     * @param possessor the object possessing it now
+     * @param events whether the module's acquisition event and the disturbed
+     *               events are posted
+     * @param feedback whether the gain is told
+     */
+    void announceAcquisition(uint32_t previousPossessor, const Object &possessor, bool events, bool feedback);
+    /**
+     * Announces to the module that the item's possessor has acquired it
+     * again, as it does whenever an item passes to the object already
+     * possessing it.
+     */
+    void announceKept();
+    /**
+     * Passes the item to a possessor: when it already possesses the item, the
+     * item is announced kept, with the events; otherwise its acquisition is announced, from
+     * the item's possessor before, after the loss of the creature at its top
+     * before, when another is at its top now.
+     *
+     * @param events whether the module's lost, acquisition and disturbed
+     *               events are posted
+     * @param feedback whether the loss and the gain are told
+     */
+    void passTo(const Object &possessor, bool events, bool feedback);
+    /**
+     * Announces that the item, which has left its holder, is possessed by no
+     * one: when a creature was at its top, the module's lost event, and that
+     * creature, when it leads the party, is told it lost the item. The item
+     * forgets the one possessing it, so whoever takes it next takes it anew.
+     *
+     * @param feedback whether the loss is told
+     */
+    void announceLoss(bool feedback);
+    /**
+     * Announces the loss of this copy, split off \p stack, by the one
+     * possessing the stack, as announceLoss does for an item that leaves it.
+     *
+     * @param feedback whether the loss is told
+     */
+    void announceSplitLoss(const Item &stack, bool feedback);
+    /** Whether the item is in the party's shared inventory. */
+    bool inSharedInventory() const { return isHeld() && _sharedPossessorId != script::kObjectInvalid; }
 
 private:
     friend class ModuleSnapshotBuilder;
@@ -370,16 +605,36 @@ private:
     uint32_t _addCost {0};
     bool _stolen {false};
     uint16_t _stackSize {1};
-    uint32_t _upgrades {0};
+    /** The installed upgrade.2da rows, each row its own bit. */
+    std::bitset<kUpgradeRowCount> _upgrades;
+    /**
+     * TSL: the item's upgrade level. An item at level 0 takes no upgrades; an
+     * upgrade fits an item whose level is at least its own.
+     */
+    int _upgradeLevel {0};
+    /** TSL: the upgrade.2da row installed in each of the item's slots; none when a slot is empty. */
+    std::array<std::optional<int>, kUpgradeSlotCount> _upgradeSlots {};
     bool _identified {true};
+    bool _infinite {false};
     uint8_t _modelVariation {0};
     uint8_t _bodyVariation {0};
     uint8_t _textureVariation {0};
-    bool _dropable {false};
+    /** A new item is dropable and pickpocketable, a copy included. */
+    bool _dropable {true};
+    bool _pickpocketable {true};
     bool _nonEquippable {false};
+    bool _newlyAcquired {false};
     // END Serializable
 
     uint32_t _ownerId {script::kObjectInvalid};
+    /** The holder the item last left, while it has none; a holder it next comes to is compared with it. */
+    uint32_t _releasedFrom {script::kObjectInvalid};
+    /**
+     * The creature possessing the item while the party's shared inventory
+     * holds it, kept when the item leaves until it comes to another holder;
+     * invalid otherwise.
+     */
+    uint32_t _sharedPossessorId {script::kObjectInvalid};
 
     std::vector<FeatType> _requiredFeats;
     DroidOrHuman _droidOrHuman {DroidOrHuman::Anyone};
@@ -390,7 +645,8 @@ private:
     // fallback preserves behavior for incomplete custom/test tables.
     uint16_t _maxStackSize {std::numeric_limits<uint16_t>::max()};
 
-    std::string _baseBodyVariation;
+    /** The base item's body variation, read when the base item loads; 0 for the first. */
+    int _baseBodyVariation {0};
     std::string _itemClass;
 
     std::shared_ptr<graphics::Texture> _icon;
@@ -415,6 +671,8 @@ private:
     bool _doorSabering {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;
     bool _poweredItem {false};
+    /** The base item's models differ by gender. */
+    bool _genderSpecific {false};
     bool _isPowered {false};
     std::shared_ptr<audio::AudioClip> _powerUpSound;
     std::shared_ptr<audio::AudioClip> _powerDownSound;
@@ -426,8 +684,8 @@ private:
     FeatType _weaponFocusFeat {FeatType::Invalid};
     FeatType _weaponSpecializationFeat {FeatType::Invalid};
     int _baseDefense {0};
-    /** The base item is drawn as the wearer's body model. */
-    bool _bodyModel {false};
+    /** The base item's baseitems.2da model type. */
+    int _modelType {0};
     int _maxDexterityBonus {-1};
     ACBonus _acBonusType {ACBonus::Invalid};
 
@@ -440,6 +698,17 @@ private:
 
     /** Whether a property used once in so many minutes may be used again. */
     bool isUseIntervalOver(const PropertyEntry &property) const;
+    /**
+     * Marks the item dropable and pickpocketable when the creature at its top,
+     * the one possessing it or \p holder, the item holding it, is a player
+     * character other than \p previousTop.
+     */
+    void markForTop(const Object &holder, const std::shared_ptr<Creature> &previousTop);
+    /**
+     * Tells the module, with the events, that \p previousTop lost the item,
+     * and the creature, with the feedback, when it leads the party.
+     */
+    void reportLoss(const std::shared_ptr<Creature> &previousTop, bool events, bool feedback);
 
     // Blueprint
     /**
@@ -453,6 +722,13 @@ private:
         bool completeRecord);
     void deserializeProperties(const resource::Gff &gff);
     void deserializeBase(const resource::Gff &gff);
+    /** Reads the base item's row of baseitems.2da. */
+    void loadBaseItem();
+    /**
+     * Loads the inventory icon: a base item with a model type takes the one
+     * of its texture variation, any other the one of its model variation.
+     */
+    void loadIcon();
     void loadAmmunitionType();
     // END Blueprint
 };

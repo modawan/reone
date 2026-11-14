@@ -142,6 +142,12 @@ public:
     void prewarmEmitters();
 
     bool isPickable() const { return _pickable; }
+    /**
+     * Whether a camera passes through the model whatever it is classified
+     * as: an open door's, or a placeable's whose appearance is not hit
+     * checked.
+     */
+    bool cameraPassesThrough() const { return _cameraPassesThrough; }
 
     ModelNodeSceneNode *getNodeByNumber(uint16_t number);
     ModelNodeSceneNode *getNodeByName(const std::string &name);
@@ -153,6 +159,19 @@ public:
      * models are not tested.
      */
     std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const;
+    /**
+     * Where the segment first meets one of the shown models attached to this
+     * one that take scene hits, and theirs in turn, as intersectSegment gives
+     * it; the model attached at \p skipped, when given, left out.
+     */
+    std::optional<float> intersectAttachments(const glm::vec3 &from, const glm::vec3 &to, const std::string &skipped = "") const;
+    /**
+     * Whether a scene hit test, a camera's or a conversation shot's, can meet
+     * the model: not one classified as an effect or a tile or excluded from
+     * scene hits, nor one that stands in every room, nor one faded to a
+     * quarter or less.
+     */
+    bool takesSceneHits() const;
 
     const graphics::Model &model() const { return *_model; }
     ModelUsage usage() const { return _usage; }
@@ -173,6 +192,7 @@ public:
     const std::shared_ptr<graphics::Texture> &bumpedOutShellTexture() const { return _bumpedOutShellTexture; }
     float bumpedOutShellOffset() const { return _bumpedOutShellOffset; }
     void setPickable(bool pickable) { _pickable = pickable; }
+    void setCameraPassesThrough(bool passes) { _cameraPassesThrough = passes; }
     void setAnimationEventListener(IAnimationEventListener &listener) { _animEventListener = &listener; }
     /** Stops sending animation events to the listener. */
     void clearAnimationEventListener() { _animEventListener = nullptr; }
@@ -245,6 +265,8 @@ public:
     // Attachments
 
     void attach(const std::string &parentName, SceneNode &node);
+    /** Takes the node off the part it is attached to; a node not attached to this model stays where it is. */
+    void detach(SceneNode &node);
 
     SceneNode *getAttachment(const std::string &parentName);
 
@@ -338,6 +360,7 @@ private:
     // Flags
 
     bool _pickable {false};
+    bool _cameraPassesThrough {false};
     std::shared_ptr<graphics::Texture> _bumpedOutShellTexture;
     float _bumpedOutShellOffset {0.0f};
 
@@ -357,7 +380,7 @@ private:
     void updateAnimations(float dt);
     void updateAnimationChannel(AnimationChannel &channel, float dt);
     void rearmSingleEmitters(const std::string &animationRoot);
-    void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode);
+    void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode, const graphics::ModelNode &animNode);
     void applyAnimationStates(const graphics::ModelNode &modelNode, size_t layers);
 
     static AnimationBlendMode getAnimationBlendMode(int flags);
