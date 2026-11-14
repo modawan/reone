@@ -424,9 +424,8 @@ TEST(SaveWorkingStateCandidateTest, erf_writer_consumes_a_borrowed_candidate_vie
     auto archive = writer.toBytes(ErfWriter::FileType::MOD);
 
     EXPECT_EQ(1, reads);
-    ErfResourceContainer container(Storage(std::move(archive)));
-    container.init();
-    auto packaged = container.findResourceData(sourceId);
+    auto container = openErf(std::move(archive));
+    auto packaged = container->findResourceData(sourceId);
     ASSERT_TRUE(packaged);
     EXPECT_EQ(bytes("borrowed bytes"), *packaged);
 }

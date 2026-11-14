@@ -18,8 +18,7 @@
 #include "guis.h"
 
 #include "reone/gui/types.h"
-#include "reone/resource/container/folder.h"
-#include "reone/resource/container/keybif.h"
+#include "reone/resource/container.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/fileoutput.h"
@@ -215,18 +214,16 @@ void generateGuis(const std::filesystem::path &k1dir,
     std::set<std::string> guiResRefs;
 
     auto k1KeyPath = getFileIgnoreCase(k1dir, "chitin.key");
-    auto k1KeyBifProvider = KeyBifResourceContainer(k1KeyPath);
-    k1KeyBifProvider.init();
-    for (auto &resId : k1KeyBifProvider.resourceIds()) {
+    auto k1KeyBifProvider = openKeyBif(k1KeyPath);
+    for (auto &resId : k1KeyBifProvider->resourceIds()) {
         if (resId.type == ResType::Gui) {
             guiResRefs.insert(resId.resRef.value());
         }
     }
 
     auto k2KeyPath = getFileIgnoreCase(k2dir, "chitin.key");
-    auto k2KeyBifProvider = KeyBifResourceContainer(k2KeyPath);
-    k2KeyBifProvider.init();
-    for (auto &resId : k2KeyBifProvider.resourceIds()) {
+    auto k2KeyBifProvider = openKeyBif(k2KeyPath);
+    for (auto &resId : k2KeyBifProvider->resourceIds()) {
         if (resId.type != ResType::Gui) {
             continue;
         }
@@ -238,9 +235,8 @@ void generateGuis(const std::filesystem::path &k1dir,
     }
 
     auto k2OverridePath = getFileIgnoreCase(k2dir, "override");
-    auto k2OverrideFolder = FolderResourceContainer(k2OverridePath);
-    k2OverrideFolder.init();
-    for (auto &resId : k2OverrideFolder.resourceIds()) {
+    auto k2OverrideFolder = openFolder(k2OverridePath);
+    for (auto &resId : k2OverrideFolder->resourceIds()) {
         if (resId.type != ResType::Gui) {
             continue;
         }
@@ -251,8 +247,8 @@ void generateGuis(const std::filesystem::path &k1dir,
         guiResRefs.insert(std::move(strippedResRef));
     }
 
-    auto k1Providers = std::vector<IResourceContainer *> {&k1KeyBifProvider};
-    auto k2Providers = std::vector<IResourceContainer *> {&k2OverrideFolder, &k2KeyBifProvider};
+    auto k1Providers = std::vector<IResourceContainer *> {k1KeyBifProvider.get()};
+    auto k2Providers = std::vector<IResourceContainer *> {k2OverrideFolder.get(), k2KeyBifProvider.get()};
     for (auto &resRef : guiResRefs) {
         std::unique_ptr<ParsedGUI> k1Gui;
         for (auto &provider : k1Providers) {
