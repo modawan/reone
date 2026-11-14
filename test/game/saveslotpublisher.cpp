@@ -227,11 +227,10 @@ struct PreparedSave {
 
         module.target = {"module_b", ResType::Sav};
         module.archiveBytes = moduleBytes("area_b", 20, 31, "new-active");
-        ErfResourceContainer archive {Storage(ByteBuffer(module.archiveBytes))};
-        archive.init();
-        module.ifoBytes = *archive.findResourceData({"module", ResType::Ifo});
-        module.areBytes = *archive.findResourceData({"area_b", ResType::Are});
-        module.gitBytes = *archive.findResourceData({"area_b", ResType::Git});
+        auto archive = openErf(ByteBuffer(module.archiveBytes));
+        module.ifoBytes = *archive->findResourceData({"module", ResType::Ifo});
+        module.areBytes = *archive->findResourceData({"area_b", ResType::Are});
+        module.gitBytes = *archive->findResourceData({"area_b", ResType::Git});
         module.ifo = decode(module.ifoBytes);
         module.are = decode(module.areBytes);
         module.git = decode(module.gitBytes);
