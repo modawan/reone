@@ -94,11 +94,6 @@ void JournalMenu::refresh() {
     _controls.LB_ITEMS->clearSelection();
     _controls.LBL_ITEM_DESCRIPTION->clearItems();
 
-    struct Row {
-        const Journal::Quest *quest;
-        const resource::JRL::Category *category;
-        std::string name;
-    };
     Journal &journal = _game.journal();
     std::vector<Row> rows;
     const auto &quests = journal.quests();
@@ -116,11 +111,31 @@ void JournalMenu::refresh() {
         }
         rows.push_back({&*it, journal.findCategory(it->plotId), std::move(name)});
     }
-    auto newer = [](const Row &a, const Row &b) {
+    sortRows(rows, _sort);
+
+    for (auto &row : rows) {
+        ListBox::Item item;
+        item.tag = row.quest->plotId;
+        item.text = std::move(row.name);
+        if (row.quest->unread) {
+            useK1NewEntryStyle(item);
+        }
+        _controls.LB_ITEMS->addItem(std::move(item));
+    }
+    _shownQuest.clear();
+    // The first quest is selected and described.
+    if (_controls.LB_ITEMS->getItemCount() > 0) {
+        _controls.LB_ITEMS->setSelectedItemIndex(0);
+        refreshEntryText(_controls.LB_ITEMS->getItemAt(0).tag);
+    }
+}
+
+void JournalMenu::sortRows(std::vector<Row> &rows, Sort sort) {
+    const auto newer = [](const Row &a, const Row &b) {
         return std::tie(a.quest->date, a.quest->time) > std::tie(b.quest->date, b.quest->time);
     };
     std::stable_sort(rows.begin(), rows.end(), newer);
-    switch (_sort) {
+    switch (sort) {
     case Sort::Name:
         std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
             return a.name < b.name;
@@ -138,22 +153,6 @@ void JournalMenu::refresh() {
         break;
     default:
         break;
-    }
-
-    for (auto &row : rows) {
-        ListBox::Item item;
-        item.tag = row.quest->plotId;
-        item.text = std::move(row.name);
-        if (row.quest->unread) {
-            useK1NewEntryStyle(item);
-        }
-        _controls.LB_ITEMS->addItem(std::move(item));
-    }
-    _shownQuest.clear();
-    // The first quest is selected and described.
-    if (_controls.LB_ITEMS->getItemCount() > 0) {
-        _controls.LB_ITEMS->setSelectedItemIndex(0);
-        refreshEntryText(_controls.LB_ITEMS->getItemAt(0).tag);
     }
 }
 
