@@ -55,12 +55,9 @@ public:
     void render(IRenderPass &pass);
 
     const graphics::Walkmesh &walkmesh() const { return _walkmesh; }
-    /** How far the walkmesh reaches from its origin: the distance of its farthest vertex. */
-    float radius() const { return _radius; }
 
 private:
     graphics::Walkmesh &_walkmesh;
-    float _radius {0.0f};
 
     std::shared_ptr<graphics::Mesh> _mesh;
 };

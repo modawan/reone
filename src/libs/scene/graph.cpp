@@ -56,8 +56,6 @@ static constexpr float kShadowFadeSpeed = 2.0f;
 
 static constexpr float kLightRadiusBias = 64.0f;
 
-static constexpr float kMaxCollisionDistanceWalk = 8.0f;
-
 static constexpr float kMaxCollisionDistanceLineOfSight = 16.0f;
 static constexpr float kMaxCollisionDistanceLineOfSight2 = kMaxCollisionDistanceLineOfSight * kMaxCollisionDistanceLineOfSight;
 
@@ -860,29 +858,36 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
     return minDistance != std::numeric_limits<float>::max();
 }
 
+// The inverse of a unit direction for a box test, a zero component taken as
+// the largest float, so that a line starting on a box face still has a
+// number for its distance to it.
+static glm::vec3 inverseDirection(const glm::vec3 &dir) {
+    glm::vec3 inverse;
+    for (int i = 0; i < 3; ++i) {
+        inverse[i] = dir[i] != 0.0f ? 1.0f / dir[i] : std::numeric_limits<float>::max();
+    }
+    return inverse;
+}
+
 bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const {
     glm::vec3 originToDest(dest - origin);
     glm::vec3 dir(glm::normalize(originToDest));
     float maxDistance = glm::length(originToDest);
     float minDistance = std::numeric_limits<float>::max();
-    // The whole segment is tested, however long it is.
-    float reach = std::max(kMaxCollisionDistanceWalk, maxDistance);
 
     for (auto &root : _walkmeshRoots) {
         if (!root->isEnabled() || root->user() == excludeUser) {
             continue;
         }
-        if (!root->walkmesh().isAreaWalkmesh()) {
-            // An object's walkmesh is passed over when all of it lies beyond
-            // the segment's reach.
-            const float range = reach + root->radius();
-            if (root->getSquareDistanceTo(origin) > range * range) {
-                continue;
-            }
-        }
         glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
-        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, reach, /*ignoreBackface=*/false);
+        // An object's walkmesh is passed over when the segment misses its box.
+        float boxDistance = 0.0f;
+        if (!root->walkmesh().isAreaWalkmesh() &&
+            !root->aabb().raycast(objSpaceOrigin, inverseDirection(objSpaceDir), maxDistance, boxDistance)) {
+            continue;
+        }
+        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, maxDistance, /*ignoreBackface=*/false);
         if (raycast.fail || raycast.distance > maxDistance || raycast.distance > minDistance) {
             continue;
         }
@@ -896,17 +901,6 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
     }
 
     return minDistance != std::numeric_limits<float>::max();
-}
-
-// The inverse of a unit direction for a box test, a zero component taken as
-// the largest float, so that a line starting on a box face still has a
-// number for its distance to it.
-static glm::vec3 inverseDirection(const glm::vec3 &dir) {
-    glm::vec3 inverse;
-    for (int i = 0; i < 3; ++i) {
-        inverse[i] = dir[i] != 0.0f ? 1.0f / dir[i] : std::numeric_limits<float>::max();
-    }
-    return inverse;
 }
 
 // How far along a line, in an AABB mesh's space and along a unit direction,
