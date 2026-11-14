@@ -49,6 +49,15 @@ public:
      * Does nothing without a reverb, or before the source is inited.
      */
     virtual void setReverbSend(AudioSource &source, float gain) = 0;
+
+    /** Whether setObstruction is heard: the device has the effects extension. */
+    virtual bool rendersObstruction() const = 0;
+    /**
+     * Dulls the highs of \p source by \p obstruction, from 0 for nothing in
+     * the way to 1 for fully blocked. Does nothing unless rendersObstruction,
+     * or before the source is inited.
+     */
+    virtual void setObstruction(AudioSource &source, float obstruction) = 0;
 };
 
 /** The fullest reverb the device renders, which decides how much of an environment is heard. */
@@ -67,7 +76,8 @@ public:
 
     /**
      * Opens the default device and makes its context current, then sets up
-     * the reverb slot at the fullest tier the device takes.
+     * the obstruction filter and the reverb slot at the fullest tier the
+     * device takes.
      *
      * Throws std::runtime_error when the device or context cannot be opened.
      * A device without effects is not an error: its tier is ReverbTier::None.
@@ -85,6 +95,8 @@ public:
 
     void setEnvironment(Environment environment) override;
     void setReverbSend(AudioSource &source, float gain) override;
+    bool rendersObstruction() const override { return _obstructionFilter != 0; }
+    void setObstruction(AudioSource &source, float obstruction) override;
 
 private:
     /**
@@ -100,13 +112,15 @@ private:
     uint32_t _reverbSlot {0};
     /** The filter a reverb send carries its gain in. */
     uint32_t _reverbSendFilter {0};
+    /** The filter an obstructed source's direct path goes through. */
+    uint32_t _obstructionFilter {0};
 
     glm::vec3 _listenerPosition {0.0f};
     glm::vec3 _listenerForward {0.0f};
     glm::vec3 _listenerUp {0.0f};
 
-    void initReverb();
-    void deinitReverb();
+    void initEffects();
+    void deinitEffects();
 };
 
 } // namespace audio

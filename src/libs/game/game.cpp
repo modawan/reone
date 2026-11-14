@@ -728,6 +728,10 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
     return -1;
 }
 
+Game::~Game() {
+    _services.audio.mixer.setObstructionTest({});
+}
+
 void Game::init() {
     _options.game.activeKeybindsIndex = loadActiveKeybinds(_options.game.configurationPath, _options.game.activeKeybindsIndex);
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
@@ -896,6 +900,11 @@ void Game::initTables() {
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
     _services.audio.mixer.setDryGroups({kBarkSoundGroup});
+    _services.audio.mixer.setObstructionTest([this](const glm::vec3 &source, const glm::vec3 &listener) {
+        auto module = _module;
+        auto area = module ? module->area() : nullptr;
+        return area ? area->soundObstruction(source, listener) : 0.0f;
+    });
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {

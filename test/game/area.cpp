@@ -29,6 +29,7 @@
 #include "reone/game/object/door.h"
 #include "reone/game/room.h"
 #include "reone/graphics/walkmesh.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/node/walkmesh.h"
 #include "reone/system/exception/validation.h"
 
@@ -215,4 +216,65 @@ TEST(Area, a_room_wall_before_a_door_stops_a_walk_first) {
     EXPECT_LT(test.stopPoint.x, 2.0f - fixture.walker->personalSpace() + 0.01f);
     EXPECT_GT(test.stopPoint.x, 1.0f);
     EXPECT_FALSE(test.door.has_value());
+}
+
+namespace {
+
+// A face the line from the sound meets: one it enters faces back towards the
+// sound, along -x, and one it leaves faces on, along +x.
+struct Blocker {
+    scene::IUser *user {nullptr};
+    bool entering {true};
+};
+
+// Answers each line-of-sight test with the next blocker in turn, two metres
+// apart along the x axis, then with a clear line.
+void blockInTurn(scene::MockSceneGraph &sceneGraph, const std::vector<Blocker> &blockers) {
+    auto &calls = EXPECT_CALL(sceneGraph, testLineOfSight(_, _, _));
+    for (size_t i = 0; i < blockers.size(); ++i) {
+        scene::Collision collision;
+        collision.user = blockers[i].user;
+        collision.intersection = glm::vec3(2.0f * static_cast<float>(i + 1), 0.0f, 0.0f);
+        collision.normal = glm::vec3(blockers[i].entering ? -1.0f : 1.0f, 0.0f, 0.0f);
+        calls.WillOnce(DoAll(SetArgReferee<2>(collision), Return(true)));
+    }
+    calls.WillRepeatedly(Return(false));
+}
+
+float obstructionThrough(const std::vector<Blocker> &blockers) {
+    scene::MockSceneGraph sceneGraph;
+    blockInTurn(sceneGraph, blockers);
+    return Area::soundObstruction(sceneGraph, glm::vec3(0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+}
+
+} // namespace
+
+TEST(Area, sound_obstruction_sums_walls_placeables_and_doors_up_to_all) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = game.newDoor();
+    auto placeable = game.newPlaceable();
+    auto creature = game.newCreature();
+
+    EXPECT_FLOAT_EQ(obstructionThrough({}), 0.0f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{}, {placeable.get()}}), 0.8f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{door.get()}}), 0.55f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{creature.get()}, {}}), 0.4f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{}, {door.get()}, {}}), 1.0f);
+}
+
+TEST(Area, sound_obstruction_counts_an_object_once_where_the_line_enters_it) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = game.newDoor();
+    auto placeable = game.newPlaceable();
+
+    // In through the door's front and out through its back.
+    EXPECT_FLOAT_EQ(obstructionThrough({{door.get()}, {door.get(), false}}), 0.55f);
+    // A sound inside its own placeable only leaves it.
+    EXPECT_FLOAT_EQ(obstructionThrough({{placeable.get(), false}}), 0.0f);
 }

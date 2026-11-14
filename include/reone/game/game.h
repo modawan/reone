@@ -249,6 +249,9 @@ public:
         _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
     }
 
+    /** Takes back the obstruction test it gave the audio mixer, which calls into the game. */
+    ~Game();
+
     void init();
 
     bool handle(const input::Event &event);

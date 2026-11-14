@@ -1505,6 +1505,49 @@ const Room *Area::roomUnder(const glm::vec3 &position) const {
     return walkmesh ? dynamic_cast<const Room *>(walkmesh->user()) : nullptr;
 }
 
+float Area::soundObstruction(const glm::vec3 &source, const glm::vec3 &listener) const {
+    return soundObstruction(_services.scene.graphs.get(_sceneName), source, listener);
+}
+
+// Each wall face the line from a sound to its listener crosses blocks 0.4 of
+// it, each placeable 0.4 and each door 0.55, up to all of it. Creatures block
+// nothing. An object counts once, where the line enters it, so a sound inside
+// its own placeable is not muffled by it.
+float Area::soundObstruction(const scene::ISceneGraph &sceneGraph, const glm::vec3 &source, const glm::vec3 &listener) {
+    static constexpr float kWallObstruction = 0.4f;
+    static constexpr float kDoorObstruction = 0.55f;
+    // How far past a hit, in metres, the line is cast again.
+    static constexpr float kStepPastHit = 0.1f;
+    float obstruction = 0.0f;
+    std::vector<const Object *> counted;
+    glm::vec3 from {source};
+    while (obstruction < 1.0f && glm::distance(from, listener) > kStepPastHit) {
+        Collision collision;
+        if (!sceneGraph.testLineOfSight(from, listener, collision)) {
+            break;
+        }
+        const glm::vec3 onward {listener - collision.intersection};
+        auto *object = dynamic_cast<const Object *>(collision.user);
+        if (!object) {
+            obstruction += kWallObstruction;
+        } else if (glm::dot(collision.normal, onward) < 0.0f &&
+                   std::find(counted.begin(), counted.end(), object) == counted.end()) {
+            counted.push_back(object);
+            if (object->type() == ObjectType::Placeable) {
+                obstruction += kWallObstruction;
+            } else if (object->type() == ObjectType::Door) {
+                obstruction += kDoorObstruction;
+            }
+        }
+        const float left = glm::length(onward);
+        if (left <= kStepPastHit) {
+            break;
+        }
+        from = collision.intersection + (kStepPastHit / left) * onward;
+    }
+    return std::min(obstruction, 1.0f);
+}
+
 int Area::roomEnvAudio(const Room &room) const {
     auto found = _roomEnvAudio.find(boost::to_lower_copy(room.name()));
     return found != _roomEnvAudio.end() ? found->second : 0;
