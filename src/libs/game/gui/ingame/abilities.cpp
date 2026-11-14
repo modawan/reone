@@ -167,10 +167,7 @@ void AbilitiesMenu::refreshControls() {
 // readout.
 void AbilitiesMenu::setView(View view) {
     auto leader = _game.party().getLeader();
-    const auto &classLevels = leader->attributes().classLevels();
-    const bool jedi = std::any_of(classLevels.begin(), classLevels.end(), [](const auto &classLevel) {
-        return classLevel.first->isJedi();
-    });
+    const bool jedi = leader->attributes().getJediLevel() > 0;
     _controls.BTN_POWERS->setVisible(jedi);
     if (view == View::Powers && !jedi) {
         view = View::Skills;
