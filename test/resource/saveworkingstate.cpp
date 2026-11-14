@@ -1046,8 +1046,6 @@ protected:
             GetParam().game,
             _gamePath,
             _graphicsOpt,
-            _graphics.services(),
-            _script.services(),
             *_resources,
             *_auxResources,
             _twoDas);

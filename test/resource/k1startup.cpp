@@ -176,8 +176,7 @@ protected:
                                                    OdysseyResourceRoots roots = {}) {
         _gamePath = p;
         return std::make_unique<ResourceDirector>(
-            game, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            *_resources, *_auxResources, _twoDas, std::move(roots));
+            game, _gamePath, _graphicsOpt, *_resources, *_auxResources, _twoDas, std::move(roots));
     }
 
     /// An installation with a modules directory and the shader pack the

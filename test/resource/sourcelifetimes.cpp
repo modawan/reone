@@ -477,8 +477,7 @@ protected:
                                                    GameID game = GameID::TSL) {
         _gamePath = gamePath;
         return std::make_unique<ResourceDirector>(
-            game, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            *_resources, *_auxResources, _twoDas);
+            game, _gamePath, _graphicsOpt, *_resources, *_auxResources, _twoDas);
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {

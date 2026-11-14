@@ -17,7 +17,6 @@
 
 #include "reone/resource/director.h"
 
-#include "reone/graphics/di/services.h"
 #include "reone/graphics/options.h"
 #include "reone/graphics/types.h"
 #include "reone/resource/di/services.h"
@@ -33,7 +32,6 @@
 #include "reone/resource/parser/gff/ifo.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/resources.h"
-#include "reone/script/di/services.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/memoryinput.h"

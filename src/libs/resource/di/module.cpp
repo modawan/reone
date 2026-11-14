@@ -82,8 +82,6 @@ void ResourceModule::init() {
         _gameId,
         _gamePath,
         _graphicsOpt,
-        _graphics.services(),
-        _script.services(),
         *_resources,
         *_auxResources,
         *_twoDas,

@@ -29,15 +29,8 @@ namespace reone {
 namespace graphics {
 
 struct GraphicsOptions;
-struct GraphicsServices;
 
 } // namespace graphics
-
-namespace script {
-
-struct ScriptServices;
-
-}
 
 namespace resource {
 
@@ -197,8 +190,6 @@ public:
     ResourceDirector(GameID gameId,
                      const std::filesystem::path &gamePath,
                      const graphics::GraphicsOptions &graphicsOpt,
-                     graphics::GraphicsServices &graphicsSvc,
-                     script::ScriptServices &scriptSvc,
                      IResources &resources,
                      IResources &auxResources,
                      ITwoDAs &twoDas,
@@ -207,8 +198,6 @@ public:
         _gamePath(gamePath),
         _odysseyRoots(std::move(odysseyRoots)),
         _graphicsOpt(graphicsOpt),
-        _graphicsSvc(graphicsSvc),
-        _scriptSvc(scriptSvc),
         _resources(resources),
         _auxResources(auxResources),
         _twoDas(twoDas) {
@@ -252,8 +241,6 @@ private:
     const std::filesystem::path &_gamePath;
     OdysseyResourceRoots _odysseyRoots;
     const graphics::GraphicsOptions &_graphicsOpt;
-    graphics::GraphicsServices &_graphicsSvc;
-    script::ScriptServices &_scriptSvc;
     IResources &_resources;
     IResources &_auxResources;
     ITwoDAs &_twoDas;
