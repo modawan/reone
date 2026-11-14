@@ -86,6 +86,8 @@ struct FrameEffects {
     bool speedBlur {false};
     float speedBlurRatio {0.75f};
     std::optional<VideoEffect> videoEffect;
+    /** The colour the frame shows where no geometry is drawn: the scene's fog colour. */
+    glm::vec3 clearColor {0.0f};
 };
 
 class IRenderPipeline {

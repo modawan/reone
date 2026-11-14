@@ -28,14 +28,18 @@ float getDirectionalLightShadow(vec3 viewPos, vec3 worldPos, sampler2DArray tex)
         return 0.0;
 
     float shadow = 0.0;
-    vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            float pcfDepth = texture(tex, vec3(projCoords.xy + vec2(x, y) * texelSize, cascade)).r;
-            shadow += currentDepth > pcfDepth ? 1.0 : 0.0;
+    if (uSoftShadows == 0) {
+        shadow = currentDepth > texture(tex, vec3(projCoords.xy, cascade)).r ? 1.0 : 0.0;
+    } else {
+        vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));
+        for (int x = -1; x <= 1; ++x) {
+            for (int y = -1; y <= 1; ++y) {
+                float pcfDepth = texture(tex, vec3(projCoords.xy + vec2(x, y) * texelSize, cascade)).r;
+                shadow += currentDepth > pcfDepth ? 1.0 : 0.0;
+            }
         }
+        shadow /= 9.0;
     }
-    shadow /= 9.0;
 
     return shadow;
 }
@@ -45,11 +49,15 @@ float getPointLightShadow(vec3 worldPos, samplerCube tex) {
     float currentDepth = length(fragToLight);
 
     float shadow = 0.0;
-    for (int i = 0; i < NUM_PCF_SAMPLES; ++i) {
-        float closestDepth = 2500.0 * texture(tex, fragToLight + PCF_SAMPLE_RADIUS * PCF_SAMPLE_OFFSETS[i]).r;
-        shadow += currentDepth > closestDepth ? 1.0 : 0.0;
+    if (uSoftShadows == 0) {
+        shadow = currentDepth > 2500.0 * texture(tex, fragToLight).r ? 1.0 : 0.0;
+    } else {
+        for (int i = 0; i < NUM_PCF_SAMPLES; ++i) {
+            float closestDepth = 2500.0 * texture(tex, fragToLight + PCF_SAMPLE_RADIUS * PCF_SAMPLE_OFFSETS[i]).r;
+            shadow += currentDepth > closestDepth ? 1.0 : 0.0;
+        }
+        shadow /= NUM_PCF_SAMPLES;
     }
-    shadow /= NUM_PCF_SAMPLES;
     shadow *= 1.0 - smoothstep(uShadowRadius, 2.0 * uShadowRadius, currentDepth);
 
     return shadow;

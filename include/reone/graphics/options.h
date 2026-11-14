@@ -46,6 +46,8 @@ struct GraphicsOptions {
      * measures itself.
      */
     bool shadows {true};
+    /** Shadows are drawn with soft edges, else with hard ones. */
+    bool softShadows {true};
     /** Admit emitter particles, or leave them out of the frame entirely. */
     bool particles {true};
     bool pbr {false};

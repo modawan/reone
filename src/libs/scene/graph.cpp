@@ -85,6 +85,9 @@ void SceneGraph::clear() {
     _floorStacking.reset();
     _roomTest.reset();
     _activeLights.clear();
+    // An emptied scene has no fog, and the frame is black where nothing is
+    // drawn until the next area sets its fog.
+    setFog(FogProperties());
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
@@ -518,6 +521,7 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 globals.shadowCascadeFarPlanes = _shadowCascadeFarPlanes;
                 globals.shadowStrength = shadowStrength();
                 globals.shadowRadius = shadowRadius();
+                globals.softShadows = _graphicsOpt.softShadows ? 1 : 0;
             }
             globals.forceSight = isForceSightEnabled() ? 1 : 0;
             if (isFogEnabled()) {

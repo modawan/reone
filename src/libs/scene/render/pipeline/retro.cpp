@@ -193,9 +193,13 @@ Texture &RetroRenderPipeline::render(const FrameEffects &effects) {
 
     glm::ivec4 screenRect {0, 0, _targetSize};
     _context.withViewport(screenRect, [this, &pass, &dirLightShadows, &pointLightShadows, &screenRect, &effects]() {
-        // Render opaque geometry
+        // Render opaque geometry. Where nothing is drawn the frame shows the
+        // clear colour, and no hilight.
         _context.bindDrawFramebuffer(*_targets.opaque, {0, 1});
         _context.clearColorDepth();
+        _context.bindDrawFramebuffer(*_targets.opaque, {0});
+        _context.clearColor(glm::vec4(effects.clearColor, 0.0f));
+        _context.bindDrawFramebuffer(*_targets.opaque, {0, 1});
         if (_passCallbacks.count(RenderPassName::OpaqueGeometry) > 0) {
             if (dirLightShadows) {
                 _context.bindTexture(*_targets.dirLightShadowsDepth, TextureUnits::shadowMapArray);

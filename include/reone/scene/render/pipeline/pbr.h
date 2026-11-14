@@ -101,7 +101,7 @@ private:
 
     // Render Passes
 
-    void combineOpaqueGeometry();
+    void combineOpaqueGeometry(const glm::vec3 &clearColor);
     void blendTransparentGeometry();
 
     void beginDirLightShadowsPass();
