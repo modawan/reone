@@ -23,7 +23,6 @@
 #include <Windows.h>
 #endif
 
-#include "reone/resource/container/erf.h"
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffreader.h"
@@ -42,7 +41,6 @@ namespace game {
 namespace {
 
 using resource::ErfReader;
-using resource::ErfResourceContainer;
 using resource::ErfWriter;
 using resource::Gff;
 using resource::GffReader;
@@ -51,7 +49,7 @@ using resource::ResourceId;
 using resource::SaveSlotDescriptor;
 using resource::SaveWorkingState;
 using resource::SaveWorkingStateCandidate;
-using resource::Storage;
+using resource::openErf;
 
 constexpr const char *kArchiveName = "SAVEGAME.sav";
 constexpr const char *kGlobalsName = "GLOBALVARS.res";
@@ -270,9 +268,8 @@ size_t validateNestedModule(const ByteBuffer &bytes) {
             "Saved module must contain exactly module.ifo, one ARE and one GIT");
     }
 
-    ErfResourceContainer container {Storage(ByteBuffer(bytes))};
-    container.init();
-    auto ifo = container.findResourceData({"module", ResType::Ifo});
+    auto container = openErf(ByteBuffer(bytes));
+    auto ifo = container->findResourceData({"module", ResType::Ifo});
     auto areId = *std::find_if(ids.begin(), ids.end(), [](const ResourceId &id) {
         return id.type == ResType::Are;
     });
@@ -280,8 +277,8 @@ size_t validateNestedModule(const ByteBuffer &bytes) {
         return id.type == ResType::Git;
     });
     auto ifoGff = readGff(*ifo, "IFO V3.2");
-    auto areGff = readGff(*container.findResourceData(areId), "ARE V3.2");
-    auto gitGff = readGff(*container.findResourceData(gitId), "GIT V3.2");
+    auto areGff = readGff(*container->findResourceData(areId), "ARE V3.2");
+    auto gitGff = readGff(*container->findResourceData(gitId), "GIT V3.2");
     (void)resource::generated::parseIFO(*ifoGff);
     (void)resource::generated::parseARE(*areGff);
     (void)resource::generated::parseGIT(*gitGff);
@@ -389,13 +386,11 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
     }
     if (current) {
         validateNestedModule(current->archiveBytes);
-        ErfResourceContainer currentArchive {
-            Storage(ByteBuffer(current->archiveBytes))};
-        currentArchive.init();
-        auto archiveIfo = currentArchive.findResourceData({"module", ResType::Ifo});
-        auto archiveAre = currentArchive.findResourceData(
+        auto currentArchive = openErf(ByteBuffer(current->archiveBytes));
+        auto archiveIfo = currentArchive->findResourceData({"module", ResType::Ifo});
+        auto archiveAre = currentArchive->findResourceData(
             {input.saveWide.areaName, ResType::Are});
-        auto archiveGit = currentArchive.findResourceData(
+        auto archiveGit = currentArchive->findResourceData(
             {input.saveWide.areaName, ResType::Git});
         if (!archiveIfo || !archiveAre || !archiveGit ||
             *archiveIfo != current->ifoBytes ||
@@ -759,13 +754,12 @@ ValidatedSlot validateSlot(
             throw std::runtime_error("Published active module topology is invalid");
         }
         auto active = state->find(activeModule);
-        ErfResourceContainer module {Storage(ByteBuffer(active->data))};
-        module.init();
-        auto ifoBytes = module.findResourceData({"module", ResType::Ifo});
+        auto module = openErf(ByteBuffer(active->data));
+        auto ifoBytes = module->findResourceData({"module", ResType::Ifo});
         auto ifo = readGff(*ifoBytes, "IFO V3.2");
         ResourceId areId;
         ResourceId gitId;
-        for (const auto &id : module.resourceIds()) {
+        for (const auto &id : module->resourceIds()) {
             if (id.type == ResType::Are) areId = id;
             if (id.type == ResType::Git) gitId = id;
         }
@@ -774,8 +768,8 @@ ValidatedSlot validateSlot(
             throw std::runtime_error(
                 "Published active ARE/GIT identity is inconsistent");
         }
-        auto are = readGff(*module.findResourceData(areId), "ARE V3.2");
-        auto git = readGff(*module.findResourceData(gitId), "GIT V3.2");
+        auto are = readGff(*module->findResourceData(areId), "ARE V3.2");
+        auto git = readGff(*module->findResourceData(gitId), "GIT V3.2");
         (void)resource::generated::parseIFO(*ifo);
         (void)resource::generated::parseARE(*are);
         (void)resource::generated::parseGIT(*git);

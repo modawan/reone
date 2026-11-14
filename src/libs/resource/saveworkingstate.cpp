@@ -68,12 +68,9 @@ static ByteBuffer readDetachedArchive(const std::filesystem::path &archivePath) 
     return result;
 }
 
-static std::unique_ptr<ErfResourceContainer> openDetachedArchive(
+static std::unique_ptr<IResourceContainer> openDetachedArchive(
     const std::filesystem::path &archivePath) {
-    auto bytes = readDetachedArchive(archivePath);
-    auto archive = std::make_unique<ErfResourceContainer>(Storage(std::move(bytes)));
-    archive->init();
-    return archive;
+    return openErf(readDetachedArchive(archivePath));
 }
 
 class SaveWorkingStateBacking : boost::noncopyable {
@@ -105,7 +102,7 @@ public:
     }
 
 private:
-    mutable std::unique_ptr<ErfResourceContainer> _archive;
+    mutable std::unique_ptr<IResourceContainer> _archive;
     std::unordered_set<ResourceId> _resourceIds;
 };
 
@@ -339,21 +336,19 @@ SaveSessionState::SaveSessionState() :
 
 SaveSessionState::SaveSessionState(SaveSlotDescriptor descriptor) :
     _slot(std::move(descriptor)),
-    _metadata(std::make_unique<FolderResourceContainer>(_slot->directory)),
     _workingState(std::make_shared<const SaveWorkingState>(_slot->archive)) {
-    _metadata->init();
+    _metadata = openFolder(_slot->directory);
 }
 
 SaveSessionState::SaveSessionState(
     SaveSlotDescriptor descriptor,
     std::shared_ptr<const SaveWorkingState> workingState) :
     _slot(std::move(descriptor)),
-    _metadata(std::make_unique<FolderResourceContainer>(_slot->directory)),
     _workingState(std::move(workingState)) {
     if (!_workingState) {
         throw std::invalid_argument("Save working state is required");
     }
-    _metadata->init();
+    _metadata = openFolder(_slot->directory);
 }
 
 void SaveSessionState::replaceWorkingState(
