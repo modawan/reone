@@ -111,6 +111,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/presentationpointer.cpp
     ${TESTS_SOURCE_DIR}/game/queryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/partyroutines.cpp
+    ${TESTS_SOURCE_DIR}/game/partyselection.cpp
     ${TESTS_SOURCE_DIR}/game/platformroutines.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/reputes.cpp
