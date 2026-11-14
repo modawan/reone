@@ -32,6 +32,14 @@ namespace reone {
 
 namespace scene {
 
+void WalkmeshSceneNode::initBounds() {
+    for (size_t i = 0; i < _walkmesh.faces.size(); ++i) {
+        for (const glm::vec3 &vertex : _walkmesh.getFace(i).vertices) {
+            _aabb.expand(vertex);
+        }
+    }
+}
+
 void WalkmeshSceneNode::init() {
     std::vector<float> vertices;
     std::vector<Mesh::Face> faces;
@@ -43,7 +51,6 @@ void WalkmeshSceneNode::init() {
         float material = glm::min(1.0f, static_cast<float>(wface.material) / static_cast<float>(kMaxWalkmeshMaterials - 1));
 
         for (glm::vec3 v : wface.vertices) {
-            _aabb.expand(v);
             vertices.push_back(v.x);
             vertices.push_back(v.y);
             vertices.push_back(v.z);

@@ -49,6 +49,7 @@ public:
         _walkmesh(walkmesh) {
 
         _point = false;
+        initBounds();
     }
 
     void init();
@@ -60,6 +61,8 @@ private:
     graphics::Walkmesh &_walkmesh;
 
     std::shared_ptr<graphics::Mesh> _mesh;
+
+    void initBounds();
 };
 
 } // namespace scene
