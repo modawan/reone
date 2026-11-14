@@ -838,7 +838,11 @@ int closestAvoidanceHexCorner(const AvoidanceHex &hex, const glm::vec3 &point) {
     int closest = 0;
     float closestDistance2 = FLT_MAX;
     for (int i = 0; i < 6; ++i) {
-        const float distance2 = glm::distance2(hex.v[i], point);
+        // Seen from above, as the rest of the hexagon is: the corners stand on
+        // the ground (the first at the blocker's own height) while the point
+        // is taken flat, so a distance in three dimensions picked the lowest
+        // corner, not the nearest, anywhere off zero height.
+        const float distance2 = glm::distance2(glm::vec2(hex.v[i]), glm::vec2(point));
         if (distance2 < closestDistance2) {
             closest = i;
             closestDistance2 = distance2;
