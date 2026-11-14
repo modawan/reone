@@ -82,5 +82,6 @@ else()
 endif()
 
 list(APPEND InstallTargets toolkit)
+set(InstallTargets ${InstallTargets} PARENT_SCOPE)
 
 add_custom_target(copy_cmudict ALL ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/extern/cmudict/cmudict.dict ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin/cmudict.dict)

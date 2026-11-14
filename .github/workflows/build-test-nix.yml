@@ -1,0 +1,78 @@
+name: Check the Nix flake
+# Runs only when the flake or this workflow changes. On Linux the C++ build
+# and its tests are already covered by the Linux and Windows workflows, so a
+# pull request gets the fast check there: every flake output evaluates and
+# the run wrapper's tests pass. The full package build (every application,
+# the unit tests and the install check, about 25 minutes on Linux with no
+# binary cache) runs for a release tag, or when started by hand with "full".
+# A change that breaks only the Nix package is therefore caught on Linux by
+# the next release or manual run, not on its pull request. No other workflow
+# builds on macOS, so the macOS job always runs the full build: it is the
+# only check of the whole C++ build there. A C++ change that breaks only
+# macOS therefore surfaces at the next run of this workflow (a flake change
+# or a release tag), not on its own pull request.
+on:
+  push:
+    branches: [master]
+    # Release versions such as 0.22.0, not the moving nightly tag. Paths
+    # filters don't apply to tag pushes, so a release always builds in full.
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/build-test-nix.yml
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/build-test-nix.yml
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Build the whole package and run its tests (slow)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its earlier run. Runs on master are
+# never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          # Apple silicon. nixpkgs unstable has no x86_64-darwin (see
+          # flake.nix), so there is no Intel job.
+          - os: macos-26
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    # The full build has no binary cache for reone itself; the macOS runner
+    # has fewer cores than the Linux one.
+    timeout-minutes: 180
+    env:
+      # When the full build runs: a release tag, a manual "full" run, and
+      # always on macOS, where no other workflow compiles reone.
+      FULL: ${{ inputs.full || startsWith(github.ref, 'refs/tags/') || matrix.system == 'aarch64-darwin' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Evaluate every flake output
+        if: ${{ env.FULL != 'true' }}
+        run: nix flake check --no-build -L
+      - name: Run the wrapper tests
+        if: ${{ env.FULL != 'true' }}
+        run: nix build -L .#checks.${{ matrix.system }}.reone-run
+      - name: Build the package and run all checks
+        if: ${{ env.FULL == 'true' }}
+        run: nix flake check -L

@@ -25,3 +25,6 @@ set_target_properties(unerf PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_D
 target_precompile_headers(unerf PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 target_link_libraries(unerf PRIVATE resource system ${Boost_PROGRAM_OPTIONS_LIBRARY})
 
+list(APPEND InstallTargets unerf)
+set(InstallTargets ${InstallTargets} PARENT_SCOPE)
+

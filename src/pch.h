@@ -72,3 +72,14 @@
 #include "glm/gtx/matrix_decompose.hpp"
 #include "glm/gtx/norm.hpp"
 #include "glm/gtx/transform.hpp"
+
+// Use OpenAL Soft's headers whenever they are on the include path (Linux,
+// vcpkg, Nix on macOS), so the declarations match the library being linked.
+// Apple's OpenAL framework is the fallback on macOS.
+#if defined(__APPLE__) && !__has_include("AL/al.h")
+#include "OpenAL/al.h"
+#include "OpenAL/alc.h"
+#else
+#include "AL/al.h"
+#include "AL/alc.h"
+#endif
