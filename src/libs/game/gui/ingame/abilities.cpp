@@ -128,6 +128,18 @@ void AbilitiesMenu::onGUILoaded() {
         // A portrait hands control to its party member.
         _controls.BTN_CHANGE1->setOnClick([this]() { changeCharacter(1); });
         _controls.BTN_CHANGE2->setOnClick([this]() { changeCharacter(2); });
+        // The arrows step through the party: left to the member before the
+        // leader, right to the next.
+        findControl<Button>("BTN_CHARLEFT")->setOnClick([this]() {
+            if (_game.party().selectPreviousStandingMember()) {
+                refreshControls();
+            }
+        });
+        findControl<Button>("BTN_CHARRIGHT")->setOnClick([this]() {
+            if (_game.party().selectNextStandingMember()) {
+                refreshControls();
+            }
+        });
     }
 
     loadSkills();

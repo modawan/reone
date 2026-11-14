@@ -120,6 +120,14 @@ void Equipment::onGUILoaded() {
     if (_controls.BTN_CHANGE2) {
         _controls.BTN_CHANGE2->setOnClick([this]() { changeCharacter(2); });
     }
+    if (!isTSL()) {
+        // KotOR's arrows step through the party: left to the member before
+        // the shown character, the last portrait, and right to the next.
+        findControl<Button>("BTN_CHARLEFT")->setOnClick([this]() {
+            changeCharacter(_view.subject.portraits[2] ? 2 : 1);
+        });
+        findControl<Button>("BTN_CHARRIGHT")->setOnClick([this]() { changeCharacter(1); });
+    }
     if (isTSL()) {
         useK2ShellTitle(_controls.LBL_TITLE);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
