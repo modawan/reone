@@ -366,11 +366,11 @@ constexpr float kMinigameGravity = 45.8f;
 constexpr float kMinigameCurveDrift = 1.0f;
 
 /**
- * TSL steering. With no steering input the bike is pulled back toward the
- * centre of the tunnel (its starting offset): an acceleration of
- * kMinigameCentrePull per second squared for each unit off centre.
+ * TSL steering. With no steering input the bike is not pulled back to the
+ * centre of the tunnel: it only damps its lateral speed toward zero, at
+ * kMinigameIdleDamping per second (exponentially), and stays where it ends up.
  */
-constexpr float kMinigameCentrePull = 2.0f;
+constexpr float kMinigameIdleDamping = 2.0f;
 
 /**
  * TSL steering. Steering against a lateral slide faster than this share of

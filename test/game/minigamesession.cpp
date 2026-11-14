@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <functional>
 #include <map>
 
@@ -453,23 +454,55 @@ TEST(MinigameSession, with_inertia_a_curve_pushes_the_bike_outward) {
     EXPECT_FLOAT_EQ(drift(false), 0.0f);
 }
 
-// TSL: a bike that is not steered comes back to the centre of the tunnel.
-// KotOR leaves it where it is.
-TEST(MinigameSession, on_tsl_the_bike_is_pulled_back_to_centre_without_steering) {
-    auto offsetAfterRelease = [](bool tsl) {
+// TSL: a bike that is not steered damps its lateral speed at
+// kMinigameIdleDamping per second and stays where it ends up, with no pull
+// back to the centre. KotOR keeps the damping of its steering lag (L / M).
+TEST(MinigameSession, on_tsl_an_unsteered_bike_damps_its_lateral_speed_and_stays_put) {
+    struct Result {
+        float decay;
+        float offsetAtThreeSecs;
+        float offsetAtFiveSecs;
+    };
+    auto run = [](bool tsl) {
         ScriptedHost host;
         auto session = makeSwoop(host, 0, {});
         session->setTSL(tsl);
-        session->setTunnelPos(glm::vec3(20.0f, 0.0f, 0.0f));
-        session->setTunnelNeg(glm::vec3(-20.0f, 0.0f, 0.0f));
+        session->setTunnelPos(glm::vec3(1e6f, 0.0f, 0.0f));
+        session->setTunnelNeg(glm::vec3(-1e6f, 0.0f, 0.0f));
         session->setPlayerOffset(glm::vec3(10.0f, 0.0f, 0.0f));
-        for (int i = 0; i < 150; ++i) {
+        MinigameInput input;
+        input.steer = 1.0f;
+        for (int i = 0; i < 30; ++i) {
+            session->update(kTick, input);
+        }
+        // One update to let the steering blend settle, then measure.
+        session->update(kTick, MinigameInput());
+        float v1 = session->lateralVelocity().x;
+        for (int i = 0; i < 30; ++i) {
             session->update(kTick, MinigameInput());
         }
-        return session->offset().x;
+        Result r;
+        r.decay = session->lateralVelocity().x / v1;
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        r.offsetAtThreeSecs = session->offset().x;
+        for (int i = 0; i < 60; ++i) {
+            session->update(kTick, MinigameInput());
+        }
+        r.offsetAtFiveSecs = session->offset().x;
+        return r;
     };
-    EXPECT_NEAR(offsetAfterRelease(true), 0.0f, 0.5f);
-    EXPECT_FLOAT_EQ(offsetAfterRelease(false), 10.0f);
+    Result tsl = run(true);
+    EXPECT_NEAR(tsl.decay, std::exp(-kMinigameIdleDamping), 0.005f);
+    // The bike stays where it ended up: off centre, and no longer moving.
+    EXPECT_GT(tsl.offsetAtFiveSecs, 20.0f);
+    EXPECT_NEAR(tsl.offsetAtFiveSecs, tsl.offsetAtThreeSecs, 0.5f);
+
+    // KotOR damps at L / M = 3 per second and does not pull either.
+    Result kotor = run(false);
+    EXPECT_NEAR(kotor.decay, std::exp(-3.0f), 0.005f);
+    EXPECT_GT(kotor.offsetAtFiveSecs, 20.0f);
 }
 
 // TSL: steering against a fast slide brakes it harder than the steering alone.
