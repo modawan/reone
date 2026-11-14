@@ -24,7 +24,7 @@
 #include "reone/graphics/statistic.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
-#include "reone/resource/resources.h"
+#include "reone/resource/container.h"
 #include "reone/system/stream/memoryinput.h"
 
 using namespace reone;
@@ -275,30 +275,27 @@ static ModelStats analyzeModel(graphics::Model &model) {
 
 static ModelStats analyzeModels(const std::filesystem::path &gameDir) {
     ModelStats stats;
-    Resources resources;
-    resources.addKEY(gameDir / std::string("chitin.key"));
-    for (const auto &[container, owner, bucket, sequence] : resources.containers()) {
-        const auto &resIds = container->resourceIds();
-        for (const auto &resId : resIds) {
-            if (resId.type != ResType::Mdl) {
+    auto container = openKeyBif(gameDir / std::string("chitin.key"));
+    const auto &resIds = container->resourceIds();
+    for (const auto &resId : resIds) {
+        if (resId.type != ResType::Mdl) {
+            continue;
+        }
+        try {
+            auto mdlData = container->findResourceData(ResourceId(resId.resRef, ResType::Mdl));
+            auto mdxData = container->findResourceData(ResourceId(resId.resRef, ResType::Mdx));
+            if (!mdlData || !mdxData) {
                 continue;
             }
-            try {
-                auto mdlData = container->findResourceData(ResourceId(resId.resRef, ResType::Mdl));
-                auto mdxData = container->findResourceData(ResourceId(resId.resRef, ResType::Mdx));
-                if (!mdlData || !mdxData) {
-                    continue;
-                }
-                auto mdl = MemoryInputStream(*mdlData);
-                auto mdx = MemoryInputStream(*mdxData);
-                Statistic statistic;
-                auto reader = MdlMdxReader(mdl, mdx, statistic);
-                reader.load();
-                auto model = reader.model();
-                stats.extend(analyzeModel(*model));
-            } catch (const std::exception &e) {
-                std::cerr << "Model " << resId.resRef.value() << ": " << e.what() << std::endl;
-            }
+            auto mdl = MemoryInputStream(*mdlData);
+            auto mdx = MemoryInputStream(*mdxData);
+            Statistic statistic;
+            auto reader = MdlMdxReader(mdl, mdx, statistic);
+            reader.load();
+            auto model = reader.model();
+            stats.extend(analyzeModel(*model));
+        } catch (const std::exception &e) {
+            std::cerr << "Model " << resId.resRef.value() << ": " << e.what() << std::endl;
         }
     }
     return stats;

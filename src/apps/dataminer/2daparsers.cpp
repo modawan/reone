@@ -17,7 +17,7 @@
 
 #include "2daparsers.h"
 
-#include "reone/resource/container/keybif.h"
+#include "reone/resource/container.h"
 #include "reone/resource/format/2dareader.h"
 #include "reone/system/checkutil.h"
 #include "reone/system/fileutil.h"
@@ -223,13 +223,12 @@ void generate2DAParsers(const std::filesystem::path &k1dir,
 
     auto k1KeyPath = findFileIgnoreCase(k1dir, "chitin.key");
     if (k1KeyPath) {
-        KeyBifResourceContainer k1KeyBif {*k1KeyPath};
-        k1KeyBif.init();
-        for (const auto &resId : k1KeyBif.resourceIds()) {
+        auto k1KeyBif = openKeyBif(*k1KeyPath);
+        for (const auto &resId : k1KeyBif->resourceIds()) {
             if (resId.type != ResType::TwoDA) {
                 continue;
             }
-            auto data = k1KeyBif.findResourceData(resId);
+            auto data = k1KeyBif->findResourceData(resId);
             if (!data) {
                 continue;
             }
@@ -246,13 +245,12 @@ void generate2DAParsers(const std::filesystem::path &k1dir,
 
     auto k2KeyPath = findFileIgnoreCase(k2dir, "chitin.key");
     if (k2KeyPath) {
-        KeyBifResourceContainer k2KeyBif {*k2KeyPath};
-        k2KeyBif.init();
-        for (const auto &resId : k2KeyBif.resourceIds()) {
+        auto k2KeyBif = openKeyBif(*k2KeyPath);
+        for (const auto &resId : k2KeyBif->resourceIds()) {
             if (resId.type != ResType::TwoDA) {
                 continue;
             }
-            auto data = k2KeyBif.findResourceData(resId);
+            auto data = k2KeyBif->findResourceData(resId);
             if (!data) {
                 continue;
             }
