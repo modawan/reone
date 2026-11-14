@@ -318,6 +318,8 @@ static const char *screenName(Game::Screen screen) {
         return "None";
     case Game::Screen::MainMenu:
         return "MainMenu";
+    case Game::Screen::Options:
+        return "Options";
     case Game::Screen::Loading:
         return "Loading";
     case Game::Screen::CharacterGeneration:
@@ -930,6 +932,12 @@ void Game::initJournalNotifications() {
         submitStatusSummary(StatusSummaryCategory::Journal);
         _statusSummary.submitQuestSound(change.end);
         awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
+    });
+    _journal.setClock([this]() {
+        const uint32_t dayLength = millisecondsPerWorldDay();
+        return std::pair<uint32_t, uint32_t>(
+            static_cast<uint32_t>(_worldTimeMilliseconds / dayLength),
+            static_cast<uint32_t>(_worldTimeMilliseconds % dayLength));
     });
 }
 
@@ -3671,6 +3679,7 @@ bool Game::hasModalPanel() const {
     case Screen::PazaakBoard:
     case Screen::Death:
     case Screen::MainMenu:
+    case Screen::Options:
         return true;
     default:
         return false;
@@ -6571,6 +6580,19 @@ void Game::openMainMenu() {
     changeScreen(Screen::MainMenu);
 }
 
+void Game::openMainMenuOptions() {
+    if (!_mainMenuOptions) {
+        _mainMenuOptions = std::make_unique<OptionsMenu>(*this, _services, false);
+        _mainMenuOptions->init();
+    }
+    changeScreen(Screen::Options);
+}
+
+// The main menu's music plays on under its options.
+void Game::closeMainMenuOptions() {
+    changeScreen(Screen::MainMenu);
+}
+
 static constexpr int kPauseTutorial = 6;
 
 void Game::pressPauseKey() {
@@ -6832,6 +6854,14 @@ void Game::saveKeybindOptions() const {
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
         _options.game.keybinds[i].save(_options.game.configurationPath, i);
     }
+}
+
+void Game::saveSoundOptions() const {
+    reone::game::saveSoundOptions(_options.game.configurationPath, _options.audio);
+}
+
+void Game::saveGraphicsOptions() const {
+    reone::game::saveGraphicsOptions(_options.game.configurationPath, _options.graphics);
 }
 
 // Tutorial windows
@@ -7963,6 +7993,46 @@ std::shared_ptr<Object> Game::selectNearestObject(int direction) {
             area->selectObject(nullptr);
         }
         showTarget(nullptr, true, false);
+    }
+    return found;
+}
+
+// A pointer on no object picks the nearby object whose reticle point it is
+// closest to on screen. Its reach is a tenth of the screen's width and of its
+// height, taken together. Objects the leader does not see, and those outside
+// the camera's projected depth, are passed over.
+std::shared_ptr<Object> Game::nearestObjectToPointer(const Creature &leader, int x, int y) {
+    // Without a camera nothing is near the pointer.
+    const Camera *activeCamera = getActiveCamera();
+    if (!activeCamera) {
+        return nullptr;
+    }
+    const auto area = _module->area();
+    const auto camera = activeCamera->cameraSceneNode();
+    const glm::mat4 projection(camera->camera()->projection());
+    const glm::mat4 view(camera->camera()->view());
+    const GraphicsOptions &opts = _options.graphics;
+    const float reachX = opts.width / 10.0f;
+    const float reachY = opts.height / 10.0f;
+    const float reach2 = reachX * reachX + reachY * reachY;
+
+    std::shared_ptr<Object> found;
+    float nearest2 = std::numeric_limits<float>::max();
+    for (auto &entry : _nearestObjects) {
+        auto object = entry.object.resolve();
+        if (!object || !isNearestObjectSeen(entry, leader, *area)) {
+            continue;
+        }
+        const glm::vec3 coords(area->getSelectableScreenCoords(object, projection, view));
+        if (coords.z < 0.0f || coords.z > 1.0f) {
+            continue;
+        }
+        const glm::vec2 offset(opts.width * coords.x - x, opts.height * (1.0f - coords.y) - y);
+        const float distance2 = glm::dot(offset, offset);
+        if (distance2 <= reach2 && distance2 < nearest2) {
+            nearest2 = distance2;
+            found = std::move(object);
+        }
     }
     return found;
 }
@@ -9700,6 +9770,8 @@ GameGUI *Game::guiForScreen(Screen screen) const {
         return isTSL() ? static_cast<GameGUI *>(_deathDisplay.get()) : static_cast<GameGUI *>(_deathMessage.get());
     case Screen::MainMenu:
         return _mainMenu.get();
+    case Screen::Options:
+        return _mainMenuOptions.get();
     case Screen::Loading:
         return _loadScreen.get();
     case Screen::CharacterGeneration:

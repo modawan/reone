@@ -76,7 +76,7 @@ std::shared_ptr<resource::TwoDA> creatureSpeeds() {
 struct CorridorFixture {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
-    Room room {"corridor", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    Room room {"corridor", glm::vec3(0.0f), nullptr, nullptr};
     graphics::Walkmesh roomWalkmesh;
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     StubConsole console;

@@ -41,6 +41,17 @@ constexpr int kMaxTextChars = 128;
 constexpr int kMaxGrassClusters = 256;
 constexpr int kMaxWalkmeshMaterials = 32;
 
+/** A mode the display can show: its size in pixels and its refresh rate in whole hertz. */
+struct DisplayMode {
+    int width {0};
+    int height {0};
+    int refreshRate {0};
+
+    bool operator==(const DisplayMode &other) const {
+        return width == other.width && height == other.height && refreshRate == other.refreshRate;
+    }
+};
+
 enum class TextureUsage {
     Default,
     ColorBuffer,

@@ -17,6 +17,7 @@
 #include <sstream>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "reone/system/logger.h"
@@ -34,6 +35,25 @@ const std::string kTopLevel;
 const std::string kGameOptionsSection {"Game Options"};
 const std::string kAutoPauseSection {"Autopause Options"};
 const std::string kKeybindsSectionTemplate {"Keybinds %d"};
+
+// Top-level keys of the sound and graphics options, as the engine reads them
+// at start.
+const std::string kMusicVolumeKey {"musicvol"};
+const std::string kVoiceVolumeKey {"voicevol"};
+const std::string kSoundVolumeKey {"soundvol"};
+const std::string kMovieVolumeKey {"movievol"};
+const std::string kForceSoftwareKey {"forcesoftware"};
+const std::string kShadowsKey {"shadows"};
+const std::string kSoftShadowsKey {"softshadows"};
+const std::string kGrassKey {"grass"};
+const std::string kFXAAKey {"fxaa"};
+const std::string kVSyncKey {"vsync"};
+const std::string kWidthKey {"width"};
+const std::string kHeightKey {"height"};
+const std::string kRefreshRateKey {"refresh"};
+const std::string kTextureQualityKey {"texquality"};
+const std::string kAnisotropicFilteringKey {"anisofilter"};
+const std::string kGUIScaleKey {"guiscale"};
 
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
@@ -98,7 +118,7 @@ std::string trim(const std::string &s) {
 }
 
 /** A key and the number to write for it; no number removes the key. */
-using ConfigurationValue = std::pair<std::string, std::optional<int>>;
+using ConfigurationValue = std::pair<std::string, std::optional<std::variant<int, float>>>;
 
 /**
  * Whether a problem with the configuration has been warned of since it was
@@ -167,25 +187,14 @@ public:
         return false;
     }
 
-    /** The number of a key in a section, as last set there; none when the key is absent or holds no number. */
+    /** The whole number of a key in a section, as last set there; none when the key is absent or holds no number. */
     std::optional<int> number(const std::string &section, const std::string &key) const {
-        std::optional<int> result;
-        std::string current;
-        for (const auto &line : _lines) {
-            if (auto header = sectionHeader(line)) {
-                current = *header;
-                continue;
-            }
-            if (current != section || keyOf(line) != key) {
-                continue;
-            }
-            std::istringstream value(line.substr(line.find('=') + 1));
-            int number;
-            if (value >> number) {
-                result = number;
-            }
-        }
-        return result;
+        return lastValue<int>(section, key);
+    }
+
+    /** The number of a key in a section, fraction kept, as last set there; none when the key is absent or holds no number. */
+    std::optional<float> real(const std::string &section, const std::string &key) const {
+        return lastValue<float>(section, key);
     }
 
     /** Whether a key in a section is on: any number but zero. None when the key is absent. */
@@ -234,7 +243,9 @@ public:
         std::vector<std::string> written;
         for (const auto &[key, value] : values) {
             if (value) {
-                written.push_back(key + "=" + std::to_string(*value));
+                std::ostringstream text;
+                std::visit([&text](auto number) { text << number; }, *value);
+                written.push_back(key + "=" + text.str());
             }
         }
         auto position = _lines.begin();
@@ -301,6 +312,27 @@ private:
         _lines.clear();
         _unreadable = true;
         warnOfConfigurationProblem("Unable to read the configuration at " + path.string() + "; it is left unchanged and the options are kept for this run only");
+    }
+
+    template <class T>
+    std::optional<T> lastValue(const std::string &section, const std::string &key) const {
+        std::optional<T> result;
+        std::string current;
+        for (const auto &line : _lines) {
+            if (auto header = sectionHeader(line)) {
+                current = *header;
+                continue;
+            }
+            if (current != section || keyOf(line) != key) {
+                continue;
+            }
+            std::istringstream value(line.substr(line.find('=') + 1));
+            T number;
+            if (value >> number) {
+                result = number;
+            }
+        }
+        return result;
     }
 
     /** The section a header line opens; none for any other line. */
@@ -445,6 +477,56 @@ GameplayOptions GameplayOptions::load(const std::filesystem::path &path) {
 void GameplayOptions::save(const std::filesystem::path &path) const {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kCombatMovementKey, combatMovement ? 1 : 0}});
+    configuration.write(path);
+}
+
+void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kMusicVolumeKey, options.musicVolume},
+                                     {kVoiceVolumeKey, options.voiceVolume},
+                                     {kSoundVolumeKey, options.soundVolume},
+                                     {kMovieVolumeKey, options.movieVolume},
+                                     {kForceSoftwareKey, options.forceSoftware ? 1 : 0},
+                                 });
+    configuration.write(path);
+}
+
+void saveGraphicsOptions(const std::filesystem::path &path, const graphics::GraphicsOptions &options) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kShadowsKey, options.shadows ? 1 : 0},
+                                     {kSoftShadowsKey, options.softShadows ? 1 : 0},
+                                     {kGrassKey, options.grass ? 1 : 0},
+                                     {kFXAAKey, options.fxaa ? 1 : 0},
+                                     {kVSyncKey, options.vsync ? 1 : 0},
+                                 });
+    configuration.write(path);
+}
+
+StartGraphicsOptions StartGraphicsOptions::load(const std::filesystem::path &path, const graphics::GraphicsOptions &running) {
+    const auto configuration = ConfigurationFile::read(path);
+    StartGraphicsOptions result;
+    result.displayMode.width = configuration.number(kTopLevel, kWidthKey).value_or(running.width);
+    result.displayMode.height = configuration.number(kTopLevel, kHeightKey).value_or(running.height);
+    result.displayMode.refreshRate = configuration.number(kTopLevel, kRefreshRateKey).value_or(running.refreshRate);
+    result.textureQuality = static_cast<graphics::TextureQuality>(
+        configuration.number(kTopLevel, kTextureQualityKey).value_or(static_cast<int>(running.textureQuality)));
+    result.anisotropicFiltering = configuration.number(kTopLevel, kAnisotropicFilteringKey).value_or(running.anisotropicFiltering);
+    result.guiScale = configuration.real(kTopLevel, kGUIScaleKey).value_or(running.guiScale);
+    return result;
+}
+
+void StartGraphicsOptions::save(const std::filesystem::path &path) const {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kWidthKey, displayMode.width},
+                                     {kHeightKey, displayMode.height},
+                                     {kRefreshRateKey, displayMode.refreshRate},
+                                     {kTextureQualityKey, static_cast<int>(textureQuality)},
+                                     {kAnisotropicFilteringKey, anisotropicFiltering},
+                                     {kGUIScaleKey, guiScale},
+                                 });
     configuration.write(path);
 }
 

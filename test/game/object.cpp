@@ -263,6 +263,20 @@ void reone::game::TestGameModule::setActiveModuleArea(Game &game, std::shared_pt
     game._module->_area = std::move(area);
 }
 
+void reone::game::TestGameModule::configurePointerSelection(
+    Game &game,
+    Area &area,
+    StaticCamera &camera,
+    const std::vector<std::shared_ptr<Object>> &objects) {
+
+    game._cameraType = CameraType::Static;
+    area._staticCamera = &camera;
+    game._nearestObjects.clear();
+    for (const auto &object : objects) {
+        game._nearestObjects.push_back({RuntimeObjectRef<Object>(object), true, false, true});
+    }
+}
+
 void reone::game::TestGameModule::setPerceptionRanges(
     Creature &creature,
     float sight,
@@ -2695,6 +2709,41 @@ TEST(CameraProjection, should_follow_a_resolution_change_after_all_camera_types_
     engine.options().graphics = originalGraphicsOptions;
 }
 
+TEST(PointerSelection, should_ignore_an_object_behind_the_camera) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto camera = game.newStaticCamera();
+    auto cameraGff = Gff::Builder()
+                         .field(Gff::Field::newInt("CameraID", 1))
+                         .field(Gff::Field::newFloat("FieldOfView", 55.0f))
+                         .field(Gff::Field::newFloat("Height", 0.0f))
+                         .field(Gff::Field::newVector("Position", glm::vec3(0.0f)))
+                         .field(Gff::Field::newOrientation("Orientation", glm::quat(1.0f, 0.0f, 0.0f, 0.0f)))
+                         .field(Gff::Field::newFloat("Pitch", 0.0f))
+                         .build();
+    camera->deserialize(*cameraGff);
+
+    auto leader = game.newCreature();
+    leader->setPosition({0.0f, 0.0f, -2.0f});
+    auto behind = game.newPlaceable();
+    behind->setPosition({0.0f, 0.0f, 10.0f});
+    auto inFront = game.newPlaceable();
+    inFront->setPosition({0.0f, 0.0f, -10.0f});
+    TestGameModule::configurePointerSelection(game, *area, *camera, {behind, inFront});
+
+    EXPECT_EQ(
+        inFront,
+        game.nearestObjectToPointer(
+            *leader,
+            engine.options().graphics.width / 2,
+            engine.options().graphics.height / 2));
+}
+
 TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_touching_state) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -4719,7 +4768,7 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
     fixture.countScriptRuns("k_def_blocked01");
 
     // A wall that is not a door ends the walk all the same, with no report.
-    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr);
     ScopedWalkObstruction obstruction(room);
     EXPECT_TRUE(walkerStep(*fixture.area, *npc, kFarDestination));
 

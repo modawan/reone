@@ -95,6 +95,8 @@ constexpr glm::vec3 kK1ColorEnabledIcon = glm::vec3(1.0f);
 constexpr glm::vec3 kK1ColorDisabledIcon = glm::vec3(0.35f);
 /** KotOR's in-game screens light the active entry in yellow. */
 constexpr glm::vec3 kK1ColorYellow = glm::vec3(0.98f, 1.0f, 0.0f);
+/** KotOR's in-game screens show raised values, and lowered costs, in green. */
+constexpr glm::vec3 kK1ColorGreen = glm::vec3(0.28f, 0.92f, 0.11f);
 
 /** The colour of lowered values on TSL's in-game screens. */
 constexpr glm::vec3 kTSLColorRed = glm::vec3(0.74f, 0.11f, 0.0f);
@@ -110,6 +112,10 @@ constexpr glm::vec3 kTSLColorDisabledText = glm::vec3(0.4f, 0.4f, 0.3f);
 constexpr glm::vec3 kTSLColorNewGreen = glm::vec3(0.05f, 0.35f, 0.27f);
 /** The frame of TSL's store message boxes. */
 constexpr glm::vec3 kTSLColorDarkGold = glm::vec3(0.31f, 0.25f, 0.09f);
+/** The colour of plain values on TSL's in-game screens. */
+constexpr glm::vec3 kTSLColorNewText = glm::vec3(0.1f, 0.7f, 0.55f);
+/** The colour of raised values, and lowered costs, on TSL's in-game screens. */
+constexpr glm::vec3 kTSLColorBonus = glm::vec3(0.95f, 0.66f, 0.3f);
 
 /** Whether an item joins a matching stack where it lands, or keeps a stack of its own. */
 enum class ItemStacking {

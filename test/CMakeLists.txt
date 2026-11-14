@@ -70,6 +70,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
     ${TESTS_SOURCE_DIR}/game/computer.cpp
     ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
+    ${TESTS_SOURCE_DIR}/game/iconselection.cpp
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
@@ -102,6 +103,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/saveslotpublisher.cpp
     ${TESTS_SOURCE_DIR}/game/savewidesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
+    ${TESTS_SOURCE_DIR}/game/options.cpp
     ${TESTS_SOURCE_DIR}/game/runtimesession.cpp
     ${TESTS_SOURCE_DIR}/game/pazaak.cpp
     ${TESTS_SOURCE_DIR}/game/pazaakintegration.cpp
@@ -138,7 +140,10 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/gui/control/listbox.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/border.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/slider.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
+    ${TESTS_SOURCE_DIR}/gui/gui.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
@@ -181,6 +186,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/scene/mesh.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp
     ${TESTS_SOURCE_DIR}/scene/particleutil.cpp
+    ${TESTS_SOURCE_DIR}/scene/walk.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncsreader.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncswriter.cpp
     ${TESTS_SOURCE_DIR}/script/virtualmachine.cpp

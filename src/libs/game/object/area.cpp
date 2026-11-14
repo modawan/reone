@@ -928,22 +928,7 @@ void Area::loadLYT() {
             sceneGraph.addRoot(modelSceneNode);
         }
 
-        // Grass
-        std::shared_ptr<GrassSceneNode> grassSceneNode;
-        auto aabbNode = modelSceneNode ? modelSceneNode->model().getAABBNode() : nullptr;
-        if (_grass.texture && aabbNode && _game.options().graphics.grass) {
-            auto grassProperties = GrassProperties();
-            grassProperties.density = _grass.density;
-            grassProperties.quadSize = _grass.quadSize;
-            grassProperties.probabilities = _grass.probabilities;
-            grassProperties.materials = _services.game.surfaces.getGrassSurfaces();
-            grassProperties.texture = _grass.texture.get();
-            grassSceneNode = sceneGraph.newGrass(grassProperties, *aabbNode);
-            grassSceneNode->setLocalTransform(glm::translate(position) * aabbNode->absoluteTransform());
-            sceneGraph.addRoot(grassSceneNode);
-        }
-
-        auto room = std::make_unique<Room>(lytRoom.name, position, std::move(modelSceneNode), walkmeshSceneNode, std::move(grassSceneNode));
+        auto room = std::make_unique<Room>(lytRoom.name, position, std::move(modelSceneNode), walkmeshSceneNode);
         if (walkmeshSceneNode) {
             walkmeshSceneNode->setUser(*room);
         }
@@ -961,6 +946,33 @@ void Area::loadLYT() {
     // lasts.
     sceneGraph.setRoomWalkmeshes(_layoutWalkmeshes);
     sceneGraph.setRoomTest(_roomTest);
+    if (_game.options().graphics.grass) {
+        buildGrass();
+    }
+}
+
+void Area::buildGrass() {
+    _grassBuilt = true;
+    if (!_grass.texture) {
+        return;
+    }
+    GrassProperties properties;
+    properties.density = _grass.density;
+    properties.quadSize = _grass.quadSize;
+    properties.probabilities = _grass.probabilities;
+    properties.materials = _services.game.surfaces.getGrassSurfaces();
+    properties.texture = _grass.texture.get();
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    for (auto *room : _roomOrder) {
+        auto aabbNode = room->model() ? room->model()->model().getAABBNode() : nullptr;
+        if (!aabbNode) {
+            continue;
+        }
+        auto grass = sceneGraph.newGrass(properties, *aabbNode);
+        grass->setLocalTransform(glm::translate(room->position()) * aabbNode->absoluteTransform());
+        sceneGraph.addRoot(grass);
+        room->setGrass(std::move(grass));
+    }
 }
 
 void Area::loadVIS() {
@@ -3137,6 +3149,10 @@ bool Area::handleKeyDown(const input::KeyEvent &event) {
 }
 
 void Area::update(float dt) {
+    // Grass turned on for the first time in the area grows from here on.
+    if (!_grassBuilt && _game.options().graphics.grass) {
+        buildGrass();
+    }
     doDestroyObjects();
     updatePartSounds();
     updateReleasedPresentation(dt);
@@ -4660,6 +4676,10 @@ std::optional<std::reference_wrapper<Object>> Area::getObjectAt(int x, int y) co
     auto &scene = _services.scene.graphs.get(kSceneMain);
     auto model = scene.pickModelAt(x, y, partyLeader.get());
     if (!model) {
+        // A pointer on no object's model picks the object it is nearest.
+        if (auto nearest = _game.nearestObjectToPointer(*partyLeader, x, y)) {
+            return std::ref(*nearest);
+        }
         return std::nullopt;
     }
     // A kept corpse is picked as its body bag.

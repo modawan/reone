@@ -300,7 +300,7 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
     std::unique_ptr<Game> game;
     std::unique_ptr<Routines> routines;
     std::shared_ptr<Creature> player;
-    Room candidateRoom {"candidate", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    Room candidateRoom {"candidate", glm::vec3(0.0f), nullptr, nullptr};
     graphics::Walkmesh candidateRoomWalkmesh;
     std::shared_ptr<scene::WalkmeshSceneNode> candidateRoomNode;
     std::vector<std::shared_ptr<scene::CameraSceneNode>> cameraNodes;

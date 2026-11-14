@@ -204,6 +204,8 @@ public:
     enum class Screen {
         None,
         MainMenu,
+        /** The options opened from the main menu. */
+        Options,
         Loading,
         CharacterGeneration,
         InGame,
@@ -583,6 +585,14 @@ public:
      * In combat mode only visible hostile creatures qualify while any remain.
      */
     std::shared_ptr<Object> selectNearestObject(int direction);
+    /**
+     * The object nearest a screen point, for a pointer that is on none: of
+     * the nearby objects the leader sees, the one whose reticle point lies
+     * closest on screen, within a tenth of the screen's width and of its
+     * height taken together. Objects outside the camera's projected depth are
+     * passed over.
+     */
+    std::shared_ptr<Object> nearestObjectToPointer(const Creature &leader, int x, int y);
     void setKeepStealthInDialog(bool value) { _keepStealthInDialog = value; }
     /**
      * A conversation showing an entry or its replies quietly ends the stealth
@@ -593,6 +603,10 @@ public:
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
+    /** Open the options from the main menu. */
+    void openMainMenuOptions();
+    /** Leave the options opened from the main menu, back to the main menu as it was. */
+    void closeMainMenuOptions();
     /**
      * The screen that presents play: the minigame while one runs, otherwise
      * the world.
@@ -1099,6 +1113,10 @@ public:
     float followCameraZoom() const { return _followCameraZoom; }
     void setFollowCameraZoom(float zoom) { _followCameraZoom = zoom; }
     void saveKeybindOptions() const;
+    /** Write the sound options to the configuration. */
+    void saveSoundOptions() const;
+    /** Write the graphics options to the configuration. */
+    void saveGraphicsOptions() const;
     /** Whether the alternate actions key, either Shift, was last pressed rather than released. */
     bool alternateActionsHeld() const { return _alternateActionsHeld; }
     /**
@@ -2416,6 +2434,7 @@ private:
     // GUI
 
     std::unique_ptr<MainMenu> _mainMenu;
+    std::unique_ptr<OptionsMenu> _mainMenuOptions;
     std::unique_ptr<CharacterGeneration> _charGen;
     std::unique_ptr<HUD> _hud;
     bool _captureHUDPresentation {false};

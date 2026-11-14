@@ -239,6 +239,12 @@ bool GUI::handle(const input::Event &event) {
         return handleKeyUp(event.key.code);
 
     case input::EventType::MouseMotion: {
+        if (_pressedControl) {
+            auto &pressed = _pressedControl->get();
+            auto ctrlCoords = controlCoordinates(pressed, event.motion.x, event.motion.y);
+            pressed.handleMouseDrag(ctrlCoords.x, ctrlCoords.y);
+            return true;
+        }
         updateSelection(event.motion.x, event.motion.y);
         if (_selection) {
             auto ctrlCoords = controlCoordinates(_selection->get(), event.motion.x, event.motion.y);
@@ -250,9 +256,24 @@ bool GUI::handle(const input::Event &event) {
     case input::EventType::MouseButtonDown:
         if (event.button.button == input::MouseButton::Left) {
             _leftMouseDown = true;
+            auto control = findControlAt(
+                event.button.x, event.button.y,
+                [](const auto &control) { return control.isSelectable(); });
+            if (control) {
+                auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
+                if (control->get().handleMouseDown(ctrlCoords.x, ctrlCoords.y)) {
+                    _pressedControl = control;
+                    return true;
+                }
+            }
         }
         break;
     case input::EventType::MouseButtonUp:
+        if (_pressedControl && event.button.button == input::MouseButton::Left) {
+            _leftMouseDown = false;
+            _pressedControl.reset();
+            return true;
+        }
         if (_leftMouseDown && event.button.button == input::MouseButton::Left) {
             _leftMouseDown = false;
             auto control = findControlAt(
@@ -493,20 +514,26 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlAt(int x, int y,
     if (!_rootControl) {
         return std::nullopt;
     }
-    std::stack<std::reference_wrapper<Control>> controls;
-    controls.push(*_rootControl);
-    while (!controls.empty()) {
-        auto &control = controls.top().get();
-        controls.pop();
+    // A control is drawn over its parent, so where both are under the point
+    // the child is found: an arrow lying on the row it steps takes the
+    // pointer there. Among siblings the one drawn last is found first.
+    auto find = [&](auto &self, Control &control) -> Control * {
+        auto &children = control.children();
+        for (auto child = children.rbegin(); child != children.rend(); ++child) {
+            if (auto found = self(self, child->get())) {
+                return found;
+            }
+        }
         auto ctrlCoords = controlCoordinates(control, x, y);
         if (control.isVisible() && !control.isDisabled() &&
             control.extent().contains(ctrlCoords.x, ctrlCoords.y) &&
             test(control)) {
-            return control;
+            return &control;
         }
-        for (auto &child : control.children()) {
-            controls.push(child);
-        }
+        return nullptr;
+    };
+    if (auto found = find(find, _rootControl->get())) {
+        return *found;
     }
     return std::nullopt;
 }
@@ -581,6 +608,8 @@ void GUI::renderBackground(IRenderPass &pass) {
 }
 
 void GUI::clearSelection() {
+    // A GUI put away mid-press gives the press up with its selection.
+    _pressedControl.reset();
     if (_selection) {
         _selection->get().setSelected(false);
         onSelectionChanged(_selection->get().tag(), false);

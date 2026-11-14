@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <map>
+#include <vector>
+
+#include "reone/game/d20/feats.h"
+#include "reone/game/d20/spells.h"
 #include "reone/gui/control/iconchain.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/gui/control/label.h"
@@ -50,6 +55,16 @@ std::shared_ptr<gui::IconChain> addIconSelectionChain(
     gui::ListBox &sourceList,
     const glm::vec3 &hilightColor,
     IconSelectionCallbacks callbacks);
+
+/**
+ * Where each feat sits in a chain grid: a chain's feats fill its rows in
+ * chain order, kIconSelectionColumnCount to a row, and every chain starts a
+ * new row.
+ */
+std::map<FeatType, glm::ivec2> getFeatIconPositions(const std::vector<FeatDisplayEntry> &entries);
+
+/** Where each visible power sits in a chain grid, laid out as the feats are. */
+std::map<SpellType, glm::ivec2> getPowerIconPositions(const std::vector<SpellDisplayEntry> &entries);
 
 /**
  * Applies TSL's shared chargen description treatment: the description box's

@@ -27,6 +27,12 @@ float getDirectionalLightShadow(vec3 viewPos, vec3 worldPos, sampler2DArray tex)
     if (currentDepth > 1.0)
         return 0.0;
 
+    // A hard shadow takes its edge from the one sample under the fragment.
+    if (uShadowSoft == 0) {
+        float depth = texture(tex, vec3(projCoords.xy, cascade)).r;
+        return currentDepth > depth ? 1.0 : 0.0;
+    }
+
     float shadow = 0.0;
     vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));
     for (int x = -1; x <= 1; ++x) {
@@ -45,11 +51,16 @@ float getPointLightShadow(vec3 worldPos, samplerCube tex) {
     float currentDepth = length(fragToLight);
 
     float shadow = 0.0;
-    for (int i = 0; i < NUM_PCF_SAMPLES; ++i) {
-        float closestDepth = 2500.0 * texture(tex, fragToLight + PCF_SAMPLE_RADIUS * PCF_SAMPLE_OFFSETS[i]).r;
-        shadow += currentDepth > closestDepth ? 1.0 : 0.0;
+    if (uShadowSoft == 0) {
+        float closestDepth = 2500.0 * texture(tex, fragToLight).r;
+        shadow = currentDepth > closestDepth ? 1.0 : 0.0;
+    } else {
+        for (int i = 0; i < NUM_PCF_SAMPLES; ++i) {
+            float closestDepth = 2500.0 * texture(tex, fragToLight + PCF_SAMPLE_RADIUS * PCF_SAMPLE_OFFSETS[i]).r;
+            shadow += currentDepth > closestDepth ? 1.0 : 0.0;
+        }
+        shadow /= NUM_PCF_SAMPLES;
     }
-    shadow /= NUM_PCF_SAMPLES;
     shadow *= 1.0 - smoothstep(uShadowRadius, 2.0 * uShadowRadius, currentDepth);
 
     return shadow;

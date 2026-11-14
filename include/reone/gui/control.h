@@ -183,6 +183,8 @@ public:
     /** The ID of the control the arrow key of \p direction moves the keyboard to from this one. */
     int moveTo(MoveDirection direction) const { return _moveTo[static_cast<size_t>(direction)]; }
     int padding() const { return _padding; }
+    /** The GUI the control belongs to. */
+    IGUI &gui() const { return _gui; }
     Border &border() const { return *_border; }
     const Extent &authoredExtent() const { return _authoredExtent; }
     void setAuthoredExtent(Extent extent) { _authoredExtent = std::move(extent); }
@@ -292,6 +294,14 @@ public:
     virtual bool handleMouseMotion(int x, int y);
     virtual bool handleMouseWheel(int x, int y);
     virtual bool handleClick(int x, int y, int clicks = 1);
+    /**
+     * The left button went down over the control. True when the control takes
+     * the pointer: it then receives every movement through handleMouseDrag,
+     * wherever the pointer goes, and the release is not a click.
+     */
+    virtual bool handleMouseDown(int x, int y);
+    /** The pointer moved while the control holds the press it took. */
+    virtual void handleMouseDrag(int x, int y);
 
     // END User input
 

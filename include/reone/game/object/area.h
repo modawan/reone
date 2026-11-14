@@ -634,8 +634,10 @@ public:
 
     /**
      * The object whose model is under a screen point, as the party leader
-     * sees it; a kept corpse is answered by its body bag. Empty without a
-     * leader or when no object's model is there.
+     * sees it; a kept corpse is answered by its body bag. A point on no
+     * object's model answers the nearby object whose reticle point it is
+     * nearest, within reach (Game::nearestObjectToPointer). Empty without a
+     * leader or with no object there or near.
      */
     std::optional<std::reference_wrapper<Object>> getObjectAt(int x, int y) const;
 
@@ -1042,6 +1044,8 @@ private:
     /** TSL: whether transit out of the area is disabled, as the area file says. */
     bool _transitDisabled {false};
     Grass _grass;
+    /** The rooms' grass has been made: grass has been shown in the area. */
+    bool _grassBuilt {false};
     std::optional<MinigameSpec> _miniGameSpec;
     glm::vec3 _ambientColor {0.0f};
     /** Sound finds its way around the walls of an interior or underground area. */
@@ -1181,6 +1185,12 @@ private:
     void init();
 
     void loadLYT();
+    /**
+     * Give the rooms their grass, the first time the area shows grass: as it
+     * loads with grass on, or once grass is turned on. Turning grass off
+     * again only stops it being drawn.
+     */
+    void buildGrass();
     /** Reads the rooms' part sounds from the area file's room list. */
     void loadPartSounds(const resource::Gff &are);
     /** Gives each part sound its room's model, and starts those without an omen event. */

@@ -45,7 +45,6 @@ static constexpr int kEquipSlotTutorial = 11;
 static constexpr int kMessagesTutorial = 12;
 static constexpr int kMapTutorial = 13;
 static constexpr int kInventoryTutorial = 20;
-static constexpr int kSkillsViewTutorial = 36;
 
 void InGameMenu::init() {
     _host = std::make_unique<InGameMenuHost>(_game.gameId(), _game.options().graphics,
@@ -121,7 +120,7 @@ void InGameMenu::loadMap() {
 }
 
 void InGameMenu::loadOptions() {
-    _options = std::make_shared<OptionsMenu>(_game, _services);
+    _options = std::make_shared<OptionsMenu>(_game, _services, true);
     _options->init();
     _host->registerScreen(InGameMenuTab::Options, _options);
 }
@@ -197,10 +196,6 @@ void InGameMenu::openAbilities() {
     leaveTab(InGameMenuTab::Abilities);
     _abilities->refreshControls();
     _host->changeTab(InGameMenuTab::Abilities);
-    // TSL opens abilities on the skills view.
-    if (_game.isTSL()) {
-        _game.requestTutorialWindow(kSkillsViewTutorial);
-    }
 }
 
 void InGameMenu::openPartySelection() {

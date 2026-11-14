@@ -43,6 +43,7 @@ set(GUI_SOURCES
     ${GUI_SOURCE_DIR}/control/listbox.cpp
     ${GUI_SOURCE_DIR}/control/progressbar.cpp
     ${GUI_SOURCE_DIR}/control/scrollbar.cpp
+    ${GUI_SOURCE_DIR}/control/slider.cpp
     ${GUI_SOURCE_DIR}/control/togglebutton.cpp
     ${GUI_SOURCE_DIR}/di/module.cpp
     ${GUI_SOURCE_DIR}/gui.cpp

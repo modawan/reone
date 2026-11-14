@@ -117,6 +117,8 @@ private:
     /** Companions this opening of the screen brought into being to show them. */
     bool _materialized[kMaxNpcCount] {false};
     int _availableCount {0};
+    /** The colour the Add/Remove caption is authored with. */
+    glm::vec3 _acceptTextColor {0.0f};
 
     void onGUILoaded() override;
 
@@ -205,6 +207,13 @@ private:
      * then while someone in it is down, then while it is in combat.
      */
     std::optional<int> partyLockStrRef() const;
+    /**
+     * @return the message a change of \p npc is refused with, or none for a
+     * companion free to join and leave. A companion the screen was opened to
+     * force in must stay. One that is not selectable cannot join, and in TSL
+     * one already selected cannot leave.
+     */
+    std::optional<int> companionLockStrRef(int npc) const;
 
     void onAcceptButtonClick();
     void onNpcButtonClick(int npc);

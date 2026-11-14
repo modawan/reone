@@ -197,6 +197,10 @@ static GUI_CONTROLS parseGUI_CONTROLS(const Gff &gff) {
     if (TEXT) {
         strct.TEXT = parseGUI_TEXT(*TEXT);
     }
+    auto THUMB = gff.findStruct("THUMB");
+    if (THUMB) {
+        strct.THUMB = parseGUI_CONTROLS_SCROLLBAR_DIRTHUMB(*THUMB);
+    }
     return strct;
 }
 

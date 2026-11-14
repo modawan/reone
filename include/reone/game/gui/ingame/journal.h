@@ -22,6 +22,7 @@
 #include "reone/gui/control/listbox.h"
 
 #include "../../gui.h"
+#include "../../journal.h"
 
 namespace reone {
 
@@ -46,11 +47,17 @@ public:
     void markReadQuestsSeen();
 
 private:
-    enum class Filter {
-        Priority,
-        Planet,
+    friend class JournalMenuTestAccess;
+
+    /** How the quest list is sorted, in the order KotOR's sort button steps through. */
+    enum class Sort {
+        /** The quest that arrived or moved on last comes first. */
+        OrderReceived,
         Name,
-        Time,
+        /** The most urgent first. */
+        Priority,
+        /** By planet number, the highest first. */
+        Planet,
     };
 
     struct Controls {
@@ -73,16 +80,28 @@ private:
         std::shared_ptr<gui::ListBox> LB_ITEMS;
     };
 
+    struct Row {
+        const Journal::Quest *quest;
+        const resource::JRL::Category *category;
+        std::string name;
+    };
+
     Controls _controls;
-    Filter _filter {Filter::Priority};
+    Sort _sort {Sort::OrderReceived};
+    /** The list shows the completed quests rather than the active ones. */
+    bool _showCompleted {false};
     /** The plot ID of the quest whose entry is shown; empty for none. */
     std::string _shownQuest;
     /** The plot IDs of the quests read while the journal is shown. */
     std::vector<std::string> _readQuests;
 
     void onGUILoaded() override;
-    void setFilter(Filter filter);
-    void updateFilterControls();
+    void setSort(Sort sort);
+    static void sortRows(std::vector<Row> &rows, Sort sort);
+    /** Show the completed quests in place of the active ones, or the other way round. */
+    void swapQuests();
+    /** Name the list shown and its sort on the title, the swap and the sort buttons. */
+    void updateListControls();
 
     void refreshEntryText(const std::string &plotId);
 

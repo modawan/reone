@@ -113,6 +113,7 @@ struct GUI_CONTROLS : public GUI_BASECONTROL {
     std::optional<GUI_CONTROLS_SCROLLBAR> SCROLLBAR;
     uint8_t STARTFROMLEFT {0};
     std::optional<GUI_TEXT> TEXT;
+    std::optional<GUI_CONTROLS_SCROLLBAR_DIRTHUMB> THUMB;
 };
 
 struct GUI : public GUI_BASECONTROL {

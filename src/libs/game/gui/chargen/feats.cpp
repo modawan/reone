@@ -73,43 +73,6 @@ static IconChain::State getIconState(CharGenFeats::FeatStatus status) {
     }
 }
 
-static std::map<FeatType, glm::ivec2> getFeatIconPositions(
-    const std::vector<FeatDisplayEntry> &entries) {
-
-    std::map<FeatType, int> chainRowCounts;
-    std::vector<FeatType> chainRoots;
-    for (auto &entry : entries) {
-        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
-        int wrappedRowCount = entry.visualIndex / kIconSelectionColumnCount + 1;
-
-        auto maybeChainRows = chainRowCounts.insert({chainRoot, wrappedRowCount});
-        if (maybeChainRows.second) {
-            chainRoots.push_back(chainRoot);
-        } else {
-            maybeChainRows.first->second = std::max(maybeChainRows.first->second, wrappedRowCount);
-        }
-    }
-
-    std::map<FeatType, int> chainRowBases;
-    int nextRow = 0;
-    for (auto chainRoot : chainRoots) {
-        chainRowBases.insert({chainRoot, nextRow});
-        nextRow += chainRowCounts.at(chainRoot);
-    }
-
-    std::map<FeatType, glm::ivec2> result;
-    for (auto &entry : entries) {
-        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
-        result.insert({
-            entry.type,
-            {
-                entry.visualIndex % kIconSelectionColumnCount,
-                chainRowBases.at(chainRoot) + entry.visualIndex / kIconSelectionColumnCount
-            }});
-    }
-    return result;
-}
-
 /** The controls the panel shows in both titles. */
 static const std::unordered_set<std::string> kPanelControls {
     "BTN_ACCEPT", "BTN_BACK", "BTN_RECOMMENDED", "BTN_SELECT", "LBL_NAME", "LB_DESC",
