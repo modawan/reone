@@ -28,6 +28,11 @@ struct GraphicsOptions {
     int height {768};
     int winScale {100};
     bool fullscreen {false};
+    /**
+     * The refresh rate of the display mode fullscreen takes, at width by
+     * height; none keeps the desktop's mode.
+     */
+    int refreshRate {0};
     /** Hide the presentation window while retaining a renderable surface. */
     bool headless {false};
     /** Draw 3D scene content: the world and scene-backed GUI panels. */
@@ -46,6 +51,8 @@ struct GraphicsOptions {
      * measures itself.
      */
     bool shadows {true};
+    /** A shadow's edge is filtered over neighbouring samples of the shadow map, rather than taken from one. */
+    bool softShadows {true};
     /** Admit emitter particles, or leave them out of the frame entirely. */
     bool particles {true};
     bool pbr {false};

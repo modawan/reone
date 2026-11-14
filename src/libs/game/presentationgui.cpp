@@ -365,11 +365,14 @@ void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar,
         return;
     }
 
-    auto fill = std::shared_ptr<Control>(_gui->newControl(ControlType::Label, topBar->tag() + "_SECTION_FILL"));
+    // The fill goes behind the strip in the GUI that has the bars, which may
+    // be a page drawn over this one.
+    auto &gui = topBar->gui();
+    auto fill = std::shared_ptr<Control>(gui.newControl(ControlType::Label, topBar->tag() + "_SECTION_FILL"));
     fill->setExtent({upper.left, top, upper.width, height});
     fill->setBorderFill("uibit_fill_2wt");
     fill->setBorderColor(topBar->border().color);
-    _gui->addControlToFront(std::move(fill), IGUI::ControlCoordinates::Authored);
+    gui.addControlToFront(std::move(fill), IGUI::ControlCoordinates::Authored);
 }
 
 void PresentationGUI::useK2ShellTitle(const std::shared_ptr<Control> &control) {

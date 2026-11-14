@@ -86,6 +86,8 @@ struct GlobalUniforms {
     float fogNear {0.0f};
     float fogFar {0.0f};
     int forceSight {0};
+    /** Shadow edges are filtered over neighbouring shadow map samples. */
+    int shadowSoft {0};
 
     void reset() {
         projection = glm::mat4(1.0f);
@@ -105,6 +107,7 @@ struct GlobalUniforms {
         fogNear = 0.0f;
         fogFar = 0.0f;
         forceSight = 0;
+        shadowSoft = 0;
     }
 };
 
