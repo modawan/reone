@@ -23,9 +23,11 @@
 #include "../fixtures/scene.h"
 
 #include "reone/game/action/movetopoint.h"
+#include "reone/game/action/opencontainer.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/game/pathfinder.h"
 #include "reone/game/room.h"
@@ -130,6 +132,74 @@ struct CorridorFixture {
 };
 
 } // namespace
+
+// A container with creatures standing between the user and its use point:
+// every walk there ends at them. Close by, it is used from where the user
+// stands; before, the use waited for good for them to step away. Far off, the
+// use gives up. The user is not the party leader, so a use that arrives only
+// plays the container's opening sound and runs its OnUsed script, with no
+// inventory screen to open.
+namespace {
+
+// Five creatures across the corridor at x.
+void blockCorridor(CorridorFixture &fixture, float x) {
+    for (float y = -2.0f; y <= 2.01f; y += 1.0f) {
+        fixture.spawn(glm::vec3(x, y, 0.0f));
+    }
+}
+
+std::shared_ptr<Placeable> addContainer(CorridorFixture &fixture, float x) {
+    auto box = fixture.game->newPlaceable();
+    box->setPosition(glm::vec3(x, 0.0f, 0.0f));
+    box->setHasInventory(true);
+    box->setUsable(true);
+    fixture.area->add(box);
+    return box;
+}
+
+// Ticks the user's queue runs for until it is empty, at most thirty seconds'.
+int ticksUntilIdle(Creature &user) {
+    int ticks = 0;
+    for (; ticks < 30 * 30 && !user.actions().empty(); ++ticks) {
+        user.update(kTick);
+    }
+    return ticks;
+}
+
+} // namespace
+
+TEST(CreatureAvoidance, opening_a_container_held_up_close_by_uses_it_from_there) {
+    CorridorFixture fixture;
+    fixture.pc->setPosition(glm::vec3(-15.0f, 0.0f, 0.0f));
+    auto user = fixture.spawn(glm::vec3(0.0f, 0.0f, 0.0f));
+    blockCorridor(fixture, 9.2f);
+    auto box = addContainer(fixture, 10.0f);
+    auto action = fixture.game->newAction<OpenContainerAction>(box);
+    user->addAction(action);
+
+    const int ticks = ticksUntilIdle(*user);
+
+    EXPECT_TRUE(action->isCompleted()) << "still queued after " << ticks << " ticks";
+    EXPECT_GT(user->position().x, 6.0f) << "it walked up to the creatures";
+    EXPECT_LT(user->position().x, 9.2f) << "it did not pass the creatures";
+    EXPECT_LT(glm::distance(glm::vec2(user->position()), glm::vec2(box->position())), 2.6f);
+}
+
+TEST(CreatureAvoidance, opening_a_container_held_up_far_off_gives_up) {
+    CorridorFixture fixture;
+    fixture.pc->setPosition(glm::vec3(-15.0f, 0.0f, 0.0f));
+    auto user = fixture.spawn(glm::vec3(0.0f, 0.0f, 0.0f));
+    blockCorridor(fixture, 5.0f);
+    auto box = addContainer(fixture, 10.0f);
+    auto action = fixture.game->newAction<OpenContainerAction>(box);
+    user->addAction(action);
+
+    const int ticks = ticksUntilIdle(*user);
+
+    EXPECT_TRUE(user->actions().empty()) << "still queued after " << ticks << " ticks";
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_LT(user->position().x, 5.0f);
+}
 
 // The leader walks up a corridor and bumps a companion standing near its edge.
 // The way past the companion's far side leaves the corridor: its corners have

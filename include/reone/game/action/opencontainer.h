@@ -47,6 +47,8 @@ private:
     std::shared_ptr<Object> _object;
     /** Whether the creature walked up to the object for this use. */
     bool _approached {false};
+    /** Whether the walk was held up close by and the object is used from there. */
+    bool _usedFromHere {false};
 };
 
 } // namespace game

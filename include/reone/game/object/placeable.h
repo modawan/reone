@@ -72,6 +72,7 @@ public:
         const std::shared_ptr<Object> &damager) override;
 
     bool hasInventory() const { return _hasInventory; }
+    void setHasInventory(bool hasInventory) { _hasInventory = hasInventory; }
     /** Whether the placeable is destroyed once its inventory is empty. */
     bool dieWhenEmpty() const { return _dieWhenEmpty; }
     /** Whether the placeable's look is searched for its contents (placeables.2da UseSearch). */
@@ -82,6 +83,7 @@ public:
     float canSeeHeight() const override { return _canSeeHeight; }
     /** Whether the placeable can be used: its Useable byte is not 0. */
     bool isUsable() const { return _usable != 0; }
+    void setUsable(bool usable) { _usable = usable ? 1 : 0; }
     void setOnUsedScript(std::string script) { _onUsed = std::move(script); }
     /** Appearances marked hostile in placeables.2da read as hostile objects. */
     bool isHostileAppearance() const { return _hostileAppearance; }
