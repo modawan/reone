@@ -167,6 +167,7 @@ void SwoopRace::stop() {
         _engineSound.reset();
     }
     _engineSoundResRef.clear();
+    _bankAnimation.clear();
     _cameraHook = nullptr;
     _camera = nullptr;
     _session = nullptr;
@@ -214,6 +215,7 @@ void SwoopRace::update(float dt) {
             releaseActor(actor);
         }
     }
+    updateBank();
     _animator.update(dt);
     placeActors();
     updateCamera();
@@ -227,6 +229,25 @@ void SwoopRace::update(float dt) {
         _engineSound->setPitch(0.7f + 0.8f * ratio);
         _engineSound->setGain(player ? glm::clamp(player->soundVolume[1] / 127.0f, 0.0f, 1.0f) : 1.0f);
     }
+}
+
+// Leans the player's bike into the turn: the clip of BankL_01..10 or
+// BankR_01..10 the session's lean asks for, or Ready_01 when it is level. The
+// clip is a pose of the bike's own model, held under the animations the scripts
+// play (MinigameAnimator::pose), so the lean does not cut those off. Only a
+// model that has the clip plays it, and a bike without Ready_01 rests level.
+void SwoopRace::updateBank() {
+    if (_actors.empty() || _actors.front().removed) {
+        return;
+    }
+    std::string frame = minigameBankAnimation(_session->lean(), _game.isTSL());
+    if (frame == _bankAnimation) {
+        return;
+    }
+    for (auto &node : _actors.front().nodes) {
+        _animator.pose(*node, frame, _bankAnimation);
+    }
+    _bankAnimation = frame;
 }
 
 void SwoopRace::updateCamera() {

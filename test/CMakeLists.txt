@@ -91,6 +91,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/listenpattern.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
+    ${TESTS_SOURCE_DIR}/game/minigameview.cpp
     ${TESTS_SOURCE_DIR}/game/minigamesession.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
