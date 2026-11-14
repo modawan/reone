@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "types.h"
 
@@ -50,6 +51,19 @@ void validateTwoDARowIndex(
     const std::string &resRef,
     int row,
     int rowCount);
+
+/**
+ * The ability a table cell names (classes.2da primaryabil, skills.2da
+ * keyability): STR, DEX, CON, INT, WIS or CHA, in any case; none for any
+ * other value, a blank cell included.
+ */
+std::optional<Ability> readAbilityColumn(const resource::TwoDA &table, int row, const std::string &column);
+
+/**
+ * The name of a feat table (feat.2da) row: its name cell, or its feat cell in
+ * a table without a name column. A row without a name is not a feat.
+ */
+std::optional<int> readFeatName(const resource::TwoDA &feats, int row);
 
 } // namespace game
 

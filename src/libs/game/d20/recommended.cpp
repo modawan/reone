@@ -26,16 +26,6 @@ namespace reone {
 
 namespace game {
 
-static constexpr SkillType kSkills[] {
-    SkillType::ComputerUse,
-    SkillType::Demolitions,
-    SkillType::Stealth,
-    SkillType::Awareness,
-    SkillType::Persuade,
-    SkillType::Repair,
-    SkillType::Security,
-    SkillType::TreatInjury};
-
 void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAttributes &attributes, int &points) {
     // A class whose skills table has no recommendation column ranks no skill,
     // and is recommended to spend nothing: what the original does with such a
@@ -71,17 +61,9 @@ void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAt
 
 std::vector<FeatType> recommendFeats(const IFeats &feats, const FeatChoice &choice, int picks, bool fillWithUnranked) {
     std::vector<FeatType> result;
-    std::set<FeatType> chosen(choice.chosen);
+    std::set<FeatType> chosen(choice.chosen.get());
     for (int pick = 0; pick < picks; ++pick) {
-        FeatChoice next {
-            choice.attributes,
-            choice.clazz,
-            choice.normalPicks,
-            choice.bonusPicks,
-            choice.effectFeats,
-            chosen,
-            choice.tag,
-            choice.tsl};
+        const FeatChoice next = choice.withChosen(chosen);
         std::optional<std::pair<int, FeatType>> best;
         auto choosable = feats.getChoosableFeats(next);
         for (auto feat : choosable) {

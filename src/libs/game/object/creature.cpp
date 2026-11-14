@@ -6242,20 +6242,23 @@ void Creature::giveXP(int amount) {
     const auto &classes = _attributes.classLevels();
     int behind = 0;
     if (classes.size() >= 2) {
-        int favored = race().favoredClass;
-        if (favored == kNoFavoredClass) {
+        // Without a favoured class the highest class is favoured.
+        ClassType favored;
+        if (const auto raceFavored = race().favoredClass) {
+            favored = *raceFavored;
+        } else {
             const auto highest = std::max_element(classes.begin(), classes.end(),
                                                   [](const auto &a, const auto &b) { return a.second < b.second; });
-            favored = static_cast<int>(highest->first->type());
+            favored = highest->first->type();
         }
         int highestLevel = 0;
         for (const auto &[clazz, level] : classes) {
-            if (static_cast<int>(clazz->type()) != favored) {
+            if (clazz->type() != favored) {
                 highestLevel = std::max(highestLevel, level);
             }
         }
         for (const auto &[clazz, level] : classes) {
-            if (static_cast<int>(clazz->type()) != favored && highestLevel - level >= 2) {
+            if (clazz->type() != favored && highestLevel - level >= 2) {
                 ++behind;
             }
         }
@@ -13549,10 +13552,16 @@ FeatType Creature::useFeat(FeatType feat) {
         return FeatType::Invalid;
     }
     // A held rank gives way to the next rank of its chain while that is held.
-    for (auto successor = _services.game.feats.get(feat)->successor;
-         successor != FeatType::Invalid && hasEffectiveFeat(successor);
-         successor = _services.game.feats.get(feat)->successor) {
+    // The chain stops at a feat the table does not define, and at a rank it
+    // has passed, so a chain that loops ends.
+    std::set<FeatType> passed {feat};
+    for (auto definition = _services.game.feats.get(feat); definition;) {
+        const FeatType successor = definition->successor;
+        if (successor == FeatType::Invalid || !hasEffectiveFeat(successor) || !passed.insert(successor).second) {
+            break;
+        }
         feat = successor;
+        definition = _services.game.feats.get(feat);
     }
     if (feat == FeatType::GuardStance || feat == FeatType::AdvancedGuardStance || feat == FeatType::MasterGuardStance) {
         _guardStanceFeat = inGuardStance() ? FeatType::Invalid : feat;

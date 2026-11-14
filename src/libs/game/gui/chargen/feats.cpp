@@ -195,7 +195,8 @@ void CharGenFeats::loadDisplayEntries() {
 
 FeatChoice CharGenFeats::makeChoice(const CreatureAttributes &attributes) const {
     // A feat can be chosen while there is a pick of its kind, counting one
-    // more than the level gains.
+    // more than the level gains, so feats still show as available once the
+    // picks are spent.
     return FeatChoice {
         attributes,
         *attributes.classLevels().back().first,

@@ -113,6 +113,7 @@ public:
      *         that row a power level); 0 without a row and for any other class
      */
     int getPowerGain(int level) const;
+    /** @return the feat's list value; the off-list value, 4, for a feat without a row */
     int getFeatListValue(FeatType feat) const;
 
     /** @return whether a character of the class can take the feat as one of its normal feats */
@@ -139,9 +140,9 @@ public:
     bool hasSkills() const { return _hasSkills; }
 
     /**
-     * @return the class level at which the class grants the feat, from 0 to
-     *         255, or none when the feat is not on the class's granted list;
-     *         level 0 is never reached
+     * @return the class level at which the class grants the feat, or none
+     *         when the feat is not on the class's granted list; a level below
+     *         1 is never reached
      */
     std::optional<int> getFeatGrantedLevel(FeatType feat) const;
 

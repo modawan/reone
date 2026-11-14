@@ -22,6 +22,7 @@
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/races.h"
+#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 
 #include "../../fixtures/game.h"
@@ -317,4 +318,31 @@ TEST(CreatureClass, should_load_power_gains_for_k1_base_and_tsl_prestige_classes
     EXPECT_EQ(jediMaster->getPowerGain(1), 2);
     EXPECT_EQ(jediMaster->getPowerGain(4), 2);
     EXPECT_EQ(jediMaster->getPowerGain(99), 0);
+}
+
+TEST(Races, should_favour_the_highest_class_for_a_blank_negative_or_255_cell) {
+    // given
+    NiceMock<MockTwoDAs> twoDas;
+    ON_CALL(twoDas, get("racialtypes")).WillByDefault(Return(makeTable({"favored", "featstable"}, {{"", ""}, {"-1", ""}, {"255", ""}, {"2", ""}})));
+    Races races;
+
+    // when
+    races.init(twoDas);
+
+    // then
+    EXPECT_FALSE(races.get(static_cast<RacialType>(0)).favoredClass);
+    EXPECT_FALSE(races.get(static_cast<RacialType>(1)).favoredClass);
+    EXPECT_FALSE(races.get(static_cast<RacialType>(2)).favoredClass);
+    EXPECT_EQ(std::optional<ClassType>(ClassType::Scoundrel), races.get(static_cast<RacialType>(3)).favoredClass);
+}
+
+TEST(TwoDAUtil, should_read_an_ability_column_in_any_case) {
+    // given
+    auto table = makeTable({"primaryabil"}, {{"STR"}, {"wis"}, {""}, {"XYZ"}});
+
+    // when, then
+    EXPECT_EQ(std::optional<Ability>(Ability::Strength), readAbilityColumn(*table, 0, "primaryabil"));
+    EXPECT_EQ(std::optional<Ability>(Ability::Wisdom), readAbilityColumn(*table, 1, "primaryabil"));
+    EXPECT_FALSE(readAbilityColumn(*table, 2, "primaryabil"));
+    EXPECT_FALSE(readAbilityColumn(*table, 3, "primaryabil"));
 }

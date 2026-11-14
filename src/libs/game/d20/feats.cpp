@@ -17,6 +17,8 @@
 
 #include "reone/game/d20/feats.h"
 
+#include <algorithm>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
@@ -26,6 +28,7 @@
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/races.h"
 #include "reone/game/d20/skills.h"
+#include "reone/game/twodautil.h"
 
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -51,7 +54,7 @@ static constexpr int kUnarmedSpecialistRanks = 8;
 static const std::array<const char *, 7> kCompanionColumns {
     "handmaiden", "baodur", "hanharr", "hk47", "g0t0", "atton", "kreia"};
 // A companion column marks a class feat the companion is never granted with
-// this value.
+// this value, or with a value below zero.
 static constexpr int kNeverGrantedCompanionLevel = 255;
 
 // The alternative prerequisite columns are this prefix and an index.
@@ -63,9 +66,6 @@ static const std::array<std::pair<const char *, Ability>, 4> kMinAbilityColumns 
                                                                                   {"mindex", Ability::Dexterity},
                                                                                   {"minint", Ability::Intelligence},
                                                                                   {"minwis", Ability::Wisdom}}};
-
-// The required skill word that names no skill.
-static constexpr int kNoRequiredSkill = 0xffff;
 
 // TSL's feats that no character chooses.
 static bool isUnchoosableFeat(FeatType type) {
@@ -81,32 +81,30 @@ static bool isUnarmedSpecialistFeat(FeatType type) {
 }
 
 static bool hasPrerequisite(const Feat &feat, FeatType prerequisite) {
-    int word = static_cast<int>(prerequisite);
-    return feat.preReqFeat1 == word || feat.preReqFeat2 == word;
+    return feat.preReqFeat1 == prerequisite || feat.preReqFeat2 == prerequisite;
 }
 
 // A feat is acquired when it is held, given by an effect or chosen.
 static bool isAcquired(
-    int word,
+    FeatType type,
     const CreatureAttributes &attributes,
     const std::set<FeatType> &effectFeats,
     const std::set<FeatType> &chosen) {
 
-    auto type = static_cast<FeatType>(word);
-    return attributes.hasFeat(type) || effectFeats.count(type) > 0 || chosen.count(type) > 0;
+    return attributes.hasFeat(type, effectFeats) || chosen.count(type) > 0;
 }
 
-// The prerequisites must be acquired: each prerequisite word other than
-// kNoPrerequisite, and one of the alternative prerequisites when there are any.
+// The prerequisites must be acquired: each prerequisite feat, and one of the
+// alternative prerequisites when there are any.
 static bool meetsPrerequisites(
     const Feat &feat,
     const CreatureAttributes &attributes,
     const std::set<FeatType> &effectFeats,
     const std::set<FeatType> &chosen) {
 
-    auto acquired = [&](int word) { return isAcquired(word, attributes, effectFeats, chosen); };
-    for (int prerequisite : {feat.preReqFeat1, feat.preReqFeat2}) {
-        if (prerequisite != Feat::kNoPrerequisite && !acquired(prerequisite)) {
+    auto acquired = [&](FeatType prerequisite) { return isAcquired(prerequisite, attributes, effectFeats, chosen); };
+    for (const auto &prerequisite : {feat.preReqFeat1, feat.preReqFeat2}) {
+        if (prerequisite && !acquired(*prerequisite)) {
             return false;
         }
     }
@@ -114,15 +112,24 @@ static bool meetsPrerequisites(
            std::any_of(feat.alternativePrerequisites.begin(), feat.alternativePrerequisites.end(), acquired);
 }
 
+// Bao-Dur and Kreia never have the class feats their columns mark as never
+// granted. companion is the lower-case tag.
+static bool isExcludedForCompanion(const Feat &feat, const std::string &companion) {
+    if (companion != kBaoDurColumn && companion != kKreiaColumn) {
+        return false;
+    }
+    auto level = feat.companionLevels.find(companion);
+    return level != feat.companionLevels.end() && !level->second;
+}
+
 static std::vector<FeatType> getValidPrerequisites(
     const Feat &feat,
     const std::unordered_map<FeatType, std::shared_ptr<Feat>> &feats) {
 
     std::vector<FeatType> result;
-    for (int prerequisite : {feat.preReqFeat1, feat.preReqFeat2}) {
-        auto type = static_cast<FeatType>(prerequisite);
-        if (prerequisite != Feat::kNoPrerequisite && feats.count(type) > 0) {
-            result.push_back(type);
+    for (const auto &prerequisite : {feat.preReqFeat1, feat.preReqFeat2}) {
+        if (prerequisite && feats.count(*prerequisite) > 0) {
+            result.push_back(*prerequisite);
         }
     }
     return result;
@@ -288,11 +295,8 @@ void Feats::init() {
         return;
     }
 
-    // A table without a name column names its feats in its feat column.
-    const std::string nameColumn = feats->getColumnIndex("name") != -1 ? "name" : "feat";
     for (int row = 0; row < feats->getRowCount(); ++row) {
-        // A row without a name is not a feat.
-        const auto nameStrRef = feats->getIntOpt(row, nameColumn);
+        const auto nameStrRef = readFeatName(*feats, row);
         if (!nameStrRef) {
             continue;
         }
@@ -300,38 +304,47 @@ void Feats::init() {
         std::string description(_strings.getText(feats->getInt(row, "description", -1)));
         std::shared_ptr<Texture> icon(_textures.get(feats->getString(row, "icon"), TextureUsage::GUI));
         int category = feats->getInt(row, "category");
-        // The uses a day and the minimum character level are bytes.
-        int usesPerDay = feats->getInt(row, "usesperday") & 0xff;
+        // A count, level, bonus or score below zero reads as 0.
+        int usesPerDay = std::max(0, feats->getInt(row, "usesperday"));
         int maxCR = feats->getInt(row, "maxcr");
         auto exclusion = static_cast<uint32_t>(feats->getInt(row, "exclusion"));
-        int minCharLevel = feats->getInt(row, "mincharlevel") & 0xff;
-        // A prerequisite is a feat word; a blank cell names none.
-        int preReqFeat1 = feats->getIntOpt(row, "prereqfeat1").value_or(Feat::kNoPrerequisite) & 0xffff;
-        int preReqFeat2 = feats->getIntOpt(row, "prereqfeat2").value_or(Feat::kNoPrerequisite) & 0xffff;
-        // The alternative prerequisites and the required skill are words,
-        // set only by a cell that is not blank.
-        std::vector<int> alternativePrerequisites;
+        int minCharLevel = std::max(0, feats->getInt(row, "mincharlevel"));
+        // A prerequisite, an alternative prerequisite or the required skill
+        // is a row; a blank cell or one below zero names none.
+        auto rowOrNone = [&feats, row](const std::string &column) -> std::optional<int> {
+            auto value = feats->getIntOpt(row, column);
+            return value && *value >= 0 ? value : std::nullopt;
+        };
+        auto featOrNone = [&rowOrNone](const std::string &column) -> std::optional<FeatType> {
+            auto feat = rowOrNone(column);
+            return feat ? std::optional<FeatType>(static_cast<FeatType>(*feat)) : std::nullopt;
+        };
+        auto preReqFeat1 = featOrNone("prereqfeat1");
+        auto preReqFeat2 = featOrNone("prereqfeat2");
+        std::vector<FeatType> alternativePrerequisites;
         for (int i = 0; i < kAlternativePrerequisiteCount; ++i) {
-            auto word = feats->getIntOpt(row, kAlternativePrerequisitePrefix + std::to_string(i));
-            if (word && (*word & 0xffff) != Feat::kNoPrerequisite) {
-                alternativePrerequisites.push_back(*word & 0xffff);
+            if (auto prerequisite = featOrNone(kAlternativePrerequisitePrefix + std::to_string(i))) {
+                alternativePrerequisites.push_back(*prerequisite);
             }
         }
         std::optional<SkillType> requiredSkill;
-        auto skillWord = feats->getIntOpt(row, "reqskill");
-        if (skillWord && (*skillWord & 0xffff) != kNoRequiredSkill) {
-            requiredSkill = static_cast<SkillType>(*skillWord & 0xffff);
+        // A row past the skills table names no skill a character can use, so
+        // the feat cannot be chosen.
+        if (auto skill = rowOrNone("reqskill")) {
+            requiredSkill = static_cast<SkillType>(*skill);
         }
-        // The minimum attack bonus and ability scores are bytes. The minimum
-        // spell level column sets no requirement: every feat's minimum spell
-        // level is 0, so no class's known powers are ever asked for.
-        int minAttackBonus = feats->getInt(row, "minattackbonus") & 0xff;
+        // The minimum spell level column sets no requirement: every feat's
+        // minimum spell level is 0, so no class's known powers are ever asked
+        // for.
+        int minAttackBonus = std::max(0, feats->getInt(row, "minattackbonus"));
         std::map<Ability, int> minAbilityScores;
         for (auto &[column, ability] : kMinAbilityColumns) {
-            minAbilityScores.insert(std::make_pair(ability, feats->getInt(row, column) & 0xff));
+            minAbilityScores.insert(std::make_pair(ability, std::max(0, feats->getInt(row, column))));
         }
-        auto successor = static_cast<FeatType>(feats->getInt(row, "successor"));
-        uint32_t pips = feats->getInt(row, "pips");
+        // The next rank of the feat's chain is a row too; none when blank or
+        // below zero.
+        const FeatType successor = featOrNone("successor").value_or(FeatType::Invalid);
+        int pips = feats->getInt(row, "pips");
         std::optional<int> spellId = feats->getIntOpt(row, "spellid");
 
         auto feat = std::make_shared<Feat>();
@@ -354,12 +367,12 @@ void Feats::init() {
         feat->pips = pips;
         feat->spellId = spellId;
         for (auto column : kCompanionColumns) {
-            // A companion level is a byte.
-            int level = feats->getInt(row, column) & 0xff;
+            int level = feats->getInt(row, column);
             if (level != 0) {
+                const bool neverGranted = level < 0 || level == kNeverGrantedCompanionLevel;
                 feat->companionLevels.insert(std::make_pair(
                     column,
-                    level == kNeverGrantedCompanionLevel ? std::nullopt : std::optional<int>(level)));
+                    neverGranted ? std::nullopt : std::optional<int>(level)));
             }
         }
         _feats.insert(std::make_pair(static_cast<FeatType>(row), std::move(feat)));
@@ -395,17 +408,12 @@ bool Feats::canChooseFeat(FeatType type, const FeatChoice &choice) const {
     if (!feat || (choice.normalPicks == 0 && choice.bonusPicks == 0)) {
         return false;
     }
-    if (choice.tsl) {
-        // Bao-Dur and Kreia cannot choose the feats their columns never grant them.
-        std::string companion(boost::to_lower_copy(choice.tag));
-        if (companion == kBaoDurColumn || companion == kKreiaColumn) {
-            auto companionLevel = feat->companionLevels.find(companion);
-            if (companionLevel != feat->companionLevels.end() && !companionLevel->second) {
-                return false;
-            }
-        }
+    // In TSL, Bao-Dur and Kreia cannot choose the feats their columns never
+    // grant them.
+    if (choice.tsl && isExcludedForCompanion(*feat, boost::to_lower_copy(choice.tag))) {
+        return false;
     }
-    if (choice.attributes.hasFeat(type) || choice.chosen.count(type) > 0) {
+    if (choice.attributes.hasFeat(type) || choice.chosen.get().count(type) > 0) {
         return false;
     }
     if (!meetsRequirements(*feat, choice)) {
@@ -424,7 +432,7 @@ bool Feats::canChooseFeat(FeatType type, const FeatChoice &choice) const {
     int normalPicks = choice.normalPicks;
     int bonusPicks = choice.bonusPicks;
     int unassigned = 0;
-    for (auto chosen : choice.chosen) {
+    for (auto chosen : choice.chosen.get()) {
         bool normal = isNormal(chosen);
         bool bonus = isBonus(chosen);
         if (normal && !bonus) {
@@ -476,8 +484,8 @@ bool Feats::meetsRequirements(const Feat &feat, const FeatChoice &choice) const 
     if (attributes.getAggregateLevel() < feat.minCharLevel) {
         return false;
     }
-    // The base attack bonus is the sum of the classes' bonuses, in a byte.
-    if (feat.minAttackBonus > (attributes.getAggregateAttackBonus() & 0xff)) {
+    // The base attack bonus is the sum of the classes' bonuses.
+    if (feat.minAttackBonus > attributes.getAggregateAttackBonus()) {
         return false;
     }
     for (auto &[ability, minScore] : feat.minAbilityScores) {
@@ -485,10 +493,16 @@ bool Feats::meetsRequirements(const Feat &feat, const FeatChoice &choice) const 
             return false;
         }
     }
-    if (!meetsPrerequisites(feat, attributes, choice.effectFeats, choice.chosen)) {
+    if (!meetsPrerequisites(feat, attributes, choice.effectFeats, choice.chosen.get())) {
         return false;
     }
-    return !feat.requiredSkill || canUseSkill(_skills, *feat.requiredSkill, attributes, choice.tsl);
+    if (!feat.requiredSkill) {
+        return true;
+    }
+    // The required skill is tested as the creature uses it, the feats its
+    // effects give it counting.
+    auto hasFeat = [&attributes, &choice](FeatType held) { return attributes.hasFeat(held, choice.effectFeats); };
+    return canCreatureUseSkill(_skills, *feat.requiredSkill, attributes, hasFeat, choice.tsl);
 }
 
 bool Feats::hasPrerequisites(FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen) const {
@@ -514,7 +528,7 @@ std::vector<FeatDisplayEntry> Feats::getLevelUpDisplayEntries(const CreatureAttr
         FeatDisplayEntry entry;
         entry.type = feat.first;
         entry.chainRoot = chainRoot;
-        entry.tier = static_cast<int>(feat.second->pips);
+        entry.tier = feat.second->pips;
         entry.visualIndex = getVisualIndex(feat.first, parents);
         result.push_back(std::move(entry));
     }
@@ -575,11 +589,7 @@ std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, Rac
             if (*grantedLevel != classLevel) {
                 continue;
             }
-            // Bao-Dur and Kreia are never granted the class feats their
-            // columns mark as never granted.
-            bool excluded = (companion == kBaoDurColumn || companion == kKreiaColumn) &&
-                            hasCompanionLevel && !companionLevel->second;
-            if (!excluded) {
+            if (!(tsl && isExcludedForCompanion(feat, companion))) {
                 grant(type, !(tsl && isUnchoosableFeat(type)));
             }
         } else if (tsl && newCharacter && clazz.isPCGrantedFeat(type)) {
