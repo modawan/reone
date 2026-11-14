@@ -238,7 +238,7 @@ public:
         _console(console),
         _party(*this),
         _combat(*this, services),
-        _swoopRace(*this),
+        _swoopRace(*this, services),
         _turret(*this, services),
         _journal(services.resource.gffs, services.resource.strings, services.resource.twoDas),
         _floatingText(*this, services),
@@ -605,14 +605,26 @@ public:
 
     bool hasPlayableRuntimeSession() const { return _runtimeSessionPlayable; }
 
-    // Swoop race (developer skeleton)
+    // Swoop race
 
-    void openSwoopRace();
-    void closeSwoopRace();
+    /**
+     * Starts the swoop race the current area declares. A module whose area
+     * has a swoop MiniGame struct starts it once loaded; the race's scripts
+     * run it, and end it by leaving the module.
+     */
+    bool startSwoopRace();
 
-    // Exit the active race: returns to the lifecycle origin if a lifecycle race
-    // is in progress, otherwise just stops the dev race in place.
-    void exitSwoopRace();
+    /** Tears the running swoop race down (module change, game end). */
+    void endSwoopRace();
+
+    /** The simulation of the running swoop race, or null. */
+    MinigameSession *minigameSession() { return _minigameSession.get(); }
+    const MinigameSession *minigameSession() const { return _minigameSession.get(); }
+
+    /** The input of the running swoop race: the view writes it, the session reads it. */
+    MinigameInput &minigameInput() { return _minigameInput; }
+
+    SwoopRace &swoopRace() { return _swoopRace; }
 
     // END Swoop race
 
@@ -2042,7 +2054,6 @@ private:
         bool forcedSuccess {true}; /**< Finish is always non-blocking success */
     };
 
-    MinigameLifecycle _swoopLifecycle;
     MinigameLifecycle _turretLifecycle;
 
     // A turret session scheduled by the startturretgame console command. The
@@ -2385,6 +2396,13 @@ private:
     Combat _combat;
     SwoopRace _swoopRace;
     Turret _turret;
+
+    // The running swoop race. The session is the simulation; _minigameHost
+    // runs its scripts and passes the presentation calls on to _swoopRace.
+    std::unique_ptr<IMinigameHost> _minigameHost;
+    std::unique_ptr<MinigameSession> _minigameSession;
+    std::vector<std::shared_ptr<Object>> _minigameObjects;
+    MinigameInput _minigameInput;
     Journal _journal;
     MessageLog _messageLog;
     FloatingText _floatingText;
@@ -2730,11 +2748,8 @@ private:
     bool handleFreeLookKey(const input::KeyEvent &event);
     void updateFreeLookExits();
 
-    // Stop the active lifecycle race and return to the stored origin module
-    // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
-    void finishSwoopLifecycle(bool success);
-
-    // Same, for the turret minigame.
+    // Stop the active turret lifecycle session and return to the stored origin
+    // module (restoring the leader's position/facing).
     void finishTurretLifecycle();
 
     // Give up on a scheduled turret session and go back where it started.
@@ -2750,15 +2765,11 @@ private:
     /** Show or hide active party creatures while a minigame represents the player. */
     void setPartyVisible(bool visible);
 
-    /** Return the race-end waypoint tag for the module, or an empty string if unknown. */
-    std::string swoopReturnWaypoint(const std::string &raceModule) const;
-
     /**
-     * Record a winning finish time for K1 Taris so the post-race script can
-     * process the result. Other planets are unchanged.
+     * One step of the running swoop race: the session, then the minigame
+     * objects' own actions (DelayCommand), then the view.
      */
-    void applySwoopForcedSuccessResult(const std::string &raceModule);
-    void applyTarisForcedWinningTime();
+    void tickSwoopRace(float dt);
 
     bool handleKeyDown(const input::KeyEvent &event);
     /** Whether the event is a left button or Return press or release dropped while cooling down. */
@@ -2997,11 +3008,8 @@ private:
     void consoleSaveGame(const ConsoleArgs &tokens);
     void consoleStartPazaak(const ConsoleArgs &tokens);
     void consoleMiniGameInfo(const ConsoleArgs &tokens);
-    void consoleStartSwoop(const ConsoleArgs &tokens);
-    void consoleStopSwoop(const ConsoleArgs &tokens);
     void consoleSwoopState(const ConsoleArgs &tokens);
     void consoleStartSwoopRace(const ConsoleArgs &tokens);
-    void consoleFinishSwoop(const ConsoleArgs &tokens);
     void consoleStartTurret(const ConsoleArgs &tokens);
     void consoleStopTurret(const ConsoleArgs &tokens);
     void consoleTurretState(const ConsoleArgs &tokens);

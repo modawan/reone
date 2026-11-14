@@ -312,6 +312,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/listenpattern.h
     ${GAME_INCLUDE_DIR}/messagelog.h
     ${GAME_INCLUDE_DIR}/minigame.h
+    ${GAME_INCLUDE_DIR}/minigameview.h
     ${GAME_INCLUDE_DIR}/modulesnapshot.h
     ${GAME_INCLUDE_DIR}/saveslotpublisher.h
     ${GAME_INCLUDE_DIR}/savewidesnapshot.h
@@ -479,6 +480,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/listenpattern.cpp
     ${GAME_SOURCE_DIR}/messagelog.cpp
     ${GAME_SOURCE_DIR}/minigame.cpp
+    ${GAME_SOURCE_DIR}/minigameview.cpp
     ${GAME_SOURCE_DIR}/modulesnapshot.cpp
     ${GAME_SOURCE_DIR}/savegame.cpp
     ${GAME_SOURCE_DIR}/savedgame.cpp
