@@ -272,9 +272,12 @@ struct CastResult {
     bool intersects;
 };
 
+// How far above a position the downward cast onto a face starts.
+static constexpr float kFaceCastLift = 0.1f;
+
 static CastResult castFace(const Uniwalk &uni, uint32_t face, glm::vec3 position) {
     // Offset position slightly to prevent rounding errors.
-    glm::vec3 castPosition = position + glm::vec3(0.0f, 0.0f, 0.1f);
+    glm::vec3 castPosition = position + glm::vec3(0.0f, 0.0f, kFaceCastLift);
     float maxDistance = 100.0f;
     float distance = 0.0f;
     glm::vec2 baryPosition(0.0f);
@@ -290,10 +293,13 @@ static CastResult castFace(const Uniwalk &uni, uint32_t face, glm::vec3 position
     return {intersection, intersects};
 }
 
-static uint32_t findFaceAt(const Uniwalk &uni, glm::vec3 position) {
+static uint32_t findFaceAtExactly(const Uniwalk &uni, glm::vec3 position) {
     for (const Uniroom &room : uni.rooms) {
-        // Skip the room if the if the position is not in its AABB.
-        if (glm::any(glm::greaterThan(position, room.max)) || glm::any(glm::lessThan(position, room.min))) {
+        // Skip the room if the position is not in its AABB, lengthened up and
+        // down by the cast's lift: a flat room's box has no height, and a
+        // position a hair above or below its floor still lies on it.
+        const glm::vec3 lift {0.0f, 0.0f, kFaceCastLift};
+        if (glm::any(glm::greaterThan(position, room.max + lift)) || glm::any(glm::lessThan(position, room.min - lift))) {
             continue;
         }
 
@@ -306,6 +312,27 @@ static uint32_t findFaceAt(const Uniwalk &uni, glm::vec3 position) {
         }
     }
 
+    return UINT32_MAX;
+}
+
+// A position on an edge or corner two faces share, as where a walk stops on a
+// path corner (path corners are walkmesh vertices), can miss both faces' ray
+// tests. It is looked for again a centimetre off in each of eight directions.
+static constexpr float kFaceNudge = 0.01f;
+
+static uint32_t findFaceAt(const Uniwalk &uni, glm::vec3 position) {
+    uint32_t face = findFaceAtExactly(uni, position);
+    if (face != UINT32_MAX) {
+        return face;
+    }
+    static constexpr glm::vec2 kNudges[] = {{1.0f, 0.0f}, {-1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, -1.0f},
+                                            {1.0f, 1.0f}, {-1.0f, -1.0f}, {1.0f, -1.0f}, {-1.0f, 1.0f}};
+    for (const glm::vec2 &nudge : kNudges) {
+        face = findFaceAtExactly(uni, position + glm::vec3(nudge * kFaceNudge, 0.0f));
+        if (face != UINT32_MAX) {
+            return face;
+        }
+    }
     return UINT32_MAX;
 }
 
