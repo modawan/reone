@@ -83,6 +83,10 @@ int CreatureAttributes::getAbilityModifier(Ability ability) const {
     return getAbilityModifierFromScore(getAbilityScore(ability));
 }
 
+int CreatureAttributes::getAbilityPointCost(Ability ability) const {
+    return getAbilityPointCostFromScore(getAbilityScore(ability));
+}
+
 int CreatureAttributes::strength() const {
     return getAbilityScore(Ability::Strength);
 }

@@ -341,6 +341,8 @@ void Spells::init(resource::GameID gameId) {
                 spell->classLevelRequirements.emplace(clazz, *maybeRequirement);
             }
         }
+        spell->lightRecommendation = spells->getIntOpt(row, "light_recom");
+        spell->darkRecommendation = spells->getIntOpt(row, "dark_recom");
         spell->category = category;
         spell->maxCR = spells->getInt(row, "maxcr");
         spell->impactScript = impactScript;

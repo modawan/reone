@@ -49,6 +49,24 @@ static bool hasColumn(const TwoDA &twoDa, const std::string &column) {
     return twoDa.getColumnIndex(column) != -1;
 }
 
+static std::optional<Ability> parseAbility(const std::string &name) {
+    static const std::unordered_map<std::string, Ability> kAbilities {
+        {"str", Ability::Strength},
+        {"dex", Ability::Dexterity},
+        {"con", Ability::Constitution},
+        {"int", Ability::Intelligence},
+        {"wis", Ability::Wisdom},
+        {"cha", Ability::Charisma}};
+    auto maybeAbility = kAbilities.find(boost::to_lower_copy(name));
+    return maybeAbility != kAbilities.end() ? std::optional<Ability>(maybeAbility->second) : std::nullopt;
+}
+
+template <class T>
+static std::optional<int> findRecommendation(const std::unordered_map<T, int> &recommendations, T key) {
+    auto maybeRecommendation = recommendations.find(key);
+    return maybeRecommendation != recommendations.end() ? std::optional<int>(maybeRecommendation->second) : std::nullopt;
+}
+
 void CreatureClass::load(const TwoDA &twoDa, int row) {
     _name = _strings.getText(twoDa.getInt(row, "name"));
     _description = _strings.getText(twoDa.getInt(row, "description"));
@@ -64,6 +82,7 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     _defaultAttributes.setAbilityScore(Ability::Intelligence, twoDa.getInt(row, "int"));
     _defaultAttributes.setAbilityScore(Ability::Wisdom, twoDa.getInt(row, "wis"));
     _defaultAttributes.setAbilityScore(Ability::Charisma, twoDa.getInt(row, "cha"));
+    _primaryAbility = parseAbility(twoDa.getString(row, "primaryabil"));
 
     std::string skillsTable(boost::to_lower_copy(twoDa.getString(row, "skillstable")));
     _hasSkills = !skillsTable.empty();
@@ -98,6 +117,10 @@ void CreatureClass::loadClassSkills(const std::string &skillsTable) {
     for (int row = 0; row < skills->getRowCount(); ++row) {
         if (skills->getInt(row, skillsTable + "_class") == 1) {
             _classSkills.insert(static_cast<SkillType>(row));
+        }
+        auto recommendation = skills->getIntOpt(row, skillsTable + "_reco");
+        if (recommendation) {
+            _skillRecommendations.insert(std::make_pair(static_cast<SkillType>(row), *recommendation));
         }
     }
 }
@@ -144,12 +167,17 @@ void CreatureClass::loadFeatListValues(const std::string &featsPrefix) {
     std::string listColumn(featsPrefix + "_list");
     auto grantedColumn = featsPrefix + "_granted";
     auto pcGrantedColumn = featsPrefix + "_pc_granted";
+    auto recommendationColumn = featsPrefix + "_recom";
     for (int row = 0; row < feats->getRowCount(); ++row) {
         auto feat = static_cast<FeatType>(row);
         // The list, granted and player-character cells are bytes; a blank
         // cell, or a column the table lacks, reads as 0.
         int listValue = feats->getInt(row, listColumn) & 0xff;
         _featListValues.insert(std::make_pair(feat, listValue));
+        auto recommendation = feats->getIntOpt(row, recommendationColumn);
+        if (recommendation) {
+            _featRecommendations.insert(std::make_pair(feat, *recommendation));
+        }
 
         // List value 3, or one above 4, marks a feat the class grants at the
         // level in its granted column. A new TSL player character also starts
@@ -206,6 +234,11 @@ bool CreatureClass::isClassSkill(SkillType skill) const {
     return _classSkills.count(skill) > 0;
 }
 
+int CreatureClass::maxSkillRank(SkillType skill, int level) const {
+    const int classSkillRank = level + 3;
+    return isClassSkill(skill) ? classSkillRank : classSkillRank / 2;
+}
+
 // The per-level tables give level n's value in row n - 1, and nothing for a
 // level without a row.
 template <class T>
@@ -252,6 +285,14 @@ int CreatureClass::getPowerGain(int level) const {
 int CreatureClass::getFeatListValue(FeatType feat) const {
     auto maybeFeatListValue = _featListValues.find(feat);
     return maybeFeatListValue != _featListValues.end() ? maybeFeatListValue->second : 4;
+}
+
+std::optional<int> CreatureClass::getSkillRecommendation(SkillType skill) const {
+    return findRecommendation(_skillRecommendations, skill);
+}
+
+std::optional<int> CreatureClass::getFeatRecommendation(FeatType feat) const {
+    return findRecommendation(_featRecommendations, feat);
 }
 
 std::optional<int> CreatureClass::getFeatGrantedLevel(FeatType feat) const {

@@ -130,7 +130,6 @@ void CharacterMenu::onGUILoaded() {
     }
 
     turnK1PartyArrowRight();
-    _controls.BTN_AUTO->setDisabled(true);
     // The level-up buttons' texts pulse until the pointer first leaves them.
     _controls.BTN_AUTO->setTextPulsing(true);
     _controls.BTN_LEVELUP->setTextPulsing(true);
@@ -139,6 +138,15 @@ void CharacterMenu::onGUILoaded() {
     });
     _controls.BTN_LEVELUP->setOnClick([this]() {
         _game.openLevelUp();
+    });
+    _controls.BTN_AUTO->setOnClick([this]() {
+        _game.autoLevelUp();
+        // Hidden at once, so a second click before the next update cannot
+        // level a character with no level pending.
+        const bool pending = _game.party().getLeader()->isLevelUpPending();
+        _controls.BTN_AUTO->setVisible(pending);
+        _controls.BTN_LEVELUP->setVisible(pending);
+        refreshControls();
     });
 
     if (!_game.isTSL()) {

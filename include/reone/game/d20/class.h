@@ -54,6 +54,15 @@ public:
 
     bool isClassSkill(SkillType skill) const;
 
+    /** @return the skill points one more rank of the skill costs: 1 for a class skill, 2 for a cross-class one */
+    int skillPointCost(SkillType skill) const { return isClassSkill(skill) ? 1 : 2; }
+
+    /**
+     * @return the highest rank the skill can have at the given level: the
+     *         level + 3 for a class skill, half that for a cross-class one
+     */
+    int maxSkillRank(SkillType skill, int level) const;
+
     /**
      * @return class saving throws at the class level, from the saving throw
      *         table's row level - 1; none for a level without a row
@@ -142,6 +151,23 @@ public:
      */
     bool isPCGrantedFeat(FeatType feat) const { return _pcGrantedFeats.count(feat) > 0; }
 
+    /**
+     * @return the skill's place in the order the class recommends spending
+     *         skill points in, 1 first (the skills table's recommendation
+     *         column); none for a skill the class never recommends
+     */
+    std::optional<int> getSkillRecommendation(SkillType skill) const;
+
+    /**
+     * @return the feat's place in the order the class recommends choosing
+     *         feats in, 1 first (the feat table's recommendation column);
+     *         none for a feat the class never recommends
+     */
+    std::optional<int> getFeatRecommendation(FeatType feat) const;
+
+    /** @return the class's primary ability; none when the class names none */
+    std::optional<Ability> primaryAbility() const { return _primaryAbility; }
+
 private:
     ClassType _type;
     std::string _name;
@@ -152,6 +178,9 @@ private:
     CreatureAttributes _defaultAttributes;
     int _skillPointBase {0};
     std::unordered_set<SkillType> _classSkills;
+    std::unordered_map<SkillType, int> _skillRecommendations;
+    std::unordered_map<FeatType, int> _featRecommendations;
+    std::optional<Ability> _primaryAbility;
     bool _hasSkills {false};
     std::unordered_map<FeatType, int> _featListValues;
     std::unordered_map<FeatType, int> _featGrantedLevels;

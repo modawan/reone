@@ -65,6 +65,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/cheats.cpp
     ${TESTS_SOURCE_DIR}/game/console.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
+    ${TESTS_SOURCE_DIR}/game/d20/recommended.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
     ${TESTS_SOURCE_DIR}/game/computer.cpp

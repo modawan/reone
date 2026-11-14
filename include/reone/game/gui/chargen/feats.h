@@ -75,6 +75,15 @@ public:
     int remainingPicks() const { return _remaining; }
 
     /**
+     * Chooses the feats the class recommends, taking back those chosen on the
+     * screen.
+     *
+     * @param fillWithUnranked true to fill the picks no recommended feat can
+     *        take with the other choosable feats, lowest row first
+     */
+    void recommend(bool fillWithUnranked = false);
+
+    /**
      * Accepts the chosen feats, unless feats are still to choose and one can
      * be chosen. After the normal feats, a level with bonus feats goes on to
      * their choice.
@@ -152,6 +161,8 @@ private:
     void loadDisplayEntries();
     /** @return the character as the feats screen counts it: with its coming level on a level-up */
     CreatureAttributes choiceAttributes() const;
+    /** @return the choice the screen offers the character with \p attributes, with the feats chosen on it */
+    FeatChoice makeChoice(const CreatureAttributes &attributes) const;
     /** Adds the feats that can now be chosen to those that could. */
     void buildAvailableFeats();
     /** @return the feat's place on the screen */
