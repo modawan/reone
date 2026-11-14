@@ -27,6 +27,7 @@
 #include "reone/game/console.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
+#include "reone/game/object/creature.h"
 #include "reone/resource/dialog.h"
 
 using namespace reone;
@@ -753,6 +754,98 @@ TEST_F(ConversationTest, bark_consumes_hold_even_when_script_lock_rejects_reveal
     EXPECT_FALSE(fade.heldForDialog());
     EXPECT_TRUE(fade.locked());
     EXPECT_FLOAT_EQ(1, fade.opacity());
+}
+
+// The Sand People guard's conversation (K1 tat20_09first_01): the reply leads
+// first to an interjection spoken by HK-47, with no condition script, then to
+// the line for a party without its translator. With no HK-47 about, the
+// interjection is passed over and the second line plays.
+std::shared_ptr<Dialog> makeInterjectionDialog() {
+    auto dialog = std::make_shared<Dialog>();
+    dialog->resRef = "interjection_test";
+    dialog->entries.resize(2);
+    dialog->replies.resize(1);
+    for (int index : {0, 1}) {
+        Dialog::EntryReplyLink startLink;
+        startLink.index = index;
+        dialog->startEntries.push_back(startLink);
+    }
+    dialog->entries[0].text = "interjection";
+    dialog->entries[0].speaker = "HK47";
+    dialog->entries[0].delay = 100;
+    dialog->entries[1].text = "no translator";
+    dialog->entries[1].delay = 100;
+    for (auto &entry : dialog->entries) {
+        Dialog::EntryReplyLink replyLink;
+        replyLink.index = 0;
+        entry.replies.push_back(replyLink);
+    }
+    dialog->replies[0].text = "Continue";
+    return dialog;
+}
+
+TEST_F(ConversationTest, an_entry_whose_speaker_is_absent_is_passed_over) {
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(_)).WillRepeatedly(Return(nullptr));
+
+    _conversation->start(makeInterjectionDialog(), nullptr);
+
+    EXPECT_EQ("no translator", _conversation->currentText());
+}
+
+// The same after a reply, which is where the Sand People guard's dialogue
+// itself leads to the interjection: the reply links to the interjection first
+// and the translator-less line second, neither with a condition.
+TEST_F(ConversationTest, an_entry_after_a_reply_whose_speaker_is_absent_is_passed_over) {
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(_)).WillRepeatedly(Return(nullptr));
+    auto dialog = std::make_shared<Dialog>();
+    dialog->resRef = "interjection_after_reply_test";
+    dialog->entries.resize(3);
+    dialog->replies.resize(2);
+    Dialog::EntryReplyLink startLink;
+    startLink.index = 0;
+    dialog->startEntries.push_back(startLink);
+    dialog->entries[0].text = "opening";
+    dialog->entries[0].delay = 100;
+    dialog->entries[1].text = "interjection";
+    dialog->entries[1].speaker = "HK47";
+    dialog->entries[1].delay = 100;
+    dialog->entries[2].text = "no translator";
+    dialog->entries[2].delay = 100;
+    Dialog::EntryReplyLink toReply;
+    toReply.index = 0;
+    dialog->entries[0].replies.push_back(toReply);
+    dialog->replies[0].text = "Continue";
+    for (int index : {1, 2}) {
+        Dialog::EntryReplyLink link;
+        link.index = index;
+        dialog->replies[0].entries.push_back(link);
+    }
+    for (int index : {1, 2}) {
+        Dialog::EntryReplyLink link;
+        link.index = 1;
+        dialog->entries[index].replies.push_back(link);
+    }
+    dialog->replies[1].text = "Done";
+
+    _conversation->start(dialog, nullptr);
+    _conversation->update(1.0f);
+    _conversation->update(100.0f);
+    _conversation->pickReplyForTest(0);
+    _conversation->update(0.0f);
+    _conversation->update(0.0f);
+
+    EXPECT_EQ("no translator", _conversation->currentText());
+}
+
+TEST_F(ConversationTest, an_entry_whose_speaker_is_present_plays) {
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(_)).WillRepeatedly(Return(nullptr));
+    // The owner itself carries the speaker's tag: the speaker is found.
+    auto translator = _game->newCreature();
+    translator->setTag("HK47");
+
+    _conversation->start(makeInterjectionDialog(), translator);
+
+    EXPECT_EQ("interjection", _conversation->currentText());
 }
 
 } // namespace
