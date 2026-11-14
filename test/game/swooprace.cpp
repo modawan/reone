@@ -15,6 +15,7 @@
 
 #include "reone/game/game.h"
 #include "reone/game/minigame.h"
+#include "reone/game/minigameview.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/graphics/animation.h"
@@ -310,4 +311,28 @@ TEST_F(SwoopConsoleFixture, startswooprace_needs_a_module_with_a_swoop_race) {
     console.execute("startswooprace");
     EXPECT_EQ(console.lines.back(), "swoop: current area has no swoop minigame");
     EXPECT_EQ(game->minigameSession(), nullptr);
+}
+
+// The clip for a lean: the nearest roll, whose steps are not even. The values
+// are the thresholds of the retail bikes' rolls (K1 v_superbike, TSL v_supertrike01).
+TEST(MinigameBank, the_clip_is_the_one_with_the_nearest_roll) {
+    for (bool tsl : {false, true}) {
+        EXPECT_EQ(minigameBankAnimation(0.0f, tsl), "Ready_01");
+        EXPECT_EQ(minigameBankAnimation(0.015f, tsl), "Ready_01");
+        EXPECT_EQ(minigameBankAnimation(0.035f, tsl), "BankR_01");
+        EXPECT_EQ(minigameBankAnimation(-0.035f, tsl), "BankL_01");
+        EXPECT_EQ(minigameBankAnimation(1.0f, tsl), "BankR_10");
+        EXPECT_EQ(minigameBankAnimation(-1.0f, tsl), "BankL_10");
+        EXPECT_EQ(minigameBankAnimation(3.0f, tsl), "BankR_10");
+        // Even steps would give 8 here; the clips bunch up toward the end.
+        EXPECT_EQ(minigameBankAnimation(0.75f, tsl), "BankR_07");
+        EXPECT_EQ(minigameBankAnimation(0.80f, tsl), "BankR_08");
+        EXPECT_EQ(minigameBankAnimation(0.95f, tsl), "BankR_09");
+        EXPECT_EQ(minigameBankAnimation(0.98f, tsl), "BankR_10");
+        EXPECT_EQ(minigameBankAnimation(-0.30f, tsl), "BankL_03");
+        EXPECT_EQ(minigameBankAnimation(-0.31f, tsl), "BankL_04");
+    }
+    // The two bikes' first clips differ a little: 0.025 of a full lean is 0.29 degrees.
+    EXPECT_EQ(minigameBankAnimation(0.025f, false), "BankR_01");
+    EXPECT_EQ(minigameBankAnimation(0.025f, true), "Ready_01");
 }
