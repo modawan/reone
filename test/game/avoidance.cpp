@@ -101,6 +101,9 @@ struct CorridorFixture {
         ON_CALL(engine.resourceModule().twoDas(), get("creaturespeed"))
             .WillByDefault(Return(creatureSpeeds()));
         game = std::make_unique<Game>(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+        // The script runner: a walker that finds no way round a creature
+        // runs its path-failure script.
+        game->initLocalServices();
         area = game->newArea();
         TestGameModule::setActiveModuleArea(*game, area);
         loadCorridor(area->pathfinder());
@@ -151,4 +154,98 @@ TEST(CreatureAvoidance, the_way_round_a_companion_keeps_to_the_walkmesh) {
     EXPECT_TRUE(action->isCompleted());
     EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
     EXPECT_LE(glm::abs(fixture.pc->position().y), kHalfWidth);
+}
+
+// The leader sets out up the corridor with a wall across it at its back and
+// bumps a companion standing just ahead. The leader stands clear of the wall,
+// but the corner of the companion's hexagon nearest the leader lies behind it,
+// nearer the wall than the leader's personal space, and both ways round start
+// there. Their first legs are tested as the leader's steps will be, by the
+// thin line, so the wall does not block both ways round.
+TEST(CreatureAvoidance, a_leader_with_a_wall_at_its_back_goes_round_a_companion) {
+    constexpr uint32_t kFloorMaterial = 0;
+    constexpr uint32_t kWallMaterial = 1;
+    constexpr float kWallX = -10.7f;
+    CorridorFixture fixture;
+    auto &surfaces = dynamic_cast<MockSurfaces &>(fixture.engine.services().game.surfaces);
+    ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
+    ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
+    // An upright wall across the corridor, from the ground to 3 up.
+    auto &walkmesh = fixture.roomWalkmesh;
+    walkmesh.vertices = {
+        glm::vec3(kWallX, -kHalfWidth, 0.0f),
+        glm::vec3(kWallX, kHalfWidth, 0.0f),
+        glm::vec3(kWallX, kHalfWidth, 3.0f),
+        glm::vec3(kWallX, -kHalfWidth, 3.0f)};
+    walkmesh.faces = {{0, 1, 2}, {0, 2, 3}};
+    walkmesh.normals = {glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f)};
+    walkmesh.materials = {kWallMaterial, kWallMaterial};
+    // A walk is settled as one stretch over the room, at ground level.
+    ON_CALL(fixture.sceneGraph, walkRooms(_, _, _, _, _, _))
+        .WillByDefault(Invoke([&fixture](const glm::vec3 &, const glm::vec3 &, std::optional<int>, bool,
+                                         std::vector<scene::RoomStretch> &stretches, scene::Collision &) {
+            stretches.push_back(scene::RoomStretch {fixture.roomNode, 0.0f, graphics::Walkmesh::HeightBand {0.0f, 0.0f}});
+            return scene::RoomWalkEnd::Dest;
+        }));
+    fixture.pc->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    ASSERT_GT(fixture.pc->position().x - kWallX, fixture.pc->personalSpace()) << "the leader stands clear of the wall";
+    fixture.addCompanion(glm::vec3(-8.75f, 0.0f, 0.0f));
+    auto action = fixture.game->newAction<MoveToPointAction>(glm::vec3(10.0f, 0.0f, 0.0f));
+    fixture.pc->addAction(action);
+
+    for (int tick = 0; tick < 30 * 30 && !action->isCompleted(); ++tick) {
+        fixture.pc->update(kTick);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
+    EXPECT_LE(glm::abs(fixture.pc->position().y), kHalfWidth);
+}
+
+// The leader walks up the corridor beside a wall along it, nearer the wall
+// than its personal space, as a path may run and a walker's steps follow, and
+// bumps a companion standing on its path. The way between the companion and
+// the wall is blocked. The way round the open side rejoins the path at a
+// corner as near the wall as the path, so its last leg, swept with the
+// leader's personal space, meets the wall too. With neither way clear by the
+// swept test, both are tested as the leader's steps will be, by the thin line,
+// and the leader goes round the open side.
+TEST(CreatureAvoidance, a_leader_walking_close_by_a_wall_goes_round_a_companion_on_the_open_side) {
+    constexpr uint32_t kFloorMaterial = 0;
+    constexpr uint32_t kWallMaterial = 1;
+    constexpr float kWallY = 1.0f;
+    constexpr float kPathY = 0.8f;
+    CorridorFixture fixture;
+    auto &surfaces = dynamic_cast<MockSurfaces &>(fixture.engine.services().game.surfaces);
+    ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
+    ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
+    // An upright wall along the corridor, from the ground to 3 up.
+    auto &walkmesh = fixture.roomWalkmesh;
+    walkmesh.vertices = {
+        glm::vec3(-kHalfLength, kWallY, 0.0f),
+        glm::vec3(kHalfLength, kWallY, 0.0f),
+        glm::vec3(kHalfLength, kWallY, 3.0f),
+        glm::vec3(-kHalfLength, kWallY, 3.0f)};
+    walkmesh.faces = {{0, 1, 2}, {0, 2, 3}};
+    walkmesh.normals = {glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)};
+    walkmesh.materials = {kWallMaterial, kWallMaterial};
+    ON_CALL(fixture.sceneGraph, walkRooms(_, _, _, _, _, _))
+        .WillByDefault(Invoke([&fixture](const glm::vec3 &, const glm::vec3 &, std::optional<int>, bool,
+                                         std::vector<scene::RoomStretch> &stretches, scene::Collision &) {
+            stretches.push_back(scene::RoomStretch {fixture.roomNode, 0.0f, graphics::Walkmesh::HeightBand {0.0f, 0.0f}});
+            return scene::RoomWalkEnd::Dest;
+        }));
+    fixture.pc->setPosition(glm::vec3(-10.0f, kPathY, 0.0f));
+    ASSERT_LT(kWallY - kPathY, fixture.pc->personalSpace()) << "the leader walks within its personal space of the wall";
+    fixture.addCompanion(glm::vec3(-8.75f, kPathY, 0.0f));
+    auto action = fixture.game->newAction<MoveToPointAction>(glm::vec3(10.0f, kPathY, 0.0f));
+    fixture.pc->addAction(action);
+
+    for (int tick = 0; tick < 30 * 30 && !action->isCompleted(); ++tick) {
+        fixture.pc->update(kTick);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
+    EXPECT_LT(fixture.pc->position().y, kWallY);
 }
