@@ -434,6 +434,7 @@ void MinigameSession::load(const MinigameSpec &spec,
     _scriptsRun = 0;
     _started = false;
     _speedHeld = false;
+    _fireHeld = false;
     _accelerateHeld = false;
     _brakeHeld = false;
     _lateralVelocity = glm::vec3(0.0f);
@@ -628,7 +629,11 @@ void MinigameSession::update(float dt, const MinigameInput &input) {
         runScriptSlot(_actors[index], MinigameSlot::OnHeartbeat);
     }
 
-    updatePlayerGuns(dt, input.fire);
+    // The shoot key is not repeatable: a press fires once, and holding the
+    // key does not fire again on every gun cooldown.
+    bool fire = input.fire && !_fireHeld;
+    _fireHeld = input.fire;
+    updatePlayerGuns(dt, fire);
 
     if (!_actors.front().dead) {
         collideObstacles();
@@ -800,14 +805,14 @@ void MinigameSession::placeActor(MinigameActor &actor) {
     }
 }
 
-void MinigameSession::updatePlayerGuns(float dt, bool fire) {
+void MinigameSession::updatePlayerGuns(float dt, bool press) {
     auto &p = _actors.front();
     for (size_t i = 0; i < p.gunBanks.size(); ++i) {
         auto &bank = p.gunBanks[i];
         if (bank.cooldown > 0.0f) {
             bank.cooldown = glm::max(0.0f, bank.cooldown - dt);
         }
-        if (!fire || p.dead || bank.cooldown > 0.0f) {
+        if (!press || p.dead || bank.cooldown > 0.0f) {
             continue;
         }
         bank.cooldown = bank.spec.bullet.rateOfFire;
