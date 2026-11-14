@@ -1534,7 +1534,8 @@ static Variable HoursToSeconds(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    return Variable::ofFloat(nHours * 60.0f * ctx.game.minutesPerHour());
+    return Variable::ofFloat(static_cast<float>(nHours) * static_cast<float>(ctx.game.millisecondsPerWorldHour()) /
+                             static_cast<float>(kMillisecondsInSecond));
 }
 
 static Variable TurnsToSeconds(const std::vector<Variable> &args, const RoutineContext &ctx) {

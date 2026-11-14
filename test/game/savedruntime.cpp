@@ -1416,7 +1416,7 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     expiring.expiryDay = 4;
     // Five real seconds after world time 100, expressed in milliseconds.
     expiring.expiryTime = 5100;
-    auto remaining = game.remainingEffectDuration(expiring);
+    auto remaining = game.remainingEffectDuration(expiring, game.worldTimeMilliseconds());
     ASSERT_TRUE(remaining);
     EXPECT_FLOAT_EQ(*remaining, 5.0f);
 }

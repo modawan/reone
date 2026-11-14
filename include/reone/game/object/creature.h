@@ -2666,8 +2666,7 @@ private:
     /** A one-shot waiting in the fire-and-forget queue. */
     struct FireForgetEntry {
         std::string clip;
-        uint32_t startDay {0};  /**< calendar day it was queued at */
-        uint32_t startTime {0}; /**< and the time of that day */
+        uint64_t start {0}; /**< the creature's own time it was queued at */
         int lengthMilliseconds {0};
         float rate {1.0f};
         bool layered {false};
@@ -2870,6 +2869,8 @@ private:
      * milliseconds; 0 while the clock stands still.
      */
     int _frameMilliseconds {0};
+    /** The creature's own time at its last update; none before its first. */
+    std::optional<uint64_t> _lastUpdateMilliseconds;
     /**
      * Milliseconds until a sighting of the player's creature costs the area
      * stealth experience, 0 once the loss is due on the next update; none
@@ -2945,7 +2946,11 @@ private:
     /** Fractional regeneration, carried from one update to the next. */
     float _hitPointAccumulator {0.0f};
     float _forcePointAccumulator {0.0f};
-    Timer _stateSupportTimer;
+    /**
+     * The creature's own time its last heartbeat was due; none when one is
+     * due at once.
+     */
+    std::optional<uint64_t> _heartbeatStamp;
 
     bool _movementRestricted {false};
     float _movementRate {1.0f};
@@ -3022,9 +3027,9 @@ private:
     int _aiLevel {1};
     int _savedAILevel {-1};
     int _perceptionThrottle {0};
-    /** Heartbeat interval (ms) and the due updates a level-0 creature waits. */
+    /** Heartbeat interval (ms), and whether a level-0 creature passed over its last due heartbeat. */
     int _heartbeatInterval {3000};
-    int _heartbeatThrottle {0};
+    bool _heartbeatSkipped {false};
     /** The ranges row the creature takes up when it next looks around. */
     std::optional<int> _pendingPerceptionRangeRow;
     bool _pendingPerceptionRangeByAppearance {false};
@@ -3256,7 +3261,7 @@ private:
     bool isHostileCombatTurn() const;
     void playTurnAnimation(float sign);
     void updateFidget();
-    void updateStateHeartbeat(float dt);
+    void updateStateHeartbeat();
     /** Runs the heartbeat scripts of a living creature. */
     void runHeartbeat();
     void updateRegeneration(float dt);

@@ -98,7 +98,12 @@ public:
 
     bool isRun() const { return _run; }
     const std::shared_ptr<Location> &destination() const { return _destination; }
-    bool isForced() const { return _force; }
+    /**
+     * The walk is forced to its end at a deadline: it is under way with one,
+     * or its timeout, above zero, sets one as it begins. A forced walk
+     * without a timeout above zero walks as an ordinary walk.
+     */
+    bool isForced() const { return _force && (_forcedState.active || _timeout > 0.0f); }
     float timeout() const { return _timeout; }
     /** How near the walk must end; a script's move walks onto the point itself. */
     float closeRange() const { return _closeRange; }

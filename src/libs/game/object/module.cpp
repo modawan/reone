@@ -743,9 +743,7 @@ uint32_t Module::spawnBodyBag(Object &source) {
     bag->fillBodyBag(source, corpse, nameStrRef);
 
     SavedEventRecord event;
-    const uint64_t when = _game.worldTimeMilliseconds() + kBodyBagDelayMilliseconds;
-    event.day = static_cast<uint32_t>(when / _game.millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % _game.millisecondsPerWorldDay());
+    _game.setEventDueAfter(event, kBodyBagDelayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(area->get().id());
     event.caller = SavedObjectReference::fromRuntimeId(source.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::SpawnBodyBag);
@@ -878,7 +876,7 @@ void Module::publishSavedEvent(size_t index) {
     }
     PublishedSavedEvent event;
     event.savedIndex = index;
-    event.dueMilliseconds = static_cast<uint64_t>(savedEvent.day) * _game.millisecondsPerWorldDay() + savedEvent.time;
+    event.dueMilliseconds = _game.toWorldMilliseconds(savedEvent.day, savedEvent.time);
     event.command = pending.command;
     event.keepsCallerFade = pending.keepsCallerFade;
     if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {

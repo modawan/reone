@@ -18,6 +18,7 @@
 #include "reone/game/location.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/worldtime.h"
 #include "reone/resource/gff.h"
 
 #include "../fixtures/engine.h"
@@ -227,13 +228,13 @@ TEST_P(WorldTimeFixture, temporary_effect_expiry_round_trips_as_a_real_duration)
         instance.expiryTime = static_cast<uint32_t>(45.0f * 1000.0f);
         instance.expiryOrigin = EffectExpiryOrigin::LoadedAbsoluteGameTime;
 
-        auto remaining = game.remainingEffectDuration(instance);
+        auto remaining = game.remainingEffectDuration(instance, game.worldTimeMilliseconds());
         ASSERT_TRUE(remaining);
         EXPECT_NEAR(*remaining, 45.0f, 0.001f)
             << "expiry is stored in world milliseconds, which are real milliseconds";
 
         advance(20.0f);
-        remaining = game.remainingEffectDuration(instance);
+        remaining = game.remainingEffectDuration(instance, game.worldTimeMilliseconds());
         ASSERT_TRUE(remaining);
         EXPECT_NEAR(*remaining, 25.0f, 0.05f);
     }
@@ -333,3 +334,32 @@ INSTANTIATE_TEST_SUITE_P(
     [](const ::testing::TestParamInfo<GameID> &info) {
         return info.param == GameID::TSL ? "TSL" : "KotOR";
     });
+
+TEST(WorldTimeRules, a_time_past_the_last_calendar_day_stops_at_its_end) {
+    constexpr uint32_t day = 2u * 60u * 1000u * 24u;
+    const uint64_t last = 3ull * day - 1;
+    EXPECT_EQ(getCalendarTimeAfter(0, 1000, day, 2), 1000u);
+    EXPECT_EQ(getCalendarTimeAfter(last - 10, 5, day, 2), last - 5);
+    EXPECT_EQ(getCalendarTimeAfter(last - 10, 11, day, 2), last);
+    EXPECT_EQ(getCalendarTimeAfter(last, std::numeric_limits<uint64_t>::max(), day, 2), last);
+    EXPECT_EQ(getCalendarTimeAfter(last + 50, 0, day, 2), last);
+}
+
+TEST(WorldTimeRules, a_timer_keeps_to_its_interval_unless_time_jumps) {
+    // Due at 1000 every 500: an update late by less than an interval keeps the beat.
+    EXPECT_EQ(getNextStamp(1000, 500, 1600), 1500u);
+    EXPECT_EQ(getNextStamp(1000, 500, 1999), 1500u);
+    // Two intervals or more behind, as a time skip leaves, or a stamp ahead: now.
+    EXPECT_EQ(getNextStamp(1000, 500, 2000), 2000u);
+    EXPECT_EQ(getNextStamp(1000, 500, 900), 900u);
+    EXPECT_EQ(getStampNotAfter(1200, 1000), 1000u);
+    EXPECT_EQ(getStampNotAfter(800, 1000), 800u);
+}
+
+TEST(WorldTimeRules, seconds_become_whole_milliseconds_within_range) {
+    EXPECT_EQ(getWholeMilliseconds(1.5f), 1500u);
+    EXPECT_EQ(getWholeMilliseconds(0.0004f), 0u);
+    EXPECT_EQ(getWholeMilliseconds(-3.0f), 0u);
+    EXPECT_EQ(getWholeMilliseconds(std::numeric_limits<float>::quiet_NaN()), std::numeric_limits<uint64_t>::max());
+    EXPECT_EQ(getWholeMilliseconds(1.0e17f), std::numeric_limits<uint64_t>::max());
+}

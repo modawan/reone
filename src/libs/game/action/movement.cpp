@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "reone/game/action/changefacing.h"
 #include "reone/game/action/drive.h"
@@ -42,6 +43,7 @@
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/savedruntime.h"
+#include "reone/game/worldtime.h"
 
 #include "commonactions.h"
 
@@ -127,6 +129,15 @@ MoveToObjectAction::MoveToObjectAction(
     requireRuntimeObject(_moveTo);
 }
 
+// The time, on the walker's own clock, a forced walk of \p timeout seconds,
+// above zero, begun now runs out at. A forced walk whose timeout is not above
+// zero has no deadline and walks as an ordinary walk; an endless one runs out
+// at the last its saved day holds.
+static uint64_t forcedWalkDeadline(const Game &game, const Object &walker, float timeout) {
+    return getCalendarTimeAfter(game.activeTimeMilliseconds(walker), getWholeMilliseconds(timeout),
+                                game.millisecondsPerWorldDay(), SavedMoveCommand::kLastExpiryDay);
+}
+
 // A move order ends a push or leap carrying the creature.
 void MoveToObjectAction::onQueued(Object &actor) {
     if (auto *creature = dyn_cast<Creature>(&actor)) {
@@ -160,22 +171,20 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         return toUsePoint ? _approach->use.point : _moveTo->position();
     };
 
-    if (_force && !_forcedState.active) {
+    if (isForced() && !_forcedState.active) {
         _forcedState.active = true;
         if (_moveTo) {
             _forcedState.destination = destination();
         }
         _forcedState.areaId = _game.module()->area()->id();
-        _forcedState.expiryMilliseconds = _game.worldTimeMilliseconds() +
-                                          static_cast<uint64_t>(
-                                              std::llround(std::max(0.0f, _timeout) * 1000.0f));
+        _forcedState.expiryMilliseconds = forcedWalkDeadline(_game, actor, _timeout);
     }
 
     auto dest = _moveTo ? destination() : _forcedState.destination;
 
-    if (_force && _forcedState.active) {
+    if (isForced() && _forcedState.active) {
         bool expired =
-            _game.worldTimeMilliseconds() >= _forcedState.expiryMilliseconds;
+            _game.activeTimeMilliseconds(actor) >= _forcedState.expiryMilliseconds;
         if (expired) {
             // Out of time, the mover jumps to the object as a jump to it does.
             jumpToObject(*creatureActor, *_moveTo, true, _game);
@@ -197,8 +206,8 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         // No path reaches the object (a locked room, off the walkmesh): give
         // up, as a walk to a point does, rather than planning again every
         // frame and holding the creature's queue for good. A forced move
-        // ends on its own deadline.
-        if (!_force && creatureActor->navigationFailed()) {
+        // under way ends on its own deadline.
+        if (!(isForced() && _forcedState.active) && creatureActor->navigationFailed()) {
             complete();
         }
         return;
@@ -222,16 +231,23 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     complete();
 }
 
-// A forced walk under way keeps its absolute deadline as the day and time a
-// save splits it into.
-static void saveExpiry(SavedMoveCommand &command, uint64_t expiryMilliseconds, uint64_t millisecondsPerDay) {
-    command.expiryDay = static_cast<uint32_t>(expiryMilliseconds / millisecondsPerDay);
-    command.expiryTime = static_cast<uint32_t>(expiryMilliseconds % millisecondsPerDay);
-}
-
-// The absolute deadline of a saved forced walk.
-static uint64_t restoredExpiry(const SavedMoveCommand &command, uint64_t millisecondsPerDay) {
-    return static_cast<uint64_t>(command.expiryDay) * millisecondsPerDay + command.expiryTime;
+// A forced walk under way saves its deadline as the day and time a save
+// splits it into. One not yet begun saves its timeout, an endless one as the
+// longest a float holds, which the walk caps as it begins; a walk that is not
+// forced saves as an ordinary walk.
+static void saveForcing(SavedMoveCommand &command, bool forced, bool active, float timeout, uint64_t deadline,
+                        const Game &game) {
+    if (!forced) {
+        return;
+    }
+    if (active) {
+        command.forcedActive = true;
+        command.expiryDay = game.calendarDay(deadline);
+        command.expiryTime = game.calendarTimeOfDay(deadline);
+    } else {
+        command.forcedPending = true;
+        command.timeout = std::min(timeout, std::numeric_limits<float>::max());
+    }
 }
 
 // A move to an object in range always carries a move flag of 1.
@@ -248,7 +264,8 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
     }
 
     if (usesPointPath()) {
-        if ((_force && (!std::isfinite(_timeout) || _timeout < 0.0f)) ||
+        // A forced walk under way never saves as the unbegun (0, 0) day and time.
+        if ((isForced() && _forcedState.active && _forcedState.expiryMilliseconds == 0) ||
             (!_force && !_pointPath && _timeout >= 0.0f)) {
             return std::nullopt;
         }
@@ -261,11 +278,7 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
         command.run = _run;
         command.carried = _carried;
         command.range = _range;
-        command.forcedPending = _force && !_forcedState.active;
-        command.timeout = command.forcedPending ? _timeout : 0.0f;
-        if (_force && _forcedState.active) {
-            saveExpiry(command, _forcedState.expiryMilliseconds, _game.millisecondsPerWorldDay());
-        }
+        saveForcing(command, isForced(), _forcedState.active, _timeout, _forcedState.expiryMilliseconds, _game);
         SavedActionRecord result;
         command.toAction(result);
         return result;
@@ -346,17 +359,15 @@ void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, 
         }
     }
 
-    if (_force && !_forcedState.active) {
+    if (isForced() && !_forcedState.active) {
         _forcedState.active = true;
         _forcedState.areaId = _game.module()->area()->id();
-        _forcedState.expiryMilliseconds = _game.worldTimeMilliseconds() +
-                                          static_cast<uint64_t>(
-                                              std::llround(std::max(0.0f, _timeout) * 1000.0f));
+        _forcedState.expiryMilliseconds = forcedWalkDeadline(_game, actor, _timeout);
     }
 
-    if (_force && _forcedState.active) {
+    if (isForced() && _forcedState.active) {
         bool expired =
-            _game.worldTimeMilliseconds() >= _forcedState.expiryMilliseconds;
+            _game.activeTimeMilliseconds(actor) >= _forcedState.expiryMilliseconds;
         if (expired) {
             // Out of time, the mover is put down on its destination, facing
             // along +x, if that spot is safe and still in the area the move
@@ -380,10 +391,7 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
     if (!_destination || !std::isfinite(_destination->position().x) ||
         !std::isfinite(_destination->position().y) ||
         !std::isfinite(_destination->position().z) ||
-        (_force && (!std::isfinite(_timeout) ||
-                    (!_forcedState.active && _timeout <= 0.0f))) ||
-        (_force && _forcedState.active &&
-         _forcedState.expiryMilliseconds == 0)) {
+        (isForced() && _forcedState.active && _forcedState.expiryMilliseconds == 0)) {
         return std::nullopt;
     }
 
@@ -413,13 +421,9 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
     command.straight = _straight;
     command.carried = _carried;
     command.range = _closeRange;
-    command.forcedPending = _force && !_forcedState.active;
-    command.timeout = command.forcedPending ? _timeout : 0.0f;
-    // A zero absolute deadline is rejected above, so an armed forced move
-    // never saves as the unarmed (0, 0) day and time.
-    if (_force && _forcedState.active) {
-        saveExpiry(command, _forcedState.expiryMilliseconds, _game.millisecondsPerWorldDay());
-    }
+    // A zero absolute deadline is rejected above, so a forced walk under way
+    // never saves as the unbegun (0, 0) day and time.
+    saveForcing(command, isForced(), _forcedState.active, _timeout, _forcedState.expiryMilliseconds, _game);
     SavedActionRecord result;
     command.toAction(result);
     return result;
@@ -430,7 +434,7 @@ std::shared_ptr<Action> MoveToLocationAction::restore(const SavedActionRecord &r
     if (!std::dynamic_pointer_cast<Area>(command->area.boundObject())) {
         return nullptr;
     }
-    const uint64_t expiryMilliseconds = restoredExpiry(*command, game.millisecondsPerWorldDay());
+    const uint64_t expiryMilliseconds = game.toWorldMilliseconds(command->expiryDay, command->expiryTime);
     const bool forced = command->forcedPending || command->forcedActive;
     const float timeout = command->forcedPending ? command->timeout : 0.0f;
     auto target = command->target.boundObject();

@@ -1591,10 +1591,10 @@ EffectApplicationResult TimeStopEffect::onApply(Object &object, EffectInstance &
         return EffectApplicationResult::Retained;
     }
     auto &renewed = object.findEffectApplication(current->applicationOrder)->get();
-    const uint32_t day = game.millisecondsPerWorldDay();
-    const auto expiry = getEffectExpiryMilliseconds(game.activeTimeMilliseconds(object), instance.duration, day);
-    renewed.expiryDay = static_cast<uint32_t>(expiry / day);
-    renewed.expiryTime = static_cast<uint32_t>(expiry % day);
+    const auto expiry = getEffectExpiryMilliseconds(game.activeTimeMilliseconds(object), instance.duration,
+                                                    game.millisecondsPerWorldDay());
+    renewed.expiryDay = game.calendarDay(expiry);
+    renewed.expiryTime = game.calendarTimeOfDay(expiry);
     renewed.expiryOrigin = EffectExpiryOrigin::RuntimeAbsoluteGameTime;
     return EffectApplicationResult::Applied;
 }

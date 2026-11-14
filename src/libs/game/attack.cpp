@@ -1994,15 +1994,10 @@ std::optional<AttackReaction> AttackBuffer::resolveReaction(const Creature &targ
     return reaction;
 }
 
-static void setEventTime(SavedEventRecord &event, const Game &game, uint64_t when) {
-    event.day = static_cast<uint32_t>(when / game.millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % game.millisecondsPerWorldDay());
-}
-
 static void enqueueAppliedEffect(Module &module, const Game &game, const Object &caller, const Object &target,
                                  EffectInstance effect, uint64_t when) {
     SavedEventRecord event;
-    setEventTime(event, game, when);
+    game.setEventDue(event, when);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.caller = SavedObjectReference::fromRuntimeId(caller.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::ApplyEffect);
@@ -2108,7 +2103,7 @@ void AttackBuffer::publishAttacked(
     const auto weapon = attack.sourceItem.resolve();
     payload.ammoItem = SavedObjectReference::fromRuntimeId(weapon ? weapon->id() : script::kObjectInvalid);
     SavedEventRecord event;
-    setEventTime(event, game, when);
+    game.setEventDue(event, when);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.caller = SavedObjectReference::fromRuntimeId(attacker.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::OnMeleeAttacked);
@@ -2229,7 +2224,7 @@ void AttackBuffer::releaseTargetWork(
             onHit.source = SavedObjectReference::fromRuntimeId(attacker.id());
             game.bindSavedObjectReference(onHit.source);
             SavedEventRecord event;
-            setEventTime(event, game, impactTime);
+            game.setEventDue(event, impactTime);
             event.eventId = static_cast<uint32_t>(SavedEventType::ItemOnHitSpellImpact);
             event.object = SavedObjectReference::fromRuntimeId(target.id());
             event.caller = onHit.source;
@@ -2265,7 +2260,7 @@ void AttackBuffer::releaseDeferredFeedback(
     auto module = game.module();
     for (const auto &record : feedback) {
         SavedEventRecord event;
-        setEventTime(event, game, impactTime);
+        game.setEventDue(event, impactTime);
         event.eventId = static_cast<uint32_t>(SavedEventType::FeedbackMessage);
         event.object = SavedObjectReference::fromRuntimeId(target.id());
         event.caller = SavedObjectReference::fromRuntimeId(attacker.id());

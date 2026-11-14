@@ -83,7 +83,7 @@ void AreaOfEffect::deserialize(
     _carrier = readReference("LinkedToObject");
     _lastEntered = readReference("LastEntered");
     _lastLeft = readReference("LastLeft");
-    _remainingDuration = static_cast<float>(gff.getUint("Duration")) / 1000.0f;
+    _remainingMilliseconds = gff.getUint("Duration");
     _durationType = static_cast<DurationType>(gff.getUint("DurationType", static_cast<uint32_t>(DurationType::Permanent)));
     gff.readDword(_heartbeatDay, "LastHrtbtDay");
     gff.readDword(_heartbeatTime, "LastHrtbtTime");
@@ -181,7 +181,7 @@ void AreaOfEffect::resolveSavedReferences(
 void AreaOfEffect::setDuration(DurationType type, float seconds) {
     _durationType = type;
     if (seconds > 0.0f) {
-        _remainingDuration = seconds;
+        _remainingMilliseconds = getWholeMilliseconds(seconds);
     }
 }
 
@@ -270,11 +270,16 @@ void AreaOfEffect::update(float dt) {
         _durationSound->setPosition(soundPosition());
     }
     if (_durationType == DurationType::Temporary) {
-        if (_remainingDuration <= dt) {
+        // The duration runs down on the effect's own time from its first
+        // update, so a jump of the clock ages it too.
+        const uint64_t now = _game.activeTimeMilliseconds(*this);
+        const uint64_t elapsed = _lastUpdateMilliseconds ? Game::millisecondsSince(now, *_lastUpdateMilliseconds) : 0;
+        _lastUpdateMilliseconds = now;
+        if (_remainingMilliseconds <= elapsed) {
             destroy();
             return;
         }
-        _remainingDuration -= dt;
+        _remainingMilliseconds -= elapsed;
     }
     Object::update(dt);
 }

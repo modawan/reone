@@ -25,13 +25,17 @@ namespace game {
 
 /**
  * Heals the creature by integer 0 each time more than integer 1 milliseconds
- * of the time of day have passed since the last heal (integers 2 and 3).
+ * have passed since the last heal (integers 2 and 3).
  * Integer 4 selects the resource it restores, as for a heal.
  */
 class RegenerateEffect : public CopyableEffect<RegenerateEffect> {
 public:
+    /**
+     * An interval in seconds, taken in whole milliseconds: one below zero is
+     * none, and one past what an int holds, or not a number, is the longest.
+     */
     RegenerateEffect(int amount, float intervalSeconds) :
-        RegenerateEffect(amount, static_cast<int>(intervalSeconds * 1000.0f), 0) {
+        RegenerateEffect(amount, wholeMilliseconds(intervalSeconds), 0) {
     }
 
     RegenerateEffect(int amount, int intervalMilliseconds, int resourceSelector) :
@@ -43,6 +47,12 @@ public:
 
     EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
     void onUpdate(Object &object, const EffectInstance &instance, float dt) override;
+
+private:
+    static int wholeMilliseconds(float seconds) {
+        const uint64_t milliseconds = getWholeMilliseconds(seconds);
+        return static_cast<int>(std::min<uint64_t>(milliseconds, std::numeric_limits<int>::max()));
+    }
 };
 
 } // namespace game
