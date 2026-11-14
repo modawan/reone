@@ -438,6 +438,7 @@ void MinigameSession::load(const MinigameSpec &spec,
     _brakeHeld = false;
     _lateralVelocity = glm::vec3(0.0f);
     _previousInput = glm::vec3(0.0f);
+    _lean = 0.0f;
     _jumpSpeed = 0.0f;
 
     _type = spec.type;
@@ -606,6 +607,12 @@ void MinigameSession::update(float dt, const MinigameInput &input) {
     if (!playerActor.dead) {
         updatePlayerMotion(dt, input);
     }
+    if (_type == MinigameType::SwoopRace) {
+        // A wrecked bike lets go of the steering, and a TSL race without
+        // lateral acceleration has no lean to follow it.
+        bool leans = !playerActor.dead && !(_tsl && _lateralAccel == 0.0f);
+        updateLean(dt, leans ? input.steer : 0.0f);
+    }
 
     // Object updates: the player and every listed enemy run their heartbeat
     // and count down their invulnerability; enemies move along their tracks.
@@ -636,6 +643,16 @@ void MinigameSession::update(float dt, const MinigameInput &input) {
     if (!_actors.front().dead) {
         collideFollowers();
     }
+}
+
+void MinigameSession::updateLean(float dt, float steer) {
+    float target = glm::clamp(steer, -1.0f, 1.0f);
+    // Steering the other way starts from level on the new side.
+    if (target * _lean < 0.0f) {
+        _lean = 0.0f;
+    }
+    float step = dt / kMinigameLeanTime;
+    _lean = target > _lean ? glm::min(_lean + step, target) : glm::max(_lean - step, target);
 }
 
 void MinigameSession::updateFollower(MinigameActor &actor, float dt) {

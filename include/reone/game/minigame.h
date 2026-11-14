@@ -381,6 +381,15 @@ constexpr float kMinigameSlideBrakeShare = 0.5f;
 constexpr float kMinigameSlideBrakeRate = 10.0f;
 
 /**
+ * The swoop bike's lean. It follows the steering (-1 = full left .. +1 = full
+ * right) at a constant rate, from level to full in kMinigameLeanTime seconds,
+ * and back to level as fast when the steering is let go. Steering the other
+ * way starts the lean again from level on the new side. On TSL a race whose
+ * lateral acceleration is 0 does not lean.
+ */
+constexpr float kMinigameLeanTime = 0.25f;
+
+/**
  * The outward acceleration on a swoop bike, along the hook's X axis, as its
  * track hook moves from \p previousHook to \p hook in \p dt seconds (see
  * kMinigameCurveDrift). The hook's X axis is the steering axis and Z is up;
@@ -624,6 +633,13 @@ public:
     const glm::vec3 &tunnelNeg() const { return _tunnelNeg; }
     const glm::vec3 &tunnelInfinite() const { return _tunnelInfinite; }
     float lateralAccel() const { return _lateralAccel; }
+
+    /**
+     * How far the swoop bike leans into its turn, -1 (full left) .. 1 (full
+     * right), 0 when level. A plain value for the view to pose the bike; it
+     * does not affect the simulation.
+     */
+    float lean() const { return _lean; }
     float movementPerSec() const { return _movementPerSec; }
     const glm::vec3 &lateralVelocity() const { return _lateralVelocity; }
     bool speedBlurEnabled() const { return _speedBlur; }
@@ -682,6 +698,7 @@ private:
     glm::vec3 _tunnelInfinite {0.0f};
     glm::vec3 _lateralVelocity {0.0f};
     glm::vec3 _previousInput {0.0f};
+    float _lean {0.0f};
     float _jumpSpeed {0.0f};
     bool _speedHeld {false};
     bool _accelerateHeld {false};
@@ -696,6 +713,7 @@ private:
     void clampOffset(glm::vec3 &offset) const;
     void updatePlayerMotion(float dt, const MinigameInput &input);
     void steerPlayer(float dt, const MinigameInput &input, float drift);
+    void updateLean(float dt, float steer);
     void updateJump(float dt);
     void advanceTrack(MinigameActor &actor, float dt);
     void placeActor(MinigameActor &actor);
