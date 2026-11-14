@@ -10447,17 +10447,29 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
     // The use range is tested before a walk sets out and again once it has
     // ended; a walk under way runs to its own end. The walk belongs to the
     // action that set it out, and ends with it.
+    // The walks that end short of the use point, and the time without
+    // progress toward it, are counted for useApproachGaveOut.
+    if (_shortUseWalksTarget != target.id()) {
+        _shortUseWalksTarget = target.id();
+        _shortUseWalks = 0;
+        _useApproachNearest = -1.0f;
+        _useApproachStalled = 0.0f;
+    }
     const auto walker = _executingActionNode.lock();
     const bool walking = _useWalk && _useWalk->walker.lock() == walker;
     if (!walking && isInUseRange(target, extra)) {
         setMovementType(MovementType::None);
         clearPath();
         _useWalk.reset();
+        _shortUseWalks = 0;
+        _useApproachNearest = -1.0f;
+        _useApproachStalled = 0.0f;
         return true;
     }
     // A walk to a door or placeable keeps the use point it set out for;
     // anything else heads for its use point of the moment.
     const UseRange use = useRange(target);
+    noteUseApproachProgress(use.point, dt);
     if (!walking) {
         _useWalk = UseWalk {walker};
         if (target.type() == ObjectType::Door || target.type() == ObjectType::Placeable) {
@@ -10485,7 +10497,45 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
     }
     // Arriving ends the walk; the next one sets out afresh.
     _useWalk.reset();
-    return isInUseRange(target, extra);
+    if (isInUseRange(target, extra)) {
+        return true;
+    }
+    // Ended, yet not in range: short of the point.
+    ++_shortUseWalks;
+    return false;
+}
+
+// Walks in a row that may end short of a use point before the approach gives
+// out: a walk ends at a creature in the way once it has bumped it several
+// times or finds it still standing there, so a few walks rule out one that
+// just stepped aside.
+static constexpr int kMaxShortUseWalks = 4;
+// Seconds a walk to a use point may come no nearer it (by kUseApproachStep)
+// before the approach gives out: a walk standing still, held up against a
+// creature it cannot get past, has no other end.
+static constexpr float kUseApproachPatience = 3.0f;
+static constexpr float kUseApproachStep = 0.1f;
+
+void Creature::noteUseApproachProgress(const glm::vec3 &point, float dt) {
+    const float distance = glm::distance(glm::vec2(_position), glm::vec2(point));
+    if (_useApproachNearest < 0.0f || distance < _useApproachNearest - kUseApproachStep) {
+        _useApproachNearest = distance;
+        _useApproachStalled = 0.0f;
+        return;
+    }
+    _useApproachStalled += std::max(0.0f, dt);
+}
+
+bool Creature::useApproachGaveOut(const Object &target) {
+    const bool sameTarget = _shortUseWalksTarget == target.id();
+    if (!_navigationFailed && !(sameTarget && (_shortUseWalks >= kMaxShortUseWalks || _useApproachStalled >= kUseApproachPatience))) {
+        return false;
+    }
+    _shortUseWalks = 0;
+    _useApproachNearest = -1.0f;
+    _useApproachStalled = 0.0f;
+    _useWalk.reset();
+    return true;
 }
 
 std::optional<glm::vec3> Creature::walkablePointBeside(const Object &target, const glm::vec3 &point) const {
