@@ -18,6 +18,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/game/gui/ingame/journal.h"
 #include "reone/game/journal.h"
 #include "reone/resource/gff.h"
 
@@ -30,6 +31,35 @@ using namespace reone::resource;
 using testing::_;
 using testing::NiceMock;
 using testing::Return;
+
+namespace reone::game {
+
+class JournalMenuTestAccess {
+public:
+    struct Row {
+        Journal::Quest quest;
+        resource::JRL::Category category;
+        std::string name;
+    };
+
+    static std::vector<std::string> sort(std::vector<Row> input, int sort) {
+        std::vector<JournalMenu::Row> rows;
+        rows.reserve(input.size());
+        for (auto &row : input) {
+            rows.push_back({&row.quest, &row.category, row.name});
+        }
+        JournalMenu::sortRows(rows, static_cast<JournalMenu::Sort>(sort));
+
+        std::vector<std::string> result;
+        result.reserve(rows.size());
+        for (const auto &row : rows) {
+            result.push_back(row.quest->plotId);
+        }
+        return result;
+    }
+};
+
+} // namespace reone::game
 
 class JournalTest : public ::testing::Test {
 protected:
@@ -83,6 +113,45 @@ TEST_F(JournalTest, should_add_entry_and_advance_to_higher_state) {
     EXPECT_EQ(20, _journal->getEntryState("test_plot"));
 
     EXPECT_EQ(1ll, _journal->quests().size());
+}
+
+TEST_F(JournalTest, should_stamp_only_accepted_entry_changes_with_the_world_clock) {
+    std::pair<uint32_t, uint32_t> now {2, 30};
+    _journal->setClock([&now]() { return now; });
+
+    EXPECT_TRUE(_journal->addEntry("test_plot", 10));
+    ASSERT_EQ(1u, _journal->quests().size());
+    EXPECT_EQ(2u, _journal->quests()[0].date);
+    EXPECT_EQ(30u, _journal->quests()[0].time);
+
+    now = {3, 40};
+    EXPECT_FALSE(_journal->addEntry("test_plot", 10));
+    EXPECT_FALSE(_journal->addEntry("test_plot", 5));
+    EXPECT_EQ(2u, _journal->quests()[0].date);
+    EXPECT_EQ(30u, _journal->quests()[0].time);
+
+    EXPECT_TRUE(_journal->addEntry("test_plot", 20));
+    EXPECT_EQ(3u, _journal->quests()[0].date);
+    EXPECT_EQ(40u, _journal->quests()[0].time);
+}
+
+TEST(JournalMenu, should_sort_quests_and_keep_newest_first_among_equal_rows) {
+    using Row = JournalMenuTestAccess::Row;
+    const std::vector<Row> rows {
+        {{"beta", 10, 1, 10}, {"beta", {-1, "Beta"}, 2, 1}, "Beta"},
+        {{"alpha_old", 10, 1, 20}, {"alpha_old", {-1, "Alpha"}, 1, 2}, "Alpha"},
+        {{"alpha_new", 10, 2, 5}, {"alpha_new", {-1, "Alpha"}, 1, 2}, "Alpha"},
+        {{"gamma", 10, 3, 0}, {"gamma", {-1, "Gamma"}, 3, 0}, "Gamma"},
+    };
+
+    EXPECT_EQ((std::vector<std::string> {"gamma", "alpha_new", "alpha_old", "beta"}),
+              JournalMenuTestAccess::sort(rows, 0));
+    EXPECT_EQ((std::vector<std::string> {"alpha_new", "alpha_old", "beta", "gamma"}),
+              JournalMenuTestAccess::sort(rows, 1));
+    EXPECT_EQ((std::vector<std::string> {"alpha_new", "alpha_old", "beta", "gamma"}),
+              JournalMenuTestAccess::sort(rows, 2));
+    EXPECT_EQ((std::vector<std::string> {"alpha_new", "alpha_old", "beta", "gamma"}),
+              JournalMenuTestAccess::sort(rows, 3));
 }
 
 TEST_F(JournalTest, should_not_regress_to_lower_state_without_override) {

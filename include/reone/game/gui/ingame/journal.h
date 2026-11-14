@@ -22,6 +22,7 @@
 #include "reone/gui/control/listbox.h"
 
 #include "../../gui.h"
+#include "../../journal.h"
 
 namespace reone {
 
@@ -46,6 +47,8 @@ public:
     void markReadQuestsSeen();
 
 private:
+    friend class JournalMenuTestAccess;
+
     /** How the quest list is sorted, in the order KotOR's sort button steps through. */
     enum class Sort {
         /** The quest that arrived or moved on last comes first. */
@@ -77,6 +80,12 @@ private:
         std::shared_ptr<gui::ListBox> LB_ITEMS;
     };
 
+    struct Row {
+        const Journal::Quest *quest;
+        const resource::JRL::Category *category;
+        std::string name;
+    };
+
     Controls _controls;
     Sort _sort {Sort::OrderReceived};
     /** The list shows the completed quests rather than the active ones. */
@@ -88,6 +97,7 @@ private:
 
     void onGUILoaded() override;
     void setSort(Sort sort);
+    static void sortRows(std::vector<Row> &rows, Sort sort);
     /** Show the completed quests in place of the active ones, or the other way round. */
     void swapQuests();
     /** Name the list shown and its sort on the title, the swap and the sort buttons. */
