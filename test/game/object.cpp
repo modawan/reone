@@ -4608,6 +4608,53 @@ TEST(CombatVisibility, retired_subject_does_not_remain_perceived) {
     EXPECT_FALSE(fixture.observer->perception().sees(strongStorage->id()));
 }
 
+// A scripted move to a spot another creature stands on, checking its range as
+// ActionMoveToObject does, ends against that creature. Setting out again would
+// meet the same creature every frame and never let the rest of the queue run.
+// Tatooine's Dune Sea gate: Tanis's wife's exit walk to tat_exit, with the
+// player standing on it, held ActionResumeConversation behind it for good.
+TEST(CreatureBlockedByCreature, a_checked_move_to_an_occupied_spot_ends_against_the_creature) {
+    BlockedDoorFixtureBase fixture;
+    testSceneGraph(fixture.engine);
+    auto walker = fixture.addCreature("");
+    auto blocker = fixture.addCreature("");
+    blocker->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+    auto spot = fixture.game.newWaypoint();
+    spot->setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+    fixture.area->add(spot);
+
+    auto move = fixture.game.newAction<MoveToObjectAction>(spot, false, 1.0f, false, -1.0f, false, 1.0f);
+    for (int frame = 0; frame < 40 && !move->isCompleted(); ++frame) {
+        // Each walk sets out on a straight path, as a planned one would here.
+        if (!TestGameModule::hasAreaRuntimePath(*walker)) {
+            TestGameModule::setAreaRuntimeStraightPath(*walker, fixture.area->pathfinder(), spot->position());
+        }
+        move->execute(move, *walker, 0.5f);
+    }
+
+    EXPECT_TRUE(move->isCompleted());
+    EXPECT_TRUE(walker->walkEndedAtCreature());
+    EXPECT_LT(walker->position().x, 4.0f);
+}
+
+// A checked move that is merely short of its target, with nothing in the way,
+// still sets out again rather than ending.
+TEST(CreatureBlockedByCreature, a_checked_move_short_of_its_target_without_a_blocker_carries_on) {
+    BlockedDoorFixtureBase fixture;
+    testSceneGraph(fixture.engine);
+    auto walker = fixture.addCreature("");
+    auto spot = fixture.game.newWaypoint();
+    spot->setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+    fixture.area->add(spot);
+
+    auto move = fixture.game.newAction<MoveToObjectAction>(spot, false, 1.0f, false, -1.0f, false, 1.0f);
+    TestGameModule::setAreaRuntimeStraightPath(*walker, fixture.area->pathfinder(), spot->position());
+    move->execute(move, *walker, 0.5f);
+
+    EXPECT_FALSE(move->isCompleted());
+    EXPECT_FALSE(walker->walkEndedAtCreature());
+}
+
 TEST(CreatureBlockedByDoor, should_run_the_blocked_script_when_a_closed_door_stops_a_walk) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
