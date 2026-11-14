@@ -22,15 +22,21 @@
 #include "../fixtures/game.h"
 #include "../fixtures/scene.h"
 
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/movetopoint.h"
+#include "reone/game/action/opencontainer.h"
+#include "reone/game/combat.h"
+#include "reone/game/d20/spell.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/game/pathfinder.h"
 #include "reone/game/room.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/node/walkmesh.h"
 
 using namespace reone;
@@ -130,6 +136,110 @@ struct CorridorFixture {
 };
 
 } // namespace
+
+// A container with creatures standing between the user and its use point:
+// every walk there ends at them. Close by, it is used from where the user
+// stands; before, the use waited for good for them to step away. Far off, the
+// use gives up. The user is not the party leader, so a use that arrives only
+// plays the container's opening sound and runs its OnUsed script, with no
+// inventory screen to open.
+namespace {
+
+// Five creatures across the corridor at x.
+void blockCorridor(CorridorFixture &fixture, float x) {
+    for (float y = -2.0f; y <= 2.01f; y += 1.0f) {
+        fixture.spawn(glm::vec3(x, y, 0.0f));
+    }
+}
+
+std::shared_ptr<Placeable> addContainer(CorridorFixture &fixture, float x) {
+    auto box = fixture.game->newPlaceable();
+    box->setPosition(glm::vec3(x, 0.0f, 0.0f));
+    box->setHasInventory(true);
+    box->setUsable(true);
+    fixture.area->add(box);
+    return box;
+}
+
+// Ticks the user's queue runs for until it is empty, at most thirty seconds'.
+int ticksUntilIdle(Creature &user) {
+    int ticks = 0;
+    for (; ticks < 30 * 30 && !user.actions().empty(); ++ticks) {
+        user.update(kTick);
+    }
+    return ticks;
+}
+
+} // namespace
+
+TEST(CreatureAvoidance, opening_a_container_held_up_close_by_uses_it_from_there) {
+    CorridorFixture fixture;
+    fixture.pc->setPosition(glm::vec3(-15.0f, 0.0f, 0.0f));
+    auto user = fixture.spawn(glm::vec3(0.0f, 0.0f, 0.0f));
+    blockCorridor(fixture, 9.2f);
+    auto box = addContainer(fixture, 10.0f);
+    auto action = fixture.game->newAction<OpenContainerAction>(box);
+    user->addAction(action);
+
+    const int ticks = ticksUntilIdle(*user);
+
+    EXPECT_TRUE(action->isCompleted()) << "still queued after " << ticks << " ticks";
+    EXPECT_GT(user->position().x, 6.0f) << "it walked up to the creatures";
+    EXPECT_LT(user->position().x, 9.2f) << "it did not pass the creatures";
+    EXPECT_LT(glm::distance(glm::vec2(user->position()), glm::vec2(box->position())), 2.6f);
+}
+
+TEST(CreatureAvoidance, opening_a_container_held_up_far_off_gives_up) {
+    CorridorFixture fixture;
+    fixture.pc->setPosition(glm::vec3(-15.0f, 0.0f, 0.0f));
+    auto user = fixture.spawn(glm::vec3(0.0f, 0.0f, 0.0f));
+    blockCorridor(fixture, 5.0f);
+    auto box = addContainer(fixture, 10.0f);
+    auto action = fixture.game->newAction<OpenContainerAction>(box);
+    user->addAction(action);
+
+    const int ticks = ticksUntilIdle(*user);
+
+    EXPECT_TRUE(user->actions().empty()) << "still queued after " << ticks << " ticks";
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_LT(user->position().x, 5.0f);
+}
+
+// A cast at an object within its range but with no clear line to it, and no
+// path to walk for one, gives up as the opens above do. Before, its walk for a
+// clear line was set out again every frame and never given up (a sonic grenade
+// at a Vulkar behind a shut door in the Vulkar base on Taris held its thrower
+// on one spot while the party fought on without it).
+TEST(CreatureAvoidance, a_cast_with_no_clear_line_and_no_path_gives_up) {
+    CorridorFixture fixture;
+    auto target = fixture.spawn(glm::vec3(8.0f, 8.0f, 0.0f)); // off the walkmesh: no path
+    target->setFaction(Faction::Hostile1);
+    target->setMaxHitPoints(40);
+    target->setCurrentHitPoints(40);
+    auto spell = std::make_shared<Spell>();
+    spell->range = 20.0f;
+    spell->castTime = 1.0f;
+    ASSERT_LT(fixture.pc->getDistanceTo(*target), spell->range) << "within the spell's range";
+    // A wall (no door) between the two.
+    ON_CALL(fixture.sceneGraph, testLineOfSight(_, _, _))
+        .WillByDefault(Invoke([](const glm::vec3 &origin, const glm::vec3 &dest, scene::Collision &collision) {
+            collision.user = nullptr;
+            collision.intersection = 0.5f * (origin + dest);
+            return true;
+        }));
+
+    auto action = fixture.game->newAction<CastSpellAtObjectAction>(spell, target, std::nullopt, /*cheat=*/true);
+    fixture.pc->addAction(action);
+    int tick = 0;
+    for (; tick < 30 * 30 && !fixture.pc->actions().empty(); ++tick) {
+        fixture.pc->update(kTick);
+        fixture.game->combat().update(kTick);
+    }
+
+    EXPECT_TRUE(fixture.pc->actions().empty()) << "cast still queued after " << tick << " ticks";
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(40, target->currentHitPoints());
+}
 
 // The leader walks up a corridor and bumps a companion standing near its edge.
 // The way past the companion's far side leaves the corridor: its corners have

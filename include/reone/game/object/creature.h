@@ -1781,6 +1781,15 @@ public:
     bool navigateToUse(const Object &target, float extra, float dt, bool run = true, bool followsPoint = false, bool targetsPath = true,
                        bool toGoal = true, float walkExtra = 0.0f, bool inClearLine = false);
     /**
+     * The walks of navigateToUse toward \p target cannot get there: no path
+     * was found, several walks in a row ended short of its use range, as they
+     * do against a creature standing on the use point, or the walk came no
+     * nearer the point for a few seconds. An action that keeps walking would
+     * wait for good; it gives up instead. Answering true starts the count
+     * afresh for the next try.
+     */
+    bool useApproachGaveOut(const Object &target);
+    /**
      * The walkable point within two metres of \p point, a use point of
      * \p target that no path from this creature reaches, with a clear line to
      * it at eye height: of the nearest ring of such points, a quarter of a
@@ -2894,6 +2903,13 @@ private:
         std::optional<glm::vec3> beside;
     };
     std::optional<UseWalk> _useWalk;
+    /** navigateToUse's walks toward _shortUseWalksTarget that ended in a row short of its use range. */
+    int _shortUseWalks {0};
+    uint32_t _shortUseWalksTarget {script::kObjectInvalid};
+    /** The nearest navigateToUse has come to its use point, and the seconds since it last came nearer. */
+    float _useApproachNearest {-1.0f};
+    float _useApproachStalled {0.0f};
+    void noteUseApproachProgress(const glm::vec3 &point, float dt);
     RuntimeObjectRef<Object> _attemptedMovementTarget;
     glm::vec3 _pathVelocity;
     /**
