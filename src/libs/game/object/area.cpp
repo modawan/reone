@@ -3520,7 +3520,7 @@ void Area::updateRoomVisibility() {
         return !_game.isTSL() || room.hasBackgroundGeometry() || !camera || camera->cameraSceneNode()->camera()->isInFrustum(room.box());
     };
     for (auto &room : _rooms) {
-        bool visible = !_cullingRooms || room.second.get() == _shownRoom;
+        bool visible = !_cullingRooms || room.second.get() == _shownRoom || room.second->isAnimated();
         if (!visible) {
             auto seen = _visibility.equal_range(_shownRoom->name());
             visible = std::any_of(seen.first, seen.second, [&room](const auto &pair) { return pair.second == room.first; }) &&
