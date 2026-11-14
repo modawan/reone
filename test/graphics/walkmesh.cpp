@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <limits>
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
@@ -336,6 +338,19 @@ bool hasFloorOverFloor(const Walkmesh &walkmesh) {
     return walkmesh.hasFloorOverFloor(walkmesh.floorNormals(kFloors));
 }
 
+// A level floor over the box from (-1, -1) to (1, 1) at height 0, with a box
+// tree over its two faces, as an area walkmesh has.
+void addTreeFloor(Walkmesh &walkmesh) {
+    addFloor(walkmesh, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    auto root = std::make_shared<Walkmesh::AABB>();
+    root->value = AABB(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f));
+    root->left = std::make_shared<Walkmesh::AABB>();
+    root->left->faceIdx = 0;
+    root->right = std::make_shared<Walkmesh::AABB>();
+    root->right->faceIdx = 1;
+    walkmesh.setRootAABB(root);
+}
+
 } // namespace
 
 TEST(Walkmesh, floors_meeting_only_at_a_wall_do_not_lie_one_over_the_other) {
@@ -497,4 +512,29 @@ TEST(Walkmesh, a_walk_under_a_second_floor_keeps_to_the_first) {
     ASSERT_TRUE(above.has_value());
     EXPECT_NEAR(3.0f, above->band.low, 1e-5f);
     EXPECT_NEAR(3.0f, above->band.high, 1e-5f);
+}
+
+// The floor is searched for walls: a face the ray reaches answers that it is
+// of none of the surfaces searched for, so only a ray that reaches no face, as
+// one the tree culls, answers that there is no intersection.
+
+TEST(Walkmesh, a_ray_with_no_direction_reaches_no_face) {
+    Walkmesh walkmesh;
+    addTreeFloor(walkmesh);
+    // A step of no length normalises to a NaN direction.
+    const glm::vec3 dir {glm::normalize(glm::vec3(0.0f))};
+
+    const auto raycast = walkmesh.raycast(kWalls, glm::vec3(0.0f, 0.0f, 1.0f), dir, 10.0f, /*ignoreBackface=*/false);
+
+    EXPECT_EQ(RAYCAST_NO_INTERSECTION, raycast.fail);
+}
+
+TEST(Walkmesh, a_ray_from_no_origin_reaches_no_face) {
+    Walkmesh walkmesh;
+    addTreeFloor(walkmesh);
+    const glm::vec3 origin {std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f};
+
+    const auto raycast = walkmesh.raycast(kWalls, origin, glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false);
+
+    EXPECT_EQ(RAYCAST_NO_INTERSECTION, raycast.fail);
 }
