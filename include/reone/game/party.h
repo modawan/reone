@@ -207,6 +207,8 @@ public:
     bool selectNextStandingMember();
     /** Hands control to the member at index; one who is absent or down cannot take it. */
     bool selectStandingMember(int index);
+    /** Hands control to the member standing who comes before the leader, the last in the party's order. */
+    bool selectPreviousStandingMember();
 
     bool isEmpty() const;
     bool isSoloMode() const { return _solo; }

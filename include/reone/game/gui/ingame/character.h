@@ -50,6 +50,8 @@ public:
     void clearSelection() override;
 
     void refreshControls();
+    /** The script selection panel has its title where the in-game menu's navigation is. */
+    bool coversInGameMenu() const override { return _scriptSelectOpen; }
 
 private:
     static constexpr int kNumControlsGood = 10;

@@ -1312,6 +1312,15 @@ bool Party::selectStandingMember(int index) {
     return true;
 }
 
+bool Party::selectPreviousStandingMember() {
+    for (int index = static_cast<int>(_members.size()) - 1; index >= 1; --index) {
+        if (selectStandingMember(index)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void Party::saveLeaderAttackTarget() {
     auto &member = _members.front();
     member.lastTarget = member.creature ? member.creature->getAttackTarget() : nullptr;
