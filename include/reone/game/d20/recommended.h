@@ -84,17 +84,6 @@ std::vector<SpellType> recommendPowers(
     Alignment alignment,
     bool fillWithUnranked = false);
 
-/**
- * @param clazz the class the level is gained in
- * @param attributes the ability scores as the attributes screen starts them
- * @param maxScore the highest score a point can raise an ability to
- * @return the ability a level-up's attribute point is recommended for: the
- *         class's primary ability, or when it cannot take the point, the
- *         highest other ability that can, the first in ability order on a
- *         tie; none when no ability can take it
- */
-std::optional<Ability> recommendLevelUpAbility(const CreatureClass &clazz, const CreatureAttributes &attributes, int maxScore);
-
 } // namespace game
 
 } // namespace reone

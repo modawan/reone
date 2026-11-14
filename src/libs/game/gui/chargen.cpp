@@ -508,7 +508,7 @@ bool CharacterGeneration::autoLevelUp() {
         _abilities->reset(false);
         _abilities->recommend();
         if (_abilities->remainingPoints() > 0) {
-            warn("Auto level-up refused: no ability can take the attribute point");
+            warn("Auto level-up refused: the class has no primary ability to take the attribute point");
             return false;
         }
         _abilities->accept();
