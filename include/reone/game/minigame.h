@@ -396,7 +396,8 @@ struct MinigameInput {
     // Lateral steering (swoop), -1 = full left .. +1 = full right.
     float steer {0.0f};
 
-    // Fire held. On the K1 swoop this is the gear-shift key.
+    // Fire held. On the K1 swoop this is the gear-shift key. Each press runs
+    // the player's OnFire once; holding it does not repeat.
     bool fire {false};
 
     // Accelerate and brake held. The K2 swoop races shift gear on accelerate
@@ -684,6 +685,7 @@ private:
     glm::vec3 _previousInput {0.0f};
     float _jumpSpeed {0.0f};
     bool _speedHeld {false};
+    bool _fireHeld {false};
     bool _accelerateHeld {false};
     bool _brakeHeld {false};
 
@@ -700,7 +702,7 @@ private:
     void advanceTrack(MinigameActor &actor, float dt);
     void placeActor(MinigameActor &actor);
     void updateFollower(MinigameActor &actor, float dt);
-    void updatePlayerGuns(float dt, bool fire);
+    void updatePlayerGuns(float dt, bool press);
     void collideObstacles();
     void collideFollowers();
     void unlist(MinigameActor &actor);

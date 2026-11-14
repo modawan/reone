@@ -289,6 +289,8 @@ RaceResult runRace() {
         input.steer = glm::clamp(error / 4.0f - session->lateralVelocity().x / 100.0f, -1.0f, 1.0f);
         scripts.clock += kTick;
         session->update(kTick, input);
+        // Toggle the shift key: every second update is a new press.
+        input.fire = !input.fire;
     }
     result.raceTime = scripts.raceTime;
     result.ticks = session->tickCount();
@@ -576,19 +578,25 @@ TEST(MinigameSession, the_heartbeat_runs_every_update) {
     EXPECT_EQ(host.count("heartbeat"), 7u);
 }
 
-TEST(MinigameSession, fire_runs_the_owners_on_fire_while_the_gun_is_ready) {
+// The shoot key is not repeatable: a press runs OnFire once, however many gun
+// cooldowns pass while it is held.
+TEST(MinigameSession, fire_runs_the_owners_on_fire_once_per_press) {
     ScriptedHost host;
     auto session = makeSwoop(host, 0, {});
     MinigameInput input;
     input.fire = true;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 30; ++i) {
         session->update(kTick, input);
     }
-    // The 0.01 s swoop gun is ready again on every 1/30 s update.
-    EXPECT_EQ(host.count("onfire"), 5u);
+    EXPECT_EQ(host.count("onfire"), 1u);
     input.fire = false;
     session->update(kTick, input);
-    EXPECT_EQ(host.count("onfire"), 5u);
+    EXPECT_EQ(host.count("onfire"), 1u);
+    input.fire = true;
+    for (int i = 0; i < 30; ++i) {
+        session->update(kTick, input);
+    }
+    EXPECT_EQ(host.count("onfire"), 2u);
 }
 
 // The TSL races shift gear on accelerate and jump on brake: each press runs
