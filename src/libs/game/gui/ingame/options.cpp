@@ -17,13 +17,17 @@
 
 #include "reone/game/gui/ingame/options.h"
 
+#include <algorithm>
 #include <array>
 #include <tuple>
+
+#include <boost/format.hpp>
 
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/game.h"
+#include "reone/graphics/window.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/guis.h"
 #include "reone/resource/exception/notfound.h"
@@ -563,13 +567,20 @@ static constexpr int kShadowsDescriptionStrRef = 47951;
 static constexpr int kShadowsDescriptionStrRefTSL = 48708;
 static constexpr int kGrassDescriptionStrRef = 47955;
 static constexpr int kGrassDescriptionStrRefTSL = 48709;
+static constexpr int kResolutionDescriptionStrRef = 47967;
+static constexpr int kResolutionDescriptionStrRefTSL = 48707;
+static constexpr int kAdvancedGraphicsDescriptionStrRef = 49070;
+static constexpr int kAdvancedGraphicsDescriptionStrRefTSL = 48710;
+static constexpr int kResolutionFromMainMenuStrRef = 115761;
 
 void OptionsMenu::loadGraphicsPanel() {
     _graphicsGUI = loadPage("optgraphics");
     auto find = [this](const std::string &tag) { return _graphicsGUI->findControl(tag); };
     auto &controls = _graphicsControls;
+    controls.BTN_ADVANCED = std::static_pointer_cast<Button>(find("BTN_ADVANCED"));
     controls.BTN_BACK = std::static_pointer_cast<Button>(find("BTN_BACK"));
     controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
+    controls.BTN_RESOLUTION = std::static_pointer_cast<Button>(find("BTN_RESOLUTION"));
     controls.CB_GRASS = std::static_pointer_cast<ToggleButton>(find("CB_GRASS"));
     controls.CB_SHADOWS = std::static_pointer_cast<ToggleButton>(find("CB_SHADOWS"));
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
@@ -580,16 +591,23 @@ void OptionsMenu::loadGraphicsPanel() {
     usePageTitle(controls.LBL_TITLE);
     enableK2ButtonBodyFill(controls.BTN_BACK);
     enableK2ButtonBodyFill(controls.BTN_DEFAULT);
+    enableK2ButtonBodyFill(controls.BTN_RESOLUTION);
+    enableK2ButtonBodyFill(controls.BTN_ADVANCED);
 
     // The display's brightness cannot be changed.
     controls.SLI_GAMMA->setDisabled(true);
 
     // Shadows and grass change at once: the next frame is drawn with them or
-    // without. The configuration is written when the options close.
+    // without. Shadows off takes soft shadows with them. The configuration is
+    // written when the options close.
     const bool tsl = _game.isTSL();
     controls.CB_SHADOWS->setOnClick([this]() {
         _graphicsControls.CB_SHADOWS->toggle();
-        _game.options().graphics.shadows = _graphicsControls.CB_SHADOWS->isOn();
+        auto &options = _game.options().graphics;
+        options.shadows = _graphicsControls.CB_SHADOWS->isOn();
+        if (!options.shadows) {
+            options.softShadows = false;
+        }
     });
     controls.CB_SHADOWS->setOnSelectionChanged([this, tsl](bool selected) {
         if (selected) {
@@ -605,6 +623,34 @@ void OptionsMenu::loadGraphicsPanel() {
             describe(*_graphicsControls.LB_DESC, tsl ? kGrassDescriptionStrRefTSL : kGrassDescriptionStrRef);
         }
     });
+    // The sequel's in-game menu draws Screen Resolution disabled and says
+    // why when it is pressed.
+    const bool resolutionRefused = tsl && _inGame;
+    if (resolutionRefused) {
+        controls.BTN_RESOLUTION->setBorderColor(kTSLColorDisabledText);
+        controls.BTN_RESOLUTION->setHilightColor(kTSLColorDisabledText);
+        controls.BTN_RESOLUTION->setTextColor(kTSLColorNewGreen);
+    }
+    controls.BTN_RESOLUTION->setOnClick([this, resolutionRefused]() {
+        if (resolutionRefused) {
+            _game.showMessagePopup(_services.resource.strings.getText(kResolutionFromMainMenuStrRef));
+            return;
+        }
+        openResolutionPanel();
+    });
+    controls.BTN_RESOLUTION->setOnSelectionChanged([this, tsl](bool selected) {
+        if (selected) {
+            describe(*_graphicsControls.LB_DESC, tsl ? kResolutionDescriptionStrRefTSL : kResolutionDescriptionStrRef);
+        }
+    });
+    controls.BTN_ADVANCED->setOnClick([this]() {
+        openAdvancedGraphicsPanel();
+    });
+    controls.BTN_ADVANCED->setOnSelectionChanged([this, tsl](bool selected) {
+        if (selected) {
+            describe(*_graphicsControls.LB_DESC, tsl ? kAdvancedGraphicsDescriptionStrRefTSL : kAdvancedGraphicsDescriptionStrRef);
+        }
+    });
     // The defaults show shadows and grass.
     controls.BTN_DEFAULT->setOnClick([this]() {
         const GraphicsOptions defaults;
@@ -616,9 +662,17 @@ void OptionsMenu::loadGraphicsPanel() {
     controls.BTN_BACK->setOnClick([this]() {
         closePage();
     });
+
+    loadResolutionPanel();
+    loadAdvancedGraphicsPanel();
 }
 
+// Soft shadows are shadows: the page opens with shadows on while they are.
 void OptionsMenu::openGraphicsPanel() {
+    auto &options = _game.options().graphics;
+    if (options.softShadows) {
+        options.shadows = true;
+    }
     showGraphicsOptions();
     _graphicsControls.LB_DESC->clearItems();
     openPage(*_graphicsGUI, [] {});
@@ -628,6 +682,153 @@ void OptionsMenu::showGraphicsOptions() {
     const auto &options = _game.options().graphics;
     _graphicsControls.CB_SHADOWS->setOn(options.shadows);
     _graphicsControls.CB_GRASS->setOn(options.grass);
+}
+
+// Screen resolution
+
+// The lowest refresh rate the list offers, and the width from which a lower
+// one is offered too.
+static constexpr int kMinRefreshRate = 60;
+static constexpr int kMinWideRefreshRate = 30;
+static constexpr int kWideModeWidth = 2000;
+
+void OptionsMenu::loadResolutionPanel() {
+    _resolutionGUI = loadPage("optresolution");
+    auto find = [this](const std::string &tag) { return _resolutionGUI->findControl(tag); };
+    auto &controls = _resolutionControls;
+    controls.BTN_CANCEL = std::static_pointer_cast<Button>(find("BTN_CANCEL"));
+    controls.BTN_OK = std::static_pointer_cast<Button>(find("BTN_OK"));
+    controls.LB_RESOLUTIONS = std::static_pointer_cast<ListBox>(find("LB_RESOLUTIONS"));
+    enableK2ButtonBodyFill(controls.BTN_CANCEL);
+    enableK2ButtonBodyFill(controls.BTN_OK);
+    useK1ListEntryColors(controls.LB_RESOLUTIONS->protoItem());
+    // A click chooses a mode; OK keeps it.
+    controls.LB_RESOLUTIONS->setSelectionMode(ListBox::SelectionMode::OnClick);
+
+    const auto &options = _game.options().graphics;
+    _startMode = {options.width, options.height, options.refreshRate};
+
+    // The running game keeps its window: the chosen mode is the one the next
+    // start opens in.
+    controls.BTN_OK->setOnClick([this]() {
+        const int row = _resolutionControls.LB_RESOLUTIONS->selectedItemIndex();
+        if (row >= 0) {
+            _startMode = _displayModes[row];
+            saveDisplayMode(_game.options().game.configurationPath, _startMode.width, _startMode.height, _startMode.refreshRate);
+        }
+        closePage();
+    });
+    controls.BTN_CANCEL->setOnClick([this]() {
+        closePage();
+    });
+}
+
+// The list offers the display's modes no larger than the desktop, each size
+// and rate once: at 60 Hz or more, or at 30 Hz or more from 2000 pixels wide.
+// A mode whose rate the display does not tell is offered by its size alone.
+void OptionsMenu::openResolutionPanel() {
+    const DisplayMode desktop = Window::desktopMode();
+    _displayModes.clear();
+    for (const auto &mode : Window::displayModes()) {
+        if (mode.width > desktop.width || mode.height > desktop.height) {
+            continue;
+        }
+        if (mode.refreshRate >= 2 &&
+            mode.refreshRate < (mode.width < kWideModeWidth ? kMinRefreshRate : kMinWideRefreshRate)) {
+            continue;
+        }
+        if (std::find(_displayModes.begin(), _displayModes.end(), mode) != _displayModes.end()) {
+            continue;
+        }
+        _displayModes.push_back(mode);
+    }
+    std::sort(_displayModes.begin(), _displayModes.end(), [](const DisplayMode &a, const DisplayMode &b) {
+        return std::tie(a.width, a.height, a.refreshRate) < std::tie(b.width, b.height, b.refreshRate);
+    });
+
+    // The game starts at the desktop's rate until a rate is chosen.
+    DisplayMode start = _startMode;
+    if (start.refreshRate == 0) {
+        start.refreshRate = desktop.refreshRate;
+    }
+    auto &list = *_resolutionControls.LB_RESOLUTIONS;
+    list.clearItems();
+    int startRow = -1;
+    for (size_t i = 0; i < _displayModes.size(); ++i) {
+        const auto &mode = _displayModes[i];
+        ListBox::Item item;
+        item.tag = std::to_string(i);
+        item.text = mode.refreshRate >= 2
+                        ? str(boost::format("%d x %d @ %d Hz") % mode.width % mode.height % mode.refreshRate)
+                        : str(boost::format("%d x %d") % mode.width % mode.height);
+        list.addItem(std::move(item));
+        if (mode.width == start.width && mode.height == start.height &&
+            (mode.refreshRate < 2 || mode.refreshRate == start.refreshRate)) {
+            startRow = static_cast<int>(i);
+        }
+    }
+    if (startRow >= 0) {
+        list.setSelectedItemIndex(startRow);
+        list.scrollToItem(startRow);
+    }
+    openPage(*_resolutionGUI, [] {});
+}
+
+// Advanced graphics
+
+static constexpr int kSoftShadowsDescriptionStrRef = 47953;
+static constexpr int kSoftShadowsDescriptionStrRefTSL = 48711;
+
+void OptionsMenu::loadAdvancedGraphicsPanel() {
+    _advancedGraphicsGUI = loadPage(_game.isTSL() ? "optgraphicadv" : "optgraphicsadv");
+    auto find = [this](const std::string &tag) { return _advancedGraphicsGUI->findControl(tag); };
+    auto &controls = _advancedGraphicsControls;
+    controls.BTN_BACK = std::static_pointer_cast<Button>(find("BTN_BACK"));
+    controls.BTN_CANCEL = std::static_pointer_cast<Button>(find("BTN_CANCEL"));
+    controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
+    controls.CB_SOFTSHADOWS = std::static_pointer_cast<ToggleButton>(find("CB_SOFTSHADOWS"));
+    controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
+    showCheckBoxes(*_advancedGraphicsGUI);
+    for (auto &button : {controls.BTN_BACK, controls.BTN_CANCEL, controls.BTN_DEFAULT}) {
+        enableK2ButtonBodyFill(button);
+    }
+
+    const int softShadowsDescription = _game.isTSL() ? kSoftShadowsDescriptionStrRefTSL : kSoftShadowsDescriptionStrRef;
+    controls.CB_SOFTSHADOWS->setOnClick([this]() {
+        _softShadows = !_softShadows;
+        _advancedGraphicsControls.CB_SOFTSHADOWS->setOn(_softShadows);
+    });
+    controls.CB_SOFTSHADOWS->setOnSelectionChanged([this, softShadowsDescription](bool selected) {
+        if (selected) {
+            describe(*_advancedGraphicsControls.LB_DESC, softShadowsDescription);
+        }
+    });
+    controls.BTN_DEFAULT->setOnClick([this]() {
+        _softShadows = GraphicsOptions().softShadows;
+        _advancedGraphicsControls.CB_SOFTSHADOWS->setOn(_softShadows);
+    });
+    // OK keeps the page's Soft Shadows, which bring shadows with them;
+    // Cancel, like Escape, drops it.
+    controls.BTN_BACK->setOnClick([this]() {
+        auto &options = _game.options().graphics;
+        options.softShadows = _softShadows;
+        if (_softShadows) {
+            options.shadows = true;
+        }
+        showGraphicsOptions();
+        closePage();
+    });
+    controls.BTN_CANCEL->setOnClick([this]() {
+        closePage();
+    });
+}
+
+void OptionsMenu::openAdvancedGraphicsPanel() {
+    _softShadows = _game.options().graphics.softShadows;
+    _advancedGraphicsControls.CB_SOFTSHADOWS->setOn(_softShadows);
+    describe(*_advancedGraphicsControls.LB_DESC,
+             _game.isTSL() ? kSoftShadowsDescriptionStrRefTSL : kSoftShadowsDescriptionStrRef);
+    openPage(*_advancedGraphicsGUI, [] {});
 }
 
 // Sound

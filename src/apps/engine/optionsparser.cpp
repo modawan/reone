@@ -60,11 +60,13 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("height", value<int>()->default_value(options->graphics.height), "render height")                                      //
         ("winscale", value<int>()->default_value(options->graphics.winScale), "window scale")                                   //
         ("fullscreen", value<bool>()->default_value(options->graphics.fullscreen), "enable fullscreen")                         //
+        ("refresh", value<int>()->default_value(options->graphics.refreshRate), "fullscreen refresh rate")                     //
         ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
         ("wheelzoom", value<bool>()->default_value(options->game.wheelZoom), "zoom the follow camera with the mouse wheel")     //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
+        ("softshadows", value<bool>()->default_value(options->graphics.softShadows), "enable soft shadows")                     //
         ("particles", value<bool>()->default_value(options->graphics.particles), "enable emitter particles")                    //
         ("pbr", value<bool>()->default_value(options->graphics.pbr), "enable physically-based rendering")                       //
         ("ssao", value<bool>()->default_value(options->graphics.ssao), "enable screen-space ambient occlusion")                 //
@@ -128,10 +130,12 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.height = vars["height"].as<int>();
     options->graphics.winScale = vars["winscale"].as<int>();
     options->graphics.fullscreen = vars["fullscreen"].as<bool>();
+    options->graphics.refreshRate = vars["refresh"].as<int>();
     options->graphics.headless = vars["headless"].as<bool>();
     options->graphics.vsync = vars["vsync"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
     options->graphics.shadows = vars["shadows"].as<bool>();
+    options->graphics.softShadows = vars["softshadows"].as<bool>();
     options->graphics.particles = vars["particles"].as<bool>();
     options->graphics.pbr = vars["pbr"].as<bool>();
     options->graphics.ssao = vars["ssao"].as<bool>();

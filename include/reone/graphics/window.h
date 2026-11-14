@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "options.h"
 #include "types.h"
 
@@ -28,6 +30,11 @@ class Cursor;
 
 class Window : boost::noncopyable {
 public:
+    /** The fullscreen modes of the main display, largest first. */
+    static std::vector<DisplayMode> displayModes();
+    /** The main display's desktop mode. */
+    static DisplayMode desktopMode();
+
     Window(GraphicsOptions &options) :
         _options(options) {
     }

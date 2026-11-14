@@ -43,7 +43,11 @@ const std::string kSoundVolumeKey {"soundvol"};
 const std::string kMovieVolumeKey {"movievol"};
 const std::string kForceSoftwareKey {"forcesoftware"};
 const std::string kShadowsKey {"shadows"};
+const std::string kSoftShadowsKey {"softshadows"};
 const std::string kGrassKey {"grass"};
+const std::string kWidthKey {"width"};
+const std::string kHeightKey {"height"};
+const std::string kRefreshRateKey {"refresh"};
 
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
@@ -474,7 +478,18 @@ void saveGraphicsOptions(const std::filesystem::path &path, const graphics::Grap
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kTopLevel, {
                                      {kShadowsKey, options.shadows ? 1 : 0},
+                                     {kSoftShadowsKey, options.softShadows ? 1 : 0},
                                      {kGrassKey, options.grass ? 1 : 0},
+                                 });
+    configuration.write(path);
+}
+
+void saveDisplayMode(const std::filesystem::path &path, int width, int height, int refreshRate) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kWidthKey, width},
+                                     {kHeightKey, height},
+                                     {kRefreshRateKey, refreshRate},
                                  });
     configuration.write(path);
 }

@@ -30,4 +30,5 @@ layout(std140) uniform Globals {
     float uFogNear;
     float uFogFar;
     int uForceSight;
+    int uShadowSoft;
 };

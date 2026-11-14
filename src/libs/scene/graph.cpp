@@ -523,6 +523,7 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 globals.shadowCascadeFarPlanes = _shadowCascadeFarPlanes;
                 globals.shadowStrength = shadowStrength();
                 globals.shadowRadius = shadowRadius();
+                globals.shadowSoft = _graphicsOpt.softShadows ? 1 : 0;
             }
             globals.forceSight = isForceSightEnabled() ? 1 : 0;
             if (isFogEnabled()) {

@@ -183,6 +183,8 @@ public:
     /** The ID of the control the arrow key of \p direction moves the keyboard to from this one. */
     int moveTo(MoveDirection direction) const { return _moveTo[static_cast<size_t>(direction)]; }
     int padding() const { return _padding; }
+    /** The GUI the control belongs to. */
+    IGUI &gui() const { return _gui; }
     Border &border() const { return *_border; }
     const Extent &authoredExtent() const { return _authoredExtent; }
     void setAuthoredExtent(Extent extent) { _authoredExtent = std::move(extent); }

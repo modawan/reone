@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/graphics/types.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
@@ -132,13 +133,40 @@ private:
      * the other controls are drawn as laid out.
      */
     struct GraphicsControls {
+        std::shared_ptr<gui::Button> BTN_ADVANCED;
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::Button> BTN_RESOLUTION;
         std::shared_ptr<gui::ToggleButton> CB_GRASS;
         std::shared_ptr<gui::ToggleButton> CB_SHADOWS;
         std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::Slider> SLI_GAMMA;
+    };
+
+    /**
+     * The screen resolution list, opened from the graphics page's
+     * BTN_RESOLUTION: the display modes the game can start in. OK keeps the
+     * chosen one for the next start; Cancel and Escape leave the list.
+     */
+    struct ResolutionControls {
+        std::shared_ptr<gui::Button> BTN_CANCEL;
+        std::shared_ptr<gui::Button> BTN_OK;
+        std::shared_ptr<gui::ListBox> LB_RESOLUTIONS;
+    };
+
+    /**
+     * The advanced graphics options page, opened from the graphics page's
+     * BTN_ADVANCED. Soft Shadows is handled; the other controls are drawn as
+     * laid out. Its changes wait for OK (BTN_BACK); Cancel and Escape drop
+     * them.
+     */
+    struct AdvancedGraphicsControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Button> BTN_CANCEL;
+        std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::ToggleButton> CB_SOFTSHADOWS;
+        std::shared_ptr<gui::ListBox> LB_DESC;
     };
 
     /** The sound options page, opened from BTN_SOUND: a volume slider for each kind of audio. */
@@ -204,6 +232,18 @@ private:
     std::shared_ptr<gui::IGUI> _graphicsGUI;
     GraphicsControls _graphicsControls;
 
+    std::shared_ptr<gui::IGUI> _resolutionGUI;
+    ResolutionControls _resolutionControls;
+    /** The modes the resolution list offers, by row. */
+    std::vector<graphics::DisplayMode> _displayModes;
+    /** The display mode the game starts in, as last chosen. */
+    graphics::DisplayMode _startMode;
+
+    std::shared_ptr<gui::IGUI> _advancedGraphicsGUI;
+    AdvancedGraphicsControls _advancedGraphicsControls;
+    /** Soft Shadows as the advanced graphics page shows it, until OK keeps it. */
+    bool _softShadows {false};
+
     std::shared_ptr<gui::IGUI> _soundGUI;
     SoundControls _soundControls;
 
@@ -264,6 +304,16 @@ private:
     /** Open the graphics page on the current options. */
     void openGraphicsPanel();
     void showGraphicsOptions();
+
+    /** Load the screen resolution list and wire its buttons. */
+    void loadResolutionPanel();
+    /** Open the list on the display's modes, the one the game starts in chosen. */
+    void openResolutionPanel();
+
+    /** Load the advanced graphics options page and wire its controls. */
+    void loadAdvancedGraphicsPanel();
+    /** Open the advanced graphics page on the current options, describing Soft Shadows. */
+    void openAdvancedGraphicsPanel();
 
     /** Load the sound options page and wire its sliders and buttons. */
     void loadSoundPanel();
