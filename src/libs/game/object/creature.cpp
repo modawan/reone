@@ -464,6 +464,9 @@ static constexpr float kUseBesideArrival = 0.25f;
 // sixth ends the walk.
 static constexpr int kMaxPathBumps = 5;
 static constexpr float kSameBlockerDistance2 = 1e-5f;
+// A wall that stops a leg of a way round this near its start, squared, is
+// met at the start.
+static constexpr float kWayStartContact2 = 1e-6f;
 static constexpr int kStrRefCannotGetAround = 47859;
 static constexpr char kPathFailScript[] = "k_def_pathfail01";
 static constexpr float kPushAsideSpace = 0.1f;      // kept beyond both personal spaces by a creature pushed aside
@@ -10142,7 +10145,17 @@ Creature::Avoidance Creature::plotPathAroundCreature(const std::shared_ptr<Creat
             }
         }
         for (size_t i = 1; i < way.points.size(); ++i) {
-            const auto test = area.testDirectLine(*this, way.points[i - 1], way.points[i], targetCreature);
+            auto test = area.testDirectLine(*this, way.points[i - 1], way.points[i], targetCreature);
+            // A leg that starts with a wall within the walker's personal
+            // space meets it at its start whichever way it goes: the corner
+            // a way starts from, nearest the walker, lies behind it and can be
+            // that near a wall while the walker stands clear. Such a leg is
+            // tested by the thin line test a walking creature's step takes,
+            // as a driven leader starting by a wall steps.
+            if (test.result == Area::DirectLine::Blocked && test.contact &&
+                glm::distance2(glm::vec2(test.stopPoint), glm::vec2(way.points[i - 1])) <= kWayStartContact2) {
+                test = area.testWalkStep(*this, way.points[i - 1], way.points[i], targetCreature);
+            }
             if (test.result == Area::DirectLine::Clear) {
                 continue;
             }
