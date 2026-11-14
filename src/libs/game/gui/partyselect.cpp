@@ -276,8 +276,9 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         for (const auto &slot : kSharedSlots) {
             bool firstAvailable = party.isMemberAvailable(slot.first);
             bool secondAvailable = party.isMemberAvailable(slot.second);
-            getNpcButton(slot.first).setVisible(firstAvailable || !secondAvailable);
-            getNpcButton(slot.second).setVisible(secondAvailable);
+            const auto [firstVisible, secondVisible] = sharedSlotVisibility(firstAvailable, secondAvailable);
+            getNpcButton(slot.first).setVisible(firstVisible);
+            getNpcButton(slot.second).setVisible(secondVisible);
         }
     }
     refreshAvailableCount();
@@ -374,11 +375,9 @@ void PartySelection::releaseMaterialized() {
 
 // KotOR names the count in a label beside it; TSL's one label holds both.
 void PartySelection::refreshAvailableCount() {
-    std::string count(std::to_string(_availableCount));
-    if (_game.isTSL()) {
-        count += " " + _services.resource.strings.getText(kStrRefAvailableSlots);
-    }
-    _controls.LBL_COUNT->setTextMessage(count);
+    const bool tsl = _game.isTSL();
+    const std::string label = tsl ? _services.resource.strings.getText(kStrRefAvailableSlots) : "";
+    _controls.LBL_COUNT->setTextMessage(availableCountText(_availableCount, tsl, label));
 }
 
 void PartySelection::refreshAcceptButton() {
@@ -409,14 +408,35 @@ void PartySelection::refreshNpcButtons() {
         ToggleButton &button = getNpcButton(i);
         const bool chosen = i == _selectedNpc;
         if (tsl) {
-            const glm::vec3 color = _added[i] ? button.border().color : _baseColor;
-            button.setBorderColorOverride(chosen ? color : color * kTSLUnchosenFrameBrightness);
+            button.setBorderColorOverride(tslFrameColor(_baseColor, button.border().color, _added[i], chosen));
             button.setUseBorderColorOverride(true);
             continue;
         }
         button.setOn(chosen);
         button.setUseBorderColorOverride(_added[i]);
     }
+}
+
+glm::vec3 PartySelection::tslFrameColor(
+    const glm::vec3 &baseColor,
+    const glm::vec3 &inPartyColor,
+    bool inParty,
+    bool chosen) {
+
+    const glm::vec3 color = inParty ? inPartyColor : baseColor;
+    return chosen ? color : color * kTSLUnchosenFrameBrightness;
+}
+
+std::pair<bool, bool> PartySelection::sharedSlotVisibility(bool firstAvailable, bool secondAvailable) {
+    return {firstAvailable || !secondAvailable, secondAvailable};
+}
+
+std::string PartySelection::availableCountText(int count, bool tsl, const std::string &label) {
+    std::string result(std::to_string(count));
+    if (tsl) {
+        result += " " + label;
+    }
+    return result;
 }
 
 } // namespace game

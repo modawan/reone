@@ -18,6 +18,8 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <utility>
 
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
@@ -48,6 +50,8 @@ public:
     void clearSelection() override;
 
 private:
+    friend class PartySelectionTestAccess;
+
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
         std::shared_ptr<gui::Button> BTN_BACK;
@@ -181,6 +185,14 @@ private:
     void refreshAvailableCount();
     void refreshNpcButtons();
     void removeNpc(int npc);
+
+    static glm::vec3 tslFrameColor(
+        const glm::vec3 &baseColor,
+        const glm::vec3 &inPartyColor,
+        bool inParty,
+        bool chosen);
+    static std::pair<bool, bool> sharedSlotVisibility(bool firstAvailable, bool secondAvailable);
+    static std::string availableCountText(int count, bool tsl, const std::string &label);
 
     gui::ToggleButton &getNpcButton(int npc);
     bool isSupportedNpc(int npc) const;
