@@ -15,6 +15,7 @@ const int FEATURE_ENVMAPCUBE = 1 << 13;
 const int FEATURE_STATIC = 1 << 14;
 const int FEATURE_SHELL = 1 << 15;
 const int FEATURE_FORCEGLOW = 1 << 16;
+const int FEATURE_MAINTEXARRAY = 1 << 17;
 
 layout(std140) uniform Locals {
     mat4 uModel;

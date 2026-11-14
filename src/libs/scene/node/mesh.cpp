@@ -398,6 +398,17 @@ void MeshSceneNode::renderProjectedBeam(IRenderPass &pass) {
     pass.drawProjectedBeam(*beam.mesh, _absTransform, _absTransformInv, kProjectedBeamColor);
 }
 
+// A main texture of frames is drawn one frame at a time, on the scene's
+// texture clock.
+void MeshSceneNode::addMainTexture(Material &material, Texture &texture) const {
+    if (texture.is2DArray()) {
+        material.textures.insert({TextureUnits::mainTexArray, texture});
+        material.mainTexFrame = getCycleFrame(texture, _sceneGraph.textureTime());
+    } else {
+        material.textures.insert({TextureUnits::mainTex, texture});
+    }
+}
+
 void MeshSceneNode::render(IRenderPass &pass) {
     if (_projectedBeam) {
         renderProjectedBeam(pass);
@@ -412,7 +423,7 @@ void MeshSceneNode::render(IRenderPass &pass) {
     material.type = isTransparent()
                         ? MaterialType::TransparentModel
                         : MaterialType::OpaqueModel;
-    material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
+    addMainTexture(material, *_nodeTextures.diffuse);
     if (_nodeTextures.lightmap) {
         material.textures.insert({TextureUnits::lightmap, *_nodeTextures.lightmap});
     }
@@ -484,7 +495,7 @@ void MeshSceneNode::applyForceSight(Material &material) const {
 void MeshSceneNode::renderBumpedOutShell(IRenderPass &pass, Texture &texture, float offset) {
     Material material;
     material.type = MaterialType::TransparentModel;
-    material.textures.insert({TextureUnits::mainTex, texture});
+    addMainTexture(material, texture);
     material.color = glm::vec4(1.0f);
     material.ambientColor = glm::vec3(1.0f);
     material.diffuseColor = glm::vec3(1.0f);
@@ -549,7 +560,7 @@ std::vector<glm::mat4> MeshSceneNode::buildSkinBoneTransforms() const {
 void MeshSceneNode::renderBlendedDepth(IRenderPass &pass) {
     Material material;
     material.type = MaterialType::BlendedModelDepth;
-    material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
+    addMainTexture(material, *_nodeTextures.diffuse);
     material.uv = glm::mat3x4(
         glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
         glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
