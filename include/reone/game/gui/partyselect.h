@@ -18,6 +18,8 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <utility>
 
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
@@ -48,6 +50,8 @@ public:
     void clearSelection() override;
 
 private:
+    friend class PartySelectionTestAccess;
+
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
         std::shared_ptr<gui::Button> BTN_BACK;
@@ -113,6 +117,8 @@ private:
     /** Companions this opening of the screen brought into being to show them. */
     bool _materialized[kMaxNpcCount] {false};
     int _availableCount {0};
+    /** The colour the Add/Remove caption is authored with. */
+    glm::vec3 _acceptTextColor {0.0f};
 
     void onGUILoaded() override;
 
@@ -182,6 +188,14 @@ private:
     void refreshNpcButtons();
     void removeNpc(int npc);
 
+    static glm::vec3 tslFrameColor(
+        const glm::vec3 &baseColor,
+        const glm::vec3 &inPartyColor,
+        bool inParty,
+        bool chosen);
+    static std::pair<bool, bool> sharedSlotVisibility(bool firstAvailable, bool secondAvailable);
+    static std::string availableCountText(int count, bool tsl, const std::string &label);
+
     gui::ToggleButton &getNpcButton(int npc);
     bool isSupportedNpc(int npc) const;
     int npcCount() const;
@@ -193,6 +207,13 @@ private:
      * then while someone in it is down, then while it is in combat.
      */
     std::optional<int> partyLockStrRef() const;
+    /**
+     * @return the message a change of \p npc is refused with, or none for a
+     * companion free to join and leave. A companion the screen was opened to
+     * force in must stay. One that is not selectable cannot join, and in TSL
+     * one already selected cannot leave.
+     */
+    std::optional<int> companionLockStrRef(int npc) const;
 
     void onAcceptButtonClick();
     void onNpcButtonClick(int npc);

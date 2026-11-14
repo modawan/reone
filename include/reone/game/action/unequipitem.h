@@ -48,6 +48,7 @@ public:
         return from->type() == ActionType::UnequipItem;
     }
 
+    /** A queued unequip puts the item into a matching stack in KotOR only. */
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
     /** A saved UnequipItem command; none once the item is gone. */
@@ -71,6 +72,12 @@ private:
     uint32_t _containerId {kSavedRuntimeInvalidObjectId};
     bool _containerOverwritten {false};
     int32_t _instant;
+
+    /**
+     * Takes the item off, joining its stacks or not as Object::addItem does,
+     * and completes. The hand it leaves is drawn unless the unequip is instant.
+     */
+    void takeOff(Object &actor, ItemStacking stacking);
 };
 
 } // namespace game

@@ -40,6 +40,9 @@ namespace reone {
 
 namespace game {
 
+// The sound of a projectile shown for a spell without one of its own.
+static constexpr char kDefaultProjectileSound[] = "amb_e14";
+
 static const std::vector<std::pair<ClassType, std::string>> kClassLevelColumns = {
     {ClassType::JediGuardian, "guardian"},
     {ClassType::JediConsular, "consular"},
@@ -338,6 +341,8 @@ void Spells::init(resource::GameID gameId) {
                 spell->classLevelRequirements.emplace(clazz, *maybeRequirement);
             }
         }
+        spell->lightRecommendation = spells->getIntOpt(row, "light_recom");
+        spell->darkRecommendation = spells->getIntOpt(row, "dark_recom");
         spell->category = category;
         spell->maxCR = spells->getInt(row, "maxcr");
         spell->impactScript = impactScript;
@@ -365,6 +370,15 @@ void Spells::init(resource::GameID gameId) {
         spell->friendlySlot = spells->getInt(row, "forcefriendly", -1);
         spell->menuPriority = spells->getInt(row, "forcepriority");
         spell->projModel = projModel.empty() ? nullptr : _models.get(projModel);
+        // A blank sound cell plays nothing. A spell without a projectile of
+        // its own flies with the default projectile sound.
+        auto soundClip = [this](const std::string &name) {
+            return name.empty() ? nullptr : _audioClips.get(boost::algorithm::to_lower_copy(name));
+        };
+        spell->projectileSound = soundClip(spell->projectile ? spells->getString(row, "projsound") : kDefaultProjectileSound);
+        spell->conjureSoundMale = soundClip(spells->getString(row, "conjsoundmale"));
+        spell->conjureSoundFemale = soundClip(spells->getString(row, "conjsoundfemale"));
+        spell->conjureSoundVisual = soundClip(spells->getString(row, "conjsoundvfx"));
         _spells.insert(std::make_pair(type, std::move(spell)));
     }
 }

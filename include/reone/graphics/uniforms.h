@@ -55,6 +55,7 @@ struct UniformsFeatureFlags {
     static constexpr int staticobj = 1 << 14;
     static constexpr int shell = 1 << 15;
     static constexpr int forceglow = 1 << 16;
+    static constexpr int maintexarray = 1 << 17;
 };
 
 struct alignas(16) GlobalUniformsLight {
@@ -86,6 +87,8 @@ struct GlobalUniforms {
     float fogNear {0.0f};
     float fogFar {0.0f};
     int forceSight {0};
+    /** Shadow edges are filtered over neighbouring shadow map samples. */
+    int shadowSoft {0};
 
     void reset() {
         projection = glm::mat4(1.0f);
@@ -105,6 +108,7 @@ struct GlobalUniforms {
         fogNear = 0.0f;
         fogFar = 0.0f;
         forceSight = 0;
+        shadowSoft = 0;
     }
 };
 
@@ -123,6 +127,7 @@ struct LocalUniforms {
     float waterAlpha;
     float billboardSize;
     float shellOffset;
+    int mainTexFrame; /**< the frame of a main texture that cycles through frames */
 
     LocalUniforms() {
         reset();
@@ -143,6 +148,7 @@ struct LocalUniforms {
         waterAlpha = 0.0f;
         billboardSize = 1.0f;
         shellOffset = 0.0f;
+        mainTexFrame = 0;
     }
 };
 
@@ -225,7 +231,12 @@ public:
     virtual void setGlobals(const std::function<void(GlobalUniforms &)> &block) = 0;
     virtual void setLocals(const std::function<void(LocalUniforms &)> &block) = 0;
     virtual void setBones(const std::function<void(BoneUniforms &)> &block) = 0;
-    virtual void setDangly(const std::function<void(DanglyUniforms &)> &block) = 0;
+    /**
+     * Uploads the positions of a dangly mesh's vertices, up to
+     * kMaxDanglyVertices of them. The rest of the block keeps whatever an
+     * earlier mesh left there, which the shader does not read.
+     */
+    virtual void setDangly(const std::vector<glm::vec4> &positions) = 0;
     virtual void setParticles(const std::function<void(ParticleUniforms &)> &block) = 0;
     virtual void setGrass(const std::function<void(GrassUniforms &)> &block) = 0;
     virtual void setWalkmesh(const std::function<void(WalkmeshUniforms &)> &block) = 0;
@@ -247,7 +258,7 @@ public:
     void setGlobals(const std::function<void(GlobalUniforms &)> &block) override;
     void setLocals(const std::function<void(LocalUniforms &)> &block) override;
     void setBones(const std::function<void(BoneUniforms &)> &block) override;
-    void setDangly(const std::function<void(DanglyUniforms &)> &block) override;
+    void setDangly(const std::vector<glm::vec4> &positions) override;
     void setParticles(const std::function<void(ParticleUniforms &)> &block) override;
     void setGrass(const std::function<void(GrassUniforms &)> &block) override;
     void setWalkmesh(const std::function<void(WalkmeshUniforms &)> &block) override;

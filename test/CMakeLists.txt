@@ -38,6 +38,8 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/system.h)
 
 set(TESTS_SOURCES
+    ${TESTS_SOURCE_DIR}/audio/arbiter.cpp
+    ${TESTS_SOURCE_DIR}/audio/context.cpp
     ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/extract/capsule.cpp
@@ -60,11 +62,15 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/area.cpp
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
     ${TESTS_SOURCE_DIR}/game/avoidance.cpp
+    ${TESTS_SOURCE_DIR}/game/cheats.cpp
+    ${TESTS_SOURCE_DIR}/game/console.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
+    ${TESTS_SOURCE_DIR}/game/d20/recommended.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
     ${TESTS_SOURCE_DIR}/game/computer.cpp
     ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
+    ${TESTS_SOURCE_DIR}/game/iconselection.cpp
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
@@ -86,6 +92,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/listenpattern.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
+    ${TESTS_SOURCE_DIR}/game/minigamesession.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/loadfromsavegame.cpp
@@ -96,6 +103,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/saveslotpublisher.cpp
     ${TESTS_SOURCE_DIR}/game/savewidesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
+    ${TESTS_SOURCE_DIR}/game/options.cpp
     ${TESTS_SOURCE_DIR}/game/runtimesession.cpp
     ${TESTS_SOURCE_DIR}/game/pazaak.cpp
     ${TESTS_SOURCE_DIR}/game/pazaakintegration.cpp
@@ -103,9 +111,11 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/presentationpointer.cpp
     ${TESTS_SOURCE_DIR}/game/queryroutines.cpp
     ${TESTS_SOURCE_DIR}/game/partyroutines.cpp
+    ${TESTS_SOURCE_DIR}/game/partyselection.cpp
     ${TESTS_SOURCE_DIR}/game/platformroutines.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/reputes.cpp
+    ${TESTS_SOURCE_DIR}/game/room.cpp
     ${TESTS_SOURCE_DIR}/game/rostermaterialization.cpp
     ${TESTS_SOURCE_DIR}/game/itemmenubacking.cpp
     ${TESTS_SOURCE_DIR}/game/sharedpresentation.cpp
@@ -118,6 +128,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/turret.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/context.cpp
+    ${TESTS_SOURCE_DIR}/graphics/dxtutil.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/mdlmdxreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/tgareader.cpp
@@ -127,11 +138,16 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/listbox.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/border.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/slider.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
+    ${TESTS_SOURCE_DIR}/gui/gui.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
+    ${TESTS_SOURCE_DIR}/resource/gameprobe.cpp
     ${TESTS_SOURCE_DIR}/resource/modulediscovery.cpp
     ${TESTS_SOURCE_DIR}/resource/moduleloading.cpp
     ${TESTS_SOURCE_DIR}/resource/modulemount.cpp
@@ -158,6 +174,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/provider/dialogs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/gffs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/scripts.cpp
+    ${TESTS_SOURCE_DIR}/resource/provider/textures.cpp
     ${TESTS_SOURCE_DIR}/resource/2da.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
@@ -169,6 +186,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/scene/mesh.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp
     ${TESTS_SOURCE_DIR}/scene/particleutil.cpp
+    ${TESTS_SOURCE_DIR}/scene/walk.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncsreader.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncswriter.cpp
     ${TESTS_SOURCE_DIR}/script/virtualmachine.cpp
@@ -215,7 +233,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 else()
     target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 endif()
-target_link_libraries(tests PRIVATE tools json GTest::gmock_main)
+target_link_libraries(tests PRIVATE tools json GTest::gmock_main OpenAL::OpenAL)
 
 if(MSVC)
     target_compile_options(tests PRIVATE /bigobj)

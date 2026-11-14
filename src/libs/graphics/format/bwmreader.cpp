@@ -78,6 +78,7 @@ void BwmReader::load() {
 
     if (_type == WalkmeshType::WOK) {
         loadAABB();
+        loadAdjacency();
         loadPerimeter();
     }
 }
@@ -171,6 +172,15 @@ void BwmReader::loadAABB() {
     }
 
     _walkmesh->_rootAabb = aabbs[0];
+}
+
+void BwmReader::loadAdjacency() {
+    _bwm.seek(_offAdjacencies);
+    auto &array = _walkmesh->adjacency;
+    array.reserve(3 * _numAdjacencies);
+    for (uint32_t i = 0; i < 3 * _numAdjacencies; ++i) {
+        array.push_back(_bwm.readInt32());
+    }
 }
 
 void BwmReader::loadPerimeter() {

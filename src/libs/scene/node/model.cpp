@@ -185,6 +185,17 @@ void ModelSceneNode::attach(const std::string &parentName, SceneNode &node) {
     computeAABB();
 }
 
+void ModelSceneNode::detach(SceneNode &node) {
+    for (auto it = _attachments.begin(); it != _attachments.end(); ++it) {
+        if (it->second == &node) {
+            _nodeByName.at(it->first)->removeChild(node);
+            _attachments.erase(it);
+            computeAABB();
+            return;
+        }
+    }
+}
+
 ModelNodeSceneNode *ModelSceneNode::getNodeByNumber(uint16_t number) {
     auto it = _nodeByNumber.find(number);
     return it != _nodeByNumber.end() ? it->second : nullptr;
@@ -233,6 +244,32 @@ std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, con
     return nearest;
 }
 
+std::optional<float> ModelSceneNode::intersectAttachments(const glm::vec3 &from, const glm::vec3 &to, const std::string &skipped) const {
+    std::optional<float> nearest;
+    for (const auto &[name, attachment] : _attachments) {
+        auto *model = dynamic_cast<const ModelSceneNode *>(attachment);
+        if (!model || !model->isEnabled() || name == skipped || !model->takesSceneHits()) {
+            continue;
+        }
+        for (auto share : {model->intersectSegment(from, to), model->intersectAttachments(from, to)}) {
+            if (share && (!nearest || *share < *nearest)) {
+                nearest = share;
+            }
+        }
+    }
+    return nearest;
+}
+
+bool ModelSceneNode::takesSceneHits() const {
+    // A model faded this far or further is passed through.
+    static constexpr float kMostFadedHit = 0.25f;
+    static constexpr int kNoSceneHits = graphics::MdlClassification::effect | graphics::MdlClassification::tile |
+                                        graphics::MdlClassification::sceneHitExcluded;
+    return (_model->classification() & kNoSceneHits) == 0 &&
+           (_model->subclassification() & graphics::MdlSubclassification::inEveryRoom) == 0 &&
+           _fadeAlpha > kMostFadedHit;
+}
+
 void ModelSceneNode::setFadeAlpha(float alpha) {
     _fadeAlpha = alpha;
     for (auto &[name, attachment] : _attachments) {
@@ -266,17 +303,27 @@ void ModelSceneNode::setEnvironmentMap(Texture *texture) {
         }
     }
 }
-static bool animationIntersectsModel(
-    const Animation &anim,
-    const std::shared_ptr<ModelNode> &node) {
-    if (!node) {
-        return false;
+
+// An animation's nodes pair with a model's by node number, walking down from
+// the roots, which always pair: a model node takes the track of the animation
+// node with its number among the children of the animation node its parent
+// took. Models record the numbers of the nodes they share with their
+// supermodel, so a node the model adds, even under a supermodel node's name,
+// is never animated by the supermodel's animations.
+static const ModelNode *findPairedAnimationNode(const ModelNode &animParent, const ModelNode &modelNode) {
+    for (auto &child : animParent.children()) {
+        if (child->number() == modelNode.number()) {
+            return child.get();
+        }
     }
-    if (anim.getNodeByName(node->name())) {
-        return true;
-    }
-    return std::any_of(node->children().begin(), node->children().end(), [&](const auto &child) {
-        return animationIntersectsModel(anim, child);
+    return nullptr;
+}
+
+// Whether an animation reaches any node of a model below its root.
+static bool animationReachesModel(const Animation &anim, const ModelNode &modelRoot) {
+    const auto &animRoot = anim.rootNode();
+    return animRoot && std::any_of(modelRoot.children().begin(), modelRoot.children().end(), [&](const auto &child) {
+        return findPairedAnimationNode(*animRoot, *child) != nullptr;
     });
 }
 
@@ -288,10 +335,11 @@ static bool shouldReuseExternalAnimationForAttachment(
         return false;
     }
     // Upstream drives ordinary body animations into every composite creature
-    // attachment. External stunt clips are different: only matching authored
-    // tracks may replace an attachment's local animation or overlay channels.
-    return !(properties.flags & AnimationFlags::retargetRoot) ||
-           animationIntersectsModel(anim, attachedModel.model().rootNode());
+    // attachment. External stunt clips are different: only a clip that
+    // reaches the attachment may replace its local animation or overlay
+    // channels.
+    return !(properties.flags & AnimationFlags::external) ||
+           animationReachesModel(anim, *attachedModel.model().rootNode());
 }
 
 void ModelSceneNode::setBumpedOutShell(std::shared_ptr<Texture> texture, float offset) {
@@ -312,8 +360,10 @@ void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipA
 }
 
 void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
+    // An animation of this model's chain plays at the chain's scale for it; a
+    // caller playing an animation of another model gives that model's scale.
     if (properties.scale == 0.0f) {
-        properties.scale = _model->animationScale();
+        properties.scale = _model->animationScaleFor(anim);
     }
 
     if (properties.flags & AnimationFlags::layer) {
@@ -338,26 +388,28 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
                     anim, attachedModel, properties)) {
                 // External stunt models include facial tracks for the live
                 // appearance head, but that head has no local stunt clip.
-                // Reuse the proxy animation where node names intersect;
-                // do not map its placement root onto the attachment.
-                auto attachedProperties = properties;
-                attachedProperties.flags &= ~AnimationFlags::retargetRoot;
-                attachedModel.playAnimation(
-                    anim, lipAnim, std::move(attachedProperties));
+                // Reuse the proxy animation where its nodes pair with the
+                // head's. The head animates from its neck down, so the
+                // clip's placement root does not move it.
+                attachedModel.playAnimation(anim, lipAnim, properties);
                 continue;
             }
             // Attachments have their own animation sets. Resolve by name so
             // an unrelated body animation cannot replace a weapon's local
-            // state animation (for example, a lightsaber's "off" pose).
-            attachedModel.playAnimation(anim.name(), lipAnim, properties);
+            // state animation (for example, a lightsaber's "off" pose). The
+            // attachment's own animation plays at its own chain's scale.
+            auto attachedProperties = properties;
+            attachedProperties.scale = 0.0f;
+            attachedModel.playAnimation(anim.name(), lipAnim, std::move(attachedProperties));
         }
     }
 }
 
 // A layer goes on top of the other layers and removes nothing. A layer already
 // running the same animation is moved on top and goes on from where it is; one
-// that has finished and is blending out starts over and blends back in from
-// its current weight.
+// that has finished and is blending out blends back in from its current
+// weight, a loop asked for again going on from where it is and anything else
+// starting over.
 void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     const size_t layers = layerCount();
     for (size_t i = 0; i < layers; ++i) {
@@ -367,8 +419,10 @@ void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> li
         AnimationChannel running = std::move(_animChannels[i]);
         _animChannels.erase(_animChannels.begin() + static_cast<std::ptrdiff_t>(i));
         if (running.finished) {
-            running.time = 0.0f;
-            running.stateByNodeNumber.clear();
+            if (!(running.properties.flags & AnimationFlags::loop) || !(properties.flags & AnimationFlags::loop)) {
+                running.time = 0.0f;
+                running.stateByNodeNumber.clear();
+            }
             running.finished = false;
         }
         running.lipAnim = std::move(lipAnim);
@@ -570,6 +624,9 @@ void ModelSceneNode::updateAnimations(float dt) {
     // Apply states and compute bone transforms only when this model is not culled
     if (!_culled) {
         applyAnimationStates(*_model->rootNode(), layerCount());
+        // The look-at reads the head's absolute transform, so the pose must
+        // be in place first.
+        computeAbsoluteTransforms();
         applyLookAt(dt);
     }
 }
@@ -665,9 +722,17 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     float length = channelLength(channel);
     bool backwards = channel.properties.speed < 0.0f;
 
-    // Advance time; a channel played backwards runs from its end to its start
+    // Advance time; a channel played backwards runs from its end to its start.
+    // A loop that runs past an end carries the time it ran over into its next
+    // round, up to a whole round.
     float oldTime = channel.time;
-    channel.time = glm::clamp(channel.time + channel.properties.speed * dt, 0.0f, length);
+    const bool loop = channel.properties.flags & AnimationFlags::loop;
+    float time = channel.time + channel.properties.speed * dt;
+    const bool wrapped = loop && (backwards ? time < 0.0f : time > length);
+    if (wrapped) {
+        time = backwards ? glm::max(0.0f, time + length) : glm::min(length, time - length);
+    }
+    channel.time = glm::clamp(time, 0.0f, length);
 
     // A channel blending in reaches full weight over its transition time.
     if (channel.transition) {
@@ -676,30 +741,35 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
         channel.transition = channel.weight < 1.0f;
     }
 
-    // Signal events between previous and current time
+    // Signal events between previous and current time, round the end of a
+    // loop that wrapped
     for (auto &event : channel.anim->events()) {
-        bool passed = backwards ? (event.time < oldTime && event.time >= channel.time)
-                                : (event.time > oldTime && event.time <= channel.time);
+        bool passed;
+        if (wrapped) {
+            passed = backwards ? (event.time < oldTime || event.time >= channel.time)
+                               : (event.time > oldTime || event.time <= channel.time);
+        } else {
+            passed = backwards ? (event.time < oldTime && event.time >= channel.time)
+                               : (event.time > oldTime && event.time <= channel.time);
+        }
         if (passed) {
             signalEvent(event.name);
         }
     }
 
-    // Compute animation states only when this model is not culled
+    // Compute animation states only when this model is not culled. An
+    // animation without nodes animates none.
     if (!_culled) {
         channel.stateByNodeNumber.clear();
-        computeAnimationStates(channel, channel.time, *_model->rootNode());
+        if (const auto &animRoot = channel.anim->rootNode()) {
+            computeAnimationStates(channel, channel.time, *_model->rootNode(), *animRoot);
+        }
     }
 
-    bool lastFrame = channel.time == (backwards ? 0.0f : length);
-    if (lastFrame) {
-        bool loop = channel.properties.flags & AnimationFlags::loop;
-        if (loop) {
-            channel.time = backwards ? length : 0.0f;
-            rearmSingleEmitters(channel.anim->root());
-        } else {
-            channel.finished = true;
-        }
+    if (wrapped) {
+        rearmSingleEmitters(channel.anim->root());
+    } else if (!loop && channel.time == (backwards ? 0.0f : length)) {
+        channel.finished = true;
     }
 
     // A layer blends in over its transition time and, once finished, blends
@@ -740,14 +810,8 @@ void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
     }
 }
 
-void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode) {
-    std::shared_ptr<ModelNode> animNode(channel.anim->getNodeByName(modelNode.name()));
-    if (!animNode && !modelNode.parent() && (channel.properties.flags & AnimationFlags::retargetRoot)) {
-        // External stunt animations are authored on proxy models. Retarget
-        // their root placement track to the live creature model's root.
-        animNode = channel.anim->rootNode();
-    }
-    if (animNode && modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.anim->root())) {
+void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode, const ModelNode &animNode) {
+    if (modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.anim->root())) {
         AnimationState state;
         state.flags = 0;
 
@@ -759,32 +823,34 @@ void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float tim
             uint8_t leftShape, rightShape;
             float factor;
             if (channel.lipAnim->getKeyframes(time, leftShape, rightShape, factor)) {
+                // Lip shape n is the talk animation's pose at n + 1 of its
+                // sixteenths: the last shape is its last frame.
                 float oneOverNumShapes = 1.0f / static_cast<float>(kNumLipShapes);
-                float leftShapeTime = leftShape * oneOverNumShapes * channel.anim->length();
-                float rightShapeTime = rightShape * oneOverNumShapes * channel.anim->length();
+                float leftShapeTime = (leftShape + 1) * oneOverNumShapes * channel.anim->length();
+                float rightShapeTime = (rightShape + 1) * oneOverNumShapes * channel.anim->length();
                 glm::vec3 leftShapePos, rightShapePos;
                 glm::quat leftShapeRot, rightShapeRot;
-                if (animNode->positionAtTime(leftShapeTime, leftShapePos) &&
-                    animNode->positionAtTime(rightShapeTime, rightShapePos)) {
+                if (animNode.positionAtTime(leftShapeTime, leftShapePos) &&
+                    animNode.positionAtTime(rightShapeTime, rightShapePos)) {
                     position += channel.properties.scale * glm::mix(leftShapePos, rightShapePos, factor);
                     state.flags |= AnimationStateFlags::transform;
                 }
-                if (animNode->orientationAtTime(leftShapeTime, leftShapeRot) &&
-                    animNode->orientationAtTime(rightShapeTime, rightShapeRot)) {
+                if (animNode.orientationAtTime(leftShapeTime, leftShapeRot) &&
+                    animNode.orientationAtTime(rightShapeTime, rightShapeRot)) {
                     orientation = glm::slerp(leftShapeRot, rightShapeRot, factor);
                     state.flags |= AnimationStateFlags::transform;
                 }
             }
         } else {
             glm::vec3 animPosition;
-            if (animNode->positionAtTime(time, animPosition)) {
+            if (animNode.positionAtTime(time, animPosition)) {
                 position += channel.properties.scale * animPosition;
                 state.flags |= AnimationStateFlags::transform;
             }
-            if (animNode->orientationAtTime(time, orientation)) {
+            if (animNode.orientationAtTime(time, orientation)) {
                 state.flags |= AnimationStateFlags::transform;
             }
-            if (animNode->scaleAtTime(time, scale)) {
+            if (animNode.scaleAtTime(time, scale)) {
                 state.flags |= AnimationStateFlags::transform;
             }
         }
@@ -793,23 +859,25 @@ void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float tim
             state.transform *= glm::translate(position);
             state.transform *= glm::mat4_cast(orientation);
         }
-        if (animNode->floatValueAtTime(ControllerTypes::alpha, time, state.alpha)) {
+        if (animNode.floatValueAtTime(ControllerTypes::alpha, time, state.alpha)) {
             state.flags |= AnimationStateFlags::alpha;
         }
-        if (animNode->vectorValueAtTime(ControllerTypes::selfIllumColor, time, state.selfIllumColor)) {
+        if (animNode.vectorValueAtTime(ControllerTypes::selfIllumColor, time, state.selfIllumColor)) {
             state.flags |= AnimationStateFlags::selfIllumColor;
         }
-        if (animNode->vectorValueAtTime(ControllerTypes::color, time, state.color)) {
+        if (animNode.vectorValueAtTime(ControllerTypes::color, time, state.color)) {
             state.flags |= AnimationStateFlags::color;
         }
-        if (animNode->floatValueAtTime(ControllerTypes::birthrate, time, state.birthrate)) {
+        if (animNode.floatValueAtTime(ControllerTypes::birthrate, time, state.birthrate)) {
             state.flags |= AnimationStateFlags::birthrate;
         }
         channel.stateByNodeNumber[modelNode.number()] = std::move(state);
     }
 
     for (auto &child : modelNode.children()) {
-        computeAnimationStates(channel, time, *child);
+        if (const ModelNode *animChild = findPairedAnimationNode(animNode, *child)) {
+            computeAnimationStates(channel, time, *child, *animChild);
+        }
     }
 }
 
@@ -978,7 +1046,7 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode, size_t lay
         }
 
         if (combined.flags & AnimationStateFlags::transform) {
-            sceneNode->setLocalTransform(combined.transform);
+            sceneNode->setLocalTransformDeferred(combined.transform);
         }
         if (combined.flags & AnimationStateFlags::alpha) {
             static_cast<MeshSceneNode *>(sceneNode)->setAlpha(combined.alpha);

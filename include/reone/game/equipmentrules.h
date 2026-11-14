@@ -215,16 +215,91 @@ struct ItemTransfer {
     explicit operator bool() const { return moved; }
 };
 
+/** How an Item that leaves its holder is announced lost. */
+enum class ItemLossNotice {
+    /** Not at all. */
+    None,
+    /** The module's lost event. */
+    Event,
+    /** The lost event, and the leader told it lost the Item. */
+    Told
+};
+
+/**
+ * A held Item leaves its holder, as a stack of its own. An equipped one first
+ * comes off as an unequip that is not instant does, into the wearer's
+ * inventory, drawing the hand it leaves.
+ *
+ * @return the Item that left; none when it could not leave
+ */
+std::shared_ptr<Item> releaseHeldItem(
+    Game &game,
+    const std::shared_ptr<Item> &item);
+
 /**
  * Move one complete runtime Item from its current nested or Area ownership
- * edge to receiver. An ownerless nonresident Item is not transferable.
+ * edge to receiver. An ownerless nonresident Item is not transferable. A
+ * placeable receiving an Item it holds takes it back: the Item leaves its
+ * list and is added to it again, as its newest item or joining a stack there.
+ * An equipped Item is unequipped first, drawing the hand it leaves, and moves
+ * as a stack of its own. An Item that leaves its holder is announced lost as
+ * \p loss asks, before the receiver takes it.
  *
  * @return whether it moved, and the receiver's stack that holds it
  */
 ItemTransfer transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
-    Object &receiver);
+    Object &receiver,
+    ItemLossNotice loss = ItemLossNotice::Told);
+
+/**
+ * Announces an Item a creature has acquired, held in \p held: in the party's
+ * shared inventory the creature in control first comes to possess a new
+ * Item, and a stack the Item joined is kept by its possessor; the Item then
+ * passes to \p creature, with the events, unless it was announced already
+ * and \p creature possesses it. A counted Item, held nowhere, is not
+ * announced.
+ *
+ * @param feedback whether the creatures' losses and gains are told
+ */
+void announceAcquiredBy(
+    const std::shared_ptr<Item> &item,
+    const std::shared_ptr<Item> &held,
+    const Object &creature,
+    bool feedback);
+
+/**
+ * Announces an Item stored for a creature, held in \p held: a new Item is
+ * acquired by the one possessing it as it is stored, whoever that is, and a
+ * stack the Item joined is kept by its possessor; the Item then passes to
+ * \p creature, unless the creature possesses it already. Unlike
+ * announceAcquiredBy, an Item outside the shared inventory is acquired by its
+ * possessor too. The losses and gains are told.
+ *
+ * @param previousPossessor the one the acquisition names as possessing the Item before, invalid for none
+ */
+void announceStoredFor(
+    const std::shared_ptr<Item> &item,
+    const std::shared_ptr<Item> &held,
+    uint32_t previousPossessor,
+    const Object &creature);
+
+/**
+ * A creature acquires an Item: it moves to \p receiver, the creature or the
+ * inventory it draws on, announced lost by its holder, told, and announced
+ * acquired by the creature. An Item the receiver holds already stays where
+ * it is and passes to the creature: announced kept when the creature
+ * possesses it, else lost by the creature that did and acquired by this one.
+ *
+ * @param feedback whether the creatures' losses and gains on the way in are told
+ */
+ItemTransfer giveItemToCreature(
+    Game &game,
+    const std::shared_ptr<Item> &item,
+    Object &receiver,
+    const Object &creature,
+    bool feedback);
 
 } // namespace game
 

@@ -120,9 +120,11 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
         warn(str(boost::format("Journal: entry %d not found in category '%s'") % state % plotId));
     }
 
+    // A quest carries the world time it arrived or last moved on.
+    const auto [date, time] = _clock ? _clock() : std::pair<uint32_t, uint32_t>(0, 0);
     Quest *quest = findQuest(plotId);
     if (!quest) {
-        _quests.push_back({plotId, state, 0, 0});
+        _quests.push_back({plotId, state, date, time, true});
         notifyQuestChanged(category, entry);
         return true;
     }
@@ -133,8 +135,17 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
         return false;
     }
     quest->state = state;
+    quest->date = date;
+    quest->time = time;
+    quest->unread = true;
     notifyQuestChanged(category, entry);
     return true;
+}
+
+void Journal::markRead(const std::string &plotId) {
+    if (Quest *quest = findQuest(plotId)) {
+        quest->unread = false;
+    }
 }
 
 void Journal::notifyQuestChanged(const JRL::Category *category, const JRL::Entry *entry) {

@@ -75,7 +75,6 @@ std::shared_ptr<IconChain> addIconSelectionChain(
         chain->setHilight(sourceList.border());
         chain->setHilightColor(hilightColor);
     }
-    chain->setTintBorderFill(game.isTSL());
     float layoutScale = gui.scale();
     auto scrollBar = sourceList.scrollBarOrNull();
     if (scrollBar) {
@@ -182,6 +181,81 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     chain->setOnItemDoubleClick(std::move(callbacks.onItemDoubleClick));
     gui.addControlToBack(chain, IGUI::ControlCoordinates::Screen);
     return chain;
+}
+
+std::map<FeatType, glm::ivec2> getFeatIconPositions(
+    const std::vector<FeatDisplayEntry> &entries) {
+
+    std::map<FeatType, int> chainRowCounts;
+    std::vector<FeatType> chainRoots;
+    for (auto &entry : entries) {
+        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
+        int wrappedRowCount = entry.visualIndex / kIconSelectionColumnCount + 1;
+
+        auto maybeChainRows = chainRowCounts.insert({chainRoot, wrappedRowCount});
+        if (maybeChainRows.second) {
+            chainRoots.push_back(chainRoot);
+        } else {
+            maybeChainRows.first->second = std::max(maybeChainRows.first->second, wrappedRowCount);
+        }
+    }
+
+    std::map<FeatType, int> chainRowBases;
+    int nextRow = 0;
+    for (auto chainRoot : chainRoots) {
+        chainRowBases.insert({chainRoot, nextRow});
+        nextRow += chainRowCounts.at(chainRoot);
+    }
+
+    std::map<FeatType, glm::ivec2> result;
+    for (auto &entry : entries) {
+        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
+        result.insert({
+            entry.type,
+            {
+                entry.visualIndex % kIconSelectionColumnCount,
+                chainRowBases.at(chainRoot) + entry.visualIndex / kIconSelectionColumnCount
+            }});
+    }
+    return result;
+}
+
+std::map<SpellType, glm::ivec2> getPowerIconPositions(
+    const std::vector<SpellDisplayEntry> &entries) {
+
+    std::map<SpellType, int> nextIndexByRoot;
+    std::vector<SpellType> chainRoots;
+    std::map<SpellType, glm::ivec2> result;
+    for (const auto &entry : entries) {
+        if (!entry.visible) {
+            continue;
+        }
+
+        SpellType root = entry.chainRoot != SpellType::All ? entry.chainRoot : entry.type;
+        auto maybeIndex = nextIndexByRoot.insert({root, 0});
+        if (maybeIndex.second) {
+            chainRoots.push_back(root);
+        }
+        int index = maybeIndex.first->second++;
+        result.emplace(entry.type, glm::ivec2(index % kIconSelectionColumnCount, index / kIconSelectionColumnCount));
+    }
+
+    std::map<SpellType, int> rowBases;
+    int nextRow = 0;
+    for (auto root : chainRoots) {
+        int count = nextIndexByRoot.at(root);
+        rowBases.emplace(root, nextRow);
+        nextRow += (count + kIconSelectionColumnCount - 1) / kIconSelectionColumnCount;
+    }
+
+    for (const auto &entry : entries) {
+        if (!entry.visible) {
+            continue;
+        }
+        SpellType root = entry.chainRoot != SpellType::All ? entry.chainRoot : entry.type;
+        result.at(entry.type).y += rowBases.at(root);
+    }
+    return result;
 }
 
 void styleChargenTitles(

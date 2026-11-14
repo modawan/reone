@@ -30,6 +30,8 @@ struct GameOptions {
     std::filesystem::path path;
     bool developer {false};
     bool neo {false};
+    /** The mouse wheel moves the follow camera in and out. */
+    bool wheelZoom {false};
     FeedbackOptions feedback;
     int clientDifficulty {1}; /**< Easy=0, Normal=1, Difficult=2, Default=3 */
     int activeKeybindsIndex {0};
@@ -37,6 +39,12 @@ struct GameOptions {
     AutoPauseOptions autoPause;
     /** How the mouse turns the camera. */
     MouseOptions mouse;
+    /** The other switches of the Gameplay panel. */
+    GameplayOptions gameplay;
+    /** The movies the main menu's movie list offers beyond those it always shows. */
+    MoviesShown moviesShown;
+    /** The planet groups of the main menu's music list that are open, one bit each (TSL). */
+    int unlockedPlanetSongs {0};
     std::array<KeybindOptions, 1> keybinds;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 

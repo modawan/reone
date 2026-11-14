@@ -38,6 +38,7 @@
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::audio;
 
@@ -284,8 +285,10 @@ void CharacterGeneration::startQuick() {
     openSteps();
 }
 
-void CharacterGeneration::startLevelUp() {
+void CharacterGeneration::startLevelUp(bool forced) {
     _type = Type::LevelUp;
+    _levelUpForced = forced;
+    _levelUp->setCanCancel(!forced);
 
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
 
@@ -481,28 +484,92 @@ void CharacterGeneration::acceptAbilities() {
 
 void CharacterGeneration::cancel() {
     if (_type == Type::LevelUp) {
-        _game.openInGame();
+        if (_levelUpForced) {
+            return;
+        }
+        _game.closeLevelUp(false);
     } else {
         _game.openMainMenu();
     }
 }
 
-void CharacterGeneration::finish() {
-    if (_type == Type::LevelUp) {
-        ClassType classType = _character.attributes.getEffectiveClass();
-        std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(classType));
-        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-        partyLeader->applyLevelUp(std::move(_character.attributes), *clazz);
-        // The player character's new level moves every companion with a
-        // creature through its influence.
-        if (partyLeader->isPlayerCreated()) {
-            for (int npc = 0; npc < static_cast<int>(Party::kK2NpcCount); ++npc) {
-                if (auto companion = _game.party().getAvailableMember(npc)) {
-                    companion->recomputeInfluenceAlignment();
-                }
+bool CharacterGeneration::autoLevelUp() {
+    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+    if (!partyLeader || !partyLeader->isLevelUpPending()) {
+        return false;
+    }
+
+    // Every step of the level-up takes its recommendation and is accepted,
+    // without opening its screen. A choice the recommendations cannot complete
+    // refuses the whole level, which stays pending for a manual level-up.
+    startLevelUp();
+    const int nextLevel = _character.attributes.getAggregateLevel() + 1;
+    if (nextLevel % 4 == 0) {
+        _abilities->reset(false);
+        _abilities->recommend();
+        if (_abilities->remainingPoints() > 0) {
+            warn("Auto level-up refused: no ability can take the attribute point");
+            return false;
+        }
+        _abilities->accept();
+    }
+
+    _levelUp->setStep(1);
+    _charGenSkills->reset(false);
+    _charGenSkills->recommend();
+    _charGenSkills->accept();
+
+    if (_levelUp->hasFeatChoices()) {
+        openFeats();
+        // Accepting the normal feats can open the choice of bonus feats.
+        while (_screen == CharGenScreen::Feats) {
+            _charGenFeats->recommend(true);
+            if (_charGenFeats->remainingPicks() > 0) {
+                warn("Auto level-up refused: " + std::to_string(_charGenFeats->remainingPicks()) + " feat pick(s) cannot be filled");
+                return false;
+            }
+            _charGenFeats->accept();
+        }
+    }
+
+    if (_levelUp->hasPowerChoices()) {
+        addLevelPowers();
+        _charGenPowers->reset();
+        _charGenPowers->recommend(true);
+        if (_charGenPowers->remainingPicks() > 0) {
+            warn("Auto level-up refused: " + std::to_string(_charGenPowers->remainingPicks()) + " power pick(s) cannot be filled");
+            return false;
+        }
+        _charGenPowers->accept();
+    }
+
+    applyLevelUpToLeader();
+    return true;
+}
+
+void CharacterGeneration::applyLevelUpToLeader() {
+    ClassType classType = _character.attributes.getEffectiveClass();
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(classType));
+    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+    partyLeader->applyLevelUp(std::move(_character.attributes), *clazz);
+    // The player character's new level moves every companion with a
+    // creature through its influence.
+    if (partyLeader->isPlayerCreated()) {
+        for (int npc = 0; npc < static_cast<int>(Party::kK2NpcCount); ++npc) {
+            if (auto companion = _game.party().getAvailableMember(npc)) {
+                companion->recomputeInfluenceAlignment();
             }
         }
-        _game.openInGame();
+    }
+    _game.notifyLevelUpStillAvailable(*partyLeader);
+    // The module hears of a player character's level-up.
+    _game.signalPlayerLevelUp(*partyLeader);
+}
+
+void CharacterGeneration::finish() {
+    if (_type == Type::LevelUp) {
+        applyLevelUpToLeader();
+        _game.closeLevelUp(_levelUpForced);
     } else {
         // Character preview objects belong to the pre-playable character-
         // generation runtime. Retire them before publishing the new game.

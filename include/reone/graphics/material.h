@@ -28,6 +28,8 @@ class Texture;
 enum class MaterialType {
     OpaqueModel,
     TransparentModel,
+    /** The depth of a blended model mesh, written where it shows before it is blended. */
+    BlendedModelDepth,
     DirLightShadow,
     PointLightShadow,
     Walkmesh
@@ -43,6 +45,8 @@ public:
     glm::mat3x4 uv {1.0f};
     glm::vec4 color {1.0f};
     int bumpMapFrame {0};
+    /** The frame of a main texture that cycles through frames, bound to TextureUnits::mainTexArray. */
+    int mainTexFrame {0};
     float shellOffset {0.0f};
 
     glm::vec3 ambientColor {1.0f};
@@ -64,6 +68,18 @@ public:
     std::optional<BlendMode> blending;
     std::optional<FaceCullMode> faceCulling;
     std::optional<PolygonMode> polygonMode;
+
+    /** The main texture, whether bound as one image or as a texture of frames. */
+    std::optional<std::reference_wrapper<Texture>> mainTexture() const {
+        auto it = textures.find(TextureUnits::mainTex);
+        if (it == textures.end()) {
+            it = textures.find(TextureUnits::mainTexArray);
+        }
+        if (it == textures.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
 };
 
 } // namespace graphics

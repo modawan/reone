@@ -17,6 +17,9 @@
 
 #include "reone/game/gui/sounds.h"
 
+#include "reone/audio/mixer.h"
+#include "reone/audio/source.h"
+#include "reone/game/types.h"
 #include "reone/resource/format/2dareader.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
@@ -28,10 +31,9 @@ namespace reone {
 
 namespace game {
 
-/**
- * The guisounds.2da rows of the error, checkbox, full-screen panel shown and
- * taken away, action-menu use, action-menu scroll and inventory add sounds.
- */
+/** The guisounds.2da rows of the sounds played by row. */
+static constexpr int kClickSoundRow = 0;
+static constexpr int kEnterSoundRow = 1;
 static constexpr int kErrorSoundRow = 2;
 static constexpr int kCheckboxCheckSoundRow = 3;
 static constexpr int kPanelAddedSoundRow = 4;
@@ -39,58 +41,111 @@ static constexpr int kPanelRemovedSoundRow = 5;
 static constexpr int kActionMenuUseSoundRow = 6;
 static constexpr int kActionMenuScrollSoundRow = 7;
 static constexpr int kInventoryAddSoundRow = 9;
+static constexpr int kInventorySelectSoundRow = 10;
+static constexpr int kInventoryDropSoundRow = 11;
+static constexpr int kLevelUpNotifySoundRow = 12;
+static constexpr int kQuestNewNotifySoundRow = 13;
+static constexpr int kQuestCompleteNotifySoundRow = 14;
+static constexpr int kUpgradeSoundRow = 16;
+static constexpr int kDarkSideSoundRow = 17;
+static constexpr int kLightSideSoundRow = 18;
 
 void GUISounds::init() {
     std::shared_ptr<TwoDA> sounds(_twoDas.get("guisounds"));
     if (!sounds) {
         return;
     }
-    loadSound(*sounds, "Clicked_Default", _onClick);
-    loadSound(*sounds, "Entered_Default", _onEnter);
-    loadSound(*sounds, "Level_Up_Notify", _onLevelUpNotify);
-    loadSound(*sounds, "Quest_New_Notify", _questNewNotify);
-    loadSound(*sounds, "Quest_Complete_Notify", _questCompleteNotify);
-    // An item chosen for, or cleared from, an equipment slot.
-    loadSound(*sounds, "Inventory_Select", _inventorySelect);
-    loadSound(*sounds, "Inventory_Drop", _inventoryDrop);
-    // TSL only: the light and dark side stings.
-    loadSound(*sounds, "DarkSide", _darkSide);
-    loadSound(*sounds, "LightSide", _lightSide);
-    // A refused and an accepted action-menu selection, an action menu's
-    // scroll, and a toggle button's click.
-    _actionUnavailable = _audioClips.get(sounds->getString(kErrorSoundRow, "soundresref"));
-    _actionAccepted = _audioClips.get(sounds->getString(kActionMenuUseSoundRow, "soundresref"));
-    _actionMenuScroll = _audioClips.get(sounds->getString(kActionMenuScrollSoundRow, "soundresref"));
-    _checkboxCheck = _audioClips.get(sounds->getString(kCheckboxCheckSoundRow, "soundresref"));
-    _panelAdded = _audioClips.get(sounds->getString(kPanelAddedSoundRow, "soundresref"));
-    _panelRemoved = _audioClips.get(sounds->getString(kPanelRemovedSoundRow, "soundresref"));
-    _inventoryAdd = _audioClips.get(sounds->getString(kInventoryAddSoundRow, "soundresref"));
-}
-
-void GUISounds::loadSound(const TwoDA &twoDa, const std::string &label, std::shared_ptr<AudioClip> &sound) {
-    int row = twoDa.indexByCellValue("label", label);
-    if (row != -1) {
-        sound = _audioClips.get(twoDa.getString(row, "soundresref"));
+    for (int row = 0; row < sounds->getRowCount(); ++row) {
+        _sounds.push_back(_audioClips.get(sounds->getString(row, "soundresref")));
     }
 }
 
 void GUISounds::deinit() {
-    _onClick.reset();
-    _onEnter.reset();
-    _onLevelUpNotify.reset();
-    _questNewNotify.reset();
-    _questCompleteNotify.reset();
-    _actionAccepted.reset();
-    _actionUnavailable.reset();
-    _actionMenuScroll.reset();
-    _checkboxCheck.reset();
-    _inventorySelect.reset();
-    _inventoryDrop.reset();
-    _inventoryAdd.reset();
-    _panelAdded.reset();
-    _panelRemoved.reset();
-    _darkSide.reset();
-    _lightSide.reset();
+    _sources.clear();
+    _sounds.clear();
+}
+
+GUISound GUISounds::getOnClick() const {
+    return {kClickSoundRow};
+}
+
+GUISound GUISounds::getOnEnter() const {
+    return {kEnterSoundRow};
+}
+
+GUISound GUISounds::getActionAccepted() const {
+    return {kActionMenuUseSoundRow};
+}
+
+GUISound GUISounds::getActionUnavailable() const {
+    return {kErrorSoundRow};
+}
+
+GUISound GUISounds::getActionMenuScroll() const {
+    return {kActionMenuScrollSoundRow};
+}
+
+GUISound GUISounds::getOnLevelUpNotify() const {
+    return {kLevelUpNotifySoundRow};
+}
+
+GUISound GUISounds::getQuestNewNotify() const {
+    return {kQuestNewNotifySoundRow};
+}
+
+GUISound GUISounds::getQuestCompleteNotify() const {
+    return {kQuestCompleteNotifySoundRow};
+}
+
+GUISound GUISounds::getCheckboxCheck() const {
+    return {kCheckboxCheckSoundRow};
+}
+
+GUISound GUISounds::getInventoryAdd() const {
+    return {kInventoryAddSoundRow};
+}
+
+GUISound GUISounds::getInventorySelect() const {
+    return {kInventorySelectSoundRow};
+}
+
+GUISound GUISounds::getUpgrade() const {
+    return {kUpgradeSoundRow};
+}
+
+GUISound GUISounds::getInventoryDrop() const {
+    return {kInventoryDropSoundRow};
+}
+
+GUISound GUISounds::getAlignmentShift(bool light) const {
+    return {light ? kLightSideSoundRow : kDarkSideSoundRow};
+}
+
+GUISound GUISounds::getPanelAdded() const {
+    return {kPanelAddedSoundRow};
+}
+
+GUISound GUISounds::getPanelRemoved() const {
+    return {kPanelRemovedSoundRow};
+}
+
+std::shared_ptr<AudioSource> GUISounds::play(GUISound sound) {
+    auto clip = sound.row < static_cast<int>(_sounds.size()) ? _sounds[sound.row] : nullptr;
+    auto &source = _sources[sound.row];
+    if (source) {
+        source->stop();
+    }
+    source = playInterfaceSound(_mixer, clip);
+    return source;
+}
+
+// The interface keeps its sounds, so a full group that interrupts stops one.
+std::shared_ptr<AudioSource> playInterfaceSound(IAudioMixer &mixer, std::shared_ptr<AudioClip> clip) {
+    auto source = mixer.play(std::move(clip), AudioType::Sound, kGuiSoundGroup);
+    if (source) {
+        source->setOwned(true);
+    }
+    return source;
 }
 
 } // namespace game

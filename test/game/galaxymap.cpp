@@ -924,21 +924,21 @@ TEST_F(TSLGalaxyMapFixture, escape_leaves_the_map_without_travelling_or_rolling_
 }
 
 TEST(GalaxyMapShowGuards, the_map_only_takes_over_a_screen_it_can_return_to) {
-    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::None));
-    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::InGame));
-    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::InGameMenu));
-    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::Conversation));
+    EXPECT_TRUE(Game::canPanelTakeScreenFrom(Game::Screen::None));
+    EXPECT_TRUE(Game::canPanelTakeScreenFrom(Game::Screen::InGame));
+    EXPECT_TRUE(Game::canPanelTakeScreenFrom(Game::Screen::InGameMenu));
+    EXPECT_TRUE(Game::canPanelTakeScreenFrom(Game::Screen::Conversation));
 
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::GalaxyMap));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::MainMenu));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::Loading));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::CharacterGeneration));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::SaveLoad));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::Container));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::PartySelection));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::PazaakBoard));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::SwoopRace));
-    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::Turret));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::GalaxyMap));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::MainMenu));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::Loading));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::CharacterGeneration));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::SaveLoad));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::Container));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::PartySelection));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::PazaakBoard));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::SwoopRace));
+    EXPECT_FALSE(Game::canPanelTakeScreenFrom(Game::Screen::Turret));
 }
 
 TEST_F(TSLGalaxyMapFixture, a_panel_that_will_not_load_leaves_the_screen_alone) {

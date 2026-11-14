@@ -83,6 +83,13 @@ struct Spell {
     /** The power's side (spells.2da GoodEvil): 'G' light, 'E' dark, 'N' neither. */
     char alignment {'N'};
     std::unordered_map<ClassType, int> classLevelRequirements;
+    /**
+     * The power's places in the orders recommended to light side and to
+     * dark side characters, 1 first (spells.2da light_recom and dark_recom);
+     * none for a side the power is never recommended to.
+     */
+    std::optional<int> lightRecommendation;
+    std::optional<int> darkRecommendation;
     /** The talent category: four four-bit fields. */
     uint32_t category {0};
     /** The challenge rating that ranks the spell as a talent. */
@@ -121,8 +128,15 @@ struct Spell {
     ProjectilePathType projectilePath {ProjectilePathType::Default};
     std::string projectileSpawn;
     std::string projectileOrientation;
+    /** The sound a projectile of the spell plays while it flies and once where it first arrives. */
+    std::shared_ptr<audio::AudioClip> projectileSound;
     /** The head, hand and ground models shown while conjuring and after the release. */
     std::array<std::string, 3> conjureVisuals;
+    /** The voice a male or female caster of a player race conjures the spell with. */
+    std::shared_ptr<audio::AudioClip> conjureSoundMale;
+    std::shared_ptr<audio::AudioClip> conjureSoundFemale;
+    /** The sound the conjure visuals play. */
+    std::shared_ptr<audio::AudioClip> conjureSoundVisual;
     std::array<std::string, 3> castVisuals;
     /**
      * Target kinds a hostile power menu does not offer the power against.

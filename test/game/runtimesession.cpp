@@ -336,6 +336,14 @@ uint32_t reone::game::TestGameModule::nextObjectId(const Game &game) {
     return game._nextObjectId;
 }
 
+void reone::game::TestGameModule::advancePlayedTime(Game &game, float dt) {
+    game.advancePlayedTime(dt);
+}
+
+bool reone::game::TestGameModule::autosavesOnEntering(Game &game, const std::string &module) {
+    return game.autosavesOnEntering(module);
+}
+
 std::shared_ptr<Item> reone::game::TestGameModule::newItemAtRuntimeId(
     Game &game, uint32_t id) {
     return game.newObjectAtId<Item>(id, false, game, game._services);
@@ -683,6 +691,31 @@ TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {
     EXPECT_EQ(0, TestGameModule::objectRegistrySize(game));
 }
 
+TEST(RuntimeSession, full_game_reset_starts_the_autosave_interval_afresh) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    resource::ModuleSaveRules rules;
+    rules.autosaveOnEnter = resource::ModuleAutosave::WhenDue;
+    EXPECT_CALL(engine.resourceModule().director(), moduleSaveRules(_))
+        .WillRepeatedly(Return(rules));
+
+    // Fifteen minutes into one game, entering a module autosaves.
+    TestGameModule::advancePlayedTime(game, 15.0f * 60.0f);
+    ASSERT_TRUE(TestGameModule::autosavesOnEntering(game, "next"));
+
+    // A new game, or a load, owes nothing to the time played before it.
+    game.resetGame();
+    EXPECT_FALSE(TestGameModule::autosavesOnEntering(game, "next"));
+    TestGameModule::advancePlayedTime(game, 15.0f * 60.0f - 1.0f);
+    EXPECT_FALSE(TestGameModule::autosavesOnEntering(game, "next"));
+    TestGameModule::advancePlayedTime(game, 1.0f);
+    EXPECT_TRUE(TestGameModule::autosavesOnEntering(game, "next"));
+}
+
 TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transitions_without_accumulation) {
     TestEngine engine;
     engine.init();
@@ -797,8 +830,8 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
-    Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
-    Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr);
+    Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr);
     graphics::Walkmesh destinationRoomNodeWalkmesh;
     auto destinationRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
         destinationRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
@@ -887,7 +920,7 @@ TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
-    Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr);
     graphics::Walkmesh savedRoomNodeWalkmesh;
     auto savedRoomNode = std::make_shared<scene::WalkmeshSceneNode>(
         savedRoomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
@@ -952,7 +985,7 @@ struct PartyTransferHarness {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     StubConsole console;
-    Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr};
     graphics::Walkmesh roomWalkmesh;
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     std::unique_ptr<Game> game;
@@ -1208,7 +1241,7 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     area->add(outgoing);
     area->add(trigger);
     area->add(retained);
-    Room room("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("source", glm::vec3(0.0f), nullptr, nullptr);
     retained->setRoom(&room);
     trigger->addTenant(retained);
     TestGameModule::setAreaRuntimePath(*retained, area->pathfinder());
@@ -1664,7 +1697,7 @@ TEST(RuntimeObjectIntegrity, staged_stack_coalescing_obeys_retail_maximum) {
     EXPECT_EQ(1, several->items()[3]->stackSize());
 }
 
-TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinct) {
+TEST(RuntimeObjectIntegrity, staged_identical_saved_items_join_the_first_identity) {
     TestEngine engine;
     engine.init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
@@ -1689,10 +1722,12 @@ TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinc
     placeable->deserialize(
         *record, SerializedIdentityContext::moduleGraph("saved_inventory"));
 
-    ASSERT_EQ(2u, placeable->items().size());
+    // The second item joins the first item's stack, and its saved identity
+    // names nothing.
+    ASSERT_EQ(1u, placeable->items().size());
     EXPECT_EQ(placeable->items()[0], game.getObjectBySavedId(870));
-    EXPECT_EQ(placeable->items()[1], game.getObjectBySavedId(871));
-    EXPECT_NE(placeable->items()[0], placeable->items()[1]);
+    EXPECT_EQ(2, placeable->items()[0]->stackSize());
+    EXPECT_FALSE(game.getObjectBySavedId(871));
 
     auto detached = game.newPlaceable();
     auto detachedRecord = resource::Gff::Builder()
@@ -1707,13 +1742,11 @@ TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinc
 
     detached->deserialize(*detachedRecord, detachedContext);
 
-    ASSERT_EQ(2u, detached->items().size());
+    ASSERT_EQ(1u, detached->items().size());
     EXPECT_EQ(
         detached->items()[0]->serializedObjectIdentity(),
         std::optional<SerializedObjectIdentity>({detachedContext, 880}));
-    EXPECT_EQ(
-        detached->items()[1]->serializedObjectIdentity(),
-        std::optional<SerializedObjectIdentity>({detachedContext, 881}));
+    EXPECT_EQ(2, detached->items()[0]->stackSize());
     EXPECT_FALSE(game.getObjectBySavedId(880));
     EXPECT_FALSE(game.getObjectBySavedId(881));
 }
@@ -2373,7 +2406,7 @@ TEST(RuntimeObjectOwnership, git_shaped_world_item_releases_every_area_edge) {
             EXPECT_EQ(sceneNode.get(), &removed);
         });
     area->add(item);
-    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr);
     item->setRoom(&room);
     trigger->addTenant(item);
     auto receiver = game.newCreature();
@@ -2467,7 +2500,7 @@ TEST(RuntimeObjectOwnership, equip_action_refuses_area_item_and_keeps_its_area_e
     EXPECT_CALL(sceneGraph, addRoot(sceneNode)).Times(1);
     EXPECT_CALL(sceneGraph, removeRoot(A<scene::ModelSceneNode &>())).Times(0);
     area->add(item);
-    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr);
     item->setRoom(&room);
     trigger->addTenant(item);
     auto action = game.newAction<EquipItemAction>(
@@ -3085,7 +3118,8 @@ TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto gameplayItem = game.newItem();
-    gameplayItem->setOwner(77);
+    auto holder = game.newItem();
+    gameplayItem->setOwner(*holder);
     const size_t registrySize = TestGameModule::objectRegistrySize(game);
     for (int i = 0; i < 5; ++i) {
         auto preview = game.newPresentationCreature("preview");
@@ -3099,7 +3133,7 @@ TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
         EXPECT_FALSE(game.getObjectById(previewItem->id()));
     }
     EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
-    EXPECT_EQ(77u, gameplayItem->owner());
+    EXPECT_EQ(holder->id(), gameplayItem->owner());
 }
 
 TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_idempotently) {
@@ -3107,7 +3141,7 @@ TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_id
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
-    Room room("partial", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("partial", glm::vec3(0.0f), nullptr, nullptr);
     graphics::Walkmesh roomNodeWalkmesh;
     auto roomNode = std::make_shared<scene::WalkmeshSceneNode>(
         roomNodeWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);

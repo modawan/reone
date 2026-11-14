@@ -25,6 +25,7 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
+#include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/unlockobject.h"
@@ -57,6 +58,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/pathfinder.h"
@@ -80,6 +82,7 @@
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/sound.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/scene/node/walkmesh.h"
 #include "reone/script/executioncontext.h"
@@ -258,6 +261,20 @@ std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransi
 void reone::game::TestGameModule::setActiveModuleArea(Game &game, std::shared_ptr<Area> area) {
     game._module = game.newModule();
     game._module->_area = std::move(area);
+}
+
+void reone::game::TestGameModule::configurePointerSelection(
+    Game &game,
+    Area &area,
+    StaticCamera &camera,
+    const std::vector<std::shared_ptr<Object>> &objects) {
+
+    game._cameraType = CameraType::Static;
+    area._staticCamera = &camera;
+    game._nearestObjects.clear();
+    for (const auto &object : objects) {
+        game._nearestObjects.push_back({RuntimeObjectRef<Object>(object), true, false, true});
+    }
 }
 
 void reone::game::TestGameModule::setPerceptionRanges(
@@ -1036,10 +1053,50 @@ TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
     EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
 }
 
+// A script that activates a sound object starts its first sound at once. The
+// node was found inaudible while the object was inactive, so it has to wait
+// for the scene to tell again rather than skip that sound.
+TEST(SoundObject, activating_forgets_the_audibility_found_while_inactive) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The mock keeps the graph past the test, and the graph keeps its options.
+    static graphics::GraphicsOptions graphicsOptions;
+    auto graph = std::make_shared<scene::SceneGraph>(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    // A scene of its own, so other tests' expectations on the graphs still hold.
+    const std::string sceneName {"sound_activation"};
+    EXPECT_CALL(engine.sceneModule().graphs(), get(sceneName))
+        .Times(AnyNumber())
+        .WillRepeatedly([graph](const std::string &) -> scene::ISceneGraph & {
+            return *graph;
+        });
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newByte("Active", 0))
+                      .field(Gff::Field::newByte("Positional", 0))
+                      .build();
+    auto sound = game.newSound(sceneName);
+    sound->deserialize(*record, SerializedIdentityContext::templateResource());
+    auto node = std::static_pointer_cast<scene::SoundSceneNode>(sound->sceneNode());
+    ASSERT_TRUE(node);
+    node->setAudible(false);
+
+    sound->setActive(true);
+
+    EXPECT_TRUE(node->isEnabled());
+    EXPECT_FALSE(node->isAudibilityKnown());
+}
+
 TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestGameModule::letConversationsSpeak(game);
     PresentationLifecycleConversation conversation(game, engine.services());
     auto first = std::make_shared<Dialog>();
     auto second = std::make_shared<Dialog>();
@@ -1300,6 +1357,7 @@ TEST(Conversation, should_show_script_only_auto_routing_entry_and_advance_at_the
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestGameModule::letConversationsSpeak(game);
     RoutingConversation conversation(game, engine.services());
 
     conversation.start(makeRoutingDialog(), nullptr);
@@ -1317,6 +1375,7 @@ TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestGameModule::letConversationsSpeak(game);
 
     std::vector<std::function<void(Dialog::EntryReply &)>> addPresentation {
         [](auto &entry) { entry.text = "text"; },
@@ -2073,7 +2132,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
         .WillRepeatedly(Return(makeBaseItemsTable()));
     // Item deserialization incidentally looks up inventory icons; no texture
     // is needed.
-    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_000", "ii_datapad_000"), _))
+    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_001", "ii_datapad_001"), _))
         .Times(AnyNumber());
 
     auto player = game.newCreature();
@@ -2085,7 +2144,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     footlocker->addItem(makeItem(game, "g_i_credits002", 0, 10));
     footlocker->addItem(makeItem(game, "g_i_datapad001", 1, 1));
 
-    footlocker->moveDropableItemsTo(*player);
+    footlocker->moveAllItemsTo(*player);
 
     EXPECT_EQ(game.party().gold(), 15);
     ASSERT_EQ(player->items().size(), 1);
@@ -2103,7 +2162,7 @@ TEST(Object, should_convert_credits_to_gold_for_any_creature) {
         .WillRepeatedly(Return(makeBaseItemsTable()));
     // Item deserialization incidentally looks up inventory icons; no texture
     // is needed.
-    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_000", _))
+    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_001", _))
         .Times(AnyNumber());
 
     auto thug = game.newCreature();
@@ -2111,7 +2170,7 @@ TEST(Object, should_convert_credits_to_gold_for_any_creature) {
     auto footlocker = game.newPlaceable();
     footlocker->addItem(makeItem(game, "g_i_credits001", 0, 5));
 
-    footlocker->moveDropableItemsTo(*thug);
+    footlocker->moveAllItemsTo(*thug);
 
     EXPECT_EQ(game.party().gold(), 0);
     ASSERT_EQ(thug->items().size(), 0);
@@ -2188,12 +2247,12 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
     auto destroyedAction = game.newAction<UnlockObjectAction>(destroyed);
     auto unsupportedTarget = game.newCreature();
     auto unsupportedAction = game.newAction<UnlockObjectAction>(unsupportedTarget);
-    // A placeable works at a lock at once, so the unsupported target is
-    // reached on the first tick.
+    // A placeable works at a lock at once, so the destroyed and unsupported
+    // targets are reached on the first tick.
     auto worker = game.newPlaceable();
 
     EXPECT_NO_THROW(missingAction->execute(missingAction, *actor, 0.0f));
-    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *actor, 0.0f));
+    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *worker, 0.0f));
     EXPECT_NO_THROW(unsupportedAction->execute(unsupportedAction, *worker, 0.0f));
 
     EXPECT_TRUE(missingAction->isCompleted());
@@ -2560,7 +2619,7 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
     // regular GUI layout scale and its own text setting.
     EXPECT_FLOAT_EQ(listBox.protoItem().scale(), 1.5f);
     EXPECT_EQ(listBox.protoItem().border().dimension, 2);
-    listBox.handleMouseMotion(0, 119);
+    listBox.handleMouseMotion(listBox.protoItem().extent().left, 119);
     EXPECT_EQ(listBox.selectedItemIndex(), 4);
 }
 
@@ -2648,6 +2707,41 @@ TEST(CameraProjection, should_follow_a_resolution_change_after_all_camera_types_
     }
 
     engine.options().graphics = originalGraphicsOptions;
+}
+
+TEST(PointerSelection, should_ignore_an_object_behind_the_camera) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto camera = game.newStaticCamera();
+    auto cameraGff = Gff::Builder()
+                         .field(Gff::Field::newInt("CameraID", 1))
+                         .field(Gff::Field::newFloat("FieldOfView", 55.0f))
+                         .field(Gff::Field::newFloat("Height", 0.0f))
+                         .field(Gff::Field::newVector("Position", glm::vec3(0.0f)))
+                         .field(Gff::Field::newOrientation("Orientation", glm::quat(1.0f, 0.0f, 0.0f, 0.0f)))
+                         .field(Gff::Field::newFloat("Pitch", 0.0f))
+                         .build();
+    camera->deserialize(*cameraGff);
+
+    auto leader = game.newCreature();
+    leader->setPosition({0.0f, 0.0f, -2.0f});
+    auto behind = game.newPlaceable();
+    behind->setPosition({0.0f, 0.0f, 10.0f});
+    auto inFront = game.newPlaceable();
+    inFront->setPosition({0.0f, 0.0f, -10.0f});
+    TestGameModule::configurePointerSelection(game, *area, *camera, {behind, inFront});
+
+    EXPECT_EQ(
+        inFront,
+        game.nearestObjectToPointer(
+            *leader,
+            engine.options().graphics.width / 2,
+            engine.options().graphics.height / 2));
 }
 
 TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_touching_state) {
@@ -3323,8 +3417,9 @@ TEST(DoorLifecycle, should_not_block_the_doorway_until_the_close_completes) {
     EXPECT_EQ("closed", doorPose(*door));
 }
 
-// D. Closing part way through an opening. The superseded opening must never
-// complete afterwards and hand the doorway over.
+// D. Closing part way through an opening. The close waits for the opening to
+// play out and then swings shut with closing2; the superseded opening never
+// hands the doorway over.
 TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3338,14 +3433,18 @@ TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     door->close();
     EXPECT_FALSE(door->isOpening());
     EXPECT_TRUE(door->isClosing());
+    EXPECT_EQ("opening2", doorPose(*door));
     EXPECT_TRUE(doorwayBlocks(*door));
 
-    // Past where the original opening would have completed, and on past where
-    // the close completes. The doorway is never handed over at any point.
-    for (int i = 0; i < 5; ++i) {
+    // Through the end of the opening and the whole close. The doorway is
+    // never handed over at any point.
+    for (int i = 0; i < 6; ++i) {
         stepDoor(*door, 0.4f);
         EXPECT_TRUE(doorwayBlocks(*door)) << "step " << i;
         EXPECT_FALSE(door->isOpen()) << "step " << i;
+        if (i == 2) {
+            EXPECT_EQ("closing2", doorPose(*door));
+        }
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());
@@ -3353,8 +3452,9 @@ TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
     EXPECT_EQ("closed", doorPose(*door));
 }
 
-// E. Reopening part way through a close. The superseded close must never
-// complete afterwards and seal the doorway.
+// E. Reopening part way through a close. The opening waits for the close to
+// play out, and the door then stands open to the new side; the superseded
+// close never seals the doorway.
 TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3368,15 +3468,20 @@ TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     door->open();
     EXPECT_FALSE(door->isClosing());
     EXPECT_TRUE(door->isOpening());
+    EXPECT_EQ("closing1", doorPose(*door));
     EXPECT_FALSE(doorwayBlocks(*door));
     EXPECT_TRUE(door->isOpen());
 
-    // Past where the original close would have completed, and on past where the
-    // reopening completes. The doorway is never sealed at any point.
-    for (int i = 0; i < 5; ++i) {
+    // Through the end of the close and the whole opening. The doorway is
+    // never sealed at any point.
+    for (int i = 0; i < 6; ++i) {
         stepDoor(*door, 0.4f);
         EXPECT_FALSE(doorwayBlocks(*door)) << "step " << i;
         EXPECT_TRUE(door->isOpen()) << "step " << i;
+        if (i == 2) {
+            EXPECT_EQ("opening2", doorPose(*door));
+            EXPECT_EQ(DoorState::Opened2, door->state());
+        }
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());
@@ -4663,7 +4768,7 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
     fixture.countScriptRuns("k_def_blocked01");
 
     // A wall that is not a door ends the walk all the same, with no report.
-    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr);
     ScopedWalkObstruction obstruction(room);
     EXPECT_TRUE(walkerStep(*fixture.area, *npc, kFarDestination));
 
@@ -4761,6 +4866,217 @@ TEST(CreatureNavigationFailure, a_move_to_an_object_in_another_room_no_path_reac
 
     EXPECT_TRUE(npc->navigationFailed());
     EXPECT_TRUE(action->isCompleted());
+}
+
+// Give the area a walkmesh of two rooms that a ramp joins: an upper floor at
+// height 0 from x = -12 to 2, and a lower one at height -1 from x = 4 to 12.
+void loadTwoLevelWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    graphics::Walkmesh upper;
+    upper.vertices = {
+        {-12.0f, -5.0f, 0.0f},
+        {-12.0f, 5.0f, 0.0f},
+        {2.0f, 5.0f, 0.0f},
+        {2.0f, -5.0f, 0.0f}};
+    upper.faces = {{{0, 1, 2}}, {{0, 2, 3}}};
+    upper.materials = {0, 0};
+    uniwalkLoadRoom(area.pathfinder().uni, upper, walkable);
+    graphics::Walkmesh lower;
+    lower.vertices = {
+        {2.0f, -5.0f, 0.0f},
+        {2.0f, 5.0f, 0.0f},
+        {4.0f, 5.0f, -1.0f},
+        {4.0f, -5.0f, -1.0f},
+        {12.0f, 5.0f, -1.0f},
+        {12.0f, -5.0f, -1.0f}};
+    lower.faces = {{{0, 1, 2}}, {{0, 2, 3}}, {{3, 2, 4}}, {{3, 4, 5}}};
+    lower.materials = {0, 0, 0, 0};
+    uniwalkLoadRoom(area.pathfinder().uni, lower, walkable);
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// A speaker on the upper floor and its partner on the lower one, more than ten
+// metres apart. The point halfway between them, at the height halfway between
+// theirs, lies half a metre under the upper floor, where the pathfinder finds
+// no face. The speaker walks to the ground there and sets out.
+TEST(CreatureNavigationFailure, a_conversation_approach_between_two_heights_sets_out_on_the_ground) {
+    BlockedDoorFixture fixture;
+    loadTwoLevelWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    speaker->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(10.0f, 0.0f, -1.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "two_heights");
+    speaker->addAction(action);
+    for (int i = 0; i < 30; ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(speaker->navigationFailed());
+    EXPECT_GT(speaker->position().x, -9.0f);
+}
+
+// Give the area a walkmesh of one room at height 0 in the shape of an arch:
+// two legs, x from -12 to -8 and from 8 to 12, that a bar from y = 8 to 12
+// joins over a hole between them.
+void loadArchWalkmesh(Area &area) {
+    std::set<uint32_t> walkable {0};
+    const float xs[] {-12.0f, -8.0f, 8.0f, 12.0f};
+    const float ys[] {-2.0f, 8.0f, 12.0f};
+    graphics::Walkmesh walkmesh;
+    for (float x : xs) {
+        for (float y : ys) {
+            walkmesh.vertices.push_back({x, y, 0.0f});
+        }
+    }
+    // Each cell, by its lower-left corner, joins its four corners in two faces.
+    auto vertex = [](uint32_t xi, uint32_t yi) { return xi * 3 + yi; };
+    const std::pair<uint32_t, uint32_t> cells[] {{0, 0}, {0, 1}, {1, 1}, {2, 1}, {2, 0}};
+    for (auto [xi, yi] : cells) {
+        walkmesh.faces.push_back({{vertex(xi, yi), vertex(xi, yi + 1), vertex(xi + 1, yi + 1)}});
+        walkmesh.faces.push_back({{vertex(xi, yi), vertex(xi + 1, yi + 1), vertex(xi + 1, yi)}});
+        walkmesh.materials.push_back(0);
+        walkmesh.materials.push_back(0);
+    }
+    uniwalkLoadRoom(area.pathfinder().uni, walkmesh, walkable);
+    uniwalkFinalize(area.pathfinder().uni);
+    area.pathfinder().paths.resize(64);
+}
+
+// A speaker and its partner at the feet of an arch, more than ten metres
+// apart: the point halfway between them lies in the hole under the arch, off
+// the walkmesh. The speaker heads for the partner instead, up the arch.
+TEST(CreatureNavigationFailure, a_conversation_approach_with_no_way_halfway_heads_for_the_partner) {
+    BlockedDoorFixture fixture;
+    loadArchWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    speaker->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(10.0f, 0.0f, 0.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "arch");
+    speaker->addAction(action);
+    for (int i = 0; i < 30; ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(speaker->navigationFailed());
+    EXPECT_GT(speaker->position().y, 0.5f);
+}
+
+// A partner in a room no path reaches, more than ten metres away: no way leads
+// halfway, nor to the partner, and the request ends.
+TEST(CreatureNavigationFailure, a_conversation_approach_to_a_partner_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto speaker = fixture.addCreature("k_def_blocked01");
+    auto partner = fixture.addCreature("k_def_blocked01");
+    partner->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+
+    auto action = fixture.game.newAction<StartConversationAction>(partner, "unreachable");
+    speaker->addAction(action);
+    for (int i = 0; i < 5 && !action->isCompleted(); ++i) {
+        action->execute(action, *speaker, 0.1f);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(glm::vec3(0.0f), speaker->position());
+}
+
+// Steers a creature toward a point far along +x for the given time, moving it
+// at the given speed each frame. Counts the frames its steering turned away
+// from that point, which is what a creature judged stuck does.
+int framesSteeredAway(Area &area, Creature &creature, float speed, float dt, float duration) {
+    const glm::vec3 start {-4.0f, 0.0f, 0.0f};
+    const glm::vec3 next {4.5f, 0.0f, 0.0f};
+    const glm::vec3 towardNext {1.0f, 0.0f, 0.0f};
+    creature.setPosition(start);
+    int steeredAway = 0;
+    const int frames = static_cast<int>(duration / dt);
+    for (int frame = 0; frame < frames; ++frame) {
+        const glm::vec3 force = creature.computeSteeringForce(area.pathfinder().uni, next, dt);
+        // Arbitrary, but wider than the nudge away from the walkmesh's edges
+        // and narrower than losing the direction altogether.
+        if (glm::distance(force, towardNext) > 0.5f) {
+            ++steeredAway;
+        }
+        creature.setPosition(start + towardNext * (speed * dt * static_cast<float>(frame + 1)));
+    }
+    return steeredAway;
+}
+
+// One-millisecond and two-millisecond frames are what a fast machine with
+// v-sync off reaches; the rest bracket ordinary play.
+const std::vector<float> kFrameLengths {0.001f, 0.002f, 0.008f, 1.0f / 60.0f, 1.0f / 30.0f};
+
+TEST(CreatureSteering, a_creature_making_way_is_not_stuck_at_any_frame_rate) {
+    for (float dt : kFrameLengths) {
+        SCOPED_TRACE(dt);
+        BlockedDoorFixture fixture;
+        loadTwoRoomWalkmesh(*fixture.area);
+        auto npc = fixture.addCreature("k_def_blocked01");
+
+        // Two metres a second is a walking creature, and two seconds of it
+        // stays within the room.
+        EXPECT_EQ(0, framesSteeredAway(*fixture.area, *npc, 2.0f, dt, 2.0f));
+    }
+}
+
+TEST(CreatureSteering, a_creature_that_cannot_move_is_stuck_at_any_frame_rate) {
+    for (float dt : kFrameLengths) {
+        SCOPED_TRACE(dt);
+        BlockedDoorFixture fixture;
+        loadTwoRoomWalkmesh(*fixture.area);
+        auto npc = fixture.addCreature("k_def_blocked01");
+
+        EXPECT_GT(framesSteeredAway(*fixture.area, *npc, 0.0f, dt, 3.0f), 0);
+    }
+}
+
+// A placeable with no use point on the ground is used from its own origin,
+// which lies inside its footprint, off the walkmesh. The use walks to the
+// ground beside it rather than giving up where the creature stands.
+TEST(CreatureNavigationFailure, using_a_placeable_off_the_walkmesh_walks_to_the_ground_beside_it) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto desk = fixture.game.newPlaceable();
+    desk->setPosition(glm::vec3(6.5f, 0.0f, 0.0f));
+    fixture.area->add(desk);
+
+    auto action = fixture.game.newAction<OpenContainerAction>(desk);
+    npc->addAction(action);
+    for (int i = 0; i < 200 && !action->isCompleted(); ++i) {
+        action->execute(action, *npc, 0.1f);
+    }
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_FALSE(npc->navigationFailed());
+    EXPECT_GT(npc->position().x, 4.0f);
+    EXPECT_LE(glm::distance(glm::vec2(npc->position()), glm::vec2(desk->position())), 2.5f);
+}
+
+// A placeable in a room no path reaches has no ground beside it within reach,
+// and its use still gives up.
+TEST(CreatureNavigationFailure, using_a_placeable_in_another_room_no_path_reaches_gives_up) {
+    BlockedDoorFixture fixture;
+    loadTwoRoomWalkmesh(*fixture.area);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto desk = fixture.game.newPlaceable();
+    desk->setPosition(glm::vec3(20.0f, 0.0f, 0.0f));
+    fixture.area->add(desk);
+
+    auto action = fixture.game.newAction<OpenContainerAction>(desk);
+    npc->addAction(action);
+    action->execute(action, *npc, 0.1f);
+
+    EXPECT_TRUE(npc->navigationFailed());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(glm::vec3(0.0f), npc->position());
 }
 
 // Invoke GetBlockingDoor as the given caller.
@@ -4917,6 +5233,10 @@ TEST(BlockingDoorRoutines, unlocked_door_is_openable_and_door_action_open_opens_
         {script::Variable::ofObject(fixture.door->id()),
          script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
         execution);
+    ASSERT_EQ(ActionType::OpenDoor, npc->actions().front()->type());
+    npc->setPosition(fixture.door->position());
+    auto open = npc->actions().front();
+    open->execute(open, *npc, 0.0f);
 
     // Opened, and the OnOpen event fired, exactly as for any other open.
     EXPECT_TRUE(fixture.door->isOpen());
@@ -4935,6 +5255,9 @@ TEST(BlockingDoorRoutines, door_action_open_leaves_the_same_state_as_open_door_a
         {script::Variable::ofObject(routineFixture.door->id()),
          script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
         execution);
+    routineNpc->setPosition(routineFixture.door->position());
+    auto routineOpen = routineNpc->actions().front();
+    routineOpen->execute(routineOpen, *routineNpc, 0.0f);
 
     BlockedDoorFixture actionFixture;
     auto actionNpc = actionFixture.addCreature("k_def_blocked01");
@@ -5003,7 +5326,8 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
     EXPECT_EQ(0, bashPossible());
     fixture.door->setPlotFlag(false);
 
-    // The movement the creature was blocked on stays queued behind the bash.
+    // The bash is an attack on the creature's round; in KotOR its dispatcher
+    // goes behind the movement the creature was blocked on, which stays.
     auto movement = fixture.game.newAction<MoveToPointAction>(kFarDestination);
     npc->addAction(movement);
 
@@ -5012,12 +5336,13 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
          script::Variable::ofInt(static_cast<int>(DoorAction::Bash))},
         execution);
 
+    EXPECT_TRUE(fixture.game.combat().hasScheduled(*npc));
     ASSERT_EQ(2, npc->actions().size());
-    EXPECT_EQ(ActionType::AttackObject, npc->actions().front()->type());
-    EXPECT_EQ(movement, npc->actions().back());
+    EXPECT_EQ(movement, npc->actions().front());
+    EXPECT_EQ(ActionType::CombatDispatch, npc->actions().back()->type());
 }
 
-TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothing) {
+TEST(BlockingDoorRoutines, door_actions_without_their_requirements_report_impossible) {
     BlockedDoorFixture fixture(true);
     auto npc = fixture.addCreature("k_def_blocked01");
     Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
@@ -5030,7 +5355,7 @@ TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothin
             {script::Variable::ofObject(fixture.door->id()),
              script::Variable::ofInt(static_cast<int>(action))},
             execution);
-        EXPECT_EQ(0, possible.intValue);
+        EXPECT_EQ(action == DoorAction::Ignore ? 1 : 0, possible.intValue);
 
         routines.get(338).invoke(
             {script::Variable::ofObject(fixture.door->id()),
@@ -5040,7 +5365,8 @@ TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothin
 
     EXPECT_FALSE(fixture.door->isOpen());
     EXPECT_TRUE(fixture.door->isLocked());
-    EXPECT_TRUE(npc->actions().empty());
+    ASSERT_EQ(2u, npc->actions().size());
+    EXPECT_EQ(ActionType::OpenLock, npc->actions().front()->type());
 }
 
 TEST(BlockingDoorRoutines, are_registered_for_both_kotor_and_tsl) {
@@ -6906,6 +7232,7 @@ protected:
         leader = fixture->bringUpModule();
         auto &game = fixture->game;
         game.initLocalServices();
+        TestGameModule::letConversationsSpeak(game);
         auto gui = std::make_unique<AdmissionDialogGUI>(game, fixture->engine.services());
         conversation = gui.get();
         TestGameModule::setDialogGUI(game, std::move(gui));

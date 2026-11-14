@@ -23,6 +23,16 @@ namespace reone {
 
 namespace gui {
 
+/**
+ * A horizontal track with a thumb that sits at the value's share of the
+ * track. The player drags the thumb, clicks the track either side of it to
+ * step the value by one, or steps it with Left and Right while the slider has
+ * the focus.
+ *
+ * A track taller than it is wide stands upright, its thumb higher as the
+ * value grows. The games' one such track, the alignment meter, only shows
+ * its value.
+ */
 class Slider : public Control {
 public:
     Slider(
@@ -36,7 +46,35 @@ public:
             sceneGraphs,
             graphicsSvc,
             resourceSvc) {
+
+        _navigable = true;
+        _selectable = true;
     }
+
+    void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
+    void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
+
+    bool handleKeyDown(input::KeyCode key) override;
+    bool handleClick(int x, int y, int clicks = 1) override;
+    bool handleMouseDown(int x, int y) override;
+    void handleMouseDrag(int x, int y) override;
+
+    int value() const { return _value; }
+
+    /** Show a value, held within the slider's range, without reporting it as a change. */
+    void setValue(int value);
+
+    /** Called with the new value each time the player moves the slider. */
+    void setOnValueChanged(std::function<void(int)> fn) { _onValueChanged = std::move(fn); }
+
+private:
+    std::shared_ptr<graphics::Texture> _thumb;
+    int _value {0};
+    int _maxValue {0};
+    std::function<void(int)> _onValueChanged;
+
+    Extent thumbExtent() const;
+    void changeValue(int value);
 };
 
 } // namespace gui

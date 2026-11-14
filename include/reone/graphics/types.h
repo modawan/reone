@@ -41,6 +41,17 @@ constexpr int kMaxTextChars = 128;
 constexpr int kMaxGrassClusters = 256;
 constexpr int kMaxWalkmeshMaterials = 32;
 
+/** A mode the display can show: its size in pixels and its refresh rate in whole hertz. */
+struct DisplayMode {
+    int width {0};
+    int height {0};
+    int refreshRate {0};
+
+    bool operator==(const DisplayMode &other) const {
+        return width == other.width && height == other.height && refreshRate == other.refreshRate;
+    }
+};
+
 enum class TextureUsage {
     Default,
     ColorBuffer,
@@ -52,7 +63,9 @@ enum class TextureUsage {
     Movie,
     GUI,
     Font,
-    Noise
+    Noise,
+    /** The image an area's map is drawn from, at whatever size the map takes. */
+    AreaMap
 };
 
 enum class TextureQuality {
@@ -167,11 +180,12 @@ struct TextureUnits {
     static constexpr int shadowMapArray = 15;
     static constexpr int irradianceMapArray = 16;
     static constexpr int prefilteredEnvMapArray = 17;
+    static constexpr int mainTexArray = 18;
 
     // Cubemaps
 
-    static constexpr int envMapCube = 18;
-    static constexpr int shadowMapCube = 19;
+    static constexpr int envMapCube = 19;
+    static constexpr int shadowMapCube = 20;
 };
 
 // MDL
@@ -205,6 +219,15 @@ struct MdlClassification {
     static constexpr int lightsaber = 0x10;
     static constexpr int placeable = 0x20;
     static constexpr int flyer = 0x40;
+    /** Left out of scene hits, such as a camera's. */
+    static constexpr int sceneHitExcluded = 0x80;
+};
+
+struct MdlSubclassification {
+    /** The model stands in every room. */
+    static constexpr int inEveryRoom = 1;
+    /** A placeable-classified model takes scene hits all the same, such as a camera's. */
+    static constexpr int hitFilterOverride = 4;
 };
 
 struct MdlNodeFlags {

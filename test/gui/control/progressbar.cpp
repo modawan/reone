@@ -45,7 +45,7 @@ public:
     void draw(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &) override {}
     void drawSkinned(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const std::vector<glm::mat4> &) override {}
     void drawDangly(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const std::vector<glm::vec4> &) override {}
-    void drawSaber(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const glm::vec4 &) override {}
+    void drawSaber(Mesh &, Material &, const glm::mat4 &, const glm::mat4 &, const glm::mat4 &) override {}
     void drawBillboard(Texture &, const glm::vec4 &, const glm::mat4 &, const glm::mat4 &, std::optional<float>) override {}
     void drawParticles(Texture &, FaceCullMode, bool, const glm::ivec2 &, const std::vector<ParticleInstance> &) override {}
     void drawProjectedBeam(Mesh &, const glm::mat4 &, const glm::mat4 &, const glm::vec4 &) override {}
@@ -58,7 +58,8 @@ public:
         const glm::ivec2 &size,
         glm::vec4,
         glm::mat3x4,
-        ImageAlphaMode) override {
+        ImageAlphaMode,
+        int) override {
         imageDraws.push_back({position, size});
     }
 

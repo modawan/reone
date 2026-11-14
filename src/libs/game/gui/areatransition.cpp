@@ -45,8 +45,6 @@ void AreaTransition::onGUILoaded() {
     bindControls();
     // The banner's colour tints its images as well as their frames. A dimmed
     // banner draws both in the refused colour.
-    _controls.LBL_TEXTBG->setTintBorderFill(true);
-    _controls.LBL_ICON->setTintBorderFill(true);
     _controls.LBL_TEXTBG->setBorderColorOverride(kTravelRefusedBorderColor);
     _controls.LBL_ICON->setBorderColorOverride(kTravelRefusedBorderColor);
     if (_game.isTSL()) {

@@ -19,17 +19,94 @@
 #include <gtest/gtest.h>
 
 #include "../fixtures/engine.h"
+#include "../fixtures/game.h"
+#include "../fixtures/scene.h"
 
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
+#include "reone/game/room.h"
+#include "reone/graphics/walkmesh.h"
+#include "reone/scene/node/walkmesh.h"
 #include "reone/system/exception/validation.h"
 
 using namespace reone;
 using namespace reone::game;
 using namespace testing;
 
+void reone::game::TestGameModule::setDoorClosedWalkmesh(Door &door, std::shared_ptr<scene::WalkmeshSceneNode> walkmesh) {
+    door._walkmeshClosed = std::move(walkmesh);
+}
+
 namespace {
+
+constexpr uint32_t kFloorMaterial = 0;
+constexpr uint32_t kWallMaterial = 1;
+
+// An upright wall across the line y = 0, at x, from y = -2 to 2 and from the
+// ground to 3 up.
+void addWall(graphics::Walkmesh &walkmesh, float x) {
+    const auto first = static_cast<uint32_t>(walkmesh.vertices.size());
+    walkmesh.vertices.push_back(glm::vec3(x, -2.0f, 0.0f));
+    walkmesh.vertices.push_back(glm::vec3(x, 2.0f, 0.0f));
+    walkmesh.vertices.push_back(glm::vec3(x, 2.0f, 3.0f));
+    walkmesh.vertices.push_back(glm::vec3(x, -2.0f, 3.0f));
+    walkmesh.faces.push_back({first, first + 1, first + 2});
+    walkmesh.faces.push_back({first, first + 2, first + 3});
+    walkmesh.normals.insert(walkmesh.normals.end(), 2, glm::vec3(-1.0f, 0.0f, 0.0f));
+    walkmesh.materials.insert(walkmesh.materials.end(), 2, kWallMaterial);
+}
+
+// A room with a wall across a walk from the origin along x, and a door with
+// its own wall across it, each at a distance. The walk is settled as one
+// stretch over the room, at ground level.
+struct WallsFixture {
+    TestEngine engine;
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    Room room {"room", glm::vec3(0.0f), nullptr, nullptr};
+    graphics::Walkmesh roomWalkmesh;
+    graphics::Walkmesh doorWalkmesh;
+    std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
+    std::shared_ptr<scene::WalkmeshSceneNode> doorNode;
+    StubConsole console;
+    std::unique_ptr<Game> game;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Door> door;
+    std::shared_ptr<Creature> walker;
+
+    WallsFixture(float roomWallAt, float doorWallAt) {
+        engine.init();
+        ON_CALL(engine.sceneModule().graphs(), get(_))
+            .WillByDefault(ReturnRef(sceneGraph));
+        auto &surfaces = dynamic_cast<MockSurfaces &>(engine.services().game.surfaces);
+        ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
+        ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
+
+        addWall(roomWalkmesh, roomWallAt);
+        addWall(doorWalkmesh, doorWallAt);
+        roomNode = std::make_shared<scene::WalkmeshSceneNode>(
+            roomWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+        roomNode->setUser(room);
+        doorNode = std::make_shared<scene::WalkmeshSceneNode>(
+            doorWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
+        ON_CALL(sceneGraph, walkRooms(_, _, _, _, _, _))
+            .WillByDefault(Invoke([this](const glm::vec3 &, const glm::vec3 &, std::optional<int>, bool,
+                                         std::vector<scene::RoomStretch> &stretches, scene::Collision &) {
+                stretches.push_back(scene::RoomStretch {roomNode, 0.0f, graphics::Walkmesh::HeightBand {0.0f, 0.0f}});
+                return scene::RoomWalkEnd::Dest;
+            }));
+
+        game = std::make_unique<Game>(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+        area = game->newArea();
+        door = game->newDoor();
+        doorNode->setUser(*door);
+        TestGameModule::setDoorClosedWalkmesh(*door, doorNode);
+        area->add(door);
+        walker = game->newCreature();
+    }
+};
 
 TEST(Area, get_object_by_tag_should_keep_insertion_order) {
     TestEngine engine;
@@ -112,3 +189,30 @@ TEST(Area, failed_room_attachment_rolls_back_area_ownership) {
 }
 
 } // namespace
+
+// A door standing in front of a room's wall stops the walk at the door, and
+// the door is reported.
+TEST(Area, a_door_before_a_room_wall_stops_a_walk_first) {
+    WallsFixture fixture(/*roomWallAt=*/4.0f, /*doorWallAt=*/2.0f);
+
+    const auto test = fixture.area->testDirectLine(*fixture.walker, glm::vec3(0.0f), glm::vec3(6.0f, 0.0f, 0.0f));
+
+    EXPECT_EQ(Area::DirectLine::Blocked, test.result);
+    EXPECT_LT(test.stopPoint.x, 2.0f - fixture.walker->personalSpace() + 0.01f);
+    EXPECT_GT(test.stopPoint.x, 1.0f);
+    ASSERT_TRUE(test.door.has_value());
+    EXPECT_EQ(fixture.door.get(), &test.door->get());
+}
+
+// A room's wall in front of a door stops the walk at the wall, and no door is
+// reported.
+TEST(Area, a_room_wall_before_a_door_stops_a_walk_first) {
+    WallsFixture fixture(/*roomWallAt=*/2.0f, /*doorWallAt=*/4.0f);
+
+    const auto test = fixture.area->testDirectLine(*fixture.walker, glm::vec3(0.0f), glm::vec3(6.0f, 0.0f, 0.0f));
+
+    EXPECT_EQ(Area::DirectLine::Blocked, test.result);
+    EXPECT_LT(test.stopPoint.x, 2.0f - fixture.walker->personalSpace() + 0.01f);
+    EXPECT_GT(test.stopPoint.x, 1.0f);
+    EXPECT_FALSE(test.door.has_value());
+}

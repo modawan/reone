@@ -20,6 +20,7 @@
 #include "reone/game/gui/chargen/iconselection.h"
 
 #include "reone/game/d20/classes.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
@@ -93,13 +94,13 @@ void CharGenSkills::onGUILoaded() {
     _controls.SECURITY_POINTS_BTN->setDisabled(true);
     _controls.TREAT_INJURY_POINTS_BTN->setDisabled(true);
 
-    _controls.BTN_RECOMMENDED->setDisabled(true);
     _controls.COST_POINTS_LBL->setTextMessage("");
 
+    _controls.BTN_RECOMMENDED->setOnClick([this]() {
+        recommend();
+    });
     _controls.BTN_ACCEPT->setOnClick([this]() {
-        updateCharacter();
-        _charGen.goToNextStep();
-        _charGen.openSteps();
+        accept();
     });
     _controls.BTN_BACK->setOnClick([this]() {
         _charGen.openSteps();
@@ -202,8 +203,25 @@ void CharGenSkills::reset(bool newGame) {
     } else {
         _attributes = attributes;
     }
+    _startAttributes = _attributes;
+    _startPoints = _points;
 
     refreshControls();
+}
+
+void CharGenSkills::recommend() {
+    // The recommendation starts over from the screen's opening ranks.
+    _attributes = _startAttributes;
+    _points = _startPoints;
+    const ClassType clazz = _charGen.character().attributes.getEffectiveClass();
+    recommendSkills(*_services.game.classes.get(clazz), _allocationLevel, _attributes, _points);
+    refreshControls();
+}
+
+void CharGenSkills::accept() {
+    updateCharacter();
+    _charGen.goToNextStep();
+    _charGen.openSteps();
 }
 
 void CharGenSkills::refreshControls() {
@@ -218,14 +236,17 @@ void CharGenSkills::refreshControls() {
     _controls.SECURITY_POINTS_BTN->setTextMessage(std::to_string(_attributes.getSkillRank(SkillType::Security)));
     _controls.TREAT_INJURY_POINTS_BTN->setTextMessage(std::to_string(_attributes.getSkillRank(SkillType::TreatInjury)));
 
-    _controls.COM_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::ComputerUse) > 0);
-    _controls.DEM_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::Demolitions) > 0);
-    _controls.STE_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::Stealth) > 0);
-    _controls.AWA_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::Awareness) > 0);
-    _controls.PER_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::Persuade) > 0);
-    _controls.REP_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::Repair) > 0);
-    _controls.SEC_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::Security) > 0);
-    _controls.TRE_MINUS_BTN->setVisible(_attributes.getSkillRank(SkillType::TreatInjury) > 0);
+    // Minus takes back only the ranks this screen placed: a new character's
+    // start at zero, a level-up's at the character's own, so a level-up
+    // cannot trade one skill's ranks for another's.
+    _controls.COM_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::ComputerUse));
+    _controls.DEM_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::Demolitions));
+    _controls.STE_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::Stealth));
+    _controls.AWA_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::Awareness));
+    _controls.PER_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::Persuade));
+    _controls.REP_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::Repair));
+    _controls.SEC_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::Security));
+    _controls.TRE_MINUS_BTN->setVisible(canDecreaseSkill(SkillType::TreatInjury));
 
     _controls.COM_PLUS_BTN->setVisible(canIncreaseSkill(SkillType::ComputerUse));
     _controls.DEM_PLUS_BTN->setVisible(canIncreaseSkill(SkillType::Demolitions));
@@ -237,15 +258,16 @@ void CharGenSkills::refreshControls() {
     _controls.TRE_PLUS_BTN->setVisible(canIncreaseSkill(SkillType::TreatInjury));
 }
 
+bool CharGenSkills::canDecreaseSkill(SkillType skill) const {
+    return _attributes.getSkillRank(skill) > _startAttributes.getSkillRank(skill);
+}
+
 bool CharGenSkills::canIncreaseSkill(SkillType skill) const {
     ClassType clazz = _charGen.character().attributes.getEffectiveClass();
 
     std::shared_ptr<CreatureClass> creatureClass(_services.game.classes.get(clazz));
-    int maxClassSkillRank = _allocationLevel + 3;
-    int maxSkillRank = creatureClass->isClassSkill(skill) ? maxClassSkillRank : maxClassSkillRank / 2;
-    int pointCost = creatureClass->isClassSkill(skill) ? 1 : 2;
-
-    return _points >= pointCost && _attributes.getSkillRank(skill) < maxSkillRank;
+    return _points >= creatureClass->skillPointCost(skill) &&
+           _attributes.getSkillRank(skill) < creatureClass->maxSkillRank(skill, _allocationLevel);
 }
 
 void CharGenSkills::updateCharacter() {
@@ -259,7 +281,7 @@ void CharGenSkills::updateCharacter() {
 int CharGenSkills::getPointCost(SkillType skill) const {
     ClassType clazz = _charGen.character().attributes.getEffectiveClass();
     std::shared_ptr<CreatureClass> creatureClass(_services.game.classes.get(clazz));
-    return creatureClass->isClassSkill(skill) ? 1 : 2;
+    return creatureClass->skillPointCost(skill);
 }
 
 void CharGenSkills::onMinusButtonClick(SkillType skill) {

@@ -84,7 +84,20 @@ public:
     void startCreation();
     void startQuick();
     void startCustom();
-    void startLevelUp();
+    /** Starts the controlled creature's level-up; a forced one cannot be cancelled. */
+    void startLevelUp(bool forced = false);
+
+    /**
+     * Levels the party leader up by one level without opening a screen: each
+     * step takes its recommendation and is accepted, as pressing Recommended
+     * and accepting on every screen of a level-up does. Feat and power picks
+     * no recommendation fills take the other choices, lowest row first.
+     *
+     * @return whether the level was applied: not when the leader has no level
+     *         pending, nor when an attribute point, feat pick or power pick
+     *         cannot be filled, which leaves the level pending
+     */
+    bool autoLevelUp();
 
     void finish();
     void cancel();
@@ -135,6 +148,9 @@ public:
     void acceptAbilities();
 
     const Character &character() const { return _character; }
+
+    /** @return whether the character is levelling up rather than being created */
+    bool isLevelUp() const { return _type == Type::LevelUp; }
 
     /** The level-up character's attributes with its coming level. */
     CreatureAttributes levelledAttributes() const;
@@ -228,7 +244,13 @@ private:
     std::string _musicResRef;
 
     CharGenScreen _screen {CharGenScreen::ClassSelection};
+
+    /** Gives the party leader the level-up's character. */
+    void applyLevelUpToLeader();
+
     Type _type {Type::Quick};
+    /** Whether the level-up under way was forced by a script, and cannot be cancelled. */
+    bool _levelUpForced {false};
     Character _character;
     LevelUpBase _levelUpBase;
     /** The panel's title as the layout gives it, which creation shows. */

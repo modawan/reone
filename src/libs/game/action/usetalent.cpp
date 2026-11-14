@@ -18,7 +18,6 @@
 #include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/usefeat.h"
-#include "reone/game/action/useskill.h"
 #include "reone/game/action/usetalentatlocation.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/game.h"
@@ -31,7 +30,7 @@ namespace game {
 
 void UseTalentOnObjectAction::dispatchToAction(Object &actor) {
     assert(!_action && "dispatchToAction is called twice");
-    const auto *creature = dyn_cast<Creature>(&actor);
+    auto *creature = dyn_cast<Creature>(&actor);
     if (!creature || !_target || !isa<Creature>(_target.get()) || !actor.isCommandable()) {
         return;
     }
@@ -86,7 +85,7 @@ void UseTalentOnObjectAction::dispatchToAction(Object &actor) {
         break;
     }
     case TalentType::Skill:
-        _action = _game.newAction<UseSkillAction>(static_cast<SkillType>(_chosenTalent->value()), _target);
+        _action = creature->useSkill(static_cast<SkillType>(_chosenTalent->value()), _target);
         break;
     default:
         break;

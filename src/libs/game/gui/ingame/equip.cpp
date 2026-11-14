@@ -80,19 +80,11 @@ static const std::unordered_map<Equipment::Slot, SlotNameStrRefs> kSlotStrRefs =
 
 static int getInventorySlot(Equipment::Slot slot);
 
-static void enableBorderFillTint(const std::shared_ptr<Control> &control) {
-    if (!control) {
-        return;
-    }
-    control->setTintBorderFill(true);
-}
-
 static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
     if (!listBox) {
         return;
     }
     listBox->setBorderColor(baseColor);
-    listBox->setTintBorderFill(true);
 }
 
 void Equipment::onGUILoaded() {
@@ -128,6 +120,14 @@ void Equipment::onGUILoaded() {
     if (_controls.BTN_CHANGE2) {
         _controls.BTN_CHANGE2->setOnClick([this]() { changeCharacter(2); });
     }
+    if (!isTSL()) {
+        // KotOR's arrows step through the party: left to the member before
+        // the shown character, the last portrait, and right to the next.
+        findControl<Button>("BTN_CHARLEFT")->setOnClick([this]() {
+            changeCharacter(_view.subject.portraits[2] ? 2 : 1);
+        });
+        findControl<Button>("BTN_CHARRIGHT")->setOnClick([this]() { changeCharacter(1); });
+    }
     if (isTSL()) {
         useK2ShellTitle(_controls.LBL_TITLE);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
@@ -152,7 +152,6 @@ void Equipment::onGUILoaded() {
     _controls.LB_DESC->setVisible(false);
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LBL_CANTEQUIP->setVisible(false);
-    tintK2LoadoutOverlay();
     updateK2LoadoutOverlayVisibility(true);
 
     configureItemsListBox();
@@ -230,13 +229,10 @@ void Equipment::configureItemsListBox() {
         enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
-        protoItem.setTintBorderFill(true);
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
         tintK2PanelFill(_controls.LB_DESC, _baseColor);
-    } else {
-        protoItem.setBorderColor(_baseColor);
-        protoItem.setHilightColor(_hilightColor);
     }
+    useK1ListEntryColors(protoItem);
 }
 
 void Equipment::clearCandidateDescription() {
@@ -314,8 +310,8 @@ void Equipment::confirmCandidateItem(const std::string &item) {
     if (index < 0 || index >= static_cast<int>(_listedItems.size()) || !_listedItems[index].valid) return;
     // Choosing an item or clearing the slot sounds when it is asked for,
     // whatever the outcome.
-    auto clip = item == kNoneItemTag ? _presentation.sounds.getInventoryDrop() : _presentation.sounds.getInventorySelect();
-    _audioSource = _presentation.mixer.play(std::move(clip), audio::AudioType::Sound);
+    auto sound = item == kNoneItemTag ? _presentation.sounds.getInventoryDrop() : _presentation.sounds.getInventorySelect();
+    _audioSource = _presentation.sounds.play(sound);
     _awaitingRevision = _view.revision;
     _backing->equip(_view.revision, _listedItems[index].handle, getInventorySlot(_selectedSlot));
     receiveEquipmentResult();
@@ -421,7 +417,9 @@ void Equipment::updatePortraits() {
     if (isTSL()) return;
     _controls.LBL_PORTRAIT->setBorderFill(_view.subject.portraits[0]);
     _controls.BTN_CHANGE1->setBorderFill(_view.subject.portraits[1]);
+    _controls.BTN_CHANGE1->setHilightFill(_view.subject.portraits[1]);
     _controls.BTN_CHANGE2->setBorderFill(_view.subject.portraits[2]);
+    _controls.BTN_CHANGE2->setHilightFill(_view.subject.portraits[2]);
 }
 
 void Equipment::selectSlot(Slot slot) {
@@ -455,16 +453,10 @@ void Equipment::selectSlot(Slot slot) {
     activateSlot(slot);
     if (noneSelected) {
         clearCandidateDescription();
+    } else {
+        // An opened slot's item list takes the keyboard.
+        _gui->setActiveControl(*_controls.LB_ITEMS);
     }
-}
-
-void Equipment::tintK2LoadoutOverlay() {
-    if (!isTSL())
-        return;
-
-    // Preserve the muted K2 panel colours authored in equip_p.gui.
-    enableBorderFillTint(_controls.LBL_BACK1);
-    enableBorderFillTint(_controls.LBL_DEF_BACK);
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {

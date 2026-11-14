@@ -50,6 +50,8 @@ public:
     void clearSelection() override;
 
     void refreshControls();
+    /** The script selection panel has its title where the in-game menu's navigation is. */
+    bool coversInGameMenu() const override { return _scriptSelectOpen; }
 
 private:
     static constexpr int kNumControlsGood = 10;
@@ -262,6 +264,8 @@ private:
     }
 
     void refreshPortraits();
+    /** Hands control to a party member, whom the screen then shows. */
+    void changeCharacter(int member);
     void refresh3D();
     /** Show, in TSL, the line describing the leader's Pure Good or Pure Evil Force mastery. */
     void refreshForceMastery(const Creature &leader);

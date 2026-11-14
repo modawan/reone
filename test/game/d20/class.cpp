@@ -275,6 +275,14 @@ TEST_F(GrantedFeatsTest, should_grant_unarmed_specialist_at_the_characters_jedi_
     EXPECT_TRUE(jedi.hasFeat(static_cast<FeatType>(212)));
 }
 
+TEST_F(GrantedFeatsTest, should_count_a_jedi_class_that_is_not_the_newest_class) {
+    CreatureAttributes attributes;
+    attributes.addClassLevels(classes->get(ClassType::JediGuardian).get(), 2);
+    attributes.addClassLevels(classes->get(ClassType::Soldier).get(), 3);
+
+    EXPECT_EQ(2, attributes.getJediLevel());
+}
+
 TEST(CreatureClass, should_load_power_gains_for_k1_base_and_tsl_prestige_classes) {
     NiceMock<MockStrings> strings;
     NiceMock<MockTwoDAs> twoDas;

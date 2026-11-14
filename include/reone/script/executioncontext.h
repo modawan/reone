@@ -40,6 +40,13 @@ struct ExecutionContext {
      */
     std::shared_ptr<int> instructionsRun;
 
+    /**
+     * Set by a routine, every run sharing it stops after the instruction
+     * under way, to go on later from where it stopped
+     * (VirtualMachine::resume). A run given none can't stop.
+     */
+    std::shared_ptr<bool> yield;
+
     /// Find an argument variable or return nullptr.
     ///
     /// Arguments are specific to a script run. For example, LastOpenedBy

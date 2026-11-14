@@ -11,6 +11,7 @@
 #include "i_envmap.glsl"
 
 uniform sampler2D sMainTex;
+uniform sampler2DArray sMainTexArray;
 uniform sampler2D sLightmap;
 uniform sampler2D sEnvMap;
 uniform sampler2D sNormalMap;
@@ -39,7 +40,9 @@ vec3 getNormal(vec2 uv) {
 void main() {
     vec2 uv = vec2(uUV * vec3(fragUV1, 1.0));
 
-    vec4 mainTexSample = texture(sMainTex, uv);
+    vec4 mainTexSample = isFeatureEnabled(FEATURE_MAINTEXARRAY)
+                             ? texture(sMainTexArray, vec3(uv, uMainTexFrame))
+                             : texture(sMainTex, uv);
     vec3 diffuseColor = mainTexSample.rgb;
     float diffuseAlpha = mainTexSample.a;
 

@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <functional>
+#include <utility>
+
 #include "reone/resource/parser/gff/jrl.h"
 
 namespace reone {
@@ -50,6 +53,8 @@ public:
         int state {0};
         uint32_t date {0};
         uint32_t time {0};
+        /** The quest arrived or moved on, and the player has not read it in the journal since. Not saved. */
+        bool unread {false};
     };
 
     Journal(resource::IGffs &gffs, resource::IStrings &strings, resource::ITwoDAs &twoDas) :
@@ -79,6 +84,9 @@ public:
     /** Set quest state verbatim, e.g. when restoring from a savegame. */
     void restoreEntry(std::string plotId, int state, uint32_t date, uint32_t time);
 
+    /** The player has read the quest with the given plot ID in the journal. */
+    void markRead(const std::string &plotId);
+
     /** @return state of the quest with the given plot ID, or 0 if not present */
     int getEntryState(const std::string &plotId) const;
 
@@ -96,6 +104,12 @@ public:
      * invoked by removeEntry or restoreEntry.
      */
     void setOnQuestChanged(std::function<void(const EntryChange &)> fn) { _onQuestChanged = std::move(fn); }
+    /**
+     * Set the world clock, the calendar day and time of day, that stamps a
+     * quest as it arrives or moves on. Without one, quests are stamped with
+     * day 0 at time 0.
+     */
+    void setClock(std::function<std::pair<uint32_t, uint32_t>()> clock) { _clock = std::move(clock); }
 
     const resource::JRL::Category *findCategory(const std::string &plotId);
     const resource::JRL::Entry *findEntry(const std::string &plotId, int state);
@@ -124,6 +138,7 @@ private:
     /** The plots, by plot index. */
     std::vector<Plot> _plots;
     std::function<void(const EntryChange &)> _onQuestChanged;
+    std::function<std::pair<uint32_t, uint32_t>()> _clock;
 
     void ensureLoaded();
     void notifyQuestChanged(const resource::JRL::Category *category, const resource::JRL::Entry *entry);

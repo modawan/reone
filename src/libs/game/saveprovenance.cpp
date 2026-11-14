@@ -97,6 +97,11 @@ std::vector<SerializedObjectIdClaim> collectSerializedObjectIdClaims(
             addItems(*players[index], path, false);
         }
         addCreatureList("Creature List", "ifo");
+        const auto partyIds = root.getList("Mod_PartyObjIds");
+        for (size_t index = 0; index < partyIds.size(); ++index) {
+            add(*partyIds[index],
+                "ifo/Mod_PartyObjIds[" + std::to_string(index) + "]");
+        }
         break;
     }
     case SerializedGraphRoot::AreaGit: {

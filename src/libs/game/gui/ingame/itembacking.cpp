@@ -245,8 +245,7 @@ static bool itemMatchesFilter(const Item &item, InventoryFilter filter) {
     case InventoryFilter::All:
         return true;
     case InventoryFilter::New:
-        // New item tracking is not retained by the runtime inventory yet.
-        return false;
+        return item.isNewlyAcquired();
     case InventoryFilter::Quest:
         return item.plotFlag();
     case InventoryFilter::Equippable:
@@ -414,6 +413,23 @@ public:
             return kItemUseTooSoonStrRef;
         useItemAtOnce(_game, *leader, item);
         return std::nullopt;
+    }
+
+    void noteItemViewed(uint64_t handle) override {
+        auto entry = _items.find(handle);
+        auto item = entry != _items.end() ? entry->second.reference.resolve() : nullptr;
+        if (item && item->isNewlyAcquired()) {
+            _viewedNewItems.emplace_back(item);
+        }
+    }
+
+    void markViewedItemsSeen() override {
+        for (const auto &reference : _viewedNewItems) {
+            if (auto item = reference.resolve()) {
+                item->setNewlyAcquired(false);
+            }
+        }
+        _viewedNewItems.clear();
     }
 
     EquipmentView readEquipmentOverview() override {
@@ -653,6 +669,8 @@ private:
     int _slot {-1};
     std::unordered_map<uint64_t, BoundItem> _items;
     std::map<int, RuntimeObjectRef<Item>> _equipment;
+    /** The new items the player has looked at since the inventory opened. */
+    std::vector<RuntimeObjectRef<Item>> _viewedNewItems;
     std::optional<EquipmentRequestResult> _result;
 
     bool live(const std::shared_ptr<Item> &item) const {
@@ -715,6 +733,7 @@ private:
         view.icon = item->icon();
         view.stackSize = item->stackSize();
         view.equipped = equipped;
+        view.newlyAcquired = item->isNewlyAcquired();
         return view;
     }
 };

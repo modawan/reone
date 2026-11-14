@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -54,6 +55,7 @@ class Action;
 class Area;
 class Game;
 class Item;
+class Lock;
 class ModuleSnapshotBuilder;
 class Room;
 class Trap;
@@ -110,6 +112,13 @@ public:
         Presentation,
     };
 
+    /** An item handed over to another object, and the stack that now holds it. */
+    struct HandedOverItem {
+        std::shared_ptr<Item> item;
+        /** The item itself, the stack it joined, or none when it was counted. */
+        std::shared_ptr<Item> held;
+    };
+
     virtual ~Object() = default;
 
     static bool classof(Object *from) {
@@ -121,6 +130,13 @@ public:
         const SerializedIdentityContext &identityContext);
     /** Places the object at a record's position, facing its orientation or bearing. */
     void deserializePlacement(const resource::Gff &gff);
+    /** Places the object at the position its area entry names; a coordinate the entry lacks is 0. */
+    void placeAtEntryPosition(const resource::Gff &entry);
+    /**
+     * Places the object at the point its area entry names by X, Y and Z,
+     * facing its bearing; a value the entry lacks is 0.
+     */
+    void placeAtEntryPoint(const resource::Gff &entry);
 
     virtual void update(float dt);
     /**
@@ -187,12 +203,22 @@ public:
 
     uint32_t id() const { return _id; }
     virtual std::string getOnSpellCastAt() const { return {}; }
+    /** The lock the object carries: a door's or a placeable's; none for any other object. */
+    virtual std::optional<std::reference_wrapper<Lock>> findLock() { return std::nullopt; }
+    /** The lock the object carries: a door's or a placeable's; none for any other object. */
+    virtual std::optional<std::reference_wrapper<const Lock>> findLock() const { return std::nullopt; }
     /** The trap the object carries: a door's, a placeable's or a trigger's; none for any other object. */
     virtual std::optional<std::reference_wrapper<Trap>> findTrap() { return std::nullopt; }
     /** The trap the object carries: a door's, a placeable's or a trigger's; none for any other object. */
     virtual std::optional<std::reference_wrapper<const Trap>> findTrap() const { return std::nullopt; }
     /** Shows \p text over the object for \p duration seconds; no duration clears it. */
     void setFeedbackText(std::string text, float duration);
+    /**
+     * Tell the player the object is locked: the locked sound of its \p lock,
+     * \p soundHeight above it, the locked text over it for five seconds, and
+     * the line in the log.
+     */
+    void presentLocked(const Lock &lock, float soundHeight);
     const std::string &feedbackText() const { return _feedbackText; }
     Game &game() const { return _game; }
     ServicesView &services() const { return _services; }
@@ -206,6 +232,7 @@ public:
     const std::string &blueprintResRef() const { return _blueprintResRef; }
     const std::string &name() const { return _name; }
     const std::string &conversation() const { return _conversation; }
+    /** Whether the object is plot. */
     bool plotFlag() const { return _plot; }
     /**
      * Damage immunity is kept per damage type. For several types in \p flags,
@@ -289,16 +316,27 @@ public:
      * counted.
      */
     std::shared_ptr<Item> addItem(const std::string &resRef, int stackSize = 1, std::optional<bool> dropable = true);
-    std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item);
+    /**
+     * The object takes a live item, as addItem above does. Keeping its own
+     * stack, the item joins none.
+     */
+    std::shared_ptr<Item> addItem(const std::shared_ptr<Item> &item, ItemStacking stacking = ItemStacking::Join);
+    /** One item of a stack leaves the object; the last one takes the stack, which is no longer new. */
     bool removeItem(const std::shared_ptr<Item> &item, bool &last);
     bool removeItemStack(const std::shared_ptr<Item> &item);
-    void moveDropableItemsTo(Object &other);
-    /** Every item moves to other, the last first. */
-    void moveAllItemsTo(Object &other);
+    /**
+     * Every item moves to other, the last first.
+     *
+     * @return each item moved, in the order moved
+     */
+    std::vector<HandedOverItem> moveAllItemsTo(Object &other);
 
     std::shared_ptr<Item> getFirstItem();
     std::shared_ptr<Item> getNextItem();
+    /** The first item with the tag, each item's own items searched right after it; none when no item has it. */
     std::shared_ptr<Item> getItemByTag(const std::string &tag);
+    /** The first item of the type, each item's own items searched before it; none when no item is of it. */
+    std::shared_ptr<Item> getItemByItemType(int itemType) const;
 
     const std::vector<std::shared_ptr<Item>> &items() const { return _items; }
 
@@ -436,6 +474,8 @@ public:
     void addAction(std::shared_ptr<Action> action, std::optional<int> group = std::nullopt);
     /** Queues \p action at the front, choosing its group as addAction() does. */
     void addActionOnTop(std::shared_ptr<Action> action, std::optional<int> group = std::nullopt);
+    /** Queues \p actions at the front as one new group, the first of them first. */
+    void addGroupOnTop(std::vector<std::shared_ptr<Action>> actions);
     /** Queues \p action just before \p parent, in its group; returns false when \p parent is not queued. */
     bool addActionBefore(const Action &parent, std::shared_ptr<Action> action);
     /** The group of \p action's node, the one running it first; none when it is not queued. */
@@ -556,10 +596,20 @@ public:
         SaveRecordOrigin origin = {});
     /**
      * Keep the record an object placed from a blueprint was made from: the
-     * blueprint's fields, with those the placement gives in their place. A
-     * save writes the object over it.
+     * blueprint's fields, with every field the placement gives in their place.
+     * A save writes the object over it.
      */
     void captureAuthoredRecord(const resource::Gff &blueprint, const resource::Gff &placement);
+    /**
+     * Keep the record an object placed from a blueprint was made from: the
+     * blueprint's fields, with those of \p placementFields the placement gives
+     * in their place. The object takes these fields, and only these, from its
+     * placement. A save writes the object over the record.
+     */
+    void captureAuthoredRecord(
+        const resource::Gff &blueprint,
+        const resource::Gff &placement,
+        const std::vector<std::string> &placementFields);
     const std::optional<SaveRecordProvenance> &saveRecordProvenance() const {
         return _saveRecordProvenance;
     }
@@ -615,6 +665,8 @@ public:
         std::string conversation;
         /** A request to talk asks for a private conversation. */
         bool privateConversation {false};
+        /** A request to talk ignores its start range, as a script's does. */
+        bool ignoreStartRange {false};
     };
 
     /** A pattern the object listens for and the number it answers with. */
@@ -672,8 +724,12 @@ protected:
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
 
-    /** An item taken out of this object's inventory goes to other. */
-    void handOverItem(const std::shared_ptr<Item> &item, Object &other);
+    /**
+     * An item taken out of this object's inventory goes to other.
+     *
+     * @return the stack now holding the item, or null when it was counted
+     */
+    std::shared_ptr<Item> handOverItem(const std::shared_ptr<Item> &item, Object &other);
 
     /**
      * Drops a node of a removed action group, bypassing commandability,
@@ -696,13 +752,26 @@ protected:
      */
     void recordReceivedAttack(uint32_t attackerId, int weaponAttackType);
 
-    // Add one privately constructed Item to a candidate owned graph using the
-    // same stacking rules as runtime inventory insertion. Authoritative saved
-    // identities can be preserved as distinct records during restoration.
+    /**
+     * Adds one privately constructed Item to a candidate owned graph with the
+     * stacking rules of runtime inventory insertion; a loaded item joins an
+     * identical stack whatever saved identity either carries. An item taken
+     * in whole by a stack is discarded, so its saved identity names nothing.
+     *
+     * @return the stack now holding the item
+     */
     std::shared_ptr<Item> appendOwnedItemCandidate(
         std::vector<std::shared_ptr<Item>> &items,
-        const std::shared_ptr<Item> &item,
-        bool preserveSerializedIdentities);
+        const std::shared_ptr<Item> &item);
+    /**
+     * Where a new item goes among the object's items: by base item, then by
+     * name among items of one base item, when the object keeps its items in
+     * order; otherwise first, or last while the items are read from a record,
+     * which keeps the record's order.
+     */
+    size_t itemInsertPosition(const std::vector<std::shared_ptr<Item>> &items, const Item &item) const;
+    /** Puts \p item among \p items where itemInsertPosition places it. */
+    void placeItem(std::vector<std::shared_ptr<Item>> &items, std::shared_ptr<Item> item) const;
     /** Atomically replace canonical effect state and run exact lifecycle hooks. */
     void replaceEffectState(std::deque<EffectInstance> replacement) noexcept;
 
@@ -721,6 +790,7 @@ protected:
     std::string _onHeartbeat;
     std::string _onUserDefined;
     bool _minOneHP {false};
+    /** Whether the object is plot: a record's value or a script's argument sets it when not 0. */
     bool _plot {false};
     bool _commandable {true};
     bool _interruptable {false};
@@ -730,6 +800,19 @@ protected:
     glm::vec3 _position {0.0f};
     glm::quat _orientation {1.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::shared_ptr<Item>> _items; // FIXME: deserialize
+    /** Whether the object is reading its items from a record, whose order they keep. */
+    bool _loadingItems {false};
+
+    /** Marks the object as reading its items for as long as it lives. */
+    class ItemLoadScope {
+    public:
+        explicit ItemLoadScope(Object &object) :
+            _object(object) { _object._loadingItems = true; }
+        ~ItemLoadScope() { _object._loadingItems = false; }
+
+    private:
+        Object &_object;
+    };
     // END Serializable
 
     /**
@@ -884,13 +967,30 @@ protected:
      * running or failing by its own rule; by default, while it can act.
      */
     virtual bool takesUpActions() const { return canExecuteActions(); }
+    /** Whether the object's inventory keeps itself in order. */
+    virtual bool keepsItemsInOrder() const { return false; }
 
+    /**
+     * Replaces the object's items with those of a record's ItemList.
+     *
+     * @param originOwner the owner a saved item's record is kept under; the object's id when empty
+     * @param placedTemplate whether the record is the template of an object an
+     *        area places, whose entries are each their InventoryRes template alone
+     */
     void deserializeOwnedItems(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         SaveRecordOriginKind originKind,
-        bool forceDropable = false,
-        std::string originOwner = {});
+        std::string originOwner = {},
+        bool placedTemplate = false);
+    /**
+     * Reads the plot flag of a record. An Invulnerable value takes precedence
+     * over Plot, an explicit zero included; a record holding neither keeps the
+     * current value.
+     *
+     * @param readInvulnerable whether the record's Invulnerable value is read
+     */
+    void deserializePlot(const resource::Gff &gff, bool readInvulnerable);
 
     // Actions
 
@@ -931,7 +1031,7 @@ protected:
      */
     std::vector<std::pair<size_t, OrdinaryActionQueue::Node>> keptSavedActionAnchors() const;
 
-    void executeActions(float dt);
+    bool executeActions(float dt);
     void executeActionsIfAble(float dt);
 
     // END Actions

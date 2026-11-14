@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/audio/types.h"
 #include "reone/scene/node/grass.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/walkmesh.h"
@@ -38,13 +39,11 @@ public:
         std::string name,
         glm::vec3 position,
         std::shared_ptr<scene::ModelSceneNode> model,
-        std::shared_ptr<scene::WalkmeshSceneNode> walkmesh,
-        std::shared_ptr<scene::GrassSceneNode> grass) :
+        std::shared_ptr<scene::WalkmeshSceneNode> walkmesh) :
         _name(std::move(name)),
         _position(std::move(position)),
         _model(std::move(model)),
-        _walkmesh(std::move(walkmesh)),
-        _grass(std::move(grass)) {
+        _walkmesh(std::move(walkmesh)) {
         computeBox();
     }
 
@@ -72,6 +71,8 @@ public:
     std::shared_ptr<scene::ModelSceneNode> model() const { return _model; }
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh() const { return _walkmesh; }
     std::shared_ptr<scene::GrassSceneNode> grass() const { return _grass; }
+    /** Give the room its grass, shown while the room is. */
+    void setGrass(std::shared_ptr<scene::GrassSceneNode> grass);
 
     // END Scene Nodes
 
@@ -106,6 +107,21 @@ private:
 
     void computeBox();
 };
+
+/**
+ * The environment an ARE room's EnvAudio names. 0 to 22 are the EAX room types
+ * in order, and 23 repeats GENERIC, though soundeax.2da labels that row
+ * NOREVERB. Any other value names none, and whatever environment was loaded
+ * before stays.
+ */
+std::optional<audio::Environment> environmentOfEnvAudio(int envAudio);
+
+/**
+ * Whether a room's EnvAudio lets unstreamed positional sounds into the reverb.
+ * GENERIC's room type keeps them dry, and so do 23 and every value that names
+ * no EAX room type.
+ */
+bool envAudioReverberates(int envAudio);
 
 } // namespace game
 

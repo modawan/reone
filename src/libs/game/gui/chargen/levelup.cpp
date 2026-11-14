@@ -49,9 +49,6 @@ void LevelUpMenu::onGUILoaded() {
     showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
     if (_game.isTSL()) {
-        for (auto &control : {_controls.LBL_1, _controls.LBL_2, _controls.LBL_3, _controls.LBL_4, _controls.LBL_5}) {
-            control->setTintBorderFill(true);
-        }
         for (auto &button : {
                  _controls.BTN_BACK,
                  _controls.BTN_STEPNAME1,
@@ -83,6 +80,10 @@ void LevelUpMenu::onGUILoaded() {
     _controls.BTN_STEPNAME5->setOnClick([this]() {
         _charGen.finish();
     });
+}
+
+void LevelUpMenu::setCanCancel(bool canCancel) {
+    _controls.BTN_BACK->setDisabled(!canCancel);
 }
 
 void LevelUpMenu::reset() {

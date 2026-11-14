@@ -152,7 +152,8 @@ void ComputerGUI::setPresentation(Presentation presentation) {
 
 void ComputerGUI::playHum() {
     stopHum();
-    _hum = _services.audio.mixer.play(_humClip, AudioType::Sound, kHumGain, true);
+    // The hum stays in the default group, 23, which no sound mode keeps.
+    _hum = _services.audio.mixer.play(_humClip, AudioType::Sound, kDefaultSoundGroup, kHumGain, true);
 }
 
 void ComputerGUI::stopHum() {
@@ -169,6 +170,7 @@ void ComputerGUI::preload(IGUI &gui) {
 
 void ComputerGUI::onGUILoaded() {
     bindControls();
+    _gui->setHilightFollowsKeyboard(true);
     configureMessage();
     configureReplies();
     configureSkillLabels();
@@ -184,8 +186,6 @@ void ComputerGUI::configureMessage() {
 
 void ComputerGUI::configureReplies() {
     _controls.LB_REPLIES->setProtoMatchContent(true);
-    // The selected reply stays selected when the pointer moves off it.
-    _controls.LB_REPLIES->setKeepsSelection(true);
     _controls.LB_REPLIES->protoItem().setHilightColor(_hilightColor);
     _controls.LB_REPLIES->protoItem().setTextColor(_baseColor);
     _controls.LB_REPLIES->setOnItemClick([this](auto &item) {
@@ -271,8 +271,12 @@ void ComputerGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
-    // The first reply is selected as the replies are listed.
+    // The first reply is selected as the replies are listed, and replies the
+    // player chooses from hold the keyboard.
     _controls.LB_REPLIES->setSelectedItemIndex(0);
+    if (!autoPicksFirstReply()) {
+        _gui->setActiveControl(*_controls.LB_REPLIES);
+    }
     // The numbers are written when an entry's message is set and again when
     // its replies are listed, as the entry ends.
     refreshSkills();

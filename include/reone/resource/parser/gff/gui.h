@@ -33,7 +33,7 @@ struct GUI_EXTENT {
 };
 
 struct GUI_BORDER {
-    glm::vec3 COLOR {0.0f};
+    glm::vec3 COLOR {1.0f};
     std::string CORNER;
     int DIMENSION {0};
     std::string EDGE;
@@ -46,7 +46,7 @@ struct GUI_BORDER {
 
 struct GUI_TEXT {
     int ALIGNMENT {0};
-    glm::vec3 COLOR {0.0f};
+    glm::vec3 COLOR {1.0f};
     std::string FONT;
     uint8_t PULSING {0};
     uint32_t STRREF {0};
@@ -113,6 +113,7 @@ struct GUI_CONTROLS : public GUI_BASECONTROL {
     std::optional<GUI_CONTROLS_SCROLLBAR> SCROLLBAR;
     uint8_t STARTFROMLEFT {0};
     std::optional<GUI_TEXT> TEXT;
+    std::optional<GUI_CONTROLS_SCROLLBAR_DIRTHUMB> THUMB;
 };
 
 struct GUI : public GUI_BASECONTROL {

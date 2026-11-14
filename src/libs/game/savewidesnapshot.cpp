@@ -523,15 +523,37 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
     return result;
 }
 
+/**
+ * The controlled creature as a player list of its own, read as a detached
+ * record. A save without state for its module rebuilds the player from it.
+ */
+std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPlayerInfo() const {
+    const auto &player = _game._party.player();
+    ModuleSnapshotBuilder records(_game, {});
+    auto record = records.writeCreature(
+        *player,
+        ModuleSnapshotBuilder::kPlayerEntryStructType,
+        std::nullopt,
+        SerializedIdentityContext::detachedRecord("pifo.ifo"));
+    records.writePlayerEntry(*record, *player);
+    return Gff::Builder()
+        .type(0xffffffff)
+        .field(Gff::Field::newList("Mod_PlayerList", {record}))
+        .build();
+}
+
 std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
     auto result = rootFromShadow(_game, SaveResourceKind::Nfo);
     const auto &state = _game._party.persistedState();
     const auto &area = *_game._module->area();
-    const std::string areaName = area.localizedName().empty()
-                                     ? area.name()
-                                     : area.localizedName();
+    const auto &templateWorld = _metadata.templateWorld;
+    const std::string areaName = templateWorld        ? templateWorld->areaDisplayName
+                                 : area.localizedName().empty() ? area.name()
+                                                                : area.localizedName();
     put(*result, Gff::Field::newCExoString("AREANAME", areaName));
-    put(*result, Gff::Field::newCExoString("LASTMODULE", _game._module->name()));
+    put(*result, Gff::Field::newCExoString(
+                     "LASTMODULE",
+                     templateWorld ? templateWorld->moduleName : _game._module->name()));
     put(*result, Gff::Field::newDword("TIMEPLAYED", state.playedSeconds));
     put(*result, Gff::Field::newByte("CHEATUSED", _metadata.cheatUsed));
     put(*result, Gff::Field::newCExoString("SAVEGAMENAME", _metadata.displayName));
@@ -550,7 +572,20 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
         }
     }
     removeSaveField(*result, "PCAUTOSAVE");
-    removeSaveField(*result, "AUTOSAVEPARAMS");
+    // A save without state for its module says where a load starts the party
+    // in the freshly built module and when its world time resumes.
+    if (templateWorld) {
+        put(*result, Gff::Field::newStruct(
+                         "AUTOSAVEPARAMS",
+                         Gff::Builder()
+                             .field(Gff::Field::newCExoString("STARTWAYPOINT", templateWorld->startWaypoint))
+                             .field(Gff::Field::newCExoString("LOADMUSIC", templateWorld->loadMusic))
+                             .field(Gff::Field::newDword("TIME_PAUSEDAY", templateWorld->pauseDay))
+                             .field(Gff::Field::newDword("TIME_PAUSETIME", templateWorld->pauseTime))
+                             .build()));
+    } else {
+        removeSaveField(*result, "AUTOSAVEPARAMS");
+    }
 
     if (_game.isTSL()) {
         removeSaveField(*result, "STORYHINT");
@@ -621,8 +656,12 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
 
         SaveWideSnapshot snapshot;
         snapshot.gameId = _game._gameId;
-        snapshot.moduleName = _game._module->name();
-        snapshot.areaName = _game._module->area()->name();
+        snapshot.moduleName = _metadata.templateWorld
+                                  ? _metadata.templateWorld->moduleName
+                                  : _game._module->name();
+        snapshot.areaName = _metadata.templateWorld
+                                ? _metadata.templateWorld->areaName
+                                : _game._module->area()->name();
         snapshot.managedOuterResources = managedOuterResourceIds();
 
         auto add = [&](ResourceId id, std::shared_ptr<Gff> gff,
@@ -639,6 +678,9 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
         add({"globalvars", ResType::Res}, buildGlobals(), "GVT ", true);
         add({"partytable", ResType::Res}, buildPartyTable(), "PT  ", true);
         add({"savenfo", ResType::Res}, buildNfo(), "NFO ", true);
+        if (_metadata.templateWorld) {
+            add({"pifo", ResType::Ifo}, buildPlayerInfo(), "IFO ", true);
+        }
         add({"inventory", ResType::Res}, buildInventory(), "INV ", false);
         add({"repute", ResType::Fac}, buildFactions(), "FAC ", false);
 
@@ -739,7 +781,11 @@ void SaveWideSnapshotBuilder::validate(const SaveWideSnapshot &snapshot) const {
             throw ValidationException("save-wide GFF signature mismatch: " + id.string());
         }
     }
-    if (snapshot.looseSlotResources.size() != 3) {
+    if (_metadata.templateWorld &&
+        !snapshot.looseSlotResources.count({"pifo", ResType::Ifo})) {
+        throw ValidationException("a save without its module's state lacks pifo.ifo");
+    }
+    if (snapshot.looseSlotResources.size() != (_metadata.templateWorld ? 4u : 3u)) {
         throw ValidationException("loose save-wide resource placement is invalid");
     }
     if (snapshot.semanticResources.size() !=
@@ -871,7 +917,9 @@ void SaveWideSnapshotBuilder::validate(const SaveWideSnapshot &snapshot) const {
         }
     }
     auto nfo = readGff(snapshot.looseSlotResources.at({"savenfo", ResType::Res}));
-    const std::string areaDisplayName = _game._module->area()->localizedName().empty()
+    const std::string areaDisplayName = _metadata.templateWorld
+                                            ? _metadata.templateWorld->areaDisplayName
+                                        : _game._module->area()->localizedName().empty()
                                             ? _game._module->area()->name()
                                             : _game._module->area()->localizedName();
     if (nfo->getString("LASTMODULE") != snapshot.moduleName ||

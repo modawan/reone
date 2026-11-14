@@ -31,8 +31,6 @@ struct CameraStyle {
     float tiltUp {0.0f};
     /** How far the exploration view may tilt down, in degrees. */
     float tiltDown {0.0f};
-    /** The exploration view's tilt speed. */
-    float tiltSpeed {0.0f};
     /** Free-look tilt speed, in degrees per second. */
     float freeLookTiltSpeed {60.0f};
     /** Free-look turn speed, in degrees per second. */
@@ -41,6 +39,10 @@ struct CameraStyle {
     float freeLookUp {0.0f};
     /** How far free-look may pitch down, in degrees. */
     float freeLookDown {0.0f};
+    /** How fast the steering turns the leader at its top speed, in degrees per second. */
+    float minTurnRate {0.0f};
+    /** How fast the steering turns the leader at rest, in degrees per second. */
+    float maxTurnRate {0.0f};
 };
 
 } // namespace game

@@ -10,6 +10,8 @@
 #include <sstream>
 
 #include "reone/resource/director.h"
+#include "reone/resource/parser/gff/are.h"
+#include "reone/resource/parser/gff/ifo.h"
 #include "reone/game/portraits.h"
 #include "reone/game/savedgame.h"
 #include "reone/graphics/context.h"
@@ -91,25 +93,49 @@ namespace {
 
 constexpr uint32_t kQuickSaveSlot = 0;
 constexpr uint32_t kAutoSaveSlot = 1;
+// Played time after the last save or load before an autosave is due.
+constexpr double kAutosaveIntervalSeconds = 15.0 * 60.0;
 constexpr uint32_t kMaxSemanticSlot = 999999;
 constexpr uint64_t kFileTimeEpochOffset = 116444736000000000ULL;
+constexpr uint64_t kFileTimeTicksPerSecond = 10000000ULL;
+constexpr int64_t kSecondsPerMinute = 60;
+constexpr int64_t kSecondsPerHour = 3600;
+constexpr int64_t kSecondsPerDay = 86400;
 
+// The days from 1 January 1970 to a date in the proleptic Gregorian calendar.
+int64_t daysFromCivil(int64_t year, int64_t month, int64_t day) {
+    static constexpr int64_t kDaysFromMarchOfYear0To1970 = 719468;
+    static constexpr int64_t kDaysPerEra = 146097;
+    // Years counted from March, so a leap day ends the year.
+    year -= month <= 2 ? 1 : 0;
+    const int64_t era = (year >= 0 ? year : year - 399) / 400;
+    const int64_t yearOfEra = year - era * 400;
+    const int64_t dayOfYear = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+    const int64_t dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    return era * kDaysPerEra + dayOfEra - kDaysFromMarchOfYear0To1970;
+}
+
+// A save's timestamp holds local time. It is counted in 64 bits from the
+// calendar fields of the local time; when the local time can't be had, from
+// the time in UTC.
 uint64_t currentFileTime() {
     auto now = std::chrono::system_clock::now();
     auto seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
     auto subsecondTicks = std::chrono::duration_cast<
-        std::chrono::duration<uint64_t, std::ratio<1, 10000000>>>(now - seconds);
+        std::chrono::duration<uint64_t, std::ratio<1, kFileTimeTicksPerSecond>>>(now - seconds);
     auto time = std::chrono::system_clock::to_time_t(now);
     std::tm local {};
 #ifdef _WIN32
-    localtime_s(&local, &time);
-    auto localAsUtc = _mkgmtime64(&local);
+    const bool converted = localtime_s(&local, &time) == 0;
 #else
-    localtime_r(&time, &local);
-    auto localAsUtc = timegm(&local);
+    const bool converted = localtime_r(&time, &local) != nullptr;
 #endif
+    const int64_t localSeconds = converted
+                                     ? daysFromCivil(local.tm_year + 1900, local.tm_mon + 1, local.tm_mday) * kSecondsPerDay +
+                                           local.tm_hour * kSecondsPerHour + local.tm_min * kSecondsPerMinute + local.tm_sec
+                                     : static_cast<int64_t>(time);
     return kFileTimeEpochOffset +
-           static_cast<uint64_t>(localAsUtc) * 10000000ULL +
+           static_cast<uint64_t>(localSeconds) * kFileTimeTicksPerSecond +
            subsecondTicks.count();
 }
 
@@ -367,22 +393,12 @@ SaveMetadataInput Game::buildSaveMetadata(const SaveRequest &request) const {
         }
     }
 
+    // A save shows each member's portrait for its good/evil.
     const auto &portraitRows = _services.game.portraits.portraits();
     auto livePortrait = [&portraitRows](const std::shared_ptr<Creature> &creature) {
         if (!creature) return std::string();
-        auto portraitId = creature->portraitId();
-        if (portraitId > 0 && portraitId < portraitRows.size()) {
-            return portraitRows[portraitId].resRef;
-        }
-        auto appearance = creature->appearance();
-        auto found = std::find_if(
-            portraitRows.begin(), portraitRows.end(),
-            [appearance](const Portrait &portrait) {
-                return portrait.appearanceNumber == appearance ||
-                       portrait.appearanceS == appearance ||
-                       portrait.appearanceL == appearance;
-            });
-        return found == portraitRows.end() ? std::string() : found->resRef;
+        const Portrait *row = findPortrait(portraitRows, creature->portraitId(), creature->appearance());
+        return row ? row->resRefForGoodEvil(creature->goodEvil()) : std::string();
     };
     for (size_t i = 0; i < metadata.portraits.size(); ++i) {
         auto creature = i < _party.members().size()
@@ -455,11 +471,37 @@ SaveResult Game::executeSave(SaveRequest request) {
                 "The playable session has no committed save working state"};
     }
 
+    // A module left out of saved games stores nothing of itself: a load
+    // builds it afresh and starts the party at its entry.
+    std::optional<TemplateWorldSave> templateWorld;
+    if (!_services.resource.director.moduleSaveRules(_module->name()).includeInSave) {
+        const auto &area = *_module->area();
+        TemplateWorldSave world;
+        world.moduleName = _module->name();
+        world.areaName = area.name();
+        world.areaDisplayName =
+            area.localizedName().empty() ? area.name() : area.localizedName();
+        world.pauseDay = worldTimeDay();
+        world.pauseTime = worldTimeOfDay();
+        templateWorld = std::move(world);
+    }
+    return publishSave(
+        request, std::move(committed), std::move(templateWorld), /*adoptPublished=*/true);
+}
+
+SaveResult Game::publishSave(
+    const SaveRequest &request,
+    std::shared_ptr<const resource::SaveWorkingState> workingState,
+    std::optional<TemplateWorldSave> templateWorld,
+    bool adoptPublished) {
     _saveInProgress = true;
     struct Guard {
         bool &value;
         ~Guard() { value = false; }
     } guard {_saveInProgress};
+    // Every sound waits while the save is written; the next update gives the
+    // screen its own sound mode again.
+    applySoundMode();
 
     std::optional<ByteBuffer> screenshot;
     if (request.captureScreenshot && _saveSeams.captureScreenshot) {
@@ -470,20 +512,24 @@ SaveResult Game::executeSave(SaveRequest request) {
         }
     }
 
-    auto moduleResult = _saveSeams.captureModule
-                            ? _saveSeams.captureModule(*this, _module->name())
-                            : ModuleSnapshotBuilder(*this, _module->name()).build();
-    if (!moduleResult) {
-        return {SaveStatus::SnapshotFailure, SaveEligibilityReason::None,
-                SaveSlotPublishError::None, moduleResult.message};
+    std::optional<SavedModuleSnapshot> currentModule;
+    if (!templateWorld) {
+        auto moduleResult = _saveSeams.captureModule
+                                ? _saveSeams.captureModule(*this, _module->name())
+                                : ModuleSnapshotBuilder(*this, _module->name()).build();
+        if (!moduleResult) {
+            return {SaveStatus::SnapshotFailure, SaveEligibilityReason::None,
+                    SaveSlotPublishError::None, moduleResult.message};
+        }
+        currentModule = std::move(*moduleResult.snapshot);
     }
     info("Save request #" + std::to_string(request.requestId) +
          " E3d complete; serializing save-wide state");
+    auto metadata = buildSaveMetadata(request);
+    metadata.templateWorld = std::move(templateWorld);
     auto wideResult = _saveSeams.captureSaveWide
-                          ? _saveSeams.captureSaveWide(
-                                *this, buildSaveMetadata(request))
-                          : SaveWideSnapshotBuilder(
-                                *this, buildSaveMetadata(request)).build();
+                          ? _saveSeams.captureSaveWide(*this, metadata)
+                          : SaveWideSnapshotBuilder(*this, metadata).build();
     if (!wideResult) {
         return {SaveStatus::SerializationFailure, SaveEligibilityReason::None,
                 SaveSlotPublishError::None, wideResult.message};
@@ -492,8 +538,8 @@ SaveResult Game::executeSave(SaveRequest request) {
          " E3e complete; preparing durable publication");
 
     SaveSlotPackageInput package;
-    package.committedWorkingState = std::move(committed);
-    package.currentModule = std::move(*moduleResult.snapshot);
+    package.committedWorkingState = std::move(workingState);
+    package.currentModule = std::move(currentModule);
     package.saveWide = std::move(*wideResult.snapshot);
     package.target = saveTarget(request);
     package.screenshot = std::move(screenshot);
@@ -514,13 +560,17 @@ SaveResult Game::executeSave(SaveRequest request) {
                 published.durable, published.cleanupPending};
     }
 
-    info("Save request #" + std::to_string(request.requestId) +
-         " E3f complete; adopting detached committed state");
-
-    _services.resource.director.adoptPublishedSave(
-        *published.publishedSlot, published.committedWorkingState);
+    // An autosave written on the way into a module leaves the session on the
+    // working state the transition goes on to adopt.
+    if (adoptPublished) {
+        info("Save request #" + std::to_string(request.requestId) +
+             " E3f complete; adopting detached committed state");
+        _services.resource.director.adoptPublishedSave(
+            *published.publishedSlot, published.committedWorkingState);
+        info("Save request #" + std::to_string(request.requestId) + " adopted");
+    }
     _saveNames = _services.resource.director.saveNames();
-    info("Save request #" + std::to_string(request.requestId) + " adopted");
+    _secondsSinceSave = 0.0;
 
     SaveResult result;
     result.status = published.cleanupPending
@@ -534,28 +584,50 @@ SaveResult Game::executeSave(SaveRequest request) {
     return result;
 }
 
+// Entering a module can discard the saved state of a group of modules, each
+// of which is then built afresh when next entered.
+std::set<std::string> Game::modulesDiscardedOnEntering(const std::string &destination) {
+    std::set<std::string> discarded;
+    auto &director = _services.resource.director;
+    if (auto group = director.moduleSaveRules(destination).deleteSaveGroupOnEnter) {
+        for (auto &module : director.saveGroupModules(*group)) {
+            discarded.insert(std::move(module));
+        }
+    }
+    return discarded;
+}
+
 std::shared_ptr<const resource::SaveWorkingState>
-Game::prepareCurrentModuleWorkingState() {
+Game::prepareCurrentModuleWorkingState(const std::string &destination) {
     auto committed = _services.resource.director.committedSaveWorkingState();
     if (!committed || !_module) {
         error("Module transition has no committed save working state");
         return nullptr;
     }
-    auto captured = _saveSeams.captureModule
-                        ? _saveSeams.captureModule(*this, _module->name())
-                        : ModuleSnapshotBuilder(*this, _module->name()).build();
-    if (!captured) {
-        error("Unable to snapshot source module for transition: " + captured.message);
-        return nullptr;
-    }
+    auto &director = _services.resource.director;
     try {
         auto candidate = resource::SaveWorkingStateCandidate::fromCommitted(
             std::move(committed));
-        candidate.replaceModule(
-            captured.snapshot->target,
-            captured.snapshot->archiveBytes,
-            resource::ResourceId(
-                captured.snapshot->target.resRef, resource::ResType::Rsv));
+
+        const auto discarded = modulesDiscardedOnEntering(destination);
+
+        // A module left out of saved games, or one the destination discards,
+        // is not stored as it is left, so entering it again builds it afresh.
+        if (director.moduleSaveRules(_module->name()).includeInSave &&
+            discarded.count(boost::to_lower_copy(_module->name())) == 0) {
+            auto captured = _saveSeams.captureModule
+                                ? _saveSeams.captureModule(*this, _module->name())
+                                : ModuleSnapshotBuilder(*this, _module->name()).build();
+            if (!captured) {
+                error("Unable to snapshot source module for transition: " + captured.message);
+                return nullptr;
+            }
+            candidate.replaceModule(
+                captured.snapshot->target,
+                captured.snapshot->archiveBytes,
+                resource::ResourceId(
+                    captured.snapshot->target.resRef, resource::ResType::Rsv));
+        }
 
         // Every bound NPC/PUP record is refreshed as the creature stands when
         // the module is left. Keep those detached snapshots in the same
@@ -581,6 +653,12 @@ Game::prepareCurrentModuleWorkingState() {
                     SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
             }
         }
+
+        for (const auto &module : discarded) {
+            candidate.erase({module, resource::ResType::Sav});
+            candidate.erase({module, resource::ResType::Rsv});
+        }
+
         auto validation = candidate.validate();
         if (!validation) {
             error("Unable to validate transition working state: " +
@@ -596,6 +674,7 @@ Game::prepareCurrentModuleWorkingState() {
 
 void Game::advancePlayedTime(float dt) {
     if (dt <= 0.0f) return;
+    _secondsSinceSave += dt;
     _playedTimeFraction += dt;
     auto whole = static_cast<uint32_t>(std::floor(_playedTimeFraction));
     if (whole == 0) return;
@@ -603,6 +682,57 @@ void Game::advancePlayedTime(float dt) {
     auto state = _party.persistedState();
     state.playedSeconds += whole;
     _party.setPersistedState(std::move(state));
+}
+
+bool Game::autosavesOnEntering(const std::string &module) {
+    const bool due = _secondsSinceSave >= kAutosaveIntervalSeconds;
+    switch (_services.resource.director.moduleSaveRules(module).autosaveOnEnter) {
+    case resource::ModuleAutosave::Always:
+        return true;
+    case resource::ModuleAutosave::WhenEnabledAndDue:
+        // The player's autosave option has no setting yet and stays on.
+        return due;
+    case resource::ModuleAutosave::WhenDue:
+        return due;
+    case resource::ModuleAutosave::Never:
+        return false;
+    }
+    return false;
+}
+
+void Game::writeEntryAutosave(
+    const PreparedDestinationModule &destination,
+    const std::string &entry,
+    std::shared_ptr<const resource::SaveWorkingState> workingState) {
+    auto ifo = resource::generated::parseIFO(*destination.ifo);
+    auto are = resource::generated::parseARE(*destination.are);
+    TemplateWorldSave world;
+    world.moduleName = destination.name;
+    world.areaName = ifo.Mod_Entry_Area;
+    world.areaDisplayName = _services.resource.strings.getText(are.Name.first);
+    if (world.areaDisplayName.empty()) {
+        world.areaDisplayName = world.areaName;
+    }
+    world.startWaypoint = entry.empty() ? "*" : entry;
+    // Recorded for the autosave's own load; this transition's loading screen
+    // keeps the music it already had.
+    world.loadMusic = loadMusicForModule(destination.name);
+    world.pauseDay = worldTimeDay();
+    world.pauseTime = worldTimeOfDay();
+
+    SaveRequest request {SaveKind::Auto, kAutoSaveSlot, "AUTOSAVE", false};
+    request.requestId = _nextSaveRequestId++;
+    request.displayName = safeDisplayName(std::move(request.displayName), request.slot);
+    info("Autosave on entering '" + destination.name + "'");
+    SaveResult result;
+    try {
+        result = publishSave(request, std::move(workingState), std::move(world), /*adoptPublished=*/false);
+    } catch (const std::exception &e) {
+        result.status = SaveStatus::InternalExecutionFailure;
+        result.message = std::string("Unexpected autosave exception: ") + e.what();
+    }
+    // A failed autosave is reported; the transition goes on.
+    finalizeSaveRequest(request, std::move(result));
 }
 
 } // namespace game

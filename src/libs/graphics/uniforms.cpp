@@ -97,10 +97,12 @@ void Uniforms::setBones(const std::function<void(BoneUniforms &)> &block) {
     _ubBones->setData(&_bones, sizeof(BoneUniforms));
 }
 
-void Uniforms::setDangly(const std::function<void(DanglyUniforms &)> &block) {
-    block(_dangly);
+void Uniforms::setDangly(const std::vector<glm::vec4> &positions) {
+    const size_t count = std::min(positions.size(), static_cast<size_t>(kMaxDanglyVertices));
+    std::copy_n(positions.begin(), count, _dangly.positions);
     _context.bindUniformBuffer(*_ubDangly, UniformBlockBindingPoints::dangly);
-    _ubDangly->setData(&_dangly, sizeof(DanglyUniforms));
+    // The whole block is 12 KB, and the shader reads only the mesh's own vertices.
+    _ubDangly->setData(&_dangly, static_cast<ptrdiff_t>(count * sizeof(glm::vec4)));
 }
 
 void Uniforms::setParticles(const std::function<void(ParticleUniforms &)> &block) {

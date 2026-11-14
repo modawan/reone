@@ -110,9 +110,17 @@ public:
 
     /** Outline of the encounter's area, relative to its position. */
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
-    /** Whether a point lies within the encounter's area, in the XY plane. */
+    /**
+     * Whether a point lies within the encounter's area, in the XY plane, and
+     * where floors lie over others (see Area::hasStackedFloors), at the level
+     * of the encounter's position (see Area::isAtLevelOf).
+     */
     bool contains(const glm::vec3 &point) const;
-    /** Whether the step from \p from to \p to crosses the outline of the encounter's area, in the XY plane. */
+    /**
+     * Whether the step from \p from to \p to crosses the outline of the
+     * encounter's area, in the XY plane, and where floors lie over others,
+     * with one end at the level of the encounter's position.
+     */
     bool crosses(const glm::vec3 &from, const glm::vec3 &to) const;
     /**
      * Note where a creature now stands. Entering or leaving the area signals
@@ -199,7 +207,9 @@ private:
         const SerializedIdentityContext &identityContext);
     void deserializeSavedRuntimeState(const resource::Gff &gff);
     void deserializeCreatures(const resource::Gff &gff);
+    /** Takes the record's geometry list, when it has one, even empty, in place of the encounter's. */
     void deserializeGeometry(const resource::Gff &gff);
+    /** Takes the record's spawn point list, when it has one, even empty, in place of the encounter's. */
     void deserializeSpawnPoints(const resource::Gff &gff);
     void deserializePendingSpawns(const resource::Gff &gff);
 
@@ -214,6 +224,8 @@ private:
     void spawnNext();
     /** Re-arm a continuous encounter that resets once its reset time has passed. */
     void updateRespawn();
+    /** Whether a point stands at the level of the encounter's position (see Area::isAtLevelOf); every point does outside an area. */
+    bool isAtLevel(const glm::vec3 &point) const;
     void updateHeartbeat();
 
     // The first title's wave budget

@@ -32,6 +32,14 @@ namespace reone {
 
 namespace scene {
 
+void WalkmeshSceneNode::initBounds() {
+    for (size_t i = 0; i < _walkmesh.faces.size(); ++i) {
+        for (const glm::vec3 &vertex : _walkmesh.getFace(i).vertices) {
+            _aabb.expand(vertex);
+        }
+    }
+}
+
 void WalkmeshSceneNode::init() {
     std::vector<float> vertices;
     std::vector<Mesh::Face> faces;

@@ -47,6 +47,12 @@ public:
 
     virtual void onClick(const std::string &control) = 0;
     virtual void onSelectionChanged(const std::string &control, bool selected) = 0;
+    /**
+     * The pointer came onto \p control or, for a list, reached one of its rows
+     * while the list does not hold the keyboard, or moved its selection to
+     * another of its rows.
+     */
+    virtual void onEntered(const std::string &control) = 0;
 };
 
 /**
@@ -114,6 +120,61 @@ public:
 
     virtual void clearSelection() = 0;
 
+    /**
+     * The control holding the keyboard, if any: the one a screen gave it to,
+     * or the last navigable control the pointer came onto.
+     */
+    virtual std::optional<std::reference_wrapper<Control>> activeControl() const = 0;
+    /**
+     * Gives the keyboard to \p control, silently and without selecting it;
+     * the control holding it before loses it, and its hilight on a GUI whose
+     * hilight follows the keyboard, unless it is a list. A list taking it then selects as
+     * ListBox::takeKeyboard does. Nothing changes when \p control holds the
+     * keyboard already.
+     */
+    virtual void setActiveControl(Control &control) = 0;
+    /**
+     * Gives the keyboard to \p control as setActiveControl does and selects
+     * it, without the sound of entering it. Nothing changes when \p control
+     * holds the keyboard already.
+     */
+    virtual void selectActiveControl(Control &control) = 0;
+    /**
+     * No control holds the keyboard; the one holding it loses its hilight
+     * on a GUI whose hilight follows the keyboard, unless it is a list.
+     */
+    virtual void clearActiveControl() = 0;
+    /**
+     * Makes the hilight of a navigable control other than a list follow the
+     * keyboard: such a control takes the keyboard as the pointer comes onto
+     * it, sounding unless it is hilighted; it stays hilighted after the
+     * pointer leaves it, until another control takes the keyboard or the
+     * pointer comes onto another such control; and coming back onto it is
+     * silent. A list keeps its hilight on the pointer and takes the keyboard
+     * by its rows.
+     */
+    virtual void setHilightFollowsKeyboard(bool follows) = 0;
+    /**
+     * Whether a held arrow key wrapped one of the GUI's lists round: the
+     * key's repeats then move none of its lists until a key is pressed again
+     * (ListBox::selectAdjacentItem).
+     */
+    virtual bool keyRepeatStopped() const = 0;
+    virtual void setKeyRepeatStopped(bool stopped) = 0;
+    /**
+     * The control the arrow key of \p direction moves the keyboard to from
+     * \p control: the one its link names, or past a disabled one the next
+     * along the same direction. A link to a control the keys don't move
+     * through (a label, a panel, a bar) ends the walk there, and that control
+     * takes the keyboard even when disabled. None when the links lead to no
+     * control or back to \p control.
+     *
+     * @param visibleOnly KotOR's walk: it also passes over a hidden control,
+     *        and a control it ends on takes the keyboard only when enabled
+     *        and shown
+     */
+    virtual std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const = 0;
+
     virtual Control &rootControl() = 0;
 
     virtual const glm::ivec2 &rootOffset() const = 0;
@@ -134,7 +195,6 @@ public:
     virtual float textLayoutScale(float horizontalScale, float verticalScale) const = 0;
     virtual float borderScale() const = 0;
     virtual float listScale() const = 0;
-    virtual bool tintBorderFills() const = 0;
     /** Whether an image button's text pulses while the button is selected, as a button's does. */
     virtual bool imageButtonTextPulses() const = 0;
     /** The opacity pulsing borders and texts are drawn with now. */
@@ -147,11 +207,11 @@ public:
     virtual void setResolution(int x, int y) = 0;
     virtual void setScaling(ScalingMode scaling) = 0;
     virtual void setTextScale(float scale) = 0;
-    virtual void setTintBorderFills(bool tint) = 0;
     /** Sets whether the image buttons loaded afterwards pulse their text while selected. */
     virtual void setImageButtonTextPulses(bool pulses) = 0;
     virtual void setControlScaling(const std::string &tag, ScalingMode scaling) = 0;
-    virtual void setDefaultHilightColor(glm::vec3 color) = 0;
+    /** Every control loaded afterwards draws its text in \p color while selected. */
+    virtual void setSelectedTextColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
 
     /** Reapplies the layout after authored geometry or the resolution changed. */
@@ -192,6 +252,27 @@ public:
     void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) override;
 
     void clearSelection() override;
+
+    std::optional<std::reference_wrapper<Control>> activeControl() const override {
+        return _activeControl;
+    }
+
+    void setActiveControl(Control &control) override;
+
+    void selectActiveControl(Control &control) override;
+
+    void clearActiveControl() override {
+        releaseKeyboard();
+    }
+
+    void setHilightFollowsKeyboard(bool follows) override {
+        _hilightFollowsKeyboard = follows;
+    }
+
+    bool keyRepeatStopped() const override { return _keyRepeatStopped; }
+    void setKeyRepeatStopped(bool stopped) override { _keyRepeatStopped = stopped; }
+
+    std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const override;
 
     Control &rootControl() override {
         return *_rootControl;
@@ -234,10 +315,6 @@ public:
         _textScale = scale;
     }
 
-    void setTintBorderFills(bool tint) override {
-        _tintBorderFills = tint;
-    }
-
     void setImageButtonTextPulses(bool pulses) override {
         _imageButtonTextPulses = pulses;
     }
@@ -261,10 +338,6 @@ public:
         return _options.guiListScale;
     }
 
-    bool tintBorderFills() const override {
-        return _tintBorderFills;
-    }
-
     bool imageButtonTextPulses() const override {
         return _imageButtonTextPulses;
     }
@@ -281,9 +354,8 @@ public:
         _scalingByControlTag[tag] = scaling;
     }
 
-    void setDefaultHilightColor(glm::vec3 color) override {
-        _hasDefaultHilightColor = true;
-        _defaultHilightColor = color;
+    void setSelectedTextColor(glm::vec3 color) override {
+        _selectedTextColor = color;
     }
 
     void setBackground(std::shared_ptr<graphics::Texture> texture) override;
@@ -308,7 +380,6 @@ private:
     int _resolutionY {kDefaultResolutionY};
     ScalingMode _scaling {ScalingMode::Center};
     std::optional<float> _textScale;
-    bool _tintBorderFills {false};
     bool _imageButtonTextPulses {false};
     glm::ivec2 _rootOffset {0};
     glm::ivec2 _controlOffset {0};
@@ -324,6 +395,16 @@ private:
 
     std::optional<std::reference_wrapper<Control>> _rootControl;
     std::optional<std::reference_wrapper<Control>> _selection;
+    /** The control holding the keyboard. */
+    std::optional<std::reference_wrapper<Control>> _activeControl;
+    /** The control that took the left button's press, until the button is released. */
+    std::optional<std::reference_wrapper<Control>> _pressedControl;
+    /** The list the pointer is on has been entered since the pointer came onto it. */
+    bool _listEntered {false};
+    /** Whether the hilight of a navigable control other than a list follows the keyboard. */
+    bool _hilightFollowsKeyboard {false};
+    /** Whether a held arrow key wrapped one of the lists round (keyRepeatStopped). */
+    bool _keyRepeatStopped {false};
 
     // END Controls
 
@@ -338,8 +419,7 @@ private:
 
     // GUI Colors
 
-    bool _hasDefaultHilightColor {false};
-    glm::vec3 _defaultHilightColor {0.0f};
+    std::optional<glm::vec3> _selectedTextColor;
 
     // END GUI Colors
 
@@ -357,6 +437,12 @@ private:
         }
     }
 
+    void onEntered(const std::string &control) {
+        if (_eventListener) {
+            _eventListener->onEntered(control);
+        }
+    }
+
     void positionRelativeToCenter(Control &control);
     void scaleRelativeToCenter(Control &control);
     void applyControlLayout(Control &control);
@@ -366,6 +452,38 @@ private:
     glm::ivec2 controlCoordinates(const Control &control, int screenX, int screenY) const;
     float scaledFactor() const;
     void updateSelection(int screenX, int screenY);
+    /**
+     * The pointer is on \p control, or on none, when the hilight follows the
+     * keyboard: a navigable control other than a list takes the keyboard,
+     * on every move; the control the pointer comes onto is hilighted; the
+     * control it leaves keeps its hilight while that follows the keyboard,
+     * unless the pointer came onto another such control.
+     */
+    void followPointer(const std::optional<std::reference_wrapper<Control>> &control);
+    /** Whether the hilight of \p control follows the keyboard. */
+    bool hilightFollowsKeyboard(const Control &control) const;
+    /** \p control is hilighted, which it is told of. */
+    void hilight(Control &control);
+    /** \p control loses its hilight, which it is told of, if it has it. */
+    void unhilight(Control &control);
+    /**
+     * No control holds the keyboard; the one holding it loses its hilight
+     * on a GUI whose hilight follows the keyboard, unless it is a list.
+     */
+    void releaseKeyboard();
+    /** A list the pointer acted on is entered when the pointer moved its selection to another row. */
+    void enterListSelection(Control &control);
+    /**
+     * A list the pointer moves on at \p coords, control-space, is entered when
+     * the pointer moved its selection to another row, or once when it reaches
+     * a row while the list does not hold the keyboard, which a navigable list
+     * then takes.
+     */
+    void enterList(Control &control, const glm::ivec2 &coords);
+    /** Whether \p control holds the keyboard. */
+    bool holdsKeyboard(const Control &control) const;
+    /** The control of the layout ID, none for a negative ID or one no control has. */
+    std::optional<std::reference_wrapper<Control>> findControlById(int id) const;
 
     void renderBackground(scene::IRenderPass &pass);
 

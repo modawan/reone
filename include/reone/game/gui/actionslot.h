@@ -59,6 +59,8 @@ public:
 
     /** The rejection message is shown. */
     bool active() const { return _remaining > 0.0f; }
+    /** The interface string of the rejection message; none for an empty line. */
+    std::optional<uint32_t> message() const { return _message; }
     bool announcing() const { return _announcementRemaining > 0.0f; }
     std::string text(const Game &game) const;
     std::string announcementText(const Game &game) const;

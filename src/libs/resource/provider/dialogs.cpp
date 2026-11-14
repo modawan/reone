@@ -59,6 +59,8 @@ std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg)
     dialog->animatedCutscene = dlg.AnimatedCut;
     dialog->entryDelay = dlg.DelayEntry;
     dialog->oldHitCheck = dlg.OldHitCheck != 0;
+    dialog->unequipItems = dlg.UnequipItems != 0;
+    dialog->unequipHeadItem = dlg.UnequipHItem != 0;
     dialog->conversationType = static_cast<ConversationType>(dlg.ConversationType);
     dialog->computerType = static_cast<ComputerType>(dlg.ComputerType);
 

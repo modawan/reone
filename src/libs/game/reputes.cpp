@@ -41,10 +41,6 @@ namespace game {
 
 static constexpr int kDefaultRepute = 50;
 static constexpr int kMinRepute = 0;
-// A standing of at most 10 is hostile and one above 89 is friendly; the
-// standings between are neutral.
-static constexpr int kHighestEnemyRepute = 10;
-static constexpr int kLowestFriendRepute = 90;
 
 // Row r holds faction r's standings and column c, after the label column, the
 // standing toward faction c. A blank label ends the table, as does a blank
@@ -213,16 +209,16 @@ void Reputes::adjustReputation(Faction sourceFaction, Faction targetFaction, int
 }
 
 bool Reputes::getIsEnemy(const Creature &source, const Creature &target) const {
-    return getObjectReputation(source, target, source.game()) <= kHighestEnemyRepute;
+    return getObjectReputation(source, target, source.game()) <= kHighestEnemyReputation;
 }
 
 bool Reputes::getIsFriend(const Creature &source, const Creature &target) const {
-    return getObjectReputation(source, target, source.game()) >= kLowestFriendRepute;
+    return getObjectReputation(source, target, source.game()) >= kLowestFriendReputation;
 }
 
 bool Reputes::getIsNeutral(const Creature &source, const Creature &target) const {
     const int reputation = getObjectReputation(source, target, source.game());
-    return reputation > kHighestEnemyRepute && reputation < kLowestFriendRepute;
+    return reputation > kHighestEnemyReputation && reputation < kLowestFriendReputation;
 }
 
 std::optional<Faction> getObjectFaction(const Object &object) {

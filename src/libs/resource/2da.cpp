@@ -144,8 +144,12 @@ std::optional<std::string> TwoDA::getStringOpt(int row, const std::string &colum
     return getStringOpt(row, getColumnIndex(column));
 }
 
+// A cell with nothing in it reads as missing, as a "****" cell does.
 std::optional<std::string> TwoDA::getStringOpt(int row, int column) const {
     auto value = getCellOpt(row, column);
+    if (value && value->empty()) {
+        return std::nullopt;
+    }
     if (value && *value == kCellValueDeleted) {
         warn(str(boost::format("2DA: cell value was deleted: %d %s") % row % _columns[column]));
         return std::nullopt;

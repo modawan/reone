@@ -23,6 +23,7 @@
 
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/container/small_vector.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "reone/audio/mixer.h"
@@ -146,9 +147,7 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
         // The change-character key sounds the accepted cue whether or not
         // the lead moved.
         selectNextStandingMember();
-        if (auto clip = _game.services().game.guiSounds.getActionAccepted()) {
-            _game.services().audio.mixer.play(std::move(clip), audio::AudioType::Sound);
-        }
+        _game.services().game.guiSounds.play(_game.services().game.guiSounds.getActionAccepted());
         return true;
     }
 
@@ -564,6 +563,12 @@ void Party::vacateMemberEntries(const Creature &creature) {
 }
 
 void Party::removeMemberEntries(const Creature &creature) {
+    // A creature leaving the party leaves its follow state behind.
+    for (auto &member : _members) {
+        if (member.creature.get() == &creature) {
+            member.creature->setWithinSafetyRange(false);
+        }
+    }
     _members.erase(
         std::remove_if(
             _members.begin(), _members.end(),
@@ -661,10 +666,10 @@ void Party::setSoloMode(bool value) {
     _solo = value;
 }
 
-void Party::endStealth() {
+void Party::endStealth(bool quiet) {
     for (const auto &member : _members) {
         if (member.creature) {
-            member.creature->setStealthMode(false);
+            member.creature->setStealthMode(false, quiet);
         }
     }
 }
@@ -698,6 +703,7 @@ void Party::reset() {
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);
     _persistedState = PersistedState();
+    _retreatScriptTimer = 0.0f;
     resetFollowSlots();
 }
 
@@ -716,16 +722,15 @@ void Party::clear() {
     _members.clear();
 }
 
-static constexpr int kMaxGold = 999999999;
 static constexpr int kGoldGainedStrRef = 1493;
 static constexpr int kGoldLostStrRef = 1494;
 static constexpr int kComponentsGainedStrRef = 128117;
 static constexpr int kChemicalsGainedStrRef = 128118;
 static constexpr char kPazaakSideboardResRef[] = "g_i_pazsidebd001";
 
-// A count raised by amount, up to 999999999.
+// A count raised by amount, up to kMaxHeldCount.
 static int raisedCount(int count, int amount) {
-    return static_cast<int>(std::min<int64_t>(static_cast<int64_t>(count) + amount, kMaxGold));
+    return static_cast<int>(std::min<int64_t>(static_cast<int64_t>(count) + amount, kMaxHeldCount));
 }
 
 void Party::giveGold(int amount) {
@@ -736,34 +741,75 @@ void Party::takeGold(int amount) {
     _gold = std::max(_gold - amount, 0);
 }
 
-int Party::creatureGold(const Creature &creature) const {
-    return isMember(creature) ? _gold : creature.gold();
+int Party::partyCount(HeldCount count) const {
+    switch (count) {
+    case HeldCount::Credits:
+        return _gold;
+    case HeldCount::Components:
+        return static_cast<int>(_persistedState.itemComponent);
+    default:
+        return static_cast<int>(_persistedState.itemChemical);
+    }
 }
 
-int Party::addCreatureGold(Creature &creature, int amount) {
-    const int before = creatureGold(creature);
-    const int after = raisedCount(before, amount);
-    const int change = after - before;
-    if (isMember(creature)) {
-        giveGold(change);
-    } else {
-        creature.giveGold(change);
+void Party::setPartyCount(HeldCount count, int value) {
+    switch (count) {
+    case HeldCount::Credits:
+        _gold = value;
+        break;
+    case HeldCount::Components:
+        _persistedState.itemComponent = static_cast<uint32_t>(value);
+        break;
+    default:
+        _persistedState.itemChemical = static_cast<uint32_t>(value);
+        break;
     }
-    if (change != 0 && getLeader().get() == &creature) {
-        _game.addFeedbackMessage(kGoldGainedStrRef, {{0, std::to_string(change)}});
+}
+
+int Party::holderCount(const Creature &holder, HeldCount count, bool partyHeld) const {
+    return partyHeld ? partyCount(count) : holder.heldCount(count);
+}
+
+void Party::setHolderCount(Creature &holder, HeldCount count, int value, bool partyHeld) {
+    const int held = std::min(value, kMaxHeldCount);
+    if (partyHeld) {
+        setPartyCount(count, held);
+    } else {
+        holder.setHeldCount(count, held);
+    }
+}
+
+int Party::addHolderCount(Creature &holder, HeldCount count, int amount, bool partyHeld, bool told) {
+    const int before = holderCount(holder, count, partyHeld);
+    const int after = raisedCount(before, amount);
+    setHolderCount(holder, count, after, partyHeld);
+    const int change = after - before;
+    if (told && change != 0) {
+        const int strRef = count == HeldCount::Credits      ? kGoldGainedStrRef
+                           : count == HeldCount::Components ? kComponentsGainedStrRef
+                                                            : kChemicalsGainedStrRef;
+        _game.addFeedbackMessage(strRef, {{0, std::to_string(change)}});
     }
     return change;
 }
 
+int Party::creatureCount(const Creature &creature, HeldCount count) const {
+    return holderCount(creature, count, isMember(creature));
+}
+
+int Party::addCreatureCount(Creature &creature, HeldCount count, int amount) {
+    return addHolderCount(creature, count, amount, isMember(creature), getLeader().get() == &creature);
+}
+
+void Party::setCreatureCount(Creature &creature, HeldCount count, int value) {
+    setHolderCount(creature, count, value, isMember(creature));
+}
+
 int Party::removeCreatureGold(Creature &creature, int amount) {
-    const int before = creatureGold(creature);
+    const int before = creatureCount(creature, HeldCount::Credits);
     const int after = std::max(before - amount, 0);
+    setCreatureCount(creature, HeldCount::Credits, after);
     const int change = before - after;
-    if (isMember(creature)) {
-        takeGold(change);
-    } else {
-        creature.takeGold(change);
-    }
     if (change != 0 && getLeader().get() == &creature) {
         _game.addFeedbackMessage(kGoldLostStrRef, {{0, std::to_string(change)}});
     }
@@ -799,43 +845,77 @@ bool Party::isCountedItem(const Item &item) const {
     }
 }
 
-// A party member's chemicals and components are the party's counts; the
-// creature the player controls is told the change. The acquirer of a pazaak
-// card is given a sideboard to hold the collection when it has none.
-void Party::acquireCountedItem(Creature &acquirer, const Item &item) {
-    const int amount = item.stackSize();
-    auto raisePartyCount = [&](uint32_t &count, int strRef) {
-        if (!isMember(acquirer)) {
-            return;
-        }
-        const int before = static_cast<int>(count);
-        const int after = raisedCount(before, amount);
-        count = static_cast<uint32_t>(after);
-        if (after != before && getLeader().get() == &acquirer) {
-            _game.addFeedbackMessage(strRef, {{0, std::to_string(after - before)}});
-        }
-    };
+// The count a counted item raises: its credits, chemicals or components.
+static std::optional<HeldCount> heldCountOf(const Item &item) {
     switch (item.itemType()) {
     case Item::kCreditsItemType:
-        addCreatureGold(acquirer, amount);
-        break;
+        return HeldCount::Credits;
     case Item::kChemicalsItemType:
-        raisePartyCount(_persistedState.itemChemical, kChemicalsGainedStrRef);
-        break;
+        return HeldCount::Chemicals;
     case Item::kComponentsItemType:
-        raisePartyCount(_persistedState.itemComponent, kComponentsGainedStrRef);
-        break;
-    case Item::kPazaakCardItemType: {
+        return HeldCount::Components;
+    default:
+        return std::nullopt;
+    }
+}
+
+// A party member's credits, chemicals and components are the party's counts,
+// gained through the leader, and any other creature's its own. The acquirer of
+// a pazaak card is given a sideboard to hold the collection when it has none.
+void Party::acquireCountedItem(Creature &acquirer, const Item &item) {
+    const int amount = item.stackSize();
+    if (const auto count = heldCountOf(item)) {
+        const auto leader = getLeader();
+        addCreatureCount(leader && isMember(acquirer) ? *leader : acquirer, *count, amount);
+        return;
+    }
+    if (item.itemType() == Item::kPazaakCardItemType) {
         addPazaakCards(acquiredPazaakCardSlot(item.modelVariation(), _game.isTSL()), amount);
         const bool hasSideboard = std::any_of(acquirer.items().begin(), acquirer.items().end(),
                                               [](const std::shared_ptr<Item> &held) { return held->itemType() == Item::kPazaakSideboardItemType; });
         if (!hasSideboard) {
             acquirer.addItem(kPazaakSideboardResRef, 1, std::nullopt);
         }
-        break;
     }
-    default:
-        break;
+}
+
+// The player read as a party member's raises the party's counts, and is told
+// each gain.
+void Party::acquireCountedItemAsPlayer(Creature &player, const Item &item) {
+    if (const auto count = heldCountOf(item)) {
+        addHolderCount(player, *count, item.stackSize(), true, true);
+    } else {
+        acquireCountedItem(player, item);
+    }
+}
+
+// The creature possessing a container item counts the credits and pazaak
+// cards put into it; none counts what any other item receives.
+static std::shared_ptr<Creature> containerCarrier(const Object &receiver, const Item &item) {
+    const auto *container = dyn_cast<const Item>(&receiver);
+    if (!container || !container->isContainer() || !(item.isCredits() || item.itemType() == Item::kPazaakCardItemType)) {
+        return nullptr;
+    }
+    return std::dynamic_pointer_cast<Creature>(container->possessor());
+}
+
+bool Party::countsReceivedItem(const Object &receiver, const Item &item) const {
+    if (isa<Creature>(&receiver)) {
+        return isCountedItem(item);
+    }
+    return containerCarrier(receiver, item) != nullptr;
+}
+
+void Party::acquireReceivedItem(Object &receiver, const Item &item) {
+    if (auto *creature = dyn_cast<Creature>(&receiver)) {
+        acquireCountedItem(*creature, item);
+        return;
+    }
+    const auto carrier = containerCarrier(receiver, item);
+    if (item.isCredits()) {
+        addCreatureCount(*carrier, HeldCount::Credits, item.stackSize());
+    } else {
+        acquireCountedItem(*carrier, item);
     }
 }
 
@@ -894,8 +974,6 @@ void Party::awardXP(int amount, XPSource source) {
         _game.submitStatusSummary(StatusSummaryCategory::PlotXP, amount);
         break;
     case XPSource::Stealth:
-        _game.submitStatusSummary(StatusSummaryCategory::StealthXP, amount);
-        break;
     case XPSource::Combat:
     case XPSource::Skill:
     case XPSource::Script:
@@ -1002,15 +1080,106 @@ void Party::applyJoiningExperience(int npc, Creature &creature) {
     }
 }
 
-// A creature joining the party, or made available to it, hands its credits
-// and carried items to the party; what it wears stays on it, and its own
-// credit count is left as it was.
+// A creature joining the party, or made available to it, hands its credits,
+// components, chemicals and carried items to the party, the items announced
+// neither lost nor acquired; what it wears stays on it. The party's counts
+// rise up to kMaxHeldCount, as with every other gain, and the creature keeps
+// none of its own, so handing them over again, as each module load does, adds
+// nothing.
 void Party::transferInventory(Creature &creature) {
-    auto receiver = actualPlayer();
-    _gold += creature.gold();
+    for (const auto count : {HeldCount::Credits, HeldCount::Components, HeldCount::Chemicals}) {
+        setPartyCount(count, raisedCount(partyCount(count), creature.heldCount(count)));
+    }
+    creature.clearHeldCounts();
+    // With no one to hold the shared inventory the creature keeps its carried
+    // items until it hands them over again.
+    const auto receiver = actualPlayer();
+    if (!receiver) {
+        return;
+    }
     const auto carried = creature.items();
     for (const auto &item : carried) {
-        transferItemTo(_game, item, *receiver);
+        transferItemTo(_game, item, *receiver, ItemLossNotice::None);
+    }
+}
+
+void Party::readPlayerAsMember() {
+    _player->clearHeldCounts();
+}
+
+void Party::formAgainOnModuleLoad() {
+    // With no one under control, there is no player to read.
+    if (_player) {
+        readPlayerAsMember();
+    }
+    for (const auto &member : _members) {
+        if (member.npc != kNpcPlayer && member.creature != _player) {
+            transferInventory(*member.creature);
+        }
+    }
+}
+
+void Party::takeItemsOnModuleLoad() {
+    // With no one under control, there is no player to take them.
+    if (!_player) {
+        return;
+    }
+    const auto holder = actualPlayer();
+    // The items come back to the creature that had them: none is marked anew.
+    for (const auto &[slot, item] : _player->equipment()) {
+        item->retakeForTop(_player);
+        item->announceKept();
+        _game.signalItemEquipped(*_player, slot, item);
+    }
+    for (const auto &item : holder->items()) {
+        item->retakeForTop(_player);
+        item->announceKept();
+    }
+}
+
+void Party::switchControlTo(
+    int npc,
+    const std::shared_ptr<Creature> &creature,
+    const std::shared_ptr<Creature> &previous,
+    bool fromWorld) {
+    // A creature already possessing items of the party, as the leader does,
+    // keeps them. Control can come from no one, and stay with no one when the
+    // creature's roster slot cannot be bound, so the shared inventory may have
+    // no holder before or after.
+    std::vector<std::shared_ptr<Item>> kept;
+    if (const auto holder = actualPlayer()) {
+        for (const auto &item : holder->items()) {
+            if (item->possessorId() == creature->id()) {
+                kept.push_back(item);
+            }
+        }
+    }
+    setControlledMember(npc, creature);
+    if (fromWorld) {
+        takeControlFromWorld(*creature);
+    }
+    // The party's items pass to the creature now in control, with nothing
+    // told, unless it possessed them already; each is then announced kept by
+    // it, once.
+    if (const auto holder = actualPlayer()) {
+        for (const auto &item : holder->items()) {
+            if (std::find(kept.begin(), kept.end(), item) == kept.end()) {
+                item->retakeForTop(previous);
+            }
+            item->announceKept();
+        }
+    }
+    passItemsToLeader();
+}
+
+void Party::passItemsToLeader() {
+    const auto leader = getLeader();
+    const auto holder = actualPlayer();
+    if (!leader || !holder) {
+        return;
+    }
+    for (const auto &item : holder->items()) {
+        item->passTo(*leader, false, false);
     }
 }
 
@@ -1080,6 +1249,13 @@ void Party::switchLeader(bool sound) {
     _members.push_back(tmp);
 
     onLeaderChanged(tmp.creature, sound);
+    restNewLeaderDrive(tmp.creature);
+}
+
+void Party::restNewLeaderDrive(const std::shared_ptr<Creature> &previous) {
+    if (getLeader() != previous) {
+        _game.resetDriveAcceleration();
+    }
 }
 
 bool Party::changeToNextLivingMember(bool sound) {
@@ -1127,6 +1303,24 @@ bool Party::selectNextStandingMember() {
     return false;
 }
 
+bool Party::selectStandingMember(int index) {
+    auto creature = getMember(index);
+    if (!creature || creature->isDead() || creature->isTemporarilyDead()) {
+        return false;
+    }
+    setPartyLeaderByIndex(index);
+    return true;
+}
+
+bool Party::selectPreviousStandingMember() {
+    for (int index = static_cast<int>(_members.size()) - 1; index >= 1; --index) {
+        if (selectStandingMember(index)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void Party::saveLeaderAttackTarget() {
     auto &member = _members.front();
     member.lastTarget = member.creature ? member.creature->getAttackTarget() : nullptr;
@@ -1138,6 +1332,7 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
     // The lead changes only within a module's area.
     auto &area = *_game.module()->area();
     const auto &leader = _members[0].creature;
+    passItemsToLeader();
     if (leader && previous && leader != previous) {
         leader->setPerceptionRangeRow(kPlayerPerceptionRangeRow);
         previous->setPerceptionRangeRow(kPartyPerceptionRangeRow);
@@ -1396,6 +1591,17 @@ std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Obj
     return receiver;
 }
 
+void Party::noteItemReceived(Item &item, const Object &receiver, const Object *source) const {
+    const auto holder = actualPlayer();
+    if (!holder || holder->id() != receiver.id()) {
+        return;
+    }
+    if (source && (source->id() == holder->id() || isMember(*source))) {
+        return;
+    }
+    item.setNewlyAcquired(true);
+}
+
 std::shared_ptr<Creature> Party::getLeader() const {
     return !_members.empty() ? _members[0].creature : nullptr;
 }
@@ -1441,6 +1647,8 @@ void Party::leadWithPlayerCharacter() {
         if (creature && creature->isPC()) {
             if (i > 0) {
                 setPartyLeaderByIndex(i, false);
+            } else if (_members.size() > 1) {
+                passItemsToLeader();
             }
             return;
         }
@@ -1726,6 +1934,62 @@ void Party::resetFollowPath(Area &area, const glm::vec3 &position, float facing,
     }
 }
 
+// The ranges.2da row whose ranges send a follower back toward the leader: the
+// distance, and the seconds between two retreats.
+static constexpr int kPartyEscapeRangeRow = 16;
+// How close a follower stands to the leader to be within its safety range.
+static constexpr float kSafetyRange = 5.0f;
+
+void Party::runFollowerScripts(float dt) {
+    static constexpr char kRetreatScript[] = "k_hen_retreat";
+    static constexpr char kLeaveSafetyScript[] = "k_hen_exit5m";
+    static constexpr char kEnterSafetyScript[] = "k_hen_enter5m";
+    const auto ranges = _game.services().game.spells.findRange(kPartyEscapeRangeRow);
+    const float escape = ranges ? ranges->get().primary.value_or(0.0f) : 0.0f;
+    const float retreatInterval = ranges ? ranges->get().secondary.value_or(0.0f) : 0.0f;
+    // The timer counts no further than the interval, past which it has
+    // nothing more to tell.
+    _retreatScriptTimer = std::min(_retreatScriptTimer + dt, retreatInterval);
+    auto leader = getLeader();
+    if (!leader || getSize() < 2) {
+        return;
+    }
+    bool retreated = false;
+    // The members' list, and its leader, can change under a script, so each
+    // follower is held for the whole of its turn, and one that has left the
+    // party or taken the lead by then is passed over.
+    boost::container::small_vector<std::shared_ptr<Creature>, kPartyFollowSlots> followers;
+    for (int i = 1; i < getSize(); ++i) {
+        if (auto follower = getMember(i)) {
+            followers.push_back(std::move(follower));
+        }
+    }
+    for (const auto &follower : followers) {
+        leader = getLeader();
+        if (!leader || leader == follower || !isMember(*follower)) {
+            continue;
+        }
+        const glm::vec3 apart {leader->position() - follower->position()};
+        const float distance2 = glm::dot(apart, apart);
+        // A range of nothing, as from a missing row, sends no one back.
+        if (escape > 0.0f && _retreatScriptTimer >= retreatInterval && distance2 >= escape * escape) {
+            _game.scriptRunner().run(kRetreatScript, follower->id());
+            retreated = true;
+            if (!isMember(*follower)) {
+                continue;
+            }
+        }
+        const bool within = distance2 <= kSafetyRange * kSafetyRange;
+        if (follower->isWithinSafetyRange() != within) {
+            follower->setWithinSafetyRange(within);
+            _game.scriptRunner().run(within ? kEnterSafetyScript : kLeaveSafetyScript, follower->id());
+        }
+    }
+    if (retreated) {
+        _retreatScriptTimer = 0.0f;
+    }
+}
+
 void Party::updateFollowAnchor() {
     const auto leader = getLeader();
     if (!leader) {
@@ -1740,16 +2004,19 @@ void Party::updateFollowAnchor() {
 }
 
 std::optional<glm::vec2> Party::forceFollowOffset(const Creature &member) const {
-    for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
-        if (getMember(slot).get() == &member) {
-            return glm::vec2(_followSlots[slot].formationOffset) + glm::vec2(0.0f, -kFormationSpacing);
-        }
+    const int slot = getLeader().get() == &member ? 0 : member.followSlot();
+    if (slot == -1) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return glm::vec2(_followSlots[slot].formationOffset) + glm::vec2(0.0f, -kFormationSpacing);
 }
 
 glm::vec3 Party::followAnchorPoint(const glm::vec2 &offset) const {
     return _followAnchor + glm::angleAxis(_followAnchorFacing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(offset, 0.0f);
+}
+
+glm::vec2 Party::followAnchorOffset(const glm::vec3 &point) const {
+    return glm::vec2(glm::angleAxis(-_followAnchorFacing, glm::vec3(0.0f, 0.0f, 1.0f)) * (point - _followAnchor));
 }
 
 void Party::updateFollowPath() {

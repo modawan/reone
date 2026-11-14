@@ -69,6 +69,7 @@ static constexpr int kMineBlastDCToken = 6;
 // says otherwise; a trap trigger's only when it says so. A placeable's trap is
 // neither detectable, disarmable nor one-shot unless its record says so.
 Trap::Trap(Carrier carrier) :
+    _carrier(carrier),
     _detectRule(carrier == Carrier::Door        ? DCRule::ClampedByte
                 : carrier == Carrier::Placeable ? DCRule::Byte
                                                 : DCRule::Whole),
@@ -84,8 +85,12 @@ std::vector<TrapTypeRow> Trap::readTypes(ITwoDAs &twoDas) {
     for (int type = 0; type < traps->getRowCount(); ++type) {
         TrapTypeRow row;
         row.script = boost::to_lower_copy(traps->getString(type, "trapscript"));
-        row.model = boost::to_lower_copy(traps->getString(type, "model"));
+        // A blank model cell leaves the row's default model.
+        if (const auto model = traps->getString(type, "model"); !model.empty()) {
+            row.model = boost::to_lower_copy(model);
+        }
         row.kitResRef = boost::to_lower_copy(traps->getString(type, "resref"));
+        row.explosionSound = boost::to_lower_copy(traps->getString(type, "explosionsound"));
         row.nameStrRef = traps->getIntOpt(type, "trapname");
         row.setDC = traps->getIntOpt(type, "setdc");
         row.detectDCMod = traps->getIntOpt(type, "detectdcmod");
@@ -121,10 +126,7 @@ void Trap::deserialize(const Gff &gff) {
 }
 
 void Trap::deserializeArming(const Gff &gff, const Game &game, bool keepShiftedDCs) {
-    uint8_t armed = 0;
-    if (gff.readByte(armed, "TrapFlag")) {
-        _armed = armed != 0;
-    }
+    gff.readByte(_trapFlag, "TrapFlag");
     uint8_t dc = 0;
     if (gff.readByte(dc, "DisarmDC")) {
         _disarmDC = dc;
@@ -180,7 +182,7 @@ void Trap::spring(Object &owner, Faction faction, const Creature &caller, bool f
         return;
     }
     auto &game = owner.game();
-    if (_armed) {
+    if (isArmed()) {
         auto leader = game.party().getLeader();
         if (leader.get() == &caller) {
             reportTriggered(game);
@@ -192,16 +194,20 @@ void Trap::spring(Object &owner, Faction faction, const Creature &caller, bool f
             placeable->setLastEnteredId(caller.id());
         }
         game.scriptRunner().run(_triggeredScript, owner.id());
+        _detection.detectedBy.clear();
+        // A door's armed trap takes its mine with it; a placeable's only when it goes off once.
         if (_oneShot) {
-            _armed = false;
+            _trapFlag = 0;
+        }
+        if (_carrier == Carrier::Door || _oneShot) {
+            removeLinkedMine(game);
         }
     }
-    _detection.detectedBy.clear();
-    removeLinkedMine(game);
 }
 
+// A strike springs only a trap whose flag is exactly 1.
 void Trap::springOnStrike(Object &owner, Faction faction, uint32_t attackerId) {
-    if (!_armed) {
+    if (_trapFlag != 1) {
         return;
     }
     auto attacker = owner.game().getObjectById<Creature>(attackerId);
@@ -210,20 +216,23 @@ void Trap::springOnStrike(Object &owner, Faction faction, uint32_t attackerId) {
     }
 }
 
-void Trap::disarm(Object &owner, uint32_t disarmerId) {
-    if (_armed) {
-        _armed = false;
-        runDisarmScript(owner, disarmerId);
+// A trap trigger always records the disarm. A door's or placeable's trap does
+// so only while armed, and then is disarmed but stays among the area's traps;
+// either way, no one has found it any more.
+void Trap::receiveDisarmSignal(Object &owner, uint32_t disarmerId) {
+    if (_carrier == Carrier::Trigger) {
+        recordDisarm(owner, disarmerId);
+        return;
+    }
+    if (isArmed()) {
+        _trapFlag = 0;
+        _disarmedOnSignal = true;
+        recordDisarm(owner, disarmerId);
     }
     _detection.detectedBy.clear();
 }
 
-void Trap::disarmOnSignal(Object &owner, uint32_t disarmerId) {
-    _disarmedOnSignal = _disarmedOnSignal || _armed;
-    disarm(owner, disarmerId);
-}
-
-void Trap::runDisarmScript(Object &owner, uint32_t disarmerId) {
+void Trap::recordDisarm(Object &owner, uint32_t disarmerId) {
     _disarmer = disarmerId;
     owner.game().scriptRunner().run(_disarmScript, owner.id());
 }
@@ -238,7 +247,8 @@ void Trap::armMine(
     const std::shared_ptr<Creature> &setter,
     int blastBonus,
     bool blast) {
-    _armed = true;
+    _trapFlag = 1;
+    _leftAreaTraps = false;
     _type = trapType;
     _triggeredScript = game.trapType(trapType).script;
     _detectDC = detectDC;
@@ -277,12 +287,12 @@ std::optional<MineBlast> Trap::updateMineBlast(float dt, int rankDivisor, int lo
         return std::nullopt;
     }
     _mineBlastDelay.reset();
-    if (!_armed) {
+    if (!isArmed()) {
         return std::nullopt;
     }
-    auto setter = _mineSetter.resolve();
     MineBlast blast;
-    blast.rank = setter ? setter->getUnopposedSkillRank(SkillType::Demolitions) : 0;
+    blast.setter = _mineSetter.resolve();
+    blast.rank = blast.setter ? blast.setter->getUnopposedSkillRank(SkillType::Demolitions) : 0;
     blast.total = blast.rank / rankDivisor + _mineBlastBonus + kMineBlastRoll;
     blast.lockDC = lockDC;
     blast.opens = blast.total >= lockDC;
@@ -301,14 +311,31 @@ void Trap::reportMineBlast(Game &game, const MineBlast &blast) {
         MessageLog::kFeedbackMessageType,
         MessageLog::Style::Normal,
         game.getFeedbackText(kMineBlastReportStrRef));
-    _armed = false;
+    spendMine(game);
+}
+
+void Trap::reportPlaceableMineBlast(Game &game, const MineBlast &blast) {
+    if (blast.setter && game.party().getLeader() == blast.setter) {
+        reportTriggered(game);
+    }
+    spendMine(game);
+}
+
+void Trap::spendMine(Game &game) {
+    _trapFlag = 0;
     _detection.detectedBy.clear();
     removeLinkedMine(game);
 }
 
-// A linked mine still standing is destroyed with the area's other objects.
+std::shared_ptr<Trigger> Trap::linkedMine() const {
+    return _linkedMine.resolve();
+}
+
+// A linked mine still standing goes with its explosion, destroyed with the
+// area's other objects.
 void Trap::removeLinkedMine(Game &game) {
     if (auto mine = _linkedMine.resolve()) {
+        mine->setMineRemoval(MineRemoval::Explosion);
         game.module()->area()->destroyObject(*mine);
     }
     _linkedMine.reset();

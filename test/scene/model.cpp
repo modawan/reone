@@ -467,11 +467,11 @@ TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root)
         audioModule.services(),
         resourceModule.services());
 
-    // when
+    // when: a clip of another model carries that model's scale
     modelSceneNode->init();
-    modelSceneNode->playAnimation(
-        *external, nullptr,
-        AnimationProperties::fromFlags(AnimationFlags::retargetRoot));
+    auto properties = AnimationProperties::fromFlags(AnimationFlags::external);
+    properties.scale = 1.0f;
+    modelSceneNode->playAnimation(*external, nullptr, properties);
     modelSceneNode->update(1.0f);
 
     // then
@@ -512,9 +512,10 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, bodyRoot.get());
     bodyRoot->addChild(accessoryHook);
 
+    // A head animates from its neck down, not at its root.
     auto headRoot = std::make_shared<ModelNode>(
         0, "pmhb05", glm::vec3(0.0f),
-        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
     auto eyelid = std::make_shared<ModelNode>(
         1, "eyeLid", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, headRoot.get());
@@ -570,9 +571,10 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
     accessory->playAnimation(
         "local_overlay", nullptr,
         AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
-    body->playAnimation(
-        *external, nullptr,
-        AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::retargetRoot));
+    // A clip of another model carries that model's scale.
+    auto properties = AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::external);
+    properties.scale = 1.0f;
+    body->playAnimation(*external, nullptr, properties);
     body->update(1.0f);
 
     // then
@@ -630,17 +632,109 @@ TEST(ModelSceneNode, should_play_single_looping_animation) {
     modelSceneNode->playAnimation("some_animation", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
     modelSceneNode->update(1.25f);
 
-    // then
+    // then: the loop carries the time it ran over into its next round
     auto &channels = modelSceneNode->animationChannels();
     EXPECT_EQ(1ll, channels.size());
-    EXPECT_NEAR(0.0f, channels[0].time, 1e-5);
+    EXPECT_NEAR(0.25f, channels[0].time, 1e-5);
     EXPECT_TRUE(!channels[0].finished);
     auto rootSceneNode = modelSceneNode->getNodeByName("root_node");
     EXPECT_TRUE(static_cast<bool>(rootSceneNode));
     auto &rootPosition = rootSceneNode->localTransform()[3];
-    EXPECT_NEAR(1.0f, rootPosition.x, 1e-5);
-    EXPECT_NEAR(2.0f, rootPosition.y, 1e-5);
-    EXPECT_NEAR(3.0f, rootPosition.z, 1e-5);
+    EXPECT_NEAR(0.25f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(0.5f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(0.75f, rootPosition.z, 1e-5);
+}
+
+TEST(ModelSceneNode, should_compose_world_transforms_of_animated_chain_and_attachment) {
+    // given
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>(
+        "test", pipelineFactory, graphicsOpt,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto root = std::make_shared<ModelNode>(
+        0, "root", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto spine = std::make_shared<ModelNode>(
+        1, "spine", glm::vec3(0.0f, 0.0f, 1.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, root.get());
+    root->addChild(spine);
+    auto hook = std::make_shared<ModelNode>(
+        2, "hook", glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, spine.get());
+    spine->addChild(hook);
+
+    // Both the root and a node beneath it move, so the hook's world position
+    // depends on two animated ancestors.
+    auto animRoot = std::make_shared<ModelNode>(
+        0, "root", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    animRoot->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(2.0f, 0.0f, 0.0f));
+    auto animSpine = std::make_shared<ModelNode>(
+        1, "spine", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, animRoot.get());
+    animSpine->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f, 0.0f, 3.0f));
+    animSpine->quaternionTracks()[ControllerTypes::orientation].add(
+        0.0f, glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 0.0f, 1.0f)));
+    animRoot->addChild(animSpine);
+    auto animation = std::make_shared<Animation>(
+        "pose", 1.0f, 0.0f, "root", animRoot, std::vector<Animation::Event>());
+
+    auto bodyModel = Model(
+        "body", 0, root,
+        std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
+    auto propRoot = std::make_shared<ModelNode>(
+        0, "prop", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto propModel = Model(
+        "prop", 0, propRoot,
+        std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto body = std::make_shared<ModelSceneNode>(
+        bodyModel, ModelUsage::Creature, *scene,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
+    auto prop = std::make_shared<ModelSceneNode>(
+        propModel, ModelUsage::Creature, *scene,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    // when
+    body->init();
+    prop->init();
+    body->attach("hook", *prop);
+    body->setLocalTransform(glm::translate(glm::vec3(10.0f, 0.0f, 0.0f)));
+    body->playAnimation("pose", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+    body->update(0.5f);
+
+    // then
+    auto rootNode = body->getNodeByName("root");
+    auto spineNode = body->getNodeByName("spine");
+    auto hookNode = body->getNodeByName("hook");
+    ASSERT_TRUE(static_cast<bool>(rootNode));
+    ASSERT_TRUE(static_cast<bool>(spineNode));
+    ASSERT_TRUE(static_cast<bool>(hookNode));
+    for (const SceneNode *node : std::initializer_list<const SceneNode *> {rootNode, spineNode, hookNode, prop.get()}) {
+        const glm::mat4 expected = node->parent()->absoluteTransform() * node->localTransform();
+        for (int column = 0; column < 4; ++column) {
+            for (int row = 0; row < 4; ++row) {
+                EXPECT_NEAR(expected[column][row], node->absoluteTransform()[column][row], 1e-5);
+            }
+        }
+    }
+    // Animated positions add to the rest position, so the spine sits at
+    // z = 1 + 3. It turns a quarter about Z, so the hook's offset along +Y
+    // lands along -X: (10 + 2 - 1, 0, 4).
+    const glm::vec3 propOrigin {prop->absoluteTransform()[3]};
+    EXPECT_NEAR(11.0f, propOrigin.x, 1e-5);
+    EXPECT_NEAR(0.0f, propOrigin.y, 1e-5);
+    EXPECT_NEAR(4.0f, propOrigin.z, 1e-5);
 }
 
 TEST(ModelSceneNode, should_restart_a_completed_queued_animation_explicitly) {
@@ -792,19 +886,19 @@ TEST(ModelSceneNode, should_play_two_overlayed_animations) {
     modelSceneNode->playAnimation("animation2", nullptr, AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
     modelSceneNode->update(1.25f);
 
-    // then
+    // then: the one-second loop carries the time it ran over into its next round
     auto &channels = modelSceneNode->animationChannels();
     EXPECT_EQ(2ll, channels.size());
     EXPECT_NEAR(1.25f, channels[0].time, 1e-5);
-    EXPECT_NEAR(0.0f, channels[1].time, 1e-5);
+    EXPECT_NEAR(0.25f, channels[1].time, 1e-5);
     EXPECT_TRUE(!channels[0].finished);
     EXPECT_TRUE(!channels[1].finished);
     auto rootSceneNode = modelSceneNode->getNodeByName("root_node");
     EXPECT_TRUE(static_cast<bool>(rootSceneNode));
     auto &rootPosition = rootSceneNode->localTransform()[3];
-    EXPECT_NEAR(1.0f, rootPosition.x, 1e-5);
-    EXPECT_NEAR(2.0f, rootPosition.y, 1e-5);
-    EXPECT_NEAR(3.0f, rootPosition.z, 1e-5);
+    EXPECT_NEAR(0.25f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(0.5f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(0.75f, rootPosition.z, 1e-5);
     auto dummySceneNode = modelSceneNode->getNodeByName("dummy_node");
     EXPECT_TRUE(static_cast<bool>(dummySceneNode));
     auto &dummyPosition = dummySceneNode->localTransform()[3];

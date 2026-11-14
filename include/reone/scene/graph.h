@@ -59,7 +59,13 @@ namespace scene {
 
 struct Collision;
 
-/** Which faces of a room walkmesh a vertical probe through a point meets. */
+/**
+ * Which faces of a room walkmesh a vertical probe through a point meets. Each
+ * probe gives the face the point stands on (see
+ * graphics::Walkmesh::standingFace): the first it meets going down, unless
+ * the room lays floors over floors and that is a floor over the floor at the
+ * point's level.
+ */
 enum class RoomFaceProbe {
     /**
      * Walk-check faces, from a thousand units above the point to a thousand
@@ -80,8 +86,13 @@ enum class RoomFaceProbe {
 
 class ModelSceneNode;
 
-/** Whether a top-level model stands in a shown room (see ISceneGraph::setRoomTest). */
-using RoomTest = std::function<bool(const ModelSceneNode &)>;
+/** What stands in a shown room (see ISceneGraph::setRoomTest). */
+struct RoomTest {
+    /** Whether a top-level model stands in a shown room. */
+    std::function<bool(const ModelSceneNode &)> model;
+    /** Whether a point, where an object's light stands, is in a shown room. */
+    std::function<bool(const glm::vec3 &)> point;
+};
 
 /** The face of a room walkmesh that a vertical probe meets first going down. */
 struct RoomFace {
@@ -91,6 +102,33 @@ struct RoomFace {
     float height {0.0f};
     /** The face's normal. */
     glm::vec3 normal {0.0f};
+};
+
+/** How a level walk through the rooms ends (see ISceneGraph::walkRooms). */
+enum class RoomWalkEnd {
+    /** It reaches its end in a room. */
+    Dest,
+    /** It starts where no room lies. */
+    OffRooms,
+    /** It crosses a perimeter edge leading into no room. */
+    Edge,
+    /** It is about to enter one room more than it may. */
+    RoomLimit
+};
+
+/** The stretch of a level walk over one room (see ISceneGraph::walkRooms). */
+struct RoomStretch {
+    std::shared_ptr<WalkmeshSceneNode> room;
+    /** How far along the walk it enters the room, from 0 at its start to 1 at its end. */
+    float from {0.0f};
+    /**
+     * The heights it spans over the room's walkable faces, from where it
+     * enters the room on toward the walk's end (see
+     * graphics::Walkmesh::walkFaces); empty when no face lies where it enters,
+     * or the walk cannot be followed across the faces, and when the heights
+     * were not asked for.
+     */
+    std::optional<graphics::Walkmesh::HeightBand> band;
 };
 
 class IAnimationEventListener;
@@ -116,6 +154,8 @@ public:
     virtual void setVideoEffect(std::optional<VideoEffect> effect) = 0;
     /** Whether the video effect turns the scene to Force Sight. */
     virtual bool isForceSightEnabled() const = 0;
+    /** Turns off the Force Sight look of the video effect, keeping its other parts. */
+    virtual void clearForceSight() = 0;
     /** The Force Sight glow's pulse, between 0.5 and 1. */
     virtual float forceSightPulse() const = 0;
     /** Seconds the scene has been shown for, a pause included: texture procedures run on it. */
@@ -123,23 +163,41 @@ public:
 
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     /**
-     * Where the line first meets a room walkmesh face that stops sight, or the
-     * posed model of a creature, placeable or door whose user is not one of
-     * \p excluded.
+     * Where the line first meets a face of a room model's AABB mesh of a
+     * camera surface, as testCameraLine has them, or the posed model of a
+     * creature, placeable or door, or a model attached to one, that takes
+     * scene hits (see ModelSceneNode::takesSceneHits). Of an object whose
+     * user is in \p excluded only the attached models count, except the one
+     * attached at \p excludedHook.
      */
-    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const = 0;
+    virtual bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
     /**
+     * Where the line first meets what stops a camera: a face of a room
+     * model's AABB mesh, in any room, shown or not, of a camera surface
+     * (setCameraSurfaces), walkable floor included; or a triangle, as it is
+     * posed, of the model of a door or placeable that a camera does not pass
+     * through, that takes scene hits (see ModelSceneNode::takesSceneHits) and
+     * whose classification does not let it. The normal faces back along the
+     * line.
+     */
+    virtual bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
+    /**
      * The first room walkmesh, in layout order, with a walk-check face on the
-     * vertical through a point, within a thousand units above and below it; a
+     * vertical through a point, within a thousand units above and below it.
+     * Where the area lays floors over floors (see
+     * hasStackedFloors), the first whose walk-check face that the point
+     * stands on (see graphics::Walkmesh::standingFace) lies within
+     * graphics::Walkmesh::kFloorHeadroom of its height comes before it. A
      * vertical that misses a room is tried on it once more, shifted 0.001
      * along the diagonal of x and y. Empty when no room lies there.
      */
     virtual std::shared_ptr<WalkmeshSceneNode> findRoomWalkmesh(const glm::vec3 &position) const = 0;
     /**
-     * The face of a room walkmesh met first going down the vertical through a
-     * point; a vertical that meets none is tried once more, shifted 0.001
-     * along the diagonal of x and y. Empty when it meets no face.
+     * The face of a room walkmesh a point stands on, going down the vertical
+     * through it (see RoomFaceProbe); a vertical that meets none is tried once
+     * more, shifted 0.001 along the diagonal of x and y. Empty when it meets
+     * no face.
      *
      * @param probe which faces are met, and over which heights
      */
@@ -160,6 +218,35 @@ public:
      */
     virtual bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
                               std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const = 0;
+    /**
+     * Whether the area lays one walkable floor over another more than
+     * graphics::Walkmesh::kFloorHeadroom apart, within a room or between two
+     * (see graphics::Walkmesh::hasFloorOverFloor and
+     * graphics::Walkmesh::hasFloorOver). Worked out from the room
+     * walkmeshes and walkable surfaces when first asked, and again after
+     * either is set.
+     */
+    virtual bool hasStackedFloors() const = 0;
+    /**
+     * How a level walk from origin to dest passes through the rooms. It
+     * starts in the room found under origin and passes from room to room
+     * across the perimeter edges that lead into another: in a room that lays
+     * floors over floors, the edge where the walk leaves the faces it crosses
+     * from where it enters (see graphics::Walkmesh::walkFaces), when the walk
+     * can be followed across them, and the height of the floor there;
+     * otherwise the first edge the level line crosses. The stretches are the
+     * rooms it passes over, in order, each with the heights the walk spans
+     * there when they are asked for. The collision, when the walk does not
+     * reach dest, names the room it ends in, none when it starts off the
+     * rooms, the point it ends at, and the level normal there: the crossed
+     * edge's for an edge leading into no room, otherwise back along the walk.
+     *
+     * @param maxRooms how many rooms the walk may pass over, when limited
+     * @param withBands whether each stretch is given the heights the walk
+     *        spans there
+     */
+    virtual RoomWalkEnd walkRooms(const glm::vec3 &origin, const glm::vec3 &dest, std::optional<int> maxRooms, bool withBands,
+                                  std::vector<RoomStretch> &outStretches, Collision &outCollision) const = 0;
 
     virtual ModelSceneNode *pickModelAt(int x, int y, IUser *except = nullptr) const = 0;
     virtual std::optional<std::reference_wrapper<ModelSceneNode>> pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const = 0;
@@ -177,6 +264,8 @@ public:
     virtual void setWalkableSurfaces(std::set<uint32_t> surfaces) = 0;
     virtual void setWalkcheckSurfaces(std::set<uint32_t> surfaces) = 0;
     virtual void setLineOfSightSurfaces(std::set<uint32_t> surfaces) = 0;
+    /** The surfaces whose faces of a room model's AABB mesh stop a camera (see testCameraLine). */
+    virtual void setCameraSurfaces(std::set<uint32_t> surfaces) = 0;
     /**
      * The walkmeshes of the area's rooms, by their place in the layout; empty
      * for a room loaded without one. Walks through the rooms follow them.
@@ -184,9 +273,11 @@ public:
     virtual void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) = 0;
     /**
      * The test a top-level model other than a room's must pass to be drawn
-     * and picked: whether it stands in a shown room. The graph only watches
-     * the test, which its owner keeps; once the owner lets it go, or after
-     * clear, every model passes.
+     * and picked: whether it stands in a shown room. A light of such a model
+     * shines when it stands in a shown room itself, and a room's lights
+     * shine while the room is shown, whether the model is drawn or not. The
+     * graph only watches the test, which its owner keeps; once the owner lets
+     * it go, or after clear, every model and light passes.
      */
     virtual void setRoomTest(std::weak_ptr<const RoomTest> test) = 0;
 
@@ -283,6 +374,11 @@ public:
     bool isSpeedBlurEnabled() const override { return _frameEffects.speedBlur; }
     void setVideoEffect(std::optional<VideoEffect> effect) override { _frameEffects.videoEffect = std::move(effect); }
     bool isForceSightEnabled() const override { return _frameEffects.videoEffect && _frameEffects.videoEffect->forceSight; }
+    void clearForceSight() override {
+        if (_frameEffects.videoEffect) {
+            _frameEffects.videoEffect->forceSight = false;
+        }
+    }
     float forceSightPulse() const override;
     float textureTime() const override { return _textureTime; }
 
@@ -351,12 +447,17 @@ public:
     // Collision detection and object picking
 
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
-    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, Collision &outCollision) const override;
+    bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
+    bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
+    void setCameraSurfaces(std::set<uint32_t> surfaces) override { _cameraSurfaces = std::move(surfaces); }
     std::shared_ptr<WalkmeshSceneNode> findRoomWalkmesh(const glm::vec3 &position) const override;
     std::optional<RoomFace> findRoomFace(const WalkmeshSceneNode &room, const glm::vec3 &position, RoomFaceProbe probe) const override;
     bool testRoomWalk(const glm::vec3 &origin, const glm::vec3 &dest, float radius, float height,
                       std::optional<int> maxRooms, std::vector<float> &outCrossings, Collision &outCollision) const override;
+    bool hasStackedFloors() const override { return floorStacking().area; }
+    RoomWalkEnd walkRooms(const glm::vec3 &origin, const glm::vec3 &dest, std::optional<int> maxRooms, bool withBands,
+                          std::vector<RoomStretch> &outStretches, Collision &outCollision) const override;
 
     ModelSceneNode *pickModelAt(int x, int y, IUser *except = nullptr) const override;
     std::optional<std::reference_wrapper<ModelSceneNode>> pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const override;
@@ -364,7 +465,7 @@ public:
     void setWalkableSurfaces(std::set<uint32_t> surfaces) override;
     void setWalkcheckSurfaces(std::set<uint32_t> surfaces) override;
     void setLineOfSightSurfaces(std::set<uint32_t> surfaces) override { _lineOfSightSurfaces = std::move(surfaces); }
-    void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) override { _roomWalkmeshes = std::move(rooms); }
+    void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) override;
     void setRoomTest(std::weak_ptr<const RoomTest> test) override { _roomTest = std::move(test); }
 
     // END Collision detection and object picking
@@ -390,6 +491,13 @@ public:
     // END Factory methods
 
 private:
+    /**
+     * Where the line, of some length, meets a face of a room model's AABB
+     * mesh of a camera surface nearer than \p nearest, which it brings in,
+     * every room whether shown or not.
+     */
+    void testRoomModels(const glm::vec3 &origin, const glm::vec3 &dest, float &nearest, Collision &outCollision) const;
+
     std::string _name;
     IRenderPipelineFactory &_renderPipelineFactory;
     graphics::GraphicsOptions &_graphicsOpt;
@@ -425,12 +533,24 @@ private:
     /** See setRoomTest. */
     std::weak_ptr<const RoomTest> _roomTest;
 
+    /** Which floors lie over others (see hasStackedFloors). */
+    struct FloorStacking {
+        /** Whether any do, within a room or between two. */
+        bool area {false};
+        /** The room walkmeshes that lay floors over their own. */
+        std::set<const WalkmeshSceneNode *> rooms;
+    };
+    /** Worked out when first asked for; reset when the rooms or walkable surfaces are set. */
+    mutable std::optional<FloorStacking> _floorStacking;
+
     // END Roots
 
     // Leafs
 
     std::vector<MeshSceneNode *> _opaqueMeshes;
     std::vector<MeshSceneNode *> _transparentMeshes;
+    /** The transparent meshes that write their depth before they are blended. */
+    std::vector<MeshSceneNode *> _blendedDepthMeshes;
     std::vector<MeshSceneNode *> _shellMeshes;
     std::vector<MeshSceneNode *> _shadowMeshes;
     std::vector<LightSceneNode *> _lights;
@@ -472,6 +592,7 @@ private:
     std::set<uint32_t> _walkableSurfaces;
     std::set<uint32_t> _walkcheckSurfaces;
     std::set<uint32_t> _lineOfSightSurfaces;
+    std::set<uint32_t> _cameraSurfaces;
     /** The walk-check surfaces that are not walkable. */
     std::set<uint32_t> _blockingSurfaces;
 
@@ -480,9 +601,17 @@ private:
     void cullRoots();
     /** Keeps the blocking surfaces in step with the walkable and walk-check ones. */
     void updateBlockingSurfaces();
+    const FloorStacking &floorStacking() const;
+    /** Whether a room walkmesh lays floors over its own. */
+    bool isStacked(const WalkmeshSceneNode &room) const { return floorStacking().rooms.count(&room) > 0; }
 
     void refresh();
-    void refreshFromNode(SceneNode &node);
+    /**
+     * Collects the meshes, lights and emitters under a node. Under a model
+     * that is culled but rendered, only its lights are collected. A light is
+     * collected when \p roomTest, if any, passes at its position.
+     */
+    void refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly);
 
     void updateLighting();
     void updateShadowLight(float dt);

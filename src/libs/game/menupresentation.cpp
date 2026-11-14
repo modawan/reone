@@ -11,13 +11,17 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <fstream>
 #include <iterator>
 #include <sstream>
-#include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
+
+#include "reone/system/logger.h"
+#include "reone/system/logutil.h"
 
 namespace reone {
 
@@ -31,6 +35,26 @@ const std::string kTopLevel;
 const std::string kGameOptionsSection {"Game Options"};
 const std::string kAutoPauseSection {"Autopause Options"};
 const std::string kKeybindsSectionTemplate {"Keybinds %d"};
+const std::string kMoviesShownSection {"Movies Shown"};
+
+// Top-level keys of the sound and graphics options, as the engine reads them
+// at start.
+const std::string kMusicVolumeKey {"musicvol"};
+const std::string kVoiceVolumeKey {"voicevol"};
+const std::string kSoundVolumeKey {"soundvol"};
+const std::string kMovieVolumeKey {"movievol"};
+const std::string kForceSoftwareKey {"forcesoftware"};
+const std::string kShadowsKey {"shadows"};
+const std::string kSoftShadowsKey {"softshadows"};
+const std::string kGrassKey {"grass"};
+const std::string kFXAAKey {"fxaa"};
+const std::string kVSyncKey {"vsync"};
+const std::string kWidthKey {"width"};
+const std::string kHeightKey {"height"};
+const std::string kRefreshRateKey {"refresh"};
+const std::string kTextureQualityKey {"texquality"};
+const std::string kAnisotropicFilteringKey {"anisofilter"};
+const std::string kGUIScaleKey {"guiscale"};
 
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
@@ -58,6 +82,7 @@ const std::string kDifficultyLevelKey {"Difficulty Level"};
 const std::string kActiveKeybindsKey {"Active Keybinds"};
 const std::string kUnlockedPlanetSongsKey {"UnlockedPlanetSongs"};
 const std::string kMouseLookKey {"Mouse Look"};
+const std::string kCombatMovementKey {"Combat Movement"};
 const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
 
 // The Autopause Options keys.
@@ -94,7 +119,21 @@ std::string trim(const std::string &s) {
 }
 
 /** A key and the number to write for it; no number removes the key. */
-using ConfigurationValue = std::pair<std::string, std::optional<int>>;
+using ConfigurationValue = std::pair<std::string, std::optional<std::variant<int, float>>>;
+
+/**
+ * Whether a problem with the configuration has been warned of since it was
+ * last written. A run that cannot read or write it warns once, not at every
+ * save. A problem met before the log is open counts for nothing, so it is
+ * warned of the next time it is met.
+ */
+std::atomic<bool> g_configurationProblemWarned {false};
+
+void warnOfConfigurationProblem(const std::string &message) {
+    if (Logger::instance.isInited() && !g_configurationProblemWarned.exchange(true)) {
+        warn(message);
+    }
+}
 
 /**
  * The game's configuration file, kept line by line: the game reads and writes
@@ -103,7 +142,12 @@ using ConfigurationValue = std::pair<std::string, std::optional<int>>;
  */
 class ConfigurationFile {
 public:
-    /** The configuration at path; a host without one (an empty path) or a file not yet written reads as empty. */
+    /**
+     * The configuration at path; a host without one (an empty path) or a file
+     * not yet written reads as empty. So does a file that cannot be read,
+     * which is warned of and never written over: its options stay at their
+     * defaults, and those chosen are kept for this run only.
+     */
     static ConfigurationFile read(const std::filesystem::path &path) {
         ConfigurationFile result;
         if (path.empty()) {
@@ -111,12 +155,21 @@ public:
         }
         std::ifstream input(path, std::ios::binary);
         if (!input) {
-            if (std::filesystem::exists(path)) {
-                throw std::runtime_error("Cannot read configuration: " + path.string());
+            std::error_code error;
+            if (std::filesystem::exists(path, error) || error) {
+                result.markUnreadable(path);
             }
             return result;
         }
-        const std::string content {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        // A read that fails part way, as on a directory, can throw from the
+        // stream's buffer.
+        std::string content;
+        try {
+            content.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        } catch (const std::ios_base::failure &) {
+            result.markUnreadable(path);
+            return result;
+        }
         std::istringstream lines(content);
         for (std::string line; std::getline(lines, line);) {
             result._lines.push_back(std::move(line));
@@ -135,22 +188,28 @@ public:
         return false;
     }
 
-    /** The number of a key in a section, as last set there; none when the key is absent or holds no number. */
+    /** The whole number of a key in a section, as last set there; none when the key is absent or holds no number. */
     std::optional<int> number(const std::string &section, const std::string &key) const {
-        std::optional<int> result;
+        return lastValue<int>(section, key);
+    }
+
+    /** The number of a key in a section, fraction kept, as last set there; none when the key is absent or holds no number. */
+    std::optional<float> real(const std::string &section, const std::string &key) const {
+        return lastValue<float>(section, key);
+    }
+
+    /** The keys a section sets, each once, in the order they first appear. */
+    std::vector<std::string> keys(const std::string &section) const {
+        std::vector<std::string> result;
         std::string current;
         for (const auto &line : _lines) {
             if (auto header = sectionHeader(line)) {
                 current = *header;
                 continue;
             }
-            if (current != section || keyOf(line) != key) {
-                continue;
-            }
-            std::istringstream value(line.substr(line.find('=') + 1));
-            int number;
-            if (value >> number) {
-                result = number;
+            auto key = keyOf(line);
+            if (current == section && !key.empty() && std::find(result.begin(), result.end(), key) == result.end()) {
+                result.push_back(std::move(key));
             }
         }
         return result;
@@ -160,6 +219,12 @@ public:
     std::optional<bool> flag(const std::string &section, const std::string &key) const {
         auto value = number(section, key);
         return value ? std::optional<bool>(*value != 0) : std::nullopt;
+    }
+
+    /** Whether a switch in a section is on: its number's lowest bit. None when the key is absent. */
+    std::optional<bool> bit(const std::string &section, const std::string &key) const {
+        auto value = number(section, key);
+        return value ? std::optional<bool>((*value & 1) != 0) : std::nullopt;
     }
 
     std::optional<Keybind> keybind(const std::string &section, const std::string &keyPrefix) const {
@@ -196,7 +261,9 @@ public:
         std::vector<std::string> written;
         for (const auto &[key, value] : values) {
             if (value) {
-                written.push_back(key + "=" + std::to_string(*value));
+                std::ostringstream text;
+                std::visit([&text](auto number) { text << number; }, *value);
+                written.push_back(key + "=" + text.str());
             }
         }
         auto position = _lines.begin();
@@ -221,10 +288,12 @@ public:
     /**
      * Write the configuration through a sibling file, so that a failed write
      * never truncates the live configuration. A host without a configuration
-     * (an empty path) keeps its options in memory only.
+     * (an empty path) keeps its options in memory only, and so does one whose
+     * configuration cannot be read or written: that is warned of, and play
+     * goes on.
      */
     void write(const std::filesystem::path &path) const {
-        if (path.empty()) {
+        if (path.empty() || _unreadable) {
             return;
         }
         std::string content;
@@ -239,15 +308,50 @@ public:
         std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
         file << content;
         file.close();
-        if (!file) {
-            throw std::runtime_error("Cannot write configuration: " + temporary.string());
+        std::error_code error;
+        if (file) {
+            std::filesystem::rename(temporary, path, error);
         }
-        std::filesystem::rename(temporary, path);
+        if (!file || error) {
+            warnOfConfigurationProblem("Unable to write the configuration to " + path.string() + "; the options are kept for this run only");
+            std::filesystem::remove(temporary, error);
+            return;
+        }
+        g_configurationProblemWarned = false;
     }
 
 private:
     std::vector<std::string> _lines;
     bool _endsWithNewline {false};
+    /** Whether the file is there but could not be read, so must not be written over. */
+    bool _unreadable {false};
+
+    void markUnreadable(const std::filesystem::path &path) {
+        _lines.clear();
+        _unreadable = true;
+        warnOfConfigurationProblem("Unable to read the configuration at " + path.string() + "; it is left unchanged and the options are kept for this run only");
+    }
+
+    template <class T>
+    std::optional<T> lastValue(const std::string &section, const std::string &key) const {
+        std::optional<T> result;
+        std::string current;
+        for (const auto &line : _lines) {
+            if (auto header = sectionHeader(line)) {
+                current = *header;
+                continue;
+            }
+            if (current != section || keyOf(line) != key) {
+                continue;
+            }
+            std::istringstream value(line.substr(line.find('=') + 1));
+            T number;
+            if (value >> number) {
+                result = number;
+            }
+        }
+        return result;
+    }
 
     /** The section a header line opens; none for any other line. */
     static std::optional<std::string> sectionHeader(const std::string &line) {
@@ -375,9 +479,98 @@ void saveDifficultyLevel(const std::filesystem::path &path, int level) {
     configuration.write(path);
 }
 
+int loadUnlockedPlanetSongs(const std::filesystem::path &path) {
+    return ConfigurationFile::read(path).number(kGameOptionsSection, kUnlockedPlanetSongsKey).value_or(0);
+}
+
+// A movie seen is a key of the section set to 1.
+MoviesShown loadMoviesShown(const std::filesystem::path &path) {
+    const auto configuration = ConfigurationFile::read(path);
+    MoviesShown result;
+    for (const auto &key : configuration.keys(kMoviesShownSection)) {
+        if (configuration.flag(kMoviesShownSection, key).value_or(false)) {
+            result.insert(key);
+        }
+    }
+    return result;
+}
+
+void saveMoviesShown(const std::filesystem::path &path, const MoviesShown &shown) {
+    auto configuration = ConfigurationFile::read(path);
+    std::vector<ConfigurationValue> values;
+    for (const auto &name : shown) {
+        values.emplace_back(name, 1);
+    }
+    configuration.set(kMoviesShownSection, values);
+    configuration.write(path);
+}
+
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs) {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kUnlockedPlanetSongsKey, songs}});
+    configuration.write(path);
+}
+
+GameplayOptions GameplayOptions::load(const std::filesystem::path &path) {
+    const auto configuration = ConfigurationFile::read(path);
+    GameplayOptions result;
+    result.combatMovement = configuration.bit(kGameOptionsSection, kCombatMovementKey).value_or(result.combatMovement);
+    return result;
+}
+
+void GameplayOptions::save(const std::filesystem::path &path) const {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kCombatMovementKey, combatMovement ? 1 : 0}});
+    configuration.write(path);
+}
+
+void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kMusicVolumeKey, options.musicVolume},
+                                     {kVoiceVolumeKey, options.voiceVolume},
+                                     {kSoundVolumeKey, options.soundVolume},
+                                     {kMovieVolumeKey, options.movieVolume},
+                                     {kForceSoftwareKey, options.forceSoftware ? 1 : 0},
+                                 });
+    configuration.write(path);
+}
+
+void saveGraphicsOptions(const std::filesystem::path &path, const graphics::GraphicsOptions &options) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kShadowsKey, options.shadows ? 1 : 0},
+                                     {kSoftShadowsKey, options.softShadows ? 1 : 0},
+                                     {kGrassKey, options.grass ? 1 : 0},
+                                     {kFXAAKey, options.fxaa ? 1 : 0},
+                                     {kVSyncKey, options.vsync ? 1 : 0},
+                                 });
+    configuration.write(path);
+}
+
+StartGraphicsOptions StartGraphicsOptions::load(const std::filesystem::path &path, const graphics::GraphicsOptions &running) {
+    const auto configuration = ConfigurationFile::read(path);
+    StartGraphicsOptions result;
+    result.displayMode.width = configuration.number(kTopLevel, kWidthKey).value_or(running.width);
+    result.displayMode.height = configuration.number(kTopLevel, kHeightKey).value_or(running.height);
+    result.displayMode.refreshRate = configuration.number(kTopLevel, kRefreshRateKey).value_or(running.refreshRate);
+    result.textureQuality = static_cast<graphics::TextureQuality>(
+        configuration.number(kTopLevel, kTextureQualityKey).value_or(static_cast<int>(running.textureQuality)));
+    result.anisotropicFiltering = configuration.number(kTopLevel, kAnisotropicFilteringKey).value_or(running.anisotropicFiltering);
+    result.guiScale = configuration.real(kTopLevel, kGUIScaleKey).value_or(running.guiScale);
+    return result;
+}
+
+void StartGraphicsOptions::save(const std::filesystem::path &path) const {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kTopLevel, {
+                                     {kWidthKey, displayMode.width},
+                                     {kHeightKey, displayMode.height},
+                                     {kRefreshRateKey, displayMode.refreshRate},
+                                     {kTextureQualityKey, static_cast<int>(textureQuality)},
+                                     {kAnisotropicFilteringKey, anisotropicFiltering},
+                                     {kGUIScaleKey, guiScale},
+                                 });
     configuration.write(path);
 }
 

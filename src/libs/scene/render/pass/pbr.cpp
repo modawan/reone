@@ -54,6 +54,7 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
         {MaterialType::PointLightShadow, ShaderProgramId::pointLightShadows}, //
         {MaterialType::OpaqueModel, ShaderProgramId::pbrOpaqueModel},         //
         {MaterialType::TransparentModel, ShaderProgramId::oitModel},          //
+        {MaterialType::BlendedModelDepth, ShaderProgramId::blendedModelDepth}, //
         {MaterialType::Walkmesh, ShaderProgramId::pbrWalkmesh}                //
     };
     if (kMatTypeToProgramId.count(material.type) == 0) {
@@ -103,8 +104,8 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
 int PBRRenderPass::materialFeatureMask(const Material &material) const {
     int mask = 0;
     const auto &textures = material.textures;
-    if (textures.count(TextureUnits::mainTex) > 0) {
-        const auto &mainTex = textures.at(TextureUnits::mainTex).get();
+    if (auto mainTexture = material.mainTexture()) {
+        const auto &mainTex = mainTexture->get();
         switch (mainTex.features().blending) {
         case Texture::Blending::PunchThrough:
             mask |= UniformsFeatureFlags::hashedalphatest;
@@ -121,6 +122,9 @@ int PBRRenderPass::materialFeatureMask(const Material &material) const {
         if (mainTex.features().waterAlpha != -1.0f) {
             mask |= UniformsFeatureFlags::water;
         }
+    }
+    if (textures.count(TextureUnits::mainTexArray) > 0) {
+        mask |= UniformsFeatureFlags::maintexarray;
     }
     if (textures.count(TextureUnits::lightmap) > 0) {
         mask |= UniformsFeatureFlags::lightmap;
@@ -185,10 +189,7 @@ void PBRRenderPass::drawDangly(Mesh &mesh,
             locals.modelInv = transformInv;
             applyMaterialToLocals(material, locals);
         });
-        _uniforms.setDangly([&positions](auto &dangly) {
-            auto numPositions = std::min<int>(kMaxDanglyVertices, positions.size());
-            std::memcpy(dangly.positions, &positions[0], numPositions * sizeof(glm::vec4));
-        });
+        _uniforms.setDangly(positions);
         mesh.draw(_statistic);
     });
 }
@@ -197,7 +198,7 @@ void PBRRenderPass::drawSaber(Mesh &mesh,
                               Material &material,
                               const glm::mat4 &transform,
                               const glm::mat4 &transformInv,
-                              const glm::vec4 &displacement) {
+                              const glm::mat4 &trailEnd) {
     withMaterialAppliedToContext(material, [&](auto &program) {
         _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
             locals.reset();
@@ -206,7 +207,7 @@ void PBRRenderPass::drawSaber(Mesh &mesh,
             locals.modelInv = transformInv;
             applyMaterialToLocals(material, locals);
         });
-        program.setUniform("uSaberDisplacement", displacement);
+        program.setUniform("uSaberTrailEnd", trailEnd);
         mesh.draw(_statistic);
     });
 }
@@ -320,12 +321,13 @@ void PBRRenderPass::applyMaterialToLocals(const Material &material,
     locals.selfIllumColor = glm::vec4(material.selfIllumColor, 1.0f);
     locals.forceSightColor = material.forceSightColor;
     locals.shellOffset = material.shellOffset;
-    if (material.textures.count(TextureUnits::mainTex) > 0) {
-        const auto &mainTex = material.textures.at(TextureUnits::mainTex).get();
+    if (auto mainTexture = material.mainTexture()) {
+        const auto &mainTex = mainTexture->get();
         if (mainTex.features().waterAlpha != -1.0f) {
             locals.waterAlpha = mainTex.features().waterAlpha;
         }
     }
+    locals.mainTexFrame = material.mainTexFrame;
     if (material.textures.count(TextureUnits::bumpMapArray) > 0) {
         const auto &bumpmap = material.textures.at(TextureUnits::bumpMapArray).get();
         locals.bumpMapFrame = material.bumpMapFrame;
@@ -349,19 +351,27 @@ void PBRRenderPass::drawImage(Texture &texture,
                               const glm::ivec2 &scale,
                               glm::vec4 color,
                               glm::mat3x4 uv,
-                              ImageAlphaMode alphaMode) {
-    _uniforms.setLocals([&position, &color, &uv, &scale](auto &locals) {
+                              ImageAlphaMode alphaMode,
+                              int frame) {
+    _uniforms.setLocals([&position, &color, &uv, &scale, frame](auto &locals) {
         locals.reset();
         locals.model = glm::translate(glm::vec3(position.x, position.y, 0.0f));
         locals.model *= glm::scale(glm::vec3(scale.x, scale.y, 1.0f));
         locals.uv = std::move(uv);
         locals.color = std::move(color);
+        locals.mainTexFrame = frame;
     });
-    const char *programId = alphaMode == ImageAlphaMode::Sharpen
-                                ? ShaderProgramId::mvpIcon
-                                : ShaderProgramId::mvpTexture;
-    _context.useProgram(_shaderRegistry.get(programId));
-    _context.bindTexture(texture, TextureUnits::mainTex);
+    // A texture of frames is drawn one frame at a time.
+    if (texture.is2DArray()) {
+        _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpTextureArray));
+        _context.bindTexture(texture, TextureUnits::mainTexArray);
+    } else {
+        const char *programId = alphaMode == ImageAlphaMode::Sharpen
+                                    ? ShaderProgramId::mvpIcon
+                                    : ShaderProgramId::mvpTexture;
+        _context.useProgram(_shaderRegistry.get(programId));
+        _context.bindTexture(texture, TextureUnits::mainTex);
+    }
     _meshRegistry.get(MeshName::quad).draw(_statistic);
 }
 

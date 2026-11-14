@@ -92,6 +92,29 @@ void Room::setVisible(bool visible) {
     _visible = visible;
 }
 
+void Room::setGrass(std::shared_ptr<scene::GrassSceneNode> grass) {
+    _grass = std::move(grass);
+    _grass->setEnabled(_visible);
+}
+
+// EnvAudio 23 is GENERIC again.
+static constexpr int kGenericAgainEnvAudio = 23;
+
+std::optional<audio::Environment> environmentOfEnvAudio(int envAudio) {
+    if (envAudio >= 0 && envAudio <= static_cast<int>(audio::Environment::Underwater)) {
+        return static_cast<audio::Environment>(envAudio);
+    }
+    if (envAudio == kGenericAgainEnvAudio) {
+        return audio::Environment::Generic;
+    }
+    return std::nullopt;
+}
+
+bool envAudioReverberates(int envAudio) {
+    return envAudio > static_cast<int>(audio::Environment::Generic) &&
+           envAudio <= static_cast<int>(audio::Environment::Underwater);
+}
+
 } // namespace game
 
 } // namespace reone

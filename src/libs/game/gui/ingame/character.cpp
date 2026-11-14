@@ -123,8 +123,6 @@ void CharacterMenu::onGUILoaded() {
         _lblBar.push_back(_controls.LBL_BAR6);
 
     if (_game.isTSL()) {
-        _controls.LBL_STATSBORDER->setTintBorderFill(true);
-        _controls.LBL_XP_BACK->setTintBorderFill(true);
         useK2ShellTitle(_controls.LBL_TITLE);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
         _controls.BTN_CHANGE1 = _inGameMenu.getBtnChange2();
@@ -132,7 +130,8 @@ void CharacterMenu::onGUILoaded() {
     }
 
     turnK1PartyArrowRight();
-    _controls.BTN_AUTO->setDisabled(true);
+    // The alignment meter shows the character's alignment; it is not moved.
+    _controls.SLD_ALIGN->setDisabled(true);
     // The level-up buttons' texts pulse until the pointer first leaves them.
     _controls.BTN_AUTO->setTextPulsing(true);
     _controls.BTN_LEVELUP->setTextPulsing(true);
@@ -141,6 +140,15 @@ void CharacterMenu::onGUILoaded() {
     });
     _controls.BTN_LEVELUP->setOnClick([this]() {
         _game.openLevelUp();
+    });
+    _controls.BTN_AUTO->setOnClick([this]() {
+        _game.autoLevelUp();
+        // Hidden at once, so a second click before the next update cannot
+        // level a character with no level pending.
+        const bool pending = _game.party().getLeader()->isLevelUpPending();
+        _controls.BTN_AUTO->setVisible(pending);
+        _controls.BTN_LEVELUP->setVisible(pending);
+        refreshControls();
     });
 
     if (!_game.isTSL()) {
@@ -152,6 +160,21 @@ void CharacterMenu::onGUILoaded() {
         }
 
         _controls.LBL_MORE->setVisible(false);
+        // A portrait hands control to its party member.
+        _controls.BTN_CHANGE1->setOnClick([this]() { changeCharacter(1); });
+        _controls.BTN_CHANGE2->setOnClick([this]() { changeCharacter(2); });
+        // The arrows step through the party: left to the member before the
+        // leader, right to the next.
+        findControl<Button>("BTN_CHARLEFT")->setOnClick([this]() {
+            if (_game.party().selectPreviousStandingMember()) {
+                refreshControls();
+            }
+        });
+        findControl<Button>("BTN_CHARRIGHT")->setOnClick([this]() {
+            if (_game.party().selectNextStandingMember()) {
+                refreshControls();
+            }
+        });
         _controls.BTN_SCRIPTS->setOnClick([this]() {
             openScriptSelectPanel();
         });
@@ -242,6 +265,8 @@ void CharacterMenu::loadScriptSelectPanel() {
     controls.BTN_Back->setOnClick([this]() {
         closeScriptSelectPanel();
     });
+    // The list holds the keyboard until the pointer gives it to another control.
+    _scriptSelectGUI->setActiveControl(list);
 }
 
 // The panel opens for the leader with its current style marked and focused,
@@ -296,6 +321,7 @@ static std::string describeAbilityModifier(int value) {
 void CharacterMenu::refreshControls() {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     CreatureAttributes &attributes = partyLeader->attributes();
+    _controls.SLD_ALIGN->setValue(partyLeader->goodEvil());
 
     if (!_game.isTSL()) {
         _controls.LBL_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));
@@ -367,6 +393,12 @@ std::string CharacterMenu::describeClass(ClassType clazz) const {
     return _services.game.classes.get(clazz)->name();
 }
 
+void CharacterMenu::changeCharacter(int member) {
+    if (_game.party().selectStandingMember(member)) {
+        refreshControls();
+    }
+}
+
 void CharacterMenu::refreshPortraits() {
     if (_game.isTSL())
         return;
@@ -404,6 +436,10 @@ std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneG
         _game.newPresentationCreature(sceneGraph.name());
     character->setFacing(-glm::half_pi<float>());
     character->setAppearance(partyLeader->appearance());
+    // The leader is shown with its own good/evil.
+    character->setGoodEvil(partyLeader->goodEvil());
+    // A disguise previews over the texture variation the leader shows.
+    character->takeShownTextureVariation(*partyLeader);
 
     for (auto &item : partyLeader->equipment()) {
         switch (item.first) {

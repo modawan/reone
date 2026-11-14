@@ -47,14 +47,9 @@ std::shared_ptr<Texture> Textures::get(const std::string &resRef, TextureUsage u
     if (resRef.empty()) {
         return nullptr;
     }
-    auto maybeTexture = _cache.find(resRef);
-    if (maybeTexture != _cache.end()) {
-        return maybeTexture->second;
-    }
-    std::string lcResRef(boost::to_lower_copy(resRef));
-    auto inserted = _cache.insert(std::make_pair(lcResRef, doGet(lcResRef, usage)));
-
-    return inserted.first->second;
+    const auto lcResRef = boost::to_lower_copy(resRef);
+    return _cache.getOrAdd({lcResRef, usage},
+                           [this, &lcResRef, usage]() { return doGet(lcResRef, usage); });
 }
 
 std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage usage) {
@@ -77,6 +72,12 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
         texture = tgaReader.texture();
         if (texture && features) {
             texture->setFeatures(*features);
+            // A TGA holds the frames of a texture that cycles through them as
+            // one grid image.
+            if (features->procedureType != Texture::ProcedureType::Invalid &&
+                (features->numX > 1 || features->numY > 1)) {
+                convertGridTextureToArray(*texture, features->numX, features->numY);
+            }
         }
     }
 
@@ -98,11 +99,6 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
     }
 
     if (texture) {
-        if (features &&
-            features->procedureType != Texture::ProcedureType::Invalid &&
-            (features->numX > 1 || features->numY > 1)) {
-            convertGridTextureToArray(*texture, features->numX, features->numY);
-        }
         float anisotropy = std::max(1.0f, exp2f(_options.anisotropicFiltering));
         texture->setAnisotropy(anisotropy);
         texture->init();

@@ -22,6 +22,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "reone/game/gui/sounds.h"
+
 namespace reone {
 
 namespace game {
@@ -256,6 +258,7 @@ PazaakWagerGUI::PazaakWagerGUI(Game &game, ServicesView &services) :
 
 void PazaakWagerGUI::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
+    _gui->setHilightFollowsKeyboard(true);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
@@ -331,6 +334,7 @@ bool PazaakSetupGUI::handle(const input::Event &event) {
 
 void PazaakSetupGUI::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
+    _gui->setHilightFollowsKeyboard(true);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
@@ -516,6 +520,7 @@ bool PazaakBoardGUI::handle(const input::Event &event) {
 
 void PazaakBoardGUI::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
+    _gui->setHilightFollowsKeyboard(true);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
@@ -843,9 +848,7 @@ void PazaakBoardGUI::playAudio(const std::string &resRef) {
             warn("Pazaak audio cue is unavailable: " + resRef);
             return;
         }
-        auto source = _services.audio.mixer.play(
-            std::move(clip),
-            audio::AudioType::Sound);
+        auto source = playInterfaceSound(_services.audio.mixer, std::move(clip));
         if (!source) {
             warn("Pazaak audio cue failed to start: " + resRef);
             return;

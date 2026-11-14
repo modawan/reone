@@ -24,6 +24,7 @@
 #include "reone/game/action/changefacing.h"
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/doorsaber.h"
+#include "reone/game/action/drive.h"
 #include "reone/game/action/equipitem.h"
 #include "reone/game/action/follow.h"
 #include "reone/game/action/followleader.h"
@@ -41,6 +42,7 @@
 #include "reone/game/action/orientcamera.h"
 #include "reone/game/action/pickupitem.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/playsound.h"
 #include "reone/game/action/putdownitem.h"
 #include "reone/game/action/randomwalk.h"
 #include "reone/game/action/resumeconversation.h"
@@ -51,6 +53,7 @@
 #include "reone/game/action/switchweapons.h"
 #include "reone/game/action/takeitem.h"
 #include "reone/game/action/unequipitem.h"
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
 #include "reone/game/action/wait.h"
@@ -1241,10 +1244,10 @@ bool isWaitCommand(const SavedActionRecord &record) {
     return !record.parameters.empty() && std::holds_alternative<float>(record.parameters.front().payload);
 }
 
-// An unlock keeps the target and the item used and, until it first runs, that
-// item's property.
+// An unlock keeps what UnlockObjectAction::restore reads: the target alone,
+// the target and the item used, or those and the item's property.
 bool isUnlockCommand(const SavedActionRecord &record) {
-    return record.hasParameterTypes({Type::Object, Type::Object}) ||
+    return record.hasParameterTypes({Type::Object}) || record.hasParameterTypes({Type::Object, Type::Object}) ||
            record.hasParameterTypes({Type::Object, Type::Object, Type::Integer});
 }
 
@@ -1284,6 +1287,7 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::FaceObject, &hasParameters<Type::Object>, &ChangeFacingAction::restore},
     {SavedActionType::OpenDoor, &hasParameters<Type::Object, Type::Integer>, &OpenDoorAction::restore},
     {SavedActionType::CloseDoor, &hasParameters<Type::Object, Type::Integer>, &CloseDoorAction::restore},
+    {SavedActionType::PlaySound, &hasParameters<Type::String>, &PlaySoundAction::restore},
     {SavedActionType::StartConversation,
      &hasParameters<Type::Object, Type::String, Type::Integer, Type::Integer, Type::Integer, Type::Object>,
      &StartConversationAction::restore},
@@ -1301,7 +1305,7 @@ const SavedActionRestorer kRestorers[] {
      &GiveItemAction::restore},
     {SavedActionType::TakeItem, &hasParameters<Type::Object, Type::Object, Type::Integer>, &TakeItemAction::restore},
     {SavedActionType::DoCommand, &hasParameters<Type::ScriptSituation>, nullptr},
-    {SavedActionType::OpenLock, &isUnlockCommand, &UseSkillAction::restore},
+    {SavedActionType::OpenLock, &isUnlockCommand, &UnlockObjectAction::restore},
     {SavedActionType::Lock, &hasParameters<Type::Object>, &LockObjectAction::restore},
     {SavedActionType::OpenContainer, &hasParameters<Type::Object>, &OpenContainerAction::restore},
     {SavedActionType::MoveAwayFromLocation,
@@ -1312,6 +1316,9 @@ const SavedActionRestorer kRestorers[] {
     {SavedActionType::ItemCastSpell, &isItemUseCommand, &CastSpellAction::restore},
     {SavedActionType::JumpToObject, &hasParameters<Type::Object, Type::Integer>, &JumpToObjectAction::restore},
     {SavedActionType::FacePoint, &hasParameters<Type::Float, Type::Float, Type::Float>, &ChangeFacingAction::restore},
+    {SavedActionType::Drive,
+     &hasParameters<Type::Float, Type::Float, Type::Integer, Type::Integer, Type::Integer, Type::Integer, Type::Integer>,
+     &DriveAction::restore},
     {SavedActionType::OrientCamera, &hasParameters<Type::Integer, Type::Float, Type::Float, Type::Float, Type::Integer>,
      &OrientCameraAction::restore},
     {SavedActionType::Appear, &hasParameters<>, &AppearAction::restore},
@@ -1521,10 +1528,11 @@ SavedExecutionSupport SavedEventRecord::executionSupport() const {
         using Signal = SavedSignalEventType;
         static const std::set<Signal> delivered {
             Signal::Heartbeat, Signal::SpellCastAt, Signal::Damaged, Signal::Conversation, Signal::Death,
-            Signal::UserDefined,
+            Signal::UserDefined, Signal::PlayerLevelUp,
             Signal::Entered, Signal::Exited, Signal::ModuleLoaded, Signal::ItemActivated, Signal::ItemAcquired,
             Signal::ItemLost, Signal::EncounterExhausted, Signal::InventoryOpened, Signal::InventoryClosed,
-            Signal::Disarmed, Signal::Used, Signal::Locked, Signal::Clicked, Signal::FailToOpen, Signal::ItemEquipped};
+            Signal::Disarmed, Signal::Used, Signal::InventoryDisturbed, Signal::Locked, Signal::Unlocked, Signal::Clicked,
+            Signal::FailToOpen, Signal::ItemEquipped};
         const auto *event = std::get_if<SavedScriptEvent>(&payload);
         if (event && delivered.count(static_cast<Signal>(event->type)) != 0) {
             return SavedExecutionSupport::Executable;

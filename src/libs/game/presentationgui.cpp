@@ -78,13 +78,11 @@ void PresentationGUI::preload(IGUI &gui) {
     gui.setScaling(IGUI::ScalingMode::Scaled);
     if (isTSL()) {
         gui.setResolution(800, 600);
-        // TSL's GUI fills are authored as color masks. Their BORDER.COLOR
-        // values carry the screen palette; drawing the textures white turns
-        // title bars and panels into opaque gray rectangles.
-        gui.setTintBorderFills(true);
         gui.setImageButtonTextPulses(true);
     } else {
-        gui.setDefaultHilightColor(kGUIColorHilight);
+        // KotOR draws a selected control's text in its hilight colour,
+        // whatever colour the control's own hilight is authored in.
+        gui.setSelectedTextColor(kGUIColorHilight);
     }
 }
 
@@ -107,6 +105,24 @@ void PresentationGUI::render() {
     }
 }
 
+// A full-screen backdrop is named for the screen height, the largest of the
+// backdrop sizes it reaches.
+static std::string backdropResolution(int screenHeight) {
+    if (screenHeight >= 1200) {
+        return "1600x1200";
+    }
+    if (screenHeight >= 1024) {
+        return "1280x1024";
+    }
+    if (screenHeight >= 960) {
+        return "1280x960";
+    }
+    if (screenHeight >= 768) {
+        return "1024x768";
+    }
+    return "800x600";
+}
+
 void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
     std::string resRef;
 
@@ -125,22 +141,24 @@ void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
             // panel. TSL's terminal sits on a void fill.
             resRef = "black";
             break;
+        case BackgroundType::Store:
+        case BackgroundType::Upgrade:
+            // The store's backdrop, or the upgrade bench's, or the menus'
+            // fill where there is none.
+            if (_gui) {
+                const std::string suffix = type == BackgroundType::Store ? "store" : "back";
+                auto backdrop = _presentation.textures.get(backdropResolution(_graphicsOptions.height) + suffix, TextureUsage::MainTex);
+                _gui->setBackground(backdrop ? backdrop : _presentation.textures.get("blackfill", TextureUsage::MainTex));
+            }
+            return;
         default:
             return;
         }
     } else {
-        auto &options = _graphicsOptions;
-        if ((options.width == 1600 && options.height == 1200) ||
-            (options.width == 1280 && options.height == 960) ||
-            (options.width == 1024 && options.height == 768) ||
-            (options.width == 800 && options.height == 600)) {
-
-            resRef = str(boost::format("%dx%d") % options.width % options.height);
-        } else {
-            resRef = "1600x1200";
-        }
+        resRef = backdropResolution(_graphicsOptions.height);
         switch (type) {
         case BackgroundType::Menu:
+        case BackgroundType::Upgrade:
             resRef += "back";
             break;
         case BackgroundType::Load:
@@ -148,6 +166,9 @@ void PresentationGUI::loadBackground(BackgroundType type, int computerType) {
             break;
         case BackgroundType::Computer:
             resRef += "comp" + std::to_string(computerType);
+            break;
+        case BackgroundType::Store:
+            resRef += "store";
             break;
         default:
             return;
@@ -257,6 +278,23 @@ void PresentationGUI::useBakedItemSlotArt(ListBox &listBox) {
         });
 }
 
+void PresentationGUI::useK1ListEntryColors(Control &protoItem) {
+    if (isTSL()) {
+        return;
+    }
+    protoItem.setBorderColor(_baseColor);
+    protoItem.setHilightColor(_hilightColor);
+}
+
+void PresentationGUI::useK1NewEntryStyle(ListBox::Item &entry) const {
+    static constexpr float kNewEntryFrameAlpha = 0.5f;
+    if (isTSL()) {
+        return;
+    }
+    entry.frameColor = kGUIColorNew;
+    entry.frameAlpha = kNewEntryFrameAlpha;
+}
+
 void PresentationGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {
     auto &root = _gui->rootControl();
     auto authored = root.authoredExtent();
@@ -275,31 +313,6 @@ std::shared_ptr<Texture> PresentationGUI::itemFrameTexture(int stackSize) const 
     int tier = stackSize >= 100 ? 2 : (stackSize > 1 ? 1 : 0);
     auto resRef = isTSL() ? kTSLFrames[tier] : kK1Frames[tier];
     return _presentation.textures.get(resRef, TextureUsage::GUI);
-}
-
-void PresentationGUI::tintK2InGameFooter() {
-    if (!isTSL()) {
-        return;
-    }
-
-    for (auto tag : {"LBL_BAR3", "LBL_BAR4", "LBL_BAR5"}) {
-        if (auto control = _gui->findControl(tag)) {
-            control->setTintBorderFill(true);
-        }
-    }
-}
-
-void PresentationGUI::tintK2InGameHeader() {
-    if (!isTSL()) {
-        return;
-    }
-
-    for (auto &tag : {"LBL_BAR1", "LBL_BAR2", "LBL_BAR6"}) {
-        auto control = _gui->findControl(tag);
-        if (control) {
-            control->setTintBorderFill(true);
-        }
-    }
 }
 
 void PresentationGUI::enableK2ButtonBodyFill(Control &control) {
@@ -337,11 +350,9 @@ void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar,
     }
 
     topBar->setBorderFill("uibit_brdr_16we");
-    topBar->setTintBorderFill(true);
 
     bottomBar->setBorderFill("uibit_brdr_16we");
     bottomBar->setBorderFillTransform(Control::Border::FillTransform::Rotate180);
-    bottomBar->setTintBorderFill(true);
 
     auto &upper = topBar->extent();
     auto &lower = bottomBar->extent();
@@ -354,12 +365,14 @@ void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar,
         return;
     }
 
-    auto fill = std::shared_ptr<Control>(_gui->newControl(ControlType::Label, topBar->tag() + "_SECTION_FILL"));
+    // The fill goes behind the strip in the GUI that has the bars, which may
+    // be a page drawn over this one.
+    auto &gui = topBar->gui();
+    auto fill = std::shared_ptr<Control>(gui.newControl(ControlType::Label, topBar->tag() + "_SECTION_FILL"));
     fill->setExtent({upper.left, top, upper.width, height});
     fill->setBorderFill("uibit_fill_2wt");
     fill->setBorderColor(topBar->border().color);
-    fill->setTintBorderFill(true);
-    _gui->addControlToFront(std::move(fill), IGUI::ControlCoordinates::Authored);
+    gui.addControlToFront(std::move(fill), IGUI::ControlCoordinates::Authored);
 }
 
 void PresentationGUI::useK2ShellTitle(const std::shared_ptr<Control> &control) {
@@ -401,15 +414,14 @@ void PresentationGUI::clickControl(const std::string &tag) {
 }
 
 void PresentationGUI::onClick(const std::string &control) {
-    auto clip = _presentation.sounds.getOnClick();
-    _audioSource = _presentation.mixer.play(std::move(clip), AudioType::Sound);
+    _audioSource = _presentation.sounds.play(_presentation.sounds.getOnClick());
 }
 
 void PresentationGUI::onSelectionChanged(const std::string &control, bool selected) {
-    if (selected) {
-        auto clip = _presentation.sounds.getOnEnter();
-        _audioSource = _presentation.mixer.play(std::move(clip), AudioType::Sound);
-    }
+}
+
+void PresentationGUI::onEntered(const std::string &control) {
+    _audioSource = _presentation.sounds.play(_presentation.sounds.getOnEnter());
 }
 
 } // namespace game

@@ -142,8 +142,8 @@ public:
     MockMovies();
     ~MockMovies() override;
 
-    MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<movie::IMovie>, get, (const std::string &name), (override));
+    MOCK_METHOD(std::vector<std::string>, names, (), (override));
 };
 
 class MockAudioClips : public IAudioClips, boost::noncopyable {
@@ -294,6 +294,8 @@ public:
     MOCK_METHOD(void, adoptPublishedSave, (SaveSlotDescriptor descriptor, std::shared_ptr<const SaveWorkingState> state), (override));
     MOCK_METHOD(std::set<std::string>, moduleNames, (), (override));
     MOCK_METHOD(std::set<std::string>, saveNames, (), (override));
+    MOCK_METHOD(ModuleSaveRules, moduleSaveRules, (const std::string &module), (override));
+    MOCK_METHOD(std::vector<std::string>, saveGroupModules, (int group), (override));
 };
 
 class TestResourceModule : boost::noncopyable {

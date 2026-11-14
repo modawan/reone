@@ -215,6 +215,8 @@ struct VisualEffectDesc {
     /** Type_FD "F": the row is only ever presented as an impact. */
     bool fireAndForget {false};
     std::shared_ptr<audio::AudioClip> soundDuration;
+    /** Played once as a kept application ends, such as a shield going down. */
+    std::shared_ptr<audio::AudioClip> soundCessation;
 
     /**
      * The root model cell for an object of this size category: from huge up,

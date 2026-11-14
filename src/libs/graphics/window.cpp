@@ -17,6 +17,8 @@
 
 #include "reone/graphics/window.h"
 
+#include <cmath>
+
 #include "SDL3/SDL.h"
 
 #include "reone/system/checkutil.h"
@@ -25,6 +27,28 @@
 namespace reone {
 
 namespace graphics {
+
+std::vector<DisplayMode> Window::displayModes() {
+    std::vector<DisplayMode> result;
+    int count = 0;
+    SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(SDL_GetPrimaryDisplay(), &count);
+    if (!modes) {
+        return result;
+    }
+    for (int i = 0; i < count; ++i) {
+        result.push_back({modes[i]->w, modes[i]->h, static_cast<int>(std::lround(modes[i]->refresh_rate))});
+    }
+    SDL_free(modes);
+    return result;
+}
+
+DisplayMode Window::desktopMode() {
+    const SDL_DisplayMode *mode = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+    if (!mode) {
+        return {};
+    }
+    return {mode->w, mode->h, static_cast<int>(std::lround(mode->refresh_rate))};
+}
 
 void Window::init() {
     checkThat(!_inited, "Must not be initialized");
@@ -49,11 +73,21 @@ void Window::init() {
         throw std::runtime_error("SDL_CreateWindow failed: " + std::string(SDL_GetError()));
     }
     _windowID = SDL_GetWindowID(_window);
+    // Fullscreen with a refresh rate takes the display mode nearest the size
+    // and rate; without one it keeps the desktop's mode.
+    if (_options.fullscreen && _options.refreshRate > 0) {
+        SDL_DisplayMode mode;
+        if (SDL_GetClosestFullscreenDisplayMode(SDL_GetPrimaryDisplay(), _options.width, _options.height,
+                                                static_cast<float>(_options.refreshRate), false, &mode)) {
+            SDL_SetWindowFullscreenMode(_window, &mode);
+        }
+    }
     _context = SDL_GL_CreateContext(_window);
     if (!_context) {
         throw std::runtime_error("SDL_GL_CreateContext failed: " + std::string(SDL_GetError()));
     }
-    SDL_GL_SetSwapInterval(_options.vsync ? 1 : 0);
+    _vsync = _options.vsync;
+    SDL_GL_SetSwapInterval(_vsync ? 1 : 0);
 
     _inited = true;
 }
@@ -126,7 +160,12 @@ bool Window::handleKeyDownEvent(const SDL_KeyboardEvent &event) {
     return false;
 }
 
+// V-Sync follows the option as the options pages change it.
 void Window::swap() {
+    if (_vsync != _options.vsync) {
+        _vsync = _options.vsync;
+        SDL_GL_SetSwapInterval(_vsync ? 1 : 0);
+    }
     SDL_GL_SwapWindow(_window);
 }
 

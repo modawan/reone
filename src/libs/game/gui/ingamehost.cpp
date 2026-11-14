@@ -38,7 +38,6 @@ static void tintK2TopNavigationIcon(const std::shared_ptr<ImageButton> &button, 
         return;
     }
     button->setBorderColor(baseColor);
-    button->setTintBorderFill(true);
 }
 
 static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &button) {
@@ -82,8 +81,12 @@ void InGameMenuHost::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
         _controls.LBL_SECTITLE->setBorderFill(std::string());
         updateK2SectionTitle();
-        _controls.LBL_BACK1->setTintBorderFill(true);
         refreshK2Footer();
+        // A small footer portrait hands control to its party member.
+        if (_changeCharacter) {
+            _controls.BTN_CHANGE2->setOnClick([this]() { _changeCharacter(1); });
+            _controls.BTN_CHANGE3->setOnClick([this]() { _changeCharacter(2); });
+        }
     }
 
     // _controls.BTN_EQU->setVisible(false);
@@ -153,6 +156,9 @@ void InGameMenuHost::render() {
     auto tabGui = getActiveTabGUI();
     if (tabGui) {
         tabGui->render();
+        if (tabGui->coversInGameMenu()) {
+            return;
+        }
     }
     PresentationGUI::render();
 }
@@ -210,8 +216,6 @@ void InGameMenuHost::refreshK2Footer() {
         }
     };
 
-    hide(_controls.BTN_CHANGE2);
-    hide(_controls.BTN_CHANGE3);
     hide(_controls.LBL_LEFT_ARROW);
     hide(_controls.LBL_RIGHT_ARROW);
     hide(_controls.LBL_CMBTEFCTINC1);
@@ -245,8 +249,17 @@ void InGameMenuHost::refreshK2Footer() {
         _controls.LBL_LEVELUP2,
         _controls.LBL_LEVELUP3};
 
+    // A small portrait's button takes clicks only while it shows a member.
+    std::array<std::shared_ptr<Button>, 3> changeButtons {
+        nullptr,
+        _controls.BTN_CHANGE2,
+        _controls.BTN_CHANGE3};
+
     for (int i = 0; i < 3; ++i) {
         const auto &member = footer.members[i];
+        if (changeButtons[i]) {
+            changeButtons[i]->setVisible(member.present);
+        }
         if (!member.present) {
             hide(backLabels[i]);
             hide(portraitLabels[i]);

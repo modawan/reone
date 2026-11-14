@@ -46,6 +46,20 @@ constexpr uint32_t kSavedRuntimeMaxCharacterObjectId = 0x7fffffff;
 // IFO contains no owned Module record or explicit Module ObjectId field.
 constexpr uint32_t kSavedRuntimeModuleObjectId = 0;
 
+/**
+ * The party identities a saved record can stand for. A roster-bound companion
+ * or puppet, and the canonical player while a companion is controlled, are
+ * held by their roster record rather than by an Area or limbo record, so the
+ * module graph names their identities beside the party identity they stand
+ * for. The controlled creature's record is named the same way, because the
+ * party that later revisits the module may be controlled by someone else.
+ */
+constexpr uint32_t kSavedPartyIdentityNpc = 0;
+constexpr uint32_t kSavedPartyIdentityPuppet = 1;
+constexpr uint32_t kSavedPartyIdentityCanonicalPlayer = 2;
+/** The struct type a saved party-identity record is written with. */
+constexpr uint32_t kSavedPartyIdentityStructType = 0x7a7a;
+
 /** A saved object identity which is deliberately unbound while B is built. */
 struct SavedObjectReference {
     uint32_t id {kSavedRuntimeInvalidObjectId};
@@ -118,13 +132,19 @@ enum class SavedSignalEventType : uint16_t {
     EncounterExhausted = 21,
     InventoryOpened = 22,
     InventoryClosed = 23,
-    /** A trap disarmed by the caller. */
+    /** A trap was disarmed; the caller is the one who disarmed it. */
     Disarmed = 24,
     Used = 25,
+    /** An item was added to or removed from a placeable's inventory. */
+    InventoryDisturbed = 27,
     Locked = 28,
+    /** A door or placeable was unlocked; the caller is the one who unlocked it. */
+    Unlocked = 29,
     /** A creature walked up to the trigger or door it was heading for. */
     Clicked = 30,
     FailToOpen = 34,
+    /** A player character levelled up; the caller is the one who did. */
+    PlayerLevelUp = 37,
     ItemEquipped = 38,
 };
 
@@ -247,6 +267,7 @@ enum class SavedActionType : uint32_t {
     CloseDoor = 21,
     /** A turn of the third-person camera. */
     OrientCamera = 22,
+    PlaySound = 23,
     StartConversation = 24,
     DisarmMine = 25,
     RecoverMine = 26,
@@ -272,6 +293,8 @@ enum class SavedActionType : uint32_t {
     /** A turn to face a point. */
     FacePoint = 49,
     Counterspell = 50,
+    /** The player steering a creature. */
+    Drive = 51,
     Appear = 52,
     PickPocket = 54,
     Follow = 55,

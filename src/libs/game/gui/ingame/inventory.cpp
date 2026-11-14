@@ -46,19 +46,13 @@ static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::
         return;
     }
     listBox->setBorderColor(baseColor);
-    listBox->setTintBorderFill(true);
-}
-
-static void enableBorderFillTint(const std::shared_ptr<Label> &label) {
-    if (!label) {
-        return;
-    }
-    label->setTintBorderFill(true);
 }
 
 static InventoryFilter nextK1Filter(InventoryFilter filter) {
     switch (filter) {
     case InventoryFilter::All:
+        return InventoryFilter::New;
+    case InventoryFilter::New:
         return InventoryFilter::Quest;
     case InventoryFilter::Quest:
         return InventoryFilter::Equippable;
@@ -132,9 +126,6 @@ void InventoryMenu::onGUILoaded() {
     configureFilterControls();
     if (isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        enableBorderFillTint(_controls.LBL_BAR1);
-        enableBorderFillTint(_controls.LBL_BAR2);
-        enableBorderFillTint(_controls.LBL_BAR6);
         useK2ShellTitle(_controls.LBL_INV);
         enableK2ButtonBodyFill(_controls.BTN_USEITEM);
         enableK2ButtonBodyFill(_controls.BTN_EXIT);
@@ -144,12 +135,18 @@ void InventoryMenu::onGUILoaded() {
     }
 
     if (!isTSL()) {
-        if (_controls.BTN_CHANGE1) {
-            _controls.BTN_CHANGE1->setSelectable(false);
-        }
-        if (_controls.BTN_CHANGE2) {
-            _controls.BTN_CHANGE2->setSelectable(false);
-        }
+        // A portrait hands control to its party member, whose stats and
+        // equipped items the screen then shows.
+        auto changeCharacter = [this](int member) {
+            if (!_backing) {
+                return;
+            }
+            _backing->changeCharacter(member);
+            refreshPortraits();
+            refreshItems();
+        };
+        _controls.BTN_CHANGE1->setOnClick([changeCharacter]() { changeCharacter(1); });
+        _controls.BTN_CHANGE2->setOnClick([changeCharacter]() { changeCharacter(2); });
         // KotOR's inventory has no party arrows.
         for (auto &arrow : {_controls.BTN_CHARLEFT, _controls.BTN_CHARRIGHT}) {
             if (arrow) {
@@ -184,17 +181,16 @@ void InventoryMenu::configureItemsListBox() {
     _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &) {
         activateSelectedItem();
     });
+    // The item list holds the keyboard until the pointer gives it to another control.
+    _gui->setActiveControl(*_controls.LB_ITEMS);
 
     if (auto protoItem = _controls.LB_ITEMS->protoItemOrNull()) {
         if (isTSL()) {
             enableK2ButtonBodyFill(*protoItem);
             protoItem->setBorderFill("uibit_fill_2wt");
             protoItem->setHilightFill("uibit_fill_2wt");
-            protoItem->setTintBorderFill(true);
-        } else {
-            protoItem->setBorderColor(_baseColor);
-            protoItem->setHilightColor(_hilightColor);
         }
+        useK1ListEntryColors(*protoItem);
     }
 }
 
@@ -358,6 +354,7 @@ void InventoryMenu::refreshItems(int selectedRow) {
         row.iconTexture = item.icon;
         row.iconFrame = itemFrameTexture(item.stackSize);
         if (item.stackSize > 1) row.iconText = std::to_string(item.stackSize);
+        if (item.newlyAcquired) useK1NewEntryStyle(row);
         _controls.LB_ITEMS->addItem(std::move(row));
     }
     if (!_listedItems.empty()) {
@@ -389,9 +386,19 @@ void InventoryMenu::updateItemDescription() {
         _controls.LB_DESCRIPTION->clearItems();
     }
 
-    if (selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size()) && _controls.LB_DESCRIPTION)
-        _controls.LB_DESCRIPTION->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
+    if (selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size())) {
+        if (_controls.LB_DESCRIPTION) {
+            _controls.LB_DESCRIPTION->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
+        }
+        _backing->noteItemViewed(_listedItems[selectedItemIdx].handle);
+    }
     updateUseItemButton();
+}
+
+void InventoryMenu::markViewedItemsSeen() {
+    if (_backing) {
+        _backing->markViewedItemsSeen();
+    }
 }
 
 // An entry either uses its item at once, shows why it cannot, or does nothing.

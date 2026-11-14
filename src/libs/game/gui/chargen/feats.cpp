@@ -21,6 +21,7 @@
 
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/game/party.h"
@@ -70,43 +71,6 @@ static IconChain::State getIconState(CharGenFeats::FeatStatus status) {
     default:
         return IconChain::State::Locked;
     }
-}
-
-static std::map<FeatType, glm::ivec2> getFeatIconPositions(
-    const std::vector<FeatDisplayEntry> &entries) {
-
-    std::map<FeatType, int> chainRowCounts;
-    std::vector<FeatType> chainRoots;
-    for (auto &entry : entries) {
-        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
-        int wrappedRowCount = entry.visualIndex / kIconSelectionColumnCount + 1;
-
-        auto maybeChainRows = chainRowCounts.insert({chainRoot, wrappedRowCount});
-        if (maybeChainRows.second) {
-            chainRoots.push_back(chainRoot);
-        } else {
-            maybeChainRows.first->second = std::max(maybeChainRows.first->second, wrappedRowCount);
-        }
-    }
-
-    std::map<FeatType, int> chainRowBases;
-    int nextRow = 0;
-    for (auto chainRoot : chainRoots) {
-        chainRowBases.insert({chainRoot, nextRow});
-        nextRow += chainRowCounts.at(chainRoot);
-    }
-
-    std::map<FeatType, glm::ivec2> result;
-    for (auto &entry : entries) {
-        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
-        result.insert({
-            entry.type,
-            {
-                entry.visualIndex % kIconSelectionColumnCount,
-                chainRowBases.at(chainRoot) + entry.visualIndex / kIconSelectionColumnCount
-            }});
-    }
-    return result;
 }
 
 /** The controls the panel shows in both titles. */
@@ -172,7 +136,9 @@ void CharGenFeats::onGUILoaded() {
         activateFocusedFeat();
     });
     _controls.BTN_SELECT->setDisabled(true);
-    _controls.BTN_RECOMMENDED->setDisabled(true);
+    _controls.BTN_RECOMMENDED->setOnClick([this]() {
+        recommend();
+    });
 }
 
 void CharGenFeats::reset(bool levelUp, bool bonus, std::set<FeatType> originalFeats, const std::vector<FeatType> &grantedFeats) {
@@ -208,7 +174,6 @@ void CharGenFeats::reset(bool levelUp, bool bonus, std::set<FeatType> originalFe
 
     refreshControls();
     _controls.BTN_SELECT->setDisabled(true);
-    _controls.BTN_RECOMMENDED->setDisabled(true);
 }
 
 CreatureAttributes CharGenFeats::choiceAttributes() const {
@@ -228,23 +193,40 @@ void CharGenFeats::loadDisplayEntries() {
     _displayEntries = _services.game.feats.getLevelUpDisplayEntries(attributes, *clazz);
 }
 
-void CharGenFeats::buildAvailableFeats() {
-    CreatureAttributes attributes(choiceAttributes());
-    const CreatureClass &clazz = *attributes.classLevels().back().first;
+FeatChoice CharGenFeats::makeChoice(const CreatureAttributes &attributes) const {
     // A feat can be chosen while there is a pick of its kind, counting one
     // more than the level gains.
-    FeatChoice choice {
+    return FeatChoice {
         attributes,
-        clazz,
+        *attributes.classLevels().back().first,
         _normalFeats > 0 ? _normalFeats + 1 : 0,
         _bonusFeats > 0 ? _bonusFeats + 1 : 0,
         _effectFeats,
         _selectedFeats,
         _levelUp ? _game.party().getLeader()->tag() : kObjectTagPlayer,
         _game.isTSL()};
-    for (auto feat : _services.game.feats.getChoosableFeats(choice)) {
+}
+
+void CharGenFeats::buildAvailableFeats() {
+    CreatureAttributes attributes(choiceAttributes());
+    for (auto feat : _services.game.feats.getChoosableFeats(makeChoice(attributes))) {
         _availableFeats.insert(feat);
     }
+}
+
+void CharGenFeats::recommend(bool fillWithUnranked) {
+    // The recommendation starts over from the feats the screen opened with.
+    _selectedFeats.clear();
+    _remaining = _points;
+    _availableFeats.clear();
+    buildAvailableFeats();
+
+    CreatureAttributes attributes(choiceAttributes());
+    for (auto feat : recommendFeats(_services.game.feats, makeChoice(attributes), _remaining, fillWithUnranked)) {
+        addChosenFeat(feat);
+    }
+    refreshSelectionControls();
+    refreshIconChainStates();
 }
 
 CharGenFeats::FeatStatus CharGenFeats::getFeatStatus(FeatType feat) const {

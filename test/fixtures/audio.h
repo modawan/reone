@@ -49,8 +49,21 @@ public:
     MockContext();
     ~MockContext() override;
 
+    MOCK_METHOD(glm::vec3, listenerPosition, (), (const, override));
     MOCK_METHOD(void, setListenerPosition, (glm::vec3), (override));
+    MOCK_METHOD(void, setListenerOrientation, (glm::vec3, glm::vec3), (override));
+    MOCK_METHOD(void, setListenerGain, (float), (override));
+    MOCK_METHOD(void, setEnvironment, (Environment), (override));
+    MOCK_METHOD(void, setReverbSend, (AudioSource &, float), (override));
 };
+
+/**
+ * Opens \p context for a test that needs a real one. OpenAL Soft opens its
+ * null backend, which renders nothing, so no sound hardware is needed; any
+ * other OpenAL opens its default device. Returns false when no device opens,
+ * and the test should then skip.
+ */
+bool openTestContext(Context &context);
 
 class MockAudioMixer : public IAudioMixer, boost::noncopyable {
 public:
@@ -61,7 +74,19 @@ public:
     MOCK_METHOD(void, stop, (AudioType), (override));
     MOCK_METHOD(void, stopAll, (), (override));
     MOCK_METHOD(void, setSoundsHeldForMovie, (bool, const std::shared_ptr<AudioSource> &), (override));
-    MOCK_METHOD(std::shared_ptr<AudioSource>, play, (std::shared_ptr<AudioClip>, AudioType, float, bool, std::optional<glm::vec3>), (override));
+    MOCK_METHOD(void, pauseSources, (const std::set<int> &), (override));
+    MOCK_METHOD(void, resumeSources, (), (override));
+    MOCK_METHOD(void, setPriorityGroups, (std::vector<PriorityGroup>), (override));
+    MOCK_METHOD(void, setStreamedGroups, (std::set<int>), (override));
+    MOCK_METHOD(void, setDryGroups, (std::set<int>), (override));
+    MOCK_METHOD(void, setRoomReverb, (bool), (override));
+    MOCK_METHOD(PriorityGroup, priorityGroup, (int), (const, override));
+    MOCK_METHOD(void, setFocusLost, (bool), (override));
+    MOCK_METHOD(void, setMuted, (bool), (override));
+    MOCK_METHOD(void, setVolume, (AudioType, int), (override));
+    MOCK_METHOD(void, setMusicVolume, (float), (override));
+    MOCK_METHOD(void, setDucked, (bool, const std::set<int> &), (override));
+    MOCK_METHOD(std::shared_ptr<AudioSource>, play, (std::shared_ptr<AudioClip>, AudioType, std::optional<int>, float, bool, std::optional<glm::vec3>, std::optional<SoundDistances>, std::optional<float>), (override));
 };
 
 class TestAudioModule : boost::noncopyable {

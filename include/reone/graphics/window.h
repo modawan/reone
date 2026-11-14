@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "options.h"
 #include "types.h"
 
@@ -28,6 +30,11 @@ class Cursor;
 
 class Window : boost::noncopyable {
 public:
+    /** The fullscreen modes of the main display, largest first. */
+    static std::vector<DisplayMode> displayModes();
+    /** The main display's desktop mode. */
+    static DisplayMode desktopMode();
+
     Window(GraphicsOptions &options) :
         _options(options) {
     }
@@ -42,6 +49,7 @@ public:
     bool isAssociatedWith(const SDL_Event &event) const;
     bool handle(const SDL_Event &event);
 
+    /** Present the frame, waiting for the display's refresh while the V-Sync option is on. */
     void swap();
 
     bool isInFocus() const {
@@ -68,6 +76,8 @@ private:
     SDL_GLContext _context {nullptr};
 
     uint32_t _windowID {0};
+    /** Whether presenting waits for the display's refresh, as last set. */
+    bool _vsync {false};
 
     bool _inFocus {true};
     bool _closeRequested {false};

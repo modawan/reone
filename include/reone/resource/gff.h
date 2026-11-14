@@ -242,6 +242,13 @@ public:
     }
 
     bool has(std::string_view name) const { return get(name) != nullptr; }
+
+    /** The type of the field named \p name, or none when there is no such field. */
+    std::optional<FieldType> fieldType(std::string_view name) const {
+        const Field *field = get(name);
+        return field ? std::optional<FieldType>(field->type) : std::nullopt;
+    }
+
     bool getBool(const std::string &name, bool defValue = false) const;
     int32_t getInt(const std::string &name, int32_t defValue = 0) const;
     int64_t getInt64(const std::string &name, int64_t defValue = 0) const;

@@ -16,27 +16,30 @@
  */
 
 #include "reone/resource/gameprobe.h"
-#include "reone/system/exception/validation.h"
+
+#include <stdexcept>
+
 #include "reone/system/fileutil.h"
 
 namespace reone {
 
 namespace resource {
 
+// The voice folders tell the games apart on every platform: streamwaves for
+// KotOR, streamvoice for TSL. A directory with neither, or both, is neither.
 GameID GameProbe::probe() {
-    // If there is a KotOR executable then game is KotOR
-    auto exePathK1 = findFileIgnoreCase(_gamePath, "swkotor.exe");
-    if (exePathK1) {
+    if (!findFileIgnoreCase(_gamePath, "chitin.key")) {
+        throw std::runtime_error("chitin.key not found in " + _gamePath.string());
+    }
+    const bool kotor = findFileIgnoreCase(_gamePath, "streamwaves").has_value();
+    const bool tsl = findFileIgnoreCase(_gamePath, "streamvoice").has_value();
+    if (kotor && !tsl) {
         return GameID::KotOR;
     }
-
-    // If there is a TSL executable then game is TSL
-    auto exePathK2 = findFileIgnoreCase(_gamePath, "swkotor2.exe");
-    if (exePathK2) {
+    if (tsl && !kotor) {
         return GameID::TSL;
     }
-
-    throw std::runtime_error("Unable to determine game ID: " + _gamePath.string());
+    throw std::runtime_error("Unable to tell KotOR from TSL in " + _gamePath.string());
 }
 
 } // namespace resource

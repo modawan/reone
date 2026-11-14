@@ -23,8 +23,10 @@
 #include <cctype>
 #include <cmath>
 #include <exception>
+#include <limits>
 #include <numeric>
 #include <optional>
+#include <set>
 
 #include <chrono>
 #include <thread>
@@ -49,6 +51,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/effect/creaturestate.h"
+#include "reone/game/effect/heal.h"
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/gui/hud.h"
@@ -57,6 +60,7 @@
 #include "reone/game/minigame.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/minigameobject.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
@@ -73,6 +77,7 @@
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
 #include "reone/graphics/format/tgawriter.h"
+#include "reone/graphics/mesh.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
@@ -313,6 +318,8 @@ static const char *screenName(Game::Screen screen) {
         return "None";
     case Game::Screen::MainMenu:
         return "MainMenu";
+    case Game::Screen::Options:
+        return "Options";
     case Game::Screen::Loading:
         return "Loading";
     case Game::Screen::CharacterGeneration:
@@ -325,12 +332,18 @@ static const char *screenName(Game::Screen screen) {
         return "Conversation";
     case Game::Screen::Container:
         return "Container";
+    case Game::Screen::Store:
+        return "Store";
     case Game::Screen::PartySelection:
         return "PartySelection";
     case Game::Screen::SaveLoad:
         return "SaveLoad";
     case Game::Screen::GalaxyMap:
         return "GalaxyMap";
+    case Game::Screen::UpgradeSelection:
+        return "UpgradeSelection";
+    case Game::Screen::LabStation:
+        return "LabStation";
     case Game::Screen::SwoopRace:
         return "SwoopRace";
     case Game::Screen::PazaakWager:
@@ -354,22 +367,32 @@ static bool pausesWorld(Game::Screen screen) {
     case Game::Screen::CharacterGeneration:
     case Game::Screen::InGameMenu:
     case Game::Screen::Container:
+    case Game::Screen::Store:
     case Game::Screen::PartySelection:
     case Game::Screen::SaveLoad:
     case Game::Screen::GalaxyMap:
+    case Game::Screen::UpgradeSelection:
+    case Game::Screen::LabStation:
         return true;
     default:
         return false;
     }
 }
 
+// The crafting stations, whose panels open over whatever is shown.
+static bool isStationScreen(Game::Screen screen) {
+    return screen == Game::Screen::UpgradeSelection || screen == Game::Screen::LabStation;
+}
+
 // The screens that leave the world running: play, a conversation, the death
-// sequence and pazaak.
+// sequence, the turret, whose scripts are the module's, and pazaak.
 static bool runsWorld(Game::Screen screen) {
     switch (screen) {
     case Game::Screen::InGame:
     case Game::Screen::Conversation:
     case Game::Screen::Death:
+    case Game::Screen::SwoopRace:
+    case Game::Screen::Turret:
     case Game::Screen::PazaakWager:
     case Game::Screen::PazaakSetup:
     case Game::Screen::PazaakBoard:
@@ -397,6 +420,95 @@ static bool holdsInputAsMenu(Game::Screen screen) {
 
 bool Game::holdsWorld() const {
     return _paused || pausesWorld(_screen);
+}
+
+// The menus over a module keep music, its stingers and the GUI's sounds
+// playing; the player's pause also keeps area-wide ambients.
+static const std::set<int> kMenuKeptSoundGroups {kStingerSoundGroup, kMusicSoundGroup, kGuiSoundGroup};
+static const std::set<int> kPauseKeptSoundGroups {kStingerSoundGroup, kMusicSoundGroup, kGuiSoundGroup,
+                                                  kAreaWideAmbientSoundGroup};
+
+// The screens that pause the world's sounds as a menu over the module.
+static bool isSoundPausingMenu(Game::Screen screen) {
+    switch (screen) {
+    case Game::Screen::InGameMenu:
+    case Game::Screen::SaveLoad:
+    case Game::Screen::PartySelection:
+    case Game::Screen::GalaxyMap:
+    case Game::Screen::CharacterGeneration:
+    case Game::Screen::PazaakWager:
+    case Game::Screen::PazaakSetup:
+    case Game::Screen::PazaakBoard:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Writing a save pauses every sound, music included. A loading screen keeps
+// music, its stingers and the GUI's sounds only when it has loading music,
+// and otherwise pauses every sound too. Other sounds play as usual during a
+// movie and with no module. In TSL a conversation plays on under the
+// player's pause.
+void Game::applySoundMode() {
+    auto mode = SoundMode::Playing;
+    if (_saveInProgress) {
+        mode = SoundMode::AllPaused;
+    } else if (_screen == Screen::Loading) {
+        mode = _loadMusicResRef.empty() ? SoundMode::AllPaused : SoundMode::Menu;
+    } else if (!_movie && _module) {
+        if (isSoundPausingMenu(_screen)) {
+            mode = SoundMode::Menu;
+        } else if (isPausedAtFrameEnd() && (_screen != Screen::Conversation || !isTSL())) {
+            // Sound pauses as soon as a pause is asked for.
+            mode = SoundMode::PlayerPause;
+        }
+    }
+    if (mode == _soundMode) {
+        return;
+    }
+    liftSoundMode();
+    switch (mode) {
+    case SoundMode::Menu:
+        _services.audio.mixer.pauseSources(kMenuKeptSoundGroups);
+        break;
+    case SoundMode::PlayerPause:
+        _services.audio.mixer.pauseSources(kPauseKeptSoundGroups);
+        break;
+    case SoundMode::AllPaused:
+        _services.audio.mixer.pauseSources({});
+        break;
+    case SoundMode::Playing:
+        break;
+    }
+    _soundMode = mode;
+}
+
+void Game::liftSoundMode() {
+    _services.audio.mixer.resumeSources();
+    _soundMode = SoundMode::Playing;
+}
+
+bool Game::isNightTime() const {
+    if (!_module) {
+        return false;
+    }
+    const auto &info = _module->info();
+    const int hour = static_cast<int>(worldTimeHour());
+    if (info.dawnHour == info.duskHour || hour == info.dawnHour) {
+        return false;
+    }
+    if (hour == info.duskHour) {
+        return true;
+    }
+    if (info.dawnHour < info.duskHour) {
+        return hour < info.dawnHour || hour > info.duskHour;
+    }
+    return hour >= info.duskHour && hour <= info.dawnHour;
+}
+
+void Game::setMusicVolume(float volume) {
+    _services.audio.mixer.setMusicVolume(volume);
 }
 
 static pazaak::HandSelection randomPazaakHandSelection(const pazaak::SideDeck &) {
@@ -632,6 +744,9 @@ void Game::init() {
         throw ValidationException("Invalid difficulty level in configuration: " + std::to_string(_options.game.clientDifficulty));
     }
     _options.game.mouse = MouseOptions::load(_options.game.configurationPath);
+    _options.game.gameplay = GameplayOptions::load(_options.game.configurationPath);
+    _options.game.moviesShown = loadMoviesShown(_options.game.configurationPath);
+    _options.game.unlockedPlanetSongs = loadUnlockedPlanetSongs(_options.game.configurationPath);
     initConsole();
     initTables();
     resetGalaxyMap();
@@ -649,6 +764,46 @@ void Game::init() {
 
 // The number of strings a dialogue token may give, strref1 to strref4.
 static constexpr int kStringTokenStrRefCount = 4;
+// How much louder than its table volume TSL plays the streamed music and the
+// other creatures' chat.
+static constexpr float kTslStreamedGroupBoost = 1.4f;
+
+// The sound priority groups, by row. A blank priority is the first and a
+// blank volume the loudest; the two distances replace the defaults only when
+// both are given, and the playback variance is kept between 0 and 1. A blank
+// maximum lets 255 play at once, and a blank interrupt interrupts. The fade
+// time column is not read: nothing uses it.
+static std::vector<audio::PriorityGroup> readPriorityGroups(resource::ITwoDAs &twoDas, bool tsl) {
+    auto groups = getRequiredTwoDA(twoDas, "prioritygroups");
+    std::vector<audio::PriorityGroup> priorityGroups;
+    for (int row = 0; row < groups->getRowCount(); ++row) {
+        audio::PriorityGroup group;
+        if (auto priority = groups->getIntOpt(row, "priority")) {
+            group.priority = *priority;
+        }
+        if (auto volume = groups->getIntOpt(row, tsl ? "volume_pc" : "volume")) {
+            const bool boosted = tsl && (row == kMusicSoundGroup || row == kNonPlayerChatSoundGroup);
+            group.volume = boosted ? static_cast<int>(*volume * kTslStreamedGroupBoost) : *volume;
+        }
+        // The table's maximum volume distance is where full volume ends, and
+        // its minimum volume distance is where the sound stops.
+        auto fullVolumeDistance = groups->getFloatOpt(row, tsl ? "maxvolumedist_pc" : "maxvolumedist");
+        auto cutoffDistance = groups->getFloatOpt(row, tsl ? "minvolumedist_pc" : "minvolumedist");
+        if (fullVolumeDistance && cutoffDistance) {
+            group.fullVolumeDistance = *fullVolumeDistance;
+            group.cutoffDistance = *cutoffDistance;
+        }
+        group.playbackVariance = std::clamp(groups->getFloatOpt(row, "playbackvariance").value_or(0.0f), 0.0f, 1.0f);
+        if (auto maxPlaying = groups->getIntOpt(row, "maxplaying")) {
+            group.maxPlaying = std::clamp(*maxPlaying, 0, 255);
+        }
+        if (auto interrupt = groups->getIntOpt(row, "interrupt")) {
+            group.interrupt = *interrupt != 0;
+        }
+        priorityGroups.push_back(group);
+    }
+    return priorityGroups;
+}
 
 void Game::initTables() {
     auto &twoDas = _services.resource.twoDas;
@@ -714,7 +869,37 @@ void Game::initTables() {
         _feedbackTexts.push_back(feedback->getIntOpt(row, "strref"));
     }
 
+    // What the lab station makes, which the workbench leaves out of its
+    // breakdown. A missing table, as in KotOR, has no rows.
+    _chemicalCreate = tsl ? twoDas.get("chemicalcreate") : nullptr;
+    if (!_chemicalCreate) {
+        _chemicalCreate = TwoDA::Builder().build();
+    }
+
+    // A missing gender table has no rows.
+    _genderLetters.clear();
+    if (auto genders = twoDas.get("gender")) {
+        for (int row = 0; row < genders->getRowCount(); ++row) {
+            const auto letter = genders->getString(row, "GENDER");
+            _genderLetters.push_back(letter.empty() ? std::nullopt : std::optional<char>(letter.front()));
+        }
+    }
+
     _trapTypes = Trap::readTypes(twoDas);
+
+    _services.audio.mixer.setPriorityGroups(readPriorityGroups(twoDas, tsl));
+    // Music, ambience and speech stream; the rest play on positional or 2D
+    // voices.
+    _services.audio.mixer.setStreamedGroups({kStingerSoundGroup,
+                                             kMusicSoundGroup,
+                                             kAreaWideAmbientSoundGroup,
+                                             kLoopingPositionalAmbientSoundGroup,
+                                             kPlayerChatSoundGroup,
+                                             kNonPlayerChatSoundGroup,
+                                             kLargeCreatureVocalizationSoundGroup,
+                                             kCreatureVocalizationSoundGroup,
+                                             kBarkSoundGroup});
+    _services.audio.mixer.setDryGroups({kBarkSoundGroup});
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
@@ -729,6 +914,15 @@ std::optional<int> Game::feedbackTextStrRef(int row) const {
     return row >= 0 && row < static_cast<int>(_feedbackTexts.size()) ? _feedbackTexts[row] : std::nullopt;
 }
 
+std::optional<char> Game::itemModelGenderLetter() const {
+    const auto leader = _party.getLeader();
+    if (!leader) {
+        return 'M';
+    }
+    const auto row = static_cast<size_t>(leader->gender());
+    return row < _genderLetters.size() ? _genderLetters[row] : std::nullopt;
+}
+
 const TrapTypeRow &Game::trapType(int type) const {
     static const TrapTypeRow kBlankType;
     return type >= 0 && type < static_cast<int>(_trapTypes.size()) ? _trapTypes[type] : kBlankType;
@@ -741,6 +935,12 @@ void Game::initJournalNotifications() {
         _statusSummary.submitQuestSound(change.end);
         awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
     });
+    _journal.setClock([this]() {
+        const uint32_t dayLength = millisecondsPerWorldDay();
+        return std::pair<uint32_t, uint32_t>(
+            static_cast<uint32_t>(_worldTimeMilliseconds / dayLength),
+            static_cast<uint32_t>(_worldTimeMilliseconds % dayLength));
+    });
 }
 
 void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
@@ -749,7 +949,8 @@ void Game::registerConsoleCommand(std::string name, std::string description, Con
         "spawncreature", "spawncompanion", "setfaction", "setposition",
         "professionaltools", "killroom", "setability", "setskill",
         "addfeat", "removefeat", "addspell", "removespell",
-        "castspellatobject", "opendoor", "closedoor"};
+        "castspellatobject", "opendoor", "closedoor",
+        "giveitem", "heal", "invulnerability", "whereami"};
     bool marksCheatUsed = cheatCommands.count(name) != 0;
     _console.registerCommand(
         name, description,
@@ -789,6 +990,10 @@ void Game::initConsole() {
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
     registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
+    registerConsoleCommand("giveitem", "give an item to the party", &Game::consoleGiveItem);
+    registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
+    registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
+    registerConsoleCommand("whereami", "print the module and the party leader's position", &Game::consoleWhereAmI);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -824,15 +1029,15 @@ void Game::initConsole() {
 
     if (_options.game.developer) {
         registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
-        registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
-        registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
-        registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
-        registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
-        registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
+        registerConsoleCommand("swoopstate", "print the state of the running swoop race", &Game::consoleSwoopState);
+        registerConsoleCommand("startswooprace", "start the swoop race of the current module, or start it again", &Game::consoleStartSwoopRace);
         registerConsoleCommand("startturret", "enter the turret minigame for the current area", &Game::consoleStartTurret);
         registerConsoleCommand("startturretgame", "enter a turret module from the current one and auto-start the minigame", &Game::consoleStartTurretGame);
         registerConsoleCommand("stopturret", "exit the turret minigame", &Game::consoleStopTurret);
         registerConsoleCommand("turretstate", "print the current turret aim/health/enemy state", &Game::consoleTurretState);
+        registerConsoleCommand("finishturret", "deal the turret's remaining enemies, or that many, a hit that takes all their hit points", &Game::consoleFinishTurret);
+        registerConsoleCommand("turretaim", "aim the turret at a pitch and yaw in degrees", &Game::consoleTurretAim);
+        registerConsoleCommand("turretfire", "press the turret's trigger once", &Game::consoleTurretFire);
         registerConsoleCommand("showimgui", "open imgui demo", &Game::consoleShowImGui);
     }
 }
@@ -861,11 +1066,13 @@ void Game::setSceneSurfaces() {
     auto walkable = _services.game.surfaces.getWalkableSurfaces();
     auto walkcheck = _services.game.surfaces.getWalkcheckSurfaces();
     auto lineOfSight = _services.game.surfaces.getLineOfSightSurfaces();
+    auto camera = _services.game.surfaces.getCameraSurfaces();
     for (auto &name : _services.scene.graphs.sceneNames()) {
         auto &scene = _services.scene.graphs.get(name);
         scene.setWalkableSurfaces(walkable);
         scene.setWalkcheckSurfaces(walkcheck);
         scene.setLineOfSightSurfaces(lineOfSight);
+        scene.setCameraSurfaces(camera);
     }
 }
 
@@ -895,7 +1102,9 @@ bool Game::handle(const input::Event &event) {
     // releasing one lets it go. While a menu, the credits or a popup holds
     // the input, a Shift is taken only when its keymap row lets menus take
     // it; otherwise the key stays as it was when the menu opened.
-    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible());
+    const bool menuHoldsInput = holdsInputAsMenu(_screen) || _credits || (_confirmPopup && _confirmPopup->isVisible()) ||
+                                (_tutorialPopup && _tutorialPopup->isVisible()) ||
+                                (_datapadBox && _datapadBox->isVisible());
     if ((event.type == input::EventType::KeyDown || event.type == input::EventType::KeyUp) &&
         (event.key.code == input::KeyCode::LeftShift || event.key.code == input::KeyCode::RightShift) &&
         (!menuHoldsInput || _menusTakeAlternateActions[event.key.code == input::KeyCode::LeftShift ? 0 : 1])) {
@@ -907,6 +1116,19 @@ bool Game::handle(const input::Event &event) {
         event.type != input::EventType::MouseButtonUp) {
         return true;
     }
+    // The left button's state follows its every press and release, before any
+    // screen takes them.
+    if ((event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+        event.button.button == input::MouseButton::Left) {
+        _leftButtonHeld = event.type == input::EventType::MouseButtonDown;
+    }
+    // In KotOR the right button's every press and release starts and ends the
+    // mouse-look hold, whatever screen takes them.
+    if (!isTSL() &&
+        (event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+        event.button.button == input::MouseButton::Right) {
+        _mouseLookHeld = event.type == input::EventType::MouseButtonDown;
+    }
     if (isCoolingDown(event)) {
         return true;
     }
@@ -914,7 +1136,8 @@ bool Game::handle(const input::Event &event) {
         _credits->handle(event);
         return true;
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
+    // The message box on top takes the input first.
+    if (ConfirmPopup *popup = topShownPopup()) {
         // The drawn pointer keeps following the mouse while the popup takes
         // the input.
         if (event.type == input::EventType::MouseMotion) {
@@ -923,7 +1146,7 @@ bool Game::handle(const input::Event &event) {
                    event.button.button == input::MouseButton::Left) {
             _pointer->setPressed(event.type == input::EventType::MouseButtonDown);
         }
-        _confirmPopup->handle(event);
+        popup->handle(event);
         return true;
     }
 
@@ -1001,7 +1224,14 @@ std::optional<glm::ivec2> Game::consumePointerWarp() {
     return warp;
 }
 
+// The frame runs as play stood when it began, input handled before it
+// included; a pause asked for during it is taken at its end.
 void Game::update(float frameTime) {
+    updateFrame(frameTime);
+    applyPauseRequest();
+}
+
+void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
@@ -1023,8 +1253,8 @@ void Game::update(float frameTime) {
         }
     }
     // A movie runs from the frame after it is started, so the code that
-    // started it carries on as if it had already finished. While it runs,
-    // the fade is frozen and takes no requests.
+    // started it carries on as if it had already finished, save a script that
+    // waits for it. While it runs, the fade is frozen and takes no requests.
     _globalFade.setMovieOverride(static_cast<bool>(_movie));
     // Presentation advances once, before callbacks can replace its request.
     // The driver rebases frameTime after synchronous loading; movies suspend it.
@@ -1032,13 +1262,24 @@ void Game::update(float frameTime) {
     _partyKilledAutoPauseDelay = std::max(0.0f, _partyKilledAutoPauseDelay - frameTime);
     updateDeferredAutoPause(frameTime);
     float dt = frameTime * _gameSpeed * _deathTimeScale;
+    advanceDialogGate(frameTime * _gameSpeed);
     if (_movie) {
         _worldClockSample.reset();
         _areaMusic.updateMusicFade();
         updateMovie(dt);
         return;
     }
-    updateMusic();
+    // Scripts that wait at a movie go on once no movie is left to play, and
+    // the engine steps held for them after, before anything else the frame
+    // does. One that starts another movie stops the frame there, as a movie
+    // playing does.
+    if (_scriptRunner) {
+        _scriptRunner->resumeWaitingRuns();
+        if (_scriptRunner->hasWaitingRuns()) {
+            return;
+        }
+    }
+    updateMusic(frameTime);
 
     // Requests made by scripts, console handlers or UI code in the previous
     // update execute only after those call stacks have unwound. This precedes
@@ -1074,7 +1315,12 @@ void Game::update(float frameTime) {
     // Sounds wait while a movie runs and resume once the frame's module
     // transition, if any, has been made.
     _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie), nullptr);
+    applySoundMode();
+    // TSL ducks music and the ambients while a conversation is on.
+    static const std::set<int> kDuckedSoundGroups {kAreaWideAmbientSoundGroup, kLoopingPositionalAmbientSoundGroup};
+    _services.audio.mixer.setDucked(isTSL() && isConversationActive(), kDuckedSoundGroups);
     syncPartyCombatMode();
+    syncEngineCameraMode();
     if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
         updatePassiveSelection(frameTime);
         // Each member's party combat mode follows its own targets. A door or
@@ -1108,36 +1354,14 @@ void Game::update(float frameTime) {
         updateLeaderVideoEffect();
     }
 
-    // A paused minigame stands still.
-    if (_swoopRace.isActive() && !_paused) {
-        _swoopRace.update(dt);
-
-        // Non-blocking auto-finish: when a lifecycle race reaches the finish
-        // threshold, force success and return to the origin module. Plain dev
-        // races (no lifecycle) keep riding so the dev stays in control.
-        if (_swoopLifecycle.active && _swoopRace.finishReached()) {
-            debug(str(boost::format("swoop: auto-finish progress=%.1f finish=%.1f forcedSuccess=yes returning=%s")
-                      % _swoopRace.progress()
-                      % _swoopRace.finishProgress()
-                      % _swoopLifecycle.originModule));
-            finishSwoopLifecycle(/*success=*/true);
-        }
+    // A paused minigame stands still. The race's scripts end a swoop race.
+    if (!_paused) {
+        tickSwoopRace(dt);
     }
 
+    // The module's scripts end a turret fight.
     if (_turret.isActive() && !_paused) {
         _turret.update(dt);
-
-        // Non-blocking auto-finish: a lifecycle session ends as soon as the
-        // turret reaches a win or a loss and returns to the origin module. Plain
-        // dev sessions (no lifecycle) keep running so the dev stays in control.
-        if (_turretLifecycle.active && _turret.finished()) {
-            debug(str(boost::format("turret: auto-finish outcome=%s hp=%d/%d returning=%s")
-                      % turretOutcomeName(_turret.outcome())
-                      % _turret.hitPoints()
-                      % _turret.maxHitPoints()
-                      % _turretLifecycle.originModule));
-            finishTurretLifecycle(_turret.outcome());
-        }
     }
 
     if (_module && _module->area()) {
@@ -1183,6 +1407,9 @@ void Game::update(float frameTime) {
         if (current()) {
             _combat.update(dt);
         }
+        if (current()) {
+            _party.runFollowerScripts(dt);
+        }
         // Projectiles in flight stand still while time is stopped.
         if (current() && !_timeStopped) {
             _services.game.projectiles.update(dt, *this, _services);
@@ -1220,6 +1447,11 @@ void Game::update(float frameTime) {
     if (_module && _module->area() && !_movie) {
         _module->area()->updateRoomVisibility();
     }
+    // The party explores the map wherever it stands on every frame the module
+    // is live. An action run while the world is held can still move a member.
+    if (moduleLive) {
+        _module->area()->updateMapData();
+    }
     // A companion brought into being outside the area, such as one the party
     // selection screen shows, runs its creation script on the next frame,
     // whether or not the world is paused.
@@ -1227,7 +1459,7 @@ void Game::update(float frameTime) {
         _module->runSpawnScriptsOutsideArea();
     }
 
-    if (_screen == Screen::SwoopRace || _screen == Screen::Turret) {
+    if (_screen == Screen::SwoopRace) {
         settleFadeArrival();
     }
 
@@ -1240,8 +1472,17 @@ void Game::update(float frameTime) {
     if (gui) {
         gui->update(dt);
     }
+    if ((_screen == Screen::Turret || _screen == Screen::SwoopRace) && _hud) {
+        _hud->updateMinigamePause(dt);
+    }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
+    }
+    if (_datapadBox && _datapadBox->isVisible()) {
+        _datapadBox->update(dt);
+    }
+    if (_tutorialPopup && _tutorialPopup->isVisible()) {
+        _tutorialPopup->update(dt);
     }
     // The credits run in real time and hold still while the game is paused.
     if (_credits) {
@@ -1390,7 +1631,9 @@ bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     }
     _pointer->setPressed(true);
     if (_movie) {
-        _movie->finish();
+        if (_movieSkippable) {
+            _movie->finish();
+        }
         return true;
     }
     return false;
@@ -1498,6 +1741,12 @@ bool Game::loadModule(
     std::string entry,
     bool initialSaveRestore) {
     info("Preparing module '" + name + "'");
+    // Every module the sequel loads but 950COR opens the music list's songs
+    // of its planet, the leading digit of its name.
+    if (isTSL() && !name.empty() && std::isdigit(static_cast<unsigned char>(name.front())) &&
+        !boost::iequals(name, "950cor")) {
+        unlockPlanetSongs(1 << (name.front() - '0'));
+    }
     PreparedDestinationModule prepared;
     try {
         prepared = prepareDestinationModule(
@@ -1573,16 +1822,11 @@ std::vector<Game::PartyTransitionState> Game::captureResidentPartyActions() {
 // or failed snapshot must not abort an otherwise valid gameplay session.
 void Game::endSourceSession(const std::string &destination) {
     abortPazaak();
-    if (_swoopRace.isActive()) {
-        _swoopRace.stop();
-        _cameraType = _savedCameraType;
-    }
+    endSwoopRace();
     if (_turret.isActive()) {
         _turret.stop();
+        setPartyVisible(true);
         _cameraType = _savedCameraType;
-    }
-    if (_swoopLifecycle.active) {
-        _swoopLifecycle = MinigameLifecycle();
     }
     if (_turretLifecycle.active) {
         _turretLifecycle = MinigameLifecycle();
@@ -1599,6 +1843,10 @@ void Game::endSourceSession(const std::string &destination) {
     if (_conversation && (_screen == Screen::Conversation || _conversation->isRunning())) {
         _conversation->cleanupForModuleTransition();
     }
+    // A station open across the change has nothing to return to; left
+    // listed, it could not be opened again until a load.
+    _stationReturnScreens.clear();
+    releasePopupsUnderStation();
 
     if (_module) {
         // The source snapshot is already frozen. Module retirement now owns
@@ -1635,6 +1883,10 @@ void Game::publishDestinationModule(const std::string &name, const resource::Gff
         },
         [&]() noexcept {
             _module = std::move(destinationModule);
+            // A module starts with the camera on a stick.
+            _cameraMode = kOnAStickCameraMode;
+            _engineCameraMode = kOnAStickCameraMode;
+            _updatedCameraType.reset();
         });
 }
 
@@ -1656,6 +1908,61 @@ void Game::restorePartyTransitionState(std::vector<PartyTransitionState> &states
         creature->refillForceShieldPools();
         // A member arrives with its hand items unlit and unheld.
         creature->resetHandPower();
+    }
+}
+
+// A companion following the party out of a module, and in TSL a puppet in the
+// party, is saved to its roster record as it leaves, while what it refers to
+// is still there. The player character and a companion under control cross as
+// they are.
+std::vector<Game::TravellingCompanion> Game::captureTravellingCompanions() {
+    std::vector<TravellingCompanion> companions;
+    const auto &residentCreatures = _module->area()->getObjectsByType(ObjectType::Creature);
+    const auto travel = [&](const RosterIdentity &identity, const std::shared_ptr<Creature> &creature) {
+        if (std::find(residentCreatures.begin(), residentCreatures.end(), creature) == residentCreatures.end()) {
+            return;
+        }
+        TravellingCompanion companion;
+        companion.identity = identity;
+        companion.creature = creature;
+        companion.record = SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature);
+        companions.push_back(std::move(companion));
+    };
+    for (const auto &member : _party.members()) {
+        const auto &creature = member.creature;
+        if (!creature || !_party.isCompanion(member) || creature == _party.player() ||
+            creature == _party.actualPlayer()) {
+            continue;
+        }
+        const auto identity = _party.rosterIdentity(*creature);
+        if (identity && identity->kind == RosterKind::Npc && identity->slot == member.npc) {
+            travel(*identity, creature);
+        }
+    }
+    for (int puppet : _party.persistedState().puppetIds) {
+        const RosterIdentity identity {RosterKind::Puppet, puppet};
+        if (auto creature = _party.rosterCreature(identity)) {
+            travel(identity, creature);
+        }
+    }
+    return companions;
+}
+
+// Each companion and puppet is made again from its roster record in the
+// module it arrives in: a new object that takes up its effects anew and runs
+// its creation script again. A companion's place in the party stays, naming
+// no one, until the vacant followers come back from their records; a puppet
+// stays in the party's puppets until it is made again.
+void Game::retireTravellingCompanions(std::vector<TravellingCompanion> &companions) {
+    for (auto &companion : companions) {
+        auto creature = companion.creature.resolve();
+        if (!creature || _party.rosterCreature(companion.identity) != creature) {
+            continue;
+        }
+        saveRosterRecord(companion.identity, std::move(companion.record));
+        _party.vacateMemberEntries(*creature);
+        _party.releaseRosterSlot(*creature);
+        destroyRuntimeObjectGraph(creature);
     }
 }
 
@@ -1692,6 +1999,7 @@ bool Game::loadPreparedModule(
     } loadFromSaveGuard {_loadingFromSaveGame};
 
     std::vector<PartyTransitionState> partyTransitionState;
+    std::vector<TravellingCompanion> travellingCompanions;
 
     // Exit scripts are part of the source module's last observable state. The
     // resulting working state remains a candidate until the resource/runtime
@@ -1711,13 +2019,14 @@ bool Game::loadPreparedModule(
             return false;
         }
         clearDepartingActions();
-        sourceWorkingState = prepareCurrentModuleWorkingState();
+        sourceWorkingState = prepareCurrentModuleWorkingState(name);
         if (!sourceWorkingState) {
             return false;
         }
 
         try {
             partyTransitionState = captureResidentPartyActions();
+            travellingCompanions = captureTravellingCompanions();
         } catch (const std::exception &e) {
             error(
                 "Unable to snapshot Party transition state: " +
@@ -1726,9 +2035,12 @@ bool Game::loadPreparedModule(
         }
 
         // Re-entering the same module must inspect the snapshot just captured,
-        // not the previously committed visit. Other destinations are
-        // unaffected because the candidate changed only the source archive.
-        if (boost::iequals(_module->name(), name)) {
+        // not the previously committed visit, and a module that discards its
+        // own saved state on entry is built afresh. Other destinations are
+        // unaffected because the candidate changed only the source archive
+        // and the discarded group.
+        if (boost::iequals(_module->name(), name) ||
+            modulesDiscardedOnEntering(name).count(boost::to_lower_copy(name)) > 0) {
             try {
                 prepared = prepareDestinationModule(
                     name, initialSaveRestore, sourceWorkingState);
@@ -1738,9 +2050,20 @@ bool Game::loadPreparedModule(
                 return false;
             }
         }
+
+        // Entering a module can write the autosave first, from the state the
+        // game is leaving and before the destination exists, so loading it
+        // enters the module again.
+        if (autosavesOnEntering(name)) {
+            writeEntryAutosave(prepared, entry, sourceWorkingState);
+        }
     }
 
     bool loaded = false;
+
+    // The party comes from the module being left, rather than from a save or
+    // a new game.
+    const bool partyCarriedOver = _module && !initialSaveRestore;
 
     const auto sourceScreen = _screen;
     bool commitStarted = false;
@@ -1753,12 +2076,17 @@ bool Game::loadPreparedModule(
                                  resourcesCommitted,
                                  &sourceWorkingState,
                                  &partyTransitionState,
+                                 &travellingCompanions,
                                  &commitStarted,
-                                 &loaded]() {
+                                 &loaded,
+                                 partyCarriedOver]() {
             try {
                 commitStarted = true;
                 _globalFade.request(GlobalFade::Direction::Out);
                 endSourceSession(name);
+                // No conversation speaks from a module start, a transition's
+                // or a save's, until the player arrives.
+                closeDialogGate();
 
                 if (!resourcesCommitted) {
                     _services.resource.director.commitModuleLoad(
@@ -1782,9 +2110,12 @@ bool Game::loadPreparedModule(
 
                 _services.scene.graphs.get(kSceneMain).clear();
                 // A module starts with no conversation under way or asked for.
-                _dialogUnderWay = false;
+                setDialogUnderWay(false);
                 dropConversationRequest();
                 _conversationRequestAdmitted = false;
+                if (isTSL()) {
+                    _mouseLookHeld = false;
+                }
 
                 const auto &ifo = prepared.ifo;
                 ModuleLoadContext context = prepared.context;
@@ -1831,14 +2162,31 @@ bool Game::loadPreparedModule(
                 if (_party.isEmpty() && !_party.actualPlayer()) {
                     loadDefaultParty();
                 }
-                // A follower whose creature was destroyed is still listed with
-                // the party, and comes back from its roster record.
+                // A companion or puppet that followed the party here is
+                // made again from the record it left with. A follower whose
+                // creature was destroyed is still listed with the party, and
+                // comes back from its roster record. The party's puppets are
+                // made again here too, before the area places the party.
+                retireTravellingCompanions(travellingCompanions);
                 _party.respawnVacantFollowers();
+                for (int puppet : _party.persistedState().puppetIds) {
+                    _party.getAvailablePuppet(puppet, true);
+                }
 
                 // The game makes restored effects, actions and events visible before
                 // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
                 // remains explicit and graph-local; only publication moves ahead
                 // of the entry hooks.
+                //
+                // A restored world names the party's representations by party
+                // identity. The roster is bound on every path by now - rebuilt
+                // from the save on a disk load, carried over on a revisit - so
+                // each one claims its identity before saved values bind
+                // through it.
+                if (restoringSavedWorld) {
+                    registerSavedPartyIdentities(
+                        *ifo, SerializedIdentityContext::moduleGraph(name));
+                }
                 bindSavedRuntimeState();
 
                 restorePartyTransitionState(partyTransitionState);
@@ -1852,10 +2200,24 @@ bool Game::loadPreparedModule(
                 destination->signalLoaded();
 
                 // The party is formed anew in the destination: a place that names
-                // no one does not come along, and the first member there leads.
+                // no one does not come along, the first member there leads, and
+                // a party carried over is formed again from its members. The
+                // creature under control takes the party's items, each
+                // announced once; only then do the other members' carried
+                // items join, and a companion leading the party takes the
+                // shared inventory.
                 _party.removeVacantMembers();
+                _party.takeItemsOnModuleLoad();
                 signalPartyEquipment();
-                destination->loadParty(entry, preservesSavedPlacement(context));
+                if (partyCarriedOver) {
+                    _party.formAgainOnModuleLoad();
+                }
+                if (_party.player() && _party.getLeader() != _party.player()) {
+                    _party.passItemsToLeader();
+                }
+                destination->loadParty(
+                    entry,
+                    preservesSavedPlacement(context) && !prepared.placesPartyAtEntry);
                 if (!stillCurrent()) {
                     return;
                 }
@@ -1877,6 +2239,9 @@ bool Game::loadPreparedModule(
                     openInGame();
                 }
                 loaded = true;
+                // A module whose area declares a swoop race starts it. Its
+                // scripts run the race, and end it by leaving the module.
+                startSwoopRace();
             } catch (const std::exception &e) {
                 error("Failed loading module '" + name + "': " + std::string(e.what()));
                 // Source retirement is the commit boundary for an ordinary
@@ -1942,7 +2307,7 @@ void Game::retireActiveModuleRuntime() {
     // Leaving a module ends the player's pause and a time stop, and the stop's
     // exclusions go with it. A Time Stop effect applied again afterwards, a
     // restored one included, stops time anew.
-    setPaused(false);
+    setPausedNow(false);
     _timeStopped = false;
     _timeStopExclusions.clear();
     _module.reset();
@@ -1962,6 +2327,8 @@ void Game::retireActiveModuleRuntime() {
 void Game::retireActiveAreaRuntime() {
     _services.game.projectiles.retireAreaRuntime();
     _areaMusic.unload();
+    // The area's rooms go with it.
+    _soundRoom = nullptr;
     auto module = _module;
     auto area = module ? module->area() : nullptr;
     if (area) {
@@ -2000,19 +2367,18 @@ void Game::retireRuntimeSession() {
     _fadeArrivalModule.reset();
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
+    _stationReturnScreens.clear();
+    releasePopupsUnderStation();
     _lastRenderedSceneOutput = nullptr;
 
     abortPazaak();
     _lastPazaakResult.reset();
     _pazaakDevelopmentSelectedObjectOverride.reset();
-    if (_swoopRace.isActive()) {
-        _swoopRace.stop();
-    }
+    endSwoopRace();
     if (_turret.isActive()) {
         _turret.stop();
     }
     _pendingTurret = PendingTurretRequest();
-    _swoopLifecycle = MinigameLifecycle();
     _turretLifecycle = MinigameLifecycle();
 
     if (_conversation) {
@@ -2026,18 +2392,29 @@ void Game::retireRuntimeSession() {
     _loadComesWithMovies = false;
     _movie.reset();
     _musicResRef.clear();
+    _movieQueue.clear();
+    _queuedMoviesPlaying = std::queue<QueuedMovie>();
     while (!_moduleTransitionMovies.empty()) {
         _moduleTransitionMovies.pop();
+    }
+    // A script waiting at a movie belongs to the session left, and never goes
+    // on; nor does what was held for it.
+    if (_scriptRunner) {
+        _scriptRunner->dropWaitingRuns();
     }
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
+    _cameraMode = kOnAStickCameraMode;
+    _engineCameraMode = kOnAStickCameraMode;
+    _updatedCameraType.reset();
+    _followCameraZoom = 1.0f;
     _freeLook = false;
     disableVideoEffect();
     _scriptVideoEffectHeld = false;
     _playerInputBlocked = false;
     _postDialogCharacterSwitch.reset();
-    _paused = false;
+    setPausedNow(false);
     _timeStopped = false;
     _timeStopExclusions.clear();
     _timeStopMilliseconds = 0;
@@ -2047,6 +2424,7 @@ void Game::retireRuntimeSession() {
     _partyCombatArea.reset();
     _keepStealthInDialog = false;
     _relativeMouseMode = false;
+    closeDialogGate();
 
     _statusSummary.reset();
     if (_hud) {
@@ -2060,6 +2438,7 @@ void Game::retireRuntimeSession() {
     _dialog.reset();
     _computer.reset();
     _container.reset();
+    _storeGUI.reset();
     _partySelect.reset();
 
     if (_map) {
@@ -2120,9 +2499,7 @@ void Game::resetGame() {
     _nearestObjects.clear();
     _tutorialPending.reset();
     if (_tutorial) {
-        if (_confirmPopup) {
-            _confirmPopup->hide();
-        }
+        _tutorialPopup->hide();
         finishTutorialWindow(false);
     }
     retireRuntimeSession();
@@ -2140,6 +2517,8 @@ void Game::resetGame() {
     _floatingText.reset();
     _cheatUsed = false;
     _playedTimeFraction = 0.0;
+    // A new game and a load each start the autosave interval afresh.
+    _secondsSinceSave = 0.0;
     _services.resource.director.onNewGame();
 }
 
@@ -2179,20 +2558,28 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
         prepared.nfo.lastModule,
         /*initialSaveRestore=*/true,
         prepared.session->workingState());
-    if (prepared.destination.context ==
-        ModuleLoadContext::InitialTemplateRestore) {
+    // A save with no state for its module, and an autosave taken on the way
+    // into a module, rebuild the player from the save's own player list and
+    // start the party where the save's parameters say. An autosave into a
+    // module the game had already saved restores that module's world.
+    auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
+    const bool templateWorld = prepared.destination.context ==
+                               ModuleLoadContext::InitialTemplateRestore;
+    if (templateWorld || params) {
         prepared.playerInfo = decodeSaveGff(
             prepared.session->findMetadata(ResourceId("pifo", ResType::Ifo)));
         if (!prepared.playerInfo ||
             prepared.playerInfo->getList("Mod_PlayerList").empty()) {
             throw ValidationException(
-                "Template-world save restore requires pifo.ifo player state");
+                templateWorld
+                    ? "Template-world save restore requires pifo.ifo player state"
+                    : "Autosave restore requires pifo.ifo player state");
         }
-        auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
         if (!params) {
             throw ValidationException(
                 "Template-world save restore requires AUTOSAVEPARAMS");
         }
+        prepared.destination.placesPartyAtEntry = !templateWorld;
         PreparedSaveLoad::AutosaveRestoreState autosave;
         autosave.startWaypoint = params->getString("STARTWAYPOINT");
         if (autosave.startWaypoint == "*") {
@@ -2295,7 +2682,17 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
             *prepared.destination.git,
             moduleIdentityContext,
             SerializedGraphRoot::AreaGit);
-        deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        if (prepared.autosave) {
+            restoreWorldTime(
+                *ifo, prepared.autosave->pauseDay, prepared.autosave->pauseTime);
+            deserializeParty(
+                *prepared.playerInfo,
+                prepared.partyTable,
+                SerializedIdentityContext::detachedRecord("pifo.ifo"));
+            entry = prepared.autosave->startWaypoint;
+        } else {
+            deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        }
     } else {
         if (!prepared.autosave || !prepared.playerInfo) {
             throw ValidationException(
@@ -2489,7 +2886,14 @@ void Game::publishPartyRuntimeState(
         return;
     }
 
-    auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
+    // The player's record is read as a party member's.
+    const auto &playerRecord = *players.front();
+    auto modulePlayer = newObjectFromRecord<Creature>(
+        playerRecord, moduleIdentityContext,
+        [&playerRecord, &moduleIdentityContext](Creature &creature) {
+            creature.deserializeAsPartyMember(playerRecord, moduleIdentityContext);
+        },
+        std::string(kSceneMain), *this, _services);
     modulePlayer->captureSaveRecord(
         *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
     if (modulePlayer->tag().empty()) {
@@ -2522,6 +2926,46 @@ void Game::publishPartyRuntimeState(
         deserializeJournal(*ptGff);
     } else {
         _party.addMember(kNpcPlayer, actualPlayer);
+    }
+}
+
+void Game::registerSavedPartyIdentities(
+    const resource::Gff &ifoGff,
+    const SerializedIdentityContext &moduleIdentityContext) {
+    auto claim = [&](const resource::Gff &record) {
+        uint32_t kind = 0;
+        if (!record.readDword(kind, "PartyIdKind")) {
+            return;
+        }
+        const int slot = record.getInt("PartyIdSlot");
+        std::shared_ptr<Creature> creature;
+        switch (kind) {
+        case kSavedPartyIdentityCanonicalPlayer:
+            creature = _party.actualPlayer();
+            break;
+        case kSavedPartyIdentityPuppet:
+            creature = _party.rosterCreature({RosterKind::Puppet, slot});
+            break;
+        case kSavedPartyIdentityNpc:
+            creature = _party.rosterCreature({RosterKind::Npc, slot});
+            break;
+        default:
+            break;
+        }
+        // A slot the party no longer holds leaves its identity unclaimed, and
+        // a saved value that names it reads as the invalid object.
+        if (!creature) {
+            return;
+        }
+        registerSavedObjectIdentity(
+            record.getUint("ObjectId"), creature, moduleIdentityContext,
+            /*assignIdentity=*/false);
+    };
+    for (const auto &player : ifoGff.getList("Mod_PlayerList")) {
+        claim(*player);
+    }
+    for (const auto &record : ifoGff.getList("Mod_PartyObjIds")) {
+        claim(*record);
     }
 }
 
@@ -2725,6 +3169,12 @@ void Game::saveNpcState(int npc) {
 void Game::saveRosterState(
     const RosterIdentity &identity,
     const Creature &creature) {
+    saveRosterRecord(identity, SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
+}
+
+void Game::saveRosterRecord(
+    const RosterIdentity &identity,
+    ByteBuffer record) {
     if (!_party.isRosterIdentityValid(identity)) {
         throw ValidationException("Roster slot is outside the title range");
     }
@@ -2738,7 +3188,7 @@ void Game::saveRosterState(
         resource::SaveWorkingStateCandidate::fromCommitted(std::move(committed));
     candidate.put(
         ResourceId(prefix + std::to_string(identity.slot), ResType::Utc),
-        SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
+        std::move(record));
     _services.resource.director.adoptSaveWorkingState(candidate.freeze());
 }
 
@@ -2764,6 +3214,10 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         return nullptr;
     }
 
+    // A creature made from its roster record is a new creature: it runs its
+    // creation script again, whatever the record says of the one it was made
+    // from.
+    removeSaveField(*record, "CreatnScrptFird");
     const auto context =
         SerializedIdentityContext::detachedRecord(name + ".utc");
     auto creature = newCreature(*record, context);
@@ -2909,7 +3363,6 @@ void Game::deserializeInventory(resource::Gff &inventoryGff) {
         inventoryGff,
         SerializedIdentityContext::detachedRecord("inventory.res"),
         SaveRecordOriginKind::PartyInventoryItem,
-        false,
         "inventory");
 }
 
@@ -2957,11 +3410,31 @@ void Game::setCursorType(CursorType type) {
     _pointer->setType(type);
 }
 
-void Game::playVideo(const std::string &name, bool streamingMusic) {
+bool Game::playVideo(const std::string &name, bool streamingMusic) {
     _moduleTransitionMovies = std::queue<std::string>();
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
-    startVideo(name, streamingMusic);
+    return startVideo(name, streamingMusic);
+}
+
+void Game::queueMovie(const std::string &name, bool skippable) {
+    const bool queued = std::any_of(_movieQueue.begin(), _movieQueue.end(), [&name](const auto &movie) {
+        return movie.name == name;
+    });
+    if (!queued) {
+        _movieQueue.push_back(QueuedMovie {name, skippable});
+    }
+}
+
+bool Game::playMovieQueue() {
+    for (auto &movie : _movieQueue) {
+        _queuedMoviesPlaying.push(std::move(movie));
+    }
+    _movieQueue.clear();
+    if (!_movie) {
+        playNextMovie();
+    }
+    return static_cast<bool>(_movie);
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -2982,10 +3455,14 @@ void Game::playMusic(const std::string &resRef) {
 // A new game, TSL's character generation and the module picker set the
 // loading-screen music from the module's row of the loading-screen table.
 void Game::setLoadMusicForModule(const std::string &moduleName) {
+    _loadMusicResRef = loadMusicForModule(moduleName);
+}
+
+std::string Game::loadMusicForModule(const std::string &moduleName) {
     if (!_loadScreen) {
         _loadScreen = tryLoadGUI<LoadingScreen>();
     }
-    _loadMusicResRef = _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
+    return _loadScreen ? _loadScreen->musicResRef(moduleName) : "";
 }
 
 // Every loading screen shown with music starts it: the menu music stops;
@@ -3009,7 +3486,8 @@ void Game::startLoadMusic() {
     _loadMusic = _services.audio.mixer.play(
         _services.resource.audioClips.get(_loadMusicResRef),
         AudioType::Music,
-        _areaMusic.musicGroupGain(),
+        kMusicSoundGroup,
+        1.0f,
         true);
 }
 
@@ -3043,8 +3521,8 @@ void Game::fadeOutMenuMusic() {
     playMusic("");
 }
 
-// The playing loading music, when it is the track asked for (ignoring case),
-// becomes the background music and plays once through.
+// Loading-screen music of the track asked for (ignoring case) leaves the
+// loading screen and plays on once through as the background music.
 std::shared_ptr<AudioSource> Game::takeLoadMusic(const std::string &resRef) {
     if (!_loadMusic || !boost::iequals(resRef, _loadMusicResRef)) {
         return nullptr;
@@ -3057,6 +3535,10 @@ std::shared_ptr<AudioSource> Game::takeLoadMusic(const std::string &resRef) {
 void Game::renderScene() {
     if (!_module || !_options.graphics.sceneRender) {
         _lastRenderedSceneOutput = nullptr;
+        return;
+    }
+    // A station covers the world, which is not drawn while it is up.
+    if (isStationScreen(_screen)) {
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
@@ -3075,8 +3557,6 @@ void Game::renderScene() {
 // the leader and the party is not solo.
 static constexpr float kRecoveryPlacementRadius = 5.0f;
 static constexpr float kRegroupDistance = 40.0f;
-// A creature regarding another at this standing or less is hostile to it.
-static constexpr int kHighestHostileReputation = 10;
 // The death fade holds the view for twelve seconds before a one second fade to
 // black; hurrying it fades at once over half a second.
 static constexpr float kDeathFadeWait = 12.0f;
@@ -3137,7 +3617,7 @@ void Game::updateTemporaryDeath() {
                 if (!creature || _party.isMember(*creature)) {
                     continue;
                 }
-                if (creature->getReputationToward(*reference) > kHighestHostileReputation) {
+                if (creature->getReputationToward(*reference) > kHighestEnemyReputation) {
                     continue;
                 }
                 const bool seesMember = std::any_of(
@@ -3189,20 +3669,25 @@ void Game::updateTemporaryDeath() {
 
 bool Game::hasModalPanel() const {
     if (_screen == Screen::InGame) {
-        return _confirmPopup && _confirmPopup->isVisible();
+        return (_confirmPopup && _confirmPopup->isVisible()) || (_tutorialPopup && _tutorialPopup->isVisible()) ||
+               (_datapadBox && _datapadBox->isVisible());
     }
     // These exclusive screens own input instead of the world. The complete
     // modal stack of the GUI manager is not exposed to scripts.
     switch (_screen) {
     case Screen::InGameMenu:
     case Screen::Container:
+    case Screen::Store:
     case Screen::PartySelection:
+    case Screen::UpgradeSelection:
+    case Screen::LabStation:
     case Screen::SaveLoad:
     case Screen::PazaakWager:
     case Screen::PazaakSetup:
     case Screen::PazaakBoard:
     case Screen::Death:
     case Screen::MainMenu:
+    case Screen::Options:
         return true;
     default:
         return false;
@@ -3283,7 +3768,7 @@ void Game::startCreditSequence(bool transparentBackground, const std::string &mu
     }
     _credits = std::make_unique<CreditsGUI>(*this, _services, transparentBackground, music);
     _credits->init();
-    _areaMusic.stopSounds();
+    _areaMusic.fadeOutSounds();
 }
 
 void Game::hurryDeathSequence() {
@@ -3368,10 +3853,17 @@ bool Game::handleFreeLookKey(const input::KeyEvent &event) {
     if (!_freeLook) {
         return false;
     }
+    // The turn keys only leave free-look; TSL's also end the party-target mode.
+    auto &keybinds = _options.game.activeKeybinds();
+    if (keybinds.cameraRotateLeft.check(event.code) || keybinds.cameraRotateRight.check(event.code)) {
+        if (isTSL()) {
+            cancelPartyItemTarget();
+        }
+        exitFreeLook();
+        return true;
+    }
     switch (event.code) {
     // Selection, the solo query and the menu keys only leave free-look.
-    case input::KeyCode::Q:
-    case input::KeyCode::E:
     case input::KeyCode::V:
     case input::KeyCode::Escape:
     case input::KeyCode::Return:
@@ -3379,9 +3871,7 @@ bool Game::handleFreeLookKey(const input::KeyEvent &event) {
         return true;
     case input::KeyCode::Tab:
         exitFreeLook();
-        if (auto clip = _services.game.guiSounds.getActionAccepted()) {
-            _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-        }
+        _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
         return true;
     // The pause key and the menu pages leave free-look and then act.
     case input::KeyCode::Pause:
@@ -3819,7 +4309,8 @@ void Game::registerObject(
 void Game::registerSavedObjectIdentity(
     uint32_t id,
     const std::shared_ptr<Object> &object,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool assignIdentity) {
     if (!identityContext.hasAuthoritativeObjectIds()) {
         throw ValidationException(
             "Cannot register a non-authoritative saved object identity");
@@ -3865,7 +4356,12 @@ void Game::registerSavedObjectIdentity(
                             ? _stagedRuntimeObjectGraph->savedIdByObject[object.get()]
                             : _savedIdByObject[object.get()];
     canonicalId = id;
-    object->assignSerializedObjectIdentity({identityContext, id});
+    // A roster-bound representation is owned by its own detached record and
+    // keeps that record's identity: the module graph only needs to be able to
+    // reach it by the identity it gave it, not to rename it.
+    if (assignIdentity) {
+        object->assignSerializedObjectIdentity({identityContext, id});
+    }
 }
 
 void Game::registerSavedModuleReferenceTarget(
@@ -4198,6 +4694,7 @@ void Game::publishSavedRuntimeState() {
         if (!actor) {
             continue;
         }
+        actor->resumeSavedScriptLoop();
         for (const auto &action : actor->actions()) {
             const auto &saved = action->originalSavedAction();
             if (saved && saved->round) {
@@ -4448,6 +4945,40 @@ void Game::enableVideoEffect(int row) {
     _services.scene.graphs.get(kSceneMain).setVideoEffect(std::move(effect));
 }
 
+// A camera that changed earlier in the frame sets the engine's mode first,
+// so the script's mode outlasts it. TSL's dialog mode turns off the Force
+// Sight look until a video effect is next shown.
+void Game::setCameraMode(int mode) {
+    syncEngineCameraMode();
+    _cameraMode = mode;
+    if (isTSL() && mode == kDialogCameraMode) {
+        _services.scene.graphs.get(kSceneMain).clearForceSight();
+    }
+}
+
+// The follow camera is on a stick, or in combat; free look and the cameras of
+// conversations and cutscenes are modes of their own.
+void Game::syncEngineCameraMode() {
+    int mode = kOnAStickCameraMode;
+    switch (_cameraType) {
+    case CameraType::FirstPerson:
+        mode = kFreeLookCameraMode;
+        break;
+    case CameraType::ThirdPerson: {
+        auto *camera = _module && _module->area() ? dynamic_cast<ThirdPersonCamera *>(getActiveCamera()) : nullptr;
+        mode = camera && camera->isCombat() ? kCombatCameraMode : kOnAStickCameraMode;
+        break;
+    }
+    default:
+        mode = kDialogCameraMode;
+        break;
+    }
+    if (mode != _engineCameraMode) {
+        _engineCameraMode = mode;
+        _cameraMode = mode;
+    }
+}
+
 void Game::disableVideoEffect() {
     if (_videoEffectType == kNoVideoEffect) {
         return;
@@ -4575,20 +5106,38 @@ void Game::renderGUI() {
         if (auto gui = getScreenGUI()) {
             gui->render();
         }
+        if (_hud) {
+            _hud->renderMinigamePause();
+        }
     }
     renderGlobalFade();
     if (_screen == Screen::InGame && _cameraType == CameraType::ThirdPerson && _hud) {
         _hud->renderModal();
     }
     if (!gameplayHUD) {
+        // A station is drawn alone, over its own backdrop: the screen it
+        // covers is not.
         auto gui = getScreenGUI();
         if (gui) {
             gui->render();
         }
     }
-    if (_confirmPopup && _confirmPopup->isVisible()) {
-        _confirmPopup->render();
+    // The message box opened last is drawn over the other; a box held under
+    // a station is not drawn.
+    const bool tutorialOver = isTutorialPopupOver();
+    const auto renderPopup = [](const std::unique_ptr<ConfirmPopup> &popup, bool held) {
+        if (popup && popup->isVisible() && !held) {
+            popup->render();
+        }
+    };
+    if (tutorialOver) {
+        renderPopup(_confirmPopup, _messageBoxUnderStation);
+        renderPopup(_tutorialPopup, _tutorialUnderStation);
+    } else {
+        renderPopup(_tutorialPopup, _tutorialUnderStation);
+        renderPopup(_confirmPopup, _messageBoxUnderStation);
     }
+    renderPopup(_datapadBox, _datapadUnderStation);
     // The credits cover everything, the fade included, and hide the pointer.
     // The pointer also hides while the mouse turns the camera.
     if (_credits) {
@@ -4647,6 +5196,41 @@ void Game::renderScreenFill(const glm::vec3 &color, float alpha) {
     graphics.uniforms.setGlobals([&](auto &globals) { globals = previousGlobals; });
 }
 
+// The pause, an autopause included, refuses before anything else. The wait
+// passes once more than a second has counted; once passed, it stays passed.
+bool Game::passDialogGate() {
+    static constexpr float kDialogGateWait = 1.0f;
+    if (_paused) {
+        return false;
+    }
+    if (_dialogGatePassed) {
+        return true;
+    }
+    if (!_dialogGateOpen || _dialogGateWait <= kDialogGateWait) {
+        return false;
+    }
+    _dialogGatePassed = true;
+    return true;
+}
+
+void Game::closeDialogGate() {
+    _dialogGateOpen = false;
+    _dialogGatePassed = false;
+    _dialogGateWait = 0.0f;
+}
+
+void Game::openDialogGate() {
+    _dialogGateOpen = true;
+    _dialogGatePassed = false;
+    _dialogGateWait = 0.0f;
+}
+
+void Game::advanceDialogGate(float dt) {
+    if (_dialogGateOpen && !_dialogGatePassed && !holdsWorld() && !_timeStopped && !_movie) {
+        _dialogGateWait += dt;
+    }
+}
+
 void Game::settleFadeArrival() {
     if (!_fadeArrival) {
         return;
@@ -4655,9 +5239,12 @@ void Game::settleFadeArrival() {
         // The area's music and ambient loop start on arrival, after the enter
         // script and any movie it plays. Menu music keeps them suspended.
         if (_musicResRef.empty()) {
+            _areaMusic.setNight(isNightTime());
             _areaMusic.start();
         }
         stopLoadMusic();
+        // Conversations may speak a second after arrival.
+        openDialogGate();
         _globalFade.settleArrival(_fadeArrival);
     }
     _fadeArrival.reset();
@@ -4949,8 +5536,9 @@ void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 col
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
-void Game::updateMusic() {
-    _areaMusic.update();
+void Game::updateMusic(float frameTime) {
+    _areaMusic.setNight(isNightTime());
+    _areaMusic.update(frameTime, _soundMode != SoundMode::AllPaused);
     if (_musicResRef.empty()) {
         return;
     }
@@ -4958,14 +5546,19 @@ void Game::updateMusic() {
         return;
     }
     auto clip = _services.resource.audioClips.get(_musicResRef);
-    _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, _areaMusic.musicGroupGain());
+    _music = _services.audio.mixer.play(std::move(clip), AudioType::Music, kMusicSoundGroup);
+}
+
+void Game::releaseInputOnModuleEntry() {
+    _leftButtonHeld = false;
+    _alternateActionsHeld = false;
 }
 
 void Game::loadNextModule() {
     std::string target(_nextModule);
 
     // Capture the origin (current module + leader location) before the deferred
-    // transition runs, so a swoop module entered from a script can return here.
+    // transition runs, so a turret module entered from a script can return here.
     std::string originModule;
     glm::vec3 originPosition(0.0f);
     float originFacing = 0.0f;
@@ -4978,8 +5571,9 @@ void Game::loadNextModule() {
             haveOrigin = true;
         }
     }
-    bool wasLifecycleActive = _swoopLifecycle.active || _turretLifecycle.active;
+    bool wasLifecycleActive = _turretLifecycle.active;
 
+    releaseInputOnModuleEntry();
     bool loaded = loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
@@ -4999,7 +5593,7 @@ void Game::loadNextModule() {
         haveOrigin = _pendingTurret.haveOrigin;
     }
 
-    if (wasLifecycleActive || _swoopLifecycle.active || _turretLifecycle.active) {
+    if (wasLifecycleActive || _turretLifecycle.active) {
         return;
     }
     if (originModule.empty() || boost::iequals(originModule, target)) {
@@ -5024,39 +5618,15 @@ void Game::loadNextModule() {
         return;
     }
     if (minigameType == MinigameType::Turret) {
-        openTurret();
-        if (_turret.isActive()) {
-            _turretLifecycle = MinigameLifecycle();
-            _turretLifecycle.active = true;
-            _turretLifecycle.haveOrigin = haveOrigin;
-            _turretLifecycle.originModule = originModule;
-            _turretLifecycle.originPosition = originPosition;
-            _turretLifecycle.originFacing = originFacing;
-            _turretLifecycle.forcedSuccess = true;
-            _pendingTurret = PendingTurretRequest();
-            debug(str(boost::format("turret: lifecycle start origin=%s target=%s hook=%s")
-                      % originModule % target
-                      % (pendingTurret ? "startturretgame" : "StartNewModule")));
-        } else if (pendingTurret) {
-            abandonPendingTurret("turret failed to start");
-        }
+        // The turret comes up as part of the arrival, once the module's load
+        // script has run (see startScheduledTurret).
+        _pendingTurret.active = true;
+        _pendingTurret.targetModule = target;
+        _pendingTurret.originModule = originModule;
+        _pendingTurret.originPosition = originPosition;
+        _pendingTurret.originFacing = originFacing;
+        _pendingTurret.haveOrigin = haveOrigin;
         return;
-    }
-    if (minigameType != MinigameType::SwoopRace) {
-        return;
-    }
-
-    openSwoopRace();
-    if (_swoopRace.isActive()) {
-        _swoopLifecycle = MinigameLifecycle();
-        _swoopLifecycle.active = true;
-        _swoopLifecycle.haveOrigin = haveOrigin;
-        _swoopLifecycle.originModule = originModule;
-        _swoopLifecycle.originPosition = originPosition;
-        _swoopLifecycle.originFacing = originFacing;
-        _swoopLifecycle.forcedSuccess = true;
-        debug(str(boost::format("swoop: script lifecycle start origin=%s target=%s forcedSuccess=yes hook=StartNewModule")
-                  % originModule % target));
     }
 }
 
@@ -5076,6 +5646,12 @@ void Game::stopMovement() {
     _module->player().stopMovement();
 }
 
+void Game::resetDriveAcceleration() {
+    if (_module) {
+        _module->resetPlayerDrive();
+    }
+}
+
 void Game::scheduleModuleTransition(const std::string &moduleName, const std::string &entry) {
     _nextModule = moduleName;
     _nextEntry = entry;
@@ -5091,7 +5667,7 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
     }
 
     if (!_movie) {
-        playNextModuleTransitionMovie();
+        playNextMovie();
     }
 }
 
@@ -5101,6 +5677,8 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     if (!_movie) {
         return false;
     }
+    markMovieShown(name);
+    _movieSkippable = true;
     // A movie ends the area's music and ambient loop for good; one that
     // comes before arrival, as an enter script's, leaves the music to start
     // on arrival but no ambient loop. Every other sound waits for it, including
@@ -5111,7 +5689,15 @@ bool Game::startVideo(const std::string &name, bool streamingMusic) {
     return true;
 }
 
-bool Game::playNextModuleTransitionMovie() {
+bool Game::playNextMovie() {
+    while (!_queuedMoviesPlaying.empty()) {
+        QueuedMovie movie = std::move(_queuedMoviesPlaying.front());
+        _queuedMoviesPlaying.pop();
+        if (startVideo(movie.name, false)) {
+            _movieSkippable = movie.skippable;
+            return true;
+        }
+    }
     while (!_moduleTransitionMovies.empty()) {
         auto name = std::move(_moduleTransitionMovies.front());
         _moduleTransitionMovies.pop();
@@ -5134,7 +5720,7 @@ void Game::updateMovie(float dt) {
     if (_movie->isFinished()) {
         _movie.reset();
         _timingDiscontinuity = true;
-        playNextModuleTransitionMovie();
+        playNextMovie();
     }
 }
 
@@ -5181,11 +5767,31 @@ void Game::updateCamera(float dt) {
             }
         }
         break;
+    // A minigame looks through the first-person camera it drives, including
+    // after a conversation over it has taken a camera of its own.
+    case Screen::Turret:
+    case Screen::SwoopRace:
+        _cameraType = CameraType::FirstPerson;
+        break;
     default:
         break;
     }
     Camera *camera = getActiveCamera();
     if (camera) {
+        // Play moves the view's tilt limits each frame, while the leader is not
+        // down for the moment.
+        if (_screen == Screen::InGame) {
+            auto leader = _party.getLeader();
+            if (leader && !leader->isTemporarilyDead()) {
+                thirdPerson.updateTiltLimits(_leftButtonHeld, _module->player().steersBack(), dt);
+            }
+        }
+        // The follow camera is placed at its first update since another
+        // camera showed the scene, whatever was placed while it was away.
+        if (_cameraType == CameraType::ThirdPerson && _updatedCameraType != CameraType::ThirdPerson) {
+            thirdPerson.placeAtNextUpdate();
+        }
+        _updatedCameraType = _cameraType;
         // An animated camera's shot stands still while the world is held, the
         // player's pause included.
         camera->update(_cameraType == CameraType::Animated && holdsWorld() ? 0.0f : dt);
@@ -5198,7 +5804,44 @@ void Game::updateCamera(float dt) {
             listenerPosition += kThirdPersonListenerShare * (thirdPerson.targetPosition() - listenerPosition);
         }
         _services.audio.context.setListenerPosition(std::move(listenerPosition));
+        // The listener faces where the camera looks: down its local -Z, with
+        // its local +Y up.
+        const glm::mat4 &cameraTransform = camera->sceneNode()->absoluteTransform();
+        _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
+                                                       glm::normalize(glm::vec3(cameraTransform[1])));
+        updateEnvironment(camera->sceneNode()->origin());
     }
+}
+
+void Game::updateEnvironment(const glm::vec3 &cameraPosition) {
+    auto module = _module;
+    auto area = module ? module->area() : nullptr;
+    if (!area) {
+        return;
+    }
+    const bool conversationShot = _dialogUnderWay && (_cameraType == CameraType::Dialog ||
+                                                      _cameraType == CameraType::Static ||
+                                                      _cameraType == CameraType::Animated);
+    const Room *room = nullptr;
+    if (conversationShot) {
+        room = area->roomUnder(cameraPosition);
+    } else if (auto leader = _party.getLeader()) {
+        room = leader->room();
+    }
+    if (!room || room == _soundRoom) {
+        return;
+    }
+    _soundRoom = room;
+    const int envAudio = area->roomEnvAudio(*room);
+    if (envAudio == _envAudio) {
+        return;
+    }
+    _envAudio = envAudio;
+    debug("Room EnvAudio " + std::to_string(envAudio) + " in " + room->name(), LogChannel::Audio);
+    if (auto environment = environmentOfEnvAudio(envAudio)) {
+        _services.audio.context.setEnvironment(*environment);
+    }
+    _services.audio.mixer.setRoomReverb(envAudioReverberates(envAudio));
 }
 
 void Game::updateSceneGraph(float dt) {
@@ -5846,9 +6489,15 @@ void Game::setRelativeMouseMode(bool relative) {
 }
 
 // In play the cursor is also held while the mouse turns the camera, unless a
-// popup takes the input.
+// popup takes the input. A turret holds it for aiming whenever it is on
+// screen, a conversation over it having freed it or not; a popup over it frees
+// it until the popup closes.
 bool Game::relativeMouseMode() const {
-    return _relativeMouseMode || isMouseLooking();
+    const bool popup = _confirmPopup && _confirmPopup->isVisible();
+    if (_screen == Screen::Turret) {
+        return !popup;
+    }
+    return (_relativeMouseMode && !popup) || isMouseLooking();
 }
 
 bool Game::isMouseLooking() const {
@@ -5881,6 +6530,7 @@ void Game::withLoadingScreen(const std::string &moduleName, const std::function<
         _loadScreen->setProgress(0);
     }
     changeScreen(Screen::Loading);
+    applySoundMode();
     render();
     startLoadMusic();
     block();
@@ -5939,6 +6589,19 @@ void Game::openMainMenu() {
     changeScreen(Screen::MainMenu);
 }
 
+void Game::openMainMenuOptions() {
+    if (!_mainMenuOptions) {
+        _mainMenuOptions = std::make_unique<OptionsMenu>(*this, _services, false);
+        _mainMenuOptions->init();
+    }
+    changeScreen(Screen::Options);
+}
+
+// The main menu's music plays on under its options.
+void Game::closeMainMenuOptions() {
+    changeScreen(Screen::MainMenu);
+}
+
 static constexpr int kPauseTutorial = 6;
 
 void Game::pressPauseKey() {
@@ -5947,9 +6610,7 @@ void Game::pressPauseKey() {
     if (paused && requestTutorialWindow(kPauseTutorial)) {
         return;
     }
-    if (auto clip = _services.game.guiSounds.getActionAccepted()) {
-        _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-    }
+    _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
 }
 
 void Game::pressPauseButton() {
@@ -5970,7 +6631,7 @@ void Game::requestStealth() {
         return;
     }
     if (_party.isSoloMode() || _party.getSize() == 1) {
-        leader->useStealthSkill();
+        leader->useSkill(SkillType::Stealth, leader);
     } else {
         showSoloModeQuery(true);
     }
@@ -6000,9 +6661,7 @@ void Game::showSoloModeQuery(bool forStealth) {
     auto leader = _party.getLeader();
     if (isConversationActive() || _module->area()->transitionPending() || !leader || leader->isDead() ||
         leader->currentHitPoints() <= 0 || _party.getSize() <= 1) {
-        if (auto clip = _services.game.guiSounds.getActionUnavailable()) {
-            _services.audio.mixer.play(std::move(clip), AudioType::Sound);
-        }
+        _services.game.guiSounds.play(_services.game.guiSounds.getActionUnavailable());
         return;
     }
     if (!_confirmPopup) {
@@ -6017,7 +6676,7 @@ void Game::showSoloModeQuery(bool forStealth) {
     } else if (_party.isSoloMode()) {
         strRef = leader->isStealthed() ? kSoloModeOffStealthedStrRef : kSoloModeOffStrRef;
     }
-    const bool pausedBefore = _paused;
+    const bool pausedBefore = isPausedAtFrameEnd();
     if (!pausedBefore) {
         setPaused(true);
     }
@@ -6027,6 +6686,7 @@ void Game::showSoloModeQuery(bool forStealth) {
             setPaused(false);
         }
     };
+    putMessagePopupOnTop();
     _confirmPopup->showConfirm(
         _services.resource.strings.getText(strRef),
         [this, forStealth, restorePause]() {
@@ -6035,7 +6695,7 @@ void Game::showSoloModeQuery(bool forStealth) {
             _scriptRunner->run(kSoloModeScript, script::kObjectInvalid);
             if (forStealth) {
                 if (auto leader = _party.getLeader()) {
-                    leader->useStealthSkill();
+                    leader->useSkill(SkillType::Stealth, leader);
                 }
             }
             restorePause();
@@ -6082,7 +6742,7 @@ void Game::requestAutoPause(AutoPauseReason reason) {
 
 void Game::autoPause(AutoPauseReason reason) {
     // Autopause never stacks on an existing pause.
-    if (_autoPaused || _paused) {
+    if (_autoPaused || isPausedAtFrameEnd()) {
         return;
     }
     // Within the delay window the request is deferred, even one made during
@@ -6110,8 +6770,46 @@ void Game::autoPause(AutoPauseReason reason) {
         {AutoPauseReason::PartyKilled, PauseReason::PartyKilled},
         {AutoPauseReason::MineSighted, PauseReason::MineSighted},
         {AutoPauseReason::NewTargetSelected, PauseReason::NewTargetSelected}};
-    setPaused(true, kPauseReasons.at(reason));
-    _autoPaused = true;
+    setPaused(true, kPauseReasons.at(reason), true);
+}
+
+void Game::setPaused(bool paused, PauseReason reason, bool autoPause) {
+    // A transition under way has unpaused play and keeps it so.
+    if (_module && _module->area() && _module->area()->transitionPending()) {
+        return;
+    }
+    if (_pauseRequest) {
+        if (paused == _paused) {
+            _pauseRequest.reset();
+        }
+        return;
+    }
+    if (paused != _paused) {
+        _pauseRequest = PauseRequest {paused, reason, autoPause};
+    }
+}
+
+void Game::setPausedNow(bool paused) {
+    _pauseRequest.reset();
+    _paused = paused;
+    if (!paused) {
+        _autoPaused = false;
+    }
+}
+
+void Game::applyPauseRequest() {
+    if (!_pauseRequest) {
+        return;
+    }
+    const PauseRequest request {*_pauseRequest};
+    _pauseRequest.reset();
+    _paused = request.paused;
+    if (request.paused) {
+        _pauseReason = request.reason;
+        _autoPaused = request.autoPause;
+    } else {
+        _autoPaused = false;
+    }
 }
 
 void Game::delayNextEnemyAutoPause() {
@@ -6157,9 +6855,36 @@ void Game::saveMouseOptions() const {
     _options.game.mouse.save(_options.game.configurationPath);
 }
 
+void Game::saveGameplayOptions() const {
+    _options.game.gameplay.save(_options.game.configurationPath);
+}
+
 void Game::saveKeybindOptions() const {
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
         _options.game.keybinds[i].save(_options.game.configurationPath, i);
+    }
+}
+
+void Game::saveSoundOptions() const {
+    reone::game::saveSoundOptions(_options.game.configurationPath, _options.audio);
+}
+
+void Game::saveGraphicsOptions() const {
+    reone::game::saveGraphicsOptions(_options.game.configurationPath, _options.graphics);
+}
+
+void Game::unlockPlanetSongs(int songs) {
+    if ((_options.game.unlockedPlanetSongs | songs) == _options.game.unlockedPlanetSongs) {
+        return;
+    }
+    _options.game.unlockedPlanetSongs |= songs;
+    saveUnlockedPlanetSongs(_options.game.configurationPath, _options.game.unlockedPlanetSongs);
+}
+
+// The configuration is written the first time a movie is seen.
+void Game::markMovieShown(const std::string &name) {
+    if (_options.game.moviesShown.insert(boost::to_lower_copy(name)).second) {
+        saveMoviesShown(_options.game.configurationPath, _options.game.moviesShown);
     }
 }
 
@@ -6230,7 +6955,7 @@ void Game::commitTutorialWindow() {
     _party.setTutorialShown(request.id);
     // A window already open takes the new text; the game stays as it was paused.
     if (!_tutorial) {
-        _tutorialPausedGame = !_paused;
+        _tutorialPausedGame = !isPausedAtFrameEnd();
         if (_tutorialPausedGame) {
             setPaused(true);
         }
@@ -6266,19 +6991,46 @@ bool Game::showTutorialPage() {
         }
     }
 
-    auto text = getInterfaceText(*message);
-    if (!showMessagePopup(text, std::move(icon), [this, hasNext]() {
-            if (hasNext) {
-                ++_tutorialPage;
-                if (showTutorialPage()) {
-                    return;
-                }
-            }
-            finishTutorialWindow(true);
-        })) {
+    if (!_tutorialPopup) {
+        _tutorialPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_tutorialPopup) {
         return false;
     }
-    _confirmPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    if (_tutorialPopup->isVisible()) {
+        // A window open takes the new tutorial in place: its first page, and
+        // its icon only when it has one, the old icon staying otherwise.
+        if (icon) {
+            _tutorialPopup->setIcon(std::move(icon));
+        }
+        _tutorialPopup->setMessage(getInterfaceText(*message));
+    } else {
+        // The popup takes all input, so the steering and mouse-look held when
+        // it opens stop now. It opens over the other message box.
+        stopMovement();
+        _tutorialPopupOnTop = true;
+        // The window's pages turn in place; it closes after the last.
+        _tutorialPopup->setMessageFont(_services.resource.fonts.get(guiFontName("fnt_d16x16")));
+        _tutorialPopup->showPages(
+            getInterfaceText(*message), std::move(icon),
+            [this]() { return showNextTutorialPage(); },
+            [this]() { finishTutorialWindow(true); });
+    }
+    _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    _tutorialUnderStation = false;
+    return true;
+}
+
+bool Game::showNextTutorialPage() {
+    const auto &tutorial = _tutorials[_tutorial->id];
+    auto message = tutorialMessage(tutorial.messages, _tutorialPage + 1);
+    if (!message) {
+        return false;
+    }
+    ++_tutorialPage;
+    const bool hasNext = tutorialMessage(tutorial.messages, _tutorialPage + 1).has_value();
+    _tutorialPopup->setMessage(getInterfaceText(*message));
+    _tutorialPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
     return true;
 }
 
@@ -6503,7 +7255,11 @@ void Game::breakEquipForfeit(const Creature &member, int slot, const Item &item)
     }
 }
 
-void Game::finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item) {
+void Game::finishEquip(Creature &wearer, int slot, const std::shared_ptr<Item> &item, bool instant) {
+    // A weapon in a hand readies its wearer for combat outside a conversation.
+    if (!instant && !_dialogUnderWay && (slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon)) {
+        wearer.setCombatState(true, CombatActivation::Indirect);
+    }
     signalItemEquipped(wearer, slot, item);
     breakEquipForfeit(wearer, slot, *item);
     if (slot == InventorySlots::body) {
@@ -6521,9 +7277,23 @@ void Game::signalItemEquipped(Creature &wearer, int slot, const std::shared_ptr<
     queueScriptEvent(*_module, wearer, *newEvent(kItemEquippedEvent, std::vector<int32_t> {}, std::vector<float> {}, std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {item}));
 }
 
-void Game::recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item) {
+void Game::recordEquippedOnLoad(int slot, const std::shared_ptr<Item> &item, bool acquired) {
     assert(_stagedRuntimeObjectGraph && "equipment is read inside a runtime object graph");
-    _stagedRuntimeObjectGraph->equippedOnLoad.push_back({slot, item});
+    _stagedRuntimeObjectGraph->equippedOnLoad.push_back({slot, item, acquired});
+}
+
+void Game::recordCarriedOnLoad(const std::shared_ptr<Item> &item) {
+    assert(_stagedRuntimeObjectGraph && "items are read inside a runtime object graph");
+    _stagedRuntimeObjectGraph->equippedOnLoad.push_back({kCarriedOnLoad, item, true});
+}
+
+void Game::signalReadOnLoad(Creature &wearer, const EquippedOnLoad &read) {
+    if (read.acquired) {
+        read.item->announceKept();
+    }
+    if (read.slot != kCarriedOnLoad) {
+        signalItemEquipped(wearer, read.slot, read.item);
+    }
 }
 
 std::shared_ptr<Creature> Game::equippedOnLoadWearer(const EquippedOnLoad &equipped) const {
@@ -6535,10 +7305,10 @@ void Game::releaseEquippedOnLoad(const std::vector<EquippedOnLoad> &equipped) {
         _equippedOnLoad.insert(_equippedOnLoad.end(), equipped.begin(), equipped.end());
         return;
     }
-    for (const auto &[slot, item] : equipped) {
-        auto wearer = equippedOnLoadWearer({slot, item});
+    for (const auto &read : equipped) {
+        auto wearer = equippedOnLoadWearer(read);
         assert(wearer && "equipment read on load is worn by a live creature");
-        signalItemEquipped(*wearer, slot, item);
+        signalReadOnLoad(*wearer, read);
     }
 }
 
@@ -6551,16 +7321,17 @@ void Game::signalEquippedOnLoad(const Creature &wearer) {
             continue;
         }
         if (isRuntimeObjectLive(*it->item)) {
-            signalItemEquipped(*creature, it->slot, it->item);
+            signalReadOnLoad(*creature, *it);
         }
         it = _equippedOnLoad.erase(it);
     }
 }
 
-// The party arrives in every module as if read anew: the player character,
-// then each other member, then each puppet, tells the module of every item it
-// wears, in slot order. What any of them was read wearing during the load is
-// not told twice.
+// The party arrives in every module as if read anew: each member other than
+// the creature under control, then each puppet, tells the module of every item
+// it wears, in slot order; the creature under control has told it as it took
+// the party's items. What any of them was read wearing during the load is not
+// told twice.
 void Game::signalPartyEquipment() {
     std::vector<std::shared_ptr<Creature>> arriving;
     auto player = _party.player();
@@ -6578,12 +7349,25 @@ void Game::signalPartyEquipment() {
         }
     }
     for (const auto &creature : arriving) {
+        // What a member other than the creature under control was read
+        // acquiring is told first; the creature under control has told it as
+        // it took the party's items.
+        if (creature != player) {
+            for (const auto &read : _equippedOnLoad) {
+                if (read.acquired && equippedOnLoadWearer(read) == creature && isRuntimeObjectLive(*read.item)) {
+                    read.item->announceKept();
+                }
+            }
+        }
         _equippedOnLoad.erase(
             std::remove_if(
                 _equippedOnLoad.begin(),
                 _equippedOnLoad.end(),
                 [&](const EquippedOnLoad &kept) { return equippedOnLoadWearer(kept) == creature; }),
             _equippedOnLoad.end());
+        if (creature == player) {
+            continue;
+        }
         for (const auto &[slot, item] : creature->equipment()) {
             signalItemEquipped(*creature, slot, item);
         }
@@ -6598,7 +7382,7 @@ void Game::signalKeptEquippedOnLoad() {
     for (const auto &equipped : kept) {
         auto wearer = equippedOnLoadWearer(equipped);
         if (wearer && isRuntimeObjectLive(*equipped.item)) {
-            signalItemEquipped(*wearer, equipped.slot, equipped.item);
+            signalReadOnLoad(*wearer, equipped);
         }
     }
 }
@@ -6667,7 +7451,7 @@ void Game::clearPlayerHostileActions() {
     const ObjectList creatures = _module->area()->getObjectsByType(ObjectType::Creature);
     for (const auto &object : creatures) {
         auto &creature = static_cast<Creature &>(*object);
-        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestHostileReputation) {
+        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestEnemyReputation) {
             continue;
         }
         creature.clearAllActions(true);
@@ -6812,7 +7596,8 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
     auto &reputes = _services.game.reputes;
     std::vector<Candidate> candidates;
     for (const auto &object : area.objects()) {
-        if (object.get() == &leader) {
+        // Only what exists for the player can be listed.
+        if (object.get() == &leader || !object->isPresent()) {
             continue;
         }
         bool rangeHostile = false;
@@ -6887,12 +7672,19 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
     return cone;
 }
 
-// Direct movement out of combat mode lets go of the target after half a second.
+// Driving out of combat mode lets go of the target after half a second of
+// world time.
 void Game::releaseTargetOnMove(float frameTime) {
-    // A deferred autopause holds the target too.
-    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
-        _module->isPlayerMoving()) {
-        _targetMoveTime += frameTime;
+    // While the leader is down for the moment, the count stands as it is.
+    auto leader = _party.getLeader();
+    if (leader && leader->isTemporarilyDead()) {
+        return;
+    }
+    // A deferred autopause holds the target too. World time stands still while
+    // paused and in a time stop.
+    if (!_partyCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() &&
+        _module->player().driveSpeed() >= Player::kMovingDriveSpeed) {
+        _targetMoveTime += _paused || _timeStopped ? 0.0f : frameTime * _gameSpeed * _deathTimeScale;
         if (_targetMoveTime >= kTargetMoveSpeedTime) {
             _targetMoveTime = 0.0f;
             _lastTarget.reset();
@@ -7229,6 +8021,46 @@ std::shared_ptr<Object> Game::selectNearestObject(int direction) {
     return found;
 }
 
+// A pointer on no object picks the nearby object whose reticle point it is
+// closest to on screen. Its reach is a tenth of the screen's width and of its
+// height, taken together. Objects the leader does not see, and those outside
+// the camera's projected depth, are passed over.
+std::shared_ptr<Object> Game::nearestObjectToPointer(const Creature &leader, int x, int y) {
+    // Without a camera nothing is near the pointer.
+    const Camera *activeCamera = getActiveCamera();
+    if (!activeCamera) {
+        return nullptr;
+    }
+    const auto area = _module->area();
+    const auto camera = activeCamera->cameraSceneNode();
+    const glm::mat4 projection(camera->camera()->projection());
+    const glm::mat4 view(camera->camera()->view());
+    const GraphicsOptions &opts = _options.graphics;
+    const float reachX = opts.width / 10.0f;
+    const float reachY = opts.height / 10.0f;
+    const float reach2 = reachX * reachX + reachY * reachY;
+
+    std::shared_ptr<Object> found;
+    float nearest2 = std::numeric_limits<float>::max();
+    for (auto &entry : _nearestObjects) {
+        auto object = entry.object.resolve();
+        if (!object || !isNearestObjectSeen(entry, leader, *area)) {
+            continue;
+        }
+        const glm::vec3 coords(area->getSelectableScreenCoords(object, projection, view));
+        if (coords.z < 0.0f || coords.z > 1.0f) {
+            continue;
+        }
+        const glm::vec2 offset(opts.width * coords.x - x, opts.height * (1.0f - coords.y) - y);
+        const float distance2 = glm::dot(offset, offset);
+        if (distance2 <= reach2 && distance2 < nearest2) {
+            nearest2 = distance2;
+            found = std::move(object);
+        }
+    }
+    return found;
+}
+
 // Target presentation
 
 static constexpr float kTargetLookDistance = 10.0f;
@@ -7292,354 +8124,237 @@ void Game::updateHostileHilites(float dt) {
 
 // END Target presentation
 
+// A minigame outlives the menus and conversations that come up over it, so
+// closing one returns to the minigame rather than to the world behind it.
+Game::Screen Game::gameplayScreen() const {
+    if (_turret.isActive()) {
+        return Screen::Turret;
+    }
+    if (_swoopRace.isActive()) {
+        return Screen::SwoopRace;
+    }
+    return Screen::InGame;
+}
+
 void Game::openInGame() {
     _runtimeSessionPlayable = static_cast<bool>(_module);
-    changeScreen(Screen::InGame);
+    changeScreen(gameplayScreen());
 }
 
 namespace {
 
-// Result of trying to anchor the race to the authored player track.
-struct SwoopTrackFrame {
-    glm::vec3 position {0.0f};
-    float facing {0.0f};
-    std::string mode {"fallback"}; // "lyt-track", "track-model", or "fallback"
-    std::string reason;            // why fallback was used
-    std::string info;              // concise track inspection details
+// Runs the swoop race's scripts through the game's script runner and passes
+// everything else on to the view.
+class GameMinigameHost : public IMinigameHost {
+public:
+    GameMinigameHost(ScriptRunner &scriptRunner, IMinigameView &view) :
+        _scriptRunner(scriptRunner),
+        _view(view) {
+    }
+
+    void runScript(const std::string &resRef, uint32_t callerId) override {
+        _scriptRunner.run(resRef, callerId);
+    }
+
+    void playMinigameAnimation(const MinigameActor &actor, const std::string &name, bool looping, bool queue, bool overlay) override {
+        _view.playMinigameAnimation(actor, name, looping, queue, overlay);
+    }
+
+    void removeMinigameAnimation(const MinigameActor &actor, const std::string &name) override {
+        _view.removeMinigameAnimation(actor, name);
+    }
+
+    void playMinigameSound(const std::string &resRef, const glm::vec3 &position) override {
+        _view.playMinigameSound(resRef, position);
+    }
+
+    void onMinigameActorDied(const MinigameActor &actor) override {
+        _view.onMinigameActorDied(actor);
+    }
+
+    void onMinigameGunFired(const MinigameActor &actor, size_t bankIndex) override {
+        _view.onMinigameGunFired(actor, bankIndex);
+    }
+
+private:
+    ScriptRunner &_scriptRunner;
+    IMinigameView &_view;
 };
 
-// Max 2D distance (world units) the track's start hook may be from the party
-// leader to be trusted WITHOUT an LYT placement. With an LYT track placement the
-// hook is in module/world space, so this guard does not apply; without one a
-// standalone-loaded track model may sit in a different frame and would otherwise
-// teleport the bike into the void, so the proven leader anchor is kept.
-constexpr float kTrackFrameMaxDistance = 64.0f;
-
-// Non-blocking finish threshold (forward-progress units). The race finishes
-// a margin past the furthest mapped obstacle, or at a conservative fallback
-// distance when no obstacle placements exist.
-constexpr float kSwoopFinishMargin = 500.0f;
-constexpr float kSwoopFallbackFinishProgress = 4000.0f;
-
-// Derive the bike start frame from the player track model's modelhook node.
-// With LYT placement, transform the hook into world space. Without placement,
-// use the hook only when it resolves near the party leader; otherwise use the leader frame.
-SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &trackModel,
-                                      const std::string &trackResRef,
-                                      const std::optional<glm::vec3> &lytTrackPos,
-                                      const glm::vec3 &leaderPos,
-                                      float leaderFacing) {
-    SwoopTrackFrame frame;
-    frame.position = leaderPos;
-    frame.facing = leaderFacing;
-
-    if (trackResRef.empty()) {
-        frame.reason = "no-track-ref";
-        return frame;
+// World-space box of an obstacle model's "hitbump" node placed at \p position.
+bool obstacleHitbump(const graphics::Model &model, const glm::vec3 &position, glm::vec3 &outMin, glm::vec3 &outMax) {
+    auto node = model.getNodeByNameRecursive("hitbump");
+    if (!node || !node->mesh() || !node->mesh()->mesh) {
+        return false;
     }
-    if (!trackModel) {
-        frame.reason = "track-model-missing";
-        return frame;
+    const auto &aabb = node->mesh()->mesh->aabb();
+    glm::vec3 lo(std::numeric_limits<float>::max());
+    glm::vec3 hi(-std::numeric_limits<float>::max());
+    glm::mat4 transform = glm::translate(position) * node->absoluteTransform();
+    for (int corner = 0; corner < 8; ++corner) {
+        glm::vec3 local((corner & 1) ? aabb.max().x : aabb.min().x,
+                        (corner & 2) ? aabb.max().y : aabb.min().y,
+                        (corner & 4) ? aabb.max().z : aabb.min().z);
+        glm::vec3 world(transform * glm::vec4(local, 1.0f));
+        lo = glm::min(lo, world);
+        hi = glm::max(hi, world);
     }
-
-    size_t animCount = trackModel->getAnimationNames().size();
-    auto hook = trackModel->getNodeByNameRecursive("modelhook");
-    if (!hook) {
-        frame.reason = "no-modelhook";
-        frame.info = str(boost::format("modelhook=no placement=%s anims=%zu")
-                         % (lytTrackPos ? "yes" : "no") % animCount);
-        return frame;
-    }
-
-    const glm::mat4 &abs = hook->absoluteTransform();
-    glm::vec3 hookLocal {abs[3]};
-    // Facing convention: forward = (-sin f, cos f). The LYT track placement
-    // carries no rotation, so the hook's model-space orientation is also its
-    // world orientation.
-    glm::vec3 forward {glm::normalize(glm::vec3 {glm::mat3 {abs} * glm::vec3 {0.0f, 1.0f, 0.0f}})};
-    float facing = glm::atan(-forward.x, forward.y);
-
-    if (lytTrackPos) {
-        // Combine the LYT placement (translation only) with the modelhook's
-        // model-local transform to get the hook in module/world space.
-        glm::vec3 start {*lytTrackPos + hookLocal};
-        frame.position = start;
-        frame.facing = facing;
-        frame.mode = "lyt-track";
-        frame.info = str(boost::format("modelhook=yes placement=yes anims=%zu lyt=[%.1f,%.1f,%.1f] hook=[%.1f,%.1f,%.1f] start=[%.1f,%.1f,%.1f]")
-                         % animCount
-                         % lytTrackPos->x % lytTrackPos->y % lytTrackPos->z
-                         % hookLocal.x % hookLocal.y % hookLocal.z
-                         % start.x % start.y % start.z);
-        return frame;
-    }
-
-    float dist = glm::distance(glm::vec2 {hookLocal}, glm::vec2 {leaderPos});
-    frame.info = str(boost::format("modelhook=yes placement=no anims=%zu hook=[%.1f,%.1f,%.1f] dist=%.1f")
-                     % animCount % hookLocal.x % hookLocal.y % hookLocal.z % dist);
-
-    if (dist > kTrackFrameMaxDistance) {
-        // No LYT placement and the hook is not in the party's world frame.
-        frame.reason = "no-lyt-track-placement";
-        return frame;
-    }
-
-    frame.position = hookLocal;
-    frame.facing = facing;
-    frame.mode = "track-model";
-    return frame;
-}
-
-// The bike's models: every Player.Models entry except the camera mount
-// (player.cameraResRef), the first as the root and the rest attached to it. The
-// visible bike may appear after the first entry.
-struct SwoopBikeModels {
-    std::shared_ptr<ModelSceneNode> root;
-    std::vector<std::shared_ptr<ModelSceneNode>> children;
-    /** A load line per entry, for the developer log. */
-    std::vector<std::string> diagnostics;
-    bool anyMissing {false};
-};
-
-SwoopBikeModels loadSwoopBikeModels(const MinigameSpec &mg, ServicesView &services, float drawDistance) {
-    auto &sceneGraph = services.scene.graphs.get(kSceneMain);
-    SwoopBikeModels bike;
-    for (const auto &modelSpec : mg.player.models) {
-        const auto &resRef = modelSpec.resRef;
-        if (resRef.empty()) {
-            continue;
-        }
-        if (!mg.player.cameraResRef.empty() && boost::iequals(resRef, mg.player.cameraResRef)) {
-            bike.diagnostics.push_back(resRef + " camera-skip");
-            continue;
-        }
-        auto model = services.resource.models.get(resRef);
-        if (!model) {
-            bike.diagnostics.push_back(resRef + " missing");
-            bike.anyMissing = true;
-            continue;
-        }
-        auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
-        node->setDrawDistance(drawDistance);
-        if (!bike.root) {
-            bike.root = std::move(node);
-        } else {
-            bike.root->addChild(*node);
-            bike.children.push_back(std::move(node));
-        }
-        bike.diagnostics.push_back(resRef + " loaded");
-    }
-    return bike;
-}
-
-// Choose a non-blocking finish threshold. Loop/finish handling is
-// script-driven and not yet implemented, so use the furthest mapped LYT
-// obstacle (the obstacle field spans the playable track) plus a margin, or
-// a conservative fallback distance when no obstacle placements are present.
-float swoopFinishProgress(const SwoopTrackFrame &trackFrame, const std::shared_ptr<resource::Layout> &layout) {
-    glm::vec3 frameForward {-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f};
-    float maxObstacleProgress = 0.0f;
-    if (layout) {
-        for (const auto &obs : layout->obstacles) {
-            float progress = glm::dot(obs.position - trackFrame.position, frameForward);
-            maxObstacleProgress = glm::max(maxObstacleProgress, progress);
-        }
-    }
-    return maxObstacleProgress > 0.0f ? maxObstacleProgress + kSwoopFinishMargin : kSwoopFallbackFinishProgress;
-}
-
-// Map authored LYT obstacle placements into the current track frame
-// (progress = down-course distance, lateral = strafe offset). Diagnostic
-// only: no damage/collision is applied in this slice. The "match" count is
-// how many .are MiniGame obstacles have a same-name LYT placement.
-void logSwoopObstacles(const MinigameSpec &mg, const SwoopTrackFrame &trackFrame, const resource::Layout &layout) {
-    glm::vec3 fwd {-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f};
-    glm::vec3 right {glm::cos(trackFrame.facing), glm::sin(trackFrame.facing), 0.0f};
-    size_t areMatched = 0;
-    for (const auto &obs : mg.obstacles) {
-        if (layout.findObstacleByName(obs.name)) {
-            ++areMatched;
-        }
-    }
-    debug(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu") % layout.obstacles.size() % mg.obstacles.size() % areMatched));
-    constexpr size_t kMaxObstacleDiag = 6;
-    for (size_t i = 0; i < layout.obstacles.size() && i < kMaxObstacleDiag; ++i) {
-        const auto &obs = layout.obstacles[i];
-        glm::vec3 d {obs.position - trackFrame.position};
-        float progress = glm::dot(d, fwd);
-        float lateral = glm::dot(d, right);
-        debug(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle") % i % obs.name % obs.position.x % obs.position.y % obs.position.z % progress % lateral));
-    }
-}
-
-void logSwoopModelDiagnostics(const std::vector<std::string> &diagnostics) {
-    for (size_t i = 0; i < diagnostics.size(); ++i) {
-        debug(str(boost::format("  model[%zu]=%s") % i % diagnostics[i]));
-    }
+    outMin = lo;
+    outMax = hi;
+    return true;
 }
 
 } // namespace
 
-void Game::openSwoopRace() {
-    if (_swoopRace.isActive()) {
-        _console.printLine("swoop: already running");
-        return;
-    }
-    // The console command may be given outside a module.
-    if (!_module) {
-        _console.printLine("swoop: no module loaded");
-        return;
+bool Game::startSwoopRace() {
+    if (_minigameSession || !_module || !_module->area()) {
+        return false;
     }
     auto area = _module->area();
     if (!area->hasMinigame() || area->miniGame().type != MinigameType::SwoopRace) {
-        _console.printLine("swoop: current area has no swoop minigame");
-        return;
+        return false;
     }
-    auto leader = _party.getLeader();
-    if (!leader) {
-        _console.printLine("swoop: no party leader to anchor the race");
-        return;
-    }
+    const MinigameSpec &spec = area->miniGame();
 
-    const auto &mg = area->miniGame();
-    auto camera = area->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
-    camera->stopMovement();
+    auto host = std::make_unique<GameMinigameHost>(*_scriptRunner, _swoopRace);
+    auto session = std::make_unique<MinigameSession>(*host);
+    session->setTSL(isTSL());
 
-    auto bike = loadSwoopBikeModels(mg, _services, _options.graphics.drawDistance);
-    if (!bike.root) {
-        _console.printLine("swoop: no visible bike models loaded");
-        logSwoopModelDiagnostics(bike.diagnostics);
-        return;
-    }
-    const size_t loadedCount = 1 + bike.children.size();
-    _services.scene.graphs.get(kSceneMain).addRoot(bike.root);
-
-    // Anchor the race to the authored player track. Prefer the LYT track
-    // placement (module/world space); otherwise fall back as before.
-    std::shared_ptr<graphics::Model> trackModel;
-    if (!mg.player.trackResRef.empty()) {
-        trackModel = _services.resource.models.get(mg.player.trackResRef);
-    }
+    // Tracks and obstacles are placed by the area layout.
     auto layout = _services.resource.layouts.get(area->name());
-    std::optional<glm::vec3> lytTrackPos;
-    if (layout && !mg.player.trackResRef.empty()) {
-        if (auto placement = layout->findTrackByName(mg.player.trackResRef)) {
-            lytTrackPos = placement->get().position;
+    auto trackFor = [&](const std::string &resRef) {
+        glm::vec3 placement(0.0f);
+        if (layout) {
+            if (auto track = layout->findTrackByName(resRef)) {
+                placement = track->get().position;
+            }
         }
+        auto model = resRef.empty() ? nullptr : _services.resource.models.get(resRef);
+        std::optional<MinigameTrack> track;
+        if (model) {
+            track = buildMinigameTrack(*model, placement);
+        }
+        return track ? std::move(*track) : MinigameTrack::fixed(placement);
+    };
+    MinigameTrack playerTrack = trackFor(spec.player.trackResRef);
+    std::vector<MinigameTrack> enemyTracks;
+    for (const auto &enemy : spec.enemies) {
+        enemyTracks.push_back(trackFor(enemy.trackResRef));
     }
-    SwoopTrackFrame trackFrame = deriveSwoopTrackFrame(
-        trackModel, mg.player.trackResRef, lytTrackPos, leader->position(), leader->getFacing());
-    const float finishProgress = swoopFinishProgress(trackFrame, layout);
+    std::vector<MinigameSession::ObstaclePlacement> obstacles;
+    std::vector<glm::vec3> obstaclePositions;
+    for (const auto &obstacleSpec : spec.obstacles) {
+        MinigameSession::ObstaclePlacement placement;
+        placement.name = obstacleSpec.name;
+        if (layout) {
+            if (auto obstacle = layout->findObstacleByName(obstacleSpec.name)) {
+                placement.position = obstacle->get().position;
+            }
+        }
+        if (auto model = _services.resource.models.get(obstacleSpec.name)) {
+            placement.hasHitbump = obstacleHitbump(*model, placement.position, placement.hitbumpMin, placement.hitbumpMax);
+        }
+        obstaclePositions.push_back(placement.position);
+        obstacles.push_back(std::move(placement));
+    }
+    session->load(spec, std::move(playerTrack), std::move(enemyTracks), std::move(obstacles));
 
-    // Ride the track model's "track" animation wherever the start frame came
-    // from the track model itself. The leader-anchored fallback keeps the
-    // straight line.
-    std::optional<MinigameTrack> track;
-    if (trackModel && trackFrame.mode != "fallback") {
-        track = buildMinigameTrack(*trackModel, lytTrackPos.value_or(glm::vec3(0.0f)));
+    // Every actor is a registered object: the scripts see it as OBJECT_SELF
+    // and DelayCommand queues on it.
+    std::vector<std::shared_ptr<Object>> objects;
+    for (size_t i = 0; i < session->actors().size(); ++i) {
+        auto object = newObject<MinigameObject>(kSceneMain, *this, _services);
+        object->setTag(session->actors()[i].name);
+        session->setObjectId(i, object->id());
+        objects.push_back(std::move(object));
     }
+
+    auto camera = area->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    if (camera) {
+        camera->stopMovement();
+    }
+    _minigameInput = MinigameInput();
+    if (!_swoopRace.start(*session, spec, obstaclePositions, camera)) {
+        for (auto &object : objects) {
+            unregisterRuntimeObject(object);
+        }
+        error("swoop: the race view failed to start");
+        return false;
+    }
+
+    _minigameHost = std::move(host);
+    _minigameSession = std::move(session);
+    _minigameObjects = std::move(objects);
 
     _savedCameraType = _cameraType;
-    _swoopRace.start(mg, camera, std::move(bike.root), std::move(bike.children), trackFrame.position, trackFrame.facing, finishProgress, std::move(track));
-
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
     changeScreen(Screen::SwoopRace);
 
-    // The minigame is taking ownership of the party now, so discard any actions
-    // the party queued before the race. In particular the swoop entry dialogue
-    // queues a pre-race walk-off (e.g. a MoveToObject to a "flee" waypoint) on
-    // the player; left in place it survives the module transitions and, on
-    // return, sits in front of the post-race actions the result scripts queue,
-    // blocking them. This is scoped to swoop/minigame entry: ordinary module
-    // loads never reach openSwoopRace, so other scripted transitions (e.g. the
-    // Endar Spire Trask/Bandon cutscene) keep their queued party actions.
+    // The race owns the party now: drop what it had queued, and hide it. The
+    // swoop entry dialogue queues a walk-off on the player; left in place it
+    // would sit in front of the actions the post-race scripts queue.
     for (auto &member : _party.members()) {
         if (member.creature) {
             member.creature->teardownActions();
         }
     }
-
-    // Hide normal party models while the minigame actor represents the player. Restore them
-    // on exit or when the return module spawns them.
     setPartyVisible(false);
-
-    debug(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
-              % minigameTypeName(mg.type)
-              % mg.player.trackResRef
-              % mg.player.models.size()
-              % loadedCount
-              % mg.movementPerSec
-              % mg.lateralAccel
-              % mg.cameraViewAngle));
-
-    // Track frame: lyt-track/track-model/fallback mode and how the start frame
-    // was chosen (see deriveSwoopTrackFrame).
-    std::string trackLabel {mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef};
-    if (trackFrame.mode == "fallback") {
-        debug(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
-                  % trackLabel
-                  % trackFrame.reason
-                  % (trackFrame.info.empty() ? std::string() : (" " + trackFrame.info))));
-    } else {
-        debug(str(boost::format("swoop: track=%s mode=%s %s startFacing=%.2f")
-                  % trackLabel
-                  % trackFrame.mode
-                  % trackFrame.info
-                  % trackFrame.facing));
+    if (!spec.music.empty()) {
+        playMusic(spec.music);
     }
 
-    // Movement model: the sampled track animation, or the straight line from
-    // the start frame; lateral strafe either way (no turning).
-    if (_swoopRace.followsTrack()) {
-        glm::vec3 hook(_swoopRace.trackHook()[3]);
-        debug(str(boost::format("swoop: movement=track-animation strafeOnly=yes lateralAxis=hookX length=%.2f loops=%d hook=[%.1f,%.1f,%.1f] finish=%.1f")
-                  % _swoopRace.trackLength()
-                  % mg.player.numLoops
-                  % hook.x % hook.y % hook.z
-                  % finishProgress));
-    } else {
-        debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=none start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
-                  % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
-                  % trackFrame.facing
-                  % finishProgress));
-    }
+    debug(str(boost::format("swoop: started module=%s actors=%zu enemies=%d obstacles=%d models=%zu")
+              % _module->name() % _minigameSession->actors().size()
+              % _minigameSession->enemyCount() % _minigameSession->obstacleCount() % _swoopRace.modelCount()));
 
-    // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
-    debug(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
-              % _swoopRace.lateralLeftBound()
-              % _swoopRace.lateralRightBound()
-              % _swoopRace.lateralBoundSource()
-              % mg.player.tunnelXNeg
-              % mg.player.tunnelXPos));
-
-    if (layout) {
-        logSwoopObstacles(mg, trackFrame, *layout);
-    }
-
-    // Print the per-model breakdown when a load failed; it is a one-shot dev
-    // diagnostic, so avoid spam on the common success path.
-    if (bike.anyMissing) {
-        logSwoopModelDiagnostics(bike.diagnostics);
-    }
+    // The creation scripts last: they may already use the view.
+    _minigameSession->start();
+    return true;
 }
 
-void Game::closeSwoopRace() {
-    if (!_swoopRace.isActive()) {
-        debug("swoop: closeSwoopRace called but race not active");
+void Game::endSwoopRace() {
+    if (!_minigameSession) {
         return;
     }
-    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    auto bikeRoot = _swoopRace.bikeRoot();
-    if (bikeRoot) {
-        sceneGraph.removeRoot(*bikeRoot);
-    }
+    debug(str(boost::format("swoop: ended updates=%llu scripts=%zu")
+              % static_cast<unsigned long long>(_minigameSession->tickCount()) % _minigameSession->scriptsRun()));
     _swoopRace.stop();
-    setPartyVisible(true);
+    for (auto &object : _minigameObjects) {
+        unregisterRuntimeObject(object);
+    }
+    _minigameObjects.clear();
+    _minigameSession.reset();
+    _minigameHost.reset();
+    _minigameInput = MinigameInput();
+    if (_motionBlurPrograms == 0) {
+        setSpeedBlur(false);
+    }
     _cameraType = _savedCameraType;
     setRelativeMouseMode(_cameraType == CameraType::FirstPerson);
-    openInGame();
-    debug("swoop: stopped (race ended, party restored, camera reset)");
+    setPartyVisible(true);
+}
+
+void Game::tickSwoopRace(float dt) {
+    if (!_minigameSession) {
+        return;
+    }
+    auto session = _minigameSession.get();
+    session->update(dt, _minigameInput);
+    // A script may have ended the race.
+    if (_minigameSession.get() != session) {
+        return;
+    }
+    // The minigame objects' own action queues: the delayed commands the slot
+    // scripts schedule run here.
+    auto objects = _minigameObjects;
+    for (auto &object : objects) {
+        object->update(dt);
+        if (_minigameSession.get() != session) {
+            return;
+        }
+    }
+    _swoopRace.update(dt);
 }
 
 void Game::setPartyVisible(bool visible) {
@@ -7648,125 +8363,6 @@ void Game::setPartyVisible(bool visible) {
             member.creature->setVisible(visible);
         }
     }
-}
-
-void Game::exitSwoopRace() {
-    // Escape / stopswoop entry point. If a lifecycle race is in progress, return
-    // to the origin module; otherwise just stop the dev race in place.
-    if (_swoopLifecycle.active) {
-        finishSwoopLifecycle(/*success=*/true);
-    } else {
-        closeSwoopRace();
-    }
-}
-
-void Game::finishSwoopLifecycle(bool success) {
-    if (!_swoopLifecycle.active) {
-        return;
-    }
-    // Capture and clear the session first so the upcoming module load does not
-    // re-enter this path. The current module (before returning) is the race
-    // module, which selects the planet-specific result contract.
-    MinigameLifecycle session = _swoopLifecycle;
-    _swoopLifecycle = MinigameLifecycle();
-    std::string raceModule = _module ? _module->name() : "";
-
-    // Stop the race (removes bike models, restores camera/FOV/input, screen).
-    closeSwoopRace();
-
-    // Return to the originating module using its race-end waypoint when known.
-    // Otherwise restore the saved pre-race position.
-    const auto returnWaypoint = swoopReturnWaypoint(raceModule);
-    if (!returnWaypoint.empty()) {
-        debug(str(boost::format("swoop: return waypoint=%s") % returnWaypoint));
-        loadModule(session.originModule, returnWaypoint);
-    } else {
-        loadModule(session.originModule);
-        if (session.haveOrigin) {
-            if (auto mod = _module) {
-                if (auto area = mod->area()) {
-                    if (auto leader = _party.getLeader()) {
-                        leader->setPosition(session.originPosition);
-                        leader->setFacing(session.originFacing);
-                        area->determineObjectRoom(*leader);
-                        area->onPartyLeaderMoved(/*roomChanged=*/true);
-                    }
-                }
-            }
-        }
-    }
-
-    if (success) {
-        applySwoopForcedSuccessResult(raceModule);
-    }
-
-    debug(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
-              % (success ? "yes" : "no")
-              % session.originModule));
-}
-
-std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
-    // Return Taris races to the mechanic waypoint inside the post-race trigger.
-    // Other planets use the saved pre-race position until their return routes are wired.
-    if (boost::iequals(raceModule, "tar_m03mg")) {
-        return "tar03_wpmechanic";
-    }
-    return "";
-}
-
-void Game::applyTarisForcedWinningTime() {
-    // Read the current heat's time-to-beat in MIN*10000 + SEC*100 + MSEC units.
-    // The winning time must remain above 25 because the next target is the player
-    // time minus 25. A zero player time would make the next target negative.
-    int beatMin  = getGlobalNumber("TAR_SWOOP_MIN_BEAT");
-    int beatSec  = getGlobalNumber("TAR_SWOOP_SEC_BEAT");
-    int beatMsec = getGlobalNumber("TAR_SWOOP_MSEC_BEAT");
-    int beatTotal = beatMin * 10000 + beatSec * 100 + beatMsec;
-
-    // Choose a winning time while keeping the next target positive. Use a 50-unit
-    // margin when there is room, a one-unit margin for low targets, and the first
-    // heat's default winning time for degenerate targets.
-    static constexpr int kMargin = 50;
-    static constexpr int kMinSafe = 26;                     // next beat = playerTotal - 25 > 0
-    static constexpr int kMinSafePlayerTime = 100;          // floor for the comfortable-margin branch
-    static constexpr int kNormalThreshold = kMinSafePlayerTime + kMargin; // 150
-    static constexpr int kFallback = 3793;                  // k_ptar_racefirst heat-1 beat (3843) - 50
-
-    int playerTotal;
-    if (beatTotal > kNormalThreshold) {
-        playerTotal = beatTotal - kMargin;
-    } else if (beatTotal > 25) {
-        playerTotal = std::max(beatTotal - 1, kMinSafe);
-    } else {
-        playerTotal = kFallback;
-    }
-
-    int playerMin  = playerTotal / 10000;
-    int playerSec  = (playerTotal % 10000) / 100;
-    int playerMsec = playerTotal % 100;
-    setGlobalNumber("TAR_SWOOP_MIN",  playerMin);
-    setGlobalNumber("TAR_SWOOP_SEC",  playerSec);
-    setGlobalNumber("TAR_SWOOP_MSEC", playerMsec);
-
-    _console.printLine(str(boost::format(
-        "swoop: result forcedSuccess=yes planet=taris TAR_SWOOP_RUN=1"
-        " beat=%d:%d.%d time=%d:%d.%d margin=%d") %
-        beatMin % beatSec % beatMsec %
-        playerMin % playerSec % playerMsec %
-        (beatTotal - playerTotal)));
-}
-
-void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
-    // Set the race-state globals consumed by the post-race trigger. The trigger
-    // checks TAR_SWOOP_RUN, compares the recorded time against TAR_SWOOP_*_BEAT,
-    // updates the result and race counter, and starts the post-race conversation.
-    // Leave those result and scene updates to the trigger; only record a winning
-    // time and mark the run complete here. Other planets are not yet wired.
-    if (!boost::iequals(raceModule, "tar_m03mg")) {
-        return;
-    }
-    setGlobalBoolean("TAR_SWOOP_RUN", true);
-    applyTarisForcedWinningTime();
 }
 
 void Game::openTurret() {
@@ -7797,16 +8393,12 @@ void Game::openTurret() {
     }
 
     _cameraType = CameraType::FirstPerson;
-    setRelativeMouseMode(true);
     changeScreen(Screen::Turret);
 
-    // Every started session is a lifecycle session, so a win or a loss is
-    // consumed the same way however the turret was entered. A session started
-    // in place - the startturret developer command, or any entry that did not
-    // come from a module transition - captures no origin; finishing one falls
-    // through to the authored return module when the turret area names one and
-    // otherwise leaves the player where they are. A transition-driven entry
-    // overwrites this in onModuleLoaded with the origin it captured.
+    // Every started session is a lifecycle session. A session started in
+    // place - the startturret developer command - captures no origin, and
+    // leaving it leaves the player where they are. A session started on
+    // arrival overwrites this with the origin the transition captured.
     _turretLifecycle = MinigameLifecycle();
     _turretLifecycle.active = true;
 
@@ -7822,47 +8414,51 @@ void Game::openTurret() {
     // visibility on exit.
     setPartyVisible(false);
 
-    debug(str(boost::format("turret: started track=%s anchor=%s models=%zu banks=%zu enemies=%zu hp=%d camfov=%.0f clip=[%.2f,%.0f]")
+    auto player = _turret.player();
+    debug(str(boost::format("turret: started track=%s anchor=%s models=%zu banks=%zu enemies=%zu obstacles=%zu hp=%d camfov=%.0f clip=[%.2f,%.0f]")
               % mg.player.trackResRef
               % _turret.anchorSource()
               % mg.player.models.size()
-              % _turret.gunBankCount()
-              % _turret.enemyCount()
-              % _turret.hitPoints()
+              % (player ? player->gunBanks.size() : 0)
+              % _turret.listedEnemies().size()
+              % _turret.listedObstacles().size()
+              % (player ? player->hitPoints : 0)
               % mg.cameraViewAngle
-              % mg.nearClip
-              % mg.farClip));
-    debug(str(boost::format("turret: hud gauge=%s radar=%s healthState=%d(%s) heading=%d contacts=%zu radarChannels=%zu alarm=%d")
-              % (_turret.haveHealthHud() ? "mgf_hud02" : "<missing>")
-              % (_turret.haveRadarHud() ? "mgf_hud01" : "<missing>")
-              % _turret.healthState()
-              % turretHealthAnimation(_turret.healthState())
-              % _turret.headingState()
-              % _turret.contactsLive()
-              % _turret.radarChannelCount()
-              % static_cast<int>(_turret.alarmActive())));
-    debug(str(boost::format("turret: camera mount=%s hook=%s eyeOffset=[%.3f,%.3f,%.3f] targetOffset=[%.1f,%.1f,%.1f] rotate=%d")
+              % _turret.nearClip()
+              % _turret.farClip()));
+    debug(str(boost::format("turret: camera mount=%s hook=%s eyeOffset=[%.3f,%.3f,%.3f] rotate=%d")
               % (mg.player.cameraResRef.empty() ? "<none>" : mg.player.cameraResRef)
               % (_turret.haveCameraHook() ? "camerahook" : "<missing>")
               % _turret.cameraHookOffset().x
               % _turret.cameraHookOffset().y
               % _turret.cameraHookOffset().z
-              % mg.player.targetOffset.x
-              % mg.player.targetOffset.y
-              % mg.player.targetOffset.z
               % static_cast<int>(mg.player.cameraRotate)));
-    debug(str(boost::format("turret: aim pitch=[%.1f,%.1f]%s yaw=[%.1f,%.1f]%s authoredStart=[%.1f,%.1f,%.1f] startPitch=%.1f startYaw=%.1f")
-              % glm::degrees(_turret.aim().minPitch())
-              % glm::degrees(_turret.aim().maxPitch())
-              % (_turret.aim().pitchBounded() ? "" : " (infinite)")
-              % glm::degrees(_turret.aim().minYaw())
-              % glm::degrees(_turret.aim().maxYaw())
-              % (_turret.aim().yawBounded() ? "" : " (infinite)")
-              % mg.player.startOffset.x
-              % mg.player.startOffset.y
-              % mg.player.startOffset.z
-              % glm::degrees(_turret.aim().startPitch())
-              % glm::degrees(_turret.aim().startYaw())));
+    const auto &aim = _turret.aim();
+    debug(str(boost::format("turret: aim offset=[%.1f,%.1f,%.1f] origin=[%.1f,%.1f,%.1f] tunnel=[%.1f,%.1f,%.1f]..[%.1f,%.1f,%.1f] infinite=[%.0f,%.0f,%.0f]")
+              % aim.offset().x % aim.offset().y % aim.offset().z
+              % aim.origin().x % aim.origin().y % aim.origin().z
+              % aim.tunnelNegative().x % aim.tunnelNegative().y % aim.tunnelNegative().z
+              % aim.tunnelPositive().x % aim.tunnelPositive().y % aim.tunnelPositive().z
+              % aim.tunnelInfinite().x % aim.tunnelInfinite().y % aim.tunnelInfinite().z));
+}
+
+void Game::startScheduledTurret() {
+    if (!_pendingTurret.active) {
+        return;
+    }
+    PendingTurretRequest request = _pendingTurret;
+    openTurret();
+    if (!_turret.isActive()) {
+        abandonPendingTurret("turret failed to start");
+        return;
+    }
+    _pendingTurret = PendingTurretRequest();
+    _turretLifecycle.haveOrigin = request.haveOrigin;
+    _turretLifecycle.originModule = request.originModule;
+    _turretLifecycle.originPosition = request.originPosition;
+    _turretLifecycle.originFacing = request.originFacing;
+    debug(str(boost::format("turret: lifecycle start origin=%s target=%s")
+              % request.originModule % request.targetModule));
 }
 
 void Game::closeTurret() {
@@ -7882,9 +8478,7 @@ void Game::exitTurret() {
     // Escape / stopturret entry point. If a lifecycle session is in progress,
     // return to the origin module; otherwise just stop the dev session in place.
     if (_turretLifecycle.active) {
-        // A session abandoned mid-run is still InProgress; it returns to the
-        // origin but is neither a win nor a loss.
-        finishTurretLifecycle(_turret.outcome());
+        finishTurretLifecycle();
     } else if (_pendingTurret.active) {
         // Scheduled but never started: drop the request rather than leaving it
         // to fire on a later transition into the same module.
@@ -7901,6 +8495,7 @@ void Game::returnToLifecycleOrigin(const std::string &module,
     if (module.empty()) {
         return;
     }
+    releaseInputOnModuleEntry();
     loadModule(module);
     if (!haveOrigin) {
         return;
@@ -7933,64 +8528,44 @@ void Game::abandonPendingTurret(const std::string &reason) {
                             request.originFacing);
 }
 
-void Game::finishTurretLifecycle(Turret::Outcome outcome) {
+void Game::finishTurretLifecycle() {
     // Repeated calls are no-ops: the session is cleared below before anything
-    // else runs, so neither the return nor the completion state can be emitted
-    // twice for one session.
+    // else runs, so the return cannot be scheduled twice for one session.
     if (!_turretLifecycle.active) {
         return;
     }
     // Capture and clear the session first so the upcoming module load does not
-    // re-enter this path. The current module (before returning) is the turret
-    // module, which selects the return contract.
+    // re-enter this path.
     MinigameLifecycle session = _turretLifecycle;
     _turretLifecycle = MinigameLifecycle();
-    std::string turretModule = _module ? _module->name() : "";
 
     closeTurret();
 
-    // Use the turret end-script destination when known; otherwise return
-    // to the module where the session started.
-    std::string returnModule = game::turretReturnModule(turretModule, session.originModule);
-    if (returnModule.empty()) {
-        // Nothing authored and nothing captured: stay put rather than schedule
-        // a transition to an empty module name.
-        debug("turret: no return module, staying put");
-        applyTurretResult(turretModule, outcome);
+    // Without a captured origin there is nowhere to go back to.
+    if (session.originModule.empty()) {
+        debug("turret: no origin module, staying put");
         return;
     }
-    bool returningToOrigin = boost::iequals(returnModule, session.originModule);
-    returnToLifecycleOrigin(returnModule,
-                            returningToOrigin && session.haveOrigin,
+    returnToLifecycleOrigin(session.originModule,
+                            session.haveOrigin,
                             session.originPosition,
                             session.originFacing);
-
-    applyTurretResult(turretModule, outcome);
-
-    debug(str(boost::format("turret: finished outcome=%s returning=%s")
-              % turretOutcomeName(outcome)
-              % returnModule));
+    debug(str(boost::format("turret: finished returning=%s") % session.originModule));
 }
 
-void Game::applyTurretResult(const std::string &turretModule, Turret::Outcome outcome) {
-    // A victory in M12ab clears the remaining-fighters count and marks the turret
-    // sequence complete. Defeat or abandonment leaves the sequence outstanding.
-    if (!boost::iequals(turretModule, "m12ab")) {
-        return;
-    }
-    if (!turretSessionSucceeded(outcome)) {
-        _console.printLine(str(boost::format(
-            "turret: result module=m12ab outcome=%s (no completion state written)")
-            % turretOutcomeName(outcome)));
-        return;
-    }
-    setGlobalNumber("ebo_num_fighters", 0);
-    setGlobalBoolean("ebo_turret_done", true);
-    _console.printLine(
-        "turret: result module=m12ab outcome=won ebo_turret_done=1 ebo_num_fighters=0");
-}
+/**
+ * The script the in-game menu runs as it opens. It decides what the map's
+ * return button offers: whether it is shown, its label and its question.
+ */
+static constexpr char kInGameMenuOpenScript[] = "k_sup_guiopen";
 
 void Game::openInGameMenu(InGameMenuTab tab) {
+    // The menu runs its opening script with no caller when it opens over the
+    // game, not when it moves between pages, and before any page reads what
+    // the script sets.
+    if (_screen != Screen::InGameMenu) {
+        _scriptRunner->run(kInGameMenuOpenScript);
+    }
     setCursorType(CursorType::Default);
     // The menus end the choice of a party member to use an item on.
     cancelPartyItemTarget();
@@ -8041,6 +8616,29 @@ void Game::openContainer(const std::shared_ptr<Object> &container) {
 void Game::closeContainer(const Object &container) {
     if (_screen == Screen::Container && _container->displays(container)) {
         _container->closeTakingAll();
+    }
+}
+
+void Game::openStore(const std::shared_ptr<Store> &store) {
+    if (!_module || _screen == Screen::InGameMenu || _dialogUnderWay || !_storeGUI) {
+        return;
+    }
+    stopMovement();
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    _storeGUI->open(store);
+    if (_screen != Screen::Store) {
+        _storeUnderneath = _screen;
+    }
+    changeScreen(Screen::Store);
+    _services.game.guiSounds.play(_services.game.guiSounds.getPanelAdded());
+}
+
+void Game::closeStore() {
+    if (_storeUnderneath == Screen::InGame) {
+        openInGame();
+    } else {
+        changeScreen(_storeUnderneath);
     }
 }
 
@@ -8130,6 +8728,10 @@ bool Game::reconcilePartySelection(
         }
     }
 
+    // The creature under control when the selection is accepted perceives
+    // each companion the selection brings in: in KotOR the player character,
+    // who took the lead when the selection opened.
+    const auto viewer = _party.getLeader();
     const auto currentMembers = _party.members();
     bool leadHandedBack = false;
     for (const auto &member : currentMembers) {
@@ -8178,6 +8780,7 @@ bool Game::reconcilePartySelection(
         }
         // A companion joining takes up the alignment its influence gives.
         member->recomputeInfluenceAlignment();
+        viewer->perceiveAtOnce(member);
     }
 
     area->repositionParty();
@@ -8217,7 +8820,7 @@ void Game::openSaveLoad(SaveLoadMode mode) {
     changeScreen(Screen::SaveLoad);
 }
 
-bool Game::canOpenGalaxyMapFrom(Screen screen) {
+bool Game::canPanelTakeScreenFrom(Screen screen) {
     switch (screen) {
     case Screen::None:
     case Screen::InGame:
@@ -8246,28 +8849,66 @@ void Game::returnToBase() {
 }
 
 void Game::openGalaxyMap(int initialPlanet) {
-    if (!canOpenGalaxyMapFrom(_screen)) {
-        return;
-    }
-    if (_galaxyMap && _galaxyMap->isRunningTravelScript()) {
+    if (isTravelScriptRunning()) {
         // The travel script this panel dispatched must not reopen it.
         return;
     }
-    if (!_galaxyMap) {
-        _galaxyMap = tryLoadGUI<GalaxyMap>();
-    }
-    if (!_galaxyMap) {
-        // A panel that will not load must not take the screen away from
-        // whatever is on it.
+    if (!canPanelTakeScreenFrom(_screen)) {
         return;
     }
-    stopMovement();
-    setRelativeMouseMode(false);
-    setCursorType(CursorType::Default);
-    // The panel decides what the routine's planet means: K2 has to record
-    // where the party already is before anything can move the selection.
-    _galaxyMap->prepare(initialPlanet);
-    changeScreen(Screen::GalaxyMap);
+    openPanelScreen(_galaxyMap, Screen::GalaxyMap, [initialPlanet](GalaxyMap &map) {
+        // The panel decides what the routine's planet means: K2 has to record
+        // where the party already is before anything can move the selection.
+        map.prepare(initialPlanet);
+    });
+}
+
+// A workbench is also opened from a conversation, which waits under it.
+void Game::openUpgradeScreen(UpgradeScreenRequest request) {
+    // Each opening makes the workbench afresh; one already open is left as it is.
+    if (_stationReturnScreens.count(Screen::UpgradeSelection) == 0) {
+        _upgradeSelection.reset();
+    }
+    openStationScreen(_upgradeSelection, Screen::UpgradeSelection, [&request](UpgradeSelectionGUI &workbench) {
+        workbench.open(std::move(request));
+    });
+}
+
+void Game::openLabStation(std::shared_ptr<Creature> character) {
+    openStationScreen(_labStation, Screen::LabStation, [&character](LabStationPanel &station) {
+        station.open(character);
+    });
+}
+
+void Game::closeStation(Screen station) {
+    auto found = _stationReturnScreens.find(station);
+    // A station closed already has nothing to return to.
+    if (found == _stationReturnScreens.end()) {
+        return;
+    }
+    const Screen underneath = found->second;
+    _stationReturnScreens.erase(found);
+    // The message boxes held under it come back with the screen.
+    if (!isStationScreen(underneath)) {
+        releasePopupsUnderStation();
+    }
+    if (auto gui = getScreenGUI()) {
+        gui->clearSelection();
+    }
+    // The covered screen comes back as it was left. A conversation that a
+    // reply's script ended under the station is gone, and play takes its
+    // place.
+    const bool conversationGone = underneath == Screen::Conversation && !_conversation->isRunning();
+    if (underneath == Screen::InGame || conversationGone) {
+        _runtimeSessionPlayable = static_cast<bool>(_module);
+        _screen = Screen::InGame;
+        return;
+    }
+    _screen = underneath;
+}
+
+bool Game::holdsConversation() const {
+    return pausesWorld(_screen);
 }
 
 void Game::serializePazaakPartyTable(resource::Gff &ptGff) const {
@@ -8691,18 +9332,74 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakOriginScreen = Screen::None;
 }
 
-void Game::openLevelUp() {
+bool Game::openLevelUp(bool forced) {
+    auto leader = _party.getLeader();
+    // A level-up already open is not opened again.
+    if (!leader || !leader->isLevelUpPending() || _screen == Screen::CharacterGeneration) {
+        return false;
+    }
+    return openLevelUpScreen(forced);
+}
+
+bool Game::openLevelUpScreen(bool forced) {
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
     }
     if (!_charGen) {
-        return;
+        return false;
     }
 
+    if (forced) {
+        _levelUpReturnScreen = _screen;
+        _levelUpPaused = !_paused;
+        if (_levelUpPaused) {
+            setPaused(true);
+        }
+    }
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
-    _charGen->startLevelUp();
+    _charGen->startLevelUp(forced);
     changeScreen(Screen::CharacterGeneration);
+    return true;
+}
+
+// Finishing a forced level-up resumes play if the level-up paused it; a pause
+// the player had put on stays.
+void Game::closeLevelUp(bool forced) {
+    if (!forced) {
+        openInGame();
+        return;
+    }
+    if (_levelUpPaused) {
+        _levelUpPaused = false;
+        setPaused(false);
+    }
+    returnToScreen(_levelUpReturnScreen);
+}
+
+// A conversation that a script ended under the closing screen, or that went
+// with the session, is gone.
+void Game::returnToScreen(Screen underneath) {
+    const bool conversationGone = underneath == Screen::Conversation && (!_conversation || !_conversation->isRunning());
+    if (underneath == Screen::InGame || conversationGone) {
+        openInGame();
+        return;
+    }
+    changeScreen(underneath);
+}
+
+bool Game::autoLevelUp() {
+    auto leader = _party.getLeader();
+    if (!leader || !leader->isLevelUpPending()) {
+        return false;
+    }
+    if (!_charGen) {
+        _charGen = tryLoadGUI<CharacterGeneration>();
+    }
+    if (!_charGen) {
+        return false;
+    }
+    return _charGen->autoLevelUp();
 }
 
 static constexpr int kLevelUpAvailableStrRef = 1438;
@@ -8725,6 +9422,19 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
         runLevelUpDialogOnce();
     }
+}
+
+void Game::notifyLevelUpStillAvailable(const Creature &creature) {
+    if (creature.isLevelUpPending()) {
+        addFeedbackMessage(kLevelUpAvailableStrRef);
+    }
+}
+
+void Game::signalPlayerLevelUp(const Creature &creature) {
+    if (!_module || !creature.isPC()) {
+        return;
+    }
+    queueScriptEvent(*_module, creature, Event(static_cast<int>(SavedSignalEventType::PlayerLevelUp)));
 }
 
 void Game::runLevelUpDialogOnce() {
@@ -8765,7 +9475,8 @@ void Game::startCharacterGeneration() {
 }
 
 bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
-                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
+                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener,
+                       const std::function<void()> &prepareParticipants) {
     if (_captureHUDPresentation) {
         return false;
     }
@@ -8780,13 +9491,13 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     } catch (const std::exception &e) {
         warn("Game: conversation load failed: " + resRef + ": " + e.what());
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
     if (!dialog) {
         warn("Game: conversation not found or invalid: " + resRef);
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
 
@@ -8794,32 +9505,38 @@ bool Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     auto conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
     if (!conversation) {
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
         return false;
     }
 
-    stopMovement();
-    setRelativeMouseMode(false);
-    setCursorType(CursorType::Default);
-    changeScreen(Screen::Conversation);
     _dialogUnderWay = true;
 
-    // A computer conversation leaves everyone's stealth alone.
+    // Starting a conversation other than a computer's also quietly ends the
+    // stealth of the controlled creature and the party members, a one-liner's
+    // as well.
     if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
-        if (auto creature = std::dynamic_pointer_cast<Creature>(owner)) {
-            creature->setStealthMode(false);
-        }
         if (auto leader = _party.getLeader()) {
-            leader->setStealthMode(false);
+            leader->setStealthMode(false, true);
         }
         for (int i = 0; i < _party.getSize(); ++i)
             if (auto member = _party.getMember(i)) {
-                member->setStealthMode(false);
+                member->setStealthMode(false, true);
             }
     }
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
-    _conversation->start(dialog, owner, std::move(admission), listener);
+    // Play turns to the conversation only once it opens. A one-liner is
+    // barked over play, which goes on: the player keeps moving and the screen
+    // stays as it is.
+    _conversation->start(dialog, owner, std::move(admission), listener, [this, &prepareParticipants]() {
+        if (prepareParticipants) {
+            prepareParticipants();
+        }
+        stopMovement();
+        setRelativeMouseMode(false);
+        setCursorType(CursorType::Default);
+        changeScreen(Screen::Conversation);
+    });
     return true;
 }
 
@@ -8856,21 +9573,24 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
     }
     bool started = false;
     if (target) {
-        // Each of the two stops what it was doing, unless it is the player's,
-        // and shows its pause; it faces as it did should nothing start.
+        // Once the conversation opens, each of the two stops what it was
+        // doing, unless it is the player's, and shows its pause; a one-liner
+        // leaves both as they were. Each faces as it did should nothing start.
         const auto player = _party.getLeader();
         std::vector<std::pair<std::shared_ptr<Creature>, float>> facings;
         for (const auto &object : {target, self}) {
-            auto creature = std::dynamic_pointer_cast<Creature>(object);
-            if (!creature) {
-                continue;
+            if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+                facings.emplace_back(creature, creature->getFacing());
             }
-            if (creature != player) {
-                creature->clearAllActions(true);
-            }
-            facings.emplace_back(creature, creature->getFacing());
-            creature->showDialogPause();
         }
+        auto prepareParticipants = [&facings, &player]() {
+            for (const auto &[creature, facing] : facings) {
+                if (creature != player) {
+                    creature->clearAllActions(true);
+                }
+                creature->showDialogPause();
+            }
+        };
         if (resRef.empty()) {
             resRef = self->lastConversation();
         }
@@ -8882,7 +9602,7 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
         const auto &owner = selfListens ? target : self;
         const auto &listener = selfListens ? self : target;
         const std::string dialog = resRef.empty() ? owner->conversation() : resRef;
-        started = !dialog.empty() && startDialog(owner, dialog, admission, listener);
+        started = !dialog.empty() && startDialog(owner, dialog, admission, listener, prepareParticipants);
         if (!started) {
             for (auto &[creature, facing] : facings) {
                 creature->dropOrientationLock();
@@ -8892,9 +9612,20 @@ bool Game::beginConversation(const std::shared_ptr<Object> &self, std::string re
     }
     if (!started) {
         _globalFade.finishDialog(admission);
-        _dialogUnderWay = false;
+        setDialogUnderWay(false);
     }
     return started;
+}
+
+void Game::endConversationStealth(const std::shared_ptr<Object> &owner, const std::shared_ptr<Object> &listener) {
+    if (isTSL() && _keepStealthInDialog) {
+        return;
+    }
+    for (const auto &object : {listener, owner}) {
+        if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+            creature->setStealthMode(false, true);
+        }
+    }
 }
 
 void Game::resumeConversation() {
@@ -8982,6 +9713,9 @@ void Game::loadInGameMenus() {
     if (!_container) {
         _container = tryLoadGUI<ContainerGUI>();
     }
+    if (!_storeGUI) {
+        _storeGUI = tryLoadGUI<StoreGUI>();
+    }
     if (!_partySelect) {
         _partySelect = tryLoadGUI<PartySelection>();
     }
@@ -9019,9 +9753,17 @@ float Game::baseItemCostMultiplier(int baseItem) const {
     return found != _baseItemCostMultipliers.end() ? found->second : 1.0f;
 }
 
+// A station opening over a screen leaves that screen as it was, as a panel
+// added over it does: the in-game menu keeps its tab and sub-screen, and an
+// open message box or tutorial window stays up. Its close returns to the
+// screen the same way (closeStation).
 void Game::changeScreen(Screen screen) {
+    if (isStationScreen(screen)) {
+        _screen = screen;
+        return;
+    }
     if (_screen == Screen::InGameMenu && screen != Screen::InGameMenu && _inGame) {
-        _inGame->closeEquipment();
+        _inGame->leaveTab(InGameMenuTab::None);
     }
     auto gui = getScreenGUI();
     if (gui) {
@@ -9030,19 +9772,30 @@ void Game::changeScreen(Screen screen) {
     if (_confirmPopup) {
         _confirmPopup->hide();
     }
+    if (_datapadBox) {
+        _datapadBox->hide();
+    }
+    _pendingDatapads.clear();
     releaseMessageBoxPause();
     if (_tutorial) {
+        _tutorialPopup->hide();
         finishTutorialWindow(false);
     }
     _screen = screen;
 }
 
 GameGUI *Game::getScreenGUI() const {
-    switch (_screen) {
+    return guiForScreen(_screen);
+}
+
+GameGUI *Game::guiForScreen(Screen screen) const {
+    switch (screen) {
     case Screen::Death:
         return isTSL() ? static_cast<GameGUI *>(_deathDisplay.get()) : static_cast<GameGUI *>(_deathMessage.get());
     case Screen::MainMenu:
         return _mainMenu.get();
+    case Screen::Options:
+        return _mainMenuOptions.get();
     case Screen::Loading:
         return _loadScreen.get();
     case Screen::CharacterGeneration:
@@ -9055,12 +9808,18 @@ GameGUI *Game::getScreenGUI() const {
         return _conversation;
     case Screen::Container:
         return _container.get();
+    case Screen::Store:
+        return _storeGUI.get();
     case Screen::PartySelection:
         return _partySelect.get();
     case Screen::SaveLoad:
         return _saveLoad.get();
     case Screen::GalaxyMap:
         return _galaxyMap.get();
+    case Screen::UpgradeSelection:
+        return _upgradeSelection.get();
+    case Screen::LabStation:
+        return _labStation.get();
     case Screen::SwoopRace:
         return nullptr; // race skeleton has no HUD yet
     case Screen::PazaakWager:
@@ -9076,13 +9835,21 @@ GameGUI *Game::getScreenGUI() const {
     }
 }
 
-void Game::setBarkBubbleText(std::string text, float duration) {
-    _hud->barkBubble().setBarkText(text, duration);
+void Game::setBarkBubbleText(std::string text, float duration, uint32_t speaker, bool ignoresDistance) {
+    if (_hud) {
+        _hud->barkBubble().setBarkText(text, duration, speaker, ignoresDistance);
+    }
+}
+
+void Game::setBarkBubblePlace(int x, int y) {
+    if (_hud) {
+        _hud->barkBubble().setPlace(x, y);
+    }
 }
 
 void Game::bark(Object &speaker, int strRef) {
     const std::string text = getInterfaceText(strRef);
-    setBarkBubbleText(text, Conversation::spokenLineSeconds(text));
+    setBarkBubbleText(text, Conversation::spokenLineSeconds(text), speaker.id());
     playBarkSound(speaker, _services.resource.strings.getSound(strRef));
 }
 
@@ -9097,7 +9864,7 @@ void Game::startBarkVoice(const std::string &sound, std::optional<glm::vec3> pos
         _barkVoice->stop();
     }
     auto clip = _services.resource.audioClips.get(sound);
-    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, 1.0f, false, position)
+    _barkVoice = clip ? _services.audio.mixer.play(std::move(clip), AudioType::Voice, kBarkSoundGroup, 1.0f, false, position)
                       : nullptr;
 }
 
@@ -9220,6 +9987,24 @@ std::shared_ptr<Creature> Game::getConsoleLeader() {
         return leader;
     }
     throw std::runtime_error("No party leader");
+}
+
+// An unknown code is rejected, since an item without a template arrives blank.
+// So is a size the base item does not stack to, since an item stores its size
+// unchecked.
+void Game::addConsoleItem(const std::shared_ptr<Object> &receiver, const std::string &resRef, int stackSize) {
+    if (!_services.resource.gffs.get(resRef, ResType::Uti)) {
+        throw std::runtime_error("Unknown item: " + resRef);
+    }
+    auto item = newItemFromBlueprint(resRef);
+    const int maxStackSize = item->maxStackSize();
+    if (stackSize < 1 || stackSize > maxStackSize) {
+        destroyRuntimeObjectGraph(item);
+        throw std::runtime_error(str(boost::format("Stack size must be from 1 to %d") % maxStackSize));
+    }
+    item->setStackSize(stackSize);
+    item->setDropable(true);
+    _party.sharedInventoryReceiver(receiver)->addItem(item);
 }
 
 std::shared_ptr<Area> Game::getConsoleArea() {
@@ -9346,10 +10131,7 @@ void Game::consoleKill(const ConsoleArgs &args) {
 
 void Game::consoleAddItem(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 2, "item_tpl [size]");
-    auto object = getConsoleTargetObject();
-    int stackSize = args.get<int>(2).value_or(1);
-    auto receiver = _party.sharedInventoryReceiver(object);
-    receiver->addItem(std::string(args[1].value()), stackSize);
+    addConsoleItem(getConsoleTargetObject(), std::string(args[1].value()), args.get<int>(2).value_or(1));
 }
 
 void Game::consoleGiveXP(const ConsoleArgs &args) {
@@ -9367,6 +10149,46 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     _party.giveGold(args.get<int>(1).value());
     _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
+}
+
+// The item always goes to the party, whatever is selected.
+void Game::consoleGiveItem(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "item_tpl");
+    addConsoleItem(getConsoleLeader(), std::string(args[1].value()), 1);
+}
+
+// Only the leader is healed. The resurrection effect also revives a dead leader
+// that can be raised.
+void Game::consoleHeal(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    leader->applyEffect(newEffect<ResurrectionEffect>(0), DurationType::Permanent);
+    leader->applyEffect(newEffect<HealEffect>(leader->maxHitPoints()), DurationType::Permanent);
+    leader->setCurrentForcePoints(leader->maxForcePoints());
+}
+
+// God mode is the plot flag. The whole party takes the opposite of the
+// leader's flag, so members whose flags differ end up matching.
+void Game::consoleInvulnerability(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    bool invulnerable = !leader->plotFlag();
+    for (const auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->setPlotFlag(invulnerable);
+        }
+    }
+    _console.printLine(invulnerable ? "invulnerability on" : "invulnerability off");
+}
+
+void Game::consoleWhereAmI(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    if (_module) {
+        _console.printLine("module: " + _module->name());
+    }
+    const glm::vec3 &position = leader->position();
+    _console.printLine(str(boost::format("position: (%3.2f, %3.2f, %3.2f)") % position.x % position.y % position.z));
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ
@@ -9486,7 +10308,8 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
     if (!_module || !_party.getLeader()) {
         throw std::runtime_error("Character-generation capture screens require a loaded party");
     }
-    openLevelUp();
+    // A capture opens the level-up whether or not a level is waiting.
+    openLevelUpScreen(false);
     if (!_charGen) {
         throw std::runtime_error("Character generation GUI is unavailable");
     }
@@ -9584,16 +10407,91 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
     }
 }
 
+bool Game::isTutorialPopupOver() const {
+    return _tutorialPopup && _tutorialPopup->isVisible() &&
+           (_tutorialPopupOnTop || !_confirmPopup || !_confirmPopup->isVisible());
+}
+
+// A message box shown again while it is open keeps its place. The box it was
+// showing gives way: a question it asked goes unanswered, and a pause a
+// script's box held is let go. A box held under a station is the station's
+// now.
+void Game::putMessagePopupOnTop() {
+    _messageBoxUnderStation = false;
+    if (!_confirmPopup->isVisible()) {
+        _tutorialPopupOnTop = false;
+        return;
+    }
+    // A box that the one giving way opens, as its question goes unanswered,
+    // gives way in turn, a few deep; the new box then takes the place of any
+    // still shown.
+    static constexpr int kMaxWithdrawals = 8;
+    for (int i = 0; i < kMaxWithdrawals && _confirmPopup->isVisible(); ++i) {
+        _confirmPopup->withdraw();
+        releaseBoxPause(_scriptBoxHoldsPause);
+    }
+}
+
+void Game::holdPopupsUnderStation() {
+    _messageBoxUnderStation = _messageBoxUnderStation || (_confirmPopup && _confirmPopup->isVisible());
+    _tutorialUnderStation = _tutorialUnderStation || (_tutorialPopup && _tutorialPopup->isVisible());
+    _datapadUnderStation = _datapadUnderStation || (_datapadBox && _datapadBox->isVisible());
+}
+
+void Game::releasePopupsUnderStation() {
+    _messageBoxUnderStation = false;
+    _tutorialUnderStation = false;
+    _datapadUnderStation = false;
+}
+
+// The datapad box is over the message boxes, and the message box opened last
+// is over the other.
+ConfirmPopup *Game::topShownPopup() const {
+    const auto shown = [](const std::unique_ptr<ConfirmPopup> &popup, bool held) {
+        return popup && popup->isVisible() && !held;
+    };
+    if (shown(_datapadBox, _datapadUnderStation)) {
+        return _datapadBox.get();
+    }
+    const bool tutorial = shown(_tutorialPopup, _tutorialUnderStation);
+    const bool messageBox = shown(_confirmPopup, _messageBoxUnderStation);
+    if (tutorial && (!messageBox || isTutorialPopupOver())) {
+        return _tutorialPopup.get();
+    }
+    return messageBox ? _confirmPopup.get() : nullptr;
+}
+
 void Game::closeMessagePopup() {
+    _pendingDatapads.clear();
+    if (_datapadBox && _datapadBox->isVisible()) {
+        _datapadBox->close();
+    }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->close();
+    }
+    // A tutorial window closes whatever pages it has left, and the action it
+    // interrupted is not taken.
+    if (_tutorialPopup && _tutorialPopup->isVisible()) {
+        _tutorialPopup->hide();
+        if (_tutorial) {
+            finishTutorialWindow(false);
+        }
+    }
+}
+
+static constexpr int kExamineCloseStrRef = 1582;
+
+void Game::showExamineBox(const std::string &message) {
+    if (showMessagePopup(message)) {
+        _confirmPopup->setConfirmText(_services.resource.strings.getText(kExamineCloseStrRef));
     }
 }
 
 bool Game::showMessagePopup(
     const std::string &message,
     std::shared_ptr<Texture> icon,
-    std::function<void()> onConfirm) {
+    std::function<void()> onConfirm,
+    const std::optional<PopupColors> &colors) {
     if (!_confirmPopup) {
         _confirmPopup = tryLoadGUI<ConfirmPopup>();
     }
@@ -9603,7 +10501,8 @@ bool Game::showMessagePopup(
     // The popup takes all input, key and button releases included, so the
     // steering and mouse-look held when it opens stop now.
     stopMovement();
-    _confirmPopup->show(message, std::move(icon), std::move(onConfirm));
+    putMessagePopupOnTop();
+    _confirmPopup->show(message, std::move(icon), std::move(onConfirm), colors);
     return true;
 }
 
@@ -9612,16 +10511,34 @@ void Game::showScriptMessageBox(const std::string &text, const std::string &icon
     if (!iconResRef.empty()) {
         icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
     }
-    if (!showMessagePopup(text, std::move(icon), [this]() { releaseMessageBoxPause(); })) {
+    if (!showMessagePopup(text, std::move(icon), [this]() { releaseBoxPause(_scriptBoxHoldsPause); })) {
         return;
     }
+    holdBoxPause(_scriptBoxHoldsPause);
+}
+
+// A box opening while play runs pauses it; one opening while the boxes hold a
+// pause holds it too, so play resumes only once the last of them closes.
+void Game::holdBoxPause(bool &holder) {
     if (!_paused && !_dialogUnderWay) {
         setPaused(true);
         _messageBoxPausedGame = true;
     }
+    if (_messageBoxPausedGame) {
+        holder = true;
+    }
+}
+
+void Game::releaseBoxPause(bool &holder) {
+    holder = false;
+    if (!_scriptBoxHoldsPause && !_datapadHoldsPause) {
+        releaseMessageBoxPause();
+    }
 }
 
 void Game::releaseMessageBoxPause() {
+    _scriptBoxHoldsPause = false;
+    _datapadHoldsPause = false;
     if (_messageBoxPausedGame) {
         _messageBoxPausedGame = false;
         setPaused(false);
@@ -9631,7 +10548,8 @@ void Game::releaseMessageBoxPause() {
 bool Game::showConfirmPopup(
     const std::string &message,
     std::function<void()> onConfirm,
-    std::function<void()> onCancel) {
+    std::function<void()> onCancel,
+    const std::optional<PopupColors> &colors) {
     if (!_confirmPopup) {
         _confirmPopup = tryLoadGUI<ConfirmPopup>();
     }
@@ -9639,8 +10557,41 @@ bool Game::showConfirmPopup(
         return false;
     }
     stopMovement();
-    _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel));
+    putMessagePopupOnTop();
+    _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel), colors);
     return true;
+}
+
+void Game::showDatapad(Item &datapad) {
+    datapad.setLocalBoolean(Item::kDatapadShownBoolean, true);
+    if (!_datapadBox) {
+        _datapadBox = tryLoadGUI<DatapadBox>();
+    }
+    if (!_datapadBox) {
+        return;
+    }
+    if (_datapadBox->isVisible()) {
+        _pendingDatapads.push_back(datapad.descIdentified());
+        return;
+    }
+    openDatapadBox(datapad.descIdentified());
+}
+
+void Game::openDatapadBox(const std::string &text) {
+    stopMovement();
+    _datapadUnderStation = false;
+    _datapadBox->showDatapad(text, [this]() { onDatapadBoxClosed(); });
+    holdBoxPause(_datapadHoldsPause);
+}
+
+void Game::onDatapadBoxClosed() {
+    if (_pendingDatapads.empty()) {
+        releaseBoxPause(_datapadHoldsPause);
+        return;
+    }
+    const std::string text = std::move(_pendingDatapads.front());
+    _pendingDatapads.pop_front();
+    openDatapadBox(text);
 }
 
 void Game::consoleSeed(const ConsoleArgs &args) {
@@ -9710,7 +10661,7 @@ void Game::consoleShowGalleryMode(const ConsoleArgs &args) {
     std::string_view mode(args[1].value());
     if (boost::iequals(mode, "swoop")) {
         if (!_swoopRace.isActive()) {
-            openSwoopRace();
+            startSwoopRace();
         }
         if (!_swoopRace.isActive()) {
             throw std::runtime_error("Swoop gallery fixture requires a loaded swoop minigame module");
@@ -10425,99 +11376,42 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
     _console.printLine("  player scripts:" + followerScripts(mg.player.scripts));
 }
 
-void Game::consoleStartSwoop(const ConsoleArgs &args) {
-    openSwoopRace();
-}
-
-void Game::consoleStopSwoop(const ConsoleArgs &args) {
-    // If a lifecycle race is active, return to origin safely; otherwise stop in place.
-    exitSwoopRace();
-}
-
 void Game::consoleStartSwoopRace(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "module");
-
-    if (_swoopLifecycle.active) {
-        _console.printLine("swoop: lifecycle already active");
+    consoleCheckUsage(args, 0, 0, "");
+    auto area = _module ? _module->area() : nullptr;
+    if (!area) {
+        _console.printLine("swoop: no module loaded");
         return;
     }
-    if (!_module) {
-        _console.printLine("swoop: no origin module loaded");
+    if (!area->hasMinigame() || area->miniGame().type != MinigameType::SwoopRace) {
+        _console.printLine("swoop: current area has no swoop minigame");
         return;
     }
-    std::string target(boost::to_lower_copy(std::string(args[1].value())));
-    if (_moduleNames.count(target) == 0) {
-        _console.printLine("swoop: unknown module '" + target + "'");
-        return;
-    }
-
-    // Capture origin module/state before transitioning.
-    MinigameLifecycle session;
-    session.originModule = _module->name();
-    session.forcedSuccess = true;
-    if (auto leader = _party.getLeader()) {
-        session.originPosition = leader->position();
-        session.originFacing = leader->getFacing();
-        session.haveOrigin = true;
-    }
-
-    // Transition to the target swoop module and auto-start the race.
-    loadModule(target);
-    openSwoopRace();
-
-    if (!_swoopRace.isActive()) {
-        // Target loaded but is not a swoop minigame (openSwoopRace printed why).
-        // Return to origin so the failed attempt does not strand the player.
-        _console.printLine("swoop: lifecycle aborted, returning to origin=" + session.originModule);
-        loadModule(session.originModule);
-        if (session.haveOrigin) {
-            if (auto mod = _module) {
-                if (auto area = mod->area()) {
-                    if (auto leader = _party.getLeader()) {
-                        leader->setPosition(session.originPosition);
-                        leader->setFacing(session.originFacing);
-                        area->determineObjectRoom(*leader);
-                        area->onPartyLeaderMoved(/*roomChanged=*/true);
-                    }
-                }
-            }
-        }
-        return;
-    }
-
-    _swoopLifecycle = session;
-    _swoopLifecycle.active = true;
-    _console.printLine(str(boost::format("swoop: lifecycle start origin=%s target=%s forcedSuccess=yes")
-                           % session.originModule % target));
-}
-
-void Game::consoleFinishSwoop(const ConsoleArgs &args) {
-    if (!_swoopLifecycle.active) {
-        _console.printLine("swoop: no lifecycle race active");
-        return;
-    }
-    finishSwoopLifecycle(/*success=*/true);
+    // A race already running starts again from its creation scripts.
+    endSwoopRace();
+    _console.printLine(startSwoopRace() ? "swoop: race started" : "swoop: the race did not start");
 }
 
 void Game::consoleSwoopState(const ConsoleArgs &args) {
-    if (!_swoopRace.isActive()) {
+    auto session = _minigameSession.get();
+    auto player = session ? session->player() : nullptr;
+    if (!player) {
         _console.printLine("swoop: not active");
         return;
     }
-    glm::vec3 pos = _swoopRace.position();
-    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=%s trackTime=%.2f/%.2f trackEnded=%d")
-                           % _swoopRace.progress()
-                           % _swoopRace.finishProgress()
-                           % _swoopRace.lateralOffset()
-                           % _swoopRace.speed()
-                           % _swoopRace.elapsed()
+    const glm::vec3 &pos = player->position;
+    _console.printLine(str(boost::format("swoop: elapsed=%.2f speed=%.1f max=%.1f offset=%.2f trackTime=%.2f/%.2f pos=[%.1f,%.1f,%.1f] hp=%d enemies=%d obstacles=%d scripts=%zu")
+                           % session->elapsed()
+                           % session->playerSpeed()
+                           % session->maxSpeed()
+                           % session->offset().x
+                           % player->trackTime
+                           % player->track.length()
                            % pos.x % pos.y % pos.z
-                           % _swoopRace.lateralLeftBound()
-                           % _swoopRace.lateralRightBound()
-                           % (_swoopRace.followsTrack() ? "track-animation" : "track-progress")
-                           % _swoopRace.trackTime()
-                           % _swoopRace.trackLength()
-                           % static_cast<int>(_swoopRace.trackEnded())));
+                           % player->hitPoints
+                           % session->enemyCount()
+                           % session->obstacleCount()
+                           % session->scriptsRun()));
 }
 
 void Game::consoleStartTurret(const ConsoleArgs &args) {
@@ -10560,6 +11454,47 @@ void Game::consoleStartTurretGame(const ConsoleArgs &args) {
                            % originModule % target));
 }
 
+void Game::consoleFinishTurret(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1, "[count]");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    // Each is hit as a bolt would hit it, through its own damage and death
+    // scripts.
+    auto enemies = _turret.listedEnemies();
+    size_t count = static_cast<size_t>(args.get<int>(1).value_or(static_cast<int>(enemies.size())));
+    size_t struck = 0;
+    for (auto enemy : enemies) {
+        if (struck == count) {
+            break;
+        }
+        _turret.adjustHitPoints(*enemy, -enemy->hitPoints);
+        ++struck;
+    }
+    _console.printLine(str(boost::format("turret: struck %zu of %zu enemies") % struck % enemies.size()));
+}
+
+void Game::consoleTurretAim(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "pitch yaw");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    auto &aim = _turret.aim();
+    aim.setOffset(glm::vec3(args.get<float>(1).value(), aim.offset().y, args.get<float>(2).value()));
+    _console.printLine(str(boost::format("turret: aim pitch=%.1f yaw=%.1f") % aim.offset().x % aim.offset().z));
+}
+
+void Game::consoleTurretFire(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    _turret.pullTrigger();
+}
+
 void Game::consoleStopTurret(const ConsoleArgs &args) {
     // If a lifecycle session is active, return to origin safely; otherwise stop
     // in place.
@@ -10572,38 +11507,20 @@ void Game::consoleTurretState(const ConsoleArgs &args) {
         return;
     }
     glm::vec3 pos = _turret.position();
-    const char *outcome = "in-progress";
-    switch (_turret.outcome()) {
-    case Turret::Outcome::Won:
-        outcome = "won";
-        break;
-    case Turret::Outcome::Lost:
-        outcome = "lost";
-        break;
-    default:
-        break;
-    }
-    _console.printLine(str(boost::format("turret: pitch=%.1f yaw=%.1f hp=%d/%d enemies=%zu/%zu bullets=%zu elapsed=%.1f pos=[%.1f,%.1f,%.1f] outcome=%s")
-                           % glm::degrees(_turret.aim().pitch())
-                           % glm::degrees(_turret.aim().yaw())
-                           % _turret.hitPoints()
-                           % _turret.maxHitPoints()
-                           % _turret.enemiesAlive()
-                           % _turret.enemyCount()
+    auto player = _turret.player();
+    _console.printLine(str(boost::format("turret: offset=[%.1f,%.1f,%.1f] hp=%d/%d enemies=%zu obstacles=%zu bullets=%zu elapsed=%.1f pos=[%.1f,%.1f,%.1f] speed=%.0f track=%s")
+                           % _turret.aim().offset().x
+                           % _turret.aim().offset().y
+                           % _turret.aim().offset().z
+                           % (player ? player->hitPoints : 0)
+                           % (player ? player->maxHitPoints : 0)
+                           % _turret.listedEnemies().size()
+                           % _turret.listedObstacles().size()
                            % _turret.bulletCount()
                            % _turret.elapsed()
                            % pos.x % pos.y % pos.z
-                           % outcome));
-    _console.printLine(str(boost::format("  hud: health=%d(%s) heading=%d alarm=%d contacts=%zu/%zu gauge=%d radar=%d radarChannels=%zu")
-                           % _turret.healthState()
-                           % turretHealthAnimation(_turret.healthState())
-                           % _turret.headingState()
-                           % static_cast<int>(_turret.alarmActive())
-                           % _turret.contactsLive()
-                           % kTurretContactCount
-                           % static_cast<int>(_turret.haveHealthHud())
-                           % static_cast<int>(_turret.haveRadarHud())
-                           % _turret.radarChannelCount()));
+                           % _turret.speed()
+                           % (_turret.trackPlaying() ? "playing" : "stopped")));
 }
 
 void Game::consoleShowImGui(const ConsoleArgs &args) {

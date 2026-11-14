@@ -41,6 +41,14 @@ constexpr int getAbilityModifierFromScore(int score) {
     return score >= 10 ? (score - 10) / 2 : (score - 11) / 2;
 }
 
+/**
+ * The points one more point costs a new character at an ability score: the
+ * modifier, 1 to 3, so 1 up to 13, 2 at 14 and 15, 3 from 16.
+ */
+constexpr int getAbilityPointCostFromScore(int score) {
+    return std::clamp(getAbilityModifierFromScore(score), 1, 3);
+}
+
 class CreatureClass;
 
 /**
@@ -116,6 +124,9 @@ public:
     int getAbilityScore(Ability ability) const;
     int getAbilityModifier(Ability ability) const;
 
+    /** @return the points one more point of the ability costs a new character, see getAbilityPointCostFromScore */
+    int getAbilityPointCost(Ability ability) const;
+
     const std::map<Ability, int> &abilityScores() const { return _abilityScores; }
     int strength() const;
     int dexterity() const;
@@ -129,8 +140,6 @@ public:
     // END Abilities
 
     // Skills
-
-    bool hasSkill(SkillType skill) const;
 
     int getSkillRank(SkillType skill) const;
 
