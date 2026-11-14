@@ -22,6 +22,7 @@
 #include <functional>
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/contextorder.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/doorsaber.h"
 #include "reone/game/action/unlockobject.h"
@@ -75,12 +76,7 @@ static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
 static constexpr int kActionHeight = 59;
 static constexpr int kActionArrowHeight = (kActionHeight - kActionWidth) / 2;
-/** The message shown when the area holds as many player mines as it allows. */
-static constexpr int kMineLimitStrRef = 47861;
-/** The tutorial windows that the first combat feat, grenade, mine and action-menu scroll bring. */
-static constexpr int kCombatFeatTutorial = 0;
-static constexpr int kGrenadeTutorial = 1;
-static constexpr int kSetMineTutorial = 2;
+/** The tutorial window that the first action-menu scroll brings. */
 static constexpr int kActionMenuTutorial = 5;
 // The hover reticle shows only this many pixels inside the edges of the HUD's
 // arrow margin, and at this opacity.
@@ -276,196 +272,10 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         return false;
 
     ContextAction &ctxAction = slot.actions[slot.indexSelected];
-    if (ctxAction.spell && !ctxAction.item) {
-        ctxAction.availability = leader->powerMenuStatus(*ctxAction.spell, *selectedObject);
-    }
-    if (!ctxAction.availability.available()) {
-        _feedback.reject(ctxAction.availability.reason, _services);
-        return true;
-    }
-
-    // Every entry runs inside the menu's wrapper. Out of combat mode it first
-    // drops the leader's pending round entries and, for a hostile creature or
-    // a bash, posts the combat message. When the entry is done and combat
-    // mode is still off, it enters combat mode for a hostile creature and
-    // clears the leader's actions, before the entry's order arrives.
-    const bool hostileCreature = _selectedHostile && selectedObject->type() == ObjectType::Creature;
-    const bool bash = ctxAction.type == ActionType::AttackObject && selectedObject->type() != ObjectType::Creature;
-    const bool inCombatMode = leader->partyCombatMode();
-    if (!inCombatMode) {
-        _game.combat().removeAllScheduled(*leader);
-        if (hostileCreature || bash) {
-            _game.party().setCombatMessage(*leader, _game.party().idleCombatMessage());
-        }
-    } else if (_game.isAutoPaused()) {
-        // In combat mode an entry taken during an autopause shows its own
-        // pause reason.
-        _game.setPaused(true, PauseReason::CombatOrder);
-    }
-    _feedback.accept(_services);
-
-    // The first time an action is taken, its tutorial window may take it
-    // instead, and gives it back when dismissed.
-    auto intercepted = [&](int tutorial, uint32_t param = 0) {
-        return _game.requestTutorialWindow(tutorial, leader->id(), selectedObject->id(), param);
-    };
-    std::function<void()> order;
-    // A leader that cannot be commanded takes no skill use or power; its
-    // attacks are refused as they are taken up.
-    auto queue = [&](std::shared_ptr<Action> action) {
-        order = [leader, action]() {
-            if (!leader->isCommandable()) {
-                return;
-            }
-            action->setUserAction(true);
-            leader->addAction(action);
-        };
-    };
-    switch (ctxAction.type) {
-    case ActionType::AttackObject:
-        if (bash ? _game.prepareMenuBash(*leader, selectedObject) : _game.prepareMenuAttack(*leader, selectedObject)) {
-            order = [this, leader, selectedObject]() { _game.sendAttack(*leader, selectedObject); };
-        }
-        break;
-    case ActionType::UseFeat:
-        if (intercepted(kCombatFeatTutorial, static_cast<uint32_t>(ctxAction.feat))) {
-            break;
-        }
-        order = [this, leader, selectedObject, feat = ctxAction.feat]() { _game.sendAttack(*leader, selectedObject, feat); };
-        break;
-    case ActionType::UseSkill:
-        if (ctxAction.skill == SkillType::Security) {
-            // Security, alone or with a spike, first clears the leader's
-            // orders on a door, and with a spike on any lock; Security alone
-            // on a door also delays the next autopause. A leader that can be
-            // commanded then clears its actions unless busy and, when the
-            // object is still locked, works at the lock, or is told it cannot
-            // use the skill.
-            const bool door = selectedObject->type() == ObjectType::Door;
-            if (ctxAction.item || door) {
-                _game.combat().clearAllOrders(*leader);
-            }
-            if (door && !ctxAction.item) {
-                _game.delayNextEnemyAutoPause();
-            }
-            order = [this, leader, selectedObject, item = ctxAction.item]() {
-                if (!leader->isCommandable()) {
-                    return;
-                }
-                leader->clearOrdersUnlessBusy();
-                const auto lock = selectedObject->findLock();
-                if (!lock || !lock->get().isLocked() || !UnlockObjectAction::admits(*leader)) {
-                    return;
-                }
-                auto action = _game.newAction<UnlockObjectAction>(selectedObject, item);
-                action->setUserAction(true);
-                leader->addAction(action);
-            };
-            break;
-        }
-        if (ctxAction.item) {
-            // Setting a mine on a door or placeable.
-            if (!area->playerCanSetMines()) {
-                _game.showMessagePopup(_services.resource.strings.getText(kMineLimitStrRef));
-                return true;
-            }
-            // The first time, the tutorial window takes the action instead.
-            if (_game.requestTutorialWindow(kSetMineTutorial, leader->id(), ctxAction.item->id())) {
-                break;
-            }
-        }
-        // Setting a mine is the use of its kit, which clears the leader's
-        // actions unless the leader is busy, then follows them. The other mine
-        // work is a use of the skill.
-        if (ctxAction.item) {
-            queue(_game.newAction<UseSkillAction>(ctxAction.skill, selectedObject, ctxAction.subSkill, ctxAction.item));
-            order = [leader, queued = std::move(order)]() {
-                leader->clearOrdersUnlessBusy();
-                queued();
-            };
-        } else if (auto action = leader->useSkill(ctxAction.skill, selectedObject, ctxAction.subSkill)) {
-            queue(std::move(action));
-        }
-        break;
-    case ActionType::DoorSaber: {
-        // The door saber first clears the leader's orders, as the player's
-        // controls clear them, and is taken up only by a door still locked.
-        _game.combat().clearAllOrders(*leader);
-        auto door = std::static_pointer_cast<Door>(selectedObject);
-        queue(_game.newAction<DoorSaberAction>(door));
-        order = [door, queued = std::move(order)]() {
-            if (door->isLocked()) {
-                queued();
-            }
-        };
-        break;
-    }
-    case ActionType::CastSpellAtObject: {
-        if (ctxAction.equipmentPower) {
-            // A droid's item power enters combat mode as a power does, then
-            // goes out as the use of the item at the target.
-            leader->setPartyCombatMode(true);
-            order = [this, leader, item = ctxAction.item, selectedObject]() {
-                _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
-                                  selectedObject->position());
-            };
-            break;
-        }
-        if (ctxAction.containerUse) {
-            // A plot item used on a locked container goes out as the use of
-            // its first power on the container.
-            order = [this, leader, item = ctxAction.item, selectedObject]() {
-                _game.useMenuItem(*leader, item, item->firstUseProperty(), selectedObject,
-                                  menuItemLocation(*leader, *selectedObject));
-            };
-            break;
-        }
-        if (ctxAction.item) {
-            // Grenades, and TSL's rockets, have their own tutorial window.
-            const int itemType = ctxAction.item->itemType();
-            const bool grenade = itemType == Item::kGrenadeItemType ||
-                                 (_game.isTSL() && itemType == Item::kRocketItemType);
-            if (grenade && intercepted(kGrenadeTutorial, ctxAction.item->id())) {
-                break;
-            }
-        } else {
-            // A power from the target menu puts the leader into combat mode
-            // whether or not it is cast. A caster without a Jedi class casts
-            // nothing.
-            leader->setPartyCombatMode(true);
-            if (!_game.canMenuCast(*leader, *ctxAction.spell)) {
-                order = [this, leader]() { _game.refuseMenuCast(*leader); };
-                break;
-            }
-            if (auto tutorial = _game.forcePowerTutorial(*ctxAction.spell);
-                tutorial && intercepted(*tutorial, static_cast<uint32_t>(ctxAction.spell->type)))
-                break;
-        }
-        // An item goes out as its use at the target, a power as its cast.
-        if (auto item = ctxAction.item) {
-            order = [this, leader, item, spell = ctxAction.spell, selectedObject]() {
-                _game.useMenuItem(*leader, item, item->spellProperty(spell->type), selectedObject,
-                                  menuItemLocation(*leader, *selectedObject));
-            };
-        } else {
-            order = [this, leader, spell = ctxAction.spell, selectedObject]() {
-                _game.sendMenuCast(*leader, spell, selectedObject);
-            };
-        }
-        debug(str(boost::format("Spell selected: actor=%u spell=%d target=%u") % leader->id() % static_cast<int>(ctxAction.spell->type) % selectedObject->id()), LogChannel::Combat);
-        break;
-    }
-    default:
-        break;
-    }
-    if (!leader->partyCombatMode()) {
-        if (!inCombatMode && hostileCreature) {
-            leader->setPartyCombatMode(true);
-        }
-        _game.combat().clearActions(*leader);
-    }
-    if (order) {
-        order();
+    const auto outcome = giveContextOrder(_game, _services, leader, selectedObject, ctxAction, _selectedHostile,
+                                          [this]() { _feedback.accept(_services); });
+    if (!outcome.available) {
+        _feedback.reject(outcome.reason, _services);
     }
     return true;
 }

@@ -1574,12 +1574,16 @@ static constexpr int kFirstLightsaberItemType = 39;
 static constexpr int kLastLightsaberItemType = 41;
 
 std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Object> &object) const {
-    std::vector<ContextAction> actions;
     // With no one under control there is no one to act.
     const auto leader = _game.party().getLeader();
     if (!leader) {
-        return actions;
+        return {};
     }
+    return getContextActions(leader, object);
+}
+
+std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Creature> &leader, const std::shared_ptr<Object> &object) const {
+    std::vector<ContextAction> actions;
     // A locked door or container offers no bash while the area restricts the
     // player.
     const bool playerRestricted = _area && _area->playerRestrictMode();
@@ -1589,7 +1593,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         auto creature = std::static_pointer_cast<Creature>(object);
         // While the dead-target hold runs, every creature is offered the
         // hostile entries.
-        if (isHostileToPartyLeader(*creature) || _game.isDeadTargetHoldRunning()) {
+        if ((!creature->isDead() && _services.game.reputes.getIsEnemy(*creature, *leader)) || _game.isDeadTargetHoldRunning()) {
             // In a restricted area neither the attack nor the combat feats are
             // offered.
             const bool restricted = _area->playerRestrictMode();
