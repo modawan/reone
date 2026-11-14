@@ -84,6 +84,9 @@ public:
 
     std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
 
+    /** Whether the screen now covers the whole in-game menu, whose navigation is then not drawn. */
+    virtual bool coversInGameMenu() const { return false; }
+
 protected:
     friend class HUDTestAccess;
 

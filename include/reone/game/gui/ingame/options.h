@@ -50,6 +50,8 @@ public:
     void render() override;
     /** Leaving the options writes them to the configuration. */
     void clearSelection() override;
+    /** An open page has its own title and buttons where the in-game menu's navigation and footer are. */
+    bool coversInGameMenu() const override;
 
 private:
     struct Controls {
@@ -139,7 +141,6 @@ private:
         std::shared_ptr<gui::Button> BTN_RESOLUTION;
         std::shared_ptr<gui::ToggleButton> CB_GRASS;
         std::shared_ptr<gui::ToggleButton> CB_SHADOWS;
-        std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::Slider> SLI_GAMMA;
     };
@@ -198,7 +199,6 @@ private:
         std::shared_ptr<gui::Button> BTN_ADVANCED;
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
-        std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::Slider> SLI_FX;
         std::shared_ptr<gui::Slider> SLI_MOVIE;
@@ -227,7 +227,6 @@ private:
     struct MouseControls {
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
-        std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::Slider> SLI_MOUSESEN;
     };
@@ -291,11 +290,6 @@ private:
     void describe(gui::ListBox &box, const std::string &text);
     /** Show \p strRef in a page's description box, saying the option takes effect at the next start. */
     void describeForNextStart(gui::ListBox &box, int strRef);
-    /**
-     * A page's title. In the TSL in-game menu the menu's own title bar names
-     * the tab, so the page leaves its title out.
-     */
-    void usePageTitle(const std::shared_ptr<gui::Label> &title);
 
     /** Load the feedback options page and wire its rows and buttons. */
     void loadFeedbackPanel();

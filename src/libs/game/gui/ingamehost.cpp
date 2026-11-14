@@ -151,6 +151,9 @@ void InGameMenuHost::render() {
     auto tabGui = getActiveTabGUI();
     if (tabGui) {
         tabGui->render();
+        if (tabGui->coversInGameMenu()) {
+            return;
+        }
     }
     PresentationGUI::render();
 }

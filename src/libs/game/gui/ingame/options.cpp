@@ -91,12 +91,6 @@ void OptionsMenu::describeForNextStart(ListBox &box, int strRef) {
     describe(box, _services.resource.strings.getText(strRef) + "\n\n" + kNextStartNote);
 }
 
-void OptionsMenu::usePageTitle(const std::shared_ptr<Label> &title) {
-    if (_inGame && _game.isTSL()) {
-        title->setVisible(false);
-    }
-}
-
 // Each options menu has pages of its own: the main menu's and the in-game
 // menu's bind the same layouts to themselves, and the in-game one goes when
 // the game returns to the main menu.
@@ -240,6 +234,10 @@ void OptionsMenu::render() {
     }
 }
 
+bool OptionsMenu::coversInGameMenu() const {
+    return !_pages.empty();
+}
+
 void OptionsMenu::openPage(IGUI &gui, std::function<void()> leave) {
     _pages.push_back({&gui, std::move(leave)});
 }
@@ -284,7 +282,6 @@ void OptionsMenu::loadFeedbackPanel() {
     showCheckBox(controls.LB_OPTIONS->protoItem());
 
     const bool tsl = _game.isTSL();
-    usePageTitle(controls.LBL_TITLE);
     if (tsl) {
         controls.LBL_BAR1 = std::static_pointer_cast<Label>(find("LBL_BAR1"));
         controls.LBL_BAR2 = std::static_pointer_cast<Label>(find("LBL_BAR2"));
@@ -387,7 +384,6 @@ void OptionsMenu::loadGameplayPanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     showCheckBoxes(*_gameplayGUI);
 
-    usePageTitle(controls.LBL_TITLE);
     enableK2ButtonBodyFill(controls.BTN_BACK);
     enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
@@ -597,12 +593,10 @@ void OptionsMenu::loadGraphicsPanel() {
     controls.BTN_RESOLUTION = std::static_pointer_cast<Button>(find("BTN_RESOLUTION"));
     controls.CB_GRASS = std::static_pointer_cast<ToggleButton>(find("CB_GRASS"));
     controls.CB_SHADOWS = std::static_pointer_cast<ToggleButton>(find("CB_SHADOWS"));
-    controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_GAMMA = std::static_pointer_cast<Slider>(find("SLI_GAMMA"));
     showCheckBoxes(*_graphicsGUI);
 
-    usePageTitle(controls.LBL_TITLE);
     enableK2ButtonBodyFill(controls.BTN_BACK);
     enableK2ButtonBodyFill(controls.BTN_DEFAULT);
     enableK2ButtonBodyFill(controls.BTN_RESOLUTION);
@@ -1059,14 +1053,12 @@ void OptionsMenu::loadSoundPanel() {
     controls.BTN_ADVANCED = std::static_pointer_cast<Button>(find("BTN_ADVANCED"));
     controls.BTN_BACK = std::static_pointer_cast<Button>(find("BTN_BACK"));
     controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
-    controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_FX = std::static_pointer_cast<Slider>(find("SLI_FX"));
     controls.SLI_MOVIE = std::static_pointer_cast<Slider>(find("SLI_MOVIE"));
     controls.SLI_MUSIC = std::static_pointer_cast<Slider>(find("SLI_MUSIC"));
     controls.SLI_VO = std::static_pointer_cast<Slider>(find("SLI_VO"));
 
-    usePageTitle(controls.LBL_TITLE);
     enableK2ButtonBodyFill(controls.BTN_BACK);
     enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
@@ -1203,12 +1195,10 @@ void OptionsMenu::loadMousePanel() {
     auto &controls = _mouseControls;
     controls.BTN_BACK = std::static_pointer_cast<Button>(find("BTN_BACK"));
     controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
-    controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_MOUSESEN = std::static_pointer_cast<Slider>(find("SLI_MOUSESEN"));
     showCheckBoxes(*_mouseGUI);
 
-    usePageTitle(controls.LBL_TITLE);
     enableK2ButtonBodyFill(controls.BTN_BACK);
     enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
