@@ -323,6 +323,11 @@ public:
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    static void configurePointerSelection(
+        Game &game,
+        Area &area,
+        StaticCamera &camera,
+        const std::vector<std::shared_ptr<Object>> &objects);
     static void prepareFadeArrival(Game &game);
     static void cacheActiveModule(Game &game, std::string name);
     static std::pair<glm::vec3, float> resolveModuleEntry(

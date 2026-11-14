@@ -7969,8 +7969,8 @@ std::shared_ptr<Object> Game::selectNearestObject(int direction) {
 
 // A pointer on no object picks the nearby object whose reticle point it is
 // closest to on screen. Its reach is a tenth of the screen's width and of its
-// height, taken together. Objects the leader does not see, and those on the
-// far side of the camera from the leader, are passed over.
+// height, taken together. Objects the leader does not see, and those outside
+// the camera's projected depth, are passed over.
 std::shared_ptr<Object> Game::nearestObjectToPointer(const Creature &leader, int x, int y) {
     // Without a camera nothing is near the pointer.
     const Camera *activeCamera = getActiveCamera();
@@ -7981,8 +7981,6 @@ std::shared_ptr<Object> Game::nearestObjectToPointer(const Creature &leader, int
     const auto camera = activeCamera->cameraSceneNode();
     const glm::mat4 projection(camera->camera()->projection());
     const glm::mat4 view(camera->camera()->view());
-    const glm::vec2 cameraPosition(camera->origin());
-    const glm::vec2 toLeader(glm::vec2(leader.position()) - cameraPosition);
     const GraphicsOptions &opts = _options.graphics;
     const float reachX = opts.width / 10.0f;
     const float reachY = opts.height / 10.0f;
@@ -7995,10 +7993,10 @@ std::shared_ptr<Object> Game::nearestObjectToPointer(const Creature &leader, int
         if (!object || !isNearestObjectSeen(entry, leader, *area)) {
             continue;
         }
-        if (glm::dot(toLeader, glm::vec2(object->position()) - cameraPosition) < 0.0f) {
+        const glm::vec3 coords(area->getSelectableScreenCoords(object, projection, view));
+        if (coords.z < 0.0f || coords.z > 1.0f) {
             continue;
         }
-        const glm::vec3 coords(area->getSelectableScreenCoords(object, projection, view));
         const glm::vec2 offset(opts.width * coords.x - x, opts.height * (1.0f - coords.y) - y);
         const float distance2 = glm::dot(offset, offset);
         if (distance2 <= reach2 && distance2 < nearest2) {
