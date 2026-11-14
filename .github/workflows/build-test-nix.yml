@@ -1,0 +1,95 @@
+name: Build and test with Nix
+# The Linux build through the flake: the compiler and libraries are the
+# ones flake.lock pins, the same ones `nix develop` gives a developer, so
+# there is no package list to keep in step with the code and a dependency
+# bump is a flake.lock change reviewed like any other. Building with cmake
+# and ninja outside Nix is unchanged.
+#
+# - evaluate: every flake output evaluates and the run wrapper's tests pass.
+#   Seconds; catches a broken flake before the long jobs start.
+# - linux: the dev shell's compiler and libraries, cmake and ninja with
+#   ccache (the compiled objects cached between runs, as before), the unit
+#   tests.
+# - package: the whole Nix package (every application, the unit tests, the
+#   install check), for release tags or by hand with "full". About 25
+#   minutes with nothing cached, and nothing in it is cacheable between
+#   commits, which is why it is not on every pull request.
+on:
+  push:
+    branches: [master]
+    # Release versions such as 0.22.0, not the moving nightly tag.
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Build the whole Nix package and run its checks (slow)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  # Only pushes to master share a group; other runs remain independent.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.ref || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Evaluate every flake output
+        run: nix flake check --no-build -L
+      - name: Run the wrapper tests
+        run: nix build -L .#checks.x86_64-linux.reone-run
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Configure ccache
+        # pch_defines,time_macros: as the old apt job. content: the compiler
+        # is a nixpkgs wrapper script whose mtime is fixed at epoch 1, so only
+        # its contents (the store path of the real compiler) tell versions
+        # apart.
+        run: |
+          echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPILERCHECK=content" >> "$GITHUB_ENV"
+      - uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: linux
+          max-size: 1G
+          evict-old-files: job
+          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      - name: Configure, build and run the unit tests in the dev shell
+        run: |
+          nix develop -L --command bash -eo pipefail -c '
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            cmake --build build
+            ctest --test-dir build --output-on-failure
+          '
+  package:
+    if: ${{ inputs.full || startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Build the package and run all checks
+        run: nix flake check -L
+  delete-superseded-ccache:
+    needs: linux
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    concurrency: delete-superseded-ccache-linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/delete-superseded-ccache
+        with:
+          key: ccache-linux-
