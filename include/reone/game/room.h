@@ -45,6 +45,7 @@ public:
         _model(std::move(model)),
         _walkmesh(std::move(walkmesh)) {
         computeBox();
+        _animated = _model && _model->model().getNodeByName(_model->model().name() + "a");
     }
 
     bool isVisible() const { return _visible; }
@@ -59,6 +60,12 @@ public:
     graphics::AABB box() const { return graphics::AABB(_boxMin, _boxMax); }
     /** Whether the room has background geometry. */
     bool hasBackgroundGeometry() const { return _backgroundGeometry; }
+    /**
+     * Whether the room's model is animated: it has a node named for the model
+     * with an "a" after it. An animated room is drawn wherever the leader
+     * stands, whatever the area's visibility says.
+     */
+    bool isAnimated() const { return _animated; }
 
     const std::string &name() const { return _name; }
     const glm::vec3 &position() const { return _position; }
@@ -93,6 +100,8 @@ private:
     glm::vec3 _boxMax {kEmptyBoxMax};
     /** See hasBackgroundGeometry. */
     bool _backgroundGeometry {false};
+    /** See isAnimated. */
+    bool _animated {false};
 
     std::set<Object *> _tenants;
     bool _visible {true};
