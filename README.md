@@ -1,6 +1,6 @@
 # reone
 
-[![Build Status](https://github.com/modawan/reone/actions/workflows/build-test-linux.yml/badge.svg)](https://github.com/modawan/reone/actions/workflows/build-test-linux.yml)
+[![Build Status](https://github.com/modawan/reone/actions/workflows/build-test-nix.yml/badge.svg)](https://github.com/modawan/reone/actions/workflows/build-test-nix.yml)
 
 reone is a free and open source game engine, capable of running Star Wars: Knights of the Old Republic and its sequel, The Sith Lords. We aim to provide an engine that can be used to:
 
@@ -51,6 +51,8 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+The "Build and test with Nix" workflow's `linux` job builds and tests in the flake's dev shell with ccache, so CI and `nix develop` share one compiler and one set of libraries.
 
 ## Usage
 
