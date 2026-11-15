@@ -6,7 +6,14 @@
 #include <cctype>
 #include <map>
 
+#include <functional>
+
+#include <boost/algorithm/string.hpp>
+
+#include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/gffreader.h"
+#include "reone/resource/gff.h"
+#include "reone/system/stream/memoryinput.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/fileinput.h"
 
@@ -77,7 +84,81 @@ SavedGame readSlot(
     return result;
 }
 
+std::optional<ByteBuffer> readArchived(
+    IInputStream &archive,
+    const std::function<bool(const resource::ResourceId &)> &wanted) {
+    archive.seek(0, SeekOrigin::Begin);
+    resource::ErfReader reader(archive);
+    reader.load();
+    for (size_t i = 0; i < reader.keys().size(); ++i) {
+        if (!wanted(reader.keys()[i].resId)) continue;
+        const auto &entry = reader.resources()[i];
+        ByteBuffer result(entry.size);
+        archive.seek(entry.offset, SeekOrigin::Begin);
+        if (!result.empty() && archive.read(result.data(), result.size()) != static_cast<int>(result.size())) {
+            throw std::runtime_error("short save archive read");
+        }
+        return result;
+    }
+    return std::nullopt;
+}
+
+std::shared_ptr<resource::Gff> decodeGff(ByteBuffer &bytes) {
+    MemoryInputStream stream(bytes);
+    resource::GffReader reader(stream);
+    reader.load();
+    return reader.root();
+}
+
+int controlledNpc(const std::filesystem::path &directory) {
+    for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+        if (!boost::iequals(entry.path().filename().string(), "partytable.res")) continue;
+        FileInputStream stream(entry.path());
+        resource::GffReader reader(stream);
+        reader.load();
+        return reader.root()->getInt("PT_CONTROLLED_NP", -1);
+    }
+    return -1;
+}
+
 } // namespace
+
+std::string savedGameCharacterName(const SavedGame &save) {
+    try {
+        FileInputStream archive(save.descriptor.archive);
+        if (controlledNpc(save.descriptor.directory) != -1) {
+            auto pc = readArchived(archive, [](const auto &id) {
+                return id.type == resource::ResType::Utc && id.resRef.value() == "pc";
+            });
+            if (pc) return decodeGff(*pc)->getString("FirstName");
+        }
+        // Every module state names the same player. A save made on a
+        // transition has no state for the module it enters, so any visited
+        // module's state then names the player instead.
+        const std::string lastModule = boost::to_lower_copy(save.metadata.lastModule);
+        auto playerIn = [&archive](const std::function<bool(const resource::ResourceId &)> &wanted) {
+            auto module = readArchived(archive, wanted);
+            if (!module) return std::string();
+            MemoryInputStream moduleStream(*module);
+            auto ifo = readArchived(moduleStream, [](const auto &id) {
+                return id.type == resource::ResType::Ifo;
+            });
+            if (!ifo) return std::string();
+            const auto players = decodeGff(*ifo)->getList("Mod_PlayerList");
+            return players.empty() ? std::string() : players.front()->getString("FirstName");
+        };
+        auto name = playerIn([&lastModule](const auto &id) {
+            return id.type == resource::ResType::Sav && id.resRef.value() == lastModule;
+        });
+        if (name.empty()) {
+            name = playerIn([](const auto &id) { return id.type == resource::ResType::Sav; });
+        }
+        return name;
+    } catch (const std::exception &e) {
+        warn("Error reading the character of saved game '" + save.descriptor.directory.string() + "': " + e.what());
+        return std::string();
+    }
+}
 
 std::filesystem::path savedGamesDirectory(const std::filesystem::path &gamePath) {
     std::error_code ec;

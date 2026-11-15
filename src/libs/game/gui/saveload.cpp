@@ -13,6 +13,9 @@
 #include "reone/graphics/format/tgareader.h"
 #include "reone/graphics/texture.h"
 #include "reone/gui/guis.h"
+#include "reone/resource/exception/notfound.h"
+#include "reone/resource/parser/gff/gui.h"
+#include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
@@ -31,6 +34,13 @@ constexpr int kStrRefSaveGame = 1588;
 constexpr int kStrRefLoad = 1589;
 constexpr int kStrRefConfirmOverwrite = 1591;
 constexpr int kStrRefConfirmDelete = 1592;
+constexpr int kStrRefChangeCharacter = 38693;
+
+// KotOR's arrows that change the character, in the layout's units: at the
+// ends of the title bar, level with the title.
+constexpr int kCharacterArrowLeft = 130;
+constexpr int kCharacterArrowRight = 490;
+constexpr int kCharacterArrowTop = 40;
 
 std::string playedTime(uint32_t seconds) {
     std::ostringstream out;
@@ -131,6 +141,7 @@ SaveBrowserActivation evaluateSaveBrowserActivation(
 void SaveLoad::onGUILoaded() {
     if (!_game.isTSL()) loadBackground(BackgroundType::Menu);
     bindControls();
+    if (!_controls.BTN_FILTER) addCharacterArrows();
     _controls.LBL_PLANETNAME->setVisible(false);
     _controls.LBL_AREANAME->setVisible(false);
     _controls.LB_GAMES->setSelectionMode(ListBox::SelectionMode::OnClick);
@@ -157,7 +168,15 @@ void SaveLoad::onGUILoaded() {
     });
     if (_controls.BTN_FILTER) {
         _controls.BTN_FILTER->setOnClick([this]() {
-            if (!_pendingRequestId) showNextCharacter();
+            if (!_pendingRequestId) showNextCharacter(1);
+        });
+    }
+    if (_controls.BTN_CHARLEFT) {
+        _controls.BTN_CHARLEFT->setOnClick([this]() {
+            if (!_pendingRequestId) showNextCharacter(-1);
+        });
+        _controls.BTN_CHARRIGHT->setOnClick([this]() {
+            if (!_pendingRequestId) showNextCharacter(1);
         });
     }
     _controls.BTN_BACK->setOnClick([this]() {
@@ -205,6 +224,12 @@ bool SaveLoad::handle(const input::Event &event) {
         }
         return _saveNameGUI->handle(event);
     }
+    // Left and right change the character, as the arrows do.
+    if (event.type == input::EventType::KeyDown && !_pendingRequestId &&
+        (event.key.code == input::KeyCode::Left || event.key.code == input::KeyCode::Right)) {
+        showNextCharacter(event.key.code == input::KeyCode::Left ? -1 : 1);
+        return true;
+    }
     return GameGUI::handle(event);
 }
 
@@ -229,10 +254,40 @@ void SaveLoad::render() {
     if (_saveNameVisible && _saveNameGUI) _saveNameGUI->render();
 }
 
+void SaveLoad::addCharacterArrows() {
+    const auto gff = _services.resource.gffs.get(guiResRef("map"), resource::ResType::Gui);
+    if (!gff) {
+        throw resource::ResourceNotFoundException("GUI not found: " + guiResRef("map"));
+    }
+    const auto layout = resource::generated::parseGUI(*gff);
+    auto up = std::find_if(layout.CONTROLS.begin(), layout.CONTROLS.end(), [](const auto &control) {
+        return control.TAG == "BTN_UP";
+    });
+    if (up == layout.CONTROLS.end()) {
+        throw resource::ResourceNotFoundException("GUI control not found: BTN_UP");
+    }
+    // The arrows are the map's, which step through its notes, turned to
+    // point sideways and drawn in this screen's colours.
+    auto addArrow = [this, &up](std::string tag, int left, Control::Border::FillTransform turn) {
+        auto arrow = *up;
+        arrow.TAG = std::move(tag);
+        arrow.EXTENT.LEFT = left;
+        arrow.EXTENT.TOP = kCharacterArrowTop;
+        auto control = std::shared_ptr<Control>(_gui->newControl(ControlType::Button, arrow.TAG));
+        control->load(arrow);
+        control->setBorderFillTransform(turn);
+        control->setHilightFillTransform(turn);
+        control->setBorderColor(_baseColor);
+        control->setHilightColor(_hilightColor);
+        _gui->addControlToFront(control, IGUI::ControlCoordinates::Authored);
+        return std::static_pointer_cast<Button>(control);
+    };
+    _controls.BTN_CHARLEFT = addArrow("BTN_CHARLEFT", kCharacterArrowLeft, Control::Border::FillTransform::Rotate270);
+    _controls.BTN_CHARRIGHT = addArrow("BTN_CHARRIGHT", kCharacterArrowRight, Control::Border::FillTransform::Rotate90);
+}
+
 void SaveLoad::refresh() {
     dismissTransientState();
-    _controls.LBL_PANELNAME->setTextMessage(_services.resource.strings.getText(
-        _mode == SaveLoadMode::Save ? kStrRefSaveGame : kStrRefLoadGame));
     _controls.BTN_SAVELOAD->setTextMessage(_services.resource.strings.getText(
         _mode == SaveLoadMode::Save ? kStrRefSave : kStrRefLoad));
     _controls.LBL_AREANAME->setVisible(false);
@@ -245,7 +300,6 @@ void SaveLoad::refresh() {
 // otherwise on the character of the first save.
 void SaveLoad::refreshCharacters() {
     _characters.clear();
-    if (!_game.isTSL()) return;
     for (const auto &save : _saves) {
         const auto &name = save.metadata.pcName;
         if (!name.empty() && std::find(_characters.begin(), _characters.end(), name) == _characters.end()) {
@@ -271,14 +325,13 @@ void SaveLoad::refreshCharacters() {
     }
 }
 
-void SaveLoad::showNextCharacter() {
+void SaveLoad::showNextCharacter(int step) {
     if (_characters.empty()) return;
+    const int count = static_cast<int>(_characters.size());
     auto shown = std::find(_characters.begin(), _characters.end(), _character.value_or(std::string()));
-    if (shown == _characters.end() || ++shown == _characters.end()) {
-        shown = _characters.begin();
-    }
-    _character = *shown;
-    refreshSavedGames();
+    const int index = shown == _characters.end() ? 0 : static_cast<int>(shown - _characters.begin());
+    _character = _characters[((index + step) % count + count) % count];
+    listSavedGames(0);
 }
 
 bool SaveLoad::isListed(const SavedGame &save) const {
@@ -309,10 +362,33 @@ void SaveLoad::activateSelection() {
 void SaveLoad::refreshSavedGames(int row) {
     _saves = detail::prepareSaveBrowserEntries(
         _game.savedGames(), _game.isTSL(), _mode);
+    if (!_game.isTSL()) {
+        for (auto &save : _saves) {
+            std::error_code ec;
+            const auto written = std::filesystem::last_write_time(save.descriptor.archive, ec);
+            auto known = _archivedCharacters.find(save.descriptor.directory);
+            if (ec || known == _archivedCharacters.end() || known->second.written != written) {
+                known = _archivedCharacters.insert_or_assign(
+                    save.descriptor.directory, ArchivedCharacter {written, savedGameCharacterName(save)}).first;
+            }
+            save.metadata.pcName = known->second.name;
+        }
+    }
     refreshCharacters();
+    listSavedGames(row);
+}
+
+void SaveLoad::listSavedGames(int row) {
+    // TSL names the shown character above the screenshot; KotOR's layout has
+    // no such label, and names it in the title.
+    std::string title = _services.resource.strings.getText(
+        _mode == SaveLoadMode::Save ? kStrRefSaveGame : kStrRefLoadGame);
     if (_controls.LBL_PCNAME) {
         _controls.LBL_PCNAME->setTextMessage(_character.value_or(std::string()));
+    } else if (_character) {
+        title += " - " + *_character;
     }
+    _controls.LBL_PANELNAME->setTextMessage(std::move(title));
     _selectedSaveSlot.reset();
     _controls.LBL_AREANAME->setTextMessage("");
     _controls.LBL_AREANAME->setVisible(false);

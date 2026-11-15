@@ -324,11 +324,27 @@ void Control::renderBorder(const Border &border,
     }
 
     if (part != BorderRenderPart::Frame && border.fill && fillSize.x > 0 && fillSize.y > 0) {
-        if (border.fillTransform == Border::FillTransform::Rotate180) {
+        switch (border.fillTransform) {
+        case Border::FillTransform::Rotate90:
+            uv = glm::mat3x4(
+                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+                glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+            break;
+        case Border::FillTransform::Rotate180:
             uv = glm::mat3x4(
                 glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
                 glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
                 glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
+            break;
+        case Border::FillTransform::Rotate270:
+            uv = glm::mat3x4(
+                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+            break;
+        default:
+            break;
         }
         auto blending = border.fill->features().blending == Texture::Blending::Additive
                             ? BlendMode::Additive

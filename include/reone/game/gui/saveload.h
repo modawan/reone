@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <filesystem>
+#include <map>
+
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
@@ -83,6 +86,8 @@ private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DELETE;
+        std::shared_ptr<gui::Button> BTN_CHARLEFT;
+        std::shared_ptr<gui::Button> BTN_CHARRIGHT;
         std::shared_ptr<gui::Button> BTN_FILTER;
         std::shared_ptr<gui::Button> BTN_SAVELOAD;
         std::shared_ptr<gui::ToggleButton> CB_CLOUDSAVE;
@@ -109,6 +114,12 @@ private:
     std::vector<std::string> _characters;
     /** The character whose saves the list shows; none until the list is first built. */
     std::optional<std::string> _character;
+    struct ArchivedCharacter {
+        std::filesystem::file_time_type written;
+        std::string name;
+    };
+    /** KotOR's character names by save directory, read again only when the archive is rewritten. */
+    std::map<std::filesystem::path, ArchivedCharacter> _archivedCharacters;
     std::optional<uint32_t> _selectedSaveSlot;
     std::optional<uint64_t> _pendingRequestId;
     std::unique_ptr<ConfirmPopup> _confirmation;
@@ -158,11 +169,15 @@ private:
      *        when the list is shorter; the first game is shown for row 0
      */
     void refreshSavedGames(int row = 0);
+    /** Fills the list with the shown character's saves, selecting as refreshSavedGames() does. */
+    void listSavedGames(int row);
+    /** KotOR's layout has no control to change the character: arrows are added either side of the title. */
+    void addCharacterArrows();
     void refreshSelection();
     /** Names the characters afresh, keeping the shown one while saves or the party still name it. */
     void refreshCharacters();
-    /** The list moves on to the next character's saves, and from the last to the first. */
-    void showNextCharacter();
+    /** The list moves \p step characters on, wrapping at either end. */
+    void showNextCharacter(int step);
     /** Whether the list shows the save: it names the shown character, or no character at all. */
     bool isListed(const SavedGame &save) const;
     /** The game of the row tagged \p tag is chosen and shown, as a click on the row does. */
