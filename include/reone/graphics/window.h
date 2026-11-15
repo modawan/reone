@@ -52,6 +52,15 @@ public:
     /** Present the frame, waiting for the display's refresh while the V-Sync option is on. */
     void swap();
 
+    /**
+     * Turns on or off the text the system translates the keys into: on, the
+     * window receives it, and the system may show its input method or
+     * on-screen keyboard. Whatever else turned it on or off, the window
+     * follows the system's own state.
+     */
+    void setTextInputActive(bool active);
+    bool isTextInputActive() const;
+
     bool isInFocus() const {
         return _inFocus;
     }

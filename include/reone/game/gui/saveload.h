@@ -58,6 +58,9 @@ SaveBrowserActivation evaluateSaveBrowserActivation(
 
 class SaveLoad : public GameGUI {
 public:
+    /** The save name takes typing while it is asked for. */
+    bool wantsTextInput() const override { return _saveNameVisible; }
+
     SaveLoad(Game &game, ServicesView &services) :
         GameGUI(game, services) {
         _resRef = guiResRef("saveload");

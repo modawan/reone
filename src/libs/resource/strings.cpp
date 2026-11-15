@@ -73,8 +73,12 @@ const TalkTable::String *Strings::findString(int strRef) const {
     return nullptr;
 }
 
-int Strings::languageId() const {
-    return _tables[0] ? static_cast<int>(_tables[0]->languageId()) : 0;
+CodePage codePageOfLanguage(Language language) {
+    return language == Language::Polish ? CodePage::Windows1250 : CodePage::Windows1252;
+}
+
+Language Strings::language() const {
+    return _tables[0] ? static_cast<Language>(_tables[0]->languageId()) : Language::English;
 }
 
 std::string Strings::getText(int strRef) {

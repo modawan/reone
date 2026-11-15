@@ -29,6 +29,10 @@ class Game;
 
 /** Strong gameplay facade for existing screen constructors and subclasses. */
 class GameGUI : public PresentationGUI {
+public:
+    /** Whether the screen has a text box that takes typing now. */
+    virtual bool wantsTextInput() const { return false; }
+
 protected:
     Game &_game;
     ServicesView &_services;
