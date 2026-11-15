@@ -430,7 +430,7 @@ void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> li
         _animChannels.push_front(std::move(running));
         return;
     }
-    AnimationChannel channel {anim, std::move(lipAnim), std::move(properties), resolveAnimationRoot(anim)};
+    AnimationChannel channel {anim, std::move(lipAnim), std::move(properties)};
     channel.weight = 0.0f;
     _animChannels.push_front(std::move(channel));
 }
@@ -450,7 +450,7 @@ void ModelSceneNode::playBase(Animation &anim, std::shared_ptr<LipAnimation> lip
     case AnimationBlendMode::Single:
         // In Single mode, clear channels and add animation on top
         _animChannels.clear();
-        _animChannels.push_front(AnimationChannel(anim, lipAnim, properties, resolveAnimationRoot(anim)));
+        _animChannels.push_front(AnimationChannel(anim, lipAnim, properties));
         break;
 
     case AnimationBlendMode::Blend: {
@@ -462,7 +462,7 @@ void ModelSceneNode::playBase(Animation &anim, std::shared_ptr<LipAnimation> lip
             _animChannels[0].transition = false;
             transition = true;
         }
-        _animChannels.push_front(AnimationChannel(anim, lipAnim, properties, resolveAnimationRoot(anim)));
+        _animChannels.push_front(AnimationChannel(anim, lipAnim, properties));
         if (transition) {
             _animChannels[0].transition = true;
             _animChannels[0].weight = 0.0f;
@@ -479,7 +479,7 @@ void ModelSceneNode::playBase(Animation &anim, std::shared_ptr<LipAnimation> lip
         if (_animBlendMode != AnimationBlendMode::Overlay) {
             _animChannels.clear();
         }
-        _animChannels.push_front(AnimationChannel(anim, lipAnim, properties, resolveAnimationRoot(anim)));
+        _animChannels.push_front(AnimationChannel(anim, lipAnim, properties));
         break;
 
     default:
@@ -767,7 +767,7 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     }
 
     if (wrapped) {
-        rearmSingleEmitters(channel.root);
+        rearmSingleEmitters(channel.anim->root());
     } else if (!loop && channel.time == (backwards ? 0.0f : length)) {
         channel.finished = true;
     }
@@ -800,21 +800,6 @@ static bool doesNodeHaveAncestor(const ModelNode &node, const std::string &name)
     return doesNodeHaveAncestor(*parent, name);
 }
 
-// Some retail models name an animation root they do not contain (TSL's
-// planet_04..planet_08 animations are rooted at planet_03). The fallback to
-// the whole model applies only when the name is stale: present in neither
-// the model nor the animation's own node tree. A root the animation tree
-// does contain is kept as-is, so a partial animation (e.g. an upper-body
-// layer) played on a skeleton that names its nodes differently keeps the
-// old behaviour of moving nothing, rather than animating the whole model.
-std::string ModelSceneNode::resolveAnimationRoot(const Animation &anim) const {
-    const std::string &root = anim.root();
-    if (root.empty() || _model->getNodeByName(root) || anim.getNodeByName(root)) {
-        return root;
-    }
-    return "";
-}
-
 void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
     for (auto &[number, node] : _nodeByNumber) {
         if (node->type() != SceneNodeType::Emitter ||
@@ -825,8 +810,13 @@ void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
     }
 }
 
+// An animation moves the model nodes its node tree pairs with, from the
+// model's animation root down (ModelNode::isAnimated). The root the
+// animation names limited its node tree to that node's branch when it was
+// made, so it limits nothing here: a root the model lacks leaves the
+// animation whole.
 void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode, const ModelNode &animNode) {
-    if (modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.root)) {
+    if (modelNode.isAnimated()) {
         AnimationState state;
         state.flags = 0;
 

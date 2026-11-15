@@ -84,7 +84,6 @@ public:
         graphics::Animation *anim;
         std::shared_ptr<graphics::LipAnimation> lipAnim;
         AnimationProperties properties;
-        std::string root; /**< node whose subtree the channel animates, empty for the whole model */
         float time {0.0f};
         std::unordered_map<uint16_t, AnimationState> stateByNodeNumber;
         bool freeze {false};     /**< channel time is not to be updated */
@@ -92,11 +91,10 @@ public:
         bool finished {false};   /**< finished channels will be erased from the queue */
         float weight {1.0f};     /**< how far a layer, or a channel blending in, pulls the nodes toward its own state */
 
-        AnimationChannel(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim, AnimationProperties properties, std::string root = "") :
+        AnimationChannel(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim, AnimationProperties properties) :
             anim(&anim),
             lipAnim(std::move(lipAnim)),
-            properties(std::move(properties)),
-            root(std::move(root)) {
+            properties(std::move(properties)) {
             // A channel starts at its start time; without one, a channel played
             // backwards starts at its end.
             if (this->properties.startTime > 0.0f) {
@@ -381,7 +379,6 @@ private:
 
     void updateAnimations(float dt);
     void updateAnimationChannel(AnimationChannel &channel, float dt);
-    std::string resolveAnimationRoot(const graphics::Animation &anim) const;
     void rearmSingleEmitters(const std::string &animationRoot);
     void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode, const graphics::ModelNode &animNode);
     void applyAnimationStates(const graphics::ModelNode &modelNode, size_t layers);
