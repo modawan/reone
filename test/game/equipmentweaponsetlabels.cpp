@@ -48,7 +48,7 @@ std::string labelText(const std::shared_ptr<RecordingGUI> &screen, const std::st
 }
 
 TEST_F(EquipmentWeaponSetLabels, tsl_equipment_updates_when_the_second_weapon_set_labels_are_absent) {
-    ScreenResources guis(options, scene, graphics, resources);
+    ScreenResources guis(options, keybindOptions, scene, graphics, resources);
     guis.absent = kSecondWeaponSetLabels;
     auto backing = weaponSets();
     auto equipment = std::make_shared<Equipment>(
@@ -70,7 +70,7 @@ TEST_F(EquipmentWeaponSetLabels, tsl_equipment_updates_when_the_second_weapon_se
 }
 
 TEST_F(EquipmentWeaponSetLabels, tsl_equipment_fills_the_second_weapon_set_labels_when_present) {
-    ScreenResources guis(options, scene, graphics, resources);
+    ScreenResources guis(options, keybindOptions, scene, graphics, resources);
     auto backing = weaponSets();
     auto equipment = std::make_shared<Equipment>(
         GameID::TSL, options, services(guis), resources.services().strings, backing, []() {});
@@ -91,7 +91,7 @@ TEST_F(EquipmentWeaponSetLabels, tsl_equipment_fills_the_second_weapon_set_label
 }
 
 TEST_F(EquipmentWeaponSetLabels, kotor_equipment_keeps_its_single_weapon_set) {
-    ScreenResources guis(options, scene, graphics, resources);
+    ScreenResources guis(options, keybindOptions, scene, graphics, resources);
     // KotOR has no second weapon set at all, labels included.
     guis.absent = kSecondWeaponSetLabels;
     auto backing = weaponSets();

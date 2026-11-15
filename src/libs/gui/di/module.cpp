@@ -22,7 +22,12 @@ namespace reone {
 namespace gui {
 
 void GUIModule::init() {
-    _guis = std::make_unique<GUIs>(_graphicsOpt, _scene.graphs(), _graphics.services(), _resource.services());
+    _guis = std::make_unique<GUIs>(
+        _graphicsOpt,
+        _keybindOpt,
+        _scene.graphs(),
+        _graphics.services(),
+        _resource.services());
     _services = std::make_unique<GUIServices>(*_guis);
 }
 

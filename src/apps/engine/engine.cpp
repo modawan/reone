@@ -148,6 +148,7 @@ void Engine::init() {
         *_audioModule);
     _guiModule = std::make_unique<GUIModule>(
         _options.graphics,
+        _options.game.activeKeybinds(),
         *_sceneModule,
         *_graphicsModule,
         *_resourceModule);

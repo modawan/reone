@@ -354,13 +354,14 @@ input::KeybindOptions loadKeybinds(const std::filesystem::path &path, const int 
     return result;
 }
 
-void saveKeybinds(const std::filesystem::path &path, const int index) {
+void saveKeybinds(const std::filesystem::path &path, input::KeybindOptions keybindOptions, const int index) {
     auto configuration = ConfigurationFile::read(path);
     const std::string kKeybindsSection = str(boost::format(kKeybindsSectionTemplate) % index);
     std::vector<ConfigurationValue> values;
     for (const auto &[key, option] : kKeybindOptionsKeys) {
-        values.emplace_back(str(boost::format("%sKeyCode") % key), static_cast<int>((this->*option).keyCode));
-        values.emplace_back(str(boost::format("%sKeyCodeAlt") % key), static_cast<int>((this->*option).keyCodeAlt));
+        values.emplace_back(str(boost::format("%sKeyCode") % key), static_cast<int>((keybindOptions.*option).keyCode));
+        values.emplace_back(str(boost::format("%sKeyCodeAlt") % key), static_cast<int>((keybindOptions.*option).keyCodeAlt));
+        //todo controller mappings
     }
     configuration.set(kKeybindsSection, values);
     configuration.write(path);

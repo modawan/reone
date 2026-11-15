@@ -126,13 +126,13 @@ public:
 
 class ScreenResources : public IGUIs {
 public:
-    ScreenResources(GraphicsOptions &options, scene::TestSceneModule &scene,
+    ScreenResources(GraphicsOptions &options, input::KeybindOptions &keybindOptions, scene::TestSceneModule &scene,
                     TestGraphicsModule &graphics, TestResourceModule &resources) :
-        options(options), scene(scene), graphics(graphics), resources(resources) {}
+        options(options), keybindOptions(keybindOptions), scene(scene), graphics(graphics), resources(resources) {}
     void clear() override { screens.clear(); }
     void updatePulsingAlpha(float) override {}
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
-        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), pulsingAlpha);
+        auto gui = std::make_shared<RecordingGUI>(options, keybindOptions, scene.graphs(), graphics.services(), resources.services(), pulsingAlpha);
         gui->name = name;
         gui->absent = absent;
         if (preload)
@@ -150,6 +150,7 @@ public:
 
 private:
     GraphicsOptions &options;
+    input::KeybindOptions &keybindOptions;
     scene::TestSceneModule &scene;
     TestGraphicsModule &graphics;
     TestResourceModule &resources;
@@ -192,6 +193,7 @@ public:
 class SharedPresentation : public Test {
 protected:
     GraphicsOptions options;
+    input::KeybindOptions keybindOptions;
     TestGraphicsModule graphics;
     TestResourceModule resources;
     scene::TestSceneModule scene;

@@ -32,10 +32,12 @@ namespace gui {
 class GUIModule : boost::noncopyable {
 public:
     GUIModule(graphics::GraphicsOptions &graphicsOpt,
+              input::KeybindOptions &keybindOpt,
               scene::SceneModule &scene,
               graphics::GraphicsModule &graphics,
               resource::ResourceModule &resource) :
         _graphicsOpt(graphicsOpt),
+        _keybindOpt(keybindOpt),
         _scene(scene),
         _graphics(graphics),
         _resource(resource) {
@@ -52,6 +54,7 @@ public:
 
 private:
     graphics::GraphicsOptions &_graphicsOpt;
+    input::KeybindOptions &_keybindOpt;
     scene::SceneModule &_scene;
     graphics::GraphicsModule &_graphics;
     resource::ResourceModule &_resource;

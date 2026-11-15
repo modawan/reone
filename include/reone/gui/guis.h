@@ -44,10 +44,12 @@ public:
 class GUIs : public IGUIs, boost::noncopyable {
 public:
     GUIs(graphics::GraphicsOptions &graphicsOpt,
+         input::KeybindOptions &keybindOpt,
          scene::ISceneGraphs &sceneGraphs,
          graphics::GraphicsServices &graphicsSvc,
          resource::ResourceServices &resourceSvc) :
         _graphicsOpt(graphicsOpt),
+        _keybindOpt(keybindOpt),
         _sceneGraphs(sceneGraphs),
         _graphicsSvc(graphicsSvc),
         _resourceSvc(resourceSvc) {
@@ -72,6 +74,7 @@ public:
 
 private:
     graphics::GraphicsOptions &_graphicsOpt;
+    input::KeybindOptions &_keybindOpt;
     scene::ISceneGraphs &_sceneGraphs;
     graphics::GraphicsServices &_graphicsSvc;
     resource::ResourceServices &_resourceSvc;

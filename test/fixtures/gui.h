@@ -70,6 +70,8 @@ public:
     MOCK_METHOD(void, addControlToBack, (std::shared_ptr<Control>, ControlCoordinates), (override));
 
     MOCK_METHOD(std::shared_ptr<Control>, findControl, (const std::string &), (const override));
+    input::KeybindOptions &keybindOptions() override { return _keybindOptions; }
+    input::KeybindOptions _keybindOptions;
 };
 
 class MockGUIs : public IGUIs, boost::noncopyable {

@@ -2322,10 +2322,11 @@ TEST(TransitionPresentationLayout, should_top_anchor_and_horizontally_center_aut
 TEST(TransitionPresentationLayout, should_uniformly_scale_and_top_anchor_the_authored_canvas) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
+    input::KeybindOptions keybindOptions;
     options.width = 3440;
     options.height = 1440;
     gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUI guiInstance(options, keybindOptions, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(640, 480);
     guiInstance.setScaling(gui::GUI::ScalingMode::ScaledTopCenter);
 
@@ -2395,11 +2396,12 @@ TEST(GameGUIScalingDefault, should_apply_default_scaling_to_main_menu) {
 TEST(GUIControlLayout, should_scale_text_uniformly_when_geometry_uses_different_axis_factors) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
+    input::KeybindOptions keybindOptions;
     options.width = 1920;
     options.height = 1080;
     options.guiTextScale = 1.25f;
     gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUI guiInstance(options, keybindOptions, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(640, 480);
     TestScaledControl control(guiInstance, engine);
     control.setAuthoredGeometry({20, 30, 200, 80}, 8, 8);
@@ -2428,10 +2430,11 @@ TEST(GalleryHUDPresentation, should_clear_capture_flags_without_a_loaded_gui) {
 TEST(GUIInputCoordinates, should_hit_screen_positioned_controls_without_authored_root_offset) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
+    input::KeybindOptions keybindOptions;
     options.width = 1920;
     options.height = 1080;
     gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUI guiInstance(options, keybindOptions, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(640, 480);
     guiInstance.setScaling(gui::GUI::ScalingMode::PositionRelativeToCenter);
 
@@ -2504,11 +2507,12 @@ TEST(CharGenDescriptionLayout, should_align_tsl_description_with_remaining_panel
 TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
+    input::KeybindOptions keybindOptions;
     options.width = 1920;
     options.height = 1080;
     options.guiBorderScale = 1.25f;
     gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUI guiInstance(options, keybindOptions, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
     guiInstance.setResolution(800, 600);
     guiInstance.setScaling(gui::GUI::ScalingMode::Scaled);
     TestScaledControl protoRow(guiInstance, engine);
@@ -2525,10 +2529,11 @@ TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {
 TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
+    input::KeybindOptions keybindOptions;
     options.guiListScale = 0.5f;
     options.guiTextScale = 0.75f;
     gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUI guiInstance(options, keybindOptions, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
 
     resource::generated::GUI_CONTROLS definition;
     definition.CONTROLTYPE = static_cast<int>(gui::ControlType::ListBox);

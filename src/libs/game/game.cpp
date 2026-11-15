@@ -6181,7 +6181,7 @@ void Game::saveMouseOptions() const {
 
 void Game::saveKeybindOptions() const {
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
-        _options.game.keybinds[i].save(_options.game.configurationPath, i);
+        saveKeybinds(_options.game.configurationPath, _options.game.keybinds[i], i);
     }
 }
 

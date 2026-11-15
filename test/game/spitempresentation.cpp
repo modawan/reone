@@ -116,7 +116,7 @@ TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_sele
     auto second = game.newItem();
     second->deserialize(*secondRecord, SerializedIdentityContext::templateResource());
     player->addItem(second);
-    ScreenResources guis(options, scene, graphics, resources);
+    ScreenResources guis(options, keybindOptions, scene, graphics, resources);
     auto backing = newEquipmentMenuBacking(game, engine.services());
     Equipment screen(GameID::KotOR, options, services(guis), resources.services().strings, backing, []() {});
     screen.init();

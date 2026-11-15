@@ -21,7 +21,7 @@ namespace {
 
 TEST_F(SharedPresentation, real_presenters_route_distinct_state_and_commands_without_gameplay_objects) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
-        ScreenResources left(options, scene, graphics, resources), right(options, scene, graphics, resources);
+        ScreenResources left(options, keybindOptions, scene, graphics, resources), right(options, keybindOptions, scene, graphics, resources);
         auto first = items("First", 101, 3), second = items("Second", 202, 7);
         auto inv1 = std::make_shared<InventoryMenu>(gameId, options, services(left), first, []() {});
         auto inv2 = std::make_shared<InventoryMenu>(gameId, options, services(right), second, []() {});
@@ -108,7 +108,7 @@ TEST_F(SharedPresentation, real_presenters_route_distinct_state_and_commands_wit
 TEST_F(SharedPresentation, late_result_after_leaving_and_reopening_does_not_dismiss_fresh_selection) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
         SCOPED_TRACE(static_cast<int>(gameId));
-        ScreenResources guis(options, scene, graphics, resources);
+        ScreenResources guis(options, keybindOptions, scene, graphics, resources);
         auto backing = items("Original", 71, 3);
         auto equipment = std::make_shared<Equipment>(gameId, options, services(guis),
             resources.services().strings, backing, []() {});
@@ -183,7 +183,7 @@ TEST_F(SharedPresentation, late_result_after_leaving_and_reopening_does_not_dism
 TEST_F(SharedPresentation, delayed_result_in_same_session_refreshes_from_backing) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
         SCOPED_TRACE(static_cast<int>(gameId));
-        ScreenResources guis(options, scene, graphics, resources);
+        ScreenResources guis(options, keybindOptions, scene, graphics, resources);
         auto backing = items("Pending", 81, 3);
         auto equipment = std::make_shared<Equipment>(gameId, options, services(guis),
             resources.services().strings, backing, []() {});
@@ -220,7 +220,7 @@ TEST_F(SharedPresentation, replacing_a_pending_backing_ignores_its_late_result_e
         for (bool releaseFirst : {false, true}) {
             SCOPED_TRACE(static_cast<int>(gameId));
             SCOPED_TRACE(releaseFirst);
-            ScreenResources guis(options, scene, graphics, resources);
+            ScreenResources guis(options, keybindOptions, scene, graphics, resources);
             auto oldBacking = items("Old", 71, 3);
             auto newBacking = items("New", 71, 7);
             auto equipment = std::make_shared<Equipment>(gameId, options, services(guis),
@@ -264,7 +264,7 @@ TEST_F(SharedPresentation, replacing_a_pending_backing_ignores_its_late_result_e
 }
 
 TEST_F(SharedPresentation, registration_and_availability_work_in_both_directions) {
-    ScreenResources guis(options, scene, graphics, resources);
+    ScreenResources guis(options, keybindOptions, scene, graphics, resources);
     auto backing = items("Item", 1, 1);
     auto screen = std::make_shared<InventoryMenu>(GameID::KotOR, options, services(guis), backing, []() {});
     screen->init();
@@ -292,7 +292,7 @@ TEST_F(SharedPresentation, registration_and_availability_work_in_both_directions
 }
 
 TEST_F(SharedPresentation, independent_hosts_refresh_supplied_k2_titles_and_footers_on_reopening) {
-    ScreenResources left(options, scene, graphics, resources), right(options, scene, graphics, resources);
+    ScreenResources left(options, keybindOptions, scene, graphics, resources), right(options, keybindOptions, scene, graphics, resources);
     auto first = items("First", 1, 2), second = items("Second", 1, 4);
     auto inv1 = std::make_shared<InventoryMenu>(GameID::TSL, options, services(left), first, []() {});
     auto inv2 = std::make_shared<InventoryMenu>(GameID::TSL, options, services(right), second, []() {});
@@ -357,7 +357,7 @@ protected:
 };
 
 TEST_F(SharedPresentation, common_initialization_preserves_virtual_preload_and_event_dispatch) {
-    ScreenResources guis(options, scene, graphics, resources);
+    ScreenResources guis(options, keybindOptions, scene, graphics, resources);
     PresentationProbe screen(GameID::KotOR, options, services(guis));
     screen.init();
     EXPECT_EQ(1, screen.preloads);

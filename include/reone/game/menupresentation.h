@@ -73,7 +73,7 @@ int loadActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
 void saveActiveKeybinds(const std::filesystem::path &path, int activeKeybinds);
 
 input::KeybindOptions loadKeybinds(const std::filesystem::path &path, const int index);
-void saveKeybinds(const std::filesystem::path &path, const int index);
+void saveKeybinds(const std::filesystem::path &path, input::KeybindOptions keybindOptions, const int index);
 
 /** Each bit of the unlocked planet songs opens one group of the main menu's music list; there are eleven. */
 constexpr int kAllPlanetSongs = 0x7ff;

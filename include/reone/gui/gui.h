@@ -129,6 +129,8 @@ public:
      */
     virtual float scale() const = 0;
 
+    virtual input::KeybindOptions &keybindOptions() = 0;
+
     /** Independent presentation dials owned by the live graphics options. */
     virtual float textScale() const = 0;
     virtual float textLayoutScale(float horizontalScale, float verticalScale) const = 0;
@@ -167,11 +169,13 @@ class GUI : public IGUI, boost::noncopyable {
 public:
     GUI(
         graphics::GraphicsOptions &options,
+        input::KeybindOptions &keybindOptions,
         scene::ISceneGraphs &sceneGraphs,
         graphics::GraphicsServices &graphicsSvc,
         resource::ResourceServices &resourceSvc,
         const PulsingAlpha &pulsingAlpha) :
         _options(options),
+        _keybindOptions(keybindOptions),
         _sceneGraphs(sceneGraphs),
         _graphicsSvc(graphicsSvc),
         _resourceSvc(resourceSvc),
@@ -214,6 +218,10 @@ public:
         default:
             return 1.0f;
         }
+    }
+
+    input::KeybindOptions &keybindOptions() override {
+        return _keybindOptions;
     }
 
     void setEventListener(IGUIEventListener &listener) override {
@@ -291,6 +299,7 @@ public:
 
 private:
     graphics::GraphicsOptions &_options;
+    input::KeybindOptions &_keybindOptions;
 
     IGUIEventListener *_eventListener {nullptr};
 
