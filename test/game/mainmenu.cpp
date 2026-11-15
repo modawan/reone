@@ -11,6 +11,9 @@
 #include <gtest/gtest.h>
 #include <fstream>
 
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include "../fixtures/engine.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/mainmenu.h"
@@ -245,11 +248,44 @@ TEST_F(MainMenuTest, cold_entry_keeps_persisted_state_and_k1_keeps_its_original_
     ASSERT_TRUE(graph->camera());
     camera = graph->camera()->get().camera();
     ASSERT_TRUE(camera);
-    float aspect = 800.0f / 600.0f;
-    expected = glm::ortho(-aspect * 1.4f, aspect * 1.4f, -1.4f, 1.4f, kDefaultClipPlaneNear, 10.0f);
+    // KotOR's menu is framed as TSL's is.
+    expected = glm::perspective(glm::radians(22.7259998f), 800.0f / 600.0f, 0.1f, 10000.0f);
     EXPECT_EQ(expected, camera->projection());
     menu->refreshScene();
     EXPECT_EQ(malak.lock(), graph->roots.front().lock());
+}
+
+TEST_F(MainMenuTest, k1_menu_shows_the_backdrop_plane_behind_its_camerahook) {
+    // KotOR's mainmenu model hangs its camerahook at (0, -6.11, 1.19), turned
+    // to look along +Y, and stands its backdrop plane, 4.8 tall, at y 5.84;
+    // Override mods put a wider plane there. The camera must reach the plane,
+    // and the plane must fill the view's height.
+    auto root = std::make_shared<ModelNode>(0, "mainmenu", glm::vec3(0.0f), glm::quat(1, 0, 0, 0), true, nullptr);
+    const glm::vec3 hookPosition(0.0f, -6.11f, 1.19f);
+    auto hook = std::make_shared<ModelNode>(1, "camerahook", hookPosition, glm::angleAxis(glm::half_pi<float>(), glm::vec3(1, 0, 0)), true, root.get());
+    root->addChild(hook);
+    auto k1Model = std::make_shared<Model>("mainmenu", 0, root, std::vector<std::shared_ptr<Animation>> {}, "", 1.0f);
+    k1Model->init();
+    ON_CALL(engine.resourceModule().models(), get("mainmenu")).WillByDefault(Return(k1Model));
+    create(GameID::KotOR);
+    MainMenuTestAccess::setup(*menu);
+    ASSERT_TRUE(graph->camera());
+    auto &cameraNode = graph->camera()->get();
+    auto camera = cameraNode.camera();
+    ASSERT_TRUE(camera);
+    glm::mat4 view = glm::inverse(cameraNode.absoluteTransform());
+    auto project = [&](const glm::vec3 &world) {
+        glm::vec4 clip = camera->projection() * view * glm::vec4(world, 1.0f);
+        return glm::vec3(clip) / clip.w;
+    };
+    const glm::vec3 centre(0.0f, 5.84f, hookPosition.z);
+    auto ndc = project(centre);
+    EXPECT_GT(ndc.z, -1.0f);
+    EXPECT_LT(ndc.z, 1.0f);
+    EXPECT_NEAR(0.0f, ndc.x, 1e-4f);
+    EXPECT_NEAR(0.0f, ndc.y, 1e-4f);
+    auto top = project(centre + glm::vec3(0.0f, 0.0f, 2.4f));
+    EXPECT_NEAR(1.0f, top.y, 0.01f);
 }
 
 TEST_F(MainMenuTest, missing_variant_resource_drops_previous_scene_and_leader) {
