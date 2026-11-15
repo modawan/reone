@@ -483,6 +483,203 @@ TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root)
     EXPECT_NEAR(6.0f, rootPosition.z, 1e-5);
 }
 
+TEST(ModelSceneNode, should_animate_whole_model_when_animation_root_names_a_missing_node) {
+    // given: TSL's planet_04 was copied from planet_03: its animations are
+    // still rooted at planet_03, a node planet_04 does not contain, and their
+    // node tree, copied with them, is still named after it.
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(
+        0, "planet_04", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto animRootNode = std::make_shared<ModelNode>(
+        0, "planet_03", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    animRootNode->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    animRootNode->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(1.0f, 2.0f, 3.0f));
+
+    auto animations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("zoomin", 1.0f, 0.0f, "planet_03", animRootNode, std::vector<Animation::Event>())};
+    auto model = std::make_shared<Model>("planet_04", 0, rootNode, animations, "", 1.0f);
+    auto modelSceneNode = std::make_shared<ModelSceneNode>(
+        model,
+        ModelUsage::Placeable,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    // when
+    modelSceneNode->init();
+    modelSceneNode->playAnimation("zoomin", nullptr, AnimationProperties());
+    modelSceneNode->update(0.5f);
+
+    // then
+    auto rootSceneNode = modelSceneNode->getNodeByName("planet_04");
+    ASSERT_TRUE(static_cast<bool>(rootSceneNode));
+    const auto &rootPosition = rootSceneNode->localTransform()[3];
+    EXPECT_NEAR(0.5f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(1.0f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(1.5f, rootPosition.z, 1e-5);
+}
+
+TEST(ModelSceneNode, should_animate_only_the_branch_an_animation_tree_holds) {
+    // given: an animation rooted at "arm" holds, as a made animation does,
+    // only the branch from the root down to "arm" and below it, with tracks
+    // on "arm" and its child "hand"; the model also has a "leg".
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto makeNode = [](uint16_t number, const std::string &name, bool animated, ModelNode *parent) {
+        auto node = std::make_shared<ModelNode>(
+            number, name, glm::vec3(0.0f),
+            glm::quat(1.0f, 0.0f, 0.0f, 0.0f), animated, parent);
+        if (parent) {
+            parent->addChild(node);
+        }
+        return node;
+    };
+    auto addPositionTrack = [](ModelNode &node, glm::vec3 end) {
+        node.vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+        node.vectorTracks()[ControllerTypes::position].add(1.0f, end);
+    };
+
+    auto rootNode = makeNode(0, "root_node", true, nullptr);
+    auto arm = makeNode(1, "arm", true, rootNode.get());
+    makeNode(2, "hand", true, arm.get());
+    makeNode(3, "leg", true, rootNode.get());
+
+    auto animRootNode = makeNode(0, "root_node", false, nullptr);
+    auto animArm = makeNode(1, "arm", false, animRootNode.get());
+    auto animHand = makeNode(2, "hand", false, animArm.get());
+    addPositionTrack(*animArm, glm::vec3(1.0f, 2.0f, 3.0f));
+    addPositionTrack(*animHand, glm::vec3(4.0f, 5.0f, 6.0f));
+
+    auto animations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("wave", 1.0f, 0.0f, "arm", animRootNode, std::vector<Animation::Event>())};
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
+    auto modelSceneNode = std::make_shared<ModelSceneNode>(
+        model,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    // when
+    modelSceneNode->init();
+    modelSceneNode->playAnimation("wave", nullptr, AnimationProperties());
+    modelSceneNode->update(1.0f);
+
+    // then
+    auto armSceneNode = modelSceneNode->getNodeByName("arm");
+    auto handSceneNode = modelSceneNode->getNodeByName("hand");
+    auto legSceneNode = modelSceneNode->getNodeByName("leg");
+    ASSERT_TRUE(static_cast<bool>(armSceneNode));
+    ASSERT_TRUE(static_cast<bool>(handSceneNode));
+    ASSERT_TRUE(static_cast<bool>(legSceneNode));
+    EXPECT_NEAR(1.0f, armSceneNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(2.0f, armSceneNode->localTransform()[3].y, 1e-5);
+    EXPECT_NEAR(3.0f, armSceneNode->localTransform()[3].z, 1e-5);
+    EXPECT_NEAR(4.0f, handSceneNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(5.0f, handSceneNode->localTransform()[3].y, 1e-5);
+    EXPECT_NEAR(6.0f, handSceneNode->localTransform()[3].z, 1e-5);
+    EXPECT_NEAR(0.0f, legSceneNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(0.0f, legSceneNode->localTransform()[3].y, 1e-5);
+    EXPECT_NEAR(0.0f, legSceneNode->localTransform()[3].z, 1e-5);
+}
+
+TEST(ModelSceneNode, should_not_animate_nodes_above_the_models_animation_root) {
+    // given: a model whose animation root is its "body", below its root; the
+    // animation carries tracks on both.
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto makeNode = [](uint16_t number, const std::string &name, bool animated, ModelNode *parent) {
+        auto node = std::make_shared<ModelNode>(
+            number, name, glm::vec3(0.0f),
+            glm::quat(1.0f, 0.0f, 0.0f, 0.0f), animated, parent);
+        if (parent) {
+            parent->addChild(node);
+        }
+        return node;
+    };
+    auto addPositionTrack = [](ModelNode &node, glm::vec3 end) {
+        node.vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+        node.vectorTracks()[ControllerTypes::position].add(1.0f, end);
+    };
+
+    auto rootNode = makeNode(0, "root_node", false, nullptr);
+    makeNode(1, "body", true, rootNode.get());
+
+    auto animRootNode = makeNode(0, "root_node", false, nullptr);
+    auto animBody = makeNode(1, "body", false, animRootNode.get());
+    addPositionTrack(*animRootNode, glm::vec3(7.0f, 8.0f, 9.0f));
+    addPositionTrack(*animBody, glm::vec3(1.0f, 2.0f, 3.0f));
+
+    auto animations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("move", 1.0f, 0.0f, "", animRootNode, std::vector<Animation::Event>())};
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
+    auto modelSceneNode = std::make_shared<ModelSceneNode>(
+        model,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    // when
+    modelSceneNode->init();
+    modelSceneNode->playAnimation("move", nullptr, AnimationProperties());
+    modelSceneNode->update(1.0f);
+
+    // then
+    auto rootSceneNode = modelSceneNode->getNodeByName("root_node");
+    auto bodySceneNode = modelSceneNode->getNodeByName("body");
+    ASSERT_TRUE(static_cast<bool>(rootSceneNode));
+    ASSERT_TRUE(static_cast<bool>(bodySceneNode));
+    EXPECT_NEAR(0.0f, rootSceneNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(0.0f, rootSceneNode->localTransform()[3].y, 1e-5);
+    EXPECT_NEAR(0.0f, rootSceneNode->localTransform()[3].z, 1e-5);
+    EXPECT_NEAR(1.0f, bodySceneNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(2.0f, bodySceneNode->localTransform()[3].y, 1e-5);
+    EXPECT_NEAR(3.0f, bodySceneNode->localTransform()[3].z, 1e-5);
+}
+
 TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearance_head) {
     // given: Game 5's cut003w proxy has no local clip on pmhb05, but carries
     // matching facial nodes whose tracks close the player's eyes.

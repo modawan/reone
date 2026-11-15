@@ -810,8 +810,13 @@ void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
     }
 }
 
+// An animation moves the model nodes its node tree pairs with, from the
+// model's animation root down (ModelNode::isAnimated). The root the
+// animation names limited its node tree to that node's branch when it was
+// made, so it limits nothing here: a root the model lacks leaves the
+// animation whole.
 void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode, const ModelNode &animNode) {
-    if (modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.anim->root())) {
+    if (modelNode.isAnimated()) {
         AnimationState state;
         state.flags = 0;
 
