@@ -887,7 +887,7 @@ void Area::loadLYT() {
         std::shared_ptr<WalkmeshSceneNode> walkmeshSceneNode;
         auto walkmesh = _services.resource.walkmeshes.get(lytRoom.name, ResType::Wok);
         if (walkmesh) {
-            walkmeshSceneNode = sceneGraph.newWalkmesh(*walkmesh);
+            walkmeshSceneNode = sceneGraph.newWalkmesh(walkmesh);
             sceneGraph.addRoot(walkmeshSceneNode);
             uniwalkLoadRoom(_pathfinder.uni, *walkmesh, walkableSurfaces);
         }
@@ -899,7 +899,7 @@ void Area::loadLYT() {
         // Model
         std::shared_ptr<ModelSceneNode> modelSceneNode;
         if (model) {
-            modelSceneNode = sceneGraph.newModel(*model, ModelUsage::Room);
+            modelSceneNode = sceneGraph.newModel(model, ModelUsage::Room);
             modelSceneNode->setLocalTransform(glm::translate(glm::mat4(1.0f), position));
 
             // Mark room objects as static when not below "{modelName}a" model node
@@ -961,7 +961,7 @@ void Area::buildGrass() {
     properties.quadSize = _grass.quadSize;
     properties.probabilities = _grass.probabilities;
     properties.materials = _services.game.surfaces.getGrassSurfaces();
-    properties.texture = _grass.texture.get();
+    properties.texture = _grass.texture;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     for (auto *room : _roomOrder) {
         auto aabbNode = room->model() ? room->model()->model().getAABBNode() : nullptr;
@@ -1805,7 +1805,7 @@ void Area::presentVisualAt(int visualEffectId, const glm::vec3 &position) {
     const VisualEffectDesc &desc = *found;
     if (desc.locationModel) {
         auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-        auto model = sceneGraph.newModel(*desc.locationModel, ModelUsage::Projectile);
+        auto model = sceneGraph.newModel(desc.locationModel, ModelUsage::Projectile);
         sceneGraph.addRoot(model);
         model->setLocalTransform(glm::translate(position));
         model->playAnimation("impact");
@@ -1860,7 +1860,7 @@ void Area::presentHitSpark(const Creature &target, int visualEffectId, const glm
     spark.orientation = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
                         glm::angleAxis(kHitSparkTilt, glm::vec3(1.0f, 0.0f, 0.0f));
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-    spark.model = sceneGraph.newModel(*desc.impactModel, ModelUsage::Projectile);
+    spark.model = sceneGraph.newModel(desc.impactModel, ModelUsage::Projectile);
     sceneGraph.addRoot(spark.model);
     spark.model->setLocalTransform(glm::translate(node->origin()) * glm::mat4_cast(spark.orientation));
     spark.model->playAnimation("impact");

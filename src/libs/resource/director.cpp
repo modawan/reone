@@ -32,11 +32,6 @@
 #include "reone/resource/parser/gff/git.h"
 #include "reone/resource/parser/gff/ifo.h"
 #include "reone/resource/provider/2das.h"
-#include "reone/resource/provider/dialogs.h"
-#include "reone/resource/provider/gffs.h"
-#include "reone/resource/provider/lips.h"
-#include "reone/resource/provider/paths.h"
-#include "reone/resource/provider/scripts.h"
 #include "reone/resource/resources.h"
 #include "reone/script/di/services.h"
 #include "reone/system/fileutil.h"
@@ -121,8 +116,8 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
  * Validate and atomically replace the loaded save session.
  *
  * Candidate construction validates the working-state archive first. Committing
- * retires decoded GFF entries from the prior session; a rejected candidate
- * leaves the active session and cache untouched.
+ * retires the prior session's sources, and with them every decoded value read
+ * from them; a rejected candidate leaves the active session untouched.
  */
 void ResourceDirector::onGameLoad(std::string_view name) {
     commitSaveSession(buildSaveSession(name));
@@ -229,11 +224,10 @@ void ResourceDirector::commitModuleLoad(
         throw ValidationException("Prepared module load is missing");
     }
 
-    _dialogs.clear();
-    _paths.clear();
-    _scripts.clear();
-    _lips.clear();
-    _gffs.clear();
+    // Retiring the outgoing module's sources is what retires everything
+    // decoded from them: provider caches stop serving a value once a lookup
+    // it was read from would be answered differently. Values read from
+    // global sources stay cached across the transition.
     _resources.clearOwner(ResourceOwner::ActiveModule);
     _resources.clearOwner(ResourceOwner::ActiveModuleState);
 
@@ -255,14 +249,12 @@ void ResourceDirector::commitModuleLoad(
 void ResourceDirector::commitSaveSession(std::unique_ptr<SaveSessionState> candidate) {
     _resources.clearOwner(ResourceOwner::SaveSlot);
     _saveSession = std::move(candidate);
-    _gffs.clear();
 }
 
 void ResourceDirector::onNewGame() {
     _resources.clearOwner(ResourceOwner::SaveSlot);
     _resources.clearOwner(ResourceOwner::ActiveModuleState);
     _saveSession = std::make_unique<SaveSessionState>();
-    _gffs.clear();
 }
 
 std::optional<Resource> ResourceDirector::findSaveMetadata(const ResourceId &id) {

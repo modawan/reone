@@ -20,7 +20,6 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/arrayref.h
     ${SYSTEM_INCLUDE_DIR}/binaryreader.h
     ${SYSTEM_INCLUDE_DIR}/binarywriter.h
-    ${SYSTEM_INCLUDE_DIR}/cache.h
     ${SYSTEM_INCLUDE_DIR}/cast.h
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
     ${SYSTEM_INCLUDE_DIR}/clipboard.h

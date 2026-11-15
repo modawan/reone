@@ -47,8 +47,6 @@ TEST(TwoDAs, should_get_2da_with_caching) {
 
     auto twoDa1 = twoDas.get("sample");
 
-    resources.clear();
-
     auto twoDa2 = twoDas.get("sample");
 
     // then

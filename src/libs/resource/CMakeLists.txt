@@ -26,6 +26,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/container/keybif.h
     ${RESOURCE_INCLUDE_DIR}/container/memory.h
     ${RESOURCE_INCLUDE_DIR}/container/rim.h
+    ${RESOURCE_INCLUDE_DIR}/decodedcache.h
     ${RESOURCE_INCLUDE_DIR}/di/module.h
     ${RESOURCE_INCLUDE_DIR}/di/services.h
     ${REONE_INCLUDE_DIR}/reone/extract/capsule.h

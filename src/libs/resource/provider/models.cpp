@@ -39,20 +39,21 @@ std::shared_ptr<Model> Models::get(const std::string &resRef) {
     if (resRef.empty()) {
         return nullptr;
     }
-    auto lcResRef = boost::to_lower_copy(resRef);
-    auto maybeModel = _cache.find(lcResRef);
-    if (maybeModel != _cache.end()) {
-        return maybeModel->second;
-    }
-    auto inserted = _cache.insert(std::make_pair(lcResRef, doGet(lcResRef)));
-    return inserted.first->second;
+    return entry(resRef).value;
 }
 
-std::shared_ptr<Model> Models::doGet(const std::string &resRef) {
+const Models::ModelCache::Entry &Models::entry(const std::string &resRef) {
+    auto lcResRef = boost::to_lower_copy(resRef);
+    return _cache.get(lcResRef, [this, &lcResRef](ResourceReads &reads) {
+        return doGet(lcResRef, reads);
+    });
+}
+
+std::shared_ptr<Model> Models::doGet(const std::string &resRef, ResourceReads &reads) {
     debug("Load model " + resRef, LogChannel::Graphics);
 
-    auto mdlRes = _resources.find(ResourceId(resRef, ResType::Mdl));
-    auto mdxRes = _resources.find(ResourceId(resRef, ResType::Mdx));
+    auto mdlRes = reads.find(_resources, ResourceId(resRef, ResType::Mdl));
+    auto mdxRes = reads.find(_resources, ResourceId(resRef, ResType::Mdx));
     std::shared_ptr<Model> model;
 
     if (mdlRes && mdxRes) {
@@ -63,8 +64,10 @@ std::shared_ptr<Model> Models::doGet(const std::string &resRef) {
             reader.load();
             model = reader.model();
             if (!model->superModelName().empty()) {
-                auto superModel = get(model->superModelName());
-                model->setSuperModel(std::move(superModel));
+                // A model is only as current as the supermodel it was built on.
+                auto &superModel = entry(model->superModelName());
+                reads.add(superModel.reads);
+                model->setSuperModel(superModel.value);
             }
             model->init();
         } catch (const ValidationException &e) {
