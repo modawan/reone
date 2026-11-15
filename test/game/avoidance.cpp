@@ -152,3 +152,25 @@ TEST(CreatureAvoidance, the_way_round_a_companion_keeps_to_the_walkmesh) {
     EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
     EXPECT_LE(glm::abs(fixture.pc->position().y), kHalfWidth);
 }
+
+// On a floor that is not at height zero, the way in from inside the hexagon is
+// still the corner nearest the walker. The corners stand on the ground and the
+// walker's point is taken flat (zero height), so a distance in three
+// dimensions picked the lowest corner, which can lie across the creature's
+// flank: the leg to it ran into the creature again and the walk ended.
+// Measured on a sloping floor at about height 29.
+TEST(CreatureAvoidance, the_way_in_from_inside_the_hexagon_is_the_nearest_corner_seen_from_above) {
+    const glm::vec3 companion(219.476f, 140.429f, 29.04f);
+    const glm::vec3 stepDir(-0.93f, 0.37f, 0.0f);
+    // Lower to the east and the north.
+    const auto ground = [](const glm::vec2 &p) { return 29.0f - 0.2f * (p.x - 219.476f) - 0.15f * (p.y - 140.429f); };
+    const AvoidanceHex hex = computeAvoidanceHex(companion, stepDir, 0.955f, ground);
+    const glm::vec3 leader(220.049f, 139.861f, 0.0f);
+    int nearest = 0;
+    for (int i = 1; i < 6; ++i) {
+        if (glm::distance2(glm::vec2(hex.v[i]), glm::vec2(leader)) < glm::distance2(glm::vec2(hex.v[nearest]), glm::vec2(leader))) {
+            nearest = i;
+        }
+    }
+    EXPECT_EQ(nearest, closestAvoidanceHexCorner(hex, leader));
+}
