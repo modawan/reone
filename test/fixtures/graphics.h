@@ -131,7 +131,7 @@ public:
     MockTextureRegistry();
     ~MockTextureRegistry() override;
 
-    MOCK_METHOD(Texture &, get, (const std::string &), (override));
+    MOCK_METHOD(std::shared_ptr<Texture>, get, (const std::string &), (override));
 };
 
 class MockUniforms : public IUniforms, boost::noncopyable {

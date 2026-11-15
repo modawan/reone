@@ -55,8 +55,6 @@ TEST(Gffs, should_get_gff_with_caching) {
 
     auto gff1 = gffs.get("sample", ResType::Gff);
 
-    resources.clear();
-
     auto gff2 = gffs.get("sample", ResType::Gff);
 
     // then

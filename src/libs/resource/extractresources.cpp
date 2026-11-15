@@ -31,19 +31,24 @@ namespace reone {
 
 namespace resource {
 
+namespace {
+
+auto holds(const ResourceId &id) {
+    return [&id](const auto &source) { return source.holds(id); };
+}
+
+} // namespace
+
 void ExtractResources::addKEY(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto index = std::make_shared<std::unordered_map<ResourceId, extract::FileResource>>();
     extract::Chitin chitin(path);
     for (auto &res : chitin.resources()) {
         index->emplace(res.id(), res);
     }
-    addSource(ResourceOwner::Global, bucket, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
-        auto it = index->find(id);
-        if (it == index->end()) {
-            return std::nullopt;
-        }
-        return it->second.readData();
-    });
+    addSource(
+        ResourceOwner::Global, bucket, ResourceSourceForm::KeyBif, path,
+        [index](const ResourceId &id) { return index->count(id) != 0; },
+        [index](const ResourceId &id) { return index->at(id).readData(); });
 }
 
 /**
@@ -62,33 +67,44 @@ void ExtractResources::addKEY(const std::filesystem::path &path, std::optional<R
  * on demand, exactly as before.
  */
 void ExtractResources::addERF(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
-    auto capsule = std::make_shared<extract::LazyCapsule>(path);
-    capsule->load();
-    addSource(owner, bucket, [capsule](const ResourceId &id) -> std::optional<ByteBuffer> {
-        auto res = capsule->find(id);
-        if (!res) {
-            return std::nullopt;
-        }
-        return res->readData();
-    });
+    addCapsule(path, owner, bucket, ResourceSourceForm::Erf);
 }
 
 void ExtractResources::addRIM(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     // LazyCapsule picks the reader by file extension; the director only mounts
     // RIMs from *.rim paths.
-    addERF(path, owner, bucket);
+    addCapsule(path, owner, bucket, ResourceSourceForm::Rim);
+}
+
+void ExtractResources::addCapsule(const std::filesystem::path &path,
+                                  ResourceOwner owner,
+                                  std::optional<ResourceSourceBucket> bucket,
+                                  ResourceSourceForm form) {
+    auto capsule = std::make_shared<extract::LazyCapsule>(path);
+    capsule->load();
+    addSource(
+        owner, bucket, form, path,
+        [capsule](const ResourceId &id) { return capsule->find(id).has_value(); },
+        [capsule](const ResourceId &id) { return capsule->find(id)->readData(); });
 }
 
 void ExtractResources::addMemArchive(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket, bool rim) {
     auto bytes = std::make_shared<ByteBuffer>(std::move(buffer));
     auto index = std::make_shared<std::unordered_map<ResourceId, std::pair<uint32_t, uint32_t>>>();
 
+    // An entry whose payload lies outside the archive holds nothing, so a
+    // lookup passes over it to the next source.
+    auto indexEntry = [&bytes, &index](const ResourceId &id, uint32_t offset, uint32_t size) {
+        if (offset + static_cast<size_t>(size) <= bytes->size()) {
+            index->emplace(id, std::make_pair(offset, size));
+        }
+    };
     MemoryInputStream stream(*bytes);
     if (rim) {
         RimReader reader(stream);
         reader.load();
         for (auto &res : reader.resources()) {
-            index->emplace(res.resId, std::make_pair(res.offset, res.size));
+            indexEntry(res.resId, res.offset, res.size);
         }
     } else {
         ErfReader reader(stream);
@@ -96,21 +112,17 @@ void ExtractResources::addMemArchive(ByteBuffer buffer, ResourceOwner owner, std
         auto &keys = reader.keys();
         auto &resources = reader.resources();
         for (size_t i = 0; i < keys.size() && i < resources.size(); ++i) {
-            index->emplace(keys[i].resId, std::make_pair(resources[i].offset, resources[i].size));
+            indexEntry(keys[i].resId, resources[i].offset, resources[i].size);
         }
     }
 
-    addSource(owner, bucket, [bytes, index](const ResourceId &id) -> std::optional<ByteBuffer> {
-        auto it = index->find(id);
-        if (it == index->end()) {
-            return std::nullopt;
-        }
-        auto [offset, size] = it->second;
-        if (offset + static_cast<size_t>(size) > bytes->size()) {
-            return std::nullopt;
-        }
-        return ByteBuffer(bytes->begin() + offset, bytes->begin() + offset + size);
-    });
+    addSource(
+        owner, bucket, rim ? ResourceSourceForm::Rim : ResourceSourceForm::Erf, {},
+        [index](const ResourceId &id) { return index->count(id) != 0; },
+        [bytes, index](const ResourceId &id) {
+            auto [offset, size] = index->at(id);
+            return ByteBuffer(bytes->begin() + offset, bytes->begin() + offset + size);
+        });
 }
 
 void ExtractResources::addMemERF(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
@@ -134,19 +146,19 @@ void ExtractResources::addFolder(const std::filesystem::path &path, ResourceOwne
             }
         }
     }
-    addSource(owner, bucket, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
-        auto it = index->find(id);
-        if (it == index->end()) {
-            return std::nullopt;
-        }
-        auto stream = openGameInputStream(it->second);
-        ByteBuffer buf;
-        buf.resize(static_cast<size_t>(std::filesystem::file_size(it->second)));
-        if (!buf.empty()) {
-            stream->read(buf.data(), buf.size());
-        }
-        return buf;
-    });
+    addSource(
+        owner, bucket, ResourceSourceForm::Folder, path,
+        [index](const ResourceId &id) { return index->count(id) != 0; },
+        [index](const ResourceId &id) {
+            auto &file = index->at(id);
+            auto stream = openGameInputStream(file);
+            ByteBuffer buf;
+            buf.resize(static_cast<size_t>(std::filesystem::file_size(file)));
+            if (!buf.empty()) {
+                stream->read(buf.data(), buf.size());
+            }
+            return buf;
+        });
 }
 
 void ExtractResources::addEXE(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
@@ -172,13 +184,10 @@ void ExtractResources::addEXE(const std::filesystem::path &path, std::optional<R
             path);
         index->emplace(res.id(), std::move(res));
     }
-    addSource(ResourceOwner::Global, bucket, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
-        auto it = index->find(id);
-        if (it == index->end()) {
-            return std::nullopt;
-        }
-        return it->second.readData();
-    });
+    addSource(
+        ResourceOwner::Global, bucket, ResourceSourceForm::Executable, path,
+        [index](const ResourceId &id) { return index->count(id) != 0; },
+        [index](const ResourceId &id) { return index->at(id).readData(); });
 }
 
 Resource ExtractResources::get(const ResourceId &id) {
@@ -196,16 +205,27 @@ std::optional<Resource> ExtractResources::find(const ResourceId &id) {
 std::optional<Resource> ExtractResources::findExcludingOwners(
     const ResourceId &id,
     const std::set<ResourceOwner> &excludedOwners) {
-    for (auto &source : _sources) {
-        if (excludedOwners.count(source.owner) != 0) {
-            continue;
-        }
-        auto data = source.find(id);
-        if (data) {
-            return Resource {std::move(*data)};
-        }
+    auto source = _sources.resolve(holds(id), excludedOwners);
+    if (!source) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return Resource {source->read(id), SourceList::sourceRef(*source)};
+}
+
+std::optional<ResourceSourceRef> ExtractResources::locate(const ResourceId &id) const {
+    auto source = _sources.resolve(holds(id));
+    if (!source) {
+        return std::nullopt;
+    }
+    return SourceList::sourceRef(*source);
+}
+
+std::vector<ResourceSourceRef> ExtractResources::explain(const ResourceId &id) const {
+    std::vector<ResourceSourceRef> sources;
+    for (auto source : _sources.candidates(holds(id))) {
+        sources.push_back(SourceList::sourceRef(*source));
+    }
+    return sources;
 }
 
 } // namespace resource

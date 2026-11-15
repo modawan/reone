@@ -307,8 +307,8 @@ public:
     // Factory methods
 
     virtual std::shared_ptr<CameraSceneNode> newCamera() = 0;
-    virtual std::shared_ptr<ModelSceneNode> newModel(graphics::Model &model, ModelUsage usage) = 0;
-    virtual std::shared_ptr<WalkmeshSceneNode> newWalkmesh(graphics::Walkmesh &walkmesh) = 0;
+    virtual std::shared_ptr<ModelSceneNode> newModel(std::shared_ptr<graphics::Model> model, ModelUsage usage) = 0;
+    virtual std::shared_ptr<WalkmeshSceneNode> newWalkmesh(std::shared_ptr<graphics::Walkmesh> walkmesh) = 0;
     virtual std::shared_ptr<TriggerSceneNode> newTrigger(std::vector<glm::vec3> geometry) = 0;
     virtual std::shared_ptr<SoundSceneNode> newSound() = 0;
     virtual std::shared_ptr<DummySceneNode> newDummy(graphics::ModelNode &modelNode) = 0;
@@ -473,8 +473,8 @@ public:
     // Factory methods
 
     std::shared_ptr<CameraSceneNode> newCamera() override;
-    std::shared_ptr<ModelSceneNode> newModel(graphics::Model &model, ModelUsage usage) override;
-    std::shared_ptr<WalkmeshSceneNode> newWalkmesh(graphics::Walkmesh &walkmesh) override;
+    std::shared_ptr<ModelSceneNode> newModel(std::shared_ptr<graphics::Model> model, ModelUsage usage) override;
+    std::shared_ptr<WalkmeshSceneNode> newWalkmesh(std::shared_ptr<graphics::Walkmesh> walkmesh) override;
     std::shared_ptr<TriggerSceneNode> newTrigger(std::vector<glm::vec3> geometry) override;
     std::shared_ptr<SoundSceneNode> newSound() override;
 

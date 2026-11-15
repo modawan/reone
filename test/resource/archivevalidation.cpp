@@ -245,7 +245,7 @@ protected:
         _gamePath = gamePath;
         return std::make_unique<ResourceDirector>(
             GameID::TSL, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            _dialogs, _gffs, _lips, _paths, *_resources, *_auxResources, _scripts, _twoDas);
+            *_resources, *_auxResources, _twoDas);
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {
@@ -260,11 +260,6 @@ protected:
     graphics::TestGraphicsModule _graphics;
     script::TestScriptModule _script;
 
-    NiceMock<MockDialogs> _dialogs;
-    NiceMock<MockGffs> _gffs;
-    NiceMock<MockLips> _lips;
-    NiceMock<MockPaths> _paths;
-    NiceMock<MockScripts> _scripts;
     NiceMock<MockTwoDAs> _twoDas;
 
     std::filesystem::path _gamePath;

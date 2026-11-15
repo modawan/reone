@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "../decodedcache.h"
 #include "../types.h"
 
 namespace reone {
@@ -30,7 +31,6 @@ class Model;
 
 namespace resource {
 
-class IResources;
 class Textures;
 
 class IModels {
@@ -56,13 +56,16 @@ public:
     std::shared_ptr<graphics::Model> get(const std::string &resRef) override;
 
 private:
+    using ModelCache = DecodedCache<std::string, graphics::Model>;
+
     Textures &_textures;
     IResources &_resources;
     graphics::IStatistic &_statistic;
 
-    std::unordered_map<std::string, std::shared_ptr<graphics::Model>> _cache;
+    ModelCache _cache;
 
-    std::shared_ptr<graphics::Model> doGet(const std::string &resRef);
+    const ModelCache::Entry &entry(const std::string &resRef);
+    std::shared_ptr<graphics::Model> doGet(const std::string &resRef, ResourceReads &reads);
 };
 
 } // namespace resource

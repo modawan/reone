@@ -308,7 +308,7 @@ TEST_F(MainMenuTest, replacing_one_scene_releases_its_arena_without_touching_gam
     scenes.reserve(kSceneMain);
     scenes.reserve(kSceneMainMenu);
     auto &main = scenes.get(kSceneMain);
-    auto gameplay = main.newModel(*models.front(), ModelUsage::Creature);
+    auto gameplay = main.newModel(models.front(), ModelUsage::Creature);
     main.addRoot(gameplay);
     EXPECT_CALL(engine.graphicsModule().context(), resetReadFramebuffer()).Times(5);
     EXPECT_CALL(engine.graphicsModule().context(), resetDrawFramebuffer()).Times(5);
@@ -317,7 +317,7 @@ TEST_F(MainMenuTest, replacing_one_scene_releases_its_arena_without_touching_gam
         scenes.reset(kSceneMainMenu);
         EXPECT_TRUE(previous.expired());
         EXPECT_EQ(&main, &scenes.get(kSceneMain));
-        auto node = scenes.get(kSceneMainMenu).newModel(*models.front(), ModelUsage::GUI);
+        auto node = scenes.get(kSceneMainMenu).newModel(models.front(), ModelUsage::GUI);
         scenes.get(kSceneMainMenu).addRoot(node);
         previous = node;
     }

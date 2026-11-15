@@ -76,24 +76,41 @@ public:
     std::optional<Resource> findExcludingOwners(
         const ResourceId &id,
         const std::set<ResourceOwner> &excludedOwners) override;
+    std::optional<ResourceSourceRef> locate(const ResourceId &id) const override;
+    std::vector<ResourceSourceRef> explain(const ResourceId &id) const override;
+    std::uint64_t generation() const override { return _sources.generation(); }
 
     size_t sourceCount() const { return _sources.size(); }
 
 private:
+    /// A mounted source: whether it has a resource, and how to read one it has.
     struct Source {
         ResourceOwner owner;
         std::optional<ResourceSourceBucket> bucket;
+        ResourceSourceForm form;
+        std::filesystem::path path;
         ResourceMountToken sequence {0};
-        std::function<std::optional<ByteBuffer>(const ResourceId &)> find;
+        std::function<bool(const ResourceId &)> holds;
+        std::function<ByteBuffer(const ResourceId &)> read;
     };
 
-    ResourceSourceList<Source> _sources;
+    using SourceList = ResourceSourceList<Source>;
+
+    SourceList _sources;
 
     void addSource(ResourceOwner owner,
                    std::optional<ResourceSourceBucket> bucket,
-                   std::function<std::optional<ByteBuffer>(const ResourceId &)> find) {
-        _sources.add(Source {owner, bucket, 0, std::move(find)});
+                   ResourceSourceForm form,
+                   std::filesystem::path path,
+                   std::function<bool(const ResourceId &)> holds,
+                   std::function<ByteBuffer(const ResourceId &)> read) {
+        _sources.add(Source {owner, bucket, form, std::move(path), 0, std::move(holds), std::move(read)});
     }
+
+    void addCapsule(const std::filesystem::path &path,
+                    ResourceOwner owner,
+                    std::optional<ResourceSourceBucket> bucket,
+                    ResourceSourceForm form);
 
     void addMemArchive(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket, bool rim);
 };

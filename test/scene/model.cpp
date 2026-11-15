@@ -60,8 +60,8 @@ TEST(SceneInitializer, defaults_to_orthographic_projection_and_default_depth) {
     auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
 
     auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
-    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model->init();
 
     gui::SceneInitializer(*scene)
         .aspect(2.5f)
@@ -91,8 +91,8 @@ TEST(SceneInitializer, perspective_uses_requested_fov_aspect_and_depth) {
     auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
 
     auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
-    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model->init();
     constexpr float kVerticalFov = glm::radians(35.0f);
 
     gui::SceneInitializer(*scene)
@@ -128,8 +128,8 @@ TEST(SceneInitializer, camera_tracks_authored_model_hook_after_initialization) {
     auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
     auto cameraHook = std::make_shared<ModelNode>(1, "camerahook", glm::vec3(3.0f, 4.0f, 5.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
     rootNode->addChild(cameraHook);
-    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model->init();
     std::shared_ptr<ModelSceneNode> sceneModel;
 
     gui::SceneInitializer(*scene)
@@ -166,8 +166,8 @@ TEST(SceneInitializer, static_camera_hook_preserves_local_camera_transform) {
     auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
     auto cameraHook = std::make_shared<ModelNode>(1, "camerahook", glm::vec3(3.0f, 4.0f, 5.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
     rootNode->addChild(cameraHook);
-    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model->init();
 
     gui::SceneInitializer(*scene)
         .modelSupplier([&model](ISceneGraph &graph) {
@@ -217,7 +217,7 @@ TEST(ModelSceneNode, should_build_from_model) {
     emitterNode->setEmitter(emitter);
     rootNode->addChild(emitterNode);
 
-    auto model = Model("some_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,
@@ -265,7 +265,7 @@ struct OverlayModelFixture {
     std::unique_ptr<SceneGraph> scene;
     std::shared_ptr<ModelNode> rootNode;
     std::vector<std::shared_ptr<Animation>> animations;
-    std::unique_ptr<Model> model;
+    std::shared_ptr<Model> model;
     std::shared_ptr<ModelSceneNode> node;
 
     explicit OverlayModelFixture(const std::vector<std::string> &names) {
@@ -284,8 +284,8 @@ struct OverlayModelFixture {
             animations.push_back(std::make_shared<Animation>(
                 name, 0.0f, 0.0f, "", animRoot, std::vector<Animation::Event>()));
         }
-        model = std::make_unique<Model>("hud_model", 0, rootNode, animations, "", 1.0f);
-        node = std::make_shared<ModelSceneNode>(*model, ModelUsage::Placeable, *scene,
+        model = std::make_shared<Model>("hud_model", 0, rootNode, animations, "", 1.0f);
+        node = std::make_shared<ModelSceneNode>(model, ModelUsage::Placeable, *scene,
                                                 graphicsModule.services(),
                                                 audioModule.services(),
                                                 resourceModule.services());
@@ -398,7 +398,7 @@ TEST(ModelSceneNode, should_play_single_fire_forget_animation) {
     auto animations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("some_animation", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
 
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
 
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
@@ -456,7 +456,7 @@ TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root)
     auto external = std::make_shared<Animation>(
         "cut003w", 1.0f, 0.0f, "", proxyRoot,
         std::vector<Animation::Event>());
-    auto model = Model(
+    auto model = std::make_shared<Model>(
         "pmbbs", 0, liveRoot,
         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
@@ -534,10 +534,10 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
     auto external = std::make_shared<Animation>(
         "cut003w", 1.0f, 0.0f, "", proxyRoot,
         std::vector<Animation::Event>());
-    auto bodyModel = Model(
+    auto bodyModel = std::make_shared<Model>(
         "pmbbs", 0, bodyRoot,
         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-    auto headModel = Model(
+    auto headModel = std::make_shared<Model>(
         "pmhb05", 0, headRoot,
         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
     auto accessoryRoot = std::make_shared<ModelNode>(
@@ -549,7 +549,7 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
     auto accessoryOverlay = std::make_shared<Animation>(
         "local_overlay", 1.0f, 0.0f, "", accessoryAnimRoot,
         std::vector<Animation::Event>());
-    auto accessoryModel = Model(
+    auto accessoryModel = std::make_shared<Model>(
         "unrelated_creature_attachment", 0, accessoryRoot,
         std::vector<std::shared_ptr<Animation>> {accessoryOverlay}, "", 1.0f);
     auto body = std::make_shared<ModelSceneNode>(
@@ -618,7 +618,7 @@ TEST(ModelSceneNode, should_play_single_looping_animation) {
     auto animations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("some_animation", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
 
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,
@@ -689,13 +689,13 @@ TEST(ModelSceneNode, should_compose_world_transforms_of_animated_chain_and_attac
     auto animation = std::make_shared<Animation>(
         "pose", 1.0f, 0.0f, "root", animRoot, std::vector<Animation::Event>());
 
-    auto bodyModel = Model(
+    auto bodyModel = std::make_shared<Model>(
         "body", 0, root,
         std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
     auto propRoot = std::make_shared<ModelNode>(
         0, "prop", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
-    auto propModel = Model(
+    auto propModel = std::make_shared<Model>(
         "prop", 0, propRoot,
         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
     auto body = std::make_shared<ModelSceneNode>(
@@ -753,8 +753,8 @@ TEST(ModelSceneNode, should_restart_a_completed_queued_animation_explicitly) {
     animRootNode->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
     animRootNode->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(4.0f, 0.0f, 0.0f));
     auto animation = std::make_shared<Animation>("presentation", 1.0f, 0.0f, "root_node", animRootNode, std::vector<Animation::Event>());
-    auto model = Model("animated_model", 0, rootNode, std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("animated_model", 0, rootNode, std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
+    model->init();
 
     auto modelSceneNode = scene->newModel(model, ModelUsage::GUI);
     modelSceneNode->init();
@@ -791,8 +791,8 @@ TEST(ModelSceneNode, should_not_restart_an_animation_that_is_not_queued) {
     auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
     auto queued = std::make_shared<Animation>("queued", 1.0f, 0.0f, "root_node", nullptr, std::vector<Animation::Event>());
     auto notQueued = std::make_shared<Animation>("not_queued", 1.0f, 0.0f, "root_node", nullptr, std::vector<Animation::Event>());
-    auto model = Model("animated_model", 0, rootNode, std::vector<std::shared_ptr<Animation>> {queued, notQueued}, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("animated_model", 0, rootNode, std::vector<std::shared_ptr<Animation>> {queued, notQueued}, "", 1.0f);
+    model->init();
 
     auto modelSceneNode = scene->newModel(model, ModelUsage::GUI);
     modelSceneNode->init();
@@ -819,8 +819,8 @@ TEST(ModelSceneNode, should_restart_only_the_requested_overlay_channel) {
     auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
     auto first = std::make_shared<Animation>("first", 2.0f, 0.0f, "root_node", nullptr, std::vector<Animation::Event>());
     auto second = std::make_shared<Animation>("second", 2.0f, 0.0f, "root_node", nullptr, std::vector<Animation::Event>());
-    auto model = Model("animated_model", 0, rootNode, std::vector<std::shared_ptr<Animation>> {first, second}, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("animated_model", 0, rootNode, std::vector<std::shared_ptr<Animation>> {first, second}, "", 1.0f);
+    model->init();
 
     auto modelSceneNode = scene->newModel(model, ModelUsage::GUI);
     modelSceneNode->init();
@@ -871,7 +871,7 @@ TEST(ModelSceneNode, should_play_two_overlayed_animations) {
         std::make_shared<Animation>("animation1", 1.0f, 0.5f, "root_node", anim1RootNode, std::vector<Animation::Event>()),
         std::make_shared<Animation>("animation2", 2.0f, 0.5f, "root_node", anim2RootNode, std::vector<Animation::Event>())};
 
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,
@@ -937,7 +937,7 @@ TEST(ModelSceneNode, hould_transition_between_two_animations) {
         std::make_shared<Animation>("animation1", 1.0f, 0.5f, "root_node", anim1RootNode, std::vector<Animation::Event>()),
         std::make_shared<Animation>("animation2", 2.0f, 0.5f, "root_node", anim2RootNode, std::vector<Animation::Event>())};
 
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,
@@ -988,7 +988,7 @@ TEST(ModelSceneNode, pick_model_at) {
     rootNode->addChild(dummyNode);
 
     std::vector<std::shared_ptr<Animation>> animations;
-    auto dummyModel = Model("dummy1", 0, rootNode, animations, "", 1.0f);
+    auto dummyModel = std::make_shared<Model>("dummy1", 0, rootNode, animations, "", 1.0f);
 
     auto dummy1 = std::make_shared<ModelSceneNode>(
         dummyModel,
@@ -1071,14 +1071,14 @@ TEST(ModelSceneNode, should_propagate_animation_object_to_creature_attachment) {
     auto bodyAnimations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("some_animation", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
 
-    auto bodyModel = Model("some_body", 0, bodyRootNode, bodyAnimations, "", 1.0f);
+    auto bodyModel = std::make_shared<Model>("some_body", 0, bodyRootNode, bodyAnimations, "", 1.0f);
 
     // head model, without any animation of its own
     auto headRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
     auto eyelidNode = std::make_shared<ModelNode>(1, "eyelid_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, headRootNode.get());
     headRootNode->addChild(eyelidNode);
 
-    auto headModel = Model("some_head", 0, headRootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto headModel = std::make_shared<Model>("some_head", 0, headRootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
 
     auto bodySceneNode = std::make_shared<ModelSceneNode>(
         bodyModel,
@@ -1106,7 +1106,7 @@ TEST(ModelSceneNode, should_propagate_animation_object_to_creature_attachment) {
     // then: the head plays the body animation object, not a lookup by name
     auto &headChannels = headSceneNode->animationChannels();
     ASSERT_EQ(1ll, headChannels.size());
-    EXPECT_EQ(bodyModel.getAnimation("some_animation").get(), headChannels[0].anim);
+    EXPECT_EQ(bodyModel->getAnimation("some_animation").get(), headChannels[0].anim);
 
     // then: the body controller reaches the node that only the head owns
     auto eyelidSceneNode = headSceneNode->getNodeByName("eyelid_node");
@@ -1148,7 +1148,7 @@ TEST(ModelSceneNode, should_keep_equipment_attachment_animation_local) {
     auto bodyAnimations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("some_animation", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
 
-    auto bodyModel = Model("some_body", 0, bodyRootNode, bodyAnimations, "", 1.0f);
+    auto bodyModel = std::make_shared<Model>("some_body", 0, bodyRootNode, bodyAnimations, "", 1.0f);
 
     // weapon model, with a local retracted blade animation
     auto weaponRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
@@ -1163,7 +1163,7 @@ TEST(ModelSceneNode, should_keep_equipment_attachment_animation_local) {
     auto weaponAnimations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("off", 1.0f, 0.5f, "root_node", offAnimRootNode, std::vector<Animation::Event>())};
 
-    auto weaponModel = Model("some_weapon", 0, weaponRootNode, weaponAnimations, "", 1.0f);
+    auto weaponModel = std::make_shared<Model>("some_weapon", 0, weaponRootNode, weaponAnimations, "", 1.0f);
 
     auto bodySceneNode = std::make_shared<ModelSceneNode>(
         bodyModel,
@@ -1193,7 +1193,7 @@ TEST(ModelSceneNode, should_keep_equipment_attachment_animation_local) {
     EXPECT_EQ("off", weaponSceneNode->activeAnimationName());
     auto &weaponChannels = weaponSceneNode->animationChannels();
     ASSERT_EQ(1ll, weaponChannels.size());
-    EXPECT_EQ(weaponModel.getAnimation("off").get(), weaponChannels[0].anim);
+    EXPECT_EQ(weaponModel->getAnimation("off").get(), weaponChannels[0].anim);
 
     // then: the body controller does not reach the weapon blade
     auto bladeSceneNode = weaponSceneNode->getNodeByName("blade_node");
@@ -1229,7 +1229,7 @@ TEST(ModelSceneNode, should_keep_lip_animation_alive_for_channel_lifetime) {
     auto animations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("talk", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
 
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,

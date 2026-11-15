@@ -95,7 +95,7 @@ void ModelSceneNode::buildNodeTree(ModelNode &node, SceneNode &parent) {
         if (!reference->modelName.empty()) {
             auto model = _resourceSvc.models.get(reference->modelName);
             if (model) {
-                auto refModelNode = _sceneGraph.newModel(*model, _usage);
+                auto refModelNode = _sceneGraph.newModel(model, _usage);
                 refModelNode->init();
                 attach(node.name(), *refModelNode);
             }
@@ -288,7 +288,7 @@ SceneNode *ModelSceneNode::getAttachment(const std::string &parentName) {
     return it != _attachments.end() ? it->second : nullptr;
 }
 
-void ModelSceneNode::setMainTexture(Texture *texture) {
+void ModelSceneNode::setMainTexture(std::shared_ptr<Texture> texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setMainTexture(texture);
@@ -296,7 +296,7 @@ void ModelSceneNode::setMainTexture(Texture *texture) {
     }
 }
 
-void ModelSceneNode::setEnvironmentMap(Texture *texture) {
+void ModelSceneNode::setEnvironmentMap(std::shared_ptr<Texture> texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setEnvironmentMap(texture);
@@ -1127,10 +1127,10 @@ std::string ModelSceneNode::activeAnimationName() const {
     return channel.anim->name();
 }
 
-void ModelSceneNode::setModel(Model &model) {
+void ModelSceneNode::setModel(std::shared_ptr<Model> model) {
     _children.clear();
 
-    _model = &model;
+    _model = std::move(model);
 
     _nodeByName.clear();
     _nodeByNumber.clear();

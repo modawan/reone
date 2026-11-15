@@ -25,8 +25,8 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<Visibility> Visibilities::doGet(std::string resRef) {
-    auto res = _resources.find(ResourceId(resRef, ResType::Vis));
+std::shared_ptr<Visibility> Visibilities::doGet(const std::string &resRef, ResourceReads &reads) {
+    auto res = reads.find(_resources, ResourceId(resRef, ResType::Vis));
     if (!res) {
         return nullptr;
     }
