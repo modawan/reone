@@ -38,9 +38,12 @@ void FolderResourceContainer::loadDirectory(const std::filesystem::path &path) {
         if (!entry.path().has_extension()) {
             continue;
         }
-        auto resRef = boost::to_lower_copy(entry.path().filename().replace_extension("").string());
         auto ext = boost::to_lower_copy(entry.path().extension().string().substr(1));
-        auto resType = getResTypeByExt(ext);
+        auto resType = getResTypeByExt(ext, false);
+        if (resType == ResType::Invalid) {
+            continue;
+        }
+        auto resRef = boost::to_lower_copy(entry.path().filename().replace_extension("").string());
         auto resId = ResourceId(resRef, resType);
 
         Resource res;
