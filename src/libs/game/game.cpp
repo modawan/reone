@@ -5950,10 +5950,10 @@ void Game::advanceToTime(int hours, int minutes, int seconds, int milliseconds) 
         month %= kCalendarMonthsInYear + 1;
     }
 
-    uint32_t calendarDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
-    calendarDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
-    calendarDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
-    _worldTimeMilliseconds = static_cast<uint64_t>(calendarDay) * millisecondsPerWorldDay() + timeOfDay;
+    uint32_t newDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
+    newDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
+    newDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
+    _worldTimeMilliseconds = static_cast<uint64_t>(newDay) * millisecondsPerWorldDay() + timeOfDay;
 }
 
 // The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
