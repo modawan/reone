@@ -86,6 +86,9 @@ void SceneGraph::clear() {
     // An emptied scene has no fog, and the frame is black where nothing is
     // drawn until the next area sets its fog.
     setFog(FogProperties());
+
+    // Clear nodes by type: opaque, transparent, blended, shell, etc.
+    refresh();
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
