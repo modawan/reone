@@ -30,7 +30,7 @@ void FolderResourceContainer::init() {
 
 void FolderResourceContainer::loadDirectory(const std::filesystem::path &path) {
     for (auto &entry : std::filesystem::directory_iterator(path)) {
-        if (std::filesystem::is_directory(entry.path())) {
+        if (entry.is_directory()) {
             loadDirectory(entry.path());
             continue;
         }
