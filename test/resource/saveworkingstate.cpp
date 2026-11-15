@@ -10,6 +10,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/format/erfwriter.h"
@@ -21,9 +22,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -1007,8 +1006,6 @@ TEST(SaveWorkingStateNormalizationTest, one_thousand_freezes_remain_structurally
 class SaveWorkingStateDirectorTest : public testing::TestWithParam<GameID> {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
         auto resources = std::make_unique<Resources>();
         _sourceCount = [raw = resources.get()]() { return raw->containers().size(); };
         _resources = std::move(resources);
@@ -1053,8 +1050,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
     NiceMock<MockTwoDAs> _twoDas;
     std::filesystem::path _gamePath;
     std::unique_ptr<IResources> _resources;

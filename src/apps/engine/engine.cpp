@@ -136,8 +136,7 @@ void Engine::init() {
         _options.graphics,
         _options.audio,
         *_graphicsModule,
-        *_audioModule,
-        *_scriptModule);
+        *_audioModule);
     _sceneModule = std::make_unique<SceneModule>(
         _options.graphics,
         *_resourceModule,

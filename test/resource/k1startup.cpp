@@ -28,6 +28,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/rimwriter.h"
@@ -40,9 +41,7 @@
 #include "reone/system/stream/memoryoutput.h"
 
 #include "../fixtures/archive.h"
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -150,8 +149,6 @@ constexpr char kProbe[] = "probe";
 class K1StartupTest : public testing::Test {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
         auto b = std::make_unique<Resources>();
         _count = [r = b.get()]() { return r->containers().size(); };
         _resources = std::move(b);
@@ -182,8 +179,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
     NiceMock<MockTwoDAs> _twoDas;
     std::filesystem::path _gamePath;
     std::unique_ptr<IResources> _resources;

@@ -36,9 +36,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -264,8 +262,6 @@ TEST(ResourcesLookup, should_report_missing_resources) {
 class ResourceDirectorLookup : public testing::Test {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
     }
 
     std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath,
@@ -284,8 +280,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
 
     NiceMock<MockTwoDAs> _twoDas;
 

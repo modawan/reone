@@ -45,9 +45,7 @@
 #include "reone/system/stream/memoryoutput.h"
 
 #include "../fixtures/archive.h"
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -199,8 +197,6 @@ struct CwdGuard {
 class K2ModuleLoadingTest : public testing::Test {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
         _resources = std::make_unique<Resources>();
         _auxResources = std::make_unique<Resources>();
     }
@@ -235,8 +231,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
 
     NiceMock<MockTwoDAs> _twoDas;
 
@@ -1107,9 +1101,8 @@ TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
     audio::AudioOptions audioOpt;
     graphics::GraphicsModule graphics(graphicsOpt);
     audio::AudioModule audio(audioOpt);
-    script::ScriptModule script;
     ResourceModule derived(
-        GameID::TSL, {}, graphicsOpt, audioOpt, graphics, audio, script);
+        GameID::TSL, {}, graphicsOpt, audioOpt, graphics, audio);
     ASSERT_EQ(std::filesystem::path("nwm"), *derived.odysseyRoots().nwmFiles);
     derived.setGamePath(newGame.path);
     EXPECT_EQ((newGame.path / "nwm").lexically_normal(),
@@ -1128,7 +1121,6 @@ TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
                                   audioOpt,
                                   graphics,
                                   audio,
-                                  script,
                                   explicitRoots);
     explicitModule.setGamePath(newGame.path);
     EXPECT_EQ(custom.path.lexically_normal(),

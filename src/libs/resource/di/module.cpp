@@ -22,7 +22,6 @@
 
 #include "reone/audio/di/module.h"
 #include "reone/graphics/di/module.h"
-#include "reone/script/di/module.h"
 
 namespace reone {
 

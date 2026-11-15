@@ -31,6 +31,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/rimwriter.h"
@@ -39,9 +40,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -203,8 +202,6 @@ TEST_F(ArchiveRegistrationTest, a_rejected_archive_leaves_earlier_sources_untouc
 class ArchiveValidationDirectorTest : public testing::Test {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
         auto legacy = std::make_unique<Resources>();
         _count = [raw = legacy.get()]() { return raw->containers().size(); };
         _resources = std::move(legacy);
@@ -231,8 +228,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
 
     NiceMock<MockTwoDAs> _twoDas;
 
