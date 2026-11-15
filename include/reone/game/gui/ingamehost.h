@@ -29,7 +29,8 @@ namespace reone::game {
 struct InGameMenuFooter {
     struct Member {
         bool present {false};
-        std::shared_ptr<graphics::Texture> portrait;
+        /** The member's portrait, by name; empty for none. */
+        std::string portrait;
         bool levelUp {false};
     };
     std::array<Member, 3> members;

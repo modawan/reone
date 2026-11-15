@@ -407,11 +407,11 @@ void CharacterMenu::refreshPortraits() {
     std::shared_ptr<Creature> partyMember1(party.getMember(1));
     std::shared_ptr<Creature> partyMember2(party.getMember(2));
 
-    _controls.BTN_CHANGE1->setBorderFill(partyMember1 ? partyMember1->portrait() : nullptr);
-    _controls.BTN_CHANGE1->setHilightFill(partyMember1 ? partyMember1->portrait() : nullptr);
+    _controls.BTN_CHANGE1->setBorderFill(partyMember1 ? partyMember1->portraitResRefForGoodEvil() : std::string());
+    _controls.BTN_CHANGE1->setHilightFill(partyMember1 ? partyMember1->portraitResRefForGoodEvil() : std::string());
 
-    _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portrait() : nullptr);
-    _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portrait() : nullptr);
+    _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portraitResRefForGoodEvil() : std::string());
+    _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portraitResRefForGoodEvil() : std::string());
 }
 
 void CharacterMenu::refresh3D() {

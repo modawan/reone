@@ -1299,6 +1299,15 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newWord("FactionID", static_cast<uint16_t>(creature._faction)));
     put(record, Gff::Field::newWord("Appearance_Type", creature._appearance));
     put(record, Gff::Field::newByte("UseBackupHead", creature._useBackupHead));
+    // A portrait row a word can name is saved as the portrait ID; any other
+    // portrait is saved as its resref, under the ID naming no row.
+    const auto &portraitId = creature._portraitId;
+    if (portraitId && *portraitId >= 0 && *portraitId < Creature::kFirstResRefPortraitId) {
+        put(record, Gff::Field::newWord("PortraitId", static_cast<uint16_t>(*portraitId)));
+    } else {
+        put(record, Gff::Field::newWord("PortraitId", static_cast<uint16_t>(Creature::kNoPortraitId)));
+        put(record, Gff::Field::newResRef("Portrait", creature.basePortraitResRef()));
+    }
     put(record, Gff::Field::newByte("PM_IsDisguised", creature._disguised));
     if (creature._disguised) {
         put(record, Gff::Field::newWord("PM_Appearance", creature._appearanceBeforeDisguise));

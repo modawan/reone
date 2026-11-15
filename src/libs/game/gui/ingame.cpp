@@ -278,13 +278,14 @@ InGameMenuFooter InGameMenu::footer() const {
     InGameMenuFooter view;
     for (int i = 0; i < 3; ++i) {
         auto member = _game.party().getMember(i);
-        if (member) view.members[i] = {true, member->portrait(), member->isLevelUpPending()};
+        if (member)
+            view.members[i] = {true, member->portraitResRefForGoodEvil(), member->isLevelUpPending()};
     }
     auto leader = equipmentCharacter();
     if (_equipmentOpen && _equip->browsingRoster()) {
         view.members = {};
         if (leader) {
-            view.members[0] = {true, leader->portrait(), leader->isLevelUpPending()};
+            view.members[0] = {true, leader->portraitResRefForGoodEvil(), leader->isLevelUpPending()};
         }
     }
     if (!leader) return view;

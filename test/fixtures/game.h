@@ -445,6 +445,8 @@ public:
     static void setLevelHitDice(Creature &creature, const std::vector<int> &hitDice);
     // Stand in for a save record that reports the creature as already spawned.
     static void markSpawnScriptFired(Creature &creature);
+    /** Stand in for the portrait row the creature's appearance load picks. */
+    static void setPortraitRow(Creature &creature, const Portrait &row);
     static void setSnapshotDoorState(Door &door, DoorState state);
     // A one-shot the door is playing holds back any swing it is given.
     static void setSnapshotDoorOneShot(Door &door, std::string clip);
