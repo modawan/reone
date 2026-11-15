@@ -95,6 +95,10 @@ struct ResourceSourceRef {
     }
 };
 
+/// A source in words: what it reads from, the bucket that placed it and the
+/// owner that retires it.
+std::string describe(const ResourceSourceRef &source);
+
 /**
  * How a source list orders what it holds.
  *

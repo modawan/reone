@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "reone/system/logutil.h"
+
 #include "resources.h"
 
 namespace reone {
@@ -37,6 +39,9 @@ public:
     std::optional<Resource> find(IResources &resources, const ResourceId &id) {
         auto resource = resources.find(id);
         _reads.push_back(Read {&resources, id, resource ? std::make_optional(resource->source) : std::nullopt});
+        if (Logger::instance.isEnabled(LogChannel::Resources, LogSeverity::Debug)) {
+            debug("Read " + id.string() + ": " + (resource ? describe(resource->source) : std::string("not found")), LogChannel::Resources);
+        }
         return resource;
     }
 
