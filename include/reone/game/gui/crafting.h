@@ -695,6 +695,8 @@ private:
     ItemView _lightsaberView {kSceneUpgradeLightsaber};
     /** The item shown in the 3D view; none while the panel is closed or when the item's model does not load. */
     std::shared_ptr<scene::ModelSceneNode> _itemModel;
+    /** How far the item standing by itself has turned, in degrees. */
+    float _itemSpinDegrees {0.0f};
     /** The texture an armour is drawn with in the 3D view; none for other items. */
     std::shared_ptr<graphics::Texture> _itemTexture;
     /** The kind of the item upgraded. */

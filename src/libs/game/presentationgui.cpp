@@ -266,8 +266,7 @@ void PresentationGUI::useBakedItemSlotArt(ListBox &listBox) {
 
             int iconInset = static_cast<int>(std::lround(kIconOutlineInset * list.layoutScale()));
             int plateInset = static_cast<int>(std::lround(kNameplateOutlineInset * list.layoutScale()));
-            for (int i = 0; i < list.visibleItemCount(); ++i) {
-                auto row = list.visibleItemExtent(i);
+            for (const auto &row : list.visibleItemExtents()) {
                 int iconSize = std::max(row.height - 2 * iconInset, 0);
                 blit(iconInk, {row.left + iconInset, row.top + iconInset, iconSize, iconSize});
                 blit(nameplateInk,

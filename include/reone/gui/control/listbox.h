@@ -25,6 +25,8 @@ namespace reone {
 
 namespace gui {
 
+class ImageButton;
+
 constexpr int kDefaultSlotCount = 6;
 
 class ListBox : public Control {
@@ -46,9 +48,12 @@ public:
         std::optional<glm::vec3> frameColor;
         /** The opacity of the row's frames while the row is not selected. */
         std::optional<float> frameAlpha;
-        /** The row's border colour in place of the prototype's. */
+        /** The row's border colour, and its icon frame's, in place of the prototype's. */
         std::optional<glm::vec3> borderColor;
-        /** The row's hilight colour in place of the prototype's, which has a hilight. */
+        /**
+         * The row's hilight colour, and its icon frame's while hilighted, in
+         * place of the prototype's, which has a hilight.
+         */
         std::optional<glm::vec3> hilightColor;
         /** The colour of the text beside the row's icon, whether or not the row is selected. */
         std::optional<glm::vec3> iconTextColor;
@@ -74,7 +79,7 @@ public:
             resourceSvc) {
 
         _selectable = true;
-        _navigable = true;
+        _takesKeyboardOnHover = true;
     }
 
     void clearItems();
@@ -87,6 +92,21 @@ public:
         item.frameColor.reset();
         item.frameAlpha.reset();
     }
+    /**
+     * Adds \p text as rows, one for each line, that the list draws as one
+     * block of text: a single label holding every line, as tall as the
+     * lines' block height (Control::textBlockHeight).
+     *
+     * The block is drawn in the room inside the list's border, less an
+     * enabled scroll bar, and is clipped to it, the list's padding in from
+     * the room's left. When the block and the padding fit, the block starts
+     * the padding below the room's top, stretched by its share of the room
+     * left over, and the prototype's alignment places the lines in it. When
+     * they do not fit, the room shows as many whole lines as it holds
+     * (Control::textLineAdvance), the block scrolls one line at a time, and
+     * at the last position its bottom is the padding above the room's
+     * bottom.
+     */
     void addTextLinesAsItems(const std::string &text);
 
     void clearSelection();
@@ -95,11 +115,31 @@ public:
     bool handleKeyDown(input::KeyCode key) override;
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
+    /**
+     * A press on a drawn row keeps the mouse with the list until the
+     * release; a press elsewhere does nothing. In a list that selects on
+     * click, a press on another row than the selected one selects it and
+     * chooses it.
+     *
+     * @return whether the list keeps the mouse
+     */
+    bool handleMouseDown(int x, int y) override;
+    /** While the list keeps the mouse it takes every move, so the pointer moves onto nothing else. */
+    bool handleMouseDrag(int x, int y) override;
+    /**
+     * The release after a press on a row, over the list, clicks the list
+     * when it is on the pressed row of a list that selects on hover, or on
+     * any row of a list that selects on click when it ends a double click; a
+     * list with no row selected takes no click.
+     */
+    bool handleMouseUp(int x, int y, bool over, int clicks) override;
+    /**
+     * A click acts on the selected row: a list that selects on hover calls the
+     * item-click handler, and a double click the item-double-click handler.
+     */
     bool handleClick(int x, int y, int clicks = 1) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
     void stretch(float x, float y, int mask) override;
-
-    void changeProtoItemType(ControlType type);
 
     void setExtent(Extent extent) override;
     void setExtentHeight(int height) override;
@@ -134,20 +174,12 @@ public:
     bool hasSelectableItemAt(int x, int y) const;
     void setItemsInteractive(bool interactive);
     void setScrollBarEnabled(bool enabled);
-    void setProtoMatchContent(bool match);
     /**
-     * Make the rows the lines of one block of text, a line of the
-     * prototype's font high each, drawn as one block inside the list's
-     * border, less an enabled scroll bar, and clipped to that room. The block
-     * sits the list's padding in from the room's left and below its top; a
-     * block that fits is placed by the prototype's vertical alignment in the
-     * row the room stretches it to. The prototype's own position plays no
-     * part. It overflows when its height and the padding exceed the room
-     * inside the border; it then scrolls a line at a time, one position per
-     * line beyond those the room holds whole, and the last position puts its
-     * bottom the padding above the room's bottom.
+     * Whether each row is as high as its text, and the rows are as wide as
+     * the list's room less its padding, the padding in from its left and top.
+     * Off unless set.
      */
-    void setTextLineRows(bool lines);
+    void setProtoMatchContent(bool match);
     void setRenderItemIconsForButtonProto(bool render);
     /** Sets the font the text beside the rows' icons is drawn in, in place of the prototype's. */
     void setIconTextFont(std::shared_ptr<graphics::Font> font);
@@ -192,9 +224,11 @@ public:
 
     /** The area the rows occupy, inside the frame. Control-space. */
     Extent itemsViewport() const;
+    /** The rows' room: the area inside the border of the list less an enabled scroll bar on its side. */
+    Extent getRowsArea() const;
     int visibleItemCount() const;
-    /** Control-space rectangle of the n-th currently visible row. */
-    Extent visibleItemExtent(int index) const;
+    /** Control-space rectangles of the rows shown, in order. */
+    std::vector<Extent> visibleItemExtents() const;
     /** Row density relative to the authored layout. */
     float layoutScale() const { return _layoutScale; }
 
@@ -227,6 +261,11 @@ public:
     // END Event listeners
 
 private:
+    class RowLook;
+
+    /** The prototype as an image button; null when it is another type. */
+    ImageButton *imageButtonProto() const;
+
     SelectionMode _selectionMode {SelectionMode::OnHover};
     std::shared_ptr<Control> _protoItem;
     bool _iconFrameHilightPulsing {false};
@@ -235,13 +274,18 @@ private:
     int _slotCount {0};
     int _itemOffset {0};
     int _selectedItemIndex {-1};
+    /** The lines of a block of text, all its rows' in turn (see addTextLinesAsItems). */
+    std::vector<std::string> _textBlockLines;
+    /** The row the left button was pressed on, until the release; -1 for none. */
+    int _pressedItemIndex {-1};
+    /** The left button was pressed on a drawn row, and is not yet released. */
+    bool _holdsRow {false};
     bool _itemsInteractive {true};
     bool _scrollBarEnabled {true};
-    bool _leftScrollBar {false}; /**< authored side for the scroll bar */
-    bool _looping {false};       /**< the selection wraps round past either end */
+    bool _leftScrollBar {false};     /**< authored side for the scroll bar */
+    bool _looping {false};           /**< the selection wraps round past either end */
     bool _selectionEntered {false};  /**< the pointer moved the selection to another row */
     bool _protoMatchContent {false}; /**< proto item height must match its content */
-    bool _textLineRows {false};      /**< rows are the lines of one block of text */
     bool _overflowing {false};       /**< the rows need more room than the list has */
     bool _renderItemIconsForButtonProto {false};
     /** The font of the text beside the rows' icons drawn through a button prototype; none for the prototype's. */
@@ -260,22 +304,42 @@ private:
     void updateItemsLayout();
     int getInnerHeight() const;
     float getItemPitch(const Item &item) const;
+    /** The height of the block of text the rows hold (see addTextLinesAsItems). */
+    int getTextBlockHeight() const;
+    /** The lines the rows of a block of text hold. */
+    int getTextBlockLineCount() const;
+    /** The room's height in the prototype's lines, unrounded; 0 for a prototype without a font. */
+    float getTextBlockLinesShown() const;
     /**
-     * How far below the padding a block of text-line rows that fits starts:
-     * the offset of its \p content height inside the row the room stretches
-     * it to, under the prototype's vertical alignment.
+     * How many positions a block of text taller than the room scrolls
+     * through: one more than the number of its lines that do not fit in the
+     * room as whole lines. It can be less than one when only the padding
+     * makes the block overflow.
      */
-    int getTextBlockAlignmentOffset(int content, int room, int padding) const;
-    /** The height of a line of text-line rows: the prototype's font height. */
-    int getTextLineHeight() const;
-    /** Draws text-line rows as one block, clipped inside the border. */
-    void renderTextLineRows(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass);
+    int getTextBlockPositions() const;
+    /** Draws the rows' block of text as one label, clipped inside the border. */
+    void renderTextBlock(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass);
+    /** Draws the scroll bar, when the list has one it shows; before the list's border and rows. */
+    void renderScrollBar(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass);
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
-    int getItemIndex(int y) const;
+    /** The prototype takes a row's place: the padding in from the room's left and top, a row wide (getItemWidth). */
+    void matchProtoToRows();
+    /** The drawn row whose own extent holds the point, or -1. Control-space. */
     int getDrawnItemIndex(int x, int y) const;
+    /** The drawn row a press at the point acts on, a line of text excepted, or -1. Control-space. */
+    int getPressableItemIndex(int x, int y) const;
     /** The pointer selects the row at \p index, which isn't a line of text. */
     void selectByPointer(int index);
+    /** The row at \p index, or none for -1, becomes the selected one, hilighted. */
+    void selectItem(int index);
+    /** Whether the rows are the lines of one block of text. */
+    bool isTextBlock() const;
+    /**
+     * The positions the list scrolls through: the rows beyond those shown,
+     * and one; for a block of text, its positions, at least one.
+     */
+    int getScrollPositions() const;
     bool shouldRenderItemIconsForButtonProto() const;
     void renderItemWithButtonProtoIcon(
         const glm::ivec2 &screenSize,

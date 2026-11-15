@@ -94,7 +94,14 @@ public:
     virtual void popBlendMode() = 0;
 
     virtual void withViewport(glm::ivec4 viewport, const std::function<void()> &block) = 0;
+    /**
+     * Runs \p block with drawing clipped to \p bounds (left, bottom, width,
+     * height, from the framebuffer's bottom left), first clearing the colour
+     * there. A clip inside another keeps to both, and the outer one is back
+     * after \p block.
+     */
     virtual void withScissorTest(const glm::ivec4 &bounds, const std::function<void()> &block) = 0;
+    /** As withScissorTest, without clearing. */
     virtual void withScissorTestNoClear(const glm::ivec4 &bounds, const std::function<void()> &block) = 0;
     virtual void withDepthTestMode(DepthTestMode mode, const std::function<void()> &block) = 0;
     virtual void withDepthMask(bool enabled, const std::function<void()> &block) = 0;
@@ -102,6 +109,14 @@ public:
     virtual void withFaceCullMode(FaceCullMode mode, const std::function<void()> &block) = 0;
     virtual void withBlendMode(BlendMode mode, const std::function<void()> &block) = 0;
 };
+
+/**
+ * Runs \p block in \p context with drawing clipped to \p rect, given as
+ * left, top, width and height in screen pixels counted down from the top of
+ * a screen \p screenHeight high (withScissorTestNoClear, or withScissorTest
+ * when \p clear).
+ */
+void withScissorRect(IContext &context, int screenHeight, const glm::ivec4 &rect, const std::function<void()> &block, bool clear = false);
 
 class Context : public IContext, boost::noncopyable {
 public:
@@ -203,8 +218,12 @@ private:
     std::stack<PolygonMode> _polygonModes;
     std::stack<FaceCullMode> _faceCullModes;
     std::stack<BlendMode> _blendModes;
+    /** The clips in force, each within the one before. */
+    std::stack<glm::ivec4> _scissors;
 
     // END States
+
+    void withScissor(const glm::ivec4 &bounds, bool clear, const std::function<void()> &block);
 
     void setViewport(glm::ivec4 viewport);
     void setDepthTestMode(DepthTestMode mode);

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <unordered_set>
 
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/options.h"
@@ -56,23 +57,31 @@ public:
 };
 
 /**
- * The opacity shared by every pulsing border, image and text: it falls from 1
- * to 0.4 over 0.75 s, rises back over the next 0.75 s, and repeats.
+ * The time every GUI is drawn by: the art that cycles through frames, and
+ * the opacity of the hilight pulse, which pulsing borders, images and texts
+ * are drawn with: it falls from 1 to 0.4 over 0.75 s, rises back over the
+ * next 0.75 s, and repeats. Controls outside a GUI's tree, as a list's rows
+ * and scroll bars, keep the same time.
  */
-class PulsingAlpha {
+class GUIClock {
 public:
-    /** Advances the pulse by dt seconds. */
+    /** Advances the clock by dt seconds: the art's time, then the pulse. */
     void update(float dt) {
+        _textureTime += dt;
+        // A long frame may turn the pulse more than once.
         _timeLeft -= dt;
-        if (_timeLeft <= 0.0f) {
+        while (_timeLeft <= 0.0f) {
             _rising = !_rising;
-            _timeLeft = kHalfPeriod;
+            _timeLeft += kHalfPeriod;
         }
         const float progress = (kHalfPeriod - _timeLeft) / kHalfPeriod;
         _value = _rising ? kLow + (1.0f - kLow) * progress : 1.0f - (1.0f - kLow) * progress;
     }
 
-    /** The opacity now, 0.4 to 1. */
+    /** The seconds the clock has run for: the frame cycling art shows (graphics::getCycleFrame). */
+    double textureTime() const { return _textureTime; }
+
+    /** The hilight pulse's opacity now, 0.4 to 1. */
     float value() const { return _value; }
 
 private:
@@ -81,6 +90,7 @@ private:
     /** The opacity at the bottom of the pulse. */
     static constexpr float kLow = 0.4f;
 
+    double _textureTime {0.0};
     /** The opacity now. */
     float _value {1.0f};
     /** Seconds left before the pulse turns. */
@@ -122,7 +132,8 @@ public:
 
     /**
      * The control holding the keyboard, if any: the one a screen gave it to,
-     * or the last navigable control the pointer came onto.
+     * or the last control the pointer came onto that takes the keyboard on
+     * hover.
      */
     virtual std::optional<std::reference_wrapper<Control>> activeControl() const = 0;
     /**
@@ -145,13 +156,13 @@ public:
      */
     virtual void clearActiveControl() = 0;
     /**
-     * Makes the hilight of a navigable control other than a list follow the
-     * keyboard: such a control takes the keyboard as the pointer comes onto
-     * it, sounding unless it is hilighted; it stays hilighted after the
-     * pointer leaves it, until another control takes the keyboard or the
-     * pointer comes onto another such control; and coming back onto it is
-     * silent. A list keeps its hilight on the pointer and takes the keyboard
-     * by its rows.
+     * Makes the hilight of a control that takes the keyboard on hover, other
+     * than a list, follow the keyboard: such a control takes the keyboard as
+     * the pointer comes onto it, sounding unless it is hilighted; it stays
+     * hilighted after the pointer leaves it, until another control takes the
+     * keyboard or the pointer comes onto another such control; and coming
+     * back onto it is silent. A list keeps its hilight on the pointer and
+     * takes the keyboard by its rows.
      */
     virtual void setHilightFollowsKeyboard(bool follows) = 0;
     /**
@@ -171,7 +182,7 @@ public:
      *
      * @param visibleOnly KotOR's walk: it also passes over a hidden control,
      *        and a control it ends on takes the keyboard only when enabled
-     *        and shown
+     *        and shown. TSL's passes over a disabled control only.
      */
     virtual std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const = 0;
 
@@ -199,6 +210,12 @@ public:
     virtual bool imageButtonTextPulses() const = 0;
     /** The opacity pulsing borders and texts are drawn with now. */
     virtual float pulsingAlpha() const = 0;
+    /**
+     * The seconds the GUIs' clock has run for, the same for every control:
+     * the frame cycling art shows. It runs through pauses and at any game
+     * speed, and slows only with the world under TSL's gameover panel.
+     */
+    virtual double textureTime() const = 0;
 
     /** Whether scene-backed controls may render their 3D content. */
     virtual bool sceneRenderEnabled() const = 0;
@@ -214,7 +231,11 @@ public:
     virtual void setSelectedTextColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
 
-    /** Reapplies the layout after authored geometry or the resolution changed. */
+    /**
+     * Reapplies the layout after authored geometry or the resolution changed.
+     * Controls added in screen coordinates keep the place their owner gave
+     * them.
+     */
     virtual void refreshLayout() = 0;
 
     virtual std::unique_ptr<Control> newControl(ControlType type, std::string tag) = 0;
@@ -234,12 +255,12 @@ public:
         scene::ISceneGraphs &sceneGraphs,
         graphics::GraphicsServices &graphicsSvc,
         resource::ResourceServices &resourceSvc,
-        const PulsingAlpha &pulsingAlpha) :
+        const GUIClock &clock) :
         _options(options),
         _sceneGraphs(sceneGraphs),
         _graphicsSvc(graphicsSvc),
         _resourceSvc(resourceSvc),
-        _pulsingAlpha(pulsingAlpha) {
+        _clock(clock) {
     }
 
     /** Derived from the current resolution, which can change at runtime. */
@@ -346,7 +367,11 @@ public:
     }
 
     float pulsingAlpha() const override {
-        return _pulsingAlpha.value();
+        return _clock.value();
+    }
+
+    double textureTime() const override {
+        return _clock.textureTime();
     }
 
     bool sceneRenderEnabled() const override {
@@ -390,26 +415,30 @@ private:
     glm::ivec2 _controlOffset {0};
     std::shared_ptr<graphics::Texture> _background;
     std::unordered_map<std::string, ScalingMode> _scalingByControlTag;
-    bool _leftMouseDown {false};
+    /** Where the pointer last moved to, in screen coordinates. */
+    glm::ivec2 _pointerPosition {0};
 
     // Controls
 
     std::vector<std::shared_ptr<Control>> _controls;
-    std::unordered_map<std::string, std::reference_wrapper<Control>> _tagToControl;
+    /** The controls added in screen coordinates, which their owners place. */
+    std::unordered_set<std::shared_ptr<Control>> _screenControls;
+    /** The controls by tag; of two with one tag, the first loaded. */
+    std::unordered_map<std::string, std::shared_ptr<Control>> _tagToControl;
     std::unordered_map<std::string, std::vector<std::reference_wrapper<Control>>> _controlTagToChildren;
 
     std::optional<std::reference_wrapper<Control>> _rootControl;
     std::optional<std::reference_wrapper<Control>> _selection;
     /** The control holding the keyboard. */
     std::optional<std::reference_wrapper<Control>> _activeControl;
-    /** The control that took the left button's press, until the button is released. */
-    std::optional<std::reference_wrapper<Control>> _pressedControl;
     /** The list the pointer is on has been entered since the pointer came onto it. */
     bool _listEntered {false};
-    /** Whether the hilight of a navigable control other than a list follows the keyboard. */
+    /** Whether the hilight of a control that takes the keyboard on hover, other than a list, follows the keyboard. */
     bool _hilightFollowsKeyboard {false};
     /** Whether a held arrow key wrapped one of the lists round (keyRepeatStopped). */
     bool _keyRepeatStopped {false};
+    /** The control the left button was pressed on, which keeps the mouse until the release. */
+    std::optional<std::reference_wrapper<Control>> _mouseCapture;
 
     // END Controls
 
@@ -418,7 +447,7 @@ private:
     scene::ISceneGraphs &_sceneGraphs;
     graphics::GraphicsServices &_graphicsSvc;
     resource::ResourceServices &_resourceSvc;
-    const PulsingAlpha &_pulsingAlpha;
+    const GUIClock &_clock;
 
     // END Services
 
@@ -459,12 +488,25 @@ private:
     void updateSelection(int screenX, int screenY);
     /**
      * The pointer is on \p control, or on none, when the hilight follows the
-     * keyboard: a navigable control other than a list takes the keyboard,
-     * on every move; the control the pointer comes onto is hilighted; the
-     * control it leaves keeps its hilight while that follows the keyboard,
-     * unless the pointer came onto another such control.
+     * keyboard: a control that takes it on hover, other than a list, takes
+     * the keyboard, on every move; the control the pointer comes onto is
+     * hilighted; the control it leaves keeps its hilight while that follows
+     * the keyboard, unless the pointer came onto another such control.
      */
     void followPointer(const std::optional<std::reference_wrapper<Control>> &control);
+    /**
+     * Whether the pointer stays on the control it was on: \p control is that
+     * same control, compared by address since layout IDs repeat, or both
+     * are none.
+     */
+    bool isHovered(const std::optional<std::reference_wrapper<Control>> &control) const;
+    /** The pointer is on \p control, or on none: no list row is entered yet. */
+    void setHovered(const std::optional<std::reference_wrapper<Control>> &control);
+    /**
+     * The pointer comes onto \p control: unless it is already hilighted, it
+     * is hilighted and entered, a list only by its rows.
+     */
+    void enterHovered(Control &control);
     /** Whether the hilight of \p control follows the keyboard. */
     bool hilightFollowsKeyboard(const Control &control) const;
     /** \p control is hilighted, which it is told of. */
@@ -481,8 +523,8 @@ private:
     /**
      * A list the pointer moves on at \p coords, control-space, is entered when
      * the pointer moved its selection to another row, or once when it reaches
-     * a row while the list does not hold the keyboard, which a navigable list
-     * then takes.
+     * a row while the list does not hold the keyboard, which a list taking
+     * the keyboard on hover then takes.
      */
     void enterList(Control &control, const glm::ivec2 &coords);
     /** Whether \p control holds the keyboard. */

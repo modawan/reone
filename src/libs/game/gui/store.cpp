@@ -417,7 +417,7 @@ void StoreGUI::offerToBuy(const std::shared_ptr<Item> &item) {
     // KotOR says so in its examine box.
     if (static_cast<uint32_t>(_game.party().gold()) < price) {
         if (isTSL()) {
-            _game.showMessagePopup(_game.getInterfaceText(kNotEnoughCreditsStrRef), nullptr, {}, popupColors());
+            _game.showMessagePopup(_game.getInterfaceText(kNotEnoughCreditsStrRef), "", {}, popupColors());
         } else {
             _game.showExamineBox(_game.getInterfaceText(kNotEnoughCreditsStrRef));
         }
@@ -461,7 +461,7 @@ void StoreGUI::offerToSell(const std::shared_ptr<Item> &item) {
         if (auto leader = _game.party().getLeader()) {
             for (const auto &[slot, equipped] : leader->equipment()) {
                 if (equipped == item && (leader->equipSlotsLocked() & equipmentSlotMask(slot)) != 0) {
-                    _game.showMessagePopup(_game.getInterfaceText(kCannotBeSoldStrRef), nullptr, {}, popupColors());
+                    _game.showMessagePopup(_game.getInterfaceText(kCannotBeSoldStrRef), "", {}, popupColors());
                     return;
                 }
             }

@@ -73,12 +73,14 @@ TEST_F(SliderTest, clicks_and_arrow_keys_step_one_value_at_a_time) {
 }
 
 TEST_F(SliderTest, only_the_thumb_starts_a_drag_and_dragging_covers_the_range) {
-    EXPECT_TRUE(slider->handleMouseDown(55, 5));
     EXPECT_FALSE(slider->handleMouseDown(5, 5));
+    EXPECT_FALSE(slider->handleMouseDrag(110, 5));
+    EXPECT_EQ(5, slider->value());
 
-    slider->handleMouseDrag(110, 5);
+    EXPECT_TRUE(slider->handleMouseDown(55, 5));
+    EXPECT_TRUE(slider->handleMouseDrag(110, 5));
     EXPECT_EQ(10, slider->value());
-    slider->handleMouseDrag(-10, 5);
+    EXPECT_TRUE(slider->handleMouseDrag(-10, 5));
     EXPECT_EQ(0, slider->value());
     EXPECT_EQ((std::vector<int> {10, 0}), changes);
 }

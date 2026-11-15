@@ -32,12 +32,14 @@ static constexpr glm::vec3 kSelectedItemColor {1.0f};
 
 void IconChain::clearItems() {
     _items.clear();
+    _itemIndexByTag.clear();
     _links.clear();
     _rowOffset = 0;
     clearFocusedItem();
 }
 
 void IconChain::addItem(Item item) {
+    _itemIndexByTag.insert({item.tag, _items.size()});
     _items.push_back(std::move(item));
 }
 
@@ -50,34 +52,28 @@ void IconChain::addLink(Link link) {
 }
 
 void IconChain::setItemSelected(const std::string &tag, bool selected) {
-    for (auto &item : _items) {
-        if (item.tag == tag) {
-            item.selected = selected;
-            return;
-        }
+    const int index = findItemIndex(tag);
+    if (index != -1) {
+        _items[index].selected = selected;
     }
 }
 
 void IconChain::setItemState(const std::string &tag, State state) {
-    for (auto &item : _items) {
-        if (item.tag == tag) {
-            item.state = state;
-            return;
-        }
+    const int index = findItemIndex(tag);
+    if (index != -1) {
+        _items[index].state = state;
     }
 }
 
 void IconChain::focusItem(const std::string &tag) {
-    auto maybeItem = std::find_if(
-        _items.begin(), _items.end(),
-        [&tag](const Item &item) { return item.tag == tag; });
-    if (maybeItem == _items.end()) {
+    const int index = findItemIndex(tag);
+    if (index == -1) {
         return;
     }
 
-    _focusedItemIndex = static_cast<int>(std::distance(_items.begin(), maybeItem));
+    _focusedItemIndex = index;
     if (_onItemFocus) {
-        _onItemFocus(maybeItem->tag);
+        _onItemFocus(_items[index].tag);
     }
 }
 
@@ -205,10 +201,6 @@ void IconChain::setScrollBar(std::shared_ptr<Control> scrollBar) {
     _scrollBar = std::move(scrollBar);
 }
 
-void IconChain::setSelected(bool selected) {
-    Control::setSelected(selected);
-}
-
 void IconChain::setColumnCount(int count) {
     _columnCount = count > 0 ? count : 0;
 }
@@ -305,11 +297,14 @@ int IconChain::getItemIndex(int x, int y) const {
     return -1;
 }
 
+int IconChain::findItemIndex(const std::string &tag) const {
+    auto found = _itemIndexByTag.find(tag);
+    return found != _itemIndexByTag.end() ? static_cast<int>(found->second) : -1;
+}
+
 const IconChain::Item *IconChain::findItem(const std::string &tag) const {
-    auto maybeItem = std::find_if(
-        _items.begin(), _items.end(),
-        [&tag](auto &item) { return item.tag == tag; });
-    return maybeItem != _items.end() ? &*maybeItem : nullptr;
+    const int index = findItemIndex(tag);
+    return index != -1 ? &_items[index] : nullptr;
 }
 
 void IconChain::clearFocusedItem() {
@@ -409,12 +404,15 @@ void IconChain::renderLink(
         return;
     }
 
+    // Without a size of its own, the link's art is drawn at the chart's
+    // frame scale, as the cells are laid out.
     glm::ivec2 linkSize = _cellStyle.linkSize;
+    const glm::ivec2 artSize = frameArtSize(_cellStyle.linkTexture);
     if (linkSize.x <= 0) {
-        linkSize.x = _cellStyle.linkTexture->width();
+        linkSize.x = artSize.x;
     }
     if (linkSize.y <= 0) {
-        linkSize.y = _cellStyle.linkTexture->height();
+        linkSize.y = artSize.y;
     }
 
     int sourceRight = sourceExtent.left + sourceExtent.width;
