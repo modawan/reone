@@ -31,6 +31,7 @@ struct WindowID {
     static constexpr wxWindowID gameDir = wxID_HIGHEST + 1;
     static constexpr wxWindowID launch = wxID_HIGHEST + 2;
     static constexpr wxWindowID saveConfig = wxID_HIGHEST + 3;
+    static constexpr wxWindowID findWorkshop = wxID_HIGHEST + 4;
 };
 
 class LauncherFrame : public wxFrame {
@@ -40,6 +41,7 @@ public:
 private:
     struct Configuration {
         std::string gameDir;
+        std::vector<std::string> roots;
         bool devMode {true};
         bool wheelZoom {false};
         int width {1024};
@@ -68,6 +70,7 @@ private:
     } _config;
 
     wxTextCtrl *_textCtrlGameDir;
+    wxTextCtrl *_textCtrlRoots;
     wxCheckBox *_checkBoxDev;
     wxCheckBox *_checkBoxWheelZoom;
     wxChoice *_choiceResolution;
@@ -96,6 +99,7 @@ private:
     void OnLaunch(wxCommandEvent &event);
     void OnSaveConfig(wxCommandEvent &event);
     void OnGameDirLeftDown(wxMouseEvent &event);
+    void OnFindWorkshop(wxCommandEvent &event);
 
     void LoadConfiguration();
     void SaveConfiguration();

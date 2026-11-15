@@ -382,19 +382,12 @@ void ResourceDirector::loadStreamResources() {
         loadK1StreamResources();
         return;
     }
-    // K2 keeps its streamed audio out of the raw lookup order. Its own startup
-    // is not traced here, so this is left exactly as it was.
-    auto musicPath = findFileIgnoreCase(_gamePath, kMusicDirectoryName);
-    if (musicPath) {
-        _auxResources.addFolder(*musicPath);
-    }
-    auto soundsPath = findFileIgnoreCase(_gamePath, kSoundsDirectoryName);
-    if (soundsPath) {
-        _auxResources.addFolder(*soundsPath);
-    }
-    auto voicePath = findFileIgnoreCase(_gamePath, kVoiceDirectoryName);
-    if (voicePath) {
-        _auxResources.addFolder(*voicePath);
+    // K2 keeps its streamed audio out of the raw lookup order. Each configured
+    // root's folder is tried before the game's own.
+    for (auto name : {kMusicDirectoryName, kSoundsDirectoryName, kVoiceDirectoryName}) {
+        for (const auto &folder : contentFolders(_gameId, _gamePath, _odysseyRoots, name)) {
+            _auxResources.addFolder(folder);
+        }
     }
 }
 

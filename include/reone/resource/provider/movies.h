@@ -46,10 +46,11 @@ public:
 
 class Movies : public IMovies, boost::noncopyable {
 public:
-    Movies(std::filesystem::path gamePath,
+    /** The folders hold the movies; where two have one of the same name, the later folder's plays. */
+    Movies(std::vector<std::filesystem::path> folders,
            graphics::GraphicsServices &graphicsSvc,
            audio::IAudioMixer &audioPlayer) :
-        _gamePath(gamePath),
+        _folders(std::move(folders)),
         _graphicsSvc(graphicsSvc),
         _audioPlayer(audioPlayer) {
     }
@@ -58,7 +59,7 @@ public:
     std::vector<std::string> names() override;
 
 private:
-    std::filesystem::path _gamePath;
+    std::vector<std::filesystem::path> _folders;
     graphics::GraphicsServices &_graphicsSvc;
     audio::IAudioMixer &_audioPlayer;
 };

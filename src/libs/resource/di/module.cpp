@@ -58,7 +58,7 @@ void ResourceModule::init() {
         _graphics.uniforms(),
         _graphics.statistic());
     _audioClips = std::make_unique<AudioClips>(*_resources, *_auxResources);
-    _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());
+    _movies = std::make_unique<Movies>(contentFolders(_gameId, _gamePath, _odysseyRoots, "movies"), _graphics.services(), _audio.mixer());
     _scripts = std::make_unique<Scripts>(*_resources);
     _dialogs = std::make_unique<Dialogs>(*_gffs, *_strings, *_twoDas, _gameId);
     _layouts = std::make_unique<Layouts>(*_resources);
@@ -75,7 +75,7 @@ void ResourceModule::init() {
         *_twoDas,
         _odysseyRoots);
 
-    _strings->init(_gamePath);
+    _strings->init(talkTableRoot(_gameId, _gamePath, _odysseyRoots));
     loadLiveTalkTables(*_strings, _odysseyRoots);
     _director->init();
     _shaders->init();

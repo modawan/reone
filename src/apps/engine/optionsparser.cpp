@@ -54,6 +54,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options_description descCommon;
     descCommon.add_options()                                                                                                    //
         ("game", value<std::string>(), "path to game directory")                                                                //
+        ("root", value<std::vector<std::string>>(), "further TSL content folder laid out like the game's; repeat, later wins")  //
         ("commands-file", value<std::string>()->default_value(""), "execute console commands from a file at startup")           //
         ("dev", value<bool>()->default_value(options->game.developer), "enable developer mode")                                 //
         ("width", value<int>()->default_value(options->graphics.width), "render width")                                         //
@@ -124,6 +125,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
     // Convert Boost options to game options
 
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
+    if (vars.count("root") > 0) {
+        for (const auto &root : vars["root"].as<std::vector<std::string>>()) {
+            options->game.contentRoots.emplace_back(root);
+        }
+    }
     options->game.developer = vars["dev"].as<bool>();
     options->game.wheelZoom = vars["wheelzoom"].as<bool>();
     options->game.configurationPath = std::filesystem::absolute(kConfigFilename);

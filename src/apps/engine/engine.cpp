@@ -129,13 +129,16 @@ void Engine::init() {
     _audioModule = std::make_unique<AudioModule>(_options.audio);
     _movieModule = std::make_unique<MovieModule>();
     _scriptModule = std::make_unique<ScriptModule>();
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = _options.game.contentRoots;
     _resourceModule = std::make_unique<ResourceModule>(
         gameId,
         _options.game.path,
         _options.graphics,
         _options.audio,
         *_graphicsModule,
-        *_audioModule);
+        *_audioModule,
+        std::move(roots));
     _sceneModule = std::make_unique<SceneModule>(
         _options.graphics,
         *_resourceModule,
