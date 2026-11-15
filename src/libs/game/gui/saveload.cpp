@@ -155,6 +155,11 @@ void SaveLoad::onGUILoaded() {
         int selected = getSelectedSaveNumber();
         if (selected >= 0 && !_pendingRequestId) deleteGame(static_cast<uint32_t>(selected));
     });
+    if (_controls.BTN_FILTER) {
+        _controls.BTN_FILTER->setOnClick([this]() {
+            if (!_pendingRequestId) showNextCharacter();
+        });
+    }
     _controls.BTN_BACK->setOnClick([this]() {
         if (_saveNameVisible) {
             hideSaveName();
@@ -231,7 +236,53 @@ void SaveLoad::refresh() {
     _controls.BTN_SAVELOAD->setTextMessage(_services.resource.strings.getText(
         _mode == SaveLoadMode::Save ? kStrRefSave : kStrRefLoad));
     _controls.LBL_AREANAME->setVisible(false);
+    _character.reset();
     refreshSavedGames();
+}
+
+// The saves name their characters. The list opens on the party's character
+// when a game is in progress, whether or not a save names it yet, and
+// otherwise on the character of the first save.
+void SaveLoad::refreshCharacters() {
+    _characters.clear();
+    if (!_game.isTSL()) return;
+    for (const auto &save : _saves) {
+        const auto &name = save.metadata.pcName;
+        if (!name.empty() && std::find(_characters.begin(), _characters.end(), name) == _characters.end()) {
+            _characters.push_back(name);
+        }
+    }
+    std::string current;
+    if (_mode != SaveLoadMode::LoadFromMainMenu) {
+        current = _game.party().playerCharacterName();
+        if (!current.empty() && std::find(_characters.begin(), _characters.end(), current) == _characters.end()) {
+            _characters.insert(_characters.begin(), current);
+        }
+    }
+    if (_character && std::find(_characters.begin(), _characters.end(), *_character) != _characters.end()) {
+        return;
+    }
+    if (!current.empty()) {
+        _character = std::move(current);
+    } else if (!_characters.empty()) {
+        _character = _characters.front();
+    } else {
+        _character.reset();
+    }
+}
+
+void SaveLoad::showNextCharacter() {
+    if (_characters.empty()) return;
+    auto shown = std::find(_characters.begin(), _characters.end(), _character.value_or(std::string()));
+    if (shown == _characters.end() || ++shown == _characters.end()) {
+        shown = _characters.begin();
+    }
+    _character = *shown;
+    refreshSavedGames();
+}
+
+bool SaveLoad::isListed(const SavedGame &save) const {
+    return !_character || save.metadata.pcName.empty() || save.metadata.pcName == *_character;
 }
 
 void SaveLoad::activateSelection() {
@@ -258,6 +309,10 @@ void SaveLoad::activateSelection() {
 void SaveLoad::refreshSavedGames(int row) {
     _saves = detail::prepareSaveBrowserEntries(
         _game.savedGames(), _game.isTSL(), _mode);
+    refreshCharacters();
+    if (_controls.LBL_PCNAME) {
+        _controls.LBL_PCNAME->setTextMessage(_character.value_or(std::string()));
+    }
     _selectedSaveSlot.reset();
     _controls.LBL_AREANAME->setTextMessage("");
     _controls.LBL_AREANAME->setVisible(false);
@@ -271,6 +326,7 @@ void SaveLoad::refreshSavedGames(int row) {
         _controls.LB_GAMES->addItem(std::move(item));
     }
     for (const auto &save : _saves) {
+        if (!isListed(save)) continue;
         ListBox::Item item;
         item.tag = std::to_string(save.slot);
         auto &proto = _controls.LB_GAMES->protoItem();
@@ -376,9 +432,6 @@ void SaveLoad::refreshSelection() {
     if (_controls.LBL_PLANETNAME) {
         _controls.LBL_PLANETNAME->setTextMessage(std::move(planetName));
         _controls.LBL_PLANETNAME->setVisible(true);
-    }
-    if (_controls.LBL_PCNAME) {
-        _controls.LBL_PCNAME->setTextMessage(save->metadata.pcName);
     }
     if (_controls.LBL_TIMEPLAYED) {
         _controls.LBL_TIMEPLAYED->setTextMessage(playedTime(save->metadata.timePlayed));

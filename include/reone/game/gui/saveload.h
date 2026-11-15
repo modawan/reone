@@ -105,6 +105,10 @@ private:
 
     SaveLoadMode _mode {SaveLoadMode::Save};
     std::vector<SavedGame> _saves;
+    /** The characters the saves name, in list order; the list shows one character's saves at a time. */
+    std::vector<std::string> _characters;
+    /** The character whose saves the list shows; none until the list is first built. */
+    std::optional<std::string> _character;
     std::optional<uint32_t> _selectedSaveSlot;
     std::optional<uint64_t> _pendingRequestId;
     std::unique_ptr<ConfirmPopup> _confirmation;
@@ -155,6 +159,12 @@ private:
      */
     void refreshSavedGames(int row = 0);
     void refreshSelection();
+    /** Names the characters afresh, keeping the shown one while saves or the party still name it. */
+    void refreshCharacters();
+    /** The list moves on to the next character's saves, and from the last to the first. */
+    void showNextCharacter();
+    /** Whether the list shows the save: it names the shown character, or no character at all. */
+    bool isListed(const SavedGame &save) const;
     /** The game of the row tagged \p tag is chosen and shown, as a click on the row does. */
     void chooseGame(const std::string &tag);
     void showStatus(std::string message);
