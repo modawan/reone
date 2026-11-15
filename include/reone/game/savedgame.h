@@ -54,8 +54,8 @@ std::filesystem::path savedGamesDirectory(const std::filesystem::path &gamePath)
 std::vector<SavedGame> discoverSavedGames(const std::filesystem::path &gamePath);
 
 /**
- * The player character's name as the slot's archive records it. KotOR's save
- * metadata names no character: the name is that of the canonical player kept
+ * The player character's name as the slot's archive records it. KotOR's own
+ * save metadata names no character: the name is that of the canonical player kept
  * aside while another party member is controlled, and otherwise of the
  * player in the last module's state. Empty when the archive holds neither.
  */

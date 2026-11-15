@@ -587,10 +587,13 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
         removeSaveField(*result, "AUTOSAVEPARAMS");
     }
 
+    // Both titles' saves name their character, which the save list shows
+    // them by; KotOR's own saves leave it out, and the list reads theirs from
+    // the save's archive.
+    put(*result, Gff::Field::newCExoString("PCNAME", _game._party.playerCharacterName()));
     if (_game.isTSL()) {
         removeSaveField(*result, "STORYHINT");
         put(*result, Gff::Field::newDword64("TIMESTAMP", _metadata.timestamp));
-        put(*result, Gff::Field::newCExoString("PCNAME", _game._party.playerCharacterName()));
         put(*result, Gff::Field::newDword("SAVENUMBER", _metadata.saveNumber));
         for (size_t i = 0; i < _metadata.storyHints.size(); ++i) {
             put(*result, Gff::Field::newByte(
@@ -599,7 +602,6 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
     } else {
         put(*result, Gff::Field::newByte("STORYHINT", _metadata.storyHint));
         removeSaveField(*result, "TIMESTAMP");
-        removeSaveField(*result, "PCNAME");
         removeSaveField(*result, "SAVENUMBER");
         for (size_t i = 0; i < 10; ++i) {
             removeSaveField(*result, "STORYHINT" + std::to_string(i));

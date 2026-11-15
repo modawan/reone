@@ -364,6 +364,7 @@ void SaveLoad::refreshSavedGames(int row) {
         _game.savedGames(), _game.isTSL(), _mode);
     if (!_game.isTSL()) {
         for (auto &save : _saves) {
+            if (!save.metadata.pcName.empty()) continue;
             std::error_code ec;
             const auto written = std::filesystem::last_write_time(save.descriptor.archive, ec);
             auto known = _archivedCharacters.find(save.descriptor.directory);
