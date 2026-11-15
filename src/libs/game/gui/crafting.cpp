@@ -1308,8 +1308,6 @@ void ItemUpgradePanel::onGUILoaded() {
     }
     _controls.BTN_ASSEMBLE = findControl<Button>("BTN_ASSEMBLE");
     _controls.BTN_BACK = findControl<Button>("BTN_BACK");
-    _controls.LBL_DESCBG = findControl<Label>("LBL_DESCBG");
-    _controls.LBL_DESCBG_LS = findControl<Label>("LBL_DESCBG_LS");
     _controls.LBL_PROPERTY = findControl<Label>("LBL_PROPERTY");
     _controls.LBL_SLOTNAME = findControl<Label>("LBL_SLOTNAME");
     _controls.LBL_TITLE = findControl<Label>("LBL_TITLE");
@@ -1324,6 +1322,8 @@ void ItemUpgradePanel::onGUILoaded() {
     if (tsl) {
         _controls.BTN_OK = findControl<Button>("BTN_OK");
     } else {
+        _controls.LBL_DESCBG = findControl<Label>("LBL_DESCBG");
+        _controls.LBL_DESCBG_LS = findControl<Label>("LBL_DESCBG_LS");
         _controls.LBL_LSSLOTNAME = findControl<Label>("LBL_LSSLOTNAME");
         _controls.LBL_UPGRADES = findControl<Label>("LBL_UPGRADES");
         _controls.LBL_UPGRADE_COUNT = findControl<Label>("LBL_UPGRADE_COUNT");
@@ -1766,16 +1766,16 @@ void ItemUpgradePanel::showSlots() {
     }
     _controls.LB_ITEMS->setVisible(false);
     _controls.BTN_ASSEMBLE->setVisible(true);
-    _controls.LBL_DESCBG_LS->setVisible(lightsaber);
-    _controls.LBL_DESCBG->setVisible(!lightsaber);
     if (_game.isTSL()) {
         _controls.BTN_OK->setVisible(false);
         _controls.LB_DESC->setVisible(true);
         _controls.LBL_SLOTNAME->setVisible(true);
         _controls.LBL_PROPERTY->setVisible(true);
     } else {
-        // A KotOR lightsaber has a description and slot name of its own, and
-        // no upgrade count.
+        // A KotOR lightsaber has a description, its background and a slot
+        // name of its own, and no upgrade count.
+        _controls.LBL_DESCBG_LS->setVisible(lightsaber);
+        _controls.LBL_DESCBG->setVisible(!lightsaber);
         _controls.LBL_LSSLOTNAME->setVisible(lightsaber);
         _controls.LB_DESC_LS->setVisible(lightsaber);
         _controls.LB_DESC->setVisible(!lightsaber);
