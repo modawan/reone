@@ -512,7 +512,7 @@ TEST(ModelSceneNode, should_animate_whole_model_when_animation_root_names_a_miss
 
     auto animations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("zoomin", 1.0f, 0.0f, "planet_03", animRootNode, std::vector<Animation::Event>())};
-    auto model = Model("planet_04", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("planet_04", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Placeable,
@@ -580,7 +580,7 @@ TEST(ModelSceneNode, should_animate_only_the_branch_an_animation_tree_holds) {
 
     auto animations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("wave", 1.0f, 0.0f, "arm", animRootNode, std::vector<Animation::Event>())};
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,
@@ -653,7 +653,7 @@ TEST(ModelSceneNode, should_not_animate_nodes_above_the_models_animation_root) {
 
     auto animations = std::vector<std::shared_ptr<Animation>> {
         std::make_shared<Animation>("move", 1.0f, 0.0f, "", animRootNode, std::vector<Animation::Event>())};
-    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto model = std::make_shared<Model>("some_model", 0, rootNode, animations, "", 1.0f);
     auto modelSceneNode = std::make_shared<ModelSceneNode>(
         model,
         ModelUsage::Creature,
