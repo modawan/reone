@@ -94,6 +94,12 @@ protected:
     const graphics::GraphicsOptions &_graphicsOptions;
     const PresentationServices _presentation;
     std::string _resRef;
+    /**
+     * The screen loads a GUI of its own rather than the one the cache keeps,
+     * as it binds the layout's controls to itself while other screens bind
+     * the same layout.
+     */
+    bool _ownGUI {false};
 
     std::shared_ptr<gui::IGUI> _gui;
     std::shared_ptr<audio::AudioSource> _audioSource;
