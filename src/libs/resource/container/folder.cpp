@@ -34,6 +34,10 @@ void FolderResourceContainer::loadDirectory(const std::filesystem::path &path) {
             loadDirectory(entry.path());
             continue;
         }
+        // A file with no extension names no resource type.
+        if (!entry.path().has_extension()) {
+            continue;
+        }
         auto resRef = boost::to_lower_copy(entry.path().filename().replace_extension("").string());
         auto ext = boost::to_lower_copy(entry.path().extension().string().substr(1));
         auto resType = getResTypeByExt(ext);
