@@ -956,6 +956,9 @@ public:
         return _quitRequested;
     }
 
+    /** Whether the screen shown has a text box that takes typing now (GameGUI::wantsTextInput). */
+    bool wantsTextInput() const;
+
     resource::CursorType cursorType() const {
         return _pointer->type();
     }

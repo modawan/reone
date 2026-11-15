@@ -61,19 +61,18 @@ public:
      * @throws WordPhonemesNotFoundException
      */
     std::vector<std::string> phonemes(const std::string &word) const {
-        auto codePoints = codePointsFromUTF8(word);
-        for (auto &cp : codePoints) {
-            cp = codePointToLower(cp);
+        auto lower = lowerWord(word);
+        if (_wordToPhonemes.count(lower) == 0) {
+            throw WordPhonemesNotFoundException(lower);
         }
-        auto lowerWord = utf8FromCodePoints(codePoints);
-        if (_wordToPhonemes.count(lowerWord) == 0) {
-            throw WordPhonemesNotFoundException(lowerWord);
-        }
-        return _wordToPhonemes.at(lowerWord);
+        return _wordToPhonemes.at(lower);
     }
 
 private:
     WordPhonemesMap _wordToPhonemes;
+
+    /** \p word in lower case, as the dictionary keeps and looks up its words. */
+    static std::string lowerWord(const std::string &word);
 };
 
 class TextSyntaxException : public std::runtime_error {

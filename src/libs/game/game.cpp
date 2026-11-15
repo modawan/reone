@@ -6115,7 +6115,7 @@ void Game::initInputEvents() {
     // Keys are read from the column of the talk table's language when an
     // enabled single-key row gives a key there, else from the first
     // language's.
-    std::string column = "language" + std::to_string(_services.resource.strings.languageId());
+    std::string column = "language" + std::to_string(static_cast<int>(_services.resource.strings.language()));
     bool languageHasKeys = false;
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
         const int row = rowOf(event, "");
@@ -9786,6 +9786,11 @@ void Game::changeScreen(Screen screen) {
 
 GameGUI *Game::getScreenGUI() const {
     return guiForScreen(_screen);
+}
+
+bool Game::wantsTextInput() const {
+    auto gui = getScreenGUI();
+    return gui && gui->wantsTextInput();
 }
 
 GameGUI *Game::guiForScreen(Screen screen) const {

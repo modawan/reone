@@ -23,9 +23,19 @@
 
 #include <array>
 
+#include "reone/system/unicodeutil.h"
+
 namespace reone {
 
 namespace resource {
+
+/**
+ * The code page a talk table in \p language keeps its text in: Windows-1250
+ * for Polish, Windows-1252 for English, French, German, Italian and Spanish.
+ * The Korean, Chinese and Japanese releases' double-byte code pages are not
+ * supported: their text is taken as Windows-1252.
+ */
+CodePage codePageOfLanguage(Language language);
 
 class IStrings {
 public:
@@ -36,8 +46,8 @@ public:
     virtual std::string getSound(int strRef) = 0;
     /** The length of the string's sound in seconds; 0 for a string not found. */
     virtual float getSoundDuration(int strRef) = 0;
-    /** The language of the main talk table; 0 when none is loaded. */
-    virtual int languageId() const = 0;
+    /** The language of the main talk table; English when none is loaded. */
+    virtual Language language() const = 0;
 };
 
 class Strings : public IStrings {
@@ -54,7 +64,7 @@ public:
     std::string getText(int strRef) override;
     std::string getSound(int strRef) override;
     float getSoundDuration(int strRef) override;
-    int languageId() const override;
+    Language language() const override;
 
 private:
     std::array<std::shared_ptr<TalkTable>, kTalkTableSlotCount> _tables;
