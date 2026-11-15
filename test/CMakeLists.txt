@@ -42,12 +42,6 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/context.cpp
     ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
-    ${TESTS_SOURCE_DIR}/extract/capsule.cpp
-    ${TESTS_SOURCE_DIR}/extract/chitin.cpp
-    ${TESTS_SOURCE_DIR}/extract/fileresource.cpp
-    ${TESTS_SOURCE_DIR}/extract/finder.cpp
-    ${TESTS_SOURCE_DIR}/extract/installation.cpp
-    ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
     ${TESTS_SOURCE_DIR}/fixtures/audio.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/fixtures/game.cpp
@@ -147,7 +141,6 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/gui/gui.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
-    ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
     ${TESTS_SOURCE_DIR}/resource/gameprobe.cpp
     ${TESTS_SOURCE_DIR}/resource/modulediscovery.cpp
     ${TESTS_SOURCE_DIR}/resource/moduleloading.cpp

@@ -23,17 +23,14 @@
  * retired must stop answering, and one that has not must keep answering
  * exactly as before. Ownership and lookup order are separate throughout, so
  * clearing an owner is never allowed to change which of the survivors wins.
- *
- * Both backends run everything, because a lifetime rule that holds for only
- * one of them is not a rule.
  */
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/exception/notfound.h"
-#include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/rimwriter.h"
 #include "reone/resource/mounttransaction.h"
@@ -43,9 +40,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -163,27 +158,15 @@ struct CwdGuard {
     }
 };
 
-enum class Backend { Legacy, Extract };
-
-std::string backendName(const testing::TestParamInfo<Backend> &info) {
-    return info.param == Backend::Legacy ? "Legacy" : "Extract";
-}
-
 } // namespace
 
 /// Owner semantics on a bare backend, with no director deciding anything.
-class SourceOwnerTest : public testing::TestWithParam<Backend> {
+class SourceOwnerTest : public testing::Test {
 protected:
     void SetUp() override {
-        if (GetParam() == Backend::Legacy) {
-            auto backend = std::make_unique<Resources>();
-            _count = [raw = backend.get()]() { return raw->containers().size(); };
-            _resources = std::move(backend);
-        } else {
-            auto backend = std::make_unique<ExtractResources>();
-            _count = [raw = backend.get()]() { return raw->sourceCount(); };
-            _resources = std::move(backend);
-        }
+        auto backend = std::make_unique<Resources>();
+        _count = [raw = backend.get()]() { return raw->containers().size(); };
+        _resources = std::move(backend);
     }
 
     /// One source holding a resource of its own plus the shared probe, so both
@@ -207,7 +190,7 @@ protected:
     std::function<std::size_t()> _count;
 };
 
-TEST_P(SourceOwnerTest, retires_only_the_owner_asked_for) {
+TEST_F(SourceOwnerTest, retires_only_the_owner_asked_for) {
     mount("global", ResourceOwner::Global);
     mount("save", ResourceOwner::SaveSlot);
     mount("module", ResourceOwner::ActiveModule);
@@ -247,7 +230,7 @@ TEST_P(SourceOwnerTest, retires_only_the_owner_asked_for) {
     EXPECT_EQ(0u, _count());
 }
 
-TEST_P(SourceOwnerTest, retiring_an_owner_does_not_reorder_the_survivors) {
+TEST_F(SourceOwnerTest, retiring_an_owner_does_not_reorder_the_survivors) {
     mount("global", ResourceOwner::Global);
     mount("module", ResourceOwner::ActiveModule);
     mount("save", ResourceOwner::SaveSlot);
@@ -263,7 +246,7 @@ TEST_P(SourceOwnerTest, retiring_an_owner_does_not_reorder_the_survivors) {
     EXPECT_EQ("global", find("shared"));
 }
 
-TEST_P(SourceOwnerTest, retiring_an_owner_with_no_members_changes_nothing) {
+TEST_F(SourceOwnerTest, retiring_an_owner_with_no_members_changes_nothing) {
     mount("global", ResourceOwner::Global);
 
     _resources->clearOwner(ResourceOwner::SaveSlot);
@@ -276,7 +259,7 @@ TEST_P(SourceOwnerTest, retiring_an_owner_with_no_members_changes_nothing) {
 
 // Undoing an operation.
 
-TEST_P(SourceOwnerTest, rolls_back_exactly_what_was_mounted_after_the_token) {
+TEST_F(SourceOwnerTest, rolls_back_exactly_what_was_mounted_after_the_token) {
     mount("global", ResourceOwner::Global);
     auto token = _resources->mountToken();
     mount("module", ResourceOwner::ActiveModule);
@@ -290,7 +273,7 @@ TEST_P(SourceOwnerTest, rolls_back_exactly_what_was_mounted_after_the_token) {
     EXPECT_EQ(1u, _count());
 }
 
-TEST_P(SourceOwnerTest, a_scope_that_is_not_committed_undoes_itself) {
+TEST_F(SourceOwnerTest, a_scope_that_is_not_committed_undoes_itself) {
     mount("global", ResourceOwner::Global);
     {
         ResourceMountTransaction transaction(*_resources);
@@ -302,7 +285,7 @@ TEST_P(SourceOwnerTest, a_scope_that_is_not_committed_undoes_itself) {
     EXPECT_EQ("global", find("shared"));
 }
 
-TEST_P(SourceOwnerTest, a_committed_scope_keeps_what_it_mounted) {
+TEST_F(SourceOwnerTest, a_committed_scope_keeps_what_it_mounted) {
     mount("global", ResourceOwner::Global);
     {
         ResourceMountTransaction transaction(*_resources);
@@ -314,7 +297,7 @@ TEST_P(SourceOwnerTest, a_committed_scope_keeps_what_it_mounted) {
     EXPECT_EQ("module", find("shared"));
 }
 
-TEST_P(SourceOwnerTest, a_scope_left_by_an_exception_undoes_itself) {
+TEST_F(SourceOwnerTest, a_scope_left_by_an_exception_undoes_itself) {
     mount("global", ResourceOwner::Global);
     try {
         ResourceMountTransaction transaction(*_resources);
@@ -328,7 +311,7 @@ TEST_P(SourceOwnerTest, a_scope_left_by_an_exception_undoes_itself) {
     EXPECT_EQ(1u, _count());
 }
 
-TEST_P(SourceOwnerTest, a_rejected_mount_leaves_the_list_and_the_token_alone) {
+TEST_F(SourceOwnerTest, a_rejected_mount_leaves_the_list_and_the_token_alone) {
     _resources->addMemERF(erfBytes(ErfWriter::FileType::ERF, {{"shared", ResType::Txt, "unplaced"}}),
                           ResourceOwner::Global);
     auto token = _resources->mountToken();
@@ -347,7 +330,7 @@ TEST_P(SourceOwnerTest, a_rejected_mount_leaves_the_list_and_the_token_alone) {
     EXPECT_EQ(1u, _count());
 }
 
-TEST_P(SourceOwnerTest, the_mount_sequence_never_rewinds) {
+TEST_F(SourceOwnerTest, the_mount_sequence_never_rewinds) {
     mount("first", ResourceOwner::Global);
     auto afterFirst = _resources->mountToken();
 
@@ -366,11 +349,6 @@ TEST_P(SourceOwnerTest, the_mount_sequence_never_rewinds) {
     EXPECT_EQ("rebuilt", find("shared"));
     EXPECT_EQ(1u, _count());
 }
-
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         SourceOwnerTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
 
 /**
  * Test-only backend decorator that turns one otherwise valid disk mount into a
@@ -450,18 +428,10 @@ private:
 /// Save and module lifetimes as the director drives them.
 class SourceLifetimeFixture {
 protected:
-    void initBackend(Backend backend) {
-        _graphics.init();
-        _script.init();
-        if (backend == Backend::Legacy) {
-            auto legacy = std::make_unique<Resources>();
-            _count = [raw = legacy.get()]() { return raw->containers().size(); };
-            _resources = std::move(legacy);
-        } else {
-            auto extract = std::make_unique<ExtractResources>();
-            _count = [raw = extract.get()]() { return raw->sourceCount(); };
-            _resources = std::move(extract);
-        }
+    void initBackend() {
+        auto legacy = std::make_unique<Resources>();
+        _count = [raw = legacy.get()]() { return raw->containers().size(); };
+        _resources = std::move(legacy);
         _auxResources = std::make_unique<Resources>();
     }
 
@@ -477,8 +447,7 @@ protected:
                                                    GameID game = GameID::TSL) {
         _gamePath = gamePath;
         return std::make_unique<ResourceDirector>(
-            game, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            *_resources, *_auxResources, _twoDas);
+            game, _gamePath, _graphicsOpt, *_resources, *_auxResources, _twoDas);
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {
@@ -498,8 +467,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
 
     NiceMock<MockTwoDAs> _twoDas;
 
@@ -509,11 +476,11 @@ protected:
     std::function<std::size_t()> _count;
 };
 
-/// Everything a lifetime rule says must hold on both backends.
+/// Everything a lifetime rule says must hold through the director.
 class SourceLifetimeDirectorTest : public SourceLifetimeFixture,
-                                   public testing::TestWithParam<Backend> {
+                                   public testing::Test {
 protected:
-    void SetUp() override { initBackend(GetParam()); }
+    void SetUp() override { initBackend(); }
 };
 
 // Save slots.
@@ -537,7 +504,7 @@ void writeSaveSlots(TmpDir &game) {
 
 } // namespace
 
-TEST_P(SourceLifetimeDirectorTest, a_save_working_state_is_replaced_when_another_is_loaded) {
+TEST_F(SourceLifetimeDirectorTest, a_save_working_state_is_replaced_when_another_is_loaded) {
     TmpDir game("reone_test_lifetime_saves");
     TmpDir cwd("reone_test_lifetime_saves_cwd");
     makeInstallation(game, cwd);
@@ -575,7 +542,7 @@ TEST_P(SourceLifetimeDirectorTest, a_save_working_state_is_replaced_when_another
  * leaves both the active working state and its still-valid decoded cache
  * untouched.
  */
-TEST_P(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_entries) {
+TEST_F(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_entries) {
     TmpDir game("reone_test_lifetime_save_cache");
     TmpDir cwd("reone_test_lifetime_save_cache_cwd");
     makeInstallation(game, cwd);
@@ -614,7 +581,7 @@ TEST_P(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_e
     EXPECT_EQ(afterCommit, gffs.get("cacheprobe", ResType::Res));
 }
 
-TEST_P(SourceLifetimeDirectorTest, loading_the_same_save_twice_accumulates_nothing) {
+TEST_F(SourceLifetimeDirectorTest, loading_the_same_save_twice_accumulates_nothing) {
     TmpDir game("reone_test_lifetime_same_save");
     TmpDir cwd("reone_test_lifetime_same_save_cwd");
     makeInstallation(game, cwd);
@@ -639,7 +606,7 @@ TEST_P(SourceLifetimeDirectorTest, loading_the_same_save_twice_accumulates_nothi
     EXPECT_EQ(common, working(*director, "common"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, an_invalid_incoming_save_leaves_the_active_session_unchanged) {
+TEST_F(SourceLifetimeDirectorTest, an_invalid_incoming_save_leaves_the_active_session_unchanged) {
     TmpDir game("reone_test_lifetime_save_failure");
     TmpDir cwd("reone_test_lifetime_save_failure_cwd");
     makeInstallation(game, cwd);
@@ -707,7 +674,7 @@ void writeTransitionModules(TmpDir &game) {
 
 } // namespace
 
-TEST_P(SourceLifetimeDirectorTest, a_transition_leaves_nothing_of_the_previous_module) {
+TEST_F(SourceLifetimeDirectorTest, a_transition_leaves_nothing_of_the_previous_module) {
     TmpDir game("reone_test_lifetime_transition");
     TmpDir cwd("reone_test_lifetime_transition_cwd");
     makeInstallation(game, cwd);
@@ -777,7 +744,7 @@ TEST_P(SourceLifetimeDirectorTest, a_transition_leaves_nothing_of_the_previous_m
     EXPECT_EQ(sourcesForC, _count());
 }
 
-TEST_P(SourceLifetimeDirectorTest, loading_the_same_module_twice_accumulates_nothing) {
+TEST_F(SourceLifetimeDirectorTest, loading_the_same_module_twice_accumulates_nothing) {
     TmpDir game("reone_test_lifetime_same_module");
     TmpDir cwd("reone_test_lifetime_same_module_cwd");
     makeInstallation(game, cwd);
@@ -801,7 +768,7 @@ TEST_P(SourceLifetimeDirectorTest, loading_the_same_module_twice_accumulates_not
     EXPECT_EQ("a base", find("probe"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, a_module_transition_does_not_unload_the_save) {
+TEST_F(SourceLifetimeDirectorTest, a_module_transition_does_not_unload_the_save) {
     TmpDir game("reone_test_lifetime_save_survives");
     TmpDir cwd("reone_test_lifetime_save_survives_cwd");
     makeInstallation(game, cwd);
@@ -823,7 +790,7 @@ TEST_P(SourceLifetimeDirectorTest, a_module_transition_does_not_unload_the_save)
     EXPECT_EQ("from a", working(*director, "common"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, replacing_the_save_does_not_disturb_the_active_module) {
+TEST_F(SourceLifetimeDirectorTest, replacing_the_save_does_not_disturb_the_active_module) {
     TmpDir game("reone_test_lifetime_module_survives");
     TmpDir cwd("reone_test_lifetime_module_survives_cwd");
     makeInstallation(game, cwd);
@@ -848,7 +815,7 @@ TEST_P(SourceLifetimeDirectorTest, replacing_the_save_does_not_disturb_the_activ
 
 // The module's own state, separately from its support sources.
 
-TEST_P(SourceLifetimeDirectorTest, the_staged_module_state_goes_with_the_module) {
+TEST_F(SourceLifetimeDirectorTest, the_staged_module_state_goes_with_the_module) {
     TmpDir game("reone_test_lifetime_staged_state");
     TmpDir cwd("reone_test_lifetime_staged_state_cwd");
     makeInstallation(game, cwd);
@@ -891,11 +858,10 @@ TEST_P(SourceLifetimeDirectorTest, the_staged_module_state_goes_with_the_module)
 /**
  * A module load that throws partway through leaves none of itself mounted.
  *
- * The staged archive is the failure point because both backends read a staged
- * blob eagerly, so this pins the rollback identically on each. It is also the
- * latest phase there is: the adjunct images are already mounted when it runs.
+ * The staged archive is the failure point because a staged blob is read
+ * eagerly. It is also the latest phase there is: the adjunct images are already mounted when it runs.
  */
-TEST_P(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_itself_behind) {
+TEST_F(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_itself_behind) {
     TmpDir game("reone_test_lifetime_module_failure");
     TmpDir cwd("reone_test_lifetime_module_failure_cwd");
     makeInstallation(game, cwd);
@@ -943,7 +909,7 @@ TEST_P(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_it
     EXPECT_EQ(beforeAttempt, _count());
 }
 
-TEST_P(SourceLifetimeDirectorTest, a_non_exception_required_failure_rolls_back_the_new_module) {
+TEST_F(SourceLifetimeDirectorTest, a_non_exception_required_failure_rolls_back_the_new_module) {
     TmpDir game("reone_test_lifetime_required_result_failure");
     TmpDir cwd("reone_test_lifetime_required_result_failure_cwd");
     makeInstallation(game, cwd);
@@ -969,7 +935,7 @@ TEST_P(SourceLifetimeDirectorTest, a_non_exception_required_failure_rolls_back_t
     EXPECT_FALSE(has("foo_static"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, a_required_failure_can_recover_through_active_saved_state) {
+TEST_F(SourceLifetimeDirectorTest, a_required_failure_can_recover_through_active_saved_state) {
     TmpDir game("reone_test_lifetime_required_recovery");
     TmpDir cwd("reone_test_lifetime_required_recovery_cwd");
     makeInstallation(game, cwd);
@@ -1000,7 +966,7 @@ TEST_P(SourceLifetimeDirectorTest, a_required_failure_can_recover_through_active
     EXPECT_FALSE(has("foo_static"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, no_primary_with_discoverable_sidecars_rolls_back_everything) {
+TEST_F(SourceLifetimeDirectorTest, no_primary_with_discoverable_sidecars_rolls_back_everything) {
     TmpDir game("reone_test_lifetime_no_primary_sidecars");
     TmpDir cwd("reone_test_lifetime_no_primary_sidecars_cwd");
     makeInstallation(game, cwd);
@@ -1023,7 +989,7 @@ TEST_P(SourceLifetimeDirectorTest, no_primary_with_discoverable_sidecars_rolls_b
     EXPECT_FALSE(has("foo_static"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, a_best_effort_failure_does_not_fail_the_module) {
+TEST_F(SourceLifetimeDirectorTest, a_best_effort_failure_does_not_fail_the_module) {
     TmpDir game("reone_test_lifetime_best_effort_result");
     TmpDir cwd("reone_test_lifetime_best_effort_result_cwd");
     makeInstallation(game, cwd);
@@ -1044,10 +1010,10 @@ TEST_P(SourceLifetimeDirectorTest, a_best_effort_failure_does_not_fail_the_modul
     EXPECT_EQ("base", find("foo_base"));
     EXPECT_FALSE(has("foo_dialogue"));
 }
-/// The same rollback for an unreadable archive on disk. Both backends decide an
-/// archive is unusable as they mount it, so both fail here; archivevalidation
-/// covers that contract itself.
-TEST_P(SourceLifetimeDirectorTest, a_corrupt_archive_on_disk_rolls_back_the_module) {
+/// The same rollback for an unreadable archive on disk. An archive is found
+/// unusable as it is mounted, so the load fails here; archivevalidation covers
+/// that contract itself.
+TEST_F(SourceLifetimeDirectorTest, a_corrupt_archive_on_disk_rolls_back_the_module) {
     TmpDir game("reone_test_lifetime_corrupt_disk");
     TmpDir cwd("reone_test_lifetime_corrupt_disk_cwd");
     makeInstallation(game, cwd);
@@ -1073,7 +1039,7 @@ TEST_P(SourceLifetimeDirectorTest, a_corrupt_archive_on_disk_rolls_back_the_modu
     EXPECT_EQ(globals, _count()) << "nothing of the failed module may remain";
 }
 
-TEST_P(SourceLifetimeDirectorTest, an_absent_optional_source_is_not_a_failure) {
+TEST_F(SourceLifetimeDirectorTest, an_absent_optional_source_is_not_a_failure) {
     TmpDir game("reone_test_lifetime_optional_absent");
     TmpDir cwd("reone_test_lifetime_optional_absent_cwd");
     makeInstallation(game, cwd);
@@ -1095,7 +1061,7 @@ TEST_P(SourceLifetimeDirectorTest, an_absent_optional_source_is_not_a_failure) {
     EXPECT_TRUE(has("static_only")) << "a missing optional family does not roll back a good one";
 }
 
-TEST_P(SourceLifetimeDirectorTest, nwm_state_is_replaced_across_nwm_and_ordinary_transitions) {
+TEST_F(SourceLifetimeDirectorTest, nwm_state_is_replaced_across_nwm_and_ordinary_transitions) {
     TmpDir game("reone_test_lifetime_nwm_transitions");
     TmpDir cwd("reone_test_lifetime_nwm_transitions_cwd");
     makeInstallation(game, cwd);
@@ -1133,7 +1099,7 @@ TEST_P(SourceLifetimeDirectorTest, nwm_state_is_replaced_across_nwm_and_ordinary
     EXPECT_EQ(globals + 1, _count());
 }
 
-TEST_P(SourceLifetimeDirectorTest, a_corrupt_selected_nwm_rolls_back_without_restoring_old_state) {
+TEST_F(SourceLifetimeDirectorTest, a_corrupt_selected_nwm_rolls_back_without_restoring_old_state) {
     TmpDir game("reone_test_lifetime_nwm_corrupt");
     TmpDir cwd("reone_test_lifetime_nwm_corrupt_cwd");
     makeInstallation(game, cwd);
@@ -1151,16 +1117,11 @@ TEST_P(SourceLifetimeDirectorTest, a_corrupt_selected_nwm_rolls_back_without_res
     EXPECT_EQ(globals, _count());
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         SourceLifetimeDirectorTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
-
 /// K1 is not activated, so its sources are unplaced. Ownership is generic and
 /// applies to it all the same.
 class K1SourceLifetimeTest : public SourceLifetimeDirectorTest {};
 
-TEST_P(K1SourceLifetimeTest, retires_module_sources_on_the_activated_path) {
+TEST_F(K1SourceLifetimeTest, retires_module_sources_on_the_activated_path) {
     TmpDir game("reone_test_lifetime_k1");
     TmpDir cwd("reone_test_lifetime_k1_cwd");
     makeInstallation(game, cwd);
@@ -1191,7 +1152,7 @@ TEST_P(K1SourceLifetimeTest, retires_module_sources_on_the_activated_path) {
     EXPECT_EQ(sourcesForA, _count());
 }
 
-TEST_P(K1SourceLifetimeTest, replaces_save_working_state_on_the_activated_path) {
+TEST_F(K1SourceLifetimeTest, replaces_save_working_state_on_the_activated_path) {
     TmpDir game("reone_test_lifetime_k1_saves");
     TmpDir cwd("reone_test_lifetime_k1_saves_cwd");
     makeInstallation(game, cwd);
@@ -1211,7 +1172,3 @@ TEST_P(K1SourceLifetimeTest, replaces_save_working_state_on_the_activated_path) 
     EXPECT_EQ("<not found>", working(*director, "a_only"));
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         K1SourceLifetimeTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);

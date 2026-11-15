@@ -109,8 +109,7 @@ ResourceExplorerViewModel::ResourceExplorerViewModel() {
     _systemModule = std::make_unique<SystemModule>(*_clock);
     _graphicsModule = std::make_unique<GraphicsModule>(_graphicsOpt);
     _audioModule = std::make_unique<AudioModule>(_audioOpt);
-    _scriptModule = std::make_unique<ScriptModule>();
-    _resourceModule = std::make_unique<ResourceModule>(_gameId, _resourcesPath, _graphicsOpt, _audioOpt, *_graphicsModule, *_audioModule, *_scriptModule);
+    _resourceModule = std::make_unique<ResourceModule>(_gameId, _resourcesPath, _graphicsOpt, _audioOpt, *_graphicsModule, *_audioModule);
     _sceneModule = std::make_unique<SceneModule>(_graphicsOpt, *_resourceModule, *_graphicsModule, *_audioModule);
 
     _imageResViewModel = std::make_unique<ImageResourceViewModel>();
