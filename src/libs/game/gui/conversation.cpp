@@ -434,9 +434,26 @@ bool Conversation::isOneLiner(const Dialog::EntryReply &entry) const {
     return links.empty() || (links.size() == 1ll && _dialog->getReply(links.front().index).entries.empty());
 }
 
+// An entry whose speaker tag names no object the conversation can find is
+// passed over, as if its condition failed, and the next link is tried: an
+// entry's speaker is part of what makes it available. KotOR authors party
+// interjections this way, with no condition script: the Sand People guard's
+// "Interjection" line spoken by HK-47 comes first, and the line for a party
+// without its translator second (tat20_09first_01).
+bool Conversation::isEntrySpeakerPresent(int entryIndex) const {
+    if (!_dialog || entryIndex < 0 || entryIndex >= static_cast<int>(_dialog->entries.size())) {
+        return true;
+    }
+    const auto &speaker = _dialog->entries[entryIndex].speaker;
+    return speaker.empty() || resolveParticipantObject(speaker, ParticipantSite::Speaker) != nullptr;
+}
+
 int Conversation::indexOfFirstActive(const std::vector<Dialog::EntryReplyLink> &links) {
     auto generation = _generation;
     for (auto &link : links) {
+        if (!isEntrySpeakerPresent(link.index)) {
+            continue;
+        }
         bool active = isLinkActive(link);
         if (!isCurrent(generation)) {
             return -1;
