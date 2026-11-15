@@ -124,18 +124,16 @@ constexpr std::size_t bucketRank(ResourceSourceBucket bucket) {
 }
 
 /**
- * Ordered list of mounted resource sources, shared by every IResources
- * backend. Entries are held in lookup order, so a backend resolves an id by
- * walking the list and taking the first hit.
+ * Ordered list of mounted resource sources. Entries are held in lookup order,
+ * so an id resolves to the first source in the list that holds it.
  *
  * Entry must expose a ResourceOwner owner, an
  * std::optional<ResourceSourceBucket> bucket, a ResourceSourceForm form, a
  * std::filesystem::path path, and a ResourceMountToken sequence this list
  * assigns. Everything else about an entry, including how the source is
- * actually read, belongs to the backend: what is shared here is which source
- * wins and when a source goes away, which is exactly what the two backends
- * have to agree on. Resolving a lookup is therefore done here too, given only
- * whether each source holds the resource.
+ * actually read, belongs to its owner: what is decided here is which source
+ * wins and when a source goes away. Resolving a lookup is therefore done here
+ * too, given only whether each source holds the resource.
  *
  * Owner and bucket answer different questions and are never derived from each
  * other. The bucket says where a source is searched; the owner says what makes
@@ -250,7 +248,7 @@ public:
     /**
      * The source a lookup resolves to: the first in lookup order that holds the
      * resource, passing over sources of the excluded owners. holds(entry) says
-     * whether a source has it; how a source knows is the backend's business.
+     * whether a source has it; how a source knows is the caller's business.
      */
     template <class Holds>
     const Entry *resolve(Holds holds, const std::set<ResourceOwner> &excludedOwners = {}) const {

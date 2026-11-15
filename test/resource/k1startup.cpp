@@ -29,7 +29,6 @@
 #include <gtest/gtest.h>
 
 #include "reone/resource/director.h"
-#include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/rimwriter.h"
 #include "reone/resource/2da.h"
@@ -143,31 +142,19 @@ struct CwdGuard {
     }
 };
 
-enum class Backend { Legacy, Extract };
-
-std::string backendName(const testing::TestParamInfo<Backend> &i) {
-    return i.param == Backend::Legacy ? "Legacy" : "Extract";
-}
-
 /// The probe resref every collision test uses.
 constexpr char kProbe[] = "probe";
 
 } // namespace
 
-class K1StartupTest : public testing::TestWithParam<Backend> {
+class K1StartupTest : public testing::Test {
 protected:
     void SetUp() override {
         _graphics.init();
         _script.init();
-        if (GetParam() == Backend::Legacy) {
-            auto b = std::make_unique<Resources>();
-            _count = [r = b.get()]() { return r->containers().size(); };
-            _resources = std::move(b);
-        } else {
-            auto b = std::make_unique<ExtractResources>();
-            _count = [r = b.get()]() { return r->sourceCount(); };
-            _resources = std::move(b);
-        }
+        auto b = std::make_unique<Resources>();
+        _count = [r = b.get()]() { return r->containers().size(); };
+        _resources = std::move(b);
         _auxResources = std::make_unique<Resources>();
     }
 
@@ -206,7 +193,7 @@ protected:
 
 // Within the loose bucket, registration order decides.
 
-TEST_P(K1StartupTest, loose_sources_rank_by_the_order_k1_registers_them) {
+TEST_F(K1StartupTest, loose_sources_rank_by_the_order_k1_registers_them) {
     TmpDir game("reone_test_k1_loose");
     TmpDir cwd("reone_test_k1_loose_cwd");
     makeInstallation(game, cwd);
@@ -227,7 +214,7 @@ TEST_P(K1StartupTest, loose_sources_rank_by_the_order_k1_registers_them) {
     EXPECT_EQ("streammusic", find(kProbe)) << "streammusic is registered last of the loose sources";
 }
 
-TEST_P(K1StartupTest, loose_order_holds_when_the_newest_sources_are_absent) {
+TEST_F(K1StartupTest, loose_order_holds_when_the_newest_sources_are_absent) {
     TmpDir game("reone_test_k1_loose_partial");
     TmpDir cwd("reone_test_k1_loose_partial_cwd");
     makeInstallation(game, cwd);
@@ -245,7 +232,7 @@ TEST_P(K1StartupTest, loose_order_holds_when_the_newest_sources_are_absent) {
     EXPECT_EQ("streamwaves", find(kProbe)) << "streamwaves outranks rims and override";
 }
 
-TEST_P(K1StartupTest, the_rims_directory_outranks_override) {
+TEST_F(K1StartupTest, the_rims_directory_outranks_override) {
     TmpDir game("reone_test_k1_rims_override");
     TmpDir cwd("reone_test_k1_rims_override_cwd");
     makeInstallation(game, cwd);
@@ -262,7 +249,7 @@ TEST_P(K1StartupTest, the_rims_directory_outranks_override) {
     EXPECT_EQ("rims", find(kProbe)) << "rims is registered after override";
 }
 
-TEST_P(K1StartupTest, streamsounds_stays_out_of_raw_lookup) {
+TEST_F(K1StartupTest, streamsounds_stays_out_of_raw_lookup) {
     TmpDir game("reone_test_k1_streamsounds");
     TmpDir cwd("reone_test_k1_streamsounds_cwd");
     makeInstallation(game, cwd);
@@ -284,7 +271,7 @@ TEST_P(K1StartupTest, streamsounds_stays_out_of_raw_lookup) {
 
 // Class 1.
 
-TEST_P(K1StartupTest, patch_outranks_the_override_texture_archive) {
+TEST_F(K1StartupTest, patch_outranks_the_override_texture_archive) {
     TmpDir game("reone_test_k1_class1");
     TmpDir cwd("reone_test_k1_class1_cwd");
     makeInstallation(game, cwd);
@@ -305,7 +292,7 @@ TEST_P(K1StartupTest, patch_outranks_the_override_texture_archive) {
     EXPECT_EQ("patch", find(kProbe)) << "patch is registered after the override texture archive";
 }
 
-TEST_P(K1StartupTest, the_override_texture_archive_is_class_one_not_class_two) {
+TEST_F(K1StartupTest, the_override_texture_archive_is_class_one_not_class_two) {
     TmpDir game("reone_test_k1_textures_class");
     TmpDir cwd("reone_test_k1_textures_class_cwd");
     makeInstallation(game, cwd);
@@ -327,7 +314,7 @@ TEST_P(K1StartupTest, the_override_texture_archive_is_class_one_not_class_two) {
         << "class 1 outranks both the resource image and the class-2 pack";
 }
 
-TEST_P(K1StartupTest, a_loose_file_outranks_every_encapsulated_startup_source) {
+TEST_F(K1StartupTest, a_loose_file_outranks_every_encapsulated_startup_source) {
     TmpDir game("reone_test_k1_loose_over_class1");
     TmpDir cwd("reone_test_k1_loose_over_class1_cwd");
     makeInstallation(game, cwd);
@@ -347,7 +334,7 @@ TEST_P(K1StartupTest, a_loose_file_outranks_every_encapsulated_startup_source) {
 
 // The global image.
 
-TEST_P(K1StartupTest, the_global_image_outranks_class_two_and_loses_to_class_one) {
+TEST_F(K1StartupTest, the_global_image_outranks_class_two_and_loses_to_class_one) {
     TmpDir game("reone_test_k1_global_rim");
     TmpDir cwd("reone_test_k1_global_rim_cwd");
     makeInstallation(game, cwd);
@@ -365,7 +352,7 @@ TEST_P(K1StartupTest, the_global_image_outranks_class_two_and_loses_to_class_one
     EXPECT_EQ("global rim", find(kProbe)) << "the image bucket is searched before class 2";
 }
 
-TEST_P(K1StartupTest, only_the_named_global_image_is_mounted_from_the_rims_location) {
+TEST_F(K1StartupTest, only_the_named_global_image_is_mounted_from_the_rims_location) {
     TmpDir game("reone_test_k1_rims_only_global");
     TmpDir cwd("reone_test_k1_rims_only_global_cwd");
     makeInstallation(game, cwd);
@@ -388,7 +375,7 @@ TEST_P(K1StartupTest, only_the_named_global_image_is_mounted_from_the_rims_locat
 
 // Class 2, around the player archive.
 
-TEST_P(K1StartupTest, the_player_archive_outranks_the_texture_pack_and_loses_to_module_support) {
+TEST_F(K1StartupTest, the_player_archive_outranks_the_texture_pack_and_loses_to_module_support) {
     TmpDir game("reone_test_k1_players_order");
     TmpDir cwd("reone_test_k1_players_order_cwd");
     makeInstallation(game, cwd);
@@ -418,7 +405,7 @@ TEST_P(K1StartupTest, the_player_archive_outranks_the_texture_pack_and_loses_to_
     EXPECT_EQ("module mod", find(kProbe)) << "the module archive is the newest class-2 source";
 }
 
-TEST_P(K1StartupTest, the_player_archive_is_not_duplicated_or_repositioned_by_transitions) {
+TEST_F(K1StartupTest, the_player_archive_is_not_duplicated_or_repositioned_by_transitions) {
     TmpDir game("reone_test_k1_players_lifetime");
     TmpDir cwd("reone_test_k1_players_lifetime_cwd");
     makeInstallation(game, cwd);
@@ -451,7 +438,7 @@ TEST_P(K1StartupTest, the_player_archive_is_not_duplicated_or_repositioned_by_tr
     EXPECT_LT(afterInit, afterFirst);
 }
 
-TEST_P(K1StartupTest, the_player_archive_is_found_by_basename_not_by_extension) {
+TEST_F(K1StartupTest, the_player_archive_is_found_by_basename_not_by_extension) {
     TmpDir game("reone_test_k1_players_basename");
     TmpDir cwd("reone_test_k1_players_basename_cwd");
     makeInstallation(game, cwd);
@@ -470,7 +457,7 @@ TEST_P(K1StartupTest, the_player_archive_is_found_by_basename_not_by_extension) 
     EXPECT_EQ("players mod", find("from_players"));
 }
 
-TEST_P(K1StartupTest, an_absent_player_archive_is_not_a_failure) {
+TEST_F(K1StartupTest, an_absent_player_archive_is_not_a_failure) {
     TmpDir game("reone_test_k1_players_absent");
     TmpDir cwd("reone_test_k1_players_absent_cwd");
     makeInstallation(game, cwd);
@@ -487,7 +474,7 @@ TEST_P(K1StartupTest, an_absent_player_archive_is_not_a_failure) {
 
 // Game discrimination.
 
-TEST_P(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archives) {
+TEST_F(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archives) {
     TmpDir game("reone_test_k2_global_images");
     TmpDir cwd("reone_test_k2_global_images_cwd");
     makeInstallation(game, cwd);
@@ -521,7 +508,7 @@ TEST_P(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archive
     EXPECT_EQ("global", find("from_global")) << "global.rim has Global lifetime";
 }
 
-TEST_P(K1StartupTest, k2_keeps_its_streams_out_of_raw_lookup) {
+TEST_F(K1StartupTest, k2_keeps_its_streams_out_of_raw_lookup) {
     TmpDir game("reone_test_k2_streams");
     TmpDir cwd("reone_test_k2_streams_cwd");
     makeInstallation(game, cwd);
@@ -538,7 +525,7 @@ TEST_P(K1StartupTest, k2_keeps_its_streams_out_of_raw_lookup) {
     EXPECT_EQ("override", find(kProbe)) << "K2 streams are not raw lookup sources";
 }
 
-TEST_P(K1StartupTest, k2_rims_loose_directory_outranks_base_override) {
+TEST_F(K1StartupTest, k2_rims_loose_directory_outranks_base_override) {
     TmpDir game("reone_test_k2_rims_override");
     TmpDir cwd("reone_test_k2_rims_override_cwd");
     makeInstallation(game, cwd);
@@ -553,7 +540,7 @@ TEST_P(K1StartupTest, k2_rims_loose_directory_outranks_base_override) {
     EXPECT_EQ("rims", find(kProbe));
 }
 
-TEST_P(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_rims) {
+TEST_F(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_rims) {
     TmpDir game("reone_test_k2_loose_order");
     TmpDir cwd("reone_test_k2_loose_order_cwd");
     TmpDir configured0("reone_test_k2_loose_order_0");
@@ -594,11 +581,6 @@ TEST_P(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_
     }
     EXPECT_EQ("configured 0", find(kProbe));
 }
-
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         K1StartupTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
 
 // The encapsulated basename probe itself.
 
@@ -642,17 +624,14 @@ TEST(EncapsulatedBasenameProbe, answers_nothing_for_an_absent_basename) {
 
 /// A HAK container is the ERF/MOD layout under a third type tag, which is why
 /// the opener probes it alongside the others and validates only the tag.
-class HakContainerTest : public testing::TestWithParam<Backend> {
+class HakContainerTest : public testing::Test {
 protected:
     std::unique_ptr<IResources> make() {
-        if (GetParam() == Backend::Legacy) {
-            return std::make_unique<Resources>();
-        }
-        return std::make_unique<ExtractResources>();
+        return std::make_unique<Resources>();
     }
 };
 
-TEST_P(HakContainerTest, reads_a_hak_tagged_container) {
+TEST_F(HakContainerTest, reads_a_hak_tagged_container) {
     TmpDir tmp("reone_test_hak");
     writeHak(tmp.path / "thing.hak", {{kProbe, ResType::Txt, "from hak"}});
 
@@ -661,7 +640,7 @@ TEST_P(HakContainerTest, reads_a_hak_tagged_container) {
     EXPECT_EQ("from hak", dataOf(resources->find(ResourceId(kProbe, ResType::Txt))));
 }
 
-TEST_P(HakContainerTest, still_rejects_a_container_with_no_valid_tag) {
+TEST_F(HakContainerTest, still_rejects_a_container_with_no_valid_tag) {
     TmpDir tmp("reone_test_hak_invalid");
     auto b = erfBytes(ErfWriter::FileType::MOD, {{kProbe, ResType::Txt, "x"}});
     const char tag[4] = {'B', 'A', 'D', ' '};
@@ -674,11 +653,6 @@ TEST_P(HakContainerTest, still_rejects_a_container_with_no_valid_tag) {
     EXPECT_THROW(resources->addERF(tmp.path / "thing.erf", ResourceOwner::Global),
                  ValidationException);
 }
-
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         HakContainerTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
 
 namespace {
 
@@ -716,7 +690,7 @@ std::string twoDaBytes(const std::string &value, char separator) {
  * It fails if global.rim is not registered, is given the wrong bucket, loses to
  * the key table, or cannot be read once it wins.
  */
-TEST_P(K1StartupTest, the_global_image_supplies_the_two_da_that_the_key_table_also_holds) {
+TEST_F(K1StartupTest, the_global_image_supplies_the_two_da_that_the_key_table_also_holds) {
     TmpDir game("reone_test_k1_global_2da");
     TmpDir cwd("reone_test_k1_global_2da_cwd");
     makeInstallation(game, cwd);

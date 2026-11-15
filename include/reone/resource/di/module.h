@@ -66,13 +66,6 @@ class ScriptModule;
 
 namespace resource {
 
-/// Backend that serves resource lookups. Extract reads game data through the
-/// extract layer primitives, with lookup semantics identical to Legacy.
-enum class ResourcesBackend {
-    Legacy,
-    Extract,
-};
-
 class ResourceModule : boost::noncopyable {
 public:
     ResourceModule(GameID gameId,
@@ -82,7 +75,6 @@ public:
                    graphics::GraphicsModule &graphics,
                    audio::AudioModule &audio,
                    script::ScriptModule &script,
-                   ResourcesBackend resourcesBackend = ResourcesBackend::Legacy,
                    OdysseyResourceRoots odysseyRoots = {}) :
         _gameId(gameId),
         _gamePath(std::move(gamePath)),
@@ -91,7 +83,6 @@ public:
         _graphics(graphics),
         _audio(audio),
         _script(script),
-        _resourcesBackend(resourcesBackend),
         _nwmFilesDerived(!odysseyRoots.nwmFiles),
         _odysseyRoots(std::move(odysseyRoots)) {
         if (!_odysseyRoots.nwmFiles) {
@@ -144,7 +135,6 @@ private:
     graphics::GraphicsModule &_graphics;
     audio::AudioModule &_audio;
     script::ScriptModule &_script;
-    ResourcesBackend _resourcesBackend {ResourcesBackend::Legacy};
 
     bool _nwmFilesDerived {false};
     OdysseyResourceRoots _odysseyRoots;

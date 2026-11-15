@@ -17,7 +17,6 @@
 
 #include "reone/resource/di/module.h"
 
-#include "reone/resource/extractresources.h"
 #include "reone/resource/replacementresources.h"
 #include "reone/resource/replacements.h"
 
@@ -30,23 +29,13 @@ namespace reone {
 namespace resource {
 
 void ResourceModule::init() {
-    std::unique_ptr<IResources> backend;
-    std::unique_ptr<IResources> auxBackend;
-    if (_resourcesBackend == ResourcesBackend::Extract) {
-        backend = std::make_unique<ExtractResources>();
-        auxBackend = std::make_unique<ExtractResources>();
-    } else {
-        backend = std::make_unique<Resources>();
-        auxBackend = std::make_unique<Resources>();
-    }
     _replacements = std::make_unique<ResourceReplacements>();
-    _resources = std::make_unique<ReplacementResources>(std::move(backend), *_replacements);
+    _resources = std::make_unique<ReplacementResources>(std::make_unique<Resources>(), *_replacements);
     // Auxiliary sources are read through the same replacement store, so a
     // replacement still sits above them. A second store would silently make
-    // shader and cursor resources unreplaceable. The backend mirrors the
-    // selected one because the two index folders differently, and streamed
-    // audio lives here for an activated game.
-    _auxResources = std::make_unique<ReplacementResources>(std::move(auxBackend), *_replacements);
+    // shader and cursor resources unreplaceable. Streamed audio lives here
+    // for an activated game.
+    _auxResources = std::make_unique<ReplacementResources>(std::make_unique<Resources>(), *_replacements);
     _strings = std::make_unique<Strings>();
     _twoDas = std::make_unique<TwoDAs>(*_resources);
     _gffs = std::make_unique<Gffs>(*_resources);
