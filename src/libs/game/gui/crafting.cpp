@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <stdexcept>
 
 #include <boost/algorithm/string.hpp>
@@ -154,13 +155,13 @@ void CraftingPanel::onGUILoaded() {
     // The buttons and filters never take the keyboard from the lists.
     _gui->setHilightFollowsKeyboard(true);
     for (const auto &button : {_controls.BTN_Accept, _controls.BTN_Cancel, _controls.BTN_Examine}) {
-        button->setNavigable(false);
+        button->setTakesKeyboardOnHover(false);
     }
     for (const auto &filter : _createFilters) {
-        filter->setNavigable(false);
+        filter->setTakesKeyboardOnHover(false);
     }
     for (const auto &[filter, button] : _breakdownFilters) {
-        button->setNavigable(false);
+        button->setTakesKeyboardOnHover(false);
     }
     _controls.BTN_Accept->setOnClick([this]() {
         accept();
@@ -658,12 +659,12 @@ void CraftingPanel::create(int row) {
     auto &strings = _services.resource.strings;
     const auto &creatable = _creatable[row];
     if (!creatable.available) {
-        _game.showMessagePopup(strings.getText(_messages.unavailable), nullptr, {}, kCraftingPopupColors);
+        _game.showMessagePopup(strings.getText(_messages.unavailable), "", {}, kCraftingPopupColors);
         return;
     }
     const int cost = itemValue(*creatable.item);
     if (_shownCount < cost) {
-        _game.showMessagePopup(strings.getText(_messages.tooFew), nullptr, {}, kCraftingPopupColors);
+        _game.showMessagePopup(strings.getText(_messages.tooFew), "", {}, kCraftingPopupColors);
         return;
     }
     const int threshold = kConfirmValuePerLevel * _game.party().getLeader()->attributes().getAggregateLevel();
@@ -702,7 +703,7 @@ void CraftingPanel::breakDown(int row) {
     const auto item = _breakable[row].resolve();
     auto &strings = _services.resource.strings;
     if (const auto refusal = breakdownRefusal(*item)) {
-        _game.showMessagePopup(strings.getText(*refusal), nullptr, {}, kCraftingPopupColors);
+        _game.showMessagePopup(strings.getText(*refusal), "", {}, kCraftingPopupColors);
         return;
     }
     const int threshold = std::min(kConfirmBreakdownCap,
@@ -1041,8 +1042,8 @@ void UpgradeItemsPanel::onGUILoaded() {
     });
     // The buttons never take the keyboard from the list.
     _gui->setHilightFollowsKeyboard(true);
-    _controls.BTN_BACK->setNavigable(false);
-    _controls.BTN_UPGRADEITEM->setNavigable(false);
+    _controls.BTN_BACK->setTakesKeyboardOnHover(false);
+    _controls.BTN_UPGRADEITEM->setTakesKeyboardOnHover(false);
     _controls.BTN_UPGRADEITEM->setOnClick([this]() {
         // Nothing is chosen while the list is empty.
         const int row = _controls.LB_ITEMS->selectedItemIndex();
@@ -1394,10 +1395,10 @@ void ItemUpgradePanel::onGUILoaded() {
         });
     }
     // Assemble, Back and OK never take the keyboard.
-    _controls.BTN_ASSEMBLE->setNavigable(false);
-    _controls.BTN_BACK->setNavigable(false);
+    _controls.BTN_ASSEMBLE->setTakesKeyboardOnHover(false);
+    _controls.BTN_BACK->setTakesKeyboardOnHover(false);
     if (tsl) {
-        _controls.BTN_OK->setNavigable(false);
+        _controls.BTN_OK->setTakesKeyboardOnHover(false);
         // OK passes over a greyed entry in silence: only the entry's own pick
         // says it is too high.
         _controls.BTN_OK->setOnClick([this]() {
@@ -1628,6 +1629,7 @@ void ItemUpgradePanel::refresh3D() {
         return;
     }
     _itemModel = graph.newModel(itemModel, ModelUsage::GUI);
+    _itemSpinDegrees = 0.0f;
     if (_type == UpgradableType::Armor) {
         // Armour is drawn with its look's texture of the item's texture
         // variation, a variation below 1 being 1; without that texture, with
@@ -2030,7 +2032,10 @@ void ItemUpgradePanel::update(float dt) {
     GameGUI::update(dt);
     // A shown item standing on no hook of the light model turns by itself.
     if (_itemModel && !_itemModel->parent()) {
-        _itemModel->setLocalTransform(glm::rotate(glm::mat4(1.0f), glm::radians(kItemSpinDegreesPerSecond * dt), glm::vec3(0.0f, 0.0f, 1.0f)) * _itemModel->localTransform());
+        // The turn is kept as an angle, so that no rounding builds up in the
+        // model's transform however long it turns.
+        _itemSpinDegrees = std::fmod(_itemSpinDegrees + kItemSpinDegreesPerSecond * dt, 360.0f);
+        _itemModel->setLocalTransform(glm::rotate(glm::mat4(1.0f), glm::radians(_itemSpinDegrees), glm::vec3(0.0f, 0.0f, 1.0f)));
     }
     if (!_listSlot) {
         return;
@@ -2069,7 +2074,7 @@ void ItemUpgradePanel::pick(int entry) {
     const int slot = *_listSlot;
     auto &place = _slots[slot];
     if (candidate.disabled) {
-        _game.showMessagePopup(_services.resource.strings.getText(kUpgradeTooHighStrRef), nullptr, {}, kCraftingPopupColors);
+        _game.showMessagePopup(_services.resource.strings.getText(kUpgradeTooHighStrRef), "", {}, kCraftingPopupColors);
         return;
     }
     const bool tsl = _game.isTSL();
@@ -2263,7 +2268,7 @@ bool ItemUpgradePanel::handleActiveControlKey(const input::KeyEvent &key) {
     if (!direction) {
         return false;
     }
-    if (const auto target = _gui->moveTarget(control, *direction, !_game.isTSL())) {
+    if (const auto target = _gui->moveTarget(control, *direction)) {
         _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
         _gui->selectActiveControl(target->get());
     }
@@ -2387,11 +2392,11 @@ void UpgradeSelectionGUI::onGUILoaded() {
         });
         // The list holds the keyboard; the filters and buttons never take it.
         for (const auto &[filter, button] : _filterButtons) {
-            button->setNavigable(false);
+            button->setTakesKeyboardOnHover(false);
         }
-        _controls.BTN_BACK->setNavigable(false);
-        _controls.BTN_UPGRADEITEMS->setNavigable(false);
-        _controls.BTN_CREATEITEMS->setNavigable(false);
+        _controls.BTN_BACK->setTakesKeyboardOnHover(false);
+        _controls.BTN_UPGRADEITEMS->setTakesKeyboardOnHover(false);
+        _controls.BTN_CREATEITEMS->setTakesKeyboardOnHover(false);
         _gui->setActiveControl(list);
         _controls.BTN_UPGRADEITEMS->setOnClick([this]() {
             // Nothing is chosen while the list is empty.
@@ -2421,8 +2426,8 @@ void UpgradeSelectionGUI::onGUILoaded() {
         kindButton.button->setHilightPulsing(true, false);
     }
     // The kind buttons alone take the keyboard.
-    _controls.BTN_BACK->setNavigable(false);
-    _controls.BTN_UPGRADEITEMS->setNavigable(false);
+    _controls.BTN_BACK->setTakesKeyboardOnHover(false);
+    _controls.BTN_UPGRADEITEMS->setTakesKeyboardOnHover(false);
     // Upgrade Items takes the colours of the kind taken up, its fill
     // included, and does nothing for a kind the party has no item of.
     _upgradeItemsTextColor = _controls.BTN_UPGRADEITEMS->text().color;
@@ -2868,7 +2873,7 @@ bool UpgradeSelectionGUI::handleKindKey(const input::KeyEvent &key) {
     if (!direction) {
         return false;
     }
-    if (const auto target = _gui->moveTarget(control, *direction, !_game.isTSL())) {
+    if (const auto target = _gui->moveTarget(control, *direction)) {
         _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
         const auto kindButton = kindButtonOf(target->get());
         if (kindButton != _kindButtons.end()) {

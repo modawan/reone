@@ -521,12 +521,13 @@ public:
     }
 
     /**
-     * Show a message box dismissed with OK, in the given colours or in those
-     * the box has. False when the popup cannot be loaded.
+     * Show a message box dismissed with OK, with the icon \p iconResRef names
+     * if any (see ConfirmPopup::show), in the given colours or in those the
+     * box has. False when the popup cannot be loaded.
      */
     bool showMessagePopup(
         const std::string &message,
-        std::shared_ptr<graphics::Texture> icon = nullptr,
+        const std::string &iconResRef = "",
         std::function<void()> onConfirm = {},
         const std::optional<PopupColors> &colors = std::nullopt);
     /**

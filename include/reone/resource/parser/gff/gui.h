@@ -45,11 +45,11 @@ struct GUI_BORDER {
 };
 
 struct GUI_TEXT {
-    int ALIGNMENT {0};
+    int ALIGNMENT {9};
     glm::vec3 COLOR {1.0f};
-    std::string FONT;
+    std::string FONT {"dialogfont16x16"};
     uint8_t PULSING {0};
-    uint32_t STRREF {0};
+    uint32_t STRREF {0xffffffff};
     std::string TEXT;
 };
 
@@ -88,10 +88,10 @@ struct GUI_CONTROLS_PROTOITEM : public GUI_BASECONTROL {
 };
 
 struct GUI_CONTROLS_MOVETO {
-    int DOWN {0};
-    int LEFT {0};
-    int RIGHT {0};
-    int UP {0};
+    int DOWN {-1};
+    int LEFT {-1};
+    int RIGHT {-1};
+    int UP {-1};
 };
 
 struct GUI_CONTROLS : public GUI_BASECONTROL {
@@ -101,8 +101,8 @@ struct GUI_CONTROLS : public GUI_BASECONTROL {
     std::optional<GUI_BORDER> HILIGHTSELECTED;
     uint8_t ISSELECTED {0};
     std::optional<GUI_BORDER> SELECTED;
-    int ID {0};
-    uint8_t LEFTSCROLLBAR {0};
+    int ID {-1};
+    uint8_t LEFTSCROLLBAR {1};
     uint8_t LOOPING {0};
     int MAXVALUE {0};
     GUI_CONTROLS_MOVETO MOVETO;
@@ -111,7 +111,7 @@ struct GUI_CONTROLS : public GUI_BASECONTROL {
     std::optional<GUI_BORDER> PROGRESS;
     std::optional<GUI_CONTROLS_PROTOITEM> PROTOITEM;
     std::optional<GUI_CONTROLS_SCROLLBAR> SCROLLBAR;
-    uint8_t STARTFROMLEFT {0};
+    uint8_t STARTFROMLEFT {1};
     std::optional<GUI_TEXT> TEXT;
     std::optional<GUI_CONTROLS_SCROLLBAR_DIRTHUMB> THUMB;
 };

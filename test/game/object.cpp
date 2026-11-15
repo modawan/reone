@@ -2383,8 +2383,8 @@ TEST(TransitionPresentationLayout, should_uniformly_scale_and_top_anchor_the_aut
     graphics::GraphicsOptions options;
     options.width = 3440;
     options.height = 1440;
-    gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUIClock clock;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, clock);
     guiInstance.setResolution(640, 480);
     guiInstance.setScaling(gui::GUI::ScalingMode::ScaledTopCenter);
 
@@ -2457,8 +2457,8 @@ TEST(GUIControlLayout, should_scale_text_uniformly_when_geometry_uses_different_
     options.width = 1920;
     options.height = 1080;
     options.guiTextScale = 1.25f;
-    gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUIClock clock;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, clock);
     guiInstance.setResolution(640, 480);
     TestScaledControl control(guiInstance, engine);
     control.setAuthoredGeometry({20, 30, 200, 80}, 8, 8);
@@ -2489,8 +2489,8 @@ TEST(GUIInputCoordinates, should_hit_screen_positioned_controls_without_authored
     graphics::GraphicsOptions options;
     options.width = 1920;
     options.height = 1080;
-    gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUIClock clock;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, clock);
     guiInstance.setResolution(640, 480);
     guiInstance.setScaling(gui::GUI::ScalingMode::PositionRelativeToCenter);
 
@@ -2566,8 +2566,8 @@ TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {
     options.width = 1920;
     options.height = 1080;
     options.guiBorderScale = 1.25f;
-    gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUIClock clock;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, clock);
     guiInstance.setResolution(800, 600);
     guiInstance.setScaling(gui::GUI::ScalingMode::Scaled);
     TestScaledControl protoRow(guiInstance, engine);
@@ -2586,8 +2586,8 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
     graphics::GraphicsOptions options;
     options.guiListScale = 0.5f;
     options.guiTextScale = 0.75f;
-    gui::PulsingAlpha pulsingAlpha;
-    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, pulsingAlpha);
+    gui::GUIClock clock;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource, clock);
 
     resource::generated::GUI_CONTROLS definition;
     definition.CONTROLTYPE = static_cast<int>(gui::ControlType::ListBox);
@@ -2619,7 +2619,7 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
     // regular GUI layout scale and its own text setting.
     EXPECT_FLOAT_EQ(listBox.protoItem().scale(), 1.5f);
     EXPECT_EQ(listBox.protoItem().border().dimension, 2);
-    listBox.handleMouseMotion(listBox.protoItem().extent().left, 119);
+    listBox.handleMouseMotion(listBox.protoItem().extent().left, 110);
     EXPECT_EQ(listBox.selectedItemIndex(), 4);
 }
 

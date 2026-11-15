@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "reone/audio/source.h"
 #include "reone/graphics/options.h"
 #include "reone/gui/control/listbox.h"

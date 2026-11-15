@@ -1238,9 +1238,10 @@ void Game::updateFrame(float frameTime) {
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
     updateDeathSequence();
-    // Every GUI's pulse runs through pauses, whatever the screen, and slows
-    // with the world under the sequel's gameover panel.
-    _services.gui.guis.updatePulsingAlpha(frameTime * _deathTimeScale);
+    // The GUIs' clock, their pulses and cycling art, runs through pauses,
+    // whatever the screen, and slows with the world under the sequel's
+    // gameover panel.
+    _services.gui.guis.updateClock(frameTime * _deathTimeScale);
     if (_endGamePending) {
         if (_endGameDelay <= 0.0f) {
             if (!_gameOver) {
@@ -3737,7 +3738,7 @@ void Game::displayDeathMessage() {
             _deathMessage->init();
         }
         // Queue end-game so the GUI isn't destroyed in its own callback.
-        _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), nullptr, [this]() { requestEndGame(); });
+        _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), "", [this]() { requestEndGame(); });
     }
 }
 
@@ -6981,7 +6982,7 @@ bool Game::showTutorialPage() {
     }
     const bool hasNext = tutorialMessage(tutorial.messages, _tutorialPage + 1).has_value();
 
-    std::shared_ptr<Texture> icon;
+    std::string icon;
     const auto &iconResRef = tutorial.icon;
     if (!iconResRef.empty()) {
         // TSL leaves out controller button glyphs.
@@ -6992,7 +6993,7 @@ bool Game::showTutorialPage() {
                                return boost::iequals(iconResRef, name);
                            });
         if (!glyph) {
-            icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
+            icon = boost::to_lower_copy(iconResRef);
         }
     }
 
@@ -7005,8 +7006,8 @@ bool Game::showTutorialPage() {
     if (_tutorialPopup->isVisible()) {
         // A window open takes the new tutorial in place: its first page, and
         // its icon only when it has one, the old icon staying otherwise.
-        if (icon) {
-            _tutorialPopup->setIcon(std::move(icon));
+        if (!icon.empty()) {
+            _tutorialPopup->setIcon(icon);
         }
         _tutorialPopup->setMessage(getInterfaceText(*message));
     } else {
@@ -7017,7 +7018,7 @@ bool Game::showTutorialPage() {
         // The window's pages turn in place; it closes after the last.
         _tutorialPopup->setMessageFont(_services.resource.fonts.get(guiFontName("fnt_d16x16")));
         _tutorialPopup->showPages(
-            getInterfaceText(*message), std::move(icon),
+            getInterfaceText(*message), icon,
             [this]() { return showNextTutorialPage(); },
             [this]() { finishTutorialWindow(true); });
     }
@@ -10433,12 +10434,11 @@ void Game::consoleSkipMovie(const ConsoleArgs &args) {
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {
     consoleCheckUsage(args, 2, 1024, "icon|none message ...");
-    std::shared_ptr<Texture> icon;
-    std::string_view iconResRef(args[1].value());
-    if (!boost::iequals(iconResRef, "none")) {
-        icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
+    std::string iconResRef(args[1].value());
+    if (boost::iequals(iconResRef, "none")) {
+        iconResRef.clear();
     }
-    if (!showMessagePopup(joinConsoleArgs(args, 2), std::move(icon))) {
+    if (!showMessagePopup(joinConsoleArgs(args, 2), iconResRef)) {
         throw std::runtime_error("Confirmation popup GUI is unavailable");
     }
 }
@@ -10525,7 +10525,7 @@ void Game::showExamineBox(const std::string &message) {
 
 bool Game::showMessagePopup(
     const std::string &message,
-    std::shared_ptr<Texture> icon,
+    const std::string &iconResRef,
     std::function<void()> onConfirm,
     const std::optional<PopupColors> &colors) {
     if (!_confirmPopup) {
@@ -10538,16 +10538,12 @@ bool Game::showMessagePopup(
     // steering and mouse-look held when it opens stop now.
     stopMovement();
     putMessagePopupOnTop();
-    _confirmPopup->show(message, std::move(icon), std::move(onConfirm), colors);
+    _confirmPopup->show(message, iconResRef, std::move(onConfirm), colors);
     return true;
 }
 
 void Game::showScriptMessageBox(const std::string &text, const std::string &iconResRef) {
-    std::shared_ptr<Texture> icon;
-    if (!iconResRef.empty()) {
-        icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
-    }
-    if (!showMessagePopup(text, std::move(icon), [this]() { releaseBoxPause(_scriptBoxHoldsPause); })) {
+    if (!showMessagePopup(text, boost::to_lower_copy(iconResRef), [this]() { releaseBoxPause(_scriptBoxHoldsPause); })) {
         return;
     }
     holdBoxPause(_scriptBoxHoldsPause);

@@ -52,8 +52,12 @@ public:
     ConfirmPopup(Game &game, ServicesView &services) :
         ConfirmPopup(game, services, false) {}
 
-    /** Shows an OK box, in the given colours or in those it has. */
-    void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr,
+    /**
+     * Shows \p message, dismissed with OK, in the given colours or in those
+     * the box has. A box given an icon resref shows the icon above the
+     * message, blank when the resref names no texture.
+     */
+    void show(const std::string &message, const std::string &iconResRef = "",
               std::function<void()> onConfirm = {},
               const std::optional<PopupColors> &colors = std::nullopt);
     /** Shows an OK/Cancel box, in the given colours or in those it has. */
@@ -69,11 +73,11 @@ public:
      * no page follows.
      *
      * @param message the first page
-     * @param icon the icon shown above every page, if any
+     * @param iconResRef the icon shown above every page, if any
      * @param nextPage turns to the next page; false when none follows
      * @param onConfirm called when the box closes
      */
-    void showPages(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+    void showPages(const std::string &message, const std::string &iconResRef,
                    std::function<bool()> nextPage, std::function<void()> onConfirm = {});
     /**
      * Shows an OK box with a datapad's text, in the colours it has, aligned
@@ -83,13 +87,17 @@ public:
     void showDatapad(const std::string &message, std::function<void()> onConfirm);
     /** Replaces the message of the box shown, which stays open; its tokens are resolved. */
     void setMessage(const std::string &message);
-    /** Shows \p icon above the message, in place of any icon shown; the box is laid out again. */
-    void setIcon(std::shared_ptr<graphics::Texture> icon);
+    /**
+     * Shows the icon \p iconResRef names above the message, in place of any
+     * icon shown, blank when it names no texture; the box is laid out again.
+     */
+    void setIcon(const std::string &iconResRef);
     /** Sets the font the message is drawn in, from the next message laid out; the box's own font returns when it closes. */
     void setMessageFont(std::shared_ptr<graphics::Font> font);
     /**
-     * Closes the box; in TSL a box shown closes in the interface green and the
-     * highlight colour. The message takes the box's own font and alignment again.
+     * Takes the box away unanswered. In TSL a box shown closes in the
+     * interface green and the highlight colour. The message takes the box's
+     * own font and alignment again.
      */
     void hide();
     /** Close as its key would: a box with pages turns to its next page; otherwise cancelled when it offers Cancel, or confirmed. */
@@ -143,7 +151,6 @@ private:
     // The box as loaded; every message is laid out again from it.
     gui::Control::Extent _rootExtent;
     gui::Control::Extent _listExtent;
-    gui::Control::Extent _messageExtent;
     gui::Control::Extent _okExtent;
     gui::Control::Extent _cancelExtent;
     gui::Control::Extent _scrollBarExtent;
@@ -157,11 +164,11 @@ private:
      * Shows a message, with OK and, when asked for, Cancel.
      *
      * @param message the message; its tokens are resolved
-     * @param icon the icon shown above the message, if any
+     * @param iconResRef the icon shown above the message, if any; blank when its texture is missing
      * @param allowCancel whether Cancel is offered
      * @param colors the colours the box is drawn in; none for those it has
      */
-    void open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel,
+    void open(const std::string &message, const std::string &iconResRef, bool allowCancel,
               const std::optional<PopupColors> &colors);
 
     /**

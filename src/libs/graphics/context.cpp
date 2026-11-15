@@ -309,25 +309,56 @@ void Context::withViewport(glm::ivec4 viewport, const std::function<void()> &blo
 }
 
 void Context::withScissorTest(const glm::ivec4 &bounds, const std::function<void()> &block) {
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(bounds[0], bounds[1], bounds[2], bounds[3]);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    block();
-
-    glDisable(GL_SCISSOR_TEST);
+    withScissor(bounds, true, block);
 }
 
 void Context::withScissorTestNoClear(
     const glm::ivec4 &bounds,
     const std::function<void()> &block) {
 
+    withScissor(bounds, false, block);
+}
+
+void Context::withScissor(const glm::ivec4 &bounds, bool clear, const std::function<void()> &block) {
+    glm::ivec4 clip = bounds;
+    if (!_scissors.empty()) {
+        const glm::ivec4 &outer = _scissors.top();
+        const int left = std::max(outer[0], bounds[0]);
+        const int bottom = std::max(outer[1], bounds[1]);
+        const int right = std::min(outer[0] + outer[2], bounds[0] + bounds[2]);
+        const int top = std::min(outer[1] + outer[3], bounds[1] + bounds[3]);
+        clip = {left, bottom, std::max(right - left, 0), std::max(top - bottom, 0)};
+    }
+    // The outer clip comes back however the block ends.
+    class ScissorGuard {
+    public:
+        explicit ScissorGuard(std::stack<glm::ivec4> &scissors) :
+            _scissors(scissors) {
+        }
+        ~ScissorGuard() {
+            _scissors.pop();
+            if (_scissors.empty()) {
+                glDisable(GL_SCISSOR_TEST);
+            } else {
+                const glm::ivec4 &outer = _scissors.top();
+                glScissor(outer[0], outer[1], outer[2], outer[3]);
+            }
+        }
+        ScissorGuard(const ScissorGuard &) = delete;
+        ScissorGuard &operator=(const ScissorGuard &) = delete;
+
+    private:
+        std::stack<glm::ivec4> &_scissors;
+    };
+
+    _scissors.push(clip);
+    const ScissorGuard guard(_scissors);
     glEnable(GL_SCISSOR_TEST);
-    glScissor(bounds[0], bounds[1], bounds[2], bounds[3]);
-
+    glScissor(clip[0], clip[1], clip[2], clip[3]);
+    if (clear) {
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
     block();
-
-    glDisable(GL_SCISSOR_TEST);
 }
 
 void Context::withDepthTestMode(DepthTestMode mode, const std::function<void()> &block) {
@@ -465,6 +496,15 @@ void Context::setBlendMode(BlendMode mode) {
             glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
             break;
         }
+    }
+}
+
+void withScissorRect(IContext &context, int screenHeight, const glm::ivec4 &rect, const std::function<void()> &block, bool clear) {
+    const glm::ivec4 bounds {rect.x, screenHeight - (rect.y + rect.w), rect.z, rect.w};
+    if (clear) {
+        context.withScissorTest(bounds, block);
+    } else {
+        context.withScissorTestNoClear(bounds, block);
     }
 }
 

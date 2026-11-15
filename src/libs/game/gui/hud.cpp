@@ -173,15 +173,11 @@ static void renderEffectStack(
         top = portrait.top + portrait.height - bottomMargin - 1;
     }
 
-    glm::ivec4 scissorBounds {
-        controlOffset.x + portrait.left,
-        screenSize.y - (controlOffset.y + portrait.top + portrait.height),
-        portrait.width,
-        portrait.height};
+    const glm::ivec4 clip {controlOffset.x + portrait.left, controlOffset.y + portrait.top, portrait.width, portrait.height};
 
     bool wasVisible = label.isVisible();
     label.setVisible(true);
-    context.withScissorTestNoClear(scissorBounds, [&]() {
+    graphics::withScissorRect(context, screenSize.y, clip, [&]() {
         for (int index = 0; index < count; ++index) {
             glm::ivec2 offset = controlOffset;
             offset.y += top - label.extent().top;
@@ -660,11 +656,7 @@ void HUD::layoutPausePanel(PauseReason reason) {
             static_cast<int>(std::lround(authored.height * scale))};
     };
     auto textHeight = [](const Label &label) {
-        if (!label.text().font) {
-            return 0;
-        }
-        const int lineHeight = std::max(1, static_cast<int>(std::lround(label.text().font->height() * label.scale())));
-        return std::max(1, static_cast<int>(label.textLines().size())) * lineHeight;
+        return label.textBlockHeight(std::max(1, static_cast<int>(label.textLines().size())));
     };
     for (Control *control : {static_cast<Control *>(&root), static_cast<Control *>(&reasonLabel),
                              static_cast<Control *>(&pressLabel), static_cast<Control *>(&unpause)}) {

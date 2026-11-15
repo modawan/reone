@@ -37,13 +37,10 @@ void ToggleButton::load(const resource::generated::GUI_BASECONTROL &gui, bool pr
         // A list prototype keeps its on frames for rows that carry a state;
         // it starts off, since every row shares it.
         auto &proto = static_cast<const resource::generated::GUI_CONTROLS_PROTOITEM &>(gui);
-        auto authored = [](const resource::generated::GUI_BORDER &border) {
-            return !border.FILL.empty() || !border.EDGE.empty() || !border.CORNER.empty();
-        };
-        if (authored(proto.SELECTED)) {
+        if (namesArt(proto.SELECTED)) {
             _onBorder = createBorder(proto.SELECTED);
         }
-        if (authored(proto.HILIGHTSELECTED)) {
+        if (namesArt(proto.HILIGHTSELECTED)) {
             _onHilight = createBorder(proto.HILIGHTSELECTED);
         }
     } else {
@@ -56,7 +53,7 @@ void ToggleButton::load(const resource::generated::GUI_BASECONTROL &gui, bool pr
         }
         _on = controlStruct.ISSELECTED != 0;
     }
-    scaleOnFrames();
+    scaleOwnFrames();
 }
 
 void ToggleButton::setPresentationScale(float frameLayoutScale, float textLayoutScale) {
@@ -64,7 +61,6 @@ void ToggleButton::setPresentationScale(float frameLayoutScale, float textLayout
     // before the text is broken into lines.
     _layoutScale = frameLayoutScale;
     Button::setPresentationScale(frameLayoutScale, textLayoutScale);
-    scaleOnFrames();
 }
 
 void ToggleButton::showAsCheckBox(const glm::vec3 &color, const glm::vec3 &hilightColor) {
@@ -80,7 +76,7 @@ void ToggleButton::showAsCheckBox(const glm::vec3 &color, const glm::vec3 &hilig
         }
     }
     _text.color = color;
-    _text.selectedColor = hilightColor;
+    setSelectedTextColor(hilightColor);
     updateTextLines();
 }
 
@@ -101,13 +97,31 @@ Control::Extent ToggleButton::textExtent() const {
     return Extent(_extent.left + inset, _extent.top, _extent.width - inset, _extent.height);
 }
 
-void ToggleButton::scaleOnFrames() {
+void ToggleButton::scaleOwnFrames() {
     if (_onBorder && _border) {
         _onBorder->dimension = _border->dimension;
+        _onBorder->innerOffset = _border->innerOffset;
+        _onBorder->innerOffsetY = _border->innerOffsetY;
     }
     if (_onHilight && _hilight) {
         _onHilight->dimension = _hilight->dimension;
+        _onHilight->innerOffset = _hilight->innerOffset;
+        _onHilight->innerOffsetY = _hilight->innerOffsetY;
     }
+}
+
+Control::Extent ToggleButton::innerExtent(const Extent &area) const {
+    // A checkbox's frames are its box, which its text sits beside.
+    if (_checkBox) {
+        return area;
+    }
+    Extent inner = Button::innerExtent(area);
+    for (const Border *frame : {_onBorder.get(), _onHilight.get()}) {
+        if (frame) {
+            inner = intersection(inner, borderInnerExtent(*frame, area));
+        }
+    }
+    return inner;
 }
 
 const std::shared_ptr<Control::Border> &ToggleButton::shownBorder() const {

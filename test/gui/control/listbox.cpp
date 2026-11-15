@@ -44,8 +44,8 @@ struct FontlessListBox {
     TestEngine &engine = testEngine();
     LocalGraphics localGraphics;
     graphics::GraphicsOptions options;
-    PulsingAlpha pulsingAlpha;
-    GUI gui {options, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource, pulsingAlpha};
+    GUIClock clock;
+    GUI gui {options, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource, clock};
     ListBox listBox {gui, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource};
 
     FontlessListBox() {
@@ -126,19 +126,17 @@ TEST(ListBox, sizes_content_rows_when_the_prototype_has_no_font) {
     EXPECT_EQ(1, fixture.listBox.getItemCount());
 }
 
-TEST(ListBox, lays_out_text_line_rows_when_the_prototype_has_no_font) {
+TEST(ListBox, lays_out_a_block_of_text_when_the_prototype_has_no_font) {
     FontlessListBox fixture;
-    fixture.listBox.setTextLineRows(true);
 
     fixture.listBox.addTextLinesAsItems("first\nsecond");
 
     EXPECT_EQ(2, fixture.listBox.getItemCount());
 }
 
-TEST(ListBox, renders_text_line_rows_when_the_prototype_has_no_font) {
+TEST(ListBox, renders_a_block_of_text_when_the_prototype_has_no_font) {
     graphics::ShaderProgram shader {std::vector<std::shared_ptr<graphics::Shader>> {}};
     FontlessListBox fixture;
-    fixture.listBox.setTextLineRows(true);
     fixture.listBox.addTextLinesAsItems("first\nsecond");
     EXPECT_CALL(fixture.localGraphics.module.shaderRegistry(), get(graphics::ShaderProgramId::mvpTexture))
         .Times(AnyNumber())

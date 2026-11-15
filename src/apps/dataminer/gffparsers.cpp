@@ -17,6 +17,9 @@
 
 #include "gffparsers.h"
 
+#include <map>
+#include <optional>
+
 #include "reone/resource/container.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/gff.h"
@@ -130,8 +133,35 @@ static std::string describeFieldType(const SchemaField &field) {
     }
 }
 
-static void writeField(const SchemaField &field, TextWriter &writer) {
+// A field a struct may lack whose value is then not the type's zero: by
+// struct and field name, the value as C++ code.
+static const std::map<std::pair<std::string, std::string>, std::string> kFieldDefaults {
+    {{"GUI_TEXT", "FONT"}, "\"dialogfont16x16\""},
+    // A text without a string reference shows its own text, from the top
+    // left.
+    {{"GUI_TEXT", "ALIGNMENT"}, "9"},
+    {{"GUI_TEXT", "STRREF"}, "0xffffffff"},
+    {{"GUI_CONTROLS", "STARTFROMLEFT"}, "1"},
+    // A list's scroll bar is on its left unless the layout says otherwise.
+    {{"GUI_CONTROLS", "LEFTSCROLLBAR"}, "1"},
+    // A control without an ID, or without a link one way, links nowhere.
+    {{"GUI_CONTROLS", "ID"}, "-1"},
+    {{"GUI_CONTROLS_MOVETO", "DOWN"}, "-1"},
+    {{"GUI_CONTROLS_MOVETO", "LEFT"}, "-1"},
+    {{"GUI_CONTROLS_MOVETO", "RIGHT"}, "-1"},
+    {{"GUI_CONTROLS_MOVETO", "UP"}, "-1"}};
+
+static std::optional<std::string> fieldDefault(const SchemaStruct &schemaStruct, const SchemaField &field) {
+    auto maybeDefault = kFieldDefaults.find({schemaStruct.name, field.name});
+    return maybeDefault != kFieldDefaults.end() ? std::optional<std::string>(maybeDefault->second) : std::nullopt;
+}
+
+static void writeField(const SchemaStruct &schemaStruct, const SchemaField &field, TextWriter &writer) {
     auto typeStr = describeFieldType(field);
+    if (auto value = fieldDefault(schemaStruct, field)) {
+        writer.write(str(boost::format("%s%s %s {%s};\n") % kIndent % typeStr % field.cppName % *value));
+        return;
+    }
     switch (field.type) {
     case Gff::FieldType::Byte:
     case Gff::FieldType::Word:
@@ -167,7 +197,7 @@ static void writeField(const SchemaField &field, TextWriter &writer) {
 static void writeStruct(const SchemaStruct &schemaStruct, TextWriter &writer) {
     writer.write(str(boost::format("struct %s {\n") % schemaStruct.name));
     for (auto &[_, field] : schemaStruct.fields) {
-        writeField(field, writer);
+        writeField(schemaStruct, field, writer);
     }
     writer.write("};\n\n");
 }
@@ -206,17 +236,20 @@ static void writeParseFunction(const SchemaStruct &schemaStruct, TextWriter &wri
     }
     writer.write(str(boost::format("%s%s strct;\n") % kIndent % schemaStruct.name));
     for (auto &[_, field] : schemaStruct.fields) {
+        // A field with a default is read with it.
+        const auto value = fieldDefault(schemaStruct, field);
+        const std::string orDefault = value ? ", " + *value : "";
         switch (field.type) {
         case Gff::FieldType::Byte:
         case Gff::FieldType::Word:
         case Gff::FieldType::Dword:
-            writer.write(str(boost::format("%1%strct.%2% = gff.getUint(\"%3%\");\n") % kIndent % field.cppName % field.name));
+            writer.write(str(boost::format("%1%strct.%2% = gff.getUint(\"%3%\"%4%);\n") % kIndent % field.cppName % field.name % orDefault));
             break;
         case Gff::FieldType::Char:
         case Gff::FieldType::Short:
         case Gff::FieldType::Int:
         case Gff::FieldType::StrRef:
-            writer.write(str(boost::format("%1%strct.%2% = gff.getInt(\"%3%\");\n") % kIndent % field.cppName % field.name));
+            writer.write(str(boost::format("%1%strct.%2% = gff.getInt(\"%3%\"%4%);\n") % kIndent % field.cppName % field.name % orDefault));
             break;
         case Gff::FieldType::Dword64:
             writer.write(str(boost::format("%1%strct.%2% = gff.readUint64(\"%3%\");\n") % kIndent % field.cppName % field.name));
@@ -233,7 +266,7 @@ static void writeParseFunction(const SchemaStruct &schemaStruct, TextWriter &wri
             break;
         case Gff::FieldType::CExoString:
         case Gff::FieldType::ResRef:
-            writer.write(str(boost::format("%1%strct.%2% = gff.getString(\"%3%\");\n") % kIndent % field.cppName % field.name));
+            writer.write(str(boost::format("%1%strct.%2% = gff.getString(\"%3%\"%4%);\n") % kIndent % field.cppName % field.name % orDefault));
             break;
         case Gff::FieldType::CExoLocString:
             writer.write(str(boost::format("%1%strct.%2% = std::make_pair(gff.getInt(\"%3%\"), gff.getString(\"%3%\"));\n") % kIndent % field.cppName % field.name));

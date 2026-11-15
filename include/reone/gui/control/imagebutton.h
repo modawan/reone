@@ -40,10 +40,12 @@ public:
             resourceSvc) {
 
         _selectable = true;
-        _navigable = true;
+        _takesKeyboardOnHover = true;
     }
 
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
+    /** The part the inner extents of its border and its hilight share. */
+    Extent innerExtent(const Extent &area) const override { return innerExtentWithHilight(area); }
 
     /**
      * Draws the button as a row: its frame, its icon in its frame with the
