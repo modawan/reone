@@ -1328,19 +1328,7 @@ void ItemUpgradePanel::onGUILoaded() {
         _controls.LBL_UPGRADES = findControl<Label>("LBL_UPGRADES");
         _controls.LBL_UPGRADE_COUNT = findControl<Label>("LBL_UPGRADE_COUNT");
         _controls.LB_DESC_LS = findControl<ListBox>("LB_DESC_LS");
-        // KotOR writes either description in the lightsaber description's
-        // row: its place, width and text.
-        const auto &lightsaberRow = _controls.LB_DESC_LS->protoItem();
-        auto &row = _controls.LB_DESC->protoItem();
-        const auto placed = [](Control::Extent extent, const Control::Extent &place) {
-            extent.left = place.left;
-            extent.top = place.top;
-            extent.width = place.width;
-            return extent;
-        };
-        row.setAuthoredExtent(placed(row.authoredExtent(), lightsaberRow.authoredExtent()));
-        row.setExtent(placed(row.extent(), lightsaberRow.extent()));
-        row.setText(lightsaberRow.text());
+        _controls.LB_DESC->shareProtoItem(*_controls.LB_DESC_LS);
     }
 
     // The panel's frames are KotOR's blue or TSL's upgrade border, and the
