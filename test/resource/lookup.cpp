@@ -185,8 +185,7 @@ struct TmpDir {
     }
 };
 
-/// Temporarily change the working directory. ResourceDirector::init loads
-/// shaderpack.erf from the working directory.
+/// Temporarily change the working directory.
 struct CwdGuard {
     std::filesystem::path previous;
 
@@ -290,7 +289,8 @@ protected:
 TEST_F(ResourceDirectorLookup, should_mount_global_locations_in_precedence_order) {
     TmpDir game("reone_test_lookup_global");
 
-    // Working directory, from which the director loads shaderpack.erf.
+    // The only data directory, from which the director loads shaderpack.erf.
+    // Without setDataDirectories the one beside the test binary would win.
     TmpDir cwd("reone_test_lookup_global_cwd");
     writeErf(cwd.path / "shaderpack.erf", ErfWriter::FileType::ERF,
              {{"a", ResType::Txt, "shaderpack"}});
@@ -315,6 +315,7 @@ TEST_F(ResourceDirectorLookup, should_mount_global_locations_in_precedence_order
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -353,6 +354,7 @@ TEST_F(ResourceDirectorLookup, should_mount_module_locations_over_global_and_cle
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -402,6 +404,7 @@ TEST_F(ResourceDirectorLookup, should_keep_save_session_explicit_and_load_module
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 

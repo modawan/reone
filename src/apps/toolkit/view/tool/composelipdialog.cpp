@@ -23,6 +23,7 @@
 #include "reone/audio/format/wavreader.h"
 #include "reone/graphics/format/lipwriter.h"
 #include "reone/graphics/lipanimation.h"
+#include "reone/system/appdirs.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/fileinput.h"
 #include "reone/system/stream/fileoutput.h"
@@ -153,8 +154,7 @@ ComposeLipDialog::ComposeLipDialog(wxWindow *parent,
     topSizer->Add(pronounciationSizer, wxSizerFlags(0).Expand().Border(wxALL, 3));
     SetSizerAndFit(topSizer);
 
-    auto pronouncingDictPath = std::filesystem::current_path();
-    pronouncingDictPath.append("pronouncing.dict");
+    auto pronouncingDictPath = userFilePath("pronouncing.dict");
     if (std::filesystem::exists(pronouncingDictPath)) {
         auto pronouncingDict = FileInputStream(pronouncingDictPath);
         auto length = pronouncingDict.length();
@@ -277,8 +277,7 @@ void ComposeLipDialog::OnHelpCommmand(wxCommandEvent &evt) {
 
 void ComposeLipDialog::OnPronounciationSaveCommand(wxCommandEvent &evt) {
     auto pronounciationValue = std::string {m_pronounciationCtrl->GetValue().ToUTF8().data()};
-    auto pronouncingPath = std::filesystem::current_path();
-    pronouncingPath.append("pronouncing.dict");
+    auto pronouncingPath = userFilePath("pronouncing.dict");
     auto pronouncing = FileOutputStream(pronouncingPath);
     pronouncing.write(pronounciationValue.c_str(), pronounciationValue.length());
 }
@@ -291,10 +290,8 @@ void ComposeLipDialog::OnComposeCommand(wxCommandEvent &evt) {
     }
 
     if (m_cmudictBytes.empty()) {
-        auto cmudictPath = std::filesystem::current_path();
-        cmudictPath.append("cmudict.dict");
-        if (std::filesystem::exists(cmudictPath)) {
-            auto cmudict = FileInputStream(cmudictPath);
+        if (auto cmudictPath = findDataFile("cmudict.dict")) {
+            auto cmudict = FileInputStream(*cmudictPath);
             int length = cmudict.length();
             m_cmudictBytes.resize(length);
             cmudict.read(&m_cmudictBytes[0], length);
@@ -303,10 +300,8 @@ void ComposeLipDialog::OnComposeCommand(wxCommandEvent &evt) {
     auto cmudict = MemoryInputStream(m_cmudictBytes);
 
     if (m_rudicBytes.empty()) {
-        auto rudicPath = std::filesystem::current_path();
-        rudicPath.append("ru.dic");
-        if (std::filesystem::exists(rudicPath)) {
-            auto rudic = FileInputStream(rudicPath);
+        if (auto rudicPath = findDataFile("ru.dic")) {
+            auto rudic = FileInputStream(*rudicPath);
             int length = rudic.length();
             m_rudicBytes.resize(length);
             rudic.read(&m_rudicBytes[0], length);

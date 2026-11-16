@@ -513,6 +513,7 @@ TEST_F(SourceLifetimeDirectorTest, a_save_working_state_is_replaced_when_another
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -555,6 +556,7 @@ TEST_F(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_e
     auto director = makeDirector(game.path, GameID::TSL);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     _resources->addMemERF(
@@ -590,6 +592,7 @@ TEST_F(SourceLifetimeDirectorTest, loading_the_same_save_twice_accumulates_nothi
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -619,6 +622,7 @@ TEST_F(SourceLifetimeDirectorTest, an_invalid_incoming_save_leaves_the_active_se
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("slot_a");
@@ -683,6 +687,7 @@ TEST_F(SourceLifetimeDirectorTest, a_transition_leaves_nothing_of_the_previous_m
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -753,6 +758,7 @@ TEST_F(SourceLifetimeDirectorTest, loading_the_same_module_twice_accumulates_not
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -778,6 +784,7 @@ TEST_F(SourceLifetimeDirectorTest, a_module_transition_does_not_unload_the_save)
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -800,6 +807,7 @@ TEST_F(SourceLifetimeDirectorTest, replacing_the_save_does_not_disturb_the_activ
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -835,6 +843,7 @@ TEST_F(SourceLifetimeDirectorTest, the_staged_module_state_goes_with_the_module)
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -883,6 +892,7 @@ TEST_F(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_it
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("slot_a");
@@ -924,6 +934,7 @@ TEST_F(SourceLifetimeDirectorTest, a_non_exception_required_failure_rolls_back_t
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     auto globalCount = _count();
@@ -956,6 +967,7 @@ TEST_F(SourceLifetimeDirectorTest, a_required_failure_can_recover_through_active
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("slot_a");
@@ -979,6 +991,7 @@ TEST_F(SourceLifetimeDirectorTest, no_primary_with_discoverable_sidecars_rolls_b
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     auto globalCount = _count();
@@ -1003,6 +1016,7 @@ TEST_F(SourceLifetimeDirectorTest, a_best_effort_failure_does_not_fail_the_modul
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -1028,6 +1042,7 @@ TEST_F(SourceLifetimeDirectorTest, a_corrupt_archive_on_disk_rolls_back_the_modu
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     auto globals = _count();
@@ -1053,6 +1068,7 @@ TEST_F(SourceLifetimeDirectorTest, an_absent_optional_source_is_not_a_failure) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -1075,7 +1091,7 @@ TEST_F(SourceLifetimeDirectorTest, nwm_state_is_replaced_across_nwm_and_ordinary
              {{"probe", ResType::Txt, "ordinary"}, {"ordinary_only", ResType::Txt, "m"}});
 
     auto director = makeDirector(game.path);
-    { CwdGuard guard(cwd.path); director->init(); }
+    { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
     auto globals = _count();
 
     director->onModuleLoad("a");
@@ -1108,7 +1124,7 @@ TEST_F(SourceLifetimeDirectorTest, a_corrupt_selected_nwm_rolls_back_without_res
              {{"good_only", ResType::Txt, "good"}});
     writeFile(nwm / "broken.nwm", "not an erf");
     auto director = makeDirector(game.path);
-    { CwdGuard guard(cwd.path); director->init(); }
+    { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
     auto globals = _count();
     director->onModuleLoad("good");
     ASSERT_TRUE(has("good_only"));
@@ -1134,6 +1150,7 @@ TEST_F(K1SourceLifetimeTest, retires_module_sources_on_the_activated_path) {
     auto director = makeDirector(game.path, GameID::KotOR);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -1161,6 +1178,7 @@ TEST_F(K1SourceLifetimeTest, replaces_save_working_state_on_the_activated_path) 
     auto director = makeDirector(game.path, GameID::KotOR);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 

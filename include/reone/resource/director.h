@@ -206,6 +206,15 @@ public:
         }
     }
 
+    /**
+     * Where init looks for the shader pack, in order. Defaults to
+     * dataDirectories(): beside the executable, the installed data
+     * directory, then the current directory.
+     */
+    void setDataDirectories(std::vector<std::filesystem::path> dirs) {
+        _dataDirectories = std::move(dirs);
+    }
+
     void init() override;
     void onModuleLoad(const std::string &name) override;
     void onNewGame() override;
@@ -240,6 +249,7 @@ private:
     GameID _gameId;
     const std::filesystem::path &_gamePath;
     OdysseyResourceRoots _odysseyRoots;
+    std::optional<std::vector<std::filesystem::path>> _dataDirectories;
     const graphics::GraphicsOptions &_graphicsOpt;
     IResources &_resources;
     IResources &_auxResources;

@@ -250,6 +250,7 @@ TEST_F(ArchiveValidationDirectorTest, an_absent_optional_archive_is_not_fatal) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -270,6 +271,7 @@ TEST_F(ArchiveValidationDirectorTest, a_corrupt_resource_image_fails_the_load_im
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -290,6 +292,7 @@ TEST_F(ArchiveValidationDirectorTest, a_corrupt_encapsulated_archive_fails_the_l
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -313,6 +316,7 @@ TEST_F(ArchiveValidationDirectorTest, rolls_back_what_the_failed_load_had_alread
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     auto globals = _count();
@@ -339,6 +343,7 @@ TEST_F(ArchiveValidationDirectorTest, repeating_a_failed_load_leaves_the_same_st
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     auto globals = _count();
@@ -367,6 +372,7 @@ TEST_F(ArchiveValidationDirectorTest, a_valid_module_loads_cleanly_after_a_failu
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 

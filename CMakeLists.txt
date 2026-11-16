@@ -37,6 +37,24 @@ option(ENABLE_ASAN "enable address sanitizer" OFF)
 # Dependencies
 
 list(PREPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+include(ReoneVersion)
+
+# Install layout on Linux and other Unix systems except macOS: the engine,
+# launcher and toolkit go to libexec/reone and are reached through bin/reone,
+# bin/reone-launcher and bin/reone-toolkit (their own names are too generic
+# for bin/); the files they ship with go to share/reone. The applications
+# find those files relative to themselves, so an installed tree works from any
+# prefix, with any DESTDIR, moved or packaged.
+if(UNIX AND NOT APPLE)
+    include(GNUInstallDirs)
+    set(REONE_INSTALL_LAYOUT ON)
+    file(RELATIVE_PATH REONE_RELATIVE_DATA_DIR
+        "${CMAKE_INSTALL_FULL_LIBEXECDIR}/reone" "${CMAKE_INSTALL_FULL_DATADIR}/reone")
+else()
+    set(REONE_INSTALL_LAYOUT OFF)
+    set(REONE_RELATIVE_DATA_DIR "")
+endif()
+
 find_package(Boost REQUIRED COMPONENTS program_options exception json)
 find_package(OpenGL REQUIRED)
 find_package(MAD REQUIRED)

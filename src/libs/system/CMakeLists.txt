@@ -17,9 +17,11 @@ set(SYSTEM_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/system)
 set(SYSTEM_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/system)
 
 set(SYSTEM_HEADERS
+    ${SYSTEM_INCLUDE_DIR}/appdirs.h
     ${SYSTEM_INCLUDE_DIR}/arrayref.h
     ${SYSTEM_INCLUDE_DIR}/binaryreader.h
     ${SYSTEM_INCLUDE_DIR}/binarywriter.h
+    ${SYSTEM_INCLUDE_DIR}/buildinfo.h
     ${SYSTEM_INCLUDE_DIR}/cast.h
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
     ${SYSTEM_INCLUDE_DIR}/clipboard.h
@@ -57,6 +59,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/unicodeutil.h)
 
 set(SYSTEM_SOURCES
+    ${SYSTEM_SOURCE_DIR}/appdirs.cpp
     ${SYSTEM_SOURCE_DIR}/binaryreader.cpp
     ${SYSTEM_SOURCE_DIR}/binarywriter.cpp
     ${SYSTEM_SOURCE_DIR}/clipboard.cpp
@@ -74,7 +77,10 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/threadpool.cpp
     ${SYSTEM_SOURCE_DIR}/threadutil.cpp
     ${SYSTEM_SOURCE_DIR}/timeevents.cpp
-    ${SYSTEM_SOURCE_DIR}/unicodeutil.cpp)
+    ${SYSTEM_SOURCE_DIR}/unicodeutil.cpp
+    ${CMAKE_BINARY_DIR}/generated/system/buildinfo.cpp)
+
+configure_file(${SYSTEM_SOURCE_DIR}/buildinfo.cpp.in ${CMAKE_BINARY_DIR}/generated/system/buildinfo.cpp @ONLY)
 
 add_library(system STATIC ${SYSTEM_HEADERS} ${SYSTEM_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(system PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
