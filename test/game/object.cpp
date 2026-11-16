@@ -4532,8 +4532,6 @@ TEST(CreatureBlockedByCreature, a_checked_move_to_an_occupied_spot_ends_against_
     EXPECT_LT(walker->position().x, 4.0f);
 }
 
-// A checked move that is merely short of its target, with nothing in the way,
-// still sets out again rather than ending.
 // A forced move (ActionForceMoveToObject) that a creature ends short of its
 // target does not end there: it carries on to its deadline and then jumps to
 // the target, as it does when no path reaches it.
@@ -4570,6 +4568,8 @@ TEST(CreatureBlockedByCreature, a_forced_move_to_an_occupied_spot_runs_to_its_de
     EXPECT_GT(walker->position().x, 4.0f);
 }
 
+// A checked move that is merely short of its target, with nothing in the way,
+// still sets out again rather than ending.
 TEST(CreatureBlockedByCreature, a_checked_move_short_of_its_target_without_a_blocker_carries_on) {
     BlockedDoorFixtureBase fixture;
     testSceneGraph(fixture.engine);
