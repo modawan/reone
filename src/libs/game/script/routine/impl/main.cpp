@@ -2200,7 +2200,7 @@ static Variable ResistForce(const std::vector<Variable> &args, const RoutineCont
     const auto caller = getCallerOrNull(ctx);
     auto *source = dyn_cast<Creature>(sourceObject.get());
     const auto *areaOfEffect = caller ? dyn_cast<AreaOfEffect>(caller.get()) : nullptr;
-    int level = 2 * spell->innateLevel - 1;
+    int level = spell->innateSpellLevel();
     if (areaOfEffect) {
         level = areaOfEffect->spellLevel();
     } else if (source) {

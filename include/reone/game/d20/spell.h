@@ -58,13 +58,23 @@ enum class SpellCastAnimation {
     MonsterFury = 12
 };
 
+/** A place on a power menu. */
+struct SpellMenuPlace {
+    /** The menu group: hostile 1, passive 2, friendly 3. */
+    int group {0};
+    /** The slot within the group, ordering its menu. */
+    int slot {0};
+    /** The priority within the slot: 0 for the slot's first power. */
+    int priority {0};
+};
+
 struct Spell {
-    /** The innate level of a power whose spells.2da row leaves it blank. */
-    static constexpr int kBlankInnateLevel = 255;
     /** The lowest caster level of a power used from an item or as a special ability. */
     static constexpr int kMinimumInnateCasterLevel = 10;
 
     SpellType type;
+    /** The string reference of the name; 0 when the name cell is blank. */
+    int nameStrRef {0};
     std::string name;
     /**
      * The line that announces the power's use in place of "<caster> uses
@@ -74,14 +84,31 @@ struct Spell {
     std::optional<int> altMessage;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
-    uint32_t pips {1};
+    /** The power's position in its chain, from 1. */
+    int pips {1};
+    /**
+     * The powers the power needs, each known or chosen: up to five entries,
+     * before the first of -1; an entry below zero names no power.
+     */
     std::vector<SpellType> prerequisites;
-    std::optional<SpellType> masterSpell;
+    /**
+     * The master powers the power needs as well, each known or chosen, read
+     * as prerequisites are.
+     */
+    std::vector<SpellType> masterSpells;
+    /** The level-up screen does not offer the power: its first master power entry is -2. */
+    bool unofferedOnLevelUp {false};
     int userType {-1};
-    int innateLevel {kBlankInnateLevel};
+    /** The innate level; none when the cell is blank. */
+    std::optional<int> innateLevel;
     int forcePointCost {0};
     /** The power's side (spells.2da GoodEvil): 'G' light, 'E' dark, 'N' neither. */
     char alignment {'N'};
+    /**
+     * The level each Jedi or Sith class's column gives the power; no entry for
+     * a blank cell. A level below zero gives the class none
+     * (getLevelForClass).
+     */
     std::unordered_map<ClassType, int> classLevelRequirements;
     /**
      * The power's places in the orders recommended to light side and to
@@ -118,11 +145,18 @@ struct Spell {
     /** The combat forms the power works in (TSL). */
     uint32_t formMask {0};
     bool hostile {false};
-    /** The slots of the hostile and friendly power menus; negative off that menu. */
-    int hostileSlot {-1};
-    int friendlySlot {-1};
-    /** Of two powers in one menu slot, the higher priority is offered. */
-    int menuPriority {0};
+    /**
+     * The hostile menu slot cell as written, a negative value too; none when
+     * blank. A filled cell gives a power taken from a menu the hostile power
+     * tutorial.
+     */
+    std::optional<int> hostileSlot;
+    /**
+     * The places on the menus the power is on, one for each filled slot cell
+     * in the order friendly, hostile and passive, each with the power's
+     * priority.
+     */
+    std::vector<SpellMenuPlace> menuPlaces;
     std::shared_ptr<graphics::Model> projModel;
     bool projectile {false};
     ProjectilePathType projectilePath {ProjectilePathType::Default};
@@ -145,11 +179,20 @@ struct Spell {
     uint32_t exclusion {0};
 
     /**
+     * The level of a power from no class, as an area of effect and the Force
+     * resistance check take it: twice its innate level less one, a blank
+     * innate level counting as 0.
+     */
+    int innateSpellLevel() const {
+        return 2 * innateLevel.value_or(0) - 1;
+    }
+
+    /**
      * The caster level of a power used from an item or as a special ability:
-     * twice its innate level less one, at least 10.
+     * its innate spell level, at least 10.
      */
     int innateCasterLevel() const {
-        return std::max(kMinimumInnateCasterLevel, 2 * innateLevel - 1);
+        return std::max(kMinimumInnateCasterLevel, innateSpellLevel());
     }
 
     bool isForbiddenByEquipment(uint32_t equippedMask) const {
@@ -169,18 +212,19 @@ struct Spell {
 
     /**
      * The power's level for a caster of \p clazz: the level a Jedi or Sith
-     * class's column lists, 255 when that column is blank and for the other
-     * player classes, and the innate level for droid, minion and any other
-     * classes.
+     * class's column lists, and the innate level for the droid, Minion and
+     * any other classes; none for the other player classes, or when that
+     * cell is blank or below zero.
      */
-    int getLevelForClass(ClassType clazz) const {
+    std::optional<int> getLevelForClass(ClassType clazz) const {
+        std::optional<int> level;
         switch (clazz) {
         case ClassType::Soldier:
         case ClassType::Scout:
         case ClassType::Scoundrel:
         case ClassType::TechSpecialist:
         case ClassType::BountyHunter:
-            return kBlankInnateLevel;
+            break;
         case ClassType::JediGuardian:
         case ClassType::JediConsular:
         case ClassType::JediSentinel:
@@ -190,10 +234,13 @@ struct Spell {
         case ClassType::SithMarauder:
         case ClassType::SithLord:
         case ClassType::SithAssassin:
-            return getClassLevelRequirement(clazz).value_or(kBlankInnateLevel);
+            level = getClassLevelRequirement(clazz);
+            break;
         default:
-            return innateLevel;
+            level = innateLevel;
+            break;
         }
+        return level && *level >= 0 ? level : std::nullopt;
     }
 };
 

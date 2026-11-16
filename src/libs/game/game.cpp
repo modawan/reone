@@ -7391,7 +7391,7 @@ std::optional<int> Game::forcePowerTutorial(const Spell &spell) const {
     if (isImmediateMenuCast(isTSL(), spell.type)) {
         return std::nullopt;
     }
-    return spell.hostileSlot != -1 ? kHostilePowerTutorial : kFriendlyPowerTutorial;
+    return spell.hostileSlot ? kHostilePowerTutorial : kFriendlyPowerTutorial;
 }
 
 void Game::clearOneAction() {
