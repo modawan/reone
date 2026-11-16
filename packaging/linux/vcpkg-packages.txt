@@ -1,0 +1,14 @@
+boost-algorithm
+boost-endian
+boost-exception
+boost-format
+boost-functional
+boost-json
+boost-program-options
+ffmpeg[core,avcodec,avformat,swresample,swscale]
+glew
+glm
+gtest
+libmad
+openal-soft
+sdl3[core,x11,wayland]
