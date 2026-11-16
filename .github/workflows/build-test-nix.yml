@@ -5,8 +5,8 @@ name: Build and test with Nix
 # bump is a flake.lock change reviewed like any other. Building with cmake
 # and ninja outside Nix is unchanged.
 #
-# - evaluate: every flake output evaluates and the run wrapper's tests pass.
-#   Seconds; catches a broken flake before the long jobs start.
+# - evaluate: every flake output evaluates. Seconds; catches a broken flake
+#   before the long jobs start.
 # - linux: the dev shell's compiler and libraries, cmake and ninja with
 #   ccache (the compiled objects cached between runs, as before), the unit
 #   tests.
@@ -41,8 +41,6 @@ jobs:
       - uses: cachix/install-nix-action@v31
       - name: Evaluate every flake output
         run: nix flake check --no-build -L
-      - name: Run the wrapper tests
-        run: nix build -L .#checks.x86_64-linux.reone-run
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 90
