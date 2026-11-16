@@ -251,6 +251,9 @@ public:
         _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
     }
 
+    /** Takes back the obstruction test it gave the audio mixer, which calls into the game. */
+    ~Game();
+
     void init();
 
     bool handle(const input::Event &event);
@@ -2188,6 +2191,8 @@ private:
     const Room *_soundRoom {nullptr};
     /** See conversationIgnoresStartRange. */
     bool _conversationIgnoresStartRange {false};
+    /** The area's scene graph and its walkmesh revision as the mixer last heard of them. */
+    std::pair<const scene::ISceneGraph *, uint32_t> _obstructionRevision {nullptr, 0};
     /** The admission of the request to talk a conversation script has still to answer. */
     GlobalFade::DialogTicket _conversationRequest;
     /** See admitConversationRequest. */

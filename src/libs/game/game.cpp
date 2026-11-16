@@ -730,6 +730,10 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
     return -1;
 }
 
+Game::~Game() {
+    _services.audio.mixer.setObstructionTest({});
+}
+
 void Game::init() {
     _options.game.activeKeybindsIndex = loadActiveKeybinds(_options.game.configurationPath, _options.game.activeKeybindsIndex);
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
@@ -900,6 +904,11 @@ void Game::initTables() {
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
     _services.audio.mixer.setDryGroups({kBarkSoundGroup});
+    _services.audio.mixer.setObstructionTest([this](const glm::vec3 &source, const glm::vec3 &listener) {
+        auto module = _module;
+        auto area = module ? module->area() : nullptr;
+        return area ? area->soundObstruction(source, listener) : 0.0f;
+    });
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
@@ -5811,6 +5820,16 @@ void Game::updateCamera(float dt) {
         _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
                                                        glm::normalize(glm::vec3(cameraTransform[1])));
         updateEnvironment(camera->sceneNode()->origin());
+        // A walkmesh that came, went or moved may now stand between a sound
+        // and the listener, or no longer stand there.
+        if (auto area = _module ? _module->area() : nullptr) {
+            auto &graph = area->graph();
+            const std::pair<const scene::ISceneGraph *, uint32_t> revision {&graph, graph.walkmeshRevision()};
+            if (revision != _obstructionRevision) {
+                _obstructionRevision = revision;
+                _services.audio.mixer.invalidateObstruction();
+            }
+        }
     }
 }
 
