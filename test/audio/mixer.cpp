@@ -119,7 +119,7 @@ TEST_F(ReverbSendTest, effects_options_turn_their_sends_off) {
     EXPECT_EQ(playPositional(std::nullopt), 0.0f);
 }
 
-TEST_F(ReverbSendTest, positional_sound_is_obstructed_as_it_starts_and_again_once_invalidated) {
+TEST_F(ReverbSendTest, positional_sound_takes_its_first_obstruction_at_once_and_eases_to_later_ones) {
     std::vector<float> obstructions;
     ON_CALL(context, setObstruction(_, _)).WillByDefault([&obstructions](AudioSource &, float obstruction) {
         obstructions.push_back(obstruction);
@@ -138,10 +138,22 @@ TEST_F(ReverbSendTest, positional_sound_is_obstructed_as_it_starts_and_again_onc
     blocked = 1.0f;
     mixer.invalidateObstruction();
     mixer.render();
+    EXPECT_EQ(obstructions.size(), 1u);
+
+    // Full obstruction takes half a second to come in.
     now += std::chrono::milliseconds(100);
     mixer.render();
     ASSERT_EQ(obstructions.size(), 2u);
+    EXPECT_NEAR(obstructions.back(), 0.6f, 1e-4f);
+
+    now += std::chrono::milliseconds(1000);
+    mixer.render();
+    ASSERT_EQ(obstructions.size(), 3u);
     EXPECT_FLOAT_EQ(obstructions.back(), 1.0f);
+
+    now += std::chrono::milliseconds(100);
+    mixer.render();
+    EXPECT_EQ(obstructions.size(), 3u);
 }
 
 TEST_F(ReverbSendTest, obstruction_is_tested_again_only_once_something_has_changed) {
