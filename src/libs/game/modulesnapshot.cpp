@@ -1435,6 +1435,9 @@ void ModuleSnapshotBuilder::writeCreatureAttributes(Gff &record, const Creature 
         skills.push_back(std::move(skill));
     }
     put(record, Gff::Field::newList("SkillList", std::move(skills)));
+    const int skillPoints = std::clamp(
+        creature._attributes.unspentSkillPoints(), 0, static_cast<int>(std::numeric_limits<uint16_t>::max()));
+    put(record, Gff::Field::newWord("SkillPoints", static_cast<uint16_t>(skillPoints)));
     std::map<uint16_t, std::shared_ptr<Gff>> oldFeats;
     for (const auto &feat : record.getList("FeatList")) {
         oldFeats.emplace(

@@ -11849,10 +11849,11 @@ void Creature::deserializeAttributes(const resource::Gff &gff) {
 
     // A record with a skill list sets the ranks of the eight skills, a skill
     // the list leaves out to 0; a record without one, as a module's instance
-    // of a template, keeps the ranks it has. A saved rank from 128 up reads
-    // as that value less 256: the save writes a negative rank so. An entry
-    // without its rank gives the skill's total rank on a base of 0, at most
-    // 127 either way, and only a skill the skills table defines takes it.
+    // of a template, keeps the ranks it has. Skill points likewise. A saved
+    // rank from 128 up reads as that value less 256: the save writes a
+    // negative rank so. An entry without its rank gives the skill's total rank
+    // on a base of 0, at most 127 either way, and only a skill the skills
+    // table defines takes it.
     if (gff.has("SkillList")) {
         static constexpr int kMaxSkillRank = 127;
         const auto skills = gff.getList("SkillList");
@@ -11868,6 +11869,10 @@ void Creature::deserializeAttributes(const resource::Gff &gff) {
                 attributes.setSkillRank(skill, static_cast<int8_t>(rank));
             }
         }
+    }
+    uint16_t skillPoints = 0;
+    if (gff.readWord(skillPoints, "SkillPoints")) {
+        attributes.setUnspentSkillPoints(skillPoints);
     }
 }
 

@@ -155,6 +155,13 @@ public:
 
     void setSkillRank(SkillType skill, int rank);
 
+    /**
+     * Skill points left unspent at the last character creation or level-up.
+     * They are added to the next level-up's points.
+     */
+    int unspentSkillPoints() const { return _unspentSkillPoints; }
+    void setUnspentSkillPoints(int points) { _unspentSkillPoints = points; }
+
     // END Skills
 
     // Feats
@@ -194,6 +201,7 @@ private:
     std::vector<std::pair<CreatureClass *, int>> _classLevels;
     std::map<Ability, int> _abilityScores;
     std::map<SkillType, int> _skillRanks;
+    int _unspentSkillPoints {0};
     std::set<FeatType> _feats;
     std::vector<FeatType> _featOrder;
     std::map<FeatType, int> _spentFeatUses;
