@@ -146,6 +146,13 @@ public:
 
     bool handle(const input::Event &event);
     void update(float dt);
+    /**
+     * Picks what is under the pointer where the last mouse move this frame
+     * left it, then highlights it and sets the cursor. Runs once a frame,
+     * paused or not, however many moves arrived: picking tests room
+     * geometry, and a high-polling mouse sends many moves a frame.
+     */
+    void updateHover();
     /** The module's and its area's actions run with the clock stopped. */
     void runObjectActions();
     /**
@@ -369,6 +376,9 @@ private:
     void receiveClientEntered(const Creature &player);
 
     // END Loading
+
+    /** Where the last mouse move left the pointer, until updateHover picks there. */
+    std::optional<glm::ivec2> _hoverPoint;
 
     // User input
 

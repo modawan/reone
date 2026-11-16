@@ -168,6 +168,7 @@ TEST_F(HUDInputTest, pointing_at_a_hud_control_hilights_nothing_in_the_world) {
     EXPECT_CALL(_sceneGraph, pickModelAt(_, _, _)).Times(0);
 
     _game->handle(motion(onButton));
+    _game->module()->updateHover();
 
     EXPECT_TRUE(_button->isSelected());
     EXPECT_EQ(nullptr, _area->hilightedObject());
@@ -177,8 +178,28 @@ TEST_F(HUDInputTest, pointing_at_a_hud_control_hilights_nothing_in_the_world) {
     const glm::ivec2 offButton {200, 200};
     EXPECT_CALL(_sceneGraph, pickModelAt(offButton.x, offButton.y, _leader.get())).WillOnce(Return(nullptr));
     _game->handle(motion(offButton));
+    _game->module()->updateHover();
     EXPECT_FALSE(_button->isSelected());
     EXPECT_FALSE(_game->isPointerOnHUD(offButton.x, offButton.y));
+}
+
+// Picking tests room geometry, and a high-polling mouse sends many moves a
+// frame: the moves only note where the pointer went, and the frame's hover
+// update picks once, where the last of them left it.
+TEST_F(HUDInputTest, several_moves_in_a_frame_pick_once_where_the_last_one_ends) {
+    EXPECT_CALL(_sceneGraph, pickModelAt(_, _, _)).Times(0);
+    for (int x : {200, 210, 220}) {
+        _game->handle(motion({x, 200}));
+    }
+    Mock::VerifyAndClearExpectations(&_sceneGraph);
+
+    EXPECT_CALL(_sceneGraph, pickModelAt(220, 200, _leader.get())).WillOnce(Return(nullptr));
+    _game->module()->updateHover();
+    Mock::VerifyAndClearExpectations(&_sceneGraph);
+
+    // Nothing moved since: the next frame picks nothing.
+    EXPECT_CALL(_sceneGraph, pickModelAt(_, _, _)).Times(0);
+    _game->module()->updateHover();
 }
 
 TEST_F(HUDInputTest, a_hud_control_under_the_target_menu_takes_the_pointer_and_the_click) {
