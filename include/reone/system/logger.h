@@ -40,6 +40,11 @@ public:
         return _enabledChannels.count(channel) > 0;
     }
 
+    /** Whether a message of this channel and severity would be written. */
+    bool isEnabled(LogChannel channel, LogSeverity severity) const {
+        return _inited && severity >= _minSeverity && isChannelEnabled(channel);
+    }
+
     /** Whether messages are written yet; before init they are dropped. */
     bool isInited() const { return _inited; }
 

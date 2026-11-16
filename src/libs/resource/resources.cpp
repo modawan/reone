@@ -103,6 +103,38 @@ void Resources::addFolder(const std::filesystem::path &path, ResourceOwner owner
     mount(openFolder(path), ResourceSourceForm::Folder, path, owner, bucket);
 }
 
+std::string describe(const ResourceSourceRef &source) {
+    if (source.form == ResourceSourceForm::Replacement) {
+        return "runtime replacement, revision " + std::to_string(source.replacementRevision);
+    }
+    static const std::unordered_map<ResourceSourceForm, std::string> forms {
+        {ResourceSourceForm::KeyBif, "KEY/BIF"},
+        {ResourceSourceForm::Erf, "ERF"},
+        {ResourceSourceForm::Rim, "RIM"},
+        {ResourceSourceForm::Folder, "folder"},
+        {ResourceSourceForm::Executable, "executable"},
+        {ResourceSourceForm::Memory, "memory"}};
+    static const std::unordered_map<ResourceSourceBucket, std::string> buckets {
+        {ResourceSourceBucket::LooseDirectory, "loose directory"},
+        {ResourceSourceBucket::EncapsulatedClass1, "encapsulated class 1"},
+        {ResourceSourceBucket::ResourceImage, "resource image"},
+        {ResourceSourceBucket::EncapsulatedClass2, "encapsulated class 2"},
+        {ResourceSourceBucket::KeyBif, "KEY/BIF"}};
+    static const std::unordered_map<ResourceOwner, std::string> owners {
+        {ResourceOwner::Global, "global"},
+        {ResourceOwner::SaveSlot, "save slot"},
+        {ResourceOwner::ActiveModule, "module"},
+        {ResourceOwner::ActiveModuleState, "module state"},
+        {ResourceOwner::TemporaryDiscovery, "module being prepared"}};
+    auto text = forms.at(source.form) + " " + (source.path.empty() ? std::string("in memory") : source.path.string());
+    text += " (";
+    if (source.bucket) {
+        text += buckets.at(*source.bucket) + ", ";
+    }
+    text += owners.at(source.owner) + ")";
+    return text;
+}
+
 Resource Resources::get(const ResourceId &id) {
     auto data = find(id);
     if (!data) {

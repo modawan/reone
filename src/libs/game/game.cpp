@@ -994,6 +994,7 @@ void Game::initConsole() {
     registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
     registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
     registerConsoleCommand("whereami", "print the module and the party leader's position", &Game::consoleWhereAmI);
+    registerConsoleCommand("explain", "list the sources holding a resource, the one in use first: explain <resref.ext>", &Game::consoleExplain);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -10198,6 +10199,32 @@ void Game::consoleWhereAmI(const ConsoleArgs &args) {
     }
     const glm::vec3 &position = leader->position();
     _console.printLine(str(boost::format("position: (%3.2f, %3.2f, %3.2f)") % position.x % position.y % position.z));
+}
+
+// Every line goes to the log as well as the console, so the answer can be
+// passed on.
+void Game::consoleExplain(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "resref.ext");
+    std::string name(*args[1]);
+    auto dot = name.find_last_of('.');
+    auto type = dot == std::string::npos ? ResType::Invalid : getResTypeByExt(boost::to_lower_copy(name.substr(dot + 1)), false);
+    if (type == ResType::Invalid) {
+        throw std::invalid_argument("usage: explain resref.ext, with the extension of a resource type");
+    }
+    ResourceId id(name.substr(0, dot), type);
+    auto print = [this](const std::string &line) {
+        _console.printLine(line);
+        info(line, LogChannel::Resources);
+    };
+    auto sources = _services.resource.resources.explain(id);
+    if (sources.empty()) {
+        print(id.string() + ": no source holds it");
+        return;
+    }
+    print(id.string() + ": read from the first of " + std::to_string(sources.size()));
+    for (size_t i = 0; i < sources.size(); ++i) {
+        print("  " + std::to_string(i + 1) + ". " + describe(sources[i]));
+    }
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ
