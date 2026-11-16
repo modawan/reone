@@ -281,9 +281,13 @@ void CharacterGeneration::startQuick() {
     setAttributesVisible(true);
     _type = Type::Quick;
     showLevelUpTitle(false);
-    // A quick character is given its class's feats as it is made.
-    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, true);
-    updateAttributes();
+    // A quick character is made at once: its class's scores, feats,
+    // recommended feats and recommended skills.
+    Character character(_character);
+    character.attributes = quickCharacterAttributes(
+        *_services.game.classes.get(_character.attributes.getEffectiveClass()),
+        _services.game.feats, _services.game.skills, _game.isTSL());
+    setCharacter(std::move(character));
     _quick->setStep(0);
     openSteps();
 }
@@ -480,7 +484,12 @@ std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacte
     for (auto feat : held) {
         _character.attributes.removeFeat(feat);
     }
-    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, newCharacter);
+    return addCreationFeats(_character.attributes, _services.game.feats, newCharacter);
+}
+
+std::vector<FeatType> addCreationFeats(CreatureAttributes &attributes, const IFeats &feats, bool newCharacter) {
+    // A new character has no experience.
+    return feats.addGrantedFeats(attributes, kNewCharacterRace, 0, kObjectTagPlayer, newCharacter);
 }
 
 void CharacterGeneration::acceptAbilities() {
@@ -611,8 +620,7 @@ void CharacterGeneration::finish() {
                 // A new character moves at the player's pace.
                 player->setMovementRate(kPlayerMovementRate);
                 player->setFaction(Faction::Player);
-                // A new character is human.
-                player->setRacialType(RacialType::Human);
+                player->setRacialType(kNewCharacterRace);
                 player->setGoodEvil(kNewCharacterGoodEvil);
                 player->attributes() = _character.attributes;
                 player->initializeGeneratedVitality();

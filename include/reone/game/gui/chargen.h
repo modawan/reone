@@ -48,6 +48,8 @@ class Label;
 
 namespace game {
 
+class IFeats;
+
 enum class CharGenScreen {
     ClassSelection,
     QuickOrCustom,
@@ -395,6 +397,18 @@ private:
 
     // END Loading
 };
+
+/** The race of every new character. */
+constexpr RacialType kNewCharacterRace = RacialType::Human;
+
+/**
+ * Gives a new character, a player character of kNewCharacterRace, the
+ * feats its class grants at its first level; \p newCharacter adds the
+ * player-character feats and War Veteran a new character starts with.
+ *
+ * @return the feats the grant lists as granted
+ */
+std::vector<FeatType> addCreationFeats(CreatureAttributes &attributes, const IFeats &feats, bool newCharacter);
 
 } // namespace game
 
