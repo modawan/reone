@@ -155,7 +155,10 @@ public:
      */
     void runSpawnScriptsOutsideArea();
 
+    /** The entries the action menus offer the party leader for an object. */
     std::vector<ContextAction> getContextActions(const std::shared_ptr<Object> &object) const;
+    /** The entries the action menus offer \p actor for an object. */
+    std::vector<ContextAction> getContextActions(const std::shared_ptr<Creature> &actor, const std::shared_ptr<Object> &object) const;
     /** The droid power the leader can use against a mine (TSL), by the mine's type; none in KotOR. */
     std::shared_ptr<Spell> mineForcePower(const Trigger &trigger, const Creature &leader) const;
 
