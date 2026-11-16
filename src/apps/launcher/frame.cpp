@@ -18,6 +18,8 @@
 #include "frame.h"
 
 #include "reone/graphics/types.h"
+#include "reone/system/appdirs.h"
+#include "reone/system/buildinfo.h"
 
 using namespace boost::program_options;
 
@@ -26,10 +28,9 @@ using namespace reone::graphics;
 namespace reone {
 
 static const char kIconName[] = "reone";
-static const char kConfigFilename[] = "reone.cfg";
 
 LauncherFrame::LauncherFrame() :
-    wxFrame(nullptr, wxID_ANY, "reone", wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_STYLE & ~(wxRESIZE_BORDER | wxMAXIMIZE_BOX | wxMINIMIZE_BOX)) {
+    wxFrame(nullptr, wxID_ANY, wxString::Format("reone %s", versionString()), wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_STYLE & ~(wxRESIZE_BORDER | wxMAXIMIZE_BOX | wxMINIMIZE_BOX)) {
 
 #ifdef _WIN32
     SetIcon(wxIcon(kIconName));
@@ -384,11 +385,12 @@ void LauncherFrame::LoadConfiguration() {
         ("logch", value<int>()->default_value(_config.logch));
 
     variables_map vars;
-    if (!std::filesystem::exists(kConfigFilename)) {
+    const auto configPath = configFilePath();
+    if (!std::filesystem::exists(configPath)) {
         return;
     }
 
-    store(parse_config_file<char>(kConfigFilename, options, true), vars);
+    store(parse_config_file<char>(configPath.string().c_str(), options, true), vars);
     notify(vars);
 
     _config.gameDir = vars["game"].as<std::string>();
@@ -420,9 +422,21 @@ void LauncherFrame::LoadConfiguration() {
 void LauncherFrame::OnLaunch(wxCommandEvent &event) {
     SaveConfiguration();
 
+#ifdef _WIN32
     std::string exe("engine");
-#ifndef _WIN32
-    exe.insert(0, "./");
+#else
+    // The engine is installed beside the launcher, which may have been
+    // started from any directory. Quoted for the shell: every ' becomes '\''.
+    auto enginePath = (executableDirectory() / "engine").string();
+    std::string exe("'");
+    for (char c : enginePath) {
+        if (c == '\'') {
+            exe += "'\\''";
+        } else {
+            exe += c;
+        }
+    }
+    exe += "'";
 #endif
 
     system(exe.c_str());
@@ -527,7 +541,8 @@ void LauncherFrame::SaveConfiguration() {
 
     std::vector<std::string> lines;
 
-    std::ifstream in(kConfigFilename);
+    const auto configPath = configFilePath();
+    std::ifstream in(configPath);
     for (std::string line; getline(in, line);) {
         bool add = true;
         for (auto &opt : recognized) {
@@ -541,7 +556,7 @@ void LauncherFrame::SaveConfiguration() {
         }
     }
 
-    std::ofstream config(kConfigFilename);
+    std::ofstream config(configPath);
     config << "game=" << _config.gameDir << std::endl;
     config << "dev=" << (_config.devMode ? 1 : 0) << std::endl;
     config << "wheelzoom=" << (_config.wheelZoom ? 1 : 0) << std::endl;

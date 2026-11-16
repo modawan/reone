@@ -21,6 +21,8 @@
 #undef min
 #endif
 
+#include "reone/system/appdirs.h"
+#include "reone/system/buildinfo.h"
 #include "reone/system/crashreport.h"
 #include "reone/system/logger.h"
 #include "reone/system/logutil.h"
@@ -41,6 +43,13 @@ int main(int argc, char **argv) {
 #endif
     markMainThread();
 
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--version") {
+            std::cout << "reone " << versionString() << std::endl;
+            return 0;
+        }
+    }
+
     std::unique_ptr<Options> options;
     OptionsParser optionsParser {argc, argv};
     try {
@@ -50,9 +59,13 @@ int main(int argc, char **argv) {
         return 1;
     }
     try {
-        Logger::instance.init(options->logging.severity, options->logging.channels, kLogFilename);
+        // The log goes beside the configuration: the current directory for a
+        // setup that keeps reone.cfg there, the per-user directory otherwise.
+        auto logPath = options->game.configurationPath.parent_path() / kLogFilename;
+        Logger::instance.init(options->logging.severity, options->logging.channels, logPath.string());
         installCrashReport(Logger::instance);
         info(kEngineStartupMessage);
+        info(str(boost::format("reone %1%") % versionString()));
         Logger::instance.flush();
     } catch (const std::exception &ex) {
         std::cerr << "Error initializing logging: " << ex.what() << std::endl;

@@ -17,6 +17,8 @@
 
 #include "reone/resource/director.h"
 
+#include "reone/system/appdirs.h"
+
 #include "reone/graphics/options.h"
 #include "reone/graphics/types.h"
 #include "reone/resource/di/services.h"
@@ -354,7 +356,9 @@ std::optional<ResourceSourceBucket> ResourceDirector::bucketOf(ResourceSourceBuc
  * list homogeneous once buckets are in use.
  */
 void ResourceDirector::loadAuxiliaryResources() {
-    _auxResources.addERF(getFileIgnoreCase(std::filesystem::current_path(), kShaderPackFilename));
+    _auxResources.addERF(_dataDirectories
+                             ? getDataFile(kShaderPackFilename, *_dataDirectories)
+                             : getDataFile(kShaderPackFilename));
 
     std::optional<std::filesystem::path> exePath;
     if (_gameId == GameID::TSL) {
