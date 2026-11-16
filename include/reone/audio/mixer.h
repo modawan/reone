@@ -18,6 +18,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <set>
 
 #include "arbiter.h"
@@ -38,6 +39,9 @@ class IContext;
  * without a variance.
  */
 float randomPitch(float variance);
+
+/** How much of a sound at a position is blocked from a listener at another, from 0 to 1. */
+using ObstructionTest = std::function<float(const glm::vec3 &source, const glm::vec3 &listener)>;
 
 class IAudioMixer {
 public:
@@ -81,6 +85,14 @@ public:
      * it at once.
      */
     virtual void setRoomReverb(bool reverb) = 0;
+    /**
+     * Sets how positional sources are found obstructed: as each one starts,
+     * and again once it or the listener has moved, or the obstructions were
+     * invalidated, as a budget of tests a second allows.
+     */
+    virtual void setObstructionTest(ObstructionTest test) = 0;
+    /** Marks every source's obstruction out of date, for when what lies between the sources and the listener has changed. */
+    virtual void invalidateObstruction() = 0;
     /** The row of priority group \p group. */
     virtual PriorityGroup priorityGroup(int group) const = 0;
     /**
@@ -145,9 +157,13 @@ public:
 
 class AudioMixer : public IAudioMixer, boost::noncopyable {
 public:
-    AudioMixer(AudioOptions &options, IContext &context) :
+    /** What the mixer reads the time from. */
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
+
+    AudioMixer(AudioOptions &options, IContext &context, Clock clock = std::chrono::steady_clock::now) :
         _options(options),
-        _context(context) {
+        _context(context),
+        _clock(std::move(clock)) {
         _arbiter.setVoiceCounts(options.voices2D, options.voices3D);
     }
 
@@ -161,6 +177,8 @@ public:
     void setStreamedGroups(std::set<int> groups) override;
     void setDryGroups(std::set<int> groups) override;
     void setRoomReverb(bool reverb) override;
+    void setObstructionTest(ObstructionTest test) override;
+    void invalidateObstruction() override;
     PriorityGroup priorityGroup(int group) const override;
     void setFocusLost(bool lost) override;
     void setMuted(bool muted) override;
@@ -198,10 +216,16 @@ private:
         float gain {1.0f};
         /** The source was played at a position. */
         bool positional {false};
+        /** Where it and the listener were when its obstruction was last found. */
+        glm::vec3 obstructedAt {0.0f};
+        glm::vec3 obstructedListener {0.0f};
+        /** Its obstruction is to be found again whether or not anything has moved. */
+        bool obstructionInvalid {true};
     };
 
     AudioOptions &_options;
     IContext &_context;
+    Clock _clock;
 
     std::vector<ActiveSource> _sources;
     /** Shares the groups' room and the voices among the sources in a group. */
@@ -210,6 +234,13 @@ private:
     std::set<int> _dryGroups;
     /** See setRoomReverb. */
     bool _roomReverb {false};
+    ObstructionTest _obstructionTest;
+    /** The source whose obstruction is worked out next. */
+    size_t _nextObstructed {0};
+    /** Obstruction tests the budget has accrued and not yet spent. */
+    float _obstructionBudget {0.0f};
+    /** When the mixer last rendered; none before the first render. */
+    std::optional<std::chrono::steady_clock::time_point> _lastRendered;
     bool _soundsHeldForMovie {false};
     /** The priority groups the sound mode in force keeps playing; none without a mode. */
     std::optional<std::set<int>> _modeKeptGroups;
@@ -237,6 +268,12 @@ private:
     /** How much of a source reaches the reverb, as a send gain from 0 to 1. */
     float reverbSend(const ActiveSource &active) const;
     bool isStreamed(const ActiveSource &active) const;
+    /** Works out how obstructed a positional source is now. */
+    void obstruct(ActiveSource &active);
+    /** Whether a source's obstruction is out of date: it or the listener has moved, or it was invalidated. */
+    bool isObstructionStale(const ActiveSource &active, const glm::vec3 &listener) const;
+    /** Works out again how obstructed the stale sources are, as far as \p seconds of budget allow. */
+    void refreshObstruction(float seconds);
     /** Resumes a source that nothing holds paused any more. */
     void resumeIfFree(ActiveSource &active);
     /** The arbiter holds the source back: it waits for room or a voice, or is out of range. */
