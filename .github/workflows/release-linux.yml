@@ -43,6 +43,11 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Steps in a container otherwise run under "sh -e", which on AlmaLinux is
+# bash in POSIX mode and rejects process substitution.
+defaults:
+  run:
+    shell: bash
 env:
   VCPKG_TAG: 2026.10.16
   VCPKG_TRIPLET: x64-linux-dynamic
@@ -140,8 +145,8 @@ jobs:
         # AlmaLinux 8 has no CMake new enough for vcpkg's package files, and
         # no Ninja.
         run: |
-          echo "$(dirname "$(/opt/vcpkg/vcpkg fetch cmake | tail -n 1)")" >> "$GITHUB_PATH"
-          echo "$(dirname "$(/opt/vcpkg/vcpkg fetch ninja | tail -n 1)")" >> "$GITHUB_PATH"
+          dirname "$(/opt/vcpkg/vcpkg fetch cmake | tail -n 1)" >> "$GITHUB_PATH"
+          dirname "$(/opt/vcpkg/vcpkg fetch ninja | tail -n 1)" >> "$GITHUB_PATH"
       - name: Configure
         env:
           VERSION: ${{ steps.version.outputs.version }}
