@@ -133,6 +133,22 @@ TEST(SoundObject, stopping_ends_the_fade) {
     EXPECT_FLOAT_EQ(1.0f, sound->fadeScale());
 }
 
+// SoundObjectPlay during a fade ends it: the sound comes back to its volume
+// and keeps playing instead of stopping when the fade would have run out.
+TEST(SoundObject, playing_during_a_fade_ends_it) {
+    SoundObjectFixture fixture;
+    auto sound = fixture.playingSound();
+    sound->fadeAndStop(2.0f);
+    sound->advanceFade(1.0f);
+
+    fixture.call("SoundObjectPlay", {Variable::ofObject(sound->id())});
+
+    EXPECT_FALSE(sound->isFading());
+    EXPECT_FLOAT_EQ(1.0f, sound->fadeScale());
+    sound->advanceFade(5.0f);
+    EXPECT_TRUE(sound->isActive());
+}
+
 TEST(SoundObject, routines_set_the_volume_and_fade) {
     SoundObjectFixture fixture;
     auto sound = fixture.playingSound();

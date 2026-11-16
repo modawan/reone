@@ -81,7 +81,7 @@ public:
     /**
      * Fades the sound out over \p seconds, then stops it, as
      * SoundObjectFadeAndStop does. A sound that is not playing, or a fade of
-     * no length, stops at once. Stopping the sound ends the fade.
+     * no length, stops at once. Stopping or playing the sound ends the fade.
      */
     void fadeAndStop(float seconds);
     bool isFading() const { return _fade.has_value(); }
@@ -133,6 +133,8 @@ private:
         float duration {0.0f};
         float remaining {0.0f};
     };
+    // Not saved: a sound saved part way through a fade loads at its full
+    // volume and still playing. These fades last a few seconds at most.
     std::optional<Fade> _fade;
 
     /** Whether the part of the day, or the hour, lets the sound play. */
