@@ -36,14 +36,6 @@ static constexpr SkillType kSkills[] {
     SkillType::Security,
     SkillType::TreatInjury};
 
-static constexpr Ability kAbilities[] {
-    Ability::Strength,
-    Ability::Dexterity,
-    Ability::Constitution,
-    Ability::Intelligence,
-    Ability::Wisdom,
-    Ability::Charisma};
-
 void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAttributes &attributes, int &points) {
     // A class whose skills table has no recommendation column ranks no skill,
     // and is recommended to spend nothing: what the original does with such a
@@ -166,23 +158,6 @@ std::vector<SpellType> recommendPowers(
         }
         chosen.insert(*power);
         result.push_back(*power);
-    }
-    return result;
-}
-
-std::optional<Ability> recommendLevelUpAbility(const CreatureClass &clazz, const CreatureAttributes &attributes, int maxScore) {
-    auto primary = clazz.primaryAbility();
-    if (primary && attributes.getAbilityScore(*primary) < maxScore) {
-        return primary;
-    }
-    std::optional<Ability> result;
-    for (auto ability : kAbilities) {
-        if (ability == primary || attributes.getAbilityScore(ability) >= maxScore) {
-            continue;
-        }
-        if (!result || attributes.getAbilityScore(ability) > attributes.getAbilityScore(*result)) {
-            result = ability;
-        }
     }
     return result;
 }
