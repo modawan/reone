@@ -88,7 +88,8 @@ public:
     /**
      * Sets how positional sources are found obstructed: as each one starts,
      * and again once it or the listener has moved, or the obstructions were
-     * invalidated, as a budget of tests a second allows.
+     * invalidated, as a budget of tests a second allows. A source takes its
+     * first obstruction at once and eases to each later one.
      */
     virtual void setObstructionTest(ObstructionTest test) = 0;
     /** Marks every source's obstruction out of date, for when what lies between the sources and the listener has changed. */
@@ -216,6 +217,9 @@ private:
         float gain {1.0f};
         /** The source was played at a position. */
         bool positional {false};
+        /** The obstruction it is heard with, and the one last found, which it eases towards. */
+        float obstruction {0.0f};
+        float obstructionTarget {0.0f};
         /** Where it and the listener were when its obstruction was last found. */
         glm::vec3 obstructedAt {0.0f};
         glm::vec3 obstructedListener {0.0f};
@@ -268,12 +272,14 @@ private:
     /** How much of a source reaches the reverb, as a send gain from 0 to 1. */
     float reverbSend(const ActiveSource &active) const;
     bool isStreamed(const ActiveSource &active) const;
-    /** Works out how obstructed a positional source is now. */
-    void obstruct(ActiveSource &active);
+    /** Works out how obstructed a positional source is now, and with \p jump hears it so at once. */
+    void obstruct(ActiveSource &active, bool jump);
     /** Whether a source's obstruction is out of date: it or the listener has moved, or it was invalidated. */
     bool isObstructionStale(const ActiveSource &active, const glm::vec3 &listener) const;
     /** Works out again how obstructed the stale sources are, as far as \p seconds of budget allow. */
     void refreshObstruction(float seconds);
+    /** Eases each source's obstruction towards the one last found, over \p seconds. */
+    void renderObstruction(float seconds);
     /** Resumes a source that nothing holds paused any more. */
     void resumeIfFree(ActiveSource &active);
     /** The arbiter holds the source back: it waits for room or a voice, or is out of range. */

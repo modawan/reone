@@ -60,22 +60,26 @@ void AudioMixer::render() {
     const auto last = std::exchange(_lastRendered, now);
     const float seconds = last ? std::chrono::duration<float>(now - *last).count() : 0.0f;
     refreshObstruction(seconds);
+    renderObstruction(seconds);
 }
 
 void AudioMixer::setObstructionTest(ObstructionTest test) {
     _obstructionTest = std::move(test);
 }
 
-void AudioMixer::obstruct(ActiveSource &active) {
+void AudioMixer::obstruct(ActiveSource &active, bool jump) {
     const auto &position = active.source->position();
     if (!_obstructionTest || !_context.rendersObstruction() || !position) {
         return;
     }
-    const float obstruction = _obstructionTest(*position, _context.listenerPosition());
+    active.obstructionTarget = _obstructionTest(*position, _context.listenerPosition());
     active.obstructedAt = *position;
     active.obstructedListener = _context.listenerPosition();
     active.obstructionInvalid = false;
-    _context.setObstruction(*active.source, obstruction);
+    if (jump) {
+        active.obstruction = active.obstructionTarget;
+        _context.setObstruction(*active.source, active.obstruction);
+    }
 }
 
 void AudioMixer::invalidateObstruction() {
@@ -115,9 +119,29 @@ void AudioMixer::refreshObstruction(float seconds) {
         _nextObstructed = index + 1;
         auto &active = _sources[index];
         if (active.positional && !active.outOfRange && isObstructionStale(active, listener)) {
-            obstruct(active);
+            obstruct(active, false);
             _obstructionBudget -= 1.0f;
         }
+    }
+}
+
+// Arbitrary: obstruction moves from none to full in half a second, so a
+// wall's worth comes and goes over a fifth of one. That is short enough to
+// follow a walk past a rock and long enough not to be heard as a step.
+static constexpr std::chrono::milliseconds kObstructionEaseTime {500};
+
+void AudioMixer::renderObstruction(float seconds) {
+    if (seconds <= 0.0f || !_obstructionTest || !_context.rendersObstruction()) {
+        return;
+    }
+    const float step = seconds / std::chrono::duration<float>(kObstructionEaseTime).count();
+    for (auto &active : _sources) {
+        if (active.obstruction == active.obstructionTarget) {
+            continue;
+        }
+        const float gap = active.obstructionTarget - active.obstruction;
+        active.obstruction = std::abs(gap) <= step ? active.obstructionTarget : active.obstruction + std::copysign(step, gap);
+        _context.setObstruction(*active.source, active.obstruction);
     }
 }
 
@@ -478,7 +502,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
 
     source->init();
     _context.setReverbSend(*source, reverbSend(active));
-    obstruct(active);
+    obstruct(active, true);
     if (distances) {
         source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);
     }
