@@ -17,6 +17,10 @@
 
 #include "reone/game/gui/chargen/quick.h"
 
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/feats.h"
+#include "reone/game/d20/recommended.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
@@ -32,6 +36,9 @@ namespace reone {
 
 namespace game {
 
+/** The quick character is made at the first level. */
+static constexpr int kFirstLevel = 1;
+
 /** The controls the panel shows in both titles. */
 static const std::unordered_set<std::string> kPanelControls {
     "BTN_BACK", "BTN_CANCEL", "BTN_STEPNAME1", "BTN_STEPNAME2", "BTN_STEPNAME3", "LBL_1",
@@ -40,6 +47,32 @@ static const std::unordered_set<std::string> kPanelControls {
 static const std::unordered_set<std::string> kK1PanelControls {"LBL_DECORATION"};
 /** No further controls, for a title that names none of its own. */
 static const std::unordered_set<std::string> kNoTitleControls;
+
+CreatureAttributes quickCharacterAttributes(
+    const CreatureClass &clazz,
+    const IFeats &feats,
+    const ISkills &skills,
+    bool tsl) {
+    CreatureAttributes attributes(clazz.defaultAttributes());
+    addCreationFeats(attributes, feats, true);
+    // The recommended feats fill the first level's normal and bonus picks.
+    const std::set<FeatType> noFeats;
+    FeatChoice choice {
+        attributes,
+        clazz,
+        clazz.getFeatGain(kFirstLevel),
+        clazz.getBonusFeatGain(kFirstLevel),
+        noFeats,
+        noFeats,
+        kObjectTagPlayer};
+    for (FeatType feat : recommendFeats(feats, choice, choice.normalPicks + choice.bonusPicks)) {
+        attributes.addFeat(feat);
+    }
+    int points = clazz.skillPointsForLevel(attributes.getAbilityModifier(Ability::Intelligence), true, tsl);
+    addRecommendedSkills(skills, attributes, clazz, points, kFirstLevel, kNewCharacterLevelling, noFeats, tsl);
+    attributes.setUnspentSkillPoints(points);
+    return attributes;
+}
 
 void QuickCharacterGeneration::onGUILoaded() {
     bindControls();

@@ -21,6 +21,7 @@
 #include "reone/gui/control/imagebutton.h"
 #include "reone/gui/control/label.h"
 
+#include "../../d20/attributes.h"
 #include "../../gui.h"
 
 namespace reone {
@@ -35,6 +36,22 @@ class Label;
 namespace game {
 
 class CharacterGeneration;
+class CreatureClass;
+class IFeats;
+class ISkills;
+
+/**
+ * The quick character of the class: a new character with the feats it
+ * starts with (addCreationFeats), the recommended feats for its first
+ * level's normal and bonus picks, and the first level's skill points spent
+ * on the recommended skills under player character rules. Points that buy no
+ * rank stay unspent.
+ */
+CreatureAttributes quickCharacterAttributes(
+    const CreatureClass &clazz,
+    const IFeats &feats,
+    const ISkills &skills,
+    bool tsl);
 
 class QuickCharacterGeneration : public GameGUI {
 public:
