@@ -13,8 +13,11 @@
 
       # nixpkgs convention for unreleased builds: 0-unstable-YYYY-MM-DD,
       # dated by the last commit.
+      # The commit is appended so --version names the exact source; a dirty
+      # tree says so.
       date = self.lastModifiedDate or "19700101000000";
-      version = "0-unstable-${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}";
+      rev = self.shortRev or self.dirtyShortRev or "dirty";
+      version = "0-unstable-${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}-${rev}";
 
       app = system: name: description: {
         type = "app";
@@ -42,17 +45,6 @@
         system: pkgs: {
           # Builds everything, runs the unit tests and the install check.
           reone = self.packages.${system}.reone;
-          # The run wrapper's behaviour, against a stub store. Seconds, no
-          # C++ build.
-          reone-run =
-            pkgs.runCommand "reone-run-test"
-              {
-                nativeBuildInputs = [ pkgs.bash ];
-              }
-              ''
-                bash ${./nix/reone-run-test.sh} ${./nix/reone-run.sh}
-                touch $out
-              '';
         }
       );
 

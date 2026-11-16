@@ -191,11 +191,56 @@ endif()
 
 # Installation
 
-if(UNIX AND NOT APPLE)
-    include(GNUInstallDirs)
-endif()
+if(REONE_INSTALL_LAYOUT)
+    set(REONE_LIBEXEC_APPS engine launcher toolkit)
+    foreach(target ${InstallTargets})
+        if(target IN_LIST REONE_LIBEXEC_APPS)
+            install(TARGETS ${target} DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/reone)
+        else()
+            install(TARGETS ${target} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        endif()
+    endforeach()
 
-install(TARGETS ${InstallTargets} DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS system resource graphics audio scene movie script gui game tools DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(FILES ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin/shaderpack.erf DESTINATION ${CMAKE_INSTALL_DATADIR}/reone)
+    if(BUILD_TOOLKIT)
+        install(FILES ${CMAKE_SOURCE_DIR}/extern/cmudict/cmudict.dict DESTINATION ${CMAKE_INSTALL_DATADIR}/reone)
+    endif()
+
+    # bin/reone, bin/reone-launcher and bin/reone-toolkit: relative links to
+    # libexec/reone, made here and installed as files, so they follow --prefix
+    # and DESTDIR and are listed in install_manifest.txt.
+    file(RELATIVE_PATH REONE_BIN_TO_LIBEXEC "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBEXECDIR}/reone")
+    set(REONE_BIN_LINKS_DIR ${CMAKE_BINARY_DIR}/install-links)
+    file(REMOVE_RECURSE ${REONE_BIN_LINKS_DIR})
+    file(MAKE_DIRECTORY ${REONE_BIN_LINKS_DIR})
+    set(REONE_BIN_LINKS reone=engine)
+    if(BUILD_LAUNCHER)
+        list(APPEND REONE_BIN_LINKS reone-launcher=launcher)
+    endif()
+    if(BUILD_TOOLKIT)
+        list(APPEND REONE_BIN_LINKS reone-toolkit=toolkit)
+    endif()
+    foreach(pair ${REONE_BIN_LINKS})
+        string(REPLACE "=" ";" pair ${pair})
+        list(GET pair 0 link)
+        list(GET pair 1 app)
+        file(CREATE_LINK "${REONE_BIN_TO_LIBEXEC}/${app}" ${REONE_BIN_LINKS_DIR}/${link} SYMBOLIC)
+        install(FILES ${REONE_BIN_LINKS_DIR}/${link} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endforeach()
+
+    # Desktop entries, icons and AppStream metadata. The reone entry starts
+    # the launcher.
+    if(BUILD_LAUNCHER)
+        install(FILES ${CMAKE_SOURCE_DIR}/packaging/linux/io.github.modawan.reone.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+        install(FILES ${CMAKE_SOURCE_DIR}/packaging/linux/io.github.modawan.reone.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+        install(FILES ${CMAKE_SOURCE_DIR}/assets/reone.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps RENAME io.github.modawan.reone.png)
+    endif()
+    if(BUILD_TOOLKIT)
+        install(FILES ${CMAKE_SOURCE_DIR}/packaging/linux/io.github.modawan.reone.toolkit.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+        install(FILES ${CMAKE_SOURCE_DIR}/assets/toolkit.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps RENAME io.github.modawan.reone.toolkit.png)
+    endif()
+else()
+    install(TARGETS ${InstallTargets} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 # END Installation

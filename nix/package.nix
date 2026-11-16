@@ -34,6 +34,7 @@ stdenv.mkDerivation {
       ../src
       ../test
       ../assets
+      ../packaging
       ../.clang-format
     ];
   };
@@ -59,8 +60,12 @@ stdenv.mkDerivation {
     gtest
   ];
 
-  # Upstream's defaults build every app, the tests and movie playback.
-  cmakeFlags = [ (lib.cmakeBool "BUILD_TESTS" true) ];
+  # Upstream's defaults build every app, the tests and movie playback. The
+  # source has no .git, so the version comes from the flake.
+  cmakeFlags = [
+    (lib.cmakeBool "BUILD_TESTS" true)
+    (lib.cmakeFeature "REONE_VERSION" version)
+  ];
 
   doCheck = true;
   # Upstream registers one ctest entry that runs the whole gtest binary.
@@ -70,37 +75,12 @@ stdenv.mkDerivation {
     runHook postCheck
   '';
 
-  # The engine reads shaderpack.erf and reone.cfg from the current directory
-  # and logs there; the launcher writes reone.cfg there and starts "./engine";
-  # the toolkit reads cmudict.dict from there. None of that works from the
-  # read-only store, so those three go to libexec, and bin/reone,
-  # bin/reone-launcher and bin/reone-toolkit are links to reone-run, which
-  # runs them from a per-user directory (see reone-run.sh). The CLI tools take
-  # paths as arguments and stay in bin/ as they are.
+  # The applications find shaderpack.erf and cmudict.dict relative to
+  # themselves and keep reone.cfg and engine.log in ~/.config/reone, so the
+  # CMake install layout runs as it is: bin/reone, bin/reone-launcher and
+  # bin/reone-toolkit link to libexec/reone, the data is in share/reone.
   postInstall = ''
-    install -Dm644 bin/shaderpack.erf $out/share/reone/shaderpack.erf
-    if [ -e bin/cmudict.dict ]; then
-      install -Dm644 bin/cmudict.dict $out/share/reone/cmudict.dict
-    fi
-
-    mkdir -p $out/libexec/reone
-    for exe in engine launcher toolkit; do
-      if [ -e $out/bin/$exe ]; then
-        mv $out/bin/$exe $out/libexec/reone/$exe
-      fi
-    done
-
-    install -Dm755 ${./reone-run.sh} $out/libexec/reone/reone-run
-    substituteInPlace $out/libexec/reone/reone-run --subst-var-by out $out
-    ln -s ../libexec/reone/reone-run $out/bin/reone
-    for exe in launcher toolkit; do
-      if [ -e $out/libexec/reone/$exe ]; then
-        ln -s ../libexec/reone/reone-run $out/bin/reone-$exe
-      fi
-    done
-
-    # Upstream installs its static libraries too; nothing outside this build
-    # links them and there are no headers to go with them.
+    # Upstream installs nothing else under lib.
     rm -rf $out/lib
   '';
 
@@ -108,41 +88,46 @@ stdenv.mkDerivation {
   dontWrapGApps = true;
   postFixup = ''
     for exe in launcher toolkit; do
-      if [ -e $out/libexec/reone/$exe ]; then
-        wrapGApp $out/libexec/reone/$exe
-      fi
+      wrapGApp $out/libexec/reone/$exe
     done
   '';
 
-  # Guards the install layout. Upstream's install rule once installed no
+  # Guards the install layout: upstream's install rule once installed no
   # applications at all (InstallTargets never left its subdirectory scope)
   # while the build and unit tests still passed, so check the result itself.
-  # reone-run's own behaviour is tested by nix/reone-run-test.sh.
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
 
-    expect=(bin/reone libexec/reone/engine share/reone/shaderpack.erf)
-    expect+=(bin/reone-launcher libexec/reone/.launcher-wrapped)
-    expect+=(bin/reone-toolkit libexec/reone/.toolkit-wrapped share/reone/cmudict.dict)
+    expect=(bin/reone bin/reone-launcher bin/reone-toolkit)
+    expect+=(libexec/reone/engine libexec/reone/.launcher-wrapped libexec/reone/.toolkit-wrapped)
+    expect+=(share/reone/shaderpack.erf share/reone/cmudict.dict)
     expect+=(bin/dataminer bin/gff2json bin/unerf bin/ncsrun)
+    expect+=(share/applications/io.github.modawan.reone.desktop share/metainfo/io.github.modawan.reone.metainfo.xml)
+    expect+=(share/icons/hicolor/256x256/apps/io.github.modawan.reone.png)
     for f in "''${expect[@]}"; do
       [ -e "$out/$f" ] || { echo "install check: missing $f"; exit 1; }
     done
 
-    # The engine must start from REONE_HOME: links set up, log written
-    # there. With no display and no game data it cannot get far, but a
-    # logged "Engine failure" means the wrapper ran the real binary, options
-    # parsed, and the engine shut down cleanly instead of crashing.
-    export REONE_HOME=$TMPDIR/reone-home
+    $out/bin/reone --version | grep -qx "reone ${version}" \
+      || { echo "install check: unexpected --version: $($out/bin/reone --version)"; exit 1; }
+
+    # Started from a directory with nothing of reone's in it, the engine must
+    # keep its log in ~/.config/reone. The build sandbox has no display, so it
+    # fails before it gets to any game data; that it fails cleanly, logging
+    # the failure, is checked too. (The Linux packages workflow runs it on
+    # real distributions, where it gets as far as the game's key file.)
+    export HOME=$TMPDIR/home
+    unset XDG_CONFIG_HOME
+    mkdir -p $TMPDIR/elsewhere $HOME
     status=0
-    $out/bin/reone --game "$TMPDIR/no-game" || status=$?
+    (cd $TMPDIR/elsewhere && $out/bin/reone --game "$TMPDIR/no-game") || status=$?
     [ "$status" -ne 0 ] || { echo "install check: engine ran with no game data?"; exit 1; }
-    for f in shaderpack.erf engine; do
-      [ -L "$REONE_HOME/$f" ] || { echo "install check: REONE_HOME/$f not linked"; exit 1; }
-    done
-    grep -q "Engine failure" "$REONE_HOME/engine.log" \
-      || { echo "install check: engine did not log a clean failure"; cat "$REONE_HOME/engine.log" || true; exit 1; }
+    log=$HOME/.config/reone/engine.log
+    [ -e "$log" ] || { echo "install check: no $log"; ls -la $TMPDIR/elsewhere; exit 1; }
+    [ ! -e $TMPDIR/elsewhere/engine.log ] || { echo "install check: engine logged to the current directory"; exit 1; }
+    grep -q "Engine failure" "$log" \
+      || { echo "install check: engine did not log a clean failure"; cat "$log"; exit 1; }
 
     runHook postInstallCheck
   '';
