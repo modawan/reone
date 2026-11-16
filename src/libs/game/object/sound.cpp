@@ -367,8 +367,13 @@ void Sound::setVolume(int volume) {
 }
 
 void Sound::setActive(bool active) {
-    if (!active) {
+    // Stopping ends a fade, and so does playing again: a SoundObjectPlay
+    // during a fade brings the sound back to its volume and keeps it playing.
+    if (_fade) {
         _fade.reset();
+        if (active) {
+            applyGainToPlayingClip();
+        }
     }
     if (_active == active) {
         return;
