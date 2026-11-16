@@ -60,6 +60,7 @@ public:
     MOCK_METHOD(void, removeRoot, (SoundSceneNode &), (override));
 
     MOCK_METHOD(bool, testLineOfSight, (const glm::vec3 &, const glm::vec3 &, Collision &), (const override));
+    MOCK_METHOD(uint32_t, walkmeshRevision, (), (const override));
     MOCK_METHOD(bool, testSceneHit, (const glm::vec3 &, const glm::vec3 &, const std::vector<const IUser *> &, const std::string &, Collision &), (const override));
     MOCK_METHOD(bool, testWalk, (const glm::vec3 &, const glm::vec3 &, const IUser *, Collision &), (const override));
     MOCK_METHOD(bool, testCameraLine, (const glm::vec3 &, const glm::vec3 &, Collision &), (const override));

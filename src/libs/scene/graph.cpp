@@ -159,6 +159,7 @@ void SceneGraph::removeRoot(SoundSceneNode &node) {
 static constexpr float kForceSightPulsePeriod = 2.048f;
 
 void SceneGraph::update(float dt) {
+    updateWalkmeshRevision();
     _forceSightPhase = std::fmod(_forceSightPhase + dt, kForceSightPulsePeriod);
     _textureTime += dt;
     if (_updateRoots) {
@@ -212,6 +213,25 @@ void SceneGraph::cullRoots() {
 
         bool culled = (distanceToCamera > drawDistance) || (!_activeCamera->isInFrustum(*root));
         root->setCulled(culled);
+    }
+}
+
+void SceneGraph::updateWalkmeshRevision() {
+    size_t signature = 0;
+    for (const auto &root : _walkmeshRoots) {
+        boost::hash_combine(signature, root.get());
+        boost::hash_combine(signature, &root->walkmesh());
+        boost::hash_combine(signature, root->isEnabled());
+        const glm::mat4 &transform = root->absoluteTransform();
+        for (int column = 0; column < 4; ++column) {
+            for (int row = 0; row < 4; ++row) {
+                boost::hash_combine(signature, transform[column][row]);
+            }
+        }
+    }
+    if (signature != _walkmeshSignature) {
+        _walkmeshSignature = signature;
+        ++_walkmeshRevision;
     }
 }
 
