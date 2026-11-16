@@ -42,12 +42,6 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/context.cpp
     ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
-    ${TESTS_SOURCE_DIR}/extract/capsule.cpp
-    ${TESTS_SOURCE_DIR}/extract/chitin.cpp
-    ${TESTS_SOURCE_DIR}/extract/fileresource.cpp
-    ${TESTS_SOURCE_DIR}/extract/finder.cpp
-    ${TESTS_SOURCE_DIR}/extract/installation.cpp
-    ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
     ${TESTS_SOURCE_DIR}/fixtures/audio.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/fixtures/game.cpp
@@ -93,6 +87,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/listenpattern.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
+    ${TESTS_SOURCE_DIR}/game/minigameview.cpp
     ${TESTS_SOURCE_DIR}/game/minigamesession.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
@@ -146,9 +141,9 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/gui/gui.cpp
     ${TESTS_SOURCE_DIR}/gui/guiinput.cpp
+    ${TESTS_SOURCE_DIR}/gui/textinput.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
-    ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
     ${TESTS_SOURCE_DIR}/resource/gameprobe.cpp
     ${TESTS_SOURCE_DIR}/resource/modulediscovery.cpp
     ${TESTS_SOURCE_DIR}/resource/moduleloading.cpp
@@ -195,7 +190,6 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/system/arrayref.cpp
     ${TESTS_SOURCE_DIR}/system/binaryreader.cpp
     ${TESTS_SOURCE_DIR}/system/binarywriter.cpp
-    ${TESTS_SOURCE_DIR}/system/cache.cpp
     ${TESTS_SOURCE_DIR}/system/cast.cpp
     ${TESTS_SOURCE_DIR}/system/fileutil.cpp
     ${TESTS_SOURCE_DIR}/system/hexutil.cpp

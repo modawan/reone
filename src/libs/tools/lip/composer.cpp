@@ -81,6 +81,14 @@ static const std::unordered_map<std::string, LipShape> g_phonemeToShape {
     {"u", LipShape::UH_UW_W},       //
 };
 
+std::string PronouncingDictionary::lowerWord(const std::string &word) {
+    auto codePoints = codePointsFromUTF8(word);
+    for (auto &codePoint : codePoints) {
+        codePoint = codePointToLower(codePoint);
+    }
+    return utf8FromCodePoints(codePoints);
+}
+
 void PronouncingDictionary::load(IInputStream &stream) {
     auto reader = TextReader(stream);
     while (auto line = reader.readLine()) {
@@ -89,7 +97,7 @@ void PronouncingDictionary::load(IInputStream &stream) {
         }
         std::vector<std::string> tokens;
         boost::split(tokens, *line, boost::is_space(), boost::token_compress_on);
-        auto word = tokens.front();
+        auto word = lowerWord(tokens.front());
         if (*word.rbegin() == ')') {
             // TODO: support variations
             continue;

@@ -26,19 +26,12 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/container/keybif.h
     ${RESOURCE_INCLUDE_DIR}/container/memory.h
     ${RESOURCE_INCLUDE_DIR}/container/rim.h
+    ${RESOURCE_INCLUDE_DIR}/decodedcache.h
     ${RESOURCE_INCLUDE_DIR}/di/module.h
     ${RESOURCE_INCLUDE_DIR}/di/services.h
-    ${REONE_INCLUDE_DIR}/reone/extract/capsule.h
-    ${REONE_INCLUDE_DIR}/reone/extract/chitin.h
-    ${REONE_INCLUDE_DIR}/reone/extract/fileresource.h
-    ${REONE_INCLUDE_DIR}/reone/extract/finder.h
-    ${REONE_INCLUDE_DIR}/reone/extract/installation.h
-    ${REONE_INCLUDE_DIR}/reone/extract/lookupcontext.h
-    ${REONE_INCLUDE_DIR}/reone/extract/searchlocation.h
     ${RESOURCE_INCLUDE_DIR}/dialog.h
     ${RESOURCE_INCLUDE_DIR}/director.h
     ${RESOURCE_INCLUDE_DIR}/exception/notfound.h
-    ${RESOURCE_INCLUDE_DIR}/extractresources.h
     ${RESOURCE_INCLUDE_DIR}/replacementresources.h
     ${RESOURCE_INCLUDE_DIR}/replacements.h
     ${RESOURCE_INCLUDE_DIR}/format/2dareader.h
@@ -114,12 +107,6 @@ set(RESOURCE_HEADERS
 set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/odysseyroots.cpp
     ${RESOURCE_SOURCE_DIR}/2da.cpp
-    ${RESOURCE_SOURCE_DIR}/extract/capsule.cpp
-    ${RESOURCE_SOURCE_DIR}/extract/chitin.cpp
-    ${RESOURCE_SOURCE_DIR}/extract/fileresource.cpp
-    ${RESOURCE_SOURCE_DIR}/extract/finder.cpp
-    ${RESOURCE_SOURCE_DIR}/extract/installation.cpp
-    ${RESOURCE_SOURCE_DIR}/extractresources.cpp
     ${RESOURCE_SOURCE_DIR}/replacementresources.cpp
     ${RESOURCE_SOURCE_DIR}/replacements.cpp
     ${RESOURCE_SOURCE_DIR}/container/erf.cpp

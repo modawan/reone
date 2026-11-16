@@ -61,7 +61,7 @@ void NameEntry::onGUILoaded() {
 }
 
 bool NameEntry::handle(const input::Event &event) {
-    if (event.type == input::EventType::KeyDown && _input.handle(event)) {
+    if (_input.handle(event)) {
         std::string name(_buffer.str());
         _controls.NAME_BOX_EDIT->setTextMessage(name);
         _charGen.setCharacterName(std::move(name));

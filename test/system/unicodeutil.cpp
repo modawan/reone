@@ -157,3 +157,13 @@ TEST(UnicodeUtilities, should_convert_alpha_chars_in_latin_in_cyrillic_to_upper_
     EXPECT_EQ(codePointToUpper(0x401), 0x401);
     EXPECT_EQ(codePointToUpper(0x451), 0x401);
 }
+
+TEST(UnicodeUtilities, should_convert_code_points_to_code_page_bytes) {
+    // when, then
+    EXPECT_EQ(std::optional<uint8_t>('A'), codePageByteFromCodePoint('A', CodePage::Windows1252));
+    EXPECT_EQ(std::optional<uint8_t>(0x80), codePageByteFromCodePoint(0x20ac, CodePage::Windows1252));
+    EXPECT_EQ(std::optional<uint8_t>(0xe9), codePageByteFromCodePoint(0xe9, CodePage::Windows1252));
+    EXPECT_FALSE(codePageByteFromCodePoint(0x142, CodePage::Windows1252));
+    EXPECT_EQ(std::optional<uint8_t>(0xb3), codePageByteFromCodePoint(0x142, CodePage::Windows1250));
+    EXPECT_FALSE(codePageByteFromCodePoint(0x416, CodePage::Windows1250));
+}

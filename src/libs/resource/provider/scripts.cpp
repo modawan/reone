@@ -26,8 +26,8 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<ScriptProgram> Scripts::doGet(std::string resRef) {
-    auto res = _resources.find(ResourceId(resRef, ResType::Ncs));
+std::shared_ptr<ScriptProgram> Scripts::doGet(const std::string &resRef, ResourceReads &reads) {
+    auto res = reads.find(_resources, ResourceId(resRef, ResType::Ncs));
     if (!res) {
         return nullptr;
     }

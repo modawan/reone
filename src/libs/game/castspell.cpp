@@ -604,7 +604,7 @@ void SpellCastVisuals::attach(Set &set, Creature &caster, const std::array<std::
         auto &attached = set[index];
         attached.body = body;
         attached.hook = kCastVisualHooks[index];
-        attached.model = body->graph().newModel(*model, scene::ModelUsage::Projectile);
+        attached.model = body->graph().newModel(model, scene::ModelUsage::Projectile);
         hook->addChild(*attached.model);
         attached.model->playAnimation(animation);
     }

@@ -194,7 +194,7 @@ bool SaveLoad::handle(const input::Event &event) {
         return _confirmation->handle(event);
     }
     if (_saveNameVisible && _saveNameGUI) {
-        if (event.type == input::EventType::KeyDown && _saveNameInput.handle(event)) {
+        if (_saveNameInput.handle(event)) {
             _saveNameControls.EDITBOX->setTextMessage(std::string(_saveNameBuffer.str()));
             return true;
         }

@@ -101,6 +101,21 @@ void Window::deinit() {
     _inited = false;
 }
 
+void Window::setTextInputActive(bool active) {
+    if (!_inited || active == isTextInputActive()) {
+        return;
+    }
+    if (active) {
+        SDL_StartTextInput(_window);
+    } else {
+        SDL_StopTextInput(_window);
+    }
+}
+
+bool Window::isTextInputActive() const {
+    return _inited && SDL_TextInputActive(_window);
+}
+
 bool Window::isAssociatedWith(const SDL_Event &event) const {
     if (event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST) {
         return event.window.windowID == _windowID;
@@ -119,6 +134,8 @@ bool Window::isAssociatedWith(const SDL_Event &event) const {
         return event.button.windowID == _windowID;
     case SDL_EVENT_MOUSE_WHEEL:
         return event.wheel.windowID == _windowID;
+    case SDL_EVENT_TEXT_INPUT:
+        return event.text.windowID == _windowID;
     default:
         return false;
     }

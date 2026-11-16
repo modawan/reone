@@ -1308,8 +1308,6 @@ void ItemUpgradePanel::onGUILoaded() {
     }
     _controls.BTN_ASSEMBLE = findControl<Button>("BTN_ASSEMBLE");
     _controls.BTN_BACK = findControl<Button>("BTN_BACK");
-    _controls.LBL_DESCBG = findControl<Label>("LBL_DESCBG");
-    _controls.LBL_DESCBG_LS = findControl<Label>("LBL_DESCBG_LS");
     _controls.LBL_PROPERTY = findControl<Label>("LBL_PROPERTY");
     _controls.LBL_SLOTNAME = findControl<Label>("LBL_SLOTNAME");
     _controls.LBL_TITLE = findControl<Label>("LBL_TITLE");
@@ -1324,6 +1322,8 @@ void ItemUpgradePanel::onGUILoaded() {
     if (tsl) {
         _controls.BTN_OK = findControl<Button>("BTN_OK");
     } else {
+        _controls.LBL_DESCBG = findControl<Label>("LBL_DESCBG");
+        _controls.LBL_DESCBG_LS = findControl<Label>("LBL_DESCBG_LS");
         _controls.LBL_LSSLOTNAME = findControl<Label>("LBL_LSSLOTNAME");
         _controls.LBL_UPGRADES = findControl<Label>("LBL_UPGRADES");
         _controls.LBL_UPGRADE_COUNT = findControl<Label>("LBL_UPGRADE_COUNT");
@@ -1569,13 +1569,13 @@ void ItemUpgradePanel::build3DViews() {
     auto build = [&](ItemView &view, const gui::Label &control) {
         _services.scene.graphs.reset(view.sceneName);
         auto &graph = _services.scene.graphs.get(view.sceneName);
-        auto light = graph.newModel(*lightModel, ModelUsage::GUI);
+        auto light = graph.newModel(lightModel, ModelUsage::GUI);
         const auto &extent = control.extent();
         SceneInitializer {graph}
             .aspect(extent.width / static_cast<float>(extent.height))
             .depth(kItemViewClipPlaneNear, kItemViewClipPlaneFar)
             .perspective(glm::radians(kItemViewAngle))
-            .room(roomModel ? graph.newModel(*roomModel, ModelUsage::Room) : nullptr)
+            .room(roomModel ? graph.newModel(roomModel, ModelUsage::Room) : nullptr)
             .modelSupplier([light](ISceneGraph &) { return light; })
             .invoke();
         view.light = std::move(light);
@@ -1627,7 +1627,7 @@ void ItemUpgradePanel::refresh3D() {
     if (!itemModel) {
         return;
     }
-    _itemModel = graph.newModel(*itemModel, ModelUsage::GUI);
+    _itemModel = graph.newModel(itemModel, ModelUsage::GUI);
     if (_type == UpgradableType::Armor) {
         // Armour is drawn with its look's texture of the item's texture
         // variation, a variation below 1 being 1; without that texture, with
@@ -1640,8 +1640,8 @@ void ItemUpgradePanel::refresh3D() {
             if (!_itemTexture) {
                 _itemTexture = _services.resource.textures.get(look.model + "01", TextureUsage::MainTex);
             }
-            _itemModel->setMainTexture(_itemTexture ? _itemTexture.get()
-                                                    : &_services.graphics.textureRegistry.get(TextureName::default2dRgb));
+            _itemModel->setMainTexture(_itemTexture ? _itemTexture
+                                                    : _services.graphics.textureRegistry.get(TextureName::default2dRgb));
         }
     }
     const std::string rotateHook = "rotatehook" + suffix;
@@ -1766,16 +1766,16 @@ void ItemUpgradePanel::showSlots() {
     }
     _controls.LB_ITEMS->setVisible(false);
     _controls.BTN_ASSEMBLE->setVisible(true);
-    _controls.LBL_DESCBG_LS->setVisible(lightsaber);
-    _controls.LBL_DESCBG->setVisible(!lightsaber);
     if (_game.isTSL()) {
         _controls.BTN_OK->setVisible(false);
         _controls.LB_DESC->setVisible(true);
         _controls.LBL_SLOTNAME->setVisible(true);
         _controls.LBL_PROPERTY->setVisible(true);
     } else {
-        // A KotOR lightsaber has a description and slot name of its own, and
-        // no upgrade count.
+        // A KotOR lightsaber has a description, its background and a slot
+        // name of its own, and no upgrade count.
+        _controls.LBL_DESCBG_LS->setVisible(lightsaber);
+        _controls.LBL_DESCBG->setVisible(!lightsaber);
         _controls.LBL_LSSLOTNAME->setVisible(lightsaber);
         _controls.LB_DESC_LS->setVisible(lightsaber);
         _controls.LB_DESC->setVisible(!lightsaber);

@@ -69,7 +69,6 @@ static constexpr float kTallMenuHeight = 2.0f;
 static constexpr float kMenuHoverHoldSeconds = 0.5f;
 static constexpr int kEmptyStrRef = 125550;
 static constexpr int kNothingStrRef = 125551;
-static constexpr int kEnglishLanguageId = 0;
 static constexpr int kActionBarMargin = 3;
 static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
@@ -690,7 +689,7 @@ std::string SelectionOverlay::nameLabel(const Object &object) const {
     if (_game.isTSL()) {
         return name + " (" + strings.getText(placeable->useSearch() ? kNothingStrRef : kEmptyStrRef) + ")";
     }
-    return name + (strings.languageId() == kEnglishLanguageId ? " (Empty)" : " *");
+    return name + (strings.language() == resource::Language::English ? " (Empty)" : " *");
 }
 
 void SelectionOverlay::renderTitleBar() {

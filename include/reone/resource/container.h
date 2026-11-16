@@ -35,6 +35,21 @@ public:
     virtual const std::unordered_set<ResourceId> &resourceIds() const = 0;
 };
 
+/**
+ * Open a container, indexed and ready to read.
+ *
+ * Everything that reads an archive or a folder of loose files by itself opens
+ * it here and holds only the interface, so which reader stands behind a
+ * format is decided in one place.
+ */
+std::unique_ptr<IResourceContainer> openKeyBif(const std::filesystem::path &keyPath);
+std::unique_ptr<IResourceContainer> openErf(const std::filesystem::path &path);
+std::unique_ptr<IResourceContainer> openErf(ByteBuffer bytes);
+std::unique_ptr<IResourceContainer> openRim(const std::filesystem::path &path);
+std::unique_ptr<IResourceContainer> openRim(ByteBuffer bytes);
+std::unique_ptr<IResourceContainer> openFolder(const std::filesystem::path &path);
+std::unique_ptr<IResourceContainer> openExe(const std::filesystem::path &path);
+
 } // namespace resource
 
 } // namespace reone

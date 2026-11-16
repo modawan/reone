@@ -5950,10 +5950,10 @@ void Game::advanceToTime(int hours, int minutes, int seconds, int milliseconds) 
         month %= kCalendarMonthsInYear + 1;
     }
 
-    uint32_t calendarDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
-    calendarDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
-    calendarDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
-    _worldTimeMilliseconds = static_cast<uint64_t>(calendarDay) * millisecondsPerWorldDay() + timeOfDay;
+    uint32_t newDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
+    newDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
+    newDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
+    _worldTimeMilliseconds = static_cast<uint64_t>(newDay) * millisecondsPerWorldDay() + timeOfDay;
 }
 
 // The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
@@ -6115,7 +6115,7 @@ void Game::initInputEvents() {
     // Keys are read from the column of the talk table's language when an
     // enabled single-key row gives a key there, else from the first
     // language's.
-    std::string column = "language" + std::to_string(_services.resource.strings.languageId());
+    std::string column = "language" + std::to_string(static_cast<int>(_services.resource.strings.language()));
     bool languageHasKeys = false;
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
         const int row = rowOf(event, "");
@@ -9790,6 +9790,11 @@ void Game::changeScreen(Screen screen) {
 
 GameGUI *Game::getScreenGUI() const {
     return guiForScreen(_screen);
+}
+
+bool Game::wantsTextInput() const {
+    auto gui = getScreenGUI();
+    return gui && gui->wantsTextInput();
 }
 
 GameGUI *Game::guiForScreen(Screen screen) const {

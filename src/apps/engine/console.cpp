@@ -24,6 +24,7 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/fonts.h"
+#include "reone/resource/strings.h"
 #include "reone/system/checkutil.h"
 #include "reone/system/stringutil.h"
 
@@ -32,11 +33,16 @@ using namespace reone::graphics;
 namespace reone {
 
 static constexpr int kVisibleLineCount = 15;
+/** The character that opens and closes the console in most languages; Polish uses Control+C. */
+static constexpr uint32_t kConsoleCharacter = '`';
+/** The character that opens and closes the console in German. */
+static constexpr uint32_t kGermanConsoleCharacter = 0xb0;
 static constexpr float kTextOffset = 3.0f;
 
 void Console::init() {
     checkThat(!_inited, "Must not be initialized");
     _font = _resourceSvc.fonts.get("fnt_console");
+    _input.setCodePage(resource::codePageOfLanguage(_resourceSvc.strings.language()));
     setPrompt();
 
     registerCommand("clear", "", [this](const auto &tokens) {
@@ -91,17 +97,17 @@ void Console::printLine(const std::string &text) {
 }
 
 bool Console::handle(const input::Event &event) {
-    if (event.type == input::EventType::KeyUp) {
-        if (event.key.code == input::KeyCode::Backquote &&
-            event.key.mod & input::KeyModifiers::alt) {
-            executeNextBatch();
-            return true;
-        }
-
-        if (event.key.code == input::KeyCode::Backquote) {
-            _open = !_open;
-            return true;
-        }
+    // The console key opens and closes the console and types nothing
+    // anywhere.
+    if (isConsoleKey(event)) {
+        _open = !_open;
+        return true;
+    }
+    if (event.type == input::EventType::KeyUp &&
+        event.key.code == input::KeyCode::Backquote &&
+        event.key.mod & input::KeyModifiers::alt) {
+        executeNextBatch();
+        return true;
     }
 
     if (!_open) {
@@ -119,6 +125,16 @@ bool Console::handle(const input::Event &event) {
     default:
         return false;
     }
+}
+
+bool Console::isConsoleKey(const input::Event &event) const {
+    const auto language = _resourceSvc.strings.language();
+    if (language == resource::Language::Polish) {
+        return event.type == input::EventType::KeyDown && event.key.code == input::KeyCode::C &&
+               (event.key.mod & input::KeyModifiers::control) != 0 && !event.key.repeat;
+    }
+    const uint32_t character = language == resource::Language::German ? kGermanConsoleCharacter : kConsoleCharacter;
+    return event.type == input::EventType::TextInput && event.text.codePoint == character;
 }
 
 bool Console::handleMouseWheel(const input::MouseWheelEvent &event) {

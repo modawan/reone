@@ -196,7 +196,7 @@ private:
     EffectApplicationResult present(Object &object, EffectInstance &instance, const VisualEffectDesc &desc);
     void attachNodeModels(Object &object, const std::shared_ptr<scene::ModelSceneNode> &body,
                           const VisualEffectDesc &desc, bool restoring);
-    void startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
+    void startNodeModel(scene::ISceneGraph &graph, std::shared_ptr<graphics::Model> model,
                         std::optional<std::reference_wrapper<scene::SceneNode>> hook, VisualSite site, bool orientationOff,
                         std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position, bool restoring);
     /**

@@ -25,9 +25,9 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<TwoDA> TwoDAs::get(const std::string &resRef) {
-    return _cache.getOrAdd(resRef, [this, &resRef]() {
-        auto res = _resources.find(ResourceId(resRef, ResType::TwoDA));
+const DecodedCache<std::string, TwoDA>::Entry &TwoDAs::entry(const std::string &resRef) {
+    return _cache.get(resRef, [this, &resRef](ResourceReads &reads) {
+        auto res = reads.find(_resources, ResourceId(resRef, ResType::TwoDA));
         if (!res) {
             return std::shared_ptr<TwoDA>();
         }

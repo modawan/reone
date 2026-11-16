@@ -1658,7 +1658,7 @@ void Creature::updateModel() {
         }
     }
     _specialAttackVisuals.detachFromBody();
-    model->setModel(*replacement);
+    model->setModel(replacement);
     finalizeModel(*model);
     // The new model shows the presented facing and ground tilt.
     updateTransform();
@@ -11075,7 +11075,7 @@ std::shared_ptr<ModelSceneNode> Creature::buildModel() {
         return nullptr;
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-    auto sceneNode = sceneGraph.newModel(*model, ModelUsage::Creature);
+    auto sceneNode = sceneGraph.newModel(model, ModelUsage::Creature);
     sceneNode->setDrawDistance(_game.options().graphics.drawDistance);
     sceneNode->setAnimationEventListener(*this);
 
@@ -11118,16 +11118,16 @@ void Creature::finalizeModel(ModelSceneNode &body) {
 
     if (!_envmap.empty()) {
         if (_envmap == "default") {
-            body.setEnvironmentMap(&_services.graphics.textureRegistry.get(TextureName::defaultCubemapRgb));
+            body.setEnvironmentMap(_services.graphics.textureRegistry.get(TextureName::defaultCubemapRgb));
         } else {
-            body.setEnvironmentMap(_services.resource.textures.get(_envmap, TextureUsage::EnvironmentMap).get());
+            body.setEnvironmentMap(_services.resource.textures.get(_envmap, TextureUsage::EnvironmentMap));
         }
     }
     std::string bodyTextureName(getBodyTextureName());
     if (!bodyTextureName.empty()) {
         std::shared_ptr<Texture> texture(_services.resource.textures.get(bodyTextureName, TextureUsage::MainTex));
         if (texture) {
-            body.setMainTexture(texture.get());
+            body.setMainTexture(texture);
         }
     }
     _bodyAlignmentTexture.clear();
@@ -11147,12 +11147,12 @@ void Creature::finalizeModel(ModelSceneNode &body) {
     if (!headModelName.empty()) {
         std::shared_ptr<Model> headModel(_services.resource.models.get(headModelName));
         if (headModel) {
-            std::shared_ptr<ModelSceneNode> headSceneNode(sceneGraph.newModel(*headModel, ModelUsage::Creature));
+            std::shared_ptr<ModelSceneNode> headSceneNode(sceneGraph.newModel(headModel, ModelUsage::Creature));
             body.attach(g_headHookNode, *headSceneNode);
             _headAlignmentTexture.clear();
             applyHeadAlignment(*headSceneNode);
             if (maskModel) {
-                auto maskSceneNode = sceneGraph.newModel(*maskModel, ModelUsage::Equipment);
+                auto maskSceneNode = sceneGraph.newModel(maskModel, ModelUsage::Equipment);
                 headSceneNode->attach(g_maskHookNode, *maskSceneNode);
             }
         }
@@ -11164,7 +11164,7 @@ void Creature::finalizeModel(ModelSceneNode &body) {
     if (!rightWeaponModelName.empty()) {
         std::shared_ptr<Model> weaponModel(_services.resource.models.get(rightWeaponModelName));
         if (weaponModel) {
-            std::shared_ptr<ModelSceneNode> weaponSceneNode(sceneGraph.newModel(*weaponModel, ModelUsage::Equipment));
+            std::shared_ptr<ModelSceneNode> weaponSceneNode(sceneGraph.newModel(weaponModel, ModelUsage::Equipment));
             body.attach(g_rightHandNode, *weaponSceneNode);
             if (weaponModel->classification() == MdlClassification::lightsaber) {
                 weaponSceneNode->playAnimation(_combatState.active ? "powered" : "off");
@@ -11178,7 +11178,7 @@ void Creature::finalizeModel(ModelSceneNode &body) {
     if (!leftWeaponModelName.empty()) {
         std::shared_ptr<Model> weaponModel(_services.resource.models.get(leftWeaponModelName));
         if (weaponModel) {
-            std::shared_ptr<ModelSceneNode> weaponSceneNode(sceneGraph.newModel(*weaponModel, ModelUsage::Equipment));
+            std::shared_ptr<ModelSceneNode> weaponSceneNode(sceneGraph.newModel(weaponModel, ModelUsage::Equipment));
             body.attach(g_leftHandNode, *weaponSceneNode);
             if (weaponModel->classification() == MdlClassification::lightsaber) {
                 weaponSceneNode->playAnimation(_combatState.active ? "powered" : "off");
@@ -11418,7 +11418,7 @@ void Creature::applyHeadAlignment(ModelSceneNode &head) {
     }
     // A texture that doesn't exist leaves the head as it is.
     if (auto texture = _services.resource.textures.get(name, TextureUsage::MainTex)) {
-        head.setMainTexture(texture.get());
+        head.setMainTexture(texture);
         _headAlignmentTexture = std::move(name);
     }
 }
@@ -11432,7 +11432,7 @@ void Creature::applyBodyAlignment(ModelSceneNode &body) {
             _bodyAlignmentTexture.clear();
             const auto own = getBodyTextureName();
             if (auto texture = own.empty() ? nullptr : _services.resource.textures.get(own, TextureUsage::MainTex)) {
-                body.setMainTexture(texture.get());
+                body.setMainTexture(texture);
             }
         }
         return;
@@ -11442,7 +11442,7 @@ void Creature::applyBodyAlignment(ModelSceneNode &body) {
     }
     // A texture that doesn't exist leaves the body as it is.
     if (auto texture = _services.resource.textures.get(name, TextureUsage::MainTex)) {
-        body.setMainTexture(texture.get());
+        body.setMainTexture(texture);
         _bodyAlignmentTexture = std::move(name);
     }
 }

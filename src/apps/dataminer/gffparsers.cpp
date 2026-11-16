@@ -17,9 +17,7 @@
 
 #include "gffparsers.h"
 
-#include "reone/resource/container/erf.h"
-#include "reone/resource/container/keybif.h"
-#include "reone/resource/container/rim.h"
+#include "reone/resource/container.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/typeutil.h"
@@ -297,13 +295,12 @@ void generateGffParsers(resource::ResType resType,
     std::map<std::string, std::shared_ptr<Gff>> trees;
 
     auto keyPath = getFileIgnoreCase(k2dir, "chitin.key");
-    auto keyBif = KeyBifResourceContainer(keyPath);
-    keyBif.init();
-    for (auto &resId : keyBif.resourceIds()) {
+    auto keyBif = openKeyBif(keyPath);
+    for (auto &resId : keyBif->resourceIds()) {
         if (resId.type != resType) {
             continue;
         }
-        auto bytes = keyBif.findResourceData(resId);
+        auto bytes = keyBif->findResourceData(resId);
         auto stream = MemoryInputStream(*bytes);
         auto reader = GffReader(stream);
         reader.load();
@@ -317,26 +314,24 @@ void generateGffParsers(resource::ResType resType,
         }
         auto extension = boost::to_lower_copy(entry.path().extension().string());
         if (extension == ".rim") {
-            auto rim = RimResourceContainer(entry.path());
-            rim.init();
-            for (auto &res : rim.resourceIds()) {
+            auto rim = openRim(entry.path());
+            for (auto &res : rim->resourceIds()) {
                 if (res.type != resType) {
                     continue;
                 }
-                auto bytes = rim.findResourceData(res);
+                auto bytes = rim->findResourceData(res);
                 auto stream = MemoryInputStream(*bytes);
                 auto reader = GffReader(stream);
                 reader.load();
                 trees[res.resRef.value()] = reader.root();
             }
         } else if (extension == ".erf") {
-            auto erf = ErfResourceContainer(entry.path());
-            erf.init();
-            for (auto &res : erf.resourceIds()) {
+            auto erf = openErf(entry.path());
+            for (auto &res : erf->resourceIds()) {
                 if (res.type != resType) {
                     continue;
                 }
-                auto bytes = erf.findResourceData(res);
+                auto bytes = erf->findResourceData(res);
                 auto stream = MemoryInputStream(*bytes);
                 auto reader = GffReader(stream);
                 reader.load();
