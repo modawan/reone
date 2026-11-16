@@ -4534,6 +4534,42 @@ TEST(CreatureBlockedByCreature, a_checked_move_to_an_occupied_spot_ends_against_
 
 // A checked move that is merely short of its target, with nothing in the way,
 // still sets out again rather than ending.
+// A forced move (ActionForceMoveToObject) that a creature ends short of its
+// target does not end there: it carries on to its deadline and then jumps to
+// the target, as it does when no path reaches it.
+TEST(CreatureBlockedByCreature, a_forced_move_to_an_occupied_spot_runs_to_its_deadline_and_jumps) {
+    BlockedDoorFixtureBase fixture;
+    testSceneGraph(fixture.engine);
+    auto walker = fixture.addCreature("");
+    auto blocker = fixture.addCreature("");
+    blocker->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+    auto spot = fixture.game.newWaypoint();
+    spot->setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+    fixture.area->add(spot);
+
+    auto move = fixture.game.newAction<MoveToObjectAction>(spot, false, 1.0f, true, 30.0f, false, 1.0f);
+    auto frame = [&]() {
+        if (!TestGameModule::hasAreaRuntimePath(*walker)) {
+            TestGameModule::setAreaRuntimeStraightPath(*walker, fixture.area->pathfinder(), spot->position());
+        }
+        move->execute(move, *walker, 0.5f);
+        TestGameModule::advanceWorldTime(fixture.game, 0.5f);
+    };
+    // 20 seconds against the blocker, well inside the 30 second deadline.
+    for (int i = 0; i < 40; ++i) {
+        frame();
+    }
+    ASSERT_TRUE(walker->walkEndedAtCreature());
+    EXPECT_FALSE(move->isCompleted());
+    EXPECT_LT(walker->position().x, 4.0f);
+
+    for (int i = 0; i < 30 && !move->isCompleted(); ++i) {
+        frame();
+    }
+    EXPECT_TRUE(move->isCompleted());
+    EXPECT_GT(walker->position().x, 4.0f);
+}
+
 TEST(CreatureBlockedByCreature, a_checked_move_short_of_its_target_without_a_blocker_carries_on) {
     BlockedDoorFixtureBase fixture;
     testSceneGraph(fixture.engine);

@@ -213,8 +213,10 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
             // round or whose ring holds the walk's end, ends the move where
             // the mover stands. Setting out again would meet the same creature
             // every frame and hold the rest of the queue for good: a script's
-            // ActionResumeConversation behind the move, say.
-            if (creatureActor->walkEndedAtCreature()) {
+            // ActionResumeConversation behind the move, say. A forced move
+            // carries on to its deadline and jumps instead, as it does when no
+            // path reaches the object.
+            if (!_force && creatureActor->walkEndedAtCreature()) {
                 complete();
                 return;
             }
