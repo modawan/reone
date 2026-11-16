@@ -29,6 +29,8 @@
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/sceneinitializer.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
@@ -47,6 +49,10 @@ namespace game {
 
 static constexpr float kModelScale = 1.1f;
 
+/** The soundset.2da rows of the player character's voices. */
+static constexpr int kFemalePlayerSoundSet = 83;
+static constexpr int kMalePlayerSoundSet = 85;
+
 static std::map<Gender, int> g_genderStrRefs {
     {Gender::Male, 646},
     {Gender::Female, 647}};
@@ -58,6 +64,16 @@ static std::map<ClassType, int> g_classDescStrRefs {
     {ClassType::JediConsular, 48031},
     {ClassType::JediSentinel, 48032},
     {ClassType::JediGuardian, 48033}};
+
+std::optional<int> playerSoundSet(Gender gender, ITwoDAs &twoDas) {
+    const int row = gender == Gender::Female ? kFemalePlayerSoundSet : kMalePlayerSoundSet;
+    // A table without the row, as TSL's is, leaves the character silent.
+    std::shared_ptr<TwoDA> soundSets(twoDas.get("soundset"));
+    if (!soundSets || row >= soundSets->getRowCount()) {
+        return std::nullopt;
+    }
+    return row;
+}
 
 /** The controls the panel shows in both titles. */
 static const std::unordered_set<std::string> kPanelControls {
@@ -100,6 +116,7 @@ void ClassSelection::setupClassButton(int index, Gender gender, ClassType clazz)
     Character character;
     character.gender = gender;
     pickRandomPortrait(character, clazz);
+    character.soundSet = playerSoundSet(gender, _services.resource.twoDas);
     character.attributes = _services.game.classes.get(clazz)->defaultAttributes();
 
     // Button control

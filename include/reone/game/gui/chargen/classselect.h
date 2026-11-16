@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/resource/types.h"
 #include "reone/scene/graph.h"
 
@@ -26,6 +28,12 @@
 #include "../../types.h"
 
 namespace reone {
+
+namespace resource {
+
+class ITwoDAs;
+
+} // namespace resource
 
 namespace scene {
 
@@ -44,6 +52,12 @@ class Label;
 namespace game {
 
 class CharacterGeneration;
+
+/**
+ * The voice of a new character: the player soundset.2da row of its gender, or
+ * none when the table has no such row.
+ */
+std::optional<int> playerSoundSet(Gender gender, resource::ITwoDAs &twoDas);
 
 class ClassSelection : public GameGUI {
 public:
