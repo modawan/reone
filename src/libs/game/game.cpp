@@ -1243,6 +1243,11 @@ void Game::update(float frameTime) {
 
 void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
+    // What the pointer is over is picked once a frame, after the frame's
+    // mouse moves, and also while paused.
+    if (_module && _screen == Screen::InGame && !_movie) {
+        _module->updateHover();
+    }
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.

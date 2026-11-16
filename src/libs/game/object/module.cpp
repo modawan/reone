@@ -533,13 +533,26 @@ bool Module::handle(const input::Event &event) {
 }
 
 bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
+    _hoverPoint = glm::ivec2(event.x, event.y);
+    return true;
+}
+
+void Module::updateHover() {
+    if (!_hoverPoint) {
+        return;
+    }
+    const glm::ivec2 point = *_hoverPoint;
+    _hoverPoint.reset();
+    if (!_area) {
+        return;
+    }
     CursorType cursor = CursorType::Default;
 
     // While the mouse turns the camera, or the pointer is on a HUD control,
     // nothing in the world is under the pointer.
     const Camera *camera = _game.getActiveCamera();
-    const bool worldHidden = (camera && camera->isMouseLookMode()) || _game.isPointerOnHUD(event.x, event.y);
-    auto object = worldHidden ? std::nullopt : _area->getObjectAt(event.x, event.y);
+    const bool worldHidden = (camera && camera->isMouseLookMode()) || _game.isPointerOnHUD(point.x, point.y);
+    auto object = worldHidden ? std::nullopt : _area->getObjectAt(point.x, point.y);
     if (object && object->get().isSelectable()) {
         Object &picked = object->get();
         auto objectPtr = _game.getObjectById(picked.id());
@@ -554,8 +567,6 @@ bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
     }
 
     _game.setCursorType(cursor);
-
-    return true;
 }
 
 bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
