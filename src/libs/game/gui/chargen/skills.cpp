@@ -21,6 +21,7 @@
 
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/recommended.h"
+#include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
@@ -200,7 +201,9 @@ void CharGenSkills::reset(bool newGame) {
         attributes.getAbilityModifier(Ability::Intelligence), firstLevel, _game.isTSL());
     _points = firstLevel ? levelPoints : start.unspentSkillPoints() + levelPoints;
 
+    _attributes = start;
     if (newGame) {
+        _effectFeats.clear();
         _attributes.setSkillRank(SkillType::ComputerUse, 0);
         _attributes.setSkillRank(SkillType::Demolitions, 0);
         _attributes.setSkillRank(SkillType::Stealth, 0);
@@ -210,7 +213,7 @@ void CharGenSkills::reset(bool newGame) {
         _attributes.setSkillRank(SkillType::Security, 0);
         _attributes.setSkillRank(SkillType::TreatInjury, 0);
     } else {
-        _attributes = start;
+        _effectFeats = _game.party().getLeader()->effectFeats();
     }
     _startAttributes = _attributes;
     _startPoints = _points;
@@ -223,7 +226,9 @@ void CharGenSkills::recommend() {
     _attributes = _startAttributes;
     _points = _startPoints;
     const ClassType clazz = _charGen.character().attributes.getEffectiveClass();
-    recommendSkills(*_services.game.classes.get(clazz), _allocationLevel, _attributes, _points);
+    recommendSkills(*_services.game.classes.get(clazz), _points, [this](SkillType skill, int &points) {
+        return _attributes.increaseSkillRank(*_services.game.skills.get(skill), skill, points, _allocationLevel, _effectFeats, _game.isTSL());
+    });
     refreshControls();
 }
 
@@ -272,11 +277,11 @@ bool CharGenSkills::canDecreaseSkill(SkillType skill) const {
 }
 
 bool CharGenSkills::canIncreaseSkill(SkillType skill) const {
-    ClassType clazz = _charGen.character().attributes.getEffectiveClass();
-
-    std::shared_ptr<CreatureClass> creatureClass(_services.game.classes.get(clazz));
-    return _points >= creatureClass->skillPointCost(skill) &&
-           _attributes.getSkillRank(skill) < creatureClass->maxSkillRank(skill, _allocationLevel);
+    // A skill the creature's classes cannot use takes no rank.
+    const Skill &rules = *_services.game.skills.get(skill);
+    const bool classSkill = _attributes.isClassSkill(skill, _effectFeats, _game.isTSL());
+    return canClassesUseSkill(rules, _attributes) &&
+           _attributes.canRaiseSkillRank(skill, classSkill, _allocationLevel, _points);
 }
 
 void CharGenSkills::updateCharacter() {
@@ -289,9 +294,7 @@ void CharGenSkills::updateCharacter() {
 }
 
 int CharGenSkills::getPointCost(SkillType skill) const {
-    ClassType clazz = _charGen.character().attributes.getEffectiveClass();
-    std::shared_ptr<CreatureClass> creatureClass(_services.game.classes.get(clazz));
-    return creatureClass->skillPointCost(skill);
+    return _attributes.getSkillPointCost(*_services.game.skills.get(skill), skill, _effectFeats, _game.isTSL());
 }
 
 void CharGenSkills::onMinusButtonClick(SkillType skill) {
@@ -301,8 +304,7 @@ void CharGenSkills::onMinusButtonClick(SkillType skill) {
 }
 
 void CharGenSkills::onPlusButtonClick(SkillType skill) {
-    _points -= getPointCost(skill);
-    _attributes.setSkillRank(skill, _attributes.getSkillRank(skill) + 1);
+    _attributes.increaseSkillRank(*_services.game.skills.get(skill), skill, _points, _allocationLevel, _effectFeats, _game.isTSL());
     refreshControls();
 }
 

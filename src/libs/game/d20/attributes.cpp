@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "reone/game/d20/class.h"
+#include "reone/game/d20/skills.h"
 
 namespace reone {
 
@@ -299,6 +300,81 @@ int CreatureAttributes::treatInjury() const {
 
 void CreatureAttributes::setSkillRank(SkillType skill, int rank) {
     _skillRanks[skill] = rank;
+}
+
+static std::optional<FeatType> getClassSkillFeat(SkillType skill) {
+    switch (skill) {
+    case SkillType::ComputerUse:
+        return FeatType::ClassSkillComputerUse;
+    case SkillType::Demolitions:
+        return FeatType::ClassSkillDemolitions;
+    case SkillType::Stealth:
+        return FeatType::ClassSkillStealth;
+    case SkillType::Awareness:
+        return FeatType::ClassSkillAwareness;
+    case SkillType::Repair:
+        return FeatType::ClassSkillRepair;
+    case SkillType::Security:
+        return FeatType::ClassSkillSecurity;
+    case SkillType::TreatInjury:
+        return FeatType::ClassSkillTreatInjury;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool CreatureAttributes::isClassSkillIn(const CreatureClass &clazz, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const {
+    return clazz.isClassSkill(skill) || (tsl && hasClassSkillFeat(skill, effectFeats));
+}
+
+bool CreatureAttributes::isClassSkill(SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const {
+    return std::any_of(_classLevels.begin(), _classLevels.end(), [&](const auto &pair) {
+        return pair.first->hasSkills() && isClassSkillIn(*pair.first, skill, effectFeats, tsl);
+    });
+}
+
+bool CreatureAttributes::hasClassSkillFeat(SkillType skill, const std::set<FeatType> &effectFeats) const {
+    auto feat = getClassSkillFeat(skill);
+    return feat && hasFeat(*feat, effectFeats);
+}
+
+// The points one rank of a skill costs: none when no class can use it.
+static constexpr int kClassSkillCost = 1;
+static constexpr int kCrossClassSkillCost = 2;
+static constexpr int kUnusableSkillCost = 0;
+
+// A class skill's highest rank is this far above the total level.
+static constexpr int kSkillRankLevelBonus = 3;
+
+int CreatureAttributes::maxSkillRank(bool classSkill, int totalLevel) {
+    int maxClassSkillRank = totalLevel + kSkillRankLevelBonus;
+    return classSkill ? maxClassSkillRank : maxClassSkillRank / 2;
+}
+
+int CreatureAttributes::skillRankCost(bool classSkill) {
+    return classSkill ? kClassSkillCost : kCrossClassSkillCost;
+}
+
+int CreatureAttributes::getSkillPointCost(const Skill &rules, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const {
+    return canClassesUseSkill(rules, *this) ? skillRankCost(isClassSkill(skill, effectFeats, tsl)) : kUnusableSkillCost;
+}
+
+bool CreatureAttributes::canRaiseSkillRank(SkillType skill, bool classSkill, int level, int points) const {
+    return points >= skillRankCost(classSkill) && getSkillRank(skill) < maxSkillRank(classSkill, level);
+}
+
+bool CreatureAttributes::raiseSkillRank(SkillType skill, bool classSkill, int level, int &points) {
+    if (!canRaiseSkillRank(skill, classSkill, level, points)) {
+        return false;
+    }
+    setSkillRank(skill, getSkillRank(skill) + 1);
+    points -= skillRankCost(classSkill);
+    return true;
+}
+
+bool CreatureAttributes::increaseSkillRank(const Skill &rules, SkillType skill, int &points, int totalLevel, const std::set<FeatType> &effectFeats, bool tsl) {
+    return canClassesUseSkill(rules, *this) &&
+           raiseSkillRank(skill, isClassSkill(skill, effectFeats, tsl), totalLevel, points);
 }
 
 } // namespace game

@@ -54,6 +54,7 @@ constexpr int getAbilityPointCostFromScore(int score) {
 }
 
 class CreatureClass;
+struct Skill;
 
 /**
  * Aggregate for creature role-playing attributes: classes, abilities, skills,
@@ -162,6 +163,73 @@ public:
     void setSkillRank(SkillType skill, int rank);
 
     /**
+     * @param effectFeats the feats the creature's effects give it
+     * @return whether \p clazz makes the skill a class skill: it lists the
+     *         skill or, on TSL, the creature has the skill's class-skill
+     *         feat, held or given by an effect
+     */
+    bool isClassSkillIn(const CreatureClass &clazz, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
+
+    /**
+     * Only the creature's classes with a skills table count (isClassSkillIn).
+     *
+     * @param effectFeats the feats the creature's effects give it
+     * @return whether one of the creature's classes makes the skill a class
+     *         skill
+     */
+    bool isClassSkill(SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
+
+    /** @return points one rank of a usable skill costs: 1 for a class skill, 2 otherwise */
+    static int skillRankCost(bool classSkill);
+
+    /**
+     * @return the highest rank a skill may reach at the total level: the
+     *         level plus 3 for a class skill, half that otherwise
+     */
+    static int maxSkillRank(bool classSkill, int totalLevel);
+
+    /**
+     * A skill is usable when one of the creature's classes can use it
+     * (canClassesUseSkill).
+     *
+     * @param rules the skill's rules
+     * @param effectFeats the feats the creature's effects give it
+     * @return points one rank of the skill costs (skillRankCost, by
+     *         isClassSkill); 0 for a skill the creature cannot use
+     */
+    int getSkillPointCost(const Skill &rules, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
+
+    /**
+     * @param classSkill whether the skill is a class skill, which sets its
+     *        cost and maximum rank
+     * @param level the level the maximum rank is measured by (maxSkillRank)
+     * @return whether the points cover one more rank of the skill
+     *         (skillRankCost) and the skill is below its maximum rank
+     */
+    bool canRaiseSkillRank(SkillType skill, bool classSkill, int level, int points) const;
+
+    /**
+     * Raise the skill one rank, paying its cost (skillRankCost) from points.
+     *
+     * @param classSkill whether the skill is a class skill, which sets its
+     *        cost and maximum rank
+     * @param level the level the maximum rank is measured by (maxSkillRank)
+     * @return false, changing nothing, when the skill cannot take the rank
+     *         (canRaiseSkillRank)
+     */
+    bool raiseSkillRank(SkillType skill, bool classSkill, int level, int &points);
+
+    /**
+     * Raise the skill one rank, paying its cost (getSkillPointCost) from
+     * points (raiseSkillRank, by isClassSkill).
+     *
+     * @return false, changing nothing, when the creature cannot use the
+     *         skill, points are short of the cost or the skill is at its
+     *         maximum rank
+     */
+    bool increaseSkillRank(const Skill &rules, SkillType skill, int &points, int totalLevel, const std::set<FeatType> &effectFeats, bool tsl);
+
+    /**
      * Skill points left unspent at the last character creation or level-up.
      * They are added to the next level-up's points.
      */
@@ -221,6 +289,13 @@ private:
     std::map<FeatType, int> _spentFeatUses;
     std::set<SpellType> _spells;
     std::map<ClassType, std::vector<SpellType>> _classSpells;
+
+    /**
+     * @param effectFeats the feats the creature's effects give it
+     * @return whether the creature has the TSL feat that makes the skill a
+     *         class skill, held or given by an effect; Persuade has none
+     */
+    bool hasClassSkillFeat(SkillType skill, const std::set<FeatType> &effectFeats) const;
 };
 
 } // namespace game

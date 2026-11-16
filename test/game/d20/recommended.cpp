@@ -330,6 +330,13 @@ protected:
         return recommendFeats(*feats, choice, picks, fillWithUnranked);
     }
 
+    /** Spends points on the class's recommended skills, the class setting each skill's cost and maximum rank at \p level. */
+    static void spendRecommendedSkills(const CreatureClass &clazz, int level, CreatureAttributes &attributes, int &points) {
+        recommendSkills(clazz, points, [&](SkillType skill, int &left) {
+            return attributes.raiseSkillRank(skill, clazz.isClassSkill(skill), level, left);
+        });
+    }
+
     static std::map<SkillType, int> ranks(const CreatureAttributes &attributes) {
         std::map<SkillType, int> result;
         for (int skill = 0; skill <= static_cast<int>(SkillType::TreatInjury); ++skill) {
@@ -389,7 +396,7 @@ TEST_F(RecommendedTest, should_spend_a_new_soldiers_points_on_its_first_recommen
     CreatureAttributes attributes(newCharacter(ClassType::Soldier));
     int points = 4;
 
-    recommendSkills(getClass(ClassType::Soldier), 1, attributes, points);
+    spendRecommendedSkills(getClass(ClassType::Soldier), 1, attributes, points);
 
     EXPECT_EQ(ranks(attributes), (std::map<SkillType, int> {{SkillType::TreatInjury, 4}}));
     EXPECT_EQ(points, 0);
@@ -399,7 +406,7 @@ TEST_F(RecommendedTest, should_fill_each_recommended_skill_of_a_new_scout_to_its
     CreatureAttributes attributes(newCharacter(ClassType::Scout));
     int points = 16;
 
-    recommendSkills(getClass(ClassType::Scout), 1, attributes, points);
+    spendRecommendedSkills(getClass(ClassType::Scout), 1, attributes, points);
 
     EXPECT_EQ(ranks(attributes), (std::map<SkillType, int> {{SkillType::ComputerUse, 4}, {SkillType::Demolitions, 4}, {SkillType::Repair, 4}, {SkillType::Awareness, 4}}));
     EXPECT_EQ(points, 0);
@@ -409,7 +416,7 @@ TEST_F(RecommendedTest, should_stop_a_cross_class_skill_at_half_the_class_skill_
     CreatureAttributes attributes(newCharacter(ClassType::Scoundrel));
     int points = 20;
 
-    recommendSkills(getClass(ClassType::Scoundrel), 1, attributes, points);
+    spendRecommendedSkills(getClass(ClassType::Scoundrel), 1, attributes, points);
 
     EXPECT_EQ(ranks(attributes), (std::map<SkillType, int> {{SkillType::Stealth, 4}, {SkillType::Demolitions, 4}, {SkillType::Security, 4}, {SkillType::Awareness, 4}, {SkillType::TreatInjury, 2}}));
     EXPECT_EQ(points, 0);
@@ -419,10 +426,10 @@ TEST_F(RecommendedTest, should_spend_a_point_too_few_for_a_cross_class_skill_on_
     // A level-1 Scoundrel with the recommended ranks levels to 2 with 5 points.
     CreatureAttributes attributes(newCharacter(ClassType::Scoundrel));
     int points = 20;
-    recommendSkills(getClass(ClassType::Scoundrel), 1, attributes, points);
+    spendRecommendedSkills(getClass(ClassType::Scoundrel), 1, attributes, points);
     points = 5;
 
-    recommendSkills(getClass(ClassType::Scoundrel), 2, attributes, points);
+    spendRecommendedSkills(getClass(ClassType::Scoundrel), 2, attributes, points);
 
     EXPECT_EQ(ranks(attributes), (std::map<SkillType, int> {{SkillType::Stealth, 5}, {SkillType::Demolitions, 5}, {SkillType::Security, 5}, {SkillType::Awareness, 5}, {SkillType::TreatInjury, 2}, {SkillType::Persuade, 1}}));
     EXPECT_EQ(points, 0);
@@ -439,7 +446,7 @@ TEST_F(RecommendedTest, should_leave_ranks_and_points_alone_when_every_recommend
     auto before = ranks(attributes);
     int points = 5;
 
-    recommendSkills(getClass(ClassType::Soldier), 1, attributes, points);
+    spendRecommendedSkills(getClass(ClassType::Soldier), 1, attributes, points);
 
     EXPECT_EQ(ranks(attributes), before);
     EXPECT_EQ(points, 5);
@@ -448,13 +455,13 @@ TEST_F(RecommendedTest, should_leave_ranks_and_points_alone_when_every_recommend
 TEST_F(RecommendedTest, should_never_raise_a_skill_the_class_does_not_recommend) {
     CreatureAttributes soldier(newCharacter(ClassType::Soldier));
     int soldierPoints = 100;
-    recommendSkills(getClass(ClassType::Soldier), 1, soldier, soldierPoints);
+    spendRecommendedSkills(getClass(ClassType::Soldier), 1, soldier, soldierPoints);
     EXPECT_EQ(soldier.getSkillRank(SkillType::Persuade), 0);
     EXPECT_GT(soldierPoints, 0);
 
     CreatureAttributes droid(getClass(ClassType::CombatDroid).defaultAttributes());
     int droidPoints = 100;
-    recommendSkills(getClass(ClassType::CombatDroid), 1, droid, droidPoints);
+    spendRecommendedSkills(getClass(ClassType::CombatDroid), 1, droid, droidPoints);
     EXPECT_EQ(droid.getSkillRank(SkillType::TreatInjury), 0);
     EXPECT_EQ(droid.getSkillRank(SkillType::Stealth), 0);
     EXPECT_EQ(droid.getSkillRank(SkillType::Persuade), 0);
@@ -467,7 +474,7 @@ TEST_F(RecommendedTest, should_spend_nothing_for_a_class_whose_skills_table_rank
     CreatureAttributes soldier(getClass(ClassType::Soldier).defaultAttributes());
     int points = 4;
 
-    recommendSkills(getClass(ClassType::Soldier), 1, soldier, points);
+    spendRecommendedSkills(getClass(ClassType::Soldier), 1, soldier, points);
 
     EXPECT_TRUE(ranks(soldier).empty());
     EXPECT_EQ(points, 4);
@@ -687,17 +694,17 @@ TEST_F(RecommendedTest, should_charge_one_point_for_a_class_skill_rank_and_two_f
     ASSERT_TRUE(soldier.isClassSkill(SkillType::Awareness));
     ASSERT_FALSE(soldier.isClassSkill(SkillType::ComputerUse));
 
-    EXPECT_EQ(soldier.skillPointCost(SkillType::Awareness), 1);
-    EXPECT_EQ(soldier.skillPointCost(SkillType::ComputerUse), 2);
+    EXPECT_EQ(CreatureAttributes::skillRankCost(soldier.isClassSkill(SkillType::Awareness)), 1);
+    EXPECT_EQ(CreatureAttributes::skillRankCost(soldier.isClassSkill(SkillType::ComputerUse)), 2);
 }
 
 TEST_F(RecommendedTest, should_cap_a_class_skill_at_level_plus_three_and_a_cross_class_one_at_half_that) {
     const CreatureClass &soldier = getClass(ClassType::Soldier);
 
-    EXPECT_EQ(soldier.maxSkillRank(SkillType::Awareness, 1), 4);
-    EXPECT_EQ(soldier.maxSkillRank(SkillType::ComputerUse, 1), 2);
-    EXPECT_EQ(soldier.maxSkillRank(SkillType::Awareness, 4), 7);
-    EXPECT_EQ(soldier.maxSkillRank(SkillType::ComputerUse, 4), 3);
+    EXPECT_EQ(CreatureAttributes::maxSkillRank(soldier.isClassSkill(SkillType::Awareness), 1), 4);
+    EXPECT_EQ(CreatureAttributes::maxSkillRank(soldier.isClassSkill(SkillType::ComputerUse), 1), 2);
+    EXPECT_EQ(CreatureAttributes::maxSkillRank(soldier.isClassSkill(SkillType::Awareness), 4), 7);
+    EXPECT_EQ(CreatureAttributes::maxSkillRank(soldier.isClassSkill(SkillType::ComputerUse), 4), 3);
 }
 
 TEST_F(RecommendedTest, should_charge_a_new_characters_ability_point_by_the_abilitys_modifier) {
