@@ -388,7 +388,7 @@ std::shared_ptr<Action> WaitAction::restoreFollowRangeCheck(const SavedActionRec
 // surrender fails.
 void SurrenderToEnemiesAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &creature = static_cast<Creature &>(actor);
-    if (creature.actsAsPCValue() != 1) {
+    if (!creature.actsAsPC()) {
         creature.surrenderToEnemies(false);
     }
     complete();

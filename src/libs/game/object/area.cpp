@@ -1995,7 +1995,7 @@ std::vector<std::shared_ptr<Creature>> Area::getFactionMembers(Faction faction) 
 std::shared_ptr<Creature> Area::findFactionMember(Faction faction, int pc, size_t from) {
     const auto members = getFactionMembers(faction);
     for (size_t index = from; index < members.size(); ++index) {
-        if (members[index]->isPCValue() != pc) {
+        if (static_cast<int>(members[index]->isPC()) != pc) {
             continue;
         }
         _factionMemberCursors[faction] = index + 1;
@@ -4122,7 +4122,7 @@ bool Area::matchesCriterias(const Creature &creature, const SearchCriteriaList &
             matched = matchesRace(creature, firstValue, value);
             break;
         case CreatureType::PlayerChar:
-            matched = creature.isPCValue() == value;
+            matched = static_cast<int>(creature.isPC()) == value;
             break;
         case CreatureType::Class:
             matched = matchesClass(creature, value);
