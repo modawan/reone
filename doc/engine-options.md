@@ -38,7 +38,7 @@ voices3d | number of 3D voices | 16
 logsev | minimum log severity | 1 
 logch | log channel mask | 1
 
-Options can be passed on the command line, e.g. `engine --game GAME_DIR --dev 1`, or set as `name=value` in `reone.cfg` in the current working directory. Command-line values take precedence. GUI scale values must be finite and greater than zero.
+Options can be passed on the command line, e.g. `engine --game GAME_DIR --dev 1`, or set as `name=value` in `reone.cfg`: in the current working directory if a `reone.cfg` is already there, otherwise in `~/.config/reone` on Linux (see [Configuration](../README.md#configuration)). Command-line values take precedence. GUI scale values must be finite and greater than zero.
 
 ### Developer Mode
 

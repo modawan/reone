@@ -48,7 +48,7 @@ Bundled dependencies do not need to be installed separately. wxWidgets must incl
 1. Generate Makefiles: `cmake -B build -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo`
 1. Build: `cmake --build build`
 
-**Note**: CI uses Ubuntu 25.10. Older distributions may require building SDL 3 or a newer Boost from source if the required versions are unavailable in their repositories.
+**Note**: Older distributions may require building SDL 3 or a newer Boost from source if the required versions are unavailable in their repositories. The release packages are built on AlmaLinux 8 with gcc-toolset-14 and every library from [vcpkg](https://github.com/microsoft/vcpkg) (the list is in `packaging/linux/vcpkg-packages.txt`) except wxWidgets, which `packaging/linux/build-wxwidgets.sh` builds against the system GTK; `.github/workflows/release-linux.yml` has the steps.
 
 ### Fedora
 
@@ -83,6 +83,12 @@ From source:
 
 OpenAL Soft is discovered automatically using `brew --prefix openal-soft`; the system OpenAL framework is used as a fallback. If Homebrew packages are not found, add `-DCMAKE_PREFIX_PATH="$(brew --prefix)"` when configuring. For pkg-config lookup issues, run `export PKG_CONFIG_PATH="$(brew --prefix openal-soft)/lib/pkgconfig:$(brew --prefix ffmpeg)/lib/pkgconfig:$PKG_CONFIG_PATH"` before configuring again.
 
+### Installing and packaging
+
+`cmake --install build` (with `--prefix` and `DESTDIR` as usual) installs `bin/reone`, `bin/reone-launcher` and `bin/reone-toolkit`, which link to the engine, launcher and toolkit in `libexec/reone`; the command-line tools in `bin`; `shaderpack.erf` and `cmudict.dict` in `share/reone`; and desktop entries, icons and AppStream metadata. The applications find their data relative to themselves, so the installed tree can be moved: `shaderpack.erf` and `cmudict.dict` are looked up beside the executable, then in `share/reone` relative to it, then in the current directory. On every platform the copy beside the executable wins over one in the current directory. `packaging/linux/make-packages.sh` turns a build into the release AppImage and tarball.
+
+`-DREONE_VERSION=...` sets the version the applications report. Without it, the version is `git describe --tags --always --dirty` when CMake configures.
+
 ## CMake Options
 
 |Name|Description|Default Value|
@@ -96,3 +102,4 @@ OpenAL Soft is discovered automatically using `brew --prefix openal-soft`; the s
 |BUILD_NCSRUN|Build ncsrun executable|ON
 |ENABLE_MOVIE|Enable movie playback|ON
 |ENABLE_ASAN|Enable address sanitizer (MSVC, Clang)|OFF|
+|REONE_VERSION|Version the applications report|`git describe` of the source|
