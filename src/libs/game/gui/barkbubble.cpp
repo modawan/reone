@@ -24,6 +24,7 @@
 
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/graphics/font.h"
 
 using namespace reone::audio;
 using namespace reone::graphics;

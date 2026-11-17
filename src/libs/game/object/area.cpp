@@ -42,6 +42,7 @@
 #include "reone/game/effect/resurrection.h"
 #include "reone/game/effect/visual.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/map.h"
 #include "reone/game/location.h"
 #include "reone/game/minigame.h"
 #include "reone/game/object/areaofeffect.h"
