@@ -102,6 +102,8 @@ public:
     int forcedie() const { return _forcedie; }
     const CreatureAttributes &defaultAttributes() const { return _defaultAttributes; }
     int skillPointBase() const { return _skillPointBase; }
+    /** @return whether the class casts spells: only such a class is recommended powers */
+    bool isSpellCaster() const { return _spellCaster; }
     /** @return the feats gained at the class level (featgain.2da row level - 1); 0 without a row */
     int getFeatGain(int level) const;
     /**
@@ -184,6 +186,7 @@ private:
     std::unordered_map<SkillType, int> _skillRecommendations;
     std::unordered_map<FeatType, int> _featRecommendations;
     std::optional<Ability> _primaryAbility;
+    bool _spellCaster {false};
     bool _hasSkills {false};
     std::unordered_map<FeatType, int> _featListValues;
     std::unordered_map<FeatType, int> _featGrantedLevels;

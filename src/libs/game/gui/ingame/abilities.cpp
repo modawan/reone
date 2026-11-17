@@ -326,7 +326,7 @@ void AbilitiesMenu::showPowersView(const Creature &character) {
 
     const auto &attributes = character.attributes();
     std::vector<SpellDisplayEntry> entries;
-    for (auto &entry : _services.game.spells.getLevelUpDisplayEntries(attributes, *attributes.classLevels().back().first, {})) {
+    for (auto &entry : _services.game.spells.getLevelUpDisplayEntries(attributes, *attributes.classLevels().back().first, {}, true)) {
         if (entry.visible && entry.known) {
             entries.push_back(std::move(entry));
         }
