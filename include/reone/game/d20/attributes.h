@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <set>
 
 #include "../types.h"
 
@@ -28,7 +29,10 @@ namespace reone {
 
 namespace game {
 
-/** The lowest ability score a creature can have. */
+/**
+ * The lowest ability score a creature can have, counting its effects and
+ * race (getAbilityScoreFromParts); a base score has no floor.
+ */
 constexpr int kMinimumAbilityScore = 3;
 
 /** An ability score from its base, effect bonus and racial adjustment; at least 3. */
@@ -121,7 +125,9 @@ public:
 
     // Abilities
 
+    /** @return the base score; 0 when the record gives none */
     int getAbilityScore(Ability ability) const;
+    /** @return the modifier of the base score */
     int getAbilityModifier(Ability ability) const;
 
     /** @return the points one more point of the ability costs a new character, see getAbilityPointCostFromScore */
@@ -160,6 +166,14 @@ public:
     // Feats
 
     bool hasFeat(FeatType type) const { return _feats.count(type) > 0; }
+    /**
+     * @return whether the creature holds the feat or one of its effects gives
+     *         it (\p effectFeats); Creature::hasEffectiveFeat asks the same of
+     *         a creature and its effects
+     */
+    bool hasFeat(FeatType type, const std::set<FeatType> &effectFeats) const {
+        return hasFeat(type) || effectFeats.count(type) > 0;
+    }
 
     /** Add a feat; feats keep the order they were first added in. */
     void addFeat(FeatType type);

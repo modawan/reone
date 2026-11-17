@@ -146,8 +146,7 @@ void AbilitiesMenu::onGUILoaded() {
 }
 
 void AbilitiesMenu::loadSkills() {
-    for (int type = static_cast<int>(SkillType::ComputerUse); type <= static_cast<int>(SkillType::TreatInjury); ++type) {
-        auto skill = static_cast<SkillType>(type);
+    for (SkillType skill : kSkills) {
         const auto &rules = *_services.game.skills.get(skill);
 
         SkillInfo skillInfo;

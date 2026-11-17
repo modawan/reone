@@ -32,44 +32,43 @@ namespace reone {
 namespace game {
 
 struct Feat {
-    /** The prerequisite word that names no feat. */
-    static constexpr int kNoPrerequisite = 0xffff;
-
     std::string name;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
     /** The feat's name (its feat.2da name string). */
     int nameStrRef {-1};
     int category {0}; /**< talent category */
-    /** The uses a day, from 0 to 255; zero for a feat whose uses are not counted. */
+    /** The uses a day; zero for a feat whose uses are not counted. */
     int usesPerDay {0};
     /** The challenge rating that ranks the feat as a talent. */
     int maxCR {0};
     /** The talent inclusion mask. */
     uint32_t exclusion {0};
-    /** The character level, from 0 to 255, a character must reach to choose the feat. */
+    /** The character level a character must reach to choose the feat. */
     int minCharLevel {0};
-    /** The word of a feat that must be held to choose this one; kNoPrerequisite for none. */
-    int preReqFeat1 {kNoPrerequisite};
-    /** The word of a second feat that must be held to choose this one; kNoPrerequisite for none. */
-    int preReqFeat2 {kNoPrerequisite};
+    /** The feat that must be held to choose this one; none when the table names none. */
+    std::optional<FeatType> preReqFeat1;
+    /** A second feat that must be held to choose this one; none when the table names none. */
+    std::optional<FeatType> preReqFeat2;
     /**
-     * The words of feats of which one must be held to choose this one; none
-     * of them is needed when the list is empty.
+     * The feats of which one must be held to choose this one; none of them is
+     * needed when the list is empty.
      */
-    std::vector<int> alternativePrerequisites;
-    /** The base attack bonus, from 0 to 255, a character must have to choose the feat. */
+    std::vector<FeatType> alternativePrerequisites;
+    /** The base attack bonus a character must have to choose the feat. */
     int minAttackBonus {0};
     /**
-     * The base ability scores, each from 0 to 255, a character must have to
-     * choose the feat. The table gives a minimum for Strength, Dexterity,
-     * Intelligence and Wisdom only.
+     * The base ability scores a character must have to choose the feat. The
+     * table gives a minimum for Strength, Dexterity, Intelligence and Wisdom
+     * only.
      */
     std::map<Ability, int> minAbilityScores;
     /** The skill a character must be able to use to choose the feat; none for no skill. */
     std::optional<SkillType> requiredSkill;
+    /** The next rank of the feat's chain; Invalid for none. */
     FeatType successor {FeatType::Invalid};
-    uint32_t pips {1}; // 1-3, position in a feat chain
+    /** The feat's position in its chain, from 1. */
+    int pips {1};
     std::optional<int> spellId; /**< the spell whose effects count as this feat's effects */
     /**
      * TSL companion columns by lower-case companion tag: the character level

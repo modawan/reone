@@ -17,6 +17,10 @@
 
 #include "reone/game/twodautil.h"
 
+#include <unordered_map>
+
+#include <boost/algorithm/string.hpp>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/2das.h"
@@ -57,6 +61,23 @@ void validateTwoDARowIndex(
                                           "%s.2da row out of range: %d/%d") %
                                       resRef % row % rowCount));
     }
+}
+
+std::optional<Ability> readAbilityColumn(const TwoDA &table, int row, const std::string &column) {
+    static const std::unordered_map<std::string, Ability> kAbilityNames {
+        {"STR", Ability::Strength},
+        {"DEX", Ability::Dexterity},
+        {"CON", Ability::Constitution},
+        {"INT", Ability::Intelligence},
+        {"WIS", Ability::Wisdom},
+        {"CHA", Ability::Charisma}};
+    const auto ability = kAbilityNames.find(boost::to_upper_copy(table.getString(row, column)));
+    return ability != kAbilityNames.end() ? std::optional<Ability>(ability->second) : std::nullopt;
+}
+
+std::optional<int> readFeatName(const TwoDA &feats, int row) {
+    const int name = feats.getColumnIndex("name");
+    return feats.getIntOpt(row, name != -1 ? name : feats.getColumnIndex("feat"));
 }
 
 } // namespace game
