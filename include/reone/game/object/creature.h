@@ -1824,6 +1824,8 @@ public:
      */
     std::optional<glm::vec3> walkablePointBeside(const Object &target, const glm::vec3 &point) const;
     void clearPath();
+    /** Gives the path back to \p pathfinder, the area's pool it was planned from. */
+    void clearPath(Pathfinder &pathfinder);
     void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);
     glm::vec3 computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt);
     // END Pathfinding
