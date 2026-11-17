@@ -2928,6 +2928,8 @@ private:
     // Current path that the creature is following, its velocity and position at
     // the previous frame.
     std::optional<Path> _path;
+    /** The walk \p _path was planned for. The path goes when the walk does. */
+    std::weak_ptr<ActionQueueNode> _pathNode;
     bool _navigationFailed {false};
     /** The path under way walks all the way onto its destination. */
     bool _walksOntoPoint {false};
@@ -3271,6 +3273,10 @@ private:
                                      bool &side);
     /** Drop any walk under way and plan one along the straight line to a point. */
     void planStraightPath(const glm::vec3 &point);
+    /** Gives the path back once the walk it was planned for has left the queue. */
+    void releaseOrphanedPath();
+    /** The walk a path planned now serves: the action running, else the one at the front of the queue. */
+    OrdinaryActionQueue::Node walkingNode() const;
     /** A walk ends where the creature stands, and \p target hears that as a click by it. */
     void clickInReach(const Object &target);
     /**

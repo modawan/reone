@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -270,4 +272,94 @@ TEST(CreatureAvoidance, a_leader_walking_close_by_a_wall_goes_round_a_companion_
     EXPECT_TRUE(action->isCompleted());
     EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
     EXPECT_LT(fixture.pc->position().y, kWallY);
+}
+
+namespace {
+
+int activePaths(Area &area) {
+    const auto &paths = area.pathfinder().paths;
+    return static_cast<int>(std::count_if(paths.begin(), paths.end(), [](const AStarPath &path) { return path.active; }));
+}
+
+// The leader sets out up the corridor towards x 10 and is a second on its way.
+std::shared_ptr<MoveToPointAction> walkUpTheCorridor(CorridorFixture &fixture) {
+    fixture.pc->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto walk = fixture.game->newAction<MoveToPointAction>(glm::vec3(10.0f, 0.0f, 0.0f), false, 0.0f);
+    fixture.pc->addAction(walk);
+    for (int tick = 0; tick < 30; ++tick) {
+        fixture.pc->update(kTick);
+    }
+    return walk;
+}
+
+// A creature outside the party, so one that can die, a second on its way up
+// the corridor beside the leader.
+std::shared_ptr<Creature> walkingStranger(CorridorFixture &fixture) {
+    auto walker = fixture.spawn(glm::vec3(-10.0f, 1.0f, 0.0f));
+    walker->addAction(fixture.game->newAction<MoveToPointAction>(glm::vec3(10.0f, 1.0f, 0.0f), false, 0.0f));
+    for (int tick = 0; tick < 30; ++tick) {
+        walker->update(kTick);
+    }
+    return walker;
+}
+
+} // namespace
+
+// A walk cleared on its way, as a script's ClearAllActions does, takes its
+// path with it: the next walk heads for its own point. The cleared walk's path
+// used to stay, and the next walk followed it to the cleared walk's point.
+TEST(CreatureWalk, a_walk_after_a_cleared_one_heads_for_its_own_point) {
+    CorridorFixture fixture;
+    walkUpTheCorridor(fixture);
+    ASSERT_GT(fixture.pc->position().x, -10.0f) << "the first walk set out";
+
+    fixture.pc->clearAllActions(true);
+    auto back = fixture.game->newAction<MoveToPointAction>(glm::vec3(-12.0f, 0.0f, 0.0f), false, 0.0f);
+    fixture.pc->addAction(back);
+    for (int tick = 0; tick < 30 * 30 && !back->isCompleted(); ++tick) {
+        fixture.pc->update(kTick);
+    }
+
+    EXPECT_TRUE(back->isCompleted());
+    EXPECT_NEAR(fixture.pc->position().x, -12.0f, 0.1f);
+}
+
+// Clearing a walk gives its path back to the area's pathfinder, whose paths
+// are a fixed pool shared by every walker in the area.
+TEST(CreatureWalk, a_cleared_walk_gives_its_path_back) {
+    CorridorFixture fixture;
+    walkUpTheCorridor(fixture);
+    ASSERT_EQ(1, activePaths(*fixture.area));
+
+    fixture.pc->clearAllActions(true);
+
+    EXPECT_EQ(0, activePaths(*fixture.area));
+}
+
+// A walk its own action ends short of its point, as a move that a creature in
+// the way ends does, gives its path back on the walker's next update.
+TEST(CreatureWalk, a_walk_its_action_ends_gives_its_path_back) {
+    CorridorFixture fixture;
+    auto walk = walkUpTheCorridor(fixture);
+    ASSERT_EQ(1, activePaths(*fixture.area));
+
+    walk->complete();
+    fixture.pc->update(kTick);
+
+    EXPECT_EQ(0, activePaths(*fixture.area));
+}
+
+// A walker that dies on its way gives its path back, one that cannot be
+// commanded included.
+TEST(CreatureWalk, a_walker_that_dies_gives_its_path_back) {
+    CorridorFixture fixture;
+    auto walker = walkingStranger(fixture);
+    ASSERT_EQ(1, activePaths(*fixture.area));
+
+    walker->setCommandable(false);
+    walker->setCurrentHitPoints(0);
+    ASSERT_TRUE(walker->isDead());
+    walker->update(kTick);
+
+    EXPECT_EQ(0, activePaths(*fixture.area));
 }
