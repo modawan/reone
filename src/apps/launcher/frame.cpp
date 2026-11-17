@@ -51,6 +51,9 @@ LauncherFrame::LauncherFrame() :
     _checkBoxDev = new wxCheckBox(this, wxID_ANY, "Developer Mode", wxDefaultPosition, wxDefaultSize);
     _checkBoxDev->SetValue(_config.devMode);
 
+    _checkBoxWheelZoom = new wxCheckBox(this, wxID_ANY, "Zoom the Camera with the Mouse Wheel", wxDefaultPosition, wxDefaultSize);
+    _checkBoxWheelZoom->SetValue(_config.wheelZoom);
+
     // END Setup controls
 
     // Graphics
@@ -341,6 +344,7 @@ LauncherFrame::LauncherFrame() :
     topSizer2->SetMinSize(640, 100);
     topSizer2->Add(gameSizer, wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(_checkBoxDev, wxSizerFlags(0).Expand().Border(wxALL, 3));
+    topSizer2->Add(_checkBoxWheelZoom, wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(topSizer, wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(new wxButton(this, WindowID::launch, "Launch"), wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(new wxButton(this, WindowID::saveConfig, "Save Configuration"), wxSizerFlags(0).Expand().Border(wxALL, 3));
@@ -356,6 +360,7 @@ void LauncherFrame::LoadConfiguration() {
     options.add_options()                                                 //
         ("game", value<std::string>()->default_value(_config.gameDir))    //
         ("dev", value<bool>()->default_value(_config.devMode))            //
+        ("wheelzoom", value<bool>()->default_value(_config.wheelZoom))    //
         ("width", value<int>()->default_value(_config.width))             //
         ("height", value<int>()->default_value(_config.height))           //
         ("winscale", value<int>()->default_value(_config.winscale))       //
@@ -388,6 +393,7 @@ void LauncherFrame::LoadConfiguration() {
 
     _config.gameDir = vars["game"].as<std::string>();
     _config.devMode = vars["dev"].as<bool>();
+    _config.wheelZoom = vars["wheelzoom"].as<bool>();
     _config.width = vars["width"].as<int>();
     _config.height = vars["height"].as<int>();
     _config.winscale = vars["winscale"].as<int>();
@@ -428,6 +434,7 @@ void LauncherFrame::SaveConfiguration() {
     static std::set<std::string> recognized {
         "game=",
         "dev=",
+        "wheelzoom=",
         "width=",
         "height=",
         "winscale=",
@@ -495,6 +502,7 @@ void LauncherFrame::SaveConfiguration() {
 
     _config.gameDir = _textCtrlGameDir->GetValue();
     _config.devMode = _checkBoxDev->IsChecked();
+    _config.wheelZoom = _checkBoxWheelZoom->IsChecked();
     _config.width = stoi(tokens[0]);
     _config.height = stoi(tokens[1]);
     _config.winscale = winScale;
@@ -536,6 +544,7 @@ void LauncherFrame::SaveConfiguration() {
     std::ofstream config(kConfigFilename);
     config << "game=" << _config.gameDir << std::endl;
     config << "dev=" << (_config.devMode ? 1 : 0) << std::endl;
+    config << "wheelzoom=" << (_config.wheelZoom ? 1 : 0) << std::endl;
     config << "width=" << _config.width << std::endl;
     config << "height=" << _config.height << std::endl;
     config << "winscale=" << _config.winscale << std::endl;
