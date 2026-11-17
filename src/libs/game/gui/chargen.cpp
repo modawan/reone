@@ -66,6 +66,9 @@ static constexpr int kLevelUpTitleStrRef = 1071;
 static constexpr int kLevelValueStrRef = 74696;
 /** The movement rate of the player's pace. */
 static constexpr int kPlayerMovementRate = 0;
+/** The question before cancelling a character past its first step. */
+static constexpr int kTSLCancelConfirmStrRef = 109863;
+static constexpr int kK1CancelConfirmStrRef = 48541;
 
 /** The controls the panel shows in both titles, at creation or on a level-up. */
 static const std::unordered_set<std::string> kPanelControls {
@@ -481,6 +484,11 @@ std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacte
 
 void CharacterGeneration::acceptAbilities() {
     _levelUpBase.abilitiesAccepted = true;
+}
+
+void CharacterGeneration::confirmCancel(std::function<void()> onConfirm) {
+    const int strRef = _game.isTSL() ? kTSLCancelConfirmStrRef : kK1CancelConfirmStrRef;
+    _game.showConfirmPopup(_services.resource.strings.getText(strRef), std::move(onConfirm));
 }
 
 void CharacterGeneration::cancel() {
