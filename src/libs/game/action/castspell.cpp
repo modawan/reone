@@ -308,6 +308,16 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
             const float useRange = creature->useRange(*_target).range;
             if (!creature->navigateToUse(*_target, std::max(0.0f, range - useRange), dt, true, false, true, true,
                                          range - useRange, true)) {
+                // A cast whose walk cannot get it a clear line (no path, or
+                // walks that end short, as the leader's ends at a shut door
+                // it has not opened) gives up rather than holding its caster
+                // for good. An item use not yet released keeps its item.
+                if (creature->useApproachGaveOut(*_target)) {
+                    finish(actor);
+                    if (_item) {
+                        presentFailedItemUse(_game, actor);
+                    }
+                }
                 return;
             }
             _checksUseLine = false;
