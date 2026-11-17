@@ -939,8 +939,9 @@ void Area::loadLYT() {
     }
 
     uniwalkFinalize(_pathfinder.uni);
-    // Allow up to 64 concurrent paths.
-    _pathfinder.paths.resize(64);
+    // Room for every creature a shipped area can have walking at once, its
+    // encounters at their full count included.
+    _pathfinder.paths.resize(128);
     // Rooms are found under points from the moment they are loaded, and the
     // models in the scene are drawn by the rooms they stand in while the area
     // lasts.
