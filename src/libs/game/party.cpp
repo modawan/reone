@@ -966,10 +966,11 @@ void Party::awardXP(int amount, XPSource source) {
     const int paid = amount + companionXPBonus(amount);
     // The followers are paid, then the creature under the player's control:
     // a companion controlled in the player character's place is paid in its
-    // stead.
+    // stead. A follower levels up by itself as soon as it is paid.
     for (const auto &member : _members) {
         if (isCompanion(member) && member.creature) {
             receiveExperience(*member.creature, paid);
+            levelUpByItself(*member.creature);
         }
     }
     if (_player) {
@@ -1218,6 +1219,41 @@ void Party::catchUpExperience(int npc, Creature &creature) {
         return;
     }
     receiveExperience(creature, _xp - static_cast<int>(static_cast<float>(earned) / static_cast<float>(percent) * 100.0f));
+    levelUpByItself(creature);
+}
+
+void Party::levelUpByItself(Creature &creature) {
+    if (_game.autoLevelUpNPCs() && !creature.isPlayerCreated() && creature.isLevelUpPending()) {
+        creature.autoLevelUp(true);
+    }
+}
+
+void Party::recomputeCompanionInfluence() {
+    for (int npc = 0; npc < static_cast<int>(kK2NpcCount); ++npc) {
+        if (auto companion = getAvailableMember(npc)) {
+            companion->recomputeInfluenceAlignment();
+        }
+    }
+}
+
+void Party::levelUpCompanionsByThemselves() {
+    for (const auto &member : _members) {
+        if (isCompanion(member) && member.creature) {
+            levelUpByItself(*member.creature);
+        }
+    }
+}
+
+void Party::levelUpFollowersByThemselves() {
+    if (!_game.isTSL()) {
+        return;
+    }
+    const auto leader = getLeader();
+    for (const auto &member : _members) {
+        if (member.creature && member.creature != leader) {
+            levelUpByItself(*member.creature);
+        }
+    }
 }
 
 void Party::syncMembersXP() {

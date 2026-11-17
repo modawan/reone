@@ -74,14 +74,8 @@ public:
     /** @return the feats still to choose */
     int remainingPicks() const { return _remaining; }
 
-    /**
-     * Chooses the feats the class recommends, taking back those chosen on the
-     * screen.
-     *
-     * @param fillWithUnranked true to fill the picks no recommended feat can
-     *        take with the other choosable feats, lowest row first
-     */
-    void recommend(bool fillWithUnranked = false);
+    /** Chooses the feats the class recommends, taking back those chosen on the screen. */
+    void recommend();
 
     /**
      * Accepts the chosen feats, unless feats are still to choose and one can

@@ -165,6 +165,23 @@ void addRecommendedSkills(
     });
 }
 
+void addAutoLevelUpSkills(
+    const ISkills &skills,
+    CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    int &points,
+    int level,
+    const LevellingCreature &creature,
+    const std::set<FeatType> &effectFeats,
+    bool tsl) {
+
+    recommendSkills(clazz, points, [&](SkillType type, int &left) {
+        const Skill &rules = *skills.get(type);
+        return canClassUseSkill(rules, clazz) && canRaiseSkill(rules, type, creature, tsl) &&
+               attributes.raiseSkillRank(type, attributes.isClassSkillIn(clazz, type, effectFeats, tsl), level, left);
+    });
+}
+
 } // namespace game
 
 } // namespace reone

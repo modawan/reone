@@ -4555,7 +4555,8 @@ static Variable AddMultiClass(const std::vector<Variable> &args, const RoutineCo
     // Execute: the creature gains the class at level 0 and the experience it
     // lacks for its next level, which is the new class's first. The party
     // shares that award, except that a TSL companion takes it alone and adds
-    // it to its joining experience.
+    // it to its joining experience; it then levels up by itself as the Auto
+    // Level Up NPCs option rules.
     if (!creature) {
         return Variable::ofNull();
     }
@@ -4566,6 +4567,7 @@ static Variable AddMultiClass(const std::vector<Variable> &args, const RoutineCo
     } else {
         creature->giveXP(needed);
         creature->setJoiningXP(creature->joiningXP() + needed);
+        ctx.game.party().levelUpByItself(*creature);
     }
     return Variable::ofNull();
 }

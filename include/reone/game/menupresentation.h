@@ -173,6 +173,8 @@ struct GameplayOptions {
      * steered.
      */
     bool combatMovement {true};
+    /** Party companions level up by themselves whenever they can (Party::levelUpByItself). */
+    bool autoLevelUpNPCs {false};
 
     /** The options in the configuration; an option it does not set keeps its default. */
     static GameplayOptions load(const std::filesystem::path &path);

@@ -19,12 +19,14 @@
 
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include <set>
 #include <string>
 
 #include "../types.h"
 
 #include "savingthrows.h"
+#include "skills.h"
 
 namespace reone {
 
@@ -179,6 +181,14 @@ public:
     void setSkillRank(SkillType skill, int rank);
 
     /**
+     * @param effectFeats the feats the creature's effects give it
+     * @return whether \p clazz makes the skill a class skill: it lists the
+     *         skill or, on TSL, the creature has the skill's class-skill
+     *         feat, held or given by an effect
+     */
+    bool isClassSkillIn(const CreatureClass &clazz, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
+
+    /**
      * Only the creature's classes with a skills table count (isClassSkillIn).
      *
      * @param effectFeats the feats the creature's effects give it
@@ -300,14 +310,6 @@ private:
 
     /**
      * @param effectFeats the feats the creature's effects give it
-     * @return whether \p clazz makes the skill a class skill: it lists the
-     *         skill or, on TSL, the creature has the skill's class-skill
-     *         feat, held or given by an effect
-     */
-    bool isClassSkillIn(const CreatureClass &clazz, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
-
-    /**
-     * @param effectFeats the feats the creature's effects give it
      * @return whether the creature has the TSL feat that makes the skill a
      *         class skill, held or given by an effect; Persuade has none
      */
@@ -319,13 +321,14 @@ private:
  * (IFeats::addGrantedFeats, on the creature with that level); the level
  * itself is not added.
  *
- * @param race the creature's race, for the first character level's feats
+ * @param race the creature's race, for the first character level's feats;
+ *        none grants no race feats
  * @return the feats the grant lists as granted
  */
 std::vector<FeatType> addLevelGrantedFeats(
     CreatureAttributes &attributes,
     const IFeats &feats,
-    RacialType race,
+    std::optional<RacialType> race,
     int experience,
     const std::string &tag);
 
@@ -334,11 +337,57 @@ std::vector<FeatType> addLevelGrantedFeats(
  * (ISpells::addGrantedPowers, on the creature with that level), each one it
  * can learn in that class, known through that class; the level itself is not
  * added.
+ *
+ * @return the powers the level grants
  */
-void addLevelGrantedPowers(
+std::vector<SpellType> addLevelGrantedPowers(
     CreatureAttributes &attributes,
     const ISpells &spells,
     const std::function<bool(SpellType, ClassType)> &canLearnPower);
+
+/** What an automatic level-up needs to know of the creature it levels. */
+struct AutoLevelUpCreature : LevellingCreature {
+    /** The creature's alignment, which picks the side of its recommended powers. */
+    Alignment alignment {Alignment::Neutral};
+    /** The feats the creature's effects give it, which count for prerequisites. */
+    std::set<FeatType> effectFeats;
+    /** Whether the creature can learn the power in the class. */
+    std::function<bool(SpellType, ClassType)> canLearnPower;
+    /**
+     * Whether the creature, as it is before the level, knows the power and
+     * can pay its Force point cost now: what a master power or prerequisite
+     * of a chosen power needs, unless granted or chosen at this level.
+     */
+    std::function<bool(SpellType)> knowsAffordablePower;
+};
+
+/**
+ * Make the choices of one automatic level-up in the creature's last class,
+ * and add the feats and powers that level grants. The class level itself is
+ * left for the level-up to add.
+ *
+ * Some rules are measured by the new character level: a level that is a
+ * multiple of 4 raises the recommended ability by 1
+ * (recommendLevelUpAbility), the first character level gives the first
+ * level's skill points, and the skills' maximum ranks, the feats' minimum
+ * levels and the powers' levels are measured by it.
+ * The skill points are those left unspent plus the level's, from the
+ * Intelligence the creature had; they go on the recommended skills
+ * (addAutoLevelUpSkills), and what is left stays unspent. The feats the level
+ * grants are added, though never the race's first-level feats, then the
+ * recommended feats for the class level's normal and bonus picks, chosen on
+ * the creature as it was before the level, a pick no ranked feat can take
+ * filled by the lowest row (recommendFeats). A spell-casting class then adds
+ * the powers the level grants and the powers chosen for the level
+ * (ISpells::getAutoLevelUpPowers), each only when the creature can learn it.
+ */
+void chooseAutoLevelUp(
+    CreatureAttributes &attributes,
+    const IFeats &feats,
+    const ISpells &spells,
+    const ISkills &skills,
+    const AutoLevelUpCreature &creature,
+    bool tsl);
 
 } // namespace game
 

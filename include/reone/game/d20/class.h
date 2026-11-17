@@ -102,7 +102,11 @@ public:
     int forcedie() const { return _forcedie; }
     const CreatureAttributes &defaultAttributes() const { return _defaultAttributes; }
     int skillPointBase() const { return _skillPointBase; }
-    /** @return whether the class casts spells: only such a class is recommended powers */
+    /**
+     * @return whether the class casts spells: only such a class is
+     *         recommended powers, and only a level of such a class gains
+     *         powers when a creature levels up by itself
+     */
     bool isSpellCaster() const { return _spellCaster; }
     /** @return the feats gained at the class level (featgain.2da row level - 1); 0 without a row */
     int getFeatGain(int level) const;

@@ -132,6 +132,36 @@ public:
         const std::set<SpellType> &chosen,
         bool ownedForms = false) const = 0;
     /**
+     * The powers an automatic level-up chooses, at most \p count of them, as
+     * recommended for the character's side (recommendPowers), the lowest row
+     * filling a pick no ranked power can take. A power the level-up screen
+     * offers to \p clazz is a candidate when the character's total level
+     * after the level-up reaches its level, it is neither known through any
+     * class nor chosen or granted at this level, and each of its master
+     * powers and prerequisites is chosen or granted at this level or passes
+     * \p knownAndAffordable. A character other than the player character
+     * never takes a power it cannot pick (isPickDenied).
+     *
+     * @param attributes the character before the level, with the powers
+     *        granted at this level
+     * @param clazz the class the level is gained in, the character's last
+     * @param alignment the character's alignment, which picks the side
+     * @param count the number of powers the level gains
+     * @param playerCharacter whether the character levels as the player
+     *        character
+     * @param granted the powers granted at this level
+     * @param knownAndAffordable whether the character, as it is before the
+     *        level, knows the power and can pay its Force point cost now
+     */
+    virtual std::vector<SpellType> getAutoLevelUpPowers(
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        Alignment alignment,
+        int count,
+        bool playerCharacter,
+        const std::set<SpellType> &granted,
+        const std::function<bool(SpellType)> &knownAndAffordable) const = 0;
+    /**
      * Whether the power is kept from a creature: Affect Mind and Dominate are
      * kept from one that may not take them.
      *
@@ -198,6 +228,14 @@ public:
         const CreatureClass &clazz,
         const std::set<SpellType> &chosen,
         bool ownedForms = false) const override;
+    std::vector<SpellType> getAutoLevelUpPowers(
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        Alignment alignment,
+        int count,
+        bool playerCharacter,
+        const std::set<SpellType> &granted,
+        const std::function<bool(SpellType)> &knownAndAffordable) const override;
     std::vector<SpellType> addGrantedPowers(CreatureAttributes &attributes) const override;
 
 private:

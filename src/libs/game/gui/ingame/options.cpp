@@ -357,6 +357,7 @@ static constexpr int kDefaultDifficultyLevel = 1;
 static constexpr int kMouseLookDescriptionStrRef = 48014;
 static constexpr int kMouseLookDescriptionStrRefTSL = 48697;
 static constexpr int kCombatMovementDescriptionStrRef = 42484;
+static constexpr int kAutoLevelUpDescriptionStrRef = 42266;
 static constexpr int kMouseSettingsDescriptionStrRef = 49071;
 static constexpr int kMouseSettingsDescriptionStrRefTSL = 48720;
 
@@ -372,6 +373,7 @@ void OptionsMenu::loadGameplayPanel() {
     controls.BTN_MOUSE = std::static_pointer_cast<Button>(find("BTN_MOUSE"));
     controls.CB_DISABLEMOVE = std::static_pointer_cast<ToggleButton>(find("CB_DISABLEMOVE"));
     controls.CB_INVERTCAM = std::static_pointer_cast<ToggleButton>(find("CB_INVERTCAM"));
+    controls.CB_LEVELUP = std::static_pointer_cast<ToggleButton>(find("CB_LEVELUP"));
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     showCheckBoxes(*_gameplayGUI);
@@ -401,6 +403,15 @@ void OptionsMenu::loadGameplayPanel() {
             describe(*_gameplayControls.LB_DESC, _game.isTSL() ? kMouseLookDescriptionStrRefTSL : kMouseLookDescriptionStrRef);
         }
     });
+    controls.CB_LEVELUP->setOnClick([this]() {
+        _gameplayControls.CB_LEVELUP->toggle();
+        _game.setAutoLevelUpNPCs(_gameplayControls.CB_LEVELUP->isOn());
+    });
+    controls.CB_LEVELUP->setOnSelectionChanged([this](bool selected) {
+        if (selected) {
+            describe(*_gameplayControls.LB_DESC, kAutoLevelUpDescriptionStrRef);
+        }
+    });
     controls.BTN_MOUSE->setOnClick([this]() {
         openMousePanel();
     });
@@ -421,14 +432,16 @@ void OptionsMenu::loadGameplayPanel() {
         _gameplayControls.LB_DESC->addTextLinesAsItems(
             _services.resource.strings.getText(kCombatMovementDescriptionStrRef));
     });
-    // The defaults are the normal difficulty, mouse look off and combat
-    // movement on.
+    // The defaults are the normal difficulty, mouse look and companions
+    // levelling up by themselves off, and combat movement on.
     controls.BTN_DEFAULT->setOnClick([this]() {
         _game.setDifficultyLevel(kDefaultDifficultyLevel);
         _game.setMouseLook(false);
+        _game.setAutoLevelUpNPCs(false);
         _game.setCombatMovement(true);
         showDifficulty();
         _gameplayControls.CB_INVERTCAM->setOn(false);
+        _gameplayControls.CB_LEVELUP->setOn(false);
         _gameplayControls.CB_DISABLEMOVE->setOn(true);
     });
     controls.BTN_BACK->setOnClick([this]() {
@@ -439,6 +452,7 @@ void OptionsMenu::loadGameplayPanel() {
 void OptionsMenu::openGameplayPanel() {
     showDifficulty();
     _gameplayControls.CB_INVERTCAM->setOn(_game.mouseLook());
+    _gameplayControls.CB_LEVELUP->setOn(_game.autoLevelUpNPCs());
     _gameplayControls.CB_DISABLEMOVE->setOn(_game.combatMovement());
     _gameplayControls.LB_DESC->clearItems();
     openPage(*_gameplayGUI, [] {});

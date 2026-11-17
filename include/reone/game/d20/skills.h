@@ -154,6 +154,31 @@ void addRecommendedSkills(
     const std::set<FeatType> &effectFeats,
     bool tsl);
 
+/**
+ * Spend points on the class's recommended skills the way an automatic
+ * level-up does, in its order (recommendSkills), stopping when no points are
+ * left. A skill is passed over unless the class levelled up in can use it
+ * (every class can, or it has a skills table), and so is one the creature may
+ * not raise (canRaiseSkill). Each other skill is raised until it reaches its
+ * maximum rank at \p level or the points run short, the class skill and rank
+ * cost judged by the class levelled up in
+ * (CreatureAttributes::isClassSkillIn, CreatureAttributes::raiseSkillRank).
+ *
+ * @param clazz the class the level is gained in
+ * @param level the level the maximum rank is measured by: the new character
+ *        level
+ * @param effectFeats the feats the creature's effects give it
+ */
+void addAutoLevelUpSkills(
+    const ISkills &skills,
+    CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    int &points,
+    int level,
+    const LevellingCreature &creature,
+    const std::set<FeatType> &effectFeats,
+    bool tsl);
+
 } // namespace game
 
 } // namespace reone

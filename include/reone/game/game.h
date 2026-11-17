@@ -708,14 +708,6 @@ public:
      */
     void closeLevelUp(bool forced);
     /**
-     * Levels the party leader up by one level with every step's
-     * recommendation, opening no screen.
-     *
-     * @return whether the level was applied; nothing happens unless the
-     *         leader has a level pending
-     */
-    bool autoLevelUp();
-    /**
      * A party member has enough experience to level up; newly when this
      * award brought it there. The level-up chime is the main interface's.
      */
@@ -1122,6 +1114,10 @@ public:
     /** Whether a busy leader in combat mode may be steered. */
     bool combatMovement() const { return _options.game.gameplay.combatMovement; }
     void setCombatMovement(bool on) { _options.game.gameplay.combatMovement = on; }
+    /** Whether party companions level up by themselves whenever they can. */
+    bool autoLevelUpNPCs() const { return _options.game.gameplay.autoLevelUpNPCs; }
+    /** Turning the option on levels up at once every companion who can. */
+    void setAutoLevelUpNPCs(bool on);
     /** Write the gameplay options to the configuration. */
     void saveGameplayOptions() const;
     /**

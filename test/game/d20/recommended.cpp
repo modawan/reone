@@ -740,6 +740,6 @@ TEST_F(RecommendedTest, should_not_auto_level_a_leader_with_no_level_pending) {
     game.party().setPlayer(leader);
     ASSERT_FALSE(leader->isLevelUpPending());
 
-    EXPECT_FALSE(game.autoLevelUp());
+    leader->autoLevelUp(false);
     EXPECT_EQ(leader->attributes().getAggregateLevel(), 1);
 }
