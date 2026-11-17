@@ -142,6 +142,18 @@ bool ThirdPersonCamera::handle(const input::Event &event) {
     }
 }
 
+bool ThirdPersonCamera::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool ThirdPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool ThirdPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool ThirdPersonCamera::handleMouseWheel(const input::MouseWheelEvent &event) {
     if (!_game.options().game.wheelZoom || _combat || _deathOrbit) {
         return false;

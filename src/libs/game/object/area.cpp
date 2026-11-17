@@ -3194,6 +3194,18 @@ bool Area::handle(const input::Event &event) {
     }
 }
 
+bool Area::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Area::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Area::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool Area::handleKeyDown(const input::KeyEvent &event) {
     return false;
 }

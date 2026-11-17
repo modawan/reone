@@ -181,6 +181,18 @@ void Control::updateTransform() {
     _transform = glm::scale(_transform, glm::vec3(_extent.width, _extent.height, 1.0f));
 }
 
+bool Control::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Control::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Control::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool Control::handleKeyDown(const input::KeyCode key) {
     return false;
 }

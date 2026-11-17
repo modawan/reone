@@ -138,6 +138,18 @@ bool Party::handle(const input::Event &event) {
     return false;
 }
 
+bool Party::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Party::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Party::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool Party::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;

@@ -109,6 +109,10 @@ void Engine::init() {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
 
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "%s", SDL_GetError());
+    }
+
     if (_options.graphics.headless) {
         _options.graphics.winScale = 100;
         _options.audio.muted = true;
@@ -551,6 +555,21 @@ static uint32_t typedCharacter(SDL_Scancode scancode, SDL_Keymod mod) {
 
 std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent) const {
     switch (sdlEvent.type) {
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        return input::Event::newGamepadButtonDown(input::GamepadButtonEvent {
+            sdlEvent.gbutton.which,
+            sdlEvent.gbutton.down,
+            static_cast<input::GamepadButton>(sdlEvent.gbutton.button)});
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+        return input::Event::newGamepadButtonUp(input::GamepadButtonEvent {
+            sdlEvent.gbutton.which,
+            sdlEvent.gbutton.down,
+            static_cast<input::GamepadButton>(sdlEvent.gbutton.button)});
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+        return input::Event::newGamepadAxisMotion(input::GamepadAxisMotionEvent {
+            sdlEvent.gaxis.which,
+            sdlEvent.gaxis.value,
+            static_cast<input::GamepadAxis>(sdlEvent.gaxis.axis)});
     case SDL_EVENT_KEY_DOWN:
         return input::Event::newKeyDown(input::KeyEvent {
             sdlEvent.key.down,

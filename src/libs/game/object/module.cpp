@@ -513,6 +513,18 @@ bool Module::handle(const input::Event &event) {
         return true;
 
     switch (event.type) {
+    case input::EventType::GamepadAxisMotion:
+        if (handleGamepadAxisMotion(event.gamepadAxisMotion))
+            return true;
+        break;
+    case input::EventType::GamepadButtonDown:
+        if (handleGamepadButtonDown(event.gamepadButton))
+            return true;
+        break;
+    case input::EventType::GamepadButtonUp:
+        if (handleGamepadButtonUp(event.gamepadButton))
+            return true;
+        break;
     case input::EventType::MouseMotion:
         if (handleMouseMotion(event.motion))
             return true;
@@ -529,6 +541,18 @@ bool Module::handle(const input::Event &event) {
         break;
     }
 
+    return false;
+}
+
+bool Module::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
+bool Module::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Module::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
     return false;
 }
 
