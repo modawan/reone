@@ -27,9 +27,8 @@ std::optional<std::string> TextReader::readLine() {
     std::vector<char> buf;
     buf.resize(kChunkSize);
 
-    // Reads in chunks until a terminator turns up, rather than assuming a line
-    // fits in one. A fixed-size read used to truncate anything longer, splitting
-    // the line mid-token for the caller.
+    // A line can be longer than a chunk, so chunks are read until a terminator
+    // turns up.
     size_t consumed = 0;
     while (true) {
         _stream.seek(start + consumed);
