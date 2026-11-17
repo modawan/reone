@@ -190,8 +190,6 @@ const char *argKindToString(ArgKind kind) {
     switch (kind) {
     case ArgKind::Caller:
         return "Caller";
-    case ArgKind::ScriptVar:
-        return "ScriptVar";
     case ArgKind::UserDefinedEventNumber:
         return "UserDefinedEventNumber";
     case ArgKind::LastClosedBy:
@@ -262,9 +260,6 @@ Argument Argument::fromString(std::string str) {
 
     if (kind == "Caller") {
         return {ArgKind::Caller, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "ScriptVar") {
-        return {ArgKind::ScriptVar, Variable::ofInt(std::stoi(value))};
     }
     if (kind == "UserDefinedEventNumber") {
         return {ArgKind::UserDefinedEventNumber, Variable::ofInt(std::stoi(value))};
@@ -364,7 +359,6 @@ void Argument::verify() {
         }
         return;
     }
-    case ArgKind::ScriptVar:
     case ArgKind::UserDefinedEventNumber:
     case ArgKind::LastPerceptionHeard:
     case ArgKind::LastPerceptionInaudible:

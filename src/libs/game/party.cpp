@@ -1668,6 +1668,15 @@ void Party::setPartyLeaderByIndex(int index, bool sound) {
     onLeaderChanged(previous, sound);
 }
 
+void Party::changeLeader(int index, bool sound) {
+    if (index < 1 || index >= static_cast<int>(_members.size())) {
+        return;
+    }
+    const auto previous {getLeader()};
+    setPartyLeaderByIndex(index, sound);
+    restNewLeaderDrive(previous);
+}
+
 void Party::setPlayer(const std::shared_ptr<Creature> &player) {
     _player = player;
 }

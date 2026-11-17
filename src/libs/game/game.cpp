@@ -10742,11 +10742,18 @@ void Game::consoleShowGalleryMode(const ConsoleArgs &args) {
 }
 
 void Game::consoleRunScript(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1024, "resref [kind:value ...]");
+    consoleCheckUsage(args, 1, 1024, "resref [scriptvar] [kind:value ...]");
 
     std::string resRef(args[1].value());
+    // A number after the script's name is the script variable every script
+    // reads from then on, as GetRunScriptVar returns it.
+    size_t first = 2;
+    if (auto scriptVar = args.get<int>(2)) {
+        scriptRunner().setRunScriptVar(*scriptVar);
+        first = 3;
+    }
     std::vector<script::Argument> vars;
-    for (size_t i = 2; i < args.size(); ++i) {
+    for (size_t i = first; i < args.size(); ++i) {
         vars.push_back(script::Argument::fromString(std::string(args[i].value())));
     }
 

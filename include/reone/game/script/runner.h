@@ -70,6 +70,15 @@ public:
         uint32_t callerId);
 
     /**
+     * The script variable every script reads: the one the latest script
+     * started with one was given, 0 before any.
+     */
+    int runScriptVar() const { return _runScriptVar; }
+
+    /** Sets the script variable every script reads from now on. */
+    void setRunScriptVar(int value) { _runScriptVar = value; }
+
+    /**
      * Whether runs wait to go on: a routine stopped a run, and with it every
      * run it was started from, as a script waits at PlayMovie. A run under
      * way that has stopped counts, before the run it was started from ends.
@@ -106,6 +115,8 @@ private:
 
     script::IRoutines &_routines;
     resource::IScripts &_scripts;
+
+    int _runScriptVar {0};
 
     /** The instruction count of the outermost run, shared by the runs it starts. */
     std::shared_ptr<int> _instructionsRun;
