@@ -20,32 +20,53 @@
 namespace reone {
 
 std::optional<std::string> TextReader::readLine() {
-    auto pos = _stream.position();
+    static constexpr size_t kChunkSize = 256;
 
+    auto start = _stream.position();
+    std::string line;
     std::vector<char> buf;
-    buf.resize(256);
-    int numRead = _stream.read(&buf[0], buf.size());
-    if (numRead == 0) {
-        return std::nullopt;
-    }
+    buf.resize(kChunkSize);
 
-    size_t len;
-    for (len = 0; len < numRead; ++len) {
-        if (buf[len] == '\r' || buf[len] == '\n') {
-            break;
+    // Reads in chunks until a terminator turns up, rather than assuming a line
+    // fits in one. A fixed-size read used to truncate anything longer, splitting
+    // the line mid-token for the caller.
+    size_t consumed = 0;
+    while (true) {
+        _stream.seek(start + consumed);
+        int numRead = _stream.read(&buf[0], buf.size());
+        if (numRead == 0) {
+            if (consumed == 0) {
+                return std::nullopt;
+            }
+            return line;
         }
+        int len = 0;
+        while (len < numRead && buf[len] != '\r' && buf[len] != '\n') {
+            ++len;
+        }
+        line.append(&buf[0], len);
+        if (len == numRead) {
+            consumed += numRead;
+            continue;
+        }
+        size_t terminator = 1;
+        if (buf[len] == '\r') {
+            // Consume the LF of a CRLF pair, but tolerate a bare CR.
+            if (len + 1 < numRead) {
+                if (buf[len + 1] == '\n') {
+                    terminator = 2;
+                }
+            } else {
+                char next;
+                _stream.seek(start + consumed + len + 1);
+                if (_stream.read(&next, 1) == 1 && next == '\n') {
+                    terminator = 2;
+                }
+            }
+        }
+        _stream.seek(start + consumed + len + terminator);
+        return line;
     }
-    if (buf[len] == '\r') {
-        buf[len] = '\0';
-        _stream.seek(pos + len + 2);
-    } else if (buf[len] == '\n') {
-        buf[len] = '\0';
-        _stream.seek(pos + len + 1);
-    } else {
-        _stream.seek(pos + len);
-    }
-
-    return std::string(&buf[0], len);
 }
 
 } // namespace reone
