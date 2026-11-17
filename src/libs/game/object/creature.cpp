@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -604,6 +605,9 @@ static constexpr char kStealthCue[] = "sdr_invisible";
 // Movement rates, in metres per second
 static constexpr float kMinimumWalkSpeed = 0.1f;
 static constexpr float kMinimumRunSpeed = 1.0f;
+
+// Seconds between a creature's end-of-round scripts in combat
+static constexpr float kEndRoundScriptInterval = 3.0f;
 
 // Perception and stealth detection
 static constexpr float kPerceptionRollInterval = 20.0f;
@@ -1293,7 +1297,7 @@ void Creature::startUnsavedCounters() {
     _perceptionRolls.age = kPerceptionRollInterval;
     _perceptionThrottle = randomInt(0, 99);
     _heartbeatInterval = randomInt(kMinHeartbeatIntervalMilliseconds, kMaxHeartbeatIntervalMilliseconds);
-    _heartbeatThrottle = randomInt(0, 99);
+    _heartbeatSkipped = randomInt(0, 1) == 1;
     // The first idle fidget waits one to two and a half minutes.
     _fidgetTime = 0;
     _fidgetDelay = 60000 + 30000 * randomInt(0, 3);
@@ -1304,13 +1308,13 @@ void Creature::startUnsavedCounters() {
 // heartbeat due at once.
 void Creature::startUnstampedHeartbeat() {
     if (_internalStateEffectId != kUnassignedEffectId) {
-        _stateSupportTimer.reset(0.0f);
+        _heartbeatStamp.reset();
     } else if (_spawnScriptFired) {
-        _heartbeatThrottle = 0;
+        _heartbeatSkipped = false;
         _heartbeatInterval = randomInt(kMinHeartbeatIntervalMilliseconds, kMaxHeartbeatIntervalMilliseconds);
-        _stateSupportTimer.reset(_heartbeatInterval / 1000.0f);
+        _heartbeatStamp = _game.activeTimeMilliseconds(*this);
     } else {
-        _stateSupportTimer.reset(0.0f);
+        _heartbeatStamp.reset();
     }
 }
 
@@ -1341,12 +1345,14 @@ void Creature::retireAreaRuntime(
     _itemUseCooldown = 0.0f;
     _combatStance = CombatStance::None;
     _roundActionKind = 0;
-    _combatState.decisionScriptTime = 3.0f;
+    _combatState.decisionScriptTime = kEndRoundScriptInterval;
     _orientationLock = script::kObjectInvalid;
     _blockedAttackSight.reset();
     _lastSpellProjectileMilliseconds = 0;
     _hitPointAccumulator = 0.0f;
     _forcePointAccumulator = 0.0f;
+    // Its next update covers no time, whatever the clock does meanwhile.
+    _lastUpdateMilliseconds.reset();
     // So do its detection rolls and its perception, heartbeat and fidget
     // counters, and its heartbeat has not been stamped.
     startUnsavedCounters();
@@ -2644,7 +2650,13 @@ void Creature::updateExcitement() {
 }
 
 void Creature::update(float dt) {
-    _frameMilliseconds = static_cast<int>(dt * 1000.0f);
+    // The update covers the creature's own time since the last one, whole,
+    // so what counts it loses nothing at any frame rate; a clock that went
+    // back, as one leaving a time stop does, covers none.
+    const uint64_t now = _game.activeTimeMilliseconds(*this);
+    const uint64_t frame = _lastUpdateMilliseconds ? Game::millisecondsSince(now, *_lastUpdateMilliseconds) : 0;
+    _lastUpdateMilliseconds = now;
+    _frameMilliseconds = static_cast<int>(std::min<uint64_t>(frame, std::numeric_limits<int>::max()));
     updateExcitement();
     _itemUseCooldown = std::max(0.0f, _itemUseCooldown - dt);
     _perceptionRolls.age += dt;
@@ -2659,7 +2671,7 @@ void Creature::update(float dt) {
     standOnGround();
     updateMineCheck(dt);
     updateForcedMove(dt);
-    updateStateHeartbeat(dt);
+    updateStateHeartbeat();
     updateFidget();
     updateTurning();
     if (_weaponDrawPending && !_game.isPaused()) {
@@ -2968,7 +2980,9 @@ void Creature::updateMineCheck(float dt) {
         return;
     }
     auto area = _game.module()->area();
-    _mineCheckTime = 0.0f;
+    // The next check is due an interval after this one was; after two
+    // intervals or more it counts from now.
+    _mineCheckTime = _mineCheckTime < 2.0f * kMineCheckInterval ? _mineCheckTime - kMineCheckInterval : 0.0f;
 
     const int rank = getUnopposedSkillRank(SkillType::Awareness);
     auto &reputes = _services.game.reputes;
@@ -3477,10 +3491,12 @@ void Creature::playTopFireForgetAnimation() {
     static constexpr int kMinFireForgetMilliseconds = 50;
     const FireForgetEntry entry = std::move(_fireForgetQueue.front());
     _fireForgetQueue.pop_front();
-    // Only the time of day of the wait counts, and a start still ahead has no wait.
-    const int waited = static_cast<int>(
-        _game.worldTimeSince(entry.startDay, entry.startTime) % _game.millisecondsPerWorldDay());
-    const int length = std::max(kMinFireForgetMilliseconds, entry.lengthMilliseconds - waited);
+    // The wait is on the creature's own time. A start still ahead has no
+    // wait; a wait past the length leaves the least.
+    const uint64_t waited = Game::millisecondsSince(_game.activeTimeMilliseconds(*this), entry.start);
+    const int full = std::max(entry.lengthMilliseconds, 0);
+    const int left = waited >= static_cast<uint64_t>(full) ? 0 : full - static_cast<int>(waited);
+    const int length = std::max(kMinFireForgetMilliseconds, left);
     const bool overlayRow = _services.game.animations.isOverlay(entry.clip);
     const bool layered = entry.layered || overlayRow;
     AnimationProperties properties;
@@ -3751,7 +3767,7 @@ void Creature::addFireForgetAnimation(const std::string &clip, int lengthMillise
     if (!_sceneNode) {
         return;
     }
-    _fireForgetQueue.push_back(FireForgetEntry {clip, _game.worldTimeDay(), _game.worldTimeOfDay(), lengthMilliseconds,
+    _fireForgetQueue.push_back(FireForgetEntry {clip, _game.activeTimeMilliseconds(*this), lengthMilliseconds,
                                                 rate, layered, source, attack});
 }
 
@@ -4964,7 +4980,12 @@ void Creature::updateCombat(float dt) {
             if (!isDead()) {
                 runEndRoundScript();
             }
-            _combatState.decisionScriptTime = 3.0f;
+            // The next is due an interval after this one was; after two
+            // intervals or more it counts from now.
+            _combatState.decisionScriptTime =
+                _combatState.decisionScriptTime > -kEndRoundScriptInterval
+                    ? _combatState.decisionScriptTime + kEndRoundScriptInterval
+                    : kEndRoundScriptInterval;
         }
         _combatState.decisionScriptTime -= dt;
     }
@@ -6172,10 +6193,10 @@ void Creature::runSpawnScript() {
     // creation script, so its first due heartbeat only starts the interval
     // and its first look around waits a full interval.
     if (_game.isTSL() || isPartyMember() || isEncounterCreature()) {
-        _heartbeatThrottle = 0;
+        _heartbeatSkipped = false;
         runHeartbeat();
         _heartbeatInterval = randomInt(kMinHeartbeatIntervalMilliseconds, kMaxHeartbeatIntervalMilliseconds);
-        _stateSupportTimer.reset(_heartbeatInterval / 1000.0f);
+        _heartbeatStamp = _game.activeTimeMilliseconds(*this);
     } else {
         startUnstampedHeartbeat();
         _firstLookWaits = true;
@@ -6216,7 +6237,7 @@ void Creature::setFormation(const Object &anchor, int formation, int slot) {
 
 void Creature::refreshCombatDecisionTimer() {
     if (_game.isTSL()) {
-        _combatState.decisionScriptTime = 3.0f;
+        _combatState.decisionScriptTime = kEndRoundScriptInterval;
     }
 }
 
@@ -13083,7 +13104,7 @@ void Creature::setInternalStateEffect(
     _effectAmbientState = ambientState;
     _internalStateEffectId = effectId;
     // A state makes the creature's heartbeat due at once.
-    _stateSupportTimer.reset(0.0f);
+    _heartbeatStamp.reset();
     _animDirty = true;
 }
 
@@ -13368,19 +13389,26 @@ void Creature::updateForcedMove(float dt) {
     }
 }
 
-void Creature::updateStateHeartbeat(float dt) {
-    _stateSupportTimer.update(dt);
-    if (!_stateSupportTimer.elapsed()) {
+// A heartbeat is due its interval after the last one was, on the creature's
+// own time, and one with no stamp is due at once. A level-0 creature passes
+// over every other due heartbeat.
+void Creature::updateStateHeartbeat() {
+    const uint64_t now = _game.activeTimeMilliseconds(*this);
+    // A stamp ahead of now starts the interval over from now.
+    if (_heartbeatStamp) {
+        _heartbeatStamp = getStampNotAfter(*_heartbeatStamp, now);
+    }
+    const auto interval = static_cast<uint64_t>(std::max(_heartbeatInterval, 0));
+    if (_heartbeatStamp && Game::millisecondsSince(now, *_heartbeatStamp) < interval) {
         return;
     }
-    // A due heartbeat of a level-0 creature waits a number of updates set by
-    // its interval; the counter runs at every level.
-    if (++_heartbeatThrottle < (_heartbeatInterval >> 6) && _aiLevel == 0) {
-        return;
-    }
-    _heartbeatThrottle = 0;
+    _heartbeatStamp = _heartbeatStamp ? getNextStamp(*_heartbeatStamp, interval, now) : now;
     _heartbeatInterval = randomInt(kMinHeartbeatIntervalMilliseconds, kMaxHeartbeatIntervalMilliseconds);
-    _stateSupportTimer.reset(_heartbeatInterval / 1000.0f);
+    if (_aiLevel == 0 && !_heartbeatSkipped) {
+        _heartbeatSkipped = true;
+        return;
+    }
+    _heartbeatSkipped = false;
     runHeartbeat();
 }
 
@@ -13420,7 +13448,7 @@ void Creature::forceHeartbeat() {
     if (!_onHeartbeat.empty()) {
         _game.scriptRunner().run(_onHeartbeat, _id);
     }
-    _stateSupportTimer.reset(_heartbeatInterval / 1000.0f);
+    _heartbeatStamp = _game.activeTimeMilliseconds(*this);
 }
 
 Creature::EffectStackCounts Creature::effectStackCounts() const {

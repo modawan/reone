@@ -1132,9 +1132,7 @@ bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
         return false;
     }
     SavedEventRecord event;
-    const uint64_t when = game.worldTimeMilliseconds() + delayMilliseconds;
-    event.day = static_cast<uint32_t>(when / game.millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % game.millisecondsPerWorldDay());
+    game.setEventDueAfter(event, delayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(caster.id());
     event.caller = event.object;
     event.eventId = static_cast<uint32_t>(SavedEventType::SpellImpact);

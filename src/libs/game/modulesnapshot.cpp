@@ -192,11 +192,10 @@ std::shared_ptr<Gff> effectToGff(
         if (!game) {
             throw ValidationException("temporary effect lacks a game-time conversion context");
         }
-        uint64_t expiry = getEffectExpiryMilliseconds(game->worldTimeMilliseconds(),
-                                                      *effect.remainingDuration, static_cast<uint32_t>(game->millisecondsPerWorldDay()));
-        uint64_t millisecondsPerDay = game->millisecondsPerWorldDay();
-        expiryDay = static_cast<uint32_t>(expiry / millisecondsPerDay);
-        expiryTime = static_cast<uint32_t>(expiry % millisecondsPerDay);
+        const uint64_t expiry = getEffectExpiryMilliseconds(game->worldTimeMilliseconds(), *effect.remainingDuration,
+                                                            game->millisecondsPerWorldDay());
+        expiryDay = game->calendarDay(expiry);
+        expiryTime = game->calendarTimeOfDay(expiry);
     } else if (!effect.hasSerializableTemporalProvenance()) {
         throw ValidationException("temporary effect lacks save-facing expiry provenance");
     }
@@ -1813,7 +1812,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeAreaOfEffect(
     put(*result, Gff::Field::newDword("LastEntered", savedId(areaOfEffect.lastEntered())));
     put(*result, Gff::Field::newDword("LastLeft", savedId(areaOfEffect.lastLeft())));
     put(*result, Gff::Field::newDword("Duration",
-                                      static_cast<uint32_t>(std::max(0.0f, areaOfEffect._remainingDuration) * 1000.0f)));
+                                      static_cast<uint32_t>(std::min<uint64_t>(areaOfEffect._remainingMilliseconds,
+                                                                               std::numeric_limits<uint32_t>::max()))));
     put(*result, Gff::Field::newByte("DurationType", static_cast<uint8_t>(areaOfEffect._durationType)));
     put(*result, Gff::Field::newDword("LastHrtbtDay", areaOfEffect._heartbeatDay));
     put(*result, Gff::Field::newDword("LastHrtbtTime", areaOfEffect._heartbeatTime));

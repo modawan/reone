@@ -395,7 +395,7 @@ public:
     bool canUseSpell(size_t property) const;
     /**
      * A property used once in so many minutes is ready again once that many
-     * minutes of the time of day have passed since its last use.
+     * minutes have passed since its last use.
      */
     void refreshSpellReadiness();
     /**

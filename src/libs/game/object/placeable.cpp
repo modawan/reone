@@ -370,9 +370,7 @@ void Placeable::damage(
     }
     setStateAnimation(kOpenAnimationId);
     SavedEventRecord event;
-    const uint64_t when = _game.worldTimeMilliseconds() + kBrokenOpenDelayMilliseconds;
-    event.day = static_cast<uint32_t>(when / _game.millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % _game.millisecondsPerWorldDay());
+    _game.setEventDueAfter(event, kBrokenOpenDelayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(_id);
     event.caller = SavedObjectReference::fromRuntimeId(leader->id());
     event.eventId = static_cast<uint32_t>(SavedEventType::OpenObject);
@@ -655,10 +653,11 @@ void Placeable::update(float dt) {
 }
 
 // A due heartbeat runs unless it is the first check or the placeable is dead.
-// In TSL a placeable whose heartbeat has not been stamped runs it at once when
-// the interval has not passed yet.
+// In TSL a placeable whose heartbeat has no stamp runs it at once when the
+// interval has not passed yet.
 void Placeable::updateHeartbeat() {
-    if (isHeartbeatDueSince(_heartbeatDay, _heartbeatTime) || !_game.isTSL() || _heartbeatTime != 0) {
+    if (isHeartbeatDueSince(_heartbeatDay, _heartbeatTime) || !_game.isTSL() ||
+        isWorldTimeStamped(_heartbeatDay, _heartbeatTime)) {
         updateStampedHeartbeat(_onHeartbeat, !isDead());
         return;
     }

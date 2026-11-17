@@ -10,6 +10,7 @@
 #pragma once
 
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -482,6 +483,8 @@ struct SavedMoveCommand {
     bool forcedActive {false};
     uint32_t expiryDay {0};
     uint32_t expiryTime {0};
+    /** The last expiry day the command holds, as it writes the day as a signed integer. */
+    static constexpr uint32_t kLastExpiryDay = std::numeric_limits<int32_t>::max();
     /** Where the point lies from the object it was reckoned from. */
     glm::vec2 offset {0.0f};
 
@@ -872,6 +875,8 @@ struct SavedEventRecord {
     /** Absolute world/game timestamp, never a wall-clock or derived delay. */
     uint32_t day {0};
     uint32_t time {0};
+    /** The last day the record holds, a DWORD. */
+    static constexpr uint32_t kLastDay = std::numeric_limits<uint32_t>::max();
     SavedObjectReference object;
     SavedObjectReference caller;
     uint32_t eventId {0};
