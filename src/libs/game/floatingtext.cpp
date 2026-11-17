@@ -224,86 +224,81 @@ void FloatingText::render() {
         globals.projectionInv = glm::inverse(globals.projection);
     });
 
-    _services.graphics.context.withViewport(
-        {0, 0, options.width, options.height},
+    _services.graphics.context.withDepthTestMode(
+        DepthTestMode::None,
         [this, &projection, &view, cameraForward, cameraPosition,
          &options, layoutScale, textScale, lineHeight]() {
-            _services.graphics.context.withDepthTestMode(
-                DepthTestMode::None,
+            _services.graphics.context.withDepthMask(
+                false,
                 [this, &projection, &view, cameraForward, cameraPosition,
                  &options, layoutScale, textScale, lineHeight]() {
-                    _services.graphics.context.withDepthMask(
-                        false,
+                    _services.graphics.context.withBlendMode(
+                        BlendMode::Normal,
                         [this, &projection, &view, cameraForward, cameraPosition,
                          &options, layoutScale, textScale, lineHeight]() {
-                            _services.graphics.context.withBlendMode(
-                                BlendMode::Normal,
-                                [this, &projection, &view, cameraForward, cameraPosition,
-                                 &options, layoutScale, textScale, lineHeight]() {
-                                    for (auto it = _entries.rbegin();
-                                         it != _entries.rend();
-                                         ++it) {
-                                        const Entry &entry = *it;
-                                        auto object = _game.getObjectById(entry.objectId);
-                                        if (!object) {
-                                            continue;
-                                        }
+                            for (auto it = _entries.rbegin();
+                                 it != _entries.rend();
+                                 ++it) {
+                                const Entry &entry = *it;
+                                auto object = _game.getObjectById(entry.objectId);
+                                if (!object) {
+                                    continue;
+                                }
 
-                                        auto model = object->sceneNode();
-                                        if (!model) {
-                                            continue;
-                                        }
+                                auto model = object->sceneNode();
+                                if (!model) {
+                                    continue;
+                                }
 
-                                        const glm::vec3 position = model->origin();
-                                        if (glm::dot(cameraForward, position) <=
-                                            glm::dot(cameraForward, cameraPosition)) {
-                                            continue;
-                                        }
+                                const glm::vec3 position = model->origin();
+                                if (glm::dot(cameraForward, position) <=
+                                    glm::dot(cameraForward, cameraPosition)) {
+                                    continue;
+                                }
 
-                                        if (!entry.anchorOffset) {
-                                            continue;
-                                        }
+                                if (!entry.anchorOffset) {
+                                    continue;
+                                }
 
-                                        glm::vec2 screen = projectToScreen(
-                                            position,
-                                            view,
-                                            projection,
-                                            options.width,
-                                            options.height);
+                                glm::vec2 screen = projectToScreen(
+                                    position,
+                                    view,
+                                    projection,
+                                    options.width,
+                                    options.height);
 
-                                        glm::vec3 color;
-                                        switch (entry.style) {
-                                        case Style::Damage:
-                                            color = kDamageColor;
-                                            break;
-                                        case Style::Heal:
-                                            color = kHealColor;
-                                            break;
-                                        case Style::Experience:
-                                            color = kExperienceColor;
-                                            break;
-                                        case Style::LevelUp:
-                                            color = kLevelUpColor;
-                                            break;
-                                        case Style::Miss:
-                                            color = kMissColor;
-                                            break;
-                                        }
+                                glm::vec3 color;
+                                switch (entry.style) {
+                                case Style::Damage:
+                                    color = kDamageColor;
+                                    break;
+                                case Style::Heal:
+                                    color = kHealColor;
+                                    break;
+                                case Style::Experience:
+                                    color = kExperienceColor;
+                                    break;
+                                case Style::LevelUp:
+                                    color = kLevelUpColor;
+                                    break;
+                                case Style::Miss:
+                                    color = kMissColor;
+                                    break;
+                                }
 
-                                        float x = screen.x + entry.anchorOffset->x;
-                                        float y = screen.y + entry.anchorOffset->y -
-                                                  kFloatingTextOffsetY * layoutScale -
-                                                  (entry.stack - 0.5f) * lineHeight;
-                                        float alpha = entry.remaining / getDuration(entry.style);
+                                float x = screen.x + entry.anchorOffset->x;
+                                float y = screen.y + entry.anchorOffset->y -
+                                          kFloatingTextOffsetY * layoutScale -
+                                          (entry.stack - 0.5f) * lineHeight;
+                                float alpha = entry.remaining / getDuration(entry.style);
 
-                                        _font->render(
-                                            entry.text,
-                                            glm::vec3(x, y, 0.0f),
-                                            glm::vec4(color, alpha),
-                                            TextGravity::CenterCenter,
-                                            textScale);
-                                    }
-                                });
+                                _font->render(
+                                    entry.text,
+                                    glm::vec3(x, y, 0.0f),
+                                    glm::vec4(color, alpha),
+                                    TextGravity::CenterCenter,
+                                    textScale);
+                            }
                         });
                 });
         });

@@ -16,6 +16,10 @@
  */
 
 #include "reone/graphics/context.h"
+
+#include <algorithm>
+#include <cmath>
+
 #include "reone/graphics/framebuffer.h"
 #include "reone/graphics/shaderprogram.h"
 #include "reone/graphics/texture.h"
@@ -219,7 +223,9 @@ std::shared_ptr<Texture> Context::captureScreen(int width, int height) {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels->data());
+    // From the viewport's corner.
+    const glm::ivec4 corner = _viewports.empty() ? glm::ivec4(0) : _viewports.top();
+    glReadPixels(corner.x, corner.y, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels->data());
 
     auto texture = std::make_shared<Texture>("screenshot", TextureType::TwoDim, Texture::Properties {});
     texture->setPixels(width, height, PixelFormat::RGB8, Texture::Layer {pixels});
@@ -419,6 +425,25 @@ void Context::withBlendMode(BlendMode mode, const std::function<void()> &block) 
     popBlendMode();
 }
 
+void Context::setScreenPixelSize(glm::ivec2 pixelSize) {
+    if (_viewports.size() != 1 || pixelSize.x <= 0 || pixelSize.y <= 0) {
+        return;
+    }
+    glm::ivec4 viewport {0, 0, pixelSize.x, pixelSize.y};
+    // Unless stretched, the screen keeps its shape: as large as fits,
+    // centred, with black bars beside it or above and below.
+    if (!_options.stretch && _options.width > 0 && _options.height > 0) {
+        const float scale = std::min(
+            pixelSize.x / static_cast<float>(_options.width),
+            pixelSize.y / static_cast<float>(_options.height));
+        const int width = std::min(pixelSize.x, static_cast<int>(std::lround(_options.width * scale)));
+        const int height = std::min(pixelSize.y, static_cast<int>(std::lround(_options.height * scale)));
+        viewport = {(pixelSize.x - width) / 2, (pixelSize.y - height) / 2, width, height};
+    }
+    _viewports.top() = viewport;
+    setViewport(viewport);
+}
+
 void Context::setViewport(glm::ivec4 viewport) {
     glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 }
@@ -499,8 +524,21 @@ void Context::setBlendMode(BlendMode mode) {
     }
 }
 
-void withScissorRect(IContext &context, int screenHeight, const glm::ivec4 &rect, const std::function<void()> &block, bool clear) {
-    const glm::ivec4 bounds {rect.x, screenHeight - (rect.y + rect.w), rect.z, rect.w};
+glm::vec2 screenPixelScale(const IContext &context, const glm::ivec2 &screenSize) {
+    const glm::ivec4 &viewport = context.viewport();
+    return {
+        screenSize.x > 0 && viewport.z > 0 ? viewport.z / static_cast<float>(screenSize.x) : 1.0f,
+        screenSize.y > 0 && viewport.w > 0 ? viewport.w / static_cast<float>(screenSize.y) : 1.0f};
+}
+
+void withScissorRect(IContext &context, const glm::ivec2 &screenSize, const glm::ivec4 &rect, const std::function<void()> &block, bool clear) {
+    const glm::ivec4 &viewport = context.viewport();
+    const glm::vec2 scale = screenPixelScale(context, screenSize);
+    const int left = viewport.x + static_cast<int>(std::floor(rect.x * scale.x));
+    const int right = viewport.x + static_cast<int>(std::ceil((rect.x + rect.z) * scale.x));
+    const int bottom = viewport.y + static_cast<int>(std::floor((screenSize.y - (rect.y + rect.w)) * scale.y));
+    const int top = viewport.y + static_cast<int>(std::ceil((screenSize.y - rect.y) * scale.y));
+    const glm::ivec4 bounds {left, bottom, std::max(0, right - left), std::max(0, top - bottom)};
     if (clear) {
         context.withScissorTest(bounds, block);
     } else {

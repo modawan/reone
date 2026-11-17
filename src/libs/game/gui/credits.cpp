@@ -184,7 +184,7 @@ void CreditsGUI::render() {
         // before, unrounded.
         const float advance {lineUnit()};
         float top {static_cast<float>(_fading ? region[1] + (region[3] - textBlockHeight()) / 2 : region[1] - _scrollOffset)};
-        graphics::withScissorRect(graphics.context, options.height, region, [&]() {
+        graphics::withScissorRect(graphics.context, {options.width, options.height}, region, [&]() {
             for (const auto &line : _lines) {
                 if (top + advance > region[1] && top < region[1] + region[3]) {
                     glm::vec3 position {static_cast<float>(region[0] + region[2] / 2), top, 0.0f};

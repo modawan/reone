@@ -3783,7 +3783,13 @@ void Game::renderScene() {
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
-    auto &output = scene.render({_options.graphics.width, _options.graphics.height});
+    // The world is drawn at the render size and stretched to the screen's
+    // pixels, which on a high-density display outnumber its units, or at the
+    // pixels themselves at full resolution.
+    const auto &graphics = _options.graphics;
+    const glm::ivec4 &viewport = _services.graphics.context.viewport();
+    const glm::ivec2 size = graphics.worldFullResolution ? glm::ivec2(viewport[2], viewport[3]) : glm::ivec2(graphics.width, graphics.height);
+    auto &output = scene.render(size);
     _lastRenderedSceneOutput = &output;
     _services.graphics.uniforms.setLocals(std::bind(&LocalUniforms::reset, std::placeholders::_1));
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::ndcTexture));

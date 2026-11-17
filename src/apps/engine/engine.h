@@ -100,6 +100,8 @@ private:
 
     bool _showCursor {true};
     bool _relativeMouseMode {false};
+    /** The mouse buttons pressed over a black bar, by bit, whose releases are not passed on. */
+    uint32_t _barPresses {0};
 
     void processEvents(bool &quit);
     void initAutomationCommands();
@@ -112,6 +114,10 @@ private:
     void setRelativeMouseMode(bool relative);
 
     std::optional<input::Event> eventFromSDLEvent(const SDL_Event &sdlEvent) const;
+    glm::ivec2 screenFromWindow(float x, float y) const;
+    glm::vec2 windowFromScreen(int x, int y) const;
+    glm::vec4 screenAreaInWindow() const;
+    bool isOverScreen(float x, float y) const;
 };
 
 } // namespace reone

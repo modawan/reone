@@ -178,7 +178,7 @@ static void renderEffectStack(
 
     bool wasVisible = label.isVisible();
     label.setVisible(true);
-    graphics::withScissorRect(context, screenSize.y, clip, [&]() {
+    graphics::withScissorRect(context, screenSize, clip, [&]() {
         for (int index = 0; index < count; ++index) {
             glm::ivec2 offset = controlOffset;
             offset.y += top - label.extent().top;
