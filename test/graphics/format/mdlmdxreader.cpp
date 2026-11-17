@@ -218,3 +218,73 @@ TEST(MdlReader, should_map_only_skin_bone_map_entries_that_are_bones) {
     EXPECT_EQ((std::vector<uint32_t> {1}), skin.boneSerial);
     EXPECT_EQ((std::vector<uint16_t> {1}), skin.boneNodeNumber);
 }
+
+TEST(MdlReader, should_read_emitter_header_at_its_field_widths) {
+    // given
+    // Offsets in the MDL are relative to the end of the 12-byte file header.
+    ByteBuffer mdlBytes;
+    MemoryOutputStream mdlStream(mdlBytes);
+    BinaryWriter writer(mdlStream);
+    // File Header
+    writer.write(12, 0);
+    // Geometry Header (0)
+    writer.write(2 * 4, 0); // model function pointers
+    writer.writeString(std::string("emitter_model").append(32 - 13, '\0'));
+    writer.writeUint32(217);        // offset to root node
+    writer.writeUint32(2);          // number of nodes
+    writer.write(6 * 4 + 4 + 4, 0); // unknown, reference counter, model type
+    // Model Header (80)
+    writer.write(4 + 4, 0);             // classification, fog, number of child models
+    writeArrayDefinition(writer, 0, 0); // animations
+    writer.write(4 + 6 * 4 + 4 + 4, 0); // supermodel reference, bounding box, radius, animation scale
+    writer.writeString(std::string("NULL").append(32 - 4, '\0'));
+    writer.write(4 * 4, 0);               // animation root, unknown, MDX size, MDX offset
+    writeArrayDefinition(writer, 196, 2); // names
+    // Name Offsets (196)
+    writer.writeUint32(204);
+    writer.writeUint32(209);
+    // Names (204)
+    writer.writeCString("root");
+    writer.writeCString("emitter");
+    // Root Node (217)
+    writeNodeHeader(writer, 0x1, 0, 297, 1);
+    // Root Node Children (297)
+    writer.writeUint32(301);
+    // Emitter Node (301)
+    writeNodeHeader(writer, 0x5, 1, 0, 0);
+    // Emitter Header (381)
+    writer.write(3 * 4 + 4 + 4, 0); // dead space, blast radius and length, branch count, control point smoothing
+    writer.writeUint32(1);          // grid X
+    writer.writeUint32(1);          // grid Y
+    writer.write(4, 0);             // unknown
+    writer.writeString(std::string("Fountain").append(32 - 8, '\0'));
+    writer.writeString(std::string("Normal").append(32 - 6, '\0'));
+    writer.writeString(std::string("Normal").append(32 - 6, '\0'));
+    writer.writeString(std::string("fx_smoke").append(32 - 8, '\0'));
+    writer.write(16, 0);                                          // chunk name
+    writer.writeUint32(0);                                        // two-sided
+    writer.writeUint32(1);                                        // loop
+    writer.writeUint16(3);                                        // render order
+    writer.writeByte(1);                                          // frame blending
+    writer.writeString(std::string("NULL").append(32 - 4, '\0')); // depth texture
+    writer.write(1, 0);                                           // unknown
+    writer.writeUint32(1);                                        // flags: point to point, along a straight line
+
+    auto mdl = MemoryInputStream(mdlBytes);
+    auto mdxBytes = ByteBuffer();
+    auto mdx = MemoryInputStream(mdxBytes);
+    Statistic statistic;
+    auto reader = MdlMdxReader(mdl, mdx, statistic);
+
+    // when
+    reader.load();
+
+    // then
+    auto emitterNode = reader.model()->getNodeByName("emitter");
+    ASSERT_TRUE(static_cast<bool>(emitterNode));
+    const auto &emitter = *emitterNode->emitter();
+    EXPECT_EQ(3, emitter.renderOrder);
+    EXPECT_TRUE(emitter.loop);
+    EXPECT_TRUE(emitter.p2p);
+    EXPECT_FALSE(emitter.p2pBezier);
+}
