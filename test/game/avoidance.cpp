@@ -171,7 +171,7 @@ TEST(CreatureAvoidance, a_leader_with_a_wall_at_its_back_goes_round_a_companion)
     ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
     ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
     // An upright wall across the corridor, from the ground to 3 up.
-    auto &walkmesh = fixture.roomWalkmesh;
+    auto &walkmesh = *fixture.roomWalkmesh;
     walkmesh.vertices = {
         glm::vec3(kWallX, -kHalfWidth, 0.0f),
         glm::vec3(kWallX, kHalfWidth, 0.0f),
@@ -200,6 +200,8 @@ TEST(CreatureAvoidance, a_leader_with_a_wall_at_its_back_goes_round_a_companion)
     EXPECT_TRUE(action->isCompleted());
     EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
     EXPECT_LE(glm::abs(fixture.pc->position().y), kHalfWidth);
+}
+
 // On a floor that is not at height zero, the way in from inside the hexagon is
 // still the corner nearest the walker. The corners stand on the ground and the
 // walker's point is taken flat (zero height), so a distance in three
