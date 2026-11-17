@@ -19,6 +19,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/graphics/font.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/fonts.h"
 

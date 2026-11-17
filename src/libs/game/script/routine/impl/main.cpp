@@ -45,6 +45,8 @@
 #include "reone/game/event.h"
 #include "reone/game/forcerules.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/conversation.h"
+#include "reone/game/gui/crafting.h"
 #include "reone/game/object/areaofeffect.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"

@@ -27,11 +27,12 @@
 #include "reone/resource/dialog.h"
 #include "reone/system/timer.h"
 
-#include "../gui.h"
 #include "../globalfade.h"
+#include "../gui.h"
 #include "../object.h"
 #include "../runtimeref.h"
 #include "../types.h"
+#include "conversationautoskip.h"
 
 namespace reone {
 
@@ -97,16 +98,7 @@ public:
     /** The owner breaking off ends the conversation; any other participant leaves it. */
     void stopParticipant(const Object &object);
 
-    struct AutoSkip {
-        std::queue<std::optional<int>> replies;
-        std::queue<bool> entries;
-        bool enabled {false};
-
-        std::optional<int> trySkipReply();
-        std::optional<bool> trySkipEntry();
-    };
-
-    void setAutoSkip(AutoSkip *skip) { _autoSkip = skip; }
+    void setAutoSkip(ConversationAutoSkip *skip) { _autoSkip = skip; }
 
     /** The conversation's dialog is an animated cutscene. */
     bool isAnimatedCutscene() const { return _dialog && _dialog->isAnimatedCutscene(); }
@@ -271,7 +263,7 @@ private:
     bool _autoPickFirstReply {false};
     /** Whether the conversation has listed the replies of the entry it ends on. */
     bool _endReached {false};
-    AutoSkip *_autoSkip {nullptr};
+    ConversationAutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
     uint64_t _generation {0};
     /** Steps whose scripts run, or wait at a movie, before the rest of the step goes on (see runScripts). */
