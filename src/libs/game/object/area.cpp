@@ -1739,6 +1739,9 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     if (auto creature = dyn_cast<Creature>(object)) {
         creature->stopRollingFootstep();
         creature->stopLoopingSounds();
+        // Its path goes back to this area's pathfinder, whose paths every
+        // walker in the area shares.
+        creature->clearPath(_pathfinder);
     }
     // Only a body standing in the area stays behind it.
     const bool resident = isObjectResident(*object);

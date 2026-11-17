@@ -10577,9 +10577,14 @@ void Creature::clearPath() {
     if (!_path) {
         return;
     }
+    clearPath(_game.module()->area()->pathfinder());
+}
 
-    Pathfinder &pf = _game.module()->area()->pathfinder();
-    releasePath(pf, *_path);
+void Creature::clearPath(Pathfinder &pathfinder) {
+    if (!_path) {
+        return;
+    }
+    releasePath(pathfinder, *_path);
     _path = std::nullopt;
     _pathNode.reset();
 }

@@ -363,3 +363,17 @@ TEST(CreatureWalk, a_walker_that_dies_gives_its_path_back) {
 
     EXPECT_EQ(0, activePaths(*fixture.area));
 }
+
+// A walker destroyed on its way, as a script destroys one it has walked to a
+// door, gives its path back.
+TEST(CreatureWalk, a_destroyed_walker_gives_its_path_back) {
+    CorridorFixture fixture;
+    auto walker = walkingStranger(fixture);
+    ASSERT_EQ(1, activePaths(*fixture.area));
+
+    fixture.area->destroyObject(*walker);
+    fixture.area->update(kTick);
+
+    ASSERT_FALSE(fixture.game->getObjectById(walker->id()));
+    EXPECT_EQ(0, activePaths(*fixture.area));
+}
