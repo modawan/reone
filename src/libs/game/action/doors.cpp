@@ -727,8 +727,13 @@ std::shared_ptr<Action> DoorSaberAction::restore(const SavedActionRecord &record
 // before it uses it.
 static constexpr float kUseWaitAfterApproach = 0.5f;
 
+// How much farther than its use range a creature held up on the way to an
+// object may stand and still use it from there.
+static constexpr float kHeldUpUseReach = 1.0f;
+
 // A use is made from the object's use point: a creature out of use range goes
-// there, turns to the object and waits half a second first. A use does not
+// there, turns to the object and waits half a second first; one held up on
+// the way, close by, uses it from where it stands. A use does not
 // lock the creature's facing. A placeable without an inventory is then used.
 // A locked container opens only to a key the creature carries; otherwise the
 // player's creature is told it is locked, and the container counts as used. A
@@ -744,11 +749,23 @@ void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, f
     auto *placeable = dyn_cast<Placeable>(_object.get());
 
     auto &creatureActor = cast<Creature>(actor);
-    if (!creatureActor.navigateToUse(*_object, 0.0f, dt)) {
+    if (!_usedFromHere && !creatureActor.navigateToUse(*_object, 0.0f, dt)) {
         if (creatureActor.navigationFailed()) {
             // No path reaches the object: give up.
             complete();
             return;
+        }
+        // A walk held up short of the use point (a creature standing on it,
+        // or a line of them in the way) has no other end: once the approach
+        // gives out, the object is used from where the creature stands when
+        // that is close by, and given up otherwise.
+        if (creatureActor.useApproachGaveOut(*_object)) {
+            if (!creatureActor.isInUseRange(*_object, kHeldUpUseReach)) {
+                complete();
+                return;
+            }
+            creatureActor.setMovementType(Creature::MovementType::None);
+            _usedFromHere = true;
         }
         _approached = true;
         return;
