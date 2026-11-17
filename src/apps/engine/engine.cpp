@@ -28,6 +28,7 @@
 #include "reone/resource/gameprobe.h"
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stringutil.h"
+#include "reone/system/unicodeutil.h"
 
 #include <iomanip>
 
@@ -136,8 +137,7 @@ void Engine::init() {
         _options.graphics,
         _options.audio,
         *_graphicsModule,
-        *_audioModule,
-        *_scriptModule);
+        *_audioModule);
     _sceneModule = std::make_unique<SceneModule>(
         _options.graphics,
         *_resourceModule,
@@ -298,6 +298,10 @@ int Engine::run() {
         _profiler->measure(kMainThreadName, kProfilerUpdateTimeIndex, [this, &frameTime]() {
             imguiNewFrame();
             _game->update(frameTime);
+            // The system translates keys into text only while the console, a
+            // text box or the developer overlay takes typing.
+            _window->setTextInputActive(_console->isOpen() || _game->wantsTextInput() ||
+                                        ImGui::GetIO().WantTextInput);
             bool showcur = _game->cursorType() == CursorType::None;
             bool relmouse = _game->relativeMouseMode();
             showCursor(showcur);
@@ -463,6 +467,13 @@ void Engine::processEvents(bool &quit) {
             }
             continue;
         }
+        // Text arrives one character at a time.
+        if (sdlEvent.type == SDL_EVENT_TEXT_INPUT) {
+            for (uint32_t codePoint : codePointsFromUTF8(sdlEvent.text.text)) {
+                unhandled.push(input::Event::newTextInput(input::TextInputEvent {codePoint}));
+            }
+            continue;
+        }
         auto event = eventFromSDLEvent(sdlEvent);
         if (!event) {
             continue;
@@ -471,6 +482,13 @@ void Engine::processEvents(bool &quit) {
             continue;
         }
         unhandled.push(*event);
+        // While nothing takes typing the system translates no text, but a key
+        // pressed still gives the character it types, so that the console
+        // character opens the console.
+        if (event->type == input::EventType::KeyDown && !event->key.repeat && event->key.character != 0 &&
+            !_window->isTextInputActive()) {
+            unhandled.push(input::Event::newTextInput(input::TextInputEvent {event->key.character}));
+        }
     }
     while (!unhandled.empty()) {
         _events.push(std::move(unhandled.front()));
@@ -498,6 +516,39 @@ void Engine::setRelativeMouseMode(bool relative) {
     _relativeMouseMode = relative;
 }
 
+// The character a key types with the modifiers \p mod, or 0 for none.
+// Command and Control make shortcuts, and so does Alt, unless it changes the
+// key's character, as Option does. AltGr arrives as Mode, as Control and Alt
+// together, or as right Alt alone where the system drops the Control it
+// sends; the keymap holds its characters for Mode.
+static uint32_t typedCharacter(SDL_Scancode scancode, SDL_Keymod mod) {
+    if ((mod & SDL_KMOD_GUI) != 0) {
+        return 0;
+    }
+    const bool control = (mod & SDL_KMOD_CTRL) != 0;
+    const SDL_Keymod alt = mod & SDL_KMOD_ALT;
+    SDL_Keycode typed = SDLK_UNKNOWN;
+    if (alt == 0) {
+        if (!control) {
+            typed = SDL_GetKeyFromScancode(scancode, mod, false);
+        }
+    } else {
+        const auto others = static_cast<SDL_Keymod>(mod & ~(SDL_KMOD_CTRL | SDL_KMOD_ALT));
+        const SDL_Keycode plain = SDL_GetKeyFromScancode(scancode, others, false);
+        if (control || alt == SDL_KMOD_RALT) {
+            typed = SDL_GetKeyFromScancode(scancode, static_cast<SDL_Keymod>(others | SDL_KMOD_MODE), false);
+        }
+        if ((typed == SDLK_UNKNOWN || typed == plain) && !control) {
+            typed = SDL_GetKeyFromScancode(scancode, static_cast<SDL_Keymod>(others | alt), false);
+        }
+        if (typed == plain) {
+            typed = SDLK_UNKNOWN;
+        }
+    }
+    const bool isCharacter = typed >= 0x20 && typed != 0x7f && (typed & SDLK_SCANCODE_MASK) == 0;
+    return isCharacter ? static_cast<uint32_t>(typed) : 0;
+}
+
 std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent) const {
     switch (sdlEvent.type) {
     case SDL_EVENT_KEY_DOWN:
@@ -505,7 +556,8 @@ std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent)
             sdlEvent.key.down,
             static_cast<input::KeyCode>(sdlEvent.key.key),
             sdlEvent.key.mod,
-            sdlEvent.key.repeat});
+            sdlEvent.key.repeat,
+            typedCharacter(sdlEvent.key.scancode, sdlEvent.key.mod)});
     case SDL_EVENT_KEY_UP:
         return input::Event::newKeyUp(input::KeyEvent {
             sdlEvent.key.down,

@@ -887,7 +887,7 @@ void Area::loadLYT() {
         std::shared_ptr<WalkmeshSceneNode> walkmeshSceneNode;
         auto walkmesh = _services.resource.walkmeshes.get(lytRoom.name, ResType::Wok);
         if (walkmesh) {
-            walkmeshSceneNode = sceneGraph.newWalkmesh(*walkmesh);
+            walkmeshSceneNode = sceneGraph.newWalkmesh(walkmesh);
             sceneGraph.addRoot(walkmeshSceneNode);
             uniwalkLoadRoom(_pathfinder.uni, *walkmesh, walkableSurfaces);
         }
@@ -899,7 +899,7 @@ void Area::loadLYT() {
         // Model
         std::shared_ptr<ModelSceneNode> modelSceneNode;
         if (model) {
-            modelSceneNode = sceneGraph.newModel(*model, ModelUsage::Room);
+            modelSceneNode = sceneGraph.newModel(model, ModelUsage::Room);
             modelSceneNode->setLocalTransform(glm::translate(glm::mat4(1.0f), position));
 
             // Mark room objects as static when not below "{modelName}a" model node
@@ -961,7 +961,7 @@ void Area::buildGrass() {
     properties.quadSize = _grass.quadSize;
     properties.probabilities = _grass.probabilities;
     properties.materials = _services.game.surfaces.getGrassSurfaces();
-    properties.texture = _grass.texture.get();
+    properties.texture = _grass.texture;
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     for (auto *room : _roomOrder) {
         auto aabbNode = room->model() ? room->model()->model().getAABBNode() : nullptr;
@@ -1517,6 +1517,56 @@ const Room *Area::roomUnder(const glm::vec3 &position) const {
     return walkmesh ? dynamic_cast<const Room *>(walkmesh->user()) : nullptr;
 }
 
+float Area::soundObstruction(const glm::vec3 &source, const glm::vec3 &listener) const {
+    return soundObstruction(_services.scene.graphs.get(_sceneName), source, listener);
+}
+
+// Each wall face the line from a sound to its listener crosses blocks 0.4 of
+// it, each placeable 0.4 and each door 0.55, up to all of it. Creatures block
+// nothing. An object counts once, where the line enters it, so a sound inside
+// its own placeable is not muffled by it. Nor does a face the sound or the
+// listener touches count, such as the floor a sound sits on.
+float Area::soundObstruction(const scene::ISceneGraph &sceneGraph, const glm::vec3 &source, const glm::vec3 &listener) {
+    static constexpr float kWallObstruction = 0.4f;
+    static constexpr float kDoorObstruction = 0.55f;
+    // How near an end of the line, in metres, a face is one that end touches,
+    // and how far past a hit the line is cast again. Sounds set on a floor sit
+    // within a few centimetres of it.
+    static constexpr float kContactDistance = 0.1f;
+    const float length = glm::distance(source, listener);
+    if (length <= 2.0f * kContactDistance) {
+        return 0.0f;
+    }
+    float obstruction = 0.0f;
+    std::vector<const Object *> counted;
+    glm::vec3 from {source + (kContactDistance / length) * (listener - source)};
+    while (obstruction < 1.0f && glm::distance(from, listener) > kContactDistance) {
+        Collision collision;
+        if (!sceneGraph.testLineOfSight(from, listener, collision)) {
+            break;
+        }
+        const glm::vec3 onward {listener - collision.intersection};
+        const float left = glm::length(onward);
+        if (left <= kContactDistance) {
+            break;
+        }
+        auto *object = dynamic_cast<const Object *>(collision.user);
+        if (!object) {
+            obstruction += kWallObstruction;
+        } else if (glm::dot(collision.normal, onward) < 0.0f &&
+                   std::find(counted.begin(), counted.end(), object) == counted.end()) {
+            counted.push_back(object);
+            if (object->type() == ObjectType::Placeable) {
+                obstruction += kWallObstruction;
+            } else if (object->type() == ObjectType::Door) {
+                obstruction += kDoorObstruction;
+            }
+        }
+        from = collision.intersection + (kContactDistance / left) * onward;
+    }
+    return std::min(obstruction, 1.0f);
+}
+
 int Area::roomEnvAudio(const Room &room) const {
     auto found = _roomEnvAudio.find(boost::to_lower_copy(room.name()));
     return found != _roomEnvAudio.end() ? found->second : 0;
@@ -1805,7 +1855,7 @@ void Area::presentVisualAt(int visualEffectId, const glm::vec3 &position) {
     const VisualEffectDesc &desc = *found;
     if (desc.locationModel) {
         auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-        auto model = sceneGraph.newModel(*desc.locationModel, ModelUsage::Projectile);
+        auto model = sceneGraph.newModel(desc.locationModel, ModelUsage::Projectile);
         sceneGraph.addRoot(model);
         model->setLocalTransform(glm::translate(position));
         model->playAnimation("impact");
@@ -1860,7 +1910,7 @@ void Area::presentHitSpark(const Creature &target, int visualEffectId, const glm
     spark.orientation = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
                         glm::angleAxis(kHitSparkTilt, glm::vec3(1.0f, 0.0f, 0.0f));
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-    spark.model = sceneGraph.newModel(*desc.impactModel, ModelUsage::Projectile);
+    spark.model = sceneGraph.newModel(desc.impactModel, ModelUsage::Projectile);
     sceneGraph.addRoot(spark.model);
     spark.model->setLocalTransform(glm::translate(node->origin()) * glm::mat4_cast(spark.orientation));
     spark.model->playAnimation("impact");

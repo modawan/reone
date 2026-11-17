@@ -43,8 +43,8 @@ TEST(EmitterSceneNode, looping_model_animation_rearms_single_emitter_after_parti
 
     std::vector<std::shared_ptr<Animation>> animations;
     animations.push_back(std::make_shared<Animation>("default", 0.0f, 0.0f, "", nullptr, std::vector<Animation::Event>()));
-    auto model = Model("single_loop", 0, rootNode, animations, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("single_loop", 0, rootNode, animations, "", 1.0f);
+    model->init();
     auto sceneModel = scene->newModel(model, ModelUsage::GUI);
     sceneModel->init();
     scene->addRoot(sceneModel);
@@ -84,8 +84,8 @@ TEST(EmitterSceneNode, non_looping_model_animation_does_not_rearm_single_emitter
     rootNode->addChild(emitterNode);
 
     auto animation = std::make_shared<Animation>("once", 0.1f, 0.0f, "", nullptr, std::vector<Animation::Event>());
-    auto model = Model("single_once", 0, rootNode, std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("single_once", 0, rootNode, std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
+    model->init();
     auto sceneModel = scene->newModel(model, ModelUsage::GUI);
     sceneModel->init();
     sceneModel->playAnimation(*animation, nullptr, AnimationProperties());
@@ -130,8 +130,8 @@ TEST(EmitterSceneNode, unrelated_looping_overlay_does_not_rearm_single_emitter) 
 
     auto nonLooping = std::make_shared<Animation>("single_state", 1.0f, 0.0f, "single_branch", nullptr, std::vector<Animation::Event>());
     auto looping = std::make_shared<Animation>("unrelated_loop", 0.05f, 0.0f, "looping_branch", nullptr, std::vector<Animation::Event>());
-    auto model = Model("concurrent_single", 0, rootNode, std::vector<std::shared_ptr<Animation>> {nonLooping, looping}, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("concurrent_single", 0, rootNode, std::vector<std::shared_ptr<Animation>> {nonLooping, looping}, "", 1.0f);
+    model->init();
     auto sceneModel = scene->newModel(model, ModelUsage::GUI);
     sceneModel->init();
     sceneModel->playAnimation(*nonLooping, nullptr, AnimationProperties::fromFlags(AnimationFlags::overlay));
@@ -173,8 +173,8 @@ TEST(EmitterSceneNode, rearming_single_does_not_affect_fountain_emission) {
     rootNode->addChild(emitterNode);
 
     auto animation = std::make_shared<Animation>("loop", 0.05f, 0.0f, "root", nullptr, std::vector<Animation::Event>());
-    auto model = Model("fountain_loop", 0, rootNode, std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
-    model.init();
+    auto model = std::make_shared<Model>("fountain_loop", 0, rootNode, std::vector<std::shared_ptr<Animation>> {animation}, "", 1.0f);
+    model->init();
     auto sceneModel = scene->newModel(model, ModelUsage::GUI);
     sceneModel->init();
     sceneModel->playAnimation(*animation, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
@@ -217,7 +217,7 @@ struct PrewarmScene {
     }
 
     /** Build the GUI scene and hand back its one emitter. */
-    EmitterSceneNode *build(Model &source, bool prewarm) {
+    EmitterSceneNode *build(std::shared_ptr<Model> source, bool prewarm) {
         gui::SceneInitializer initializer(*graph);
         initializer.modelSupplier([this, &source](ISceneGraph &graph) {
             model = graph.newModel(source, ModelUsage::GUI);
@@ -311,7 +311,7 @@ TEST(EmitterPrewarm, a_gui_scene_that_does_not_opt_in_starts_its_fountain_cold) 
     PrewarmScene scene;
     auto model = newEmitterModel("cold", ModelNode::Emitter::UpdateMode::Fountain, 10.0f, 2.0f);
 
-    auto emitter = scene.build(*model, false);
+    auto emitter = scene.build(model, false);
 
     ASSERT_TRUE(emitter);
     EXPECT_TRUE(emitter->children().empty());
@@ -322,7 +322,7 @@ TEST(EmitterPrewarm, opting_in_seeds_a_fountain_at_its_steady_state_population) 
     // Ten a second, each living two seconds: twenty alive once it is running.
     auto model = newEmitterModel("warm", ModelNode::Emitter::UpdateMode::Fountain, 10.0f, 2.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
 
     ASSERT_TRUE(emitter);
     EXPECT_EQ(20u, emitter->children().size());
@@ -332,7 +332,7 @@ TEST(EmitterPrewarm, seeded_particle_ages_are_spread_across_the_authored_lifetim
     PrewarmScene scene;
     auto model = newEmitterModel("spread", ModelNode::Emitter::UpdateMode::Fountain, 2.0f, 2.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
     ASSERT_TRUE(emitter);
 
     // Four particles over a two second life: one per half-second birth interval.
@@ -350,7 +350,7 @@ TEST(EmitterPrewarm, a_seeded_particle_looks_like_one_that_lived_that_long) {
     PrewarmScene scene;
     auto model = newEmitterModel("aged", ModelNode::Emitter::UpdateMode::Fountain, 1.0f, 2.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
     ASSERT_TRUE(emitter);
     ASSERT_EQ(2u, emitter->children().size());
 
@@ -369,7 +369,7 @@ TEST(EmitterPrewarm, prewarming_leaves_a_single_emitter_alone) {
     PrewarmScene scene;
     auto model = newEmitterModel("single", ModelNode::Emitter::UpdateMode::Single, 10.0f, 2.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
 
     ASSERT_TRUE(emitter);
     // Its one particle is still the ordinary lifecycle's to create.
@@ -383,7 +383,7 @@ TEST(EmitterPrewarm, steady_state_population_can_exceed_one_gpu_particle_batch) 
     PrewarmScene scene;
     auto model = newEmitterModel("large_population", ModelNode::Emitter::UpdateMode::Fountain, 25.0f, 4.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
 
     ASSERT_TRUE(emitter);
     EXPECT_EQ(100u, emitter->children().size());
@@ -396,7 +396,7 @@ TEST(EmitterPrewarm, appearance_uses_the_authored_lifecycle_percentages) {
     sourceEmitter->floatTracks().erase(ControllerTypes::percentMid);
     sourceEmitter->floatTracks()[ControllerTypes::percentMid].add(0.0f, 0.1f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
 
     ASSERT_TRUE(emitter);
     auto oneSecondOldIt = std::find_if(emitter->children().begin(), emitter->children().end(), [](auto child) {
@@ -418,7 +418,7 @@ TEST(EmitterPrewarm, zero_fps_keeps_the_authored_start_frame) {
     sourceEmitter->floatTracks()[ControllerTypes::frameStart].add(0.0f, 3.0f);
     sourceEmitter->floatTracks()[ControllerTypes::fps].add(0.0f, 0.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
 
     ASSERT_TRUE(emitter);
     auto oldest = oldestParticle(*emitter);
@@ -436,7 +436,7 @@ TEST(EmitterPrewarm, random_birthrate_changes_the_authored_fountain_population) 
         10.0f,
         9.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
 
     ASSERT_TRUE(emitter);
     EXPECT_GT(emitter->children().size(), 0u);
@@ -447,7 +447,7 @@ TEST(EmitterPrewarm, emission_carries_on_at_the_authored_cadence_after_prewarmin
     PrewarmScene scene;
     auto model = newEmitterModel("cadence", ModelNode::Emitter::UpdateMode::Fountain, 2.0f, 2.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
     ASSERT_TRUE(emitter);
     ASSERT_EQ(4u, emitter->children().size());
 
@@ -470,7 +470,7 @@ TEST(EmitterPrewarm, seeded_ages_follow_the_birth_interval_not_an_even_share_of_
     // emission at this cadence could ever have produced.
     auto model = newEmitterModel("cadence_phase", ModelNode::Emitter::UpdateMode::Fountain, 2.0f, 0.75f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
     ASSERT_TRUE(emitter);
 
     auto lifetimes = particleLifetimes(*emitter);
@@ -486,7 +486,7 @@ TEST(EmitterPrewarm, a_fractional_birthrate_still_seeds_whole_birth_intervals) {
     // apart, the oldest still short of the end of its life.
     auto model = newEmitterModel("fractional", ModelNode::Emitter::UpdateMode::Fountain, 2.5f, 1.0f);
 
-    auto emitter = scene.build(*model, true);
+    auto emitter = scene.build(model, true);
     ASSERT_TRUE(emitter);
 
     auto lifetimes = particleLifetimes(*emitter);
@@ -513,7 +513,7 @@ TEST(EmitterPrewarm, no_seeded_particle_is_born_already_expired) {
         PrewarmScene scene;
         auto model = newEmitterModel("expiry", ModelNode::Emitter::UpdateMode::Fountain, birthrate, lifeExpectancy);
 
-        auto emitter = scene.build(*model, true);
+        auto emitter = scene.build(model, true);
         ASSERT_TRUE(emitter);
 
         auto lifetimes = particleLifetimes(*emitter);

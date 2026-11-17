@@ -25,8 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "container/erf.h"
-#include "container/folder.h"
+#include "container.h"
 #include "resource.h"
 
 namespace reone {
@@ -222,7 +221,7 @@ public:
 
 private:
     std::optional<SaveSlotDescriptor> _slot;
-    std::unique_ptr<FolderResourceContainer> _metadata;
+    std::unique_ptr<IResourceContainer> _metadata;
     std::shared_ptr<const SaveWorkingState> _workingState;
 };
 

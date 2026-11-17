@@ -38,6 +38,21 @@ class ModelSceneNode;
 
 namespace game {
 
+/** The number of clips of the bike's lean on each side, BankL_01..10 and BankR_01..10. */
+constexpr int kMinigameBankFrames = 10;
+
+/** The clip of a level bike. */
+constexpr const char *kMinigameLevelAnimation = "Ready_01";
+
+/**
+ * The bike's animation for \p lean (-1 = full left .. 1 = full right): the clip
+ * whose roll is nearest to the lean, BankL_01..10 or BankR_01..10, or
+ * "Ready_01" when the bike is nearer to level than to the first clip. A lean of
+ * 1 is the roll of clip 10. The clips' rolls are not evenly spaced, and differ
+ * a little between the KotOR and TSL bikes: \p tsl picks the bike.
+ */
+std::string minigameBankAnimation(float lean, bool tsl);
+
 /**
  * Plays the animations minigame scripts ask for (SWMG_PlayAnimation) on the
  * models of a minigame actor.
@@ -56,6 +71,19 @@ public:
     bool play(scene::ModelSceneNode &model, const std::string &name, bool looping, bool queue, bool overlay);
 
     void remove(scene::ModelSceneNode &model, const std::string &name);
+
+    /**
+     * Holds the model in the pose of the looping animation \p name, in place
+     * of \p previous (which may be empty or the same). Unlike play(), the
+     * animation is not a layer: it is a base animation, which shows in full
+     * from the first frame and sits under every layer, so a script's
+     * animation of the same nodes still plays over it and a new frame does
+     * not restart the blend that a layer makes over the animation's
+     * transition time. This is how the bike's lean follows the steering.
+     * Returns false when the model has no such animation; \p previous is
+     * taken off all the same.
+     */
+    bool pose(scene::ModelSceneNode &model, const std::string &name, const std::string &previous);
 
     void update(float dt);
 

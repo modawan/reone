@@ -29,7 +29,6 @@
 #include "reone/resource/id.h"
 #include "reone/resource/talktable.h"
 #include "reone/scene/di/module.h"
-#include "reone/script/di/module.h"
 #include "reone/system/di/module.h"
 #include "reone/system/stream/input.h"
 #include "reone/tools/legacy/tool.h"
@@ -265,7 +264,6 @@ private:
     std::unique_ptr<graphics::GraphicsModule> _graphicsModule;
     std::unique_ptr<audio::AudioModule> _audioModule;
     std::unique_ptr<scene::SceneModule> _sceneModule;
-    std::unique_ptr<script::ScriptModule> _scriptModule;
 
     bool _engineLoaded {false};
 

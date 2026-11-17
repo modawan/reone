@@ -161,7 +161,7 @@ std::shared_ptr<scene::ModelSceneNode> GalaxyMap::getGalaxyModel(scene::ISceneGr
     if (!model) {
         return nullptr;
     }
-    _galaxyModelNode = sceneGraph.newModel(*model, scene::ModelUsage::GUI);
+    _galaxyModelNode = sceneGraph.newModel(model, scene::ModelUsage::GUI);
     return _galaxyModelNode;
 }
 
@@ -228,7 +228,7 @@ void GalaxyMap::refreshPlanetModel(int row) {
         if (!model) {
             return;
         }
-        _planetModelNode = sceneGraph.newModel(*model, scene::ModelUsage::GUI);
+        _planetModelNode = sceneGraph.newModel(model, scene::ModelUsage::GUI);
         _planetModelNodes.emplace(resRef, _planetModelNode);
     }
     _planetModelResRef = resRef;

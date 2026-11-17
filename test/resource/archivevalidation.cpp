@@ -19,8 +19,7 @@
  * When a backend decides an archive is unusable.
  *
  * A source that is absent and a source that is unreadable are different
- * answers, and the difference has to be the same on both backends: absence is
- * best effort, and an unreadable container fails the operation that tried to
+ * answers: absence is best effort, and an unreadable container fails the operation that tried to
  * mount it. A backend that accepts a corrupt archive and only fails later, at
  * whichever lookup happens to touch it first, turns a failed load into a module
  * that half works.
@@ -32,8 +31,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/graphics/options.h"
 #include "reone/resource/director.h"
-#include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/rimwriter.h"
 #include "reone/resource/resources.h"
@@ -41,9 +40,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -142,34 +139,22 @@ struct CwdGuard {
     }
 };
 
-enum class Backend { Legacy, Extract };
-
-std::string backendName(const testing::TestParamInfo<Backend> &info) {
-    return info.param == Backend::Legacy ? "Legacy" : "Extract";
-}
-
 } // namespace
 
 /// Registration on a bare backend, with no director involved.
-class ArchiveRegistrationTest : public testing::TestWithParam<Backend> {
+class ArchiveRegistrationTest : public testing::Test {
 protected:
     void SetUp() override {
-        if (GetParam() == Backend::Legacy) {
-            auto legacy = std::make_unique<Resources>();
-            _count = [raw = legacy.get()]() { return raw->containers().size(); };
-            _resources = std::move(legacy);
-        } else {
-            auto extract = std::make_unique<ExtractResources>();
-            _count = [raw = extract.get()]() { return raw->sourceCount(); };
-            _resources = std::move(extract);
-        }
+        auto legacy = std::make_unique<Resources>();
+        _count = [raw = legacy.get()]() { return raw->containers().size(); };
+        _resources = std::move(legacy);
     }
 
     std::unique_ptr<IResources> _resources;
     std::function<std::size_t()> _count;
 };
 
-TEST_P(ArchiveRegistrationTest, rejects_a_corrupt_resource_image_as_it_is_mounted) {
+TEST_F(ArchiveRegistrationTest, rejects_a_corrupt_resource_image_as_it_is_mounted) {
     TmpDir tmp("reone_test_validation_rim");
     writeCorrupt(tmp.path / "broken.rim");
 
@@ -178,7 +163,7 @@ TEST_P(ArchiveRegistrationTest, rejects_a_corrupt_resource_image_as_it_is_mounte
     EXPECT_EQ(0u, _count()) << "a container that failed to open must not be left registered";
 }
 
-TEST_P(ArchiveRegistrationTest, rejects_a_corrupt_encapsulated_archive_as_it_is_mounted) {
+TEST_F(ArchiveRegistrationTest, rejects_a_corrupt_encapsulated_archive_as_it_is_mounted) {
     TmpDir tmp("reone_test_validation_erf");
     writeCorrupt(tmp.path / "broken.mod");
 
@@ -187,7 +172,7 @@ TEST_P(ArchiveRegistrationTest, rejects_a_corrupt_encapsulated_archive_as_it_is_
     EXPECT_EQ(0u, _count());
 }
 
-TEST_P(ArchiveRegistrationTest, accepts_a_valid_archive_and_reads_it_afterwards) {
+TEST_F(ArchiveRegistrationTest, accepts_a_valid_archive_and_reads_it_afterwards) {
     TmpDir tmp("reone_test_validation_valid");
     writeRim(tmp.path / "good.rim", {{"probe", ResType::Txt, "payload"}});
     writeErf(tmp.path / "good.mod", ErfWriter::FileType::MOD, {{"other", ResType::Txt, "payload"}});
@@ -200,7 +185,7 @@ TEST_P(ArchiveRegistrationTest, accepts_a_valid_archive_and_reads_it_afterwards)
     EXPECT_EQ("payload", dataOf(_resources->find(ResourceId("other", ResType::Txt))));
 }
 
-TEST_P(ArchiveRegistrationTest, a_rejected_archive_leaves_earlier_sources_untouched) {
+TEST_F(ArchiveRegistrationTest, a_rejected_archive_leaves_earlier_sources_untouched) {
     TmpDir tmp("reone_test_validation_earlier");
     writeRim(tmp.path / "good.rim", {{"probe", ResType::Txt, "payload"}});
     writeCorrupt(tmp.path / "broken.rim");
@@ -213,26 +198,13 @@ TEST_P(ArchiveRegistrationTest, a_rejected_archive_leaves_earlier_sources_untouc
     EXPECT_EQ("payload", dataOf(_resources->find(ResourceId("probe", ResType::Txt))));
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         ArchiveRegistrationTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
-
 /// The same contract seen through a module load.
-class ArchiveValidationDirectorTest : public testing::TestWithParam<Backend> {
+class ArchiveValidationDirectorTest : public testing::Test {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
-        if (GetParam() == Backend::Legacy) {
-            auto legacy = std::make_unique<Resources>();
-            _count = [raw = legacy.get()]() { return raw->containers().size(); };
-            _resources = std::move(legacy);
-        } else {
-            auto extract = std::make_unique<ExtractResources>();
-            _count = [raw = extract.get()]() { return raw->sourceCount(); };
-            _resources = std::move(extract);
-        }
+        auto legacy = std::make_unique<Resources>();
+        _count = [raw = legacy.get()]() { return raw->containers().size(); };
+        _resources = std::move(legacy);
         _auxResources = std::make_unique<Resources>();
     }
 
@@ -244,8 +216,7 @@ protected:
     std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath) {
         _gamePath = gamePath;
         return std::make_unique<ResourceDirector>(
-            GameID::TSL, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            _dialogs, _gffs, _lips, _paths, *_resources, *_auxResources, _scripts, _twoDas);
+            GameID::TSL, _gamePath, _graphicsOpt, *_resources, *_auxResources, _twoDas);
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {
@@ -257,14 +228,7 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
 
-    NiceMock<MockDialogs> _dialogs;
-    NiceMock<MockGffs> _gffs;
-    NiceMock<MockLips> _lips;
-    NiceMock<MockPaths> _paths;
-    NiceMock<MockScripts> _scripts;
     NiceMock<MockTwoDAs> _twoDas;
 
     std::filesystem::path _gamePath;
@@ -273,7 +237,7 @@ protected:
     std::function<std::size_t()> _count;
 };
 
-TEST_P(ArchiveValidationDirectorTest, an_absent_optional_archive_is_not_fatal) {
+TEST_F(ArchiveValidationDirectorTest, an_absent_optional_archive_is_not_fatal) {
     TmpDir game("reone_test_validation_absent");
     TmpDir cwd("reone_test_validation_absent_cwd");
     makeInstallation(game, cwd);
@@ -294,7 +258,7 @@ TEST_P(ArchiveValidationDirectorTest, an_absent_optional_archive_is_not_fatal) {
     EXPECT_TRUE(has("from_static")) << "an absent optional family is not a failed load";
 }
 
-TEST_P(ArchiveValidationDirectorTest, a_corrupt_resource_image_fails_the_load_immediately) {
+TEST_F(ArchiveValidationDirectorTest, a_corrupt_resource_image_fails_the_load_immediately) {
     TmpDir game("reone_test_validation_module_rim");
     TmpDir cwd("reone_test_validation_module_rim_cwd");
     makeInstallation(game, cwd);
@@ -313,7 +277,7 @@ TEST_P(ArchiveValidationDirectorTest, a_corrupt_resource_image_fails_the_load_im
         << "an unreadable container must fail the load, not a later lookup";
 }
 
-TEST_P(ArchiveValidationDirectorTest, a_corrupt_encapsulated_archive_fails_the_load_immediately) {
+TEST_F(ArchiveValidationDirectorTest, a_corrupt_encapsulated_archive_fails_the_load_immediately) {
     TmpDir game("reone_test_validation_module_mod");
     TmpDir cwd("reone_test_validation_module_mod_cwd");
     makeInstallation(game, cwd);
@@ -332,7 +296,7 @@ TEST_P(ArchiveValidationDirectorTest, a_corrupt_encapsulated_archive_fails_the_l
     EXPECT_THROW(director->onModuleLoad("foo"), ValidationException);
 }
 
-TEST_P(ArchiveValidationDirectorTest, rolls_back_what_the_failed_load_had_already_mounted) {
+TEST_F(ArchiveValidationDirectorTest, rolls_back_what_the_failed_load_had_already_mounted) {
     TmpDir game("reone_test_validation_rollback");
     TmpDir cwd("reone_test_validation_rollback_cwd");
     makeInstallation(game, cwd);
@@ -361,7 +325,7 @@ TEST_P(ArchiveValidationDirectorTest, rolls_back_what_the_failed_load_had_alread
     EXPECT_EQ(globals, _count()) << "nothing of the failed module may remain";
 }
 
-TEST_P(ArchiveValidationDirectorTest, repeating_a_failed_load_leaves_the_same_state) {
+TEST_F(ArchiveValidationDirectorTest, repeating_a_failed_load_leaves_the_same_state) {
     TmpDir game("reone_test_validation_repeat");
     TmpDir cwd("reone_test_validation_repeat_cwd");
     makeInstallation(game, cwd);
@@ -386,7 +350,7 @@ TEST_P(ArchiveValidationDirectorTest, repeating_a_failed_load_leaves_the_same_st
     }
 }
 
-TEST_P(ArchiveValidationDirectorTest, a_valid_module_loads_cleanly_after_a_failure) {
+TEST_F(ArchiveValidationDirectorTest, a_valid_module_loads_cleanly_after_a_failure) {
     TmpDir game("reone_test_validation_recover");
     TmpDir cwd("reone_test_validation_recover_cwd");
     makeInstallation(game, cwd);
@@ -420,7 +384,3 @@ TEST_P(ArchiveValidationDirectorTest, a_valid_module_loads_cleanly_after_a_failu
     EXPECT_EQ(sourcesForBar, _count());
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         ArchiveValidationDirectorTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);

@@ -251,6 +251,9 @@ public:
         _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
     }
 
+    /** Takes back the obstruction test it gave the audio mixer, which calls into the game. */
+    ~Game();
+
     void init();
 
     bool handle(const input::Event &event);
@@ -449,10 +452,14 @@ public:
     }
     /** The calendar day and the time of day of the object's own time. */
     uint32_t activeTimeDay(const Object &object) const {
-        return static_cast<uint32_t>(activeTimeMilliseconds(object) / millisecondsPerWorldDay());
+        return calendarDay(activeTimeMilliseconds(object));
     }
     uint32_t activeTimeOfDay(const Object &object) const {
-        return static_cast<uint32_t>(activeTimeMilliseconds(object) % millisecondsPerWorldDay());
+        return calendarTimeOfDay(activeTimeMilliseconds(object));
+    }
+    /** The object's own milliseconds since a calendar day and time; none for a moment still ahead. */
+    uint64_t activeTimeSince(const Object &object, uint32_t day, uint32_t time) const {
+        return millisecondsSince(activeTimeMilliseconds(object), day, time);
     }
     /** Time stands still only while an excluded creature keeps a Time Stop effect. */
     void updateTimeStop();
@@ -951,6 +958,9 @@ public:
     bool isQuitRequested() {
         return _quitRequested;
     }
+
+    /** Whether the screen shown has a text box that takes typing now (GameGUI::wantsTextInput). */
+    bool wantsTextInput() const;
 
     resource::CursorType cursorType() const {
         return _pointer->type();
@@ -1591,6 +1601,8 @@ public:
     bool hasModalPanel() const;
     /** The mouse turns the third-person camera in play, with no popup taking the input. */
     bool isMouseLooking() const;
+    /** In play, the HUD holds the pointer at the screen point, over the world behind it. */
+    bool isPointerOnHUD(int x, int y) const;
     /** End the game on the next frame, returning to the main menu. */
     void requestEndGame() {
         _endGamePending = true;
@@ -1665,14 +1677,30 @@ public:
      * a detail of the save format.
      */
     uint32_t worldTimeDay() const {
-        return static_cast<uint32_t>(
-            _worldTimeMilliseconds / millisecondsPerWorldDay());
+        return calendarDay(_worldTimeMilliseconds);
     }
 
     /** World milliseconds elapsed within the current calendar day. */
     uint32_t worldTimeOfDay() const {
-        return static_cast<uint32_t>(
-            _worldTimeMilliseconds % millisecondsPerWorldDay());
+        return calendarTimeOfDay(_worldTimeMilliseconds);
+    }
+
+    /** The calendar day of a world time in milliseconds. */
+    uint32_t calendarDay(uint64_t milliseconds) const {
+        return static_cast<uint32_t>(milliseconds / millisecondsPerWorldDay());
+    }
+
+    /** The time of day of a world time in milliseconds. */
+    uint32_t calendarTimeOfDay(uint64_t milliseconds) const {
+        return static_cast<uint32_t>(milliseconds % millisecondsPerWorldDay());
+    }
+
+    /**
+     * The world time in milliseconds of a calendar day and time; a time
+     * beyond the day length is taken as it stands.
+     */
+    uint64_t toWorldMilliseconds(uint32_t day, uint32_t time) const {
+        return static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;
     }
 
     /** The hour of the current calendar day, from 0 to 23. */
@@ -1692,8 +1720,12 @@ public:
     void advanceToTime(int hours, int minutes, int seconds, int milliseconds);
     /** World milliseconds since a calendar day and time; none for a moment still ahead. */
     uint64_t worldTimeSince(uint32_t day, uint32_t time) const {
-        const uint64_t then = static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;
-        return _worldTimeMilliseconds > then ? _worldTimeMilliseconds - then : 0;
+        return millisecondsSince(_worldTimeMilliseconds, day, time);
+    }
+    /** The milliseconds from a calendar day and time to \p now; none for a moment after it. */
+    uint64_t millisecondsSince(uint64_t now, uint32_t day, uint32_t time) const {
+        const uint64_t then = toWorldMilliseconds(day, time);
+        return now > then ? now - then : 0;
     }
     /**
      * The world time from one calendar day and time back to another, as whole
@@ -2159,6 +2191,8 @@ private:
     const Room *_soundRoom {nullptr};
     /** See conversationIgnoresStartRange. */
     bool _conversationIgnoresStartRange {false};
+    /** The area's scene graph and its walkmesh revision as the mixer last heard of them. */
+    std::pair<const scene::ISceneGraph *, uint32_t> _obstructionRevision {nullptr, 0};
     /** The admission of the request to talk a conversation script has still to answer. */
     GlobalFade::DialogTicket _conversationRequest;
     /** See admitConversationRequest. */
@@ -2988,6 +3022,7 @@ private:
     void consoleHeal(const ConsoleArgs &tokens);
     void consoleInvulnerability(const ConsoleArgs &tokens);
     void consoleWhereAmI(const ConsoleArgs &tokens);
+    void consoleExplain(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleCamera(const ConsoleArgs &tokens);
     void consoleCamPos(const ConsoleArgs &tokens);

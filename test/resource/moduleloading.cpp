@@ -20,10 +20,9 @@
  *
  * These tests observe returned bytes rather than mount calls: a mount sequence
  * can look right and still resolve wrongly, because a source's priority comes
- * from its bucket and not from when it was mounted. Both backends must agree.
+ * from its bucket and not from when it was mounted.
  *
- * The K1 characterization suites in lookup.cpp and extractresources.cpp
- * continue to describe the shared activated path, which this does not change.
+ * The K1 characterization suite in lookup.cpp continues to describe the shared activated path, which this does not change.
  */
 
 #include "reone/audio/di/module.h"
@@ -34,11 +33,9 @@
 #include <gtest/gtest.h>
 
 #include "reone/resource/di/module.h"
-#include "reone/extract/installation.h"
 #include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/exception/notfound.h"
-#include "reone/resource/extractresources.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffwriter.h"
@@ -48,9 +45,7 @@
 #include "reone/system/stream/memoryoutput.h"
 
 #include "../fixtures/archive.h"
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -197,29 +192,13 @@ struct CwdGuard {
     }
 };
 
-enum class Backend {
-    Legacy,
-    Extract,
-};
-
-std::string backendName(const testing::TestParamInfo<Backend> &info) {
-    return info.param == Backend::Legacy ? "Legacy" : "Extract";
-}
-
 } // namespace
 
-class K2ModuleLoadingTest : public testing::TestWithParam<Backend> {
+class K2ModuleLoadingTest : public testing::Test {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
-        if (GetParam() == Backend::Legacy) {
-            _resources = std::make_unique<Resources>();
-            _auxResources = std::make_unique<Resources>();
-        } else {
-            _resources = std::make_unique<ExtractResources>();
-            _auxResources = std::make_unique<ExtractResources>();
-        }
+        _resources = std::make_unique<Resources>();
+        _auxResources = std::make_unique<Resources>();
     }
 
     /// A minimal installation. Every test needs a modules directory and a
@@ -237,15 +216,8 @@ protected:
             game,
             gamePath,
             _graphicsOpt,
-            _graphics.services(),
-            _script.services(),
-            _dialogs,
-            _gffs,
-            _lips,
-            _paths,
             *_resources,
             *_auxResources,
-            _scripts,
             _twoDas,
             std::move(roots));
     }
@@ -259,14 +231,7 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
 
-    NiceMock<MockDialogs> _dialogs;
-    NiceMock<MockGffs> _gffs;
-    NiceMock<MockLips> _lips;
-    NiceMock<MockPaths> _paths;
-    NiceMock<MockScripts> _scripts;
     NiceMock<MockTwoDAs> _twoDas;
 
     std::unique_ptr<IResources> _resources;
@@ -275,7 +240,7 @@ protected:
 
 // Buckets, not mount order, decide the winner.
 
-TEST_P(K2ModuleLoadingTest, resolves_global_and_module_sources_in_raw_lookup_order) {
+TEST_F(K2ModuleLoadingTest, resolves_global_and_module_sources_in_raw_lookup_order) {
     TmpDir game("reone_test_k2_order");
     TmpDir cwd("reone_test_k2_order_cwd");
     makeInstallation(game, cwd);
@@ -308,7 +273,7 @@ TEST_P(K2ModuleLoadingTest, resolves_global_and_module_sources_in_raw_lookup_ord
     EXPECT_EQ("module class 2", find("class2"));
 }
 
-TEST_P(K2ModuleLoadingTest, prefers_the_adx_image_then_the_area_image_over_the_module_archive) {
+TEST_F(K2ModuleLoadingTest, prefers_the_adx_image_then_the_area_image_over_the_module_archive) {
     TmpDir game("reone_test_k2_adjunct");
     TmpDir cwd("reone_test_k2_adjunct_cwd");
     makeInstallation(game, cwd);
@@ -334,7 +299,7 @@ TEST_P(K2ModuleLoadingTest, prefers_the_adx_image_then_the_area_image_over_the_m
     EXPECT_EQ("area image", find("a_vs_mod")) << "an adjunct image outranks the class-2 module archive";
 }
 
-TEST_P(K2ModuleLoadingTest, suppresses_the_static_and_dialogue_sources_when_a_module_archive_exists) {
+TEST_F(K2ModuleLoadingTest, suppresses_the_static_and_dialogue_sources_when_a_module_archive_exists) {
     TmpDir game("reone_test_k2_mod_branch");
     TmpDir cwd("reone_test_k2_mod_branch_cwd");
     makeInstallation(game, cwd);
@@ -356,7 +321,7 @@ TEST_P(K2ModuleLoadingTest, suppresses_the_static_and_dialogue_sources_when_a_mo
     EXPECT_FALSE(has("from_dlg")) << "the MOD branch suppresses _dlg";
 }
 
-TEST_P(K2ModuleLoadingTest, mounts_the_static_and_dialogue_sources_in_the_split_branch) {
+TEST_F(K2ModuleLoadingTest, mounts_the_static_and_dialogue_sources_in_the_split_branch) {
     TmpDir game("reone_test_k2_split");
     TmpDir cwd("reone_test_k2_split_cwd");
     makeInstallation(game, cwd);
@@ -383,7 +348,7 @@ TEST_P(K2ModuleLoadingTest, mounts_the_static_and_dialogue_sources_in_the_split_
     EXPECT_EQ("static", find("shared")) << "every image source outranks the dialogue archive";
 }
 
-TEST_P(K2ModuleLoadingTest, mounts_localization_from_the_module_and_lips_locations) {
+TEST_F(K2ModuleLoadingTest, mounts_localization_from_the_module_and_lips_locations) {
     TmpDir game("reone_test_k2_loc");
     TmpDir cwd("reone_test_k2_loc_cwd");
     makeInstallation(game, cwd);
@@ -412,7 +377,7 @@ TEST_P(K2ModuleLoadingTest, mounts_localization_from_the_module_and_lips_locatio
 
 // Saved state staged inside an archive already in scope.
 
-TEST_P(K2ModuleLoadingTest, prefers_the_staged_image_over_the_staged_archive) {
+TEST_F(K2ModuleLoadingTest, prefers_the_staged_image_over_the_staged_archive) {
     TmpDir game("reone_test_k2_staged");
     TmpDir cwd("reone_test_k2_staged_cwd");
     makeInstallation(game, cwd);
@@ -438,7 +403,7 @@ TEST_P(K2ModuleLoadingTest, prefers_the_staged_image_over_the_staged_archive) {
     EXPECT_EQ("staged image", find("state"));
 }
 
-TEST_P(K2ModuleLoadingTest, mounts_the_staged_archive_when_no_staged_image_exists) {
+TEST_F(K2ModuleLoadingTest, mounts_the_staged_archive_when_no_staged_image_exists) {
     TmpDir game("reone_test_k2_staged_archive");
     TmpDir cwd("reone_test_k2_staged_archive_cwd");
     makeInstallation(game, cwd);
@@ -463,7 +428,7 @@ TEST_P(K2ModuleLoadingTest, mounts_the_staged_archive_when_no_staged_image_exist
         << "the active table is mounted last, so it wins its bucket against the disk archive";
 }
 
-TEST_P(K2ModuleLoadingTest, keeps_loose_metadata_separate_from_outer_working_state) {
+TEST_F(K2ModuleLoadingTest, keeps_loose_metadata_separate_from_outer_working_state) {
     TmpDir game("reone_test_k2_save_scope");
     TmpDir cwd("reone_test_k2_save_scope_cwd");
     makeInstallation(game, cwd);
@@ -489,7 +454,7 @@ TEST_P(K2ModuleLoadingTest, keeps_loose_metadata_separate_from_outer_working_sta
 
 // Saved-state eligibility.
 
-TEST_P(K2ModuleLoadingTest, ignores_staged_state_for_a_module_the_save_table_excludes) {
+TEST_F(K2ModuleLoadingTest, ignores_staged_state_for_a_module_the_save_table_excludes) {
     TmpDir game("reone_test_k2_excluded");
     TmpDir cwd("reone_test_k2_excluded_cwd");
     makeInstallation(game, cwd);
@@ -514,7 +479,7 @@ TEST_P(K2ModuleLoadingTest, ignores_staged_state_for_a_module_the_save_table_exc
     EXPECT_EQ("disk rim", find("state")) << "an excluded module may not be entered from saved state";
 }
 
-TEST_P(K2ModuleLoadingTest, includes_a_module_the_save_table_does_not_mention) {
+TEST_F(K2ModuleLoadingTest, includes_a_module_the_save_table_does_not_mention) {
     TmpDir game("reone_test_k2_absent_row");
     TmpDir cwd("reone_test_k2_absent_row_cwd");
     makeInstallation(game, cwd);
@@ -540,7 +505,7 @@ TEST_P(K2ModuleLoadingTest, includes_a_module_the_save_table_does_not_mention) {
     EXPECT_EQ("staged archive", find("state"));
 }
 
-TEST_P(K2ModuleLoadingTest, reads_each_module_save_rule_from_the_save_table) {
+TEST_F(K2ModuleLoadingTest, reads_each_module_save_rule_from_the_save_table) {
     TmpDir game("reone_test_k2_save_rules");
     TmpDir cwd("reone_test_k2_save_rules_cwd");
     makeInstallation(game, cwd);
@@ -600,7 +565,7 @@ TEST_P(K2ModuleLoadingTest, reads_each_module_save_rule_from_the_save_table) {
 
 // Module names.
 
-TEST_P(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {
+TEST_F(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {
     TmpDir game("reone_test_k2_names");
     TmpDir cwd("reone_test_k2_names_cwd");
     makeInstallation(game, cwd);
@@ -621,65 +586,11 @@ TEST_P(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {
     auto director = makeDirector(game.path);
 
     EXPECT_EQ((std::set<std::string> {"bar", "foo"}), director->moduleNames());
-
-    // The installation indexer answers the same question over the same
-    // inventory, and must answer it identically.
-    auto tooling = extract::Installation(GameID::TSL, game.path).moduleNames();
-    EXPECT_EQ(director->moduleNames(), (std::set<std::string> {tooling.begin(), tooling.end()}));
-}
-
-/// The runtime mounts what the policy plans; the indexer reports everything
-/// that exists. Both must agree on which files belong to the module and on
-/// what each one is, which is the only part the two share.
-TEST_P(K2ModuleLoadingTest, agrees_with_the_installation_indexer_on_module_archives) {
-    TmpDir game("reone_test_k2_indexer");
-    TmpDir cwd("reone_test_k2_indexer_cwd");
-    makeInstallation(game, cwd);
-
-    auto modules = game.path / "modules";
-    writeRim(modules / "foo.rim", {{"from_rim", ResType::Txt, "rim"}});
-    writeRim(modules / "foo_s.rim", {{"from_static", ResType::Txt, "static"}});
-    auto rims = game.mkdir("rims");
-    writeRim(rims / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
-    writeRim(rims / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
-    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {{"from_dlg", ResType::Txt, "dlg"}});
-    auto lips = game.mkdir("lips");
-    writeErf(lips / "foo_loc.mod", ErfWriter::FileType::MOD, {{"from_loc", ResType::Txt, "loc"}});
-
-    auto director = makeDirector(game.path);
-    {
-        CwdGuard guard(cwd.path);
-        director->init();
-    }
-    director->onModuleLoad("foo");
-
-    extract::Installation installation(GameID::TSL, game.path);
-    installation.setModuleRoot("foo");
-
-    std::map<std::string, ModuleArchiveFamily> indexed;
-    for (const auto &archive : installation.moduleArchives()) {
-        indexed.emplace(boost::to_lower_copy(archive.path.filename().string()), archive.family);
-    }
-    EXPECT_EQ((std::map<std::string, ModuleArchiveFamily> {
-                  {"foo.rim", ModuleArchiveFamily::PrimaryRim},
-                  {"foo_a.rim", ModuleArchiveFamily::AreaRim},
-                  {"foo_adx.rim", ModuleArchiveFamily::AdxRim},
-                  {"foo_dlg.erf", ModuleArchiveFamily::Dialogue},
-                  {"foo_loc.mod", ModuleArchiveFamily::Localization},
-                  {"foo_s.rim", ModuleArchiveFamily::StaticRim},
-              }),
-              indexed);
-
-    // Every archive the indexer resolved really is reachable through the
-    // module the runtime just loaded.
-    for (const auto &resRef : {"from_rim", "from_static", "from_area", "from_adx", "from_dlg", "from_loc"}) {
-        EXPECT_TRUE(has(resRef)) << resRef;
-    }
 }
 
 // Transitions.
 
-TEST_P(K2ModuleLoadingTest, drops_the_previous_module_sources_on_a_transition) {
+TEST_F(K2ModuleLoadingTest, drops_the_previous_module_sources_on_a_transition) {
     TmpDir game("reone_test_k2_transition");
     TmpDir cwd("reone_test_k2_transition_cwd");
     makeInstallation(game, cwd);
@@ -709,7 +620,7 @@ TEST_P(K2ModuleLoadingTest, drops_the_previous_module_sources_on_a_transition) {
 
 // Sources that are not Odyssey game data.
 
-TEST_P(K2ModuleLoadingTest, keeps_streamed_audio_out_of_the_odyssey_resource_list) {
+TEST_F(K2ModuleLoadingTest, keeps_streamed_audio_out_of_the_odyssey_resource_list) {
     TmpDir game("reone_test_k2_streams");
     TmpDir cwd("reone_test_k2_streams_cwd");
     makeInstallation(game, cwd);
@@ -733,7 +644,7 @@ TEST_P(K2ModuleLoadingTest, keeps_streamed_audio_out_of_the_odyssey_resource_lis
     EXPECT_EQ("streamed", dataOf(_auxResources->find(ResourceId("track", ResType::Wav))));
 }
 
-TEST_P(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
+TEST_F(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
     // The registry remains homogeneous; the explicit save assertion separately
     // proves working state remains usable without mounting the outer archive.
     TmpDir game("reone_test_k2_homogeneous");
@@ -765,7 +676,7 @@ TEST_P(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
     EXPECT_EQ("save", dataOf(director->findSaveWorking(ResourceId("s", ResType::Txt))));
 }
 
-TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_caller) {
+TEST_F(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_caller) {
     // The toolkit mounts the resources directory itself when there is no key
     // table. That lands in the same list the director just filled, so it has to
     // be placed the same way; leaving it unplaced would be rejected.
@@ -794,7 +705,7 @@ TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_ca
     EXPECT_EQ("late folder", find("shared")) << "the source added last wins inside its own bucket";
 }
 
-TEST_P(K2ModuleLoadingTest, mounts_bound_live_packages_in_fixed_global_order) {
+TEST_F(K2ModuleLoadingTest, mounts_bound_live_packages_in_fixed_global_order) {
     TmpDir game("reone_test_live_global");
     TmpDir cwd("reone_test_live_global_cwd");
     TmpDir live1("reone_test_live_global_1");
@@ -855,7 +766,7 @@ TEST_P(K2ModuleLoadingTest, mounts_bound_live_packages_in_fixed_global_order) {
     EXPECT_FALSE(has("implicit_live"));
 }
 
-TEST_P(K2ModuleLoadingTest, configured_k2_override_roots_mount_in_natural_order) {
+TEST_F(K2ModuleLoadingTest, configured_k2_override_roots_mount_in_natural_order) {
     TmpDir game("reone_test_configured_override");
     TmpDir cwd("reone_test_configured_override_cwd");
     TmpDir localized("reone_test_configured_override_localized");
@@ -878,16 +789,9 @@ TEST_P(K2ModuleLoadingTest, configured_k2_override_roots_mount_in_natural_order)
     }
 
     EXPECT_EQ("subscribed", find("shared"));
-
-    extract::Installation tooling(GameID::TSL, game.path, roots);
-    auto location = tooling.resource(
-        ResourceId("shared", ResType::Txt), extract::SearchScope {extract::SearchLocation::Override});
-    ASSERT_TRUE(location.has_value());
-    auto data = location->readData();
-    EXPECT_EQ("subscribed", std::string(data.begin(), data.end()));
 }
 
-TEST_P(K2ModuleLoadingTest, live_primary_selection_uses_package_order_not_global_recency) {
+TEST_F(K2ModuleLoadingTest, live_primary_selection_uses_package_order_not_global_recency) {
     TmpDir game("reone_test_live_primary");
     TmpDir cwd("reone_test_live_primary_cwd");
     TmpDir live1("reone_test_live_primary_1");
@@ -912,7 +816,7 @@ TEST_P(K2ModuleLoadingTest, live_primary_selection_uses_package_order_not_global
     EXPECT_EQ("live1", find("primary"));
 }
 
-TEST_P(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_primary_order) {
+TEST_F(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_primary_order) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
         _resources->clear();
         _auxResources->clear();
@@ -941,7 +845,7 @@ TEST_P(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_prim
     }
 }
 
-TEST_P(K2ModuleLoadingTest, activates_the_default_nwm_root_directly_for_both_games) {
+TEST_F(K2ModuleLoadingTest, activates_the_default_nwm_root_directly_for_both_games) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
         _resources->clear();
         _auxResources->clear();
@@ -956,14 +860,11 @@ TEST_P(K2ModuleLoadingTest, activates_the_default_nwm_root_directly_for_both_gam
         EXPECT_EQ("nwm", find("nwm_only"));
         _resources->clearOwner(ResourceOwner::ActiveModuleState);
         EXPECT_FALSE(has("nwm_only")) << "NWM must use the active-state owner";
-        auto runtimeNames = director->moduleNames();
-        auto toolingNames = extract::Installation(gameId, game.path).moduleNames();
-        EXPECT_THAT(toolingNames, testing::UnorderedElementsAreArray(runtimeNames));
-        EXPECT_THAT(toolingNames, testing::Contains("foo"));
+        EXPECT_THAT(director->moduleNames(), testing::Contains("foo"));
     }
 }
 
-TEST_P(K2ModuleLoadingTest, nwm_precedes_every_unsaved_disk_primary) {
+TEST_F(K2ModuleLoadingTest, nwm_precedes_every_unsaved_disk_primary) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
         _resources->clear();
         _auxResources->clear();
@@ -986,7 +887,7 @@ TEST_P(K2ModuleLoadingTest, nwm_precedes_every_unsaved_disk_primary) {
     }
 }
 
-TEST_P(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) {
+TEST_F(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) {
     TmpDir game("reone_test_nwm_no_primary");
     TmpDir cwd("reone_test_nwm_no_primary_cwd");
     makeInstallation(game, cwd);
@@ -1001,7 +902,7 @@ TEST_P(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) 
     EXPECT_FALSE(has("static_sidecar"));
 }
 
-TEST_P(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
+TEST_F(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
     {
         TmpDir game("reone_test_adjunct_modules_negative");
         TmpDir cwd("reone_test_adjunct_modules_negative_cwd");
@@ -1039,7 +940,7 @@ TEST_P(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
     }
 }
 
-TEST_P(K2ModuleLoadingTest, live_module_roots_cannot_supply_rims_adjuncts) {
+TEST_F(K2ModuleLoadingTest, live_module_roots_cannot_supply_rims_adjuncts) {
     TmpDir game("reone_test_adjunct_live_negative");
     TmpDir cwd("reone_test_adjunct_live_negative_cwd");
     TmpDir live("reone_test_adjunct_live_root");
@@ -1059,7 +960,7 @@ TEST_P(K2ModuleLoadingTest, live_module_roots_cannot_supply_rims_adjuncts) {
     EXPECT_FALSE(has("stray_adx"));
 }
 
-TEST_P(K2ModuleLoadingTest, configured_module_roots_cannot_supply_rims_adjuncts) {
+TEST_F(K2ModuleLoadingTest, configured_module_roots_cannot_supply_rims_adjuncts) {
     TmpDir game("reone_test_adjunct_configured_negative");
     TmpDir cwd("reone_test_adjunct_configured_negative_cwd");
     TmpDir configured("reone_test_adjunct_configured_root");
@@ -1079,7 +980,7 @@ TEST_P(K2ModuleLoadingTest, configured_module_roots_cannot_supply_rims_adjuncts)
     EXPECT_FALSE(has("stray_adx"));
 }
 
-TEST_P(K2ModuleLoadingTest, configured_module_families_follow_the_established_true_false_order) {
+TEST_F(K2ModuleLoadingTest, configured_module_families_follow_the_established_true_false_order) {
     TmpDir game("reone_test_configured_modules");
     TmpDir cwd("reone_test_configured_modules_cwd");
     TmpDir localized("reone_test_configured_modules_localized");
@@ -1142,7 +1043,7 @@ TEST_P(K2ModuleLoadingTest, configured_module_families_follow_the_established_tr
     EXPECT_EQ("subscribed", find("subscribed_lips"));
 }
 
-TEST(OdysseyResourceRoots, tooling_and_runtime_expand_the_same_bound_module_locations) {
+TEST(OdysseyResourceRoots, runtime_expands_every_bound_module_location) {
     TmpDir game("reone_test_roots_tooling");
     TmpDir live("reone_test_roots_tooling_live");
     TmpDir configured("reone_test_roots_tooling_configured");
@@ -1156,10 +1057,8 @@ TEST(OdysseyResourceRoots, tooling_and_runtime_expand_the_same_bound_module_loca
     roots.k2OverrideRoots = {configured.path};
     auto runtimeRoots = primaryModuleSearchRoots(GameID::TSL, game.path, roots);
     auto runtimeNames = discoverModuleRoots(runtimeRoots);
-    auto toolingNames = extract::Installation(GameID::TSL, game.path, roots).moduleNames();
 
-    EXPECT_EQ(runtimeNames, toolingNames);
-    EXPECT_THAT(toolingNames, testing::ElementsAre("configuredonly", "liveonly", "nwmonly"));
+    EXPECT_THAT(runtimeNames, testing::ElementsAre("configuredonly", "liveonly", "nwmonly"));
 }
 
 TEST(OdysseyResourceRoots, keeps_unbound_live_slots_absent_and_deduplicates_lips_by_identity) {
@@ -1202,9 +1101,8 @@ TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
     audio::AudioOptions audioOpt;
     graphics::GraphicsModule graphics(graphicsOpt);
     audio::AudioModule audio(audioOpt);
-    script::ScriptModule script;
     ResourceModule derived(
-        GameID::TSL, {}, graphicsOpt, audioOpt, graphics, audio, script);
+        GameID::TSL, {}, graphicsOpt, audioOpt, graphics, audio);
     ASSERT_EQ(std::filesystem::path("nwm"), *derived.odysseyRoots().nwmFiles);
     derived.setGamePath(newGame.path);
     EXPECT_EQ((newGame.path / "nwm").lexically_normal(),
@@ -1213,10 +1111,7 @@ TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
         CwdGuard guard(cwd.path);
         auto runtime = discoverModuleRoots(
             primaryModuleSearchRoots(GameID::TSL, newGame.path, derived.odysseyRoots()));
-        auto tooling = extract::Installation(
-            GameID::TSL, newGame.path, derived.odysseyRoots()).moduleNames();
         EXPECT_EQ((std::vector<std::string> {"newonly"}), runtime);
-        EXPECT_THAT(tooling, testing::ElementsAre("newonly"));
     }
     OdysseyResourceRoots explicitRoots;
     explicitRoots.nwmFiles = custom.path;
@@ -1226,8 +1121,6 @@ TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
                                   audioOpt,
                                   graphics,
                                   audio,
-                                  script,
-                                  ResourcesBackend::Legacy,
                                   explicitRoots);
     explicitModule.setGamePath(newGame.path);
     EXPECT_EQ(custom.path.lexically_normal(),
@@ -1241,7 +1134,7 @@ TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {
     EXPECT_TRUE(usesBucketedLookup(GameID::KotOR));
 }
 
-TEST_P(K2ModuleLoadingTest, prepared_module_is_private_until_exact_plan_commit) {
+TEST_F(K2ModuleLoadingTest, prepared_module_is_private_until_exact_plan_commit) {
     TmpDir game("reone_test_prepared_module_private");
     TmpDir cwd("reone_test_prepared_module_private_cwd");
     makeInstallation(game, cwd);
@@ -1274,7 +1167,7 @@ TEST_P(K2ModuleLoadingTest, prepared_module_is_private_until_exact_plan_commit) 
     EXPECT_EQ("next_marker", find("next_marker"));
 }
 
-TEST_P(K2ModuleLoadingTest, rejected_module_structure_leaves_active_mounts_untouched) {
+TEST_F(K2ModuleLoadingTest, rejected_module_structure_leaves_active_mounts_untouched) {
     TmpDir game("reone_test_prepared_module_reject");
     TmpDir cwd("reone_test_prepared_module_reject_cwd");
     makeInstallation(game, cwd);
@@ -1305,7 +1198,3 @@ TEST_P(K2ModuleLoadingTest, rejected_module_structure_leaves_active_mounts_untou
     EXPECT_FALSE(has("broken_marker"));
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         K2ModuleLoadingTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);

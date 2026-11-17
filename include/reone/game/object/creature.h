@@ -2045,6 +2045,11 @@ public:
         auto blocker = _avoidance.blocker.resolve();
         return blocker ? blocker->id() : script::kObjectInvalid;
     }
+    /**
+     * Whether the last walk was ended by a creature in the way rather than by
+     * arriving, until the next path is planned.
+     */
+    bool walkEndedAtCreature() const { return _avoidance.walkEnded; }
     void resetBlockingCreature() {
         _avoidance.blocker.reset();
         _avoidance.blockerPosition = glm::vec3(0.0f);
@@ -2627,6 +2632,11 @@ private:
         int bumps {0};
         /** The next way round is tried counter-clockwise first. */
         bool side {false};
+        /**
+         * The walk was ended by a creature in the way: no way round it, or
+         * the walk's end inside the ring round it.
+         */
+        bool walkEnded {false};
     };
 
     /** An item property through which the creature can use a power. */

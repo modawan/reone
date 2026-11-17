@@ -508,7 +508,7 @@ bool CharacterGeneration::autoLevelUp() {
         _abilities->reset(false);
         _abilities->recommend();
         if (_abilities->remainingPoints() > 0) {
-            warn("Auto level-up refused: no ability can take the attribute point");
+            warn("Auto level-up refused: the class has no primary ability to take the attribute point");
             return false;
         }
         _abilities->accept();
@@ -687,7 +687,7 @@ std::shared_ptr<ModelSceneNode> CharacterGeneration::getCharacterModel(ISceneGra
     creature->loadAppearance();
     creature->updateModelAnimation();
 
-    auto model = sceneGraph.newModel(*_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
+    auto model = sceneGraph.newModel(_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
     model->attach("cgbody_light", *creature->sceneNode());
 
     return model;

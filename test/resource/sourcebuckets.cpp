@@ -20,13 +20,11 @@
  * each other once sources carry a bucket.
  *
  * Placing a source in a bucket is capability only at this point: no caller
- * does it, so the characterization suites in lookup.cpp and extractresources.cpp
- * continue to describe what the engine actually does.
+ * does it, so the characterization suite in lookup.cpp continues to describe what the engine actually does.
  */
 
 #include <gtest/gtest.h>
 
-#include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/replacementresources.h"
 #include "reone/resource/replacements.h"
@@ -63,15 +61,6 @@ void add(ResourceSourceList<TestSource> &list,
          std::optional<ResourceSourceBucket> bucket = std::nullopt,
          ResourceOwner owner = ResourceOwner::Global) {
     list.add(TestSource {owner, bucket, 0, std::move(name)});
-}
-
-enum class Backend {
-    Legacy,
-    Extract,
-};
-
-std::string backendName(const testing::TestParamInfo<Backend> &info) {
-    return info.param == Backend::Legacy ? "Legacy" : "Extract";
 }
 
 ByteBuffer bytes(std::string_view value) {
@@ -211,16 +200,10 @@ TEST(ResourceSourceList, should_clear_one_kind_across_every_bucket) {
     EXPECT_EQ(0u, list.size());
 }
 
-// Both backends must resolve an identical mount sequence identically.
-
-class ResourceSourceBucketsTest : public testing::TestWithParam<Backend> {
+class ResourceSourceBucketsTest : public testing::Test {
 protected:
     void SetUp() override {
-        if (GetParam() == Backend::Legacy) {
-            _resources = std::make_unique<Resources>();
-        } else {
-            _resources = std::make_unique<ExtractResources>();
-        }
+        _resources = std::make_unique<Resources>();
     }
 
     void mount(const std::string &data,
@@ -236,14 +219,14 @@ protected:
     std::unique_ptr<IResources> _resources;
 };
 
-TEST_P(ResourceSourceBucketsTest, should_resolve_by_insertion_order_when_no_source_is_bucketed) {
+TEST_F(ResourceSourceBucketsTest, should_resolve_by_insertion_order_when_no_source_is_bucketed) {
     mount("first");
     mount("second");
 
     EXPECT_EQ("second", shared()) << "an unbucketed list must behave exactly as it always has";
 }
 
-TEST_P(ResourceSourceBucketsTest, should_resolve_bucketed_sources_in_raw_lookup_order) {
+TEST_F(ResourceSourceBucketsTest, should_resolve_bucketed_sources_in_raw_lookup_order) {
     mount("loose", ResourceSourceBucket::LooseDirectory);
     mount("class2", ResourceSourceBucket::EncapsulatedClass2);
     mount("keybif", ResourceSourceBucket::KeyBif);
@@ -251,14 +234,14 @@ TEST_P(ResourceSourceBucketsTest, should_resolve_bucketed_sources_in_raw_lookup_
     EXPECT_EQ("loose", shared()) << "bucket order must beat add order";
 }
 
-TEST_P(ResourceSourceBucketsTest, should_prefer_the_last_added_source_within_one_bucket) {
+TEST_F(ResourceSourceBucketsTest, should_prefer_the_last_added_source_within_one_bucket) {
     mount("older", ResourceSourceBucket::ResourceImage);
     mount("newer", ResourceSourceBucket::ResourceImage);
 
     EXPECT_EQ("newer", shared());
 }
 
-TEST_P(ResourceSourceBucketsTest, should_reject_mounting_across_the_mode_it_is_already_in) {
+TEST_F(ResourceSourceBucketsTest, should_reject_mounting_across_the_mode_it_is_already_in) {
     mount("loose", ResourceSourceBucket::LooseDirectory);
 
     EXPECT_THROW(mount("unplaced"), ValidationException)
@@ -266,18 +249,16 @@ TEST_P(ResourceSourceBucketsTest, should_reject_mounting_across_the_mode_it_is_a
     EXPECT_EQ("loose", shared()) << "a rejected mount must leave the backend as it was";
 }
 
-TEST_P(ResourceSourceBucketsTest, should_reject_a_bucketed_mount_once_ordering_by_insertion) {
+TEST_F(ResourceSourceBucketsTest, should_reject_a_bucketed_mount_once_ordering_by_insertion) {
     mount("unplaced");
 
     EXPECT_THROW(mount("loose", ResourceSourceBucket::LooseDirectory), ValidationException);
     EXPECT_EQ("unplaced", shared());
 }
 
-TEST_P(ResourceSourceBucketsTest, should_place_rim_sources_in_the_requested_bucket) {
-    // RIM mounts take routes of their own on the way to the source list: the
-    // extract backend resolves a RIM path through its ERF mount, and both
-    // backends build a memory RIM through a shared archive helper. A bucket
-    // dropped on either route would leave the source unplaced, and unplaced
+TEST_F(ResourceSourceBucketsTest, should_place_rim_sources_in_the_requested_bucket) {
+    // RIM mounts take routes of their own on the way to the source list. A
+    // bucket dropped on either route would leave the source unplaced, and unplaced
     // beats every bucket, so the last one added would win instead.
     TmpDir dir("reone_test_source_buckets_rim");
     writeRim(dir.path / "disk.rim", {{"shared", ResType::Txt, "disk rim"}});
@@ -293,7 +274,7 @@ TEST_P(ResourceSourceBucketsTest, should_place_rim_sources_in_the_requested_buck
     EXPECT_EQ("loose", shared());
 }
 
-TEST_P(ResourceSourceBucketsTest, should_leave_bucket_order_intact_when_clearing_a_scope) {
+TEST_F(ResourceSourceBucketsTest, should_leave_bucket_order_intact_when_clearing_a_scope) {
     mount("global keybif", ResourceSourceBucket::KeyBif, ResourceOwner::Global);
     mount("save image", ResourceSourceBucket::ResourceImage, ResourceOwner::SaveSlot);
     mount("local loose", ResourceSourceBucket::LooseDirectory, ResourceOwner::ActiveModule);
@@ -310,23 +291,14 @@ TEST_P(ResourceSourceBucketsTest, should_leave_bucket_order_intact_when_clearing
     EXPECT_EQ("<not found>", shared());
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         ResourceSourceBucketsTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
-
 // The replacement overlay wraps whichever backend is in use. It has to carry a
 // bucket through to that backend, and it is not itself a bucket.
 
-class ReplacementOverlayBucketsTest : public testing::TestWithParam<Backend> {
+class ReplacementOverlayBucketsTest : public testing::Test {
 protected:
     void SetUp() override {
         std::unique_ptr<IResources> backend;
-        if (GetParam() == Backend::Legacy) {
-            backend = std::make_unique<Resources>();
-        } else {
-            backend = std::make_unique<ExtractResources>();
-        }
+        backend = std::make_unique<Resources>();
         _resources = std::make_unique<ReplacementResources>(std::move(backend), _replacements);
     }
 
@@ -346,17 +318,11 @@ protected:
     std::unique_ptr<ReplacementResources> _resources;
 };
 
-TEST_P(ReplacementOverlayBucketsTest, should_apply_one_store_to_every_list_that_shares_it) {
+TEST_F(ReplacementOverlayBucketsTest, should_apply_one_store_to_every_list_that_shares_it) {
     // Sources outside the Odyssey lookup order are held in a separate list, but
     // they are read through the same replacement store. A second store would
     // silently make those resources unreplaceable.
-    std::unique_ptr<IResources> auxBackend;
-    if (GetParam() == Backend::Legacy) {
-        auxBackend = std::make_unique<Resources>();
-    } else {
-        auxBackend = std::make_unique<ExtractResources>();
-    }
-    ReplacementResources aux(std::move(auxBackend), _replacements);
+    ReplacementResources aux(std::make_unique<Resources>(), _replacements);
 
     mount("bucketed", ResourceSourceBucket::LooseDirectory);
     aux.addMemERF(erfBytes("shared", "auxiliary"), ResourceOwner::Global);
@@ -371,7 +337,7 @@ TEST_P(ReplacementOverlayBucketsTest, should_apply_one_store_to_every_list_that_
         << "the same store must sit above an unplaced auxiliary source too";
 }
 
-TEST_P(ReplacementOverlayBucketsTest, should_carry_the_bucket_through_to_the_backend) {
+TEST_F(ReplacementOverlayBucketsTest, should_carry_the_bucket_through_to_the_backend) {
     mount("loose", ResourceSourceBucket::LooseDirectory);
     mount("keybif", ResourceSourceBucket::KeyBif);
 
@@ -380,7 +346,7 @@ TEST_P(ReplacementOverlayBucketsTest, should_carry_the_bucket_through_to_the_bac
            "and the one added last would win instead";
 }
 
-TEST_P(ReplacementOverlayBucketsTest, should_keep_the_overlay_above_every_bucket) {
+TEST_F(ReplacementOverlayBucketsTest, should_keep_the_overlay_above_every_bucket) {
     mount("loose", ResourceSourceBucket::LooseDirectory);
     _replacements.replaceResource(id(), bytes("replacement"));
 
@@ -392,7 +358,3 @@ TEST_P(ReplacementOverlayBucketsTest, should_keep_the_overlay_above_every_bucket
     EXPECT_EQ("loose", shared()) << "dropping the replacement must expose the bucketed source again";
 }
 
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         ReplacementOverlayBucketsTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);

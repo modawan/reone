@@ -545,6 +545,14 @@ void ListBox::setScrollBarEnabled(bool enabled) {
     updateItemSlots();
 }
 
+void ListBox::shareProtoItem(const ListBox &list) {
+    if (!list._protoItem) {
+        return;
+    }
+    _protoItem = list._protoItem;
+    updateItemsLayout();
+}
+
 void ListBox::setProtoMatchContent(bool match) {
     _protoMatchContent = match;
     updateItemsLayout();

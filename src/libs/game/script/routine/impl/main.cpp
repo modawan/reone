@@ -4822,6 +4822,7 @@ static Variable SoundObjectSetVolume(const std::vector<Variable> &args, const Ro
     // Transform
 
     // Execute
+    // 415: "nVolume: 0-127"; a value outside that is clamped to it.
     if (sound) {
         sound->setVolume(nVolume);
     }
@@ -7136,9 +7137,9 @@ static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const 
     // Transform
 
     // Execute
-    // The sound scene node has no fade: the sound stops at once.
+    // 745: "Fades a sound object for 'fSeconds' and then stops it."
     if (sound) {
-        sound->setActive(false);
+        sound->fadeAndStop(fSeconds);
     }
     return Variable::ofNull();
 }

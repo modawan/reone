@@ -730,6 +730,10 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
     return -1;
 }
 
+Game::~Game() {
+    _services.audio.mixer.setObstructionTest({});
+}
+
 void Game::init() {
     _options.game.activeKeybindsIndex = loadActiveKeybinds(_options.game.configurationPath, _options.game.activeKeybindsIndex);
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
@@ -900,6 +904,11 @@ void Game::initTables() {
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
     _services.audio.mixer.setDryGroups({kBarkSoundGroup});
+    _services.audio.mixer.setObstructionTest([this](const glm::vec3 &source, const glm::vec3 &listener) {
+        auto module = _module;
+        auto area = module ? module->area() : nullptr;
+        return area ? area->soundObstruction(source, listener) : 0.0f;
+    });
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
@@ -994,6 +1003,7 @@ void Game::initConsole() {
     registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
     registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
     registerConsoleCommand("whereami", "print the module and the party leader's position", &Game::consoleWhereAmI);
+    registerConsoleCommand("explain", "list the sources holding a resource, the one in use first: explain <resref.ext>", &Game::consoleExplain);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -1233,6 +1243,11 @@ void Game::update(float frameTime) {
 
 void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
+    // What the pointer is over is picked once a frame, after the frame's
+    // mouse moves, and also while paused.
+    if (_module && _screen == Screen::InGame && !_movie) {
+        _module->updateHover();
+    }
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
@@ -5810,6 +5825,16 @@ void Game::updateCamera(float dt) {
         _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
                                                        glm::normalize(glm::vec3(cameraTransform[1])));
         updateEnvironment(camera->sceneNode()->origin());
+        // A walkmesh that came, went or moved may now stand between a sound
+        // and the listener, or no longer stand there.
+        if (auto area = _module ? _module->area() : nullptr) {
+            auto &graph = area->graph();
+            const std::pair<const scene::ISceneGraph *, uint32_t> revision {&graph, graph.walkmeshRevision()};
+            if (revision != _obstructionRevision) {
+                _obstructionRevision = revision;
+                _services.audio.mixer.invalidateObstruction();
+            }
+        }
     }
 }
 
@@ -5950,10 +5975,10 @@ void Game::advanceToTime(int hours, int minutes, int seconds, int milliseconds) 
         month %= kCalendarMonthsInYear + 1;
     }
 
-    uint32_t calendarDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
-    calendarDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
-    calendarDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
-    _worldTimeMilliseconds = static_cast<uint64_t>(calendarDay) * millisecondsPerWorldDay() + timeOfDay;
+    uint32_t newDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
+    newDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
+    newDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
+    _worldTimeMilliseconds = static_cast<uint64_t>(newDay) * millisecondsPerWorldDay() + timeOfDay;
 }
 
 // The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
@@ -6115,7 +6140,7 @@ void Game::initInputEvents() {
     // Keys are read from the column of the talk table's language when an
     // enabled single-key row gives a key there, else from the first
     // language's.
-    std::string column = "language" + std::to_string(_services.resource.strings.languageId());
+    std::string column = "language" + std::to_string(static_cast<int>(_services.resource.strings.language()));
     bool languageHasKeys = false;
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
         const int row = rowOf(event, "");
@@ -6507,6 +6532,10 @@ bool Game::isMouseLooking() const {
     // Without a module there is no world camera to turn.
     const auto *camera = getActiveCamera();
     return camera && camera->isMouseLookMode();
+}
+
+bool Game::isPointerOnHUD(int x, int y) const {
+    return _hud && getScreenGUI() == _hud.get() && _hud->holdsPointer(x, y);
 }
 
 void Game::updateMouseLookPointer() {
@@ -9788,6 +9817,11 @@ GameGUI *Game::getScreenGUI() const {
     return guiForScreen(_screen);
 }
 
+bool Game::wantsTextInput() const {
+    auto gui = getScreenGUI();
+    return gui && gui->wantsTextInput();
+}
+
 GameGUI *Game::guiForScreen(Screen screen) const {
     switch (screen) {
     case Screen::Death:
@@ -10189,6 +10223,32 @@ void Game::consoleWhereAmI(const ConsoleArgs &args) {
     }
     const glm::vec3 &position = leader->position();
     _console.printLine(str(boost::format("position: (%3.2f, %3.2f, %3.2f)") % position.x % position.y % position.z));
+}
+
+// Every line goes to the log as well as the console, so the answer can be
+// passed on.
+void Game::consoleExplain(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "resref.ext");
+    std::string name(*args[1]);
+    auto dot = name.find_last_of('.');
+    auto type = dot == std::string::npos ? ResType::Invalid : getResTypeByExt(boost::to_lower_copy(name.substr(dot + 1)), false);
+    if (type == ResType::Invalid) {
+        throw std::invalid_argument("usage: explain resref.ext, with the extension of a resource type");
+    }
+    ResourceId id(name.substr(0, dot), type);
+    auto print = [this](const std::string &line) {
+        _console.printLine(line);
+        info(line, LogChannel::Resources);
+    };
+    auto sources = _services.resource.resources.explain(id);
+    if (sources.empty()) {
+        print(id.string() + ": no source holds it");
+        return;
+    }
+    print(id.string() + ": read from the first of " + std::to_string(sources.size()));
+    for (size_t i = 0; i < sources.size(); ++i) {
+        print("  " + std::to_string(i + 1) + ". " + describe(sources[i]));
+    }
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ

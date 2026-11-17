@@ -54,7 +54,7 @@ struct MeshFixture {
     std::unique_ptr<SceneGraph> scene;
     std::shared_ptr<ModelNode> rootNode;
     std::vector<std::shared_ptr<ModelNode::TriangleMesh>> meshes;
-    std::unique_ptr<Model> model;
+    std::shared_ptr<Model> model;
     std::shared_ptr<ModelSceneNode> node;
     std::shared_ptr<Texture> texture;
 
@@ -90,9 +90,9 @@ struct MeshFixture {
     }
 
     void build() {
-        model = std::make_unique<Model>("some_model", 0, rootNode,
+        model = std::make_shared<Model>("some_model", 0, rootNode,
                                         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
-        node = std::make_shared<ModelSceneNode>(*model, ModelUsage::Creature, *scene,
+        node = std::make_shared<ModelSceneNode>(model, ModelUsage::Creature, *scene,
                                                 graphicsModule.services(),
                                                 audioModule.services(),
                                                 resourceModule.services());
@@ -142,7 +142,7 @@ TEST(MeshSceneNode, should_render_mesh_whose_diffuse_texture_is_supplied_at_runt
     ASSERT_FALSE(mesh.shouldRender());
 
     // when
-    fixture.node->setMainTexture(fixture.texture.get());
+    fixture.node->setMainTexture(fixture.texture);
 
     // then
     EXPECT_TRUE(mesh.shouldRender());
@@ -155,7 +155,7 @@ TEST(MeshSceneNode, should_cull_mesh_with_render_flag_off_despite_runtime_textur
     fixture.build();
 
     // when
-    fixture.node->setMainTexture(fixture.texture.get());
+    fixture.node->setMainTexture(fixture.texture);
 
     // then
     EXPECT_FALSE(fixture.meshNode("body_g").shouldRender());
@@ -169,7 +169,7 @@ TEST(MeshSceneNode, should_cull_aabb_mesh_despite_runtime_texture) {
     fixture.build();
 
     // when
-    fixture.node->setMainTexture(fixture.texture.get());
+    fixture.node->setMainTexture(fixture.texture);
 
     // then
     EXPECT_FALSE(fixture.meshNode("walkmesh_g").shouldRender());
@@ -185,7 +185,7 @@ TEST(MeshSceneNode, should_propagate_runtime_texture_to_every_mesh_of_a_model) {
     ASSERT_FALSE(fixture.meshNode("head_g").shouldRender());
 
     // when
-    fixture.node->setMainTexture(fixture.texture.get());
+    fixture.node->setMainTexture(fixture.texture);
 
     // then
     EXPECT_TRUE(fixture.meshNode("torso_g").shouldRender());

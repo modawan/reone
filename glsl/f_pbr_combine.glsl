@@ -40,6 +40,11 @@ const float MAX_REFLECTION_LOD = 4.0;
 void main() {
     vec2 uv = fragUV1;
 
+    // Where no geometry is drawn, the frame keeps its clear colour.
+    if (texture(sGBufDepth, uv).r >= 1.0) {
+        discard;
+    }
+
     vec4 mainTexSample = texture(sMainTex, uv);
     vec4 lightmapSample = texture(sLightmap, uv);
     vec4 selfIllumSample = texture(sGBufSelfIllum, uv);
