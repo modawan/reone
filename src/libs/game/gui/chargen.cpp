@@ -295,6 +295,7 @@ void CharacterGeneration::startLevelUp(bool forced) {
     Character character;
     character.name = partyLeader->name();
     character.appearance = partyLeader->appearance();
+    character.portraitId = partyLeader->portraitId();
     character.gender = partyLeader->gender();
     character.attributes = partyLeader->attributes();
     // The attributes panel adds the coming level to the character as it is.
@@ -588,6 +589,7 @@ void CharacterGeneration::finish() {
                     resource::LocString(-1, _character.name, _services.resource.strings), resource::LocString());
                 player->setGender(_character.gender);
                 player->setAppearance(_character.appearance);
+                player->setPortraitId(_character.portraitId);
                 player->loadAppearance();
                 // A new character moves at the player's pace.
                 player->setMovementRate(kPlayerMovementRate);

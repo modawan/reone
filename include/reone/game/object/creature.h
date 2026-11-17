@@ -341,6 +341,13 @@ public:
     static constexpr int kMaxExperience = std::numeric_limits<int>::max();
     /** The node of a character's body model its head is attached at. */
     static constexpr char kHeadHookNode[] = "headhook";
+    /** The PortraitId of a creature record whose portrait is named by its Portrait resref. */
+    static constexpr int kNoPortraitId = 0xffff;
+    /**
+     * The lowest PortraitId naming no portraits.2da row: from it on, the
+     * portrait is the record's Portrait resref.
+     */
+    static constexpr int kFirstResRefPortraitId = 0xfffe;
 
     // AI state
 
@@ -942,11 +949,27 @@ public:
     void duplicateHead(int row);
     CreaturePresentation presentation() const;
     void setPresentation(const CreaturePresentation &presentation);
-    uint16_t portraitId() const { return _portraitId; }
-    /** The portrait shown in play, its row's variant for the creature's good/evil. */
-    std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
-    /** The resref of the portrait shown in play; empty for a creature without a portrait row. */
-    std::string portraitResRef() const;
+    /** The portraits.2da row; none for a portrait named by its resref. */
+    std::optional<int> portraitId() const { return _portraitId; }
+    /** The portrait resref of a creature without a portrait row. */
+    const std::string &portraitResRef() const { return _portraitResRef; }
+    /**
+     * The resref of the portrait without the good/evil variant, which
+     * creation shows; empty for a creature with no portrait row or resref.
+     */
+    std::string basePortraitResRef() const {
+        if (_portraitRow) {
+            return _portraitRow->resRef;
+        }
+        return _portraitId ? std::string() : _portraitResRef;
+    }
+    /**
+     * The resref of the portrait shown in play: its row's variant for the
+     * creature's good/evil band (BaseResRefE … VVVE at 40, 30, 20 and 10 and
+     * below), else the base portrait's; empty for a creature with no portrait
+     * row or resref.
+     */
+    std::string portraitResRefForGoodEvil() const;
     float walkSpeed() const;
     /** Whether the player drives this creature: a drive heads its queue. */
     bool isDriven() const;
@@ -1231,6 +1254,11 @@ public:
     /** The first and last name; the name is the two joined by a space. */
     void setFirstAndLastName(resource::LocString firstName, resource::LocString lastName);
     void setAppearance(int appearance) { _appearance = appearance; }
+    /**
+     * The portraits.2da row, none for the portrait resref; the portrait is
+     * shown from the next appearance load.
+     */
+    void setPortraitId(std::optional<int> portraitId) { _portraitId = portraitId; }
     void setMovementType(MovementType type);
     /** Join a faction; a creature joining a faction other than its own goes to the end of its members. */
     void setFaction(Faction faction);
@@ -2728,7 +2756,10 @@ private:
     bool _disguised {false};
     bool _useBackupHead {false};
     Gender _gender {Gender::Male};
-    uint16_t _portraitId {0};
+    /** The portraits.2da row; none for a portrait named by its resref. */
+    std::optional<int> _portraitId;
+    /** The portrait named by the record, for a creature without a portrait row. */
+    std::string _portraitResRef;
     /** The record's IsPC byte; any value but 0 marks a player character. */
     uint8_t _isPC {1};
     /** The creature's own copy of IsPC (see actsAsPC()); not saved. */
@@ -2848,10 +2879,9 @@ private:
     uint8_t _duplicatedHead {0xff};
     bool _wearsBackupHead {false};
     ModelType _modelType {ModelType::Creature};
-    std::shared_ptr<graphics::Texture> _portrait;
     /** The portraits.2da row of the portrait, when it has one. */
     std::optional<Portrait> _portraitRow;
-    /** The good/evil the portrait, body and head were last shown for. */
+    /** The good/evil the body and head were last shown for. */
     int _alignmentGoodEvil {0};
     /** The good/evil texture the head shows; empty while it shows its own. */
     std::string _headAlignmentTexture;
@@ -3371,15 +3401,13 @@ private:
     void refreshHead();
     /** The head model and its good/evil textures, from the head's heads.2da row. */
     void loadHeadProperties(const resource::TwoDA &appearances);
-    /** Shows the portrait for the creature's good/evil. */
-    void refreshPortrait();
     /** The head's texture for the creature's good/evil; empty for its own. */
     std::string getHeadAlignmentTextureName() const;
     /** The body's evil texture for the creature's good/evil and armour; empty for its own. */
     std::string getEvilBodyTextureName() const;
     void applyHeadAlignment(scene::ModelSceneNode &head);
     void applyBodyAlignment(scene::ModelSceneNode &body);
-    /** Shows the portrait, body and head for a good/evil that has changed. */
+    /** Shows the body and head for a good/evil that has changed. */
     void updateAlignmentTextures();
 
     // END Appearance

@@ -74,19 +74,20 @@ void PortraitSelection::onGUILoaded() {
     _controls.BTN_ARRL->setOnClick([this]() {
         _currentPortrait--;
         if (_currentPortrait == -1) {
-            _currentPortrait = static_cast<int>(_filteredPortraits.size()) - 1;
+            _currentPortrait = static_cast<int>(_portraitRows.size()) - 1;
         }
         loadCurrentPortrait();
         loadHeadModel();
     });
     _controls.BTN_ARRR->setOnClick([this]() {
-        _currentPortrait = (_currentPortrait + 1) % static_cast<int>(_filteredPortraits.size());
+        _currentPortrait = (_currentPortrait + 1) % static_cast<int>(_portraitRows.size());
         loadCurrentPortrait();
         loadHeadModel();
     });
     _controls.BTN_ACCEPT->setOnClick([this]() {
         Character character(_charGen.character());
         character.appearance = getAppearanceFromCurrentPortrait();
+        character.portraitId = _portraitRows[_currentPortrait];
         _charGen.setCharacter(std::move(character));
         _charGen.goToNextStep();
         _charGen.openSteps();
@@ -146,38 +147,39 @@ std::shared_ptr<ModelSceneNode> PortraitSelection::getCharacterModel(ISceneGraph
     return model;
 }
 
+const Portrait &PortraitSelection::currentPortrait() const {
+    return _services.game.portraits.portraits()[_portraitRows[_currentPortrait]];
+}
+
 int PortraitSelection::getAppearanceFromCurrentPortrait() const {
     switch (_charGen.character().attributes.getEffectiveClass()) {
     case ClassType::Scoundrel:
-        return _filteredPortraits[_currentPortrait].appearanceS;
+        return currentPortrait().appearanceS;
     case ClassType::Soldier:
-        return _filteredPortraits[_currentPortrait].appearanceL;
+        return currentPortrait().appearanceL;
     default:
-        return _filteredPortraits[_currentPortrait].appearanceNumber;
+        return currentPortrait().appearanceNumber;
     }
 }
 
 void PortraitSelection::updatePortraits() {
-    _filteredPortraits.clear();
+    _portraitRows.clear();
     int sex = _charGen.character().gender == Gender::Female ? 1 : 0;
-    for (auto &portrait : _services.game.portraits.portraits()) {
+    const std::vector<Portrait> &portraits = _services.game.portraits.portraits();
+    for (int row = 0; row < static_cast<int>(portraits.size()); ++row) {
         // The portrait list offers only portraits whose forpc cell is 1.
-        if (portrait.forPC == 1 && portrait.sex == sex) {
-            _filteredPortraits.push_back(std::move(portrait));
+        if (portraits[row].forPC == 1 && portraits[row].sex == sex) {
+            _portraitRows.push_back(row);
         }
     }
     resetCurrentPortrait();
 }
 
 void PortraitSelection::resetCurrentPortrait() {
-    int appearance = _charGen.character().appearance;
-    auto maybePortrait = std::find_if(_filteredPortraits.begin(), _filteredPortraits.end(), [&appearance](const Portrait &portrait) {
-        return portrait.appearanceNumber == appearance ||
-               portrait.appearanceS == appearance ||
-               portrait.appearanceL == appearance;
-    });
-    if (maybePortrait != _filteredPortraits.end()) {
-        _currentPortrait = static_cast<int>(distance(_filteredPortraits.begin(), maybePortrait));
+    const auto &portraitId = _charGen.character().portraitId;
+    auto maybePortrait = portraitId ? std::find(_portraitRows.begin(), _portraitRows.end(), *portraitId) : _portraitRows.end();
+    if (maybePortrait != _portraitRows.end()) {
+        _currentPortrait = static_cast<int>(std::distance(_portraitRows.begin(), maybePortrait));
         loadCurrentPortrait();
         loadHeadModel();
     } else {
@@ -186,7 +188,7 @@ void PortraitSelection::resetCurrentPortrait() {
 }
 
 void PortraitSelection::loadCurrentPortrait() {
-    std::string resRef(_filteredPortraits[_currentPortrait].resRef);
+    std::string resRef(currentPortrait().resRef);
     std::shared_ptr<Texture> portrait(_services.resource.textures.get(resRef, TextureUsage::GUI));
     _controls.LBL_PORTRAIT->setBorderFill(portrait);
 }

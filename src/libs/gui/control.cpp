@@ -695,6 +695,10 @@ void Control::setBorder(Border border) {
 }
 
 void Control::setBorderFill(std::string resRef) {
+    // The fill already shown is kept, so a screen may set it every frame.
+    if (!resRef.empty() && resRef == _borderFillResRef && _border && _border->fill) {
+        return;
+    }
     std::shared_ptr<Texture> texture;
     if (!resRef.empty()) {
         texture = _resourceSvc.textures.get(resRef, TextureUsage::GUI);

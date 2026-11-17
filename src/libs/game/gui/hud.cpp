@@ -986,7 +986,7 @@ void HUD::update(float dt) {
         std::shared_ptr<Creature> member(memberIndex ? party.getMember(*memberIndex) : nullptr);
         if (member) {
             LBL_CHAR.setVisible(true);
-            LBL_CHAR.setBorderFill(member->portrait());
+            LBL_CHAR.setBorderFill(member->portraitResRefForGoodEvil());
             LBL_BACK.setVisible(true);
             const PortraitState state = portraitState(*member);
             const bool levelUp = state == PortraitState::LevelUp;

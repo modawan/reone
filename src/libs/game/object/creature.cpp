@@ -1558,9 +1558,14 @@ void Creature::loadAppearanceProperties() {
     }
     loadHeadProperties(*appearances);
 
-    const Portrait *portraitRow = findPortrait(_services.game.portraits.portraits(), _portraitId, _appearance);
-    _portraitRow = portraitRow ? std::optional<Portrait>(*portraitRow) : std::nullopt;
-    refreshPortrait();
+    // A creature without a portrait row shows the record's resref; an empty
+    // resref shows none. A row shows its portrait, none for a blank cell or
+    // past the table, and only a row gives good/evil variants.
+    const auto &portraitRows = _services.game.portraits.portraits();
+    _portraitRow.reset();
+    if (_portraitId && *_portraitId >= 0 && *_portraitId < static_cast<int>(portraitRows.size())) {
+        _portraitRow = portraitRows[*_portraitId];
+    }
 }
 
 void Creature::loadHeadProperties(const TwoDA &appearances) {
@@ -1573,13 +1578,8 @@ void Creature::loadHeadProperties(const TwoDA &appearances) {
     }
 }
 
-std::string Creature::portraitResRef() const {
-    return _portraitRow ? _portraitRow->resRefForGoodEvil(_goodEvil) : std::string();
-}
-
-void Creature::refreshPortrait() {
-    const auto resRef = portraitResRef();
-    _portrait = resRef.empty() ? nullptr : _services.resource.textures.get(resRef, TextureUsage::GUI);
+std::string Creature::portraitResRefForGoodEvil() const {
+    return _portraitRow ? _portraitRow->resRefForGoodEvil(_goodEvil) : basePortraitResRef();
 }
 
 void Creature::loadAppearanceMoveRate(const TwoDA &appearances) {
@@ -11501,15 +11501,8 @@ void Creature::applyBodyAlignment(ModelSceneNode &body) {
     }
 }
 
-// The portrait follows good/evil whether or not the creature is drawn; the
-// body and head follow it while they are.
 void Creature::updateAlignmentTextures() {
-    if (_goodEvil == _alignmentGoodEvil) {
-        return;
-    }
-    refreshPortrait();
-    if (!_sceneNode) {
-        _alignmentGoodEvil = _goodEvil;
+    if (!_sceneNode || _goodEvil == _alignmentGoodEvil) {
         return;
     }
     auto body = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
@@ -11686,8 +11679,15 @@ void Creature::deserializeAll(
     // in dex into gender.2da
     gff.readEnum(_gender, "Gender");
 
-    // index into portrait.2da
-    gff.readWord(_portraitId, "PortraitId");
+    // index into portrait.2da; the two highest IDs name no row and leave the
+    // portrait to its resref
+    uint16_t portraitId {0};
+    if (gff.readWord(portraitId, "PortraitId")) {
+        _portraitId = portraitId < kFirstResRefPortraitId ? std::optional<int>(portraitId) : std::nullopt;
+    }
+    if (!_portraitId) {
+        gff.readResRef(_portraitResRef, "Portrait");
+    }
 
     // index into repute.2da; a player character belongs to the player faction
     gff.readEnum(_faction, "FactionID");

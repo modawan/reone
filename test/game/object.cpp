@@ -1053,6 +1053,63 @@ TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
     EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
 }
 
+TEST(Creature, takes_the_record_portrait_resref_when_its_portrait_id_names_no_row) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newDword("Appearance_Type", 0))
+                      .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                      .field(Gff::Field::newByte("BodyBag", 0xff))
+                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                      .field(Gff::Field::newWord("PortraitId", static_cast<uint16_t>(Creature::kNoPortraitId)))
+                      .field(Gff::Field::newResRef("Portrait", "po_custom"))
+                      .build();
+    auto creature = game.newCreature();
+    creature->deserialize(*record, SerializedIdentityContext::templateResource());
+
+    EXPECT_FALSE(creature->portraitId());
+    EXPECT_EQ("po_custom", creature->portraitResRef());
+    EXPECT_EQ("po_custom", creature->portraitResRefForGoodEvil());
+}
+
+TEST(Creature, shows_the_portrait_row_its_portrait_id_names_and_not_the_record_resref) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    std::vector<Portrait> rows(2);
+    rows[1].resRef = "po_row";
+    auto &portraits = static_cast<MockPortraits &>(engine.services().game.portraits);
+    EXPECT_CALL(portraits, portraits()).WillRepeatedly(ReturnRef(rows));
+
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newDword("Appearance_Type", 0))
+                      .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                      .field(Gff::Field::newByte("BodyBag", 0xff))
+                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                      .field(Gff::Field::newWord("PortraitId", 1))
+                      .field(Gff::Field::newResRef("Portrait", "po_custom"))
+                      .build();
+    auto creature = game.newCreature();
+    creature->deserialize(*record, SerializedIdentityContext::templateResource());
+
+    EXPECT_EQ(std::optional<int>(1), creature->portraitId());
+    EXPECT_TRUE(creature->portraitResRef().empty());
+    EXPECT_EQ("po_row", creature->portraitResRefForGoodEvil());
+    Mock::VerifyAndClearExpectations(&portraits);
+}
+
 // A script that activates a sound object starts its first sound at once. The
 // node was found inaudible while the object was inactive, so it has to wait
 // for the scene to tell again rather than skip that sound.
