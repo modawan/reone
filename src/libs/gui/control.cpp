@@ -303,8 +303,13 @@ void Control::renderScene(const glm::ivec2 &screenSize,
                           const glm::ivec2 &offset,
                           IRenderPass &pass) {
     std::optional<std::reference_wrapper<Texture>> output;
-    _graphicsSvc.context.withBlendMode(BlendMode::None, [this, &output]() {
-        output = _sceneGraphs.get(_sceneName).render({_extent.width, _extent.height});
+    // The view is drawn at its size in the screen's pixels.
+    const glm::vec2 pixelScale = screenPixelScale(_graphicsSvc.context, screenSize);
+    const glm::ivec2 pixelSize {
+        static_cast<int>(std::lround(_extent.width * pixelScale.x)),
+        static_cast<int>(std::lround(_extent.height * pixelScale.y))};
+    _graphicsSvc.context.withBlendMode(BlendMode::None, [this, &output, &pixelSize]() {
+        output = _sceneGraphs.get(_sceneName).render(pixelSize);
     });
     _graphicsSvc.uniforms.setGlobals([&screenSize](auto &globals) {
         globals.reset();

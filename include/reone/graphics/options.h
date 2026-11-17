@@ -37,6 +37,18 @@ struct GraphicsOptions {
     bool headless {false};
     /** Draw 3D scene content: the world and scene-backed GUI panels. */
     bool sceneRender {true};
+    /**
+     * Draw the world at the window's pixels, which a high-density display, or
+     * fullscreen on a larger desktop, has more of than width by height; off,
+     * the world is drawn at width by height and stretched to them.
+     */
+    bool worldFullResolution {false};
+    /**
+     * Stretch the screen to the window's shape where the two differ; off,
+     * the screen keeps its shape, as large as fits and centred between black
+     * bars.
+     */
+    bool stretch {false};
     bool vsync {true};
     bool grass {true};
     /**

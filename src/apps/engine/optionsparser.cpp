@@ -60,9 +60,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("height", value<int>()->default_value(options->graphics.height), "render height")                                      //
         ("winscale", value<int>()->default_value(options->graphics.winScale), "window scale")                                   //
         ("fullscreen", value<bool>()->default_value(options->graphics.fullscreen), "enable fullscreen")                         //
-        ("refresh", value<int>()->default_value(options->graphics.refreshRate), "fullscreen refresh rate")                     //
+        ("refresh", value<int>()->default_value(options->graphics.refreshRate), "fullscreen refresh rate")                      //
         ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
+        ("fullresworld", value<bool>()->default_value(options->graphics.worldFullResolution), "world at full resolution")       //
+        ("stretch", value<bool>()->default_value(options->graphics.stretch), "stretch to the window's shape")                   //
         ("wheelzoom", value<bool>()->default_value(options->game.wheelZoom), "zoom the follow camera with the mouse wheel")     //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
@@ -77,16 +79,16 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("shadowres", value<int>()->default_value(glm::log2(options->graphics.shadowResolution) - 10), "shadow map resolution") //
         ("anisofilter", value<int>()->default_value(options->graphics.anisotropicFiltering), "anisotropic filtering")           //
         ("drawdist", value<int>()->default_value(static_cast<int>(kDefaultObjectDrawDistance)), "draw distance")                //
-        ("guiscale", value<float>()->default_value(options->graphics.guiScale), "GUI layout scale")                              //
+        ("guiscale", value<float>()->default_value(options->graphics.guiScale), "GUI layout scale")                             //
         ("guitextscale", value<float>()->default_value(options->graphics.guiTextScale), "GUI text scale")                       //
-        ("guidialogtextscale", value<float>()->default_value(options->graphics.guiDialogTextScale), "dialog text scale")       //
+        ("guidialogtextscale", value<float>()->default_value(options->graphics.guiDialogTextScale), "dialog text scale")        //
         ("guiborderscale", value<float>()->default_value(options->graphics.guiBorderScale), "GUI border scale")                 //
-        ("guilistscale", value<float>()->default_value(options->graphics.guiListScale), "GUI list row scale")                    //
+        ("guilistscale", value<float>()->default_value(options->graphics.guiListScale), "GUI list row scale")                   //
         ("musicvol", value<int>()->default_value(options->audio.musicVolume), "music volume in percents")                       //
         ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
         ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
-        ("forcesoftware", value<bool>()->default_value(options->audio.forceSoftware), "force software sound")                  //
+        ("forcesoftware", value<bool>()->default_value(options->audio.forceSoftware), "force software sound")                   //
         ("voices2d", value<int>()->default_value(options->audio.voices2D), "number of 2D voices, half for streams")             //
         ("voices3d", value<int>()->default_value(options->audio.voices3D), "number of 3D voices")                               //
         ("envstreaming", value<bool>()->default_value(options->audio.streamedReverb), "reverb streamed 3D sounds")              //
@@ -133,6 +135,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.refreshRate = vars["refresh"].as<int>();
     options->graphics.headless = vars["headless"].as<bool>();
     options->graphics.vsync = vars["vsync"].as<bool>();
+    options->graphics.worldFullResolution = vars["fullresworld"].as<bool>();
+    options->graphics.stretch = vars["stretch"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
     options->graphics.shadows = vars["shadows"].as<bool>();
     options->graphics.softShadows = vars["softshadows"].as<bool>();

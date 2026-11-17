@@ -741,7 +741,7 @@ void ListBox::renderTextBlock(const glm::ivec2 &screenSize, const glm::ivec2 &of
         height = content + spare / rows + (spare % rows > 0 ? 1 : 0);
     }
     const glm::ivec4 clip {offset.x + inner.left, offset.y + inner.top, inner.width, inner.height};
-    withScissorRect(_graphicsSvc.context, screenSize.y, clip, [&]() {
+    withScissorRect(_graphicsSvc.context, screenSize, clip, [&]() {
         glm::ivec2 blockOffset(offset);
         blockOffset.x += inner.left + padding - _protoItem->extent().left;
         blockOffset.y += inner.top + top - _protoItem->extent().top;

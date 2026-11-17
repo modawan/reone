@@ -30,6 +30,8 @@
 #include "reone/system/stringutil.h"
 #include "reone/system/unicodeutil.h"
 
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
 
 using namespace reone::audio;
@@ -44,16 +46,6 @@ using namespace reone::script;
 namespace reone {
 
 static const std::string kMainThreadName {"main"};
-
-// Window coordinates are scaled to screen coordinates by the window scale,
-// a percentage.
-static constexpr int scaleWinCoord(int coord, int winScale) {
-    return coord * 100 / winScale;
-}
-
-static constexpr int unscaleWinCoord(int coord, int winScale) {
-    return coord * winScale / 100;
-}
 
 static constexpr int kProfilerInputTimeIndex = 0;
 static constexpr int kProfilerUpdateTimeIndex = 1;
@@ -171,6 +163,9 @@ void Engine::init() {
     _sceneModule->init();
     _guiModule->init();
     _gameModule->init();
+    // The screen covers the window's pixels, which a high-density display
+    // has more of than the window has units.
+    _graphicsModule->context().setScreenPixelSize(_window->pixelSize());
 
     _services = std::make_unique<ServicesView>(
         _gameModule->services(),
@@ -314,8 +309,8 @@ int Engine::run() {
             setRelativeMouseMode(relmouse);
             // The cursor is moved once the mouse is free to go there.
             if (auto warp = _game->consumePointerWarp()) {
-                _window->warpMouse(unscaleWinCoord(warp->x, _options.graphics.winScale),
-                                   unscaleWinCoord(warp->y, _options.graphics.winScale));
+                const glm::vec2 position = windowFromScreen(warp->x, warp->y);
+                _window->warpMouse(position.x, position.y);
             }
             _profiler->update(frameTime);
         });
@@ -420,8 +415,9 @@ void Engine::captureIfRequested(bool &quit) {
 }
 
 void Engine::captureFrame(const std::filesystem::path &path) {
-    auto screenshot = _services->graphics.context.captureScreen(
-        _options.graphics.width, _options.graphics.height);
+    // The window's pixels, more than its size on a high-density display.
+    const glm::ivec4 &viewport = _services->graphics.context.viewport();
+    auto screenshot = _services->graphics.context.captureScreen(viewport[2], viewport[3]);
     auto stream = FileOutputStream(path);
     TgaWriter(screenshot).save(stream);
     info("Wrote screenshot: " + path.string());
@@ -472,6 +468,11 @@ void Engine::processEvents(bool &quit) {
             _ticks = _services->system.clock.micros();
             _game->holdWorldClock();
         }
+        // Moving to a display of another density, or in or out of
+        // fullscreen, changes the window's pixels.
+        if (sdlEvent.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+            _services->graphics.context.setScreenPixelSize({sdlEvent.window.data1, sdlEvent.window.data2});
+        }
         if (_window->handle(sdlEvent)) {
             if (_window->isCloseRequested()) {
                 quit = true;
@@ -485,6 +486,20 @@ void Engine::processEvents(bool &quit) {
                 unhandled.push(input::Event::newTextInput(input::TextInputEvent {codePoint}));
             }
             continue;
+        }
+        // A press over a black bar presses nothing, and its release releases
+        // nothing. A relative mouse's position is not the pointer shown, so
+        // then every press counts.
+        if (sdlEvent.type == SDL_EVENT_MOUSE_BUTTON_DOWN || sdlEvent.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            const uint32_t bit = sdlEvent.button.button < 32 ? 1u << sdlEvent.button.button : 0u;
+            if (sdlEvent.button.down && !_relativeMouseMode && !isOverScreen(sdlEvent.button.x, sdlEvent.button.y)) {
+                _barPresses |= bit;
+                continue;
+            }
+            if (!sdlEvent.button.down && (_barPresses & bit) != 0) {
+                _barPresses &= ~bit;
+                continue;
+            }
         }
         auto event = eventFromSDLEvent(sdlEvent);
         if (!event) {
@@ -561,6 +576,51 @@ static uint32_t typedCharacter(SDL_Scancode scancode, SDL_Keymod mod) {
     return isCharacter ? static_cast<uint32_t>(typed) : 0;
 }
 
+// The mouse is reported in the window's coordinates. The screen lies in
+// the window where its viewport lies in the window's pixels: the whole
+// window when stretched, between black bars otherwise. A position over a
+// bar is taken to the screen's nearest edge.
+glm::ivec2 Engine::screenFromWindow(float x, float y) const {
+    const glm::vec4 area = screenAreaInWindow();
+    const auto &graphics = _options.graphics;
+    const float screenX = area.z > 0.0f ? (x - area.x) * graphics.width / area.z : x;
+    const float screenY = area.w > 0.0f ? (y - area.y) * graphics.height / area.w : y;
+    return {
+        std::clamp(static_cast<int>(std::floor(screenX)), 0, std::max(0, graphics.width - 1)),
+        std::clamp(static_cast<int>(std::floor(screenY)), 0, std::max(0, graphics.height - 1))};
+}
+
+// The middle of the screen's unit at x, y, in the window's coordinates.
+glm::vec2 Engine::windowFromScreen(int x, int y) const {
+    const glm::vec4 area = screenAreaInWindow();
+    const auto &graphics = _options.graphics;
+    return {
+        area.x + (graphics.width > 0 ? (x + 0.5f) * area.z / graphics.width : static_cast<float>(x)),
+        area.y + (graphics.height > 0 ? (y + 0.5f) * area.w / graphics.height : static_cast<float>(y))};
+}
+
+// The screen's place in the window's coordinates, from the window's top
+// left: left, top, width and height.
+glm::vec4 Engine::screenAreaInWindow() const {
+    const glm::ivec2 windowSize = _window->size();
+    const glm::ivec2 pixelSize = _window->pixelSize();
+    if (pixelSize.x <= 0 || pixelSize.y <= 0) {
+        return {0.0f, 0.0f, static_cast<float>(windowSize.x), static_cast<float>(windowSize.y)};
+    }
+    const glm::ivec4 &viewport = _services->graphics.context.viewport();
+    const glm::vec2 scale {
+        windowSize.x / static_cast<float>(pixelSize.x),
+        windowSize.y / static_cast<float>(pixelSize.y)};
+    const int top = pixelSize.y - (viewport.y + viewport.w);
+    return {viewport.x * scale.x, top * scale.y, viewport.z * scale.x, viewport.w * scale.y};
+}
+
+// Whether the window's point x, y lies on the screen rather than a black bar.
+bool Engine::isOverScreen(float x, float y) const {
+    const glm::vec4 area = screenAreaInWindow();
+    return x >= area.x && x < area.x + area.z && y >= area.y && y < area.y + area.w;
+}
+
 std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent) const {
     switch (sdlEvent.type) {
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
@@ -591,26 +651,32 @@ std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent)
             static_cast<input::KeyCode>(sdlEvent.key.key),
             sdlEvent.key.mod,
             sdlEvent.key.repeat});
-    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_MOTION: {
+        const glm::ivec2 position = screenFromWindow(sdlEvent.motion.x, sdlEvent.motion.y);
         return input::Event::newMouseMotion(input::MouseMotionEvent {
-            scaleWinCoord(sdlEvent.motion.x, _options.graphics.winScale),
-            scaleWinCoord(sdlEvent.motion.y, _options.graphics.winScale),
+            position.x,
+            position.y,
             sdlEvent.motion.xrel,
             sdlEvent.motion.yrel});
-    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    }
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+        const glm::ivec2 position = screenFromWindow(sdlEvent.button.x, sdlEvent.button.y);
         return input::Event::newMouseButtonDown(input::MouseButtonEvent {
             static_cast<input::MouseButton>(sdlEvent.button.button),
             sdlEvent.button.down,
             sdlEvent.button.clicks,
-            scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
-            scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
-    case SDL_EVENT_MOUSE_BUTTON_UP:
+            position.x,
+            position.y});
+    }
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
+        const glm::ivec2 position = screenFromWindow(sdlEvent.button.x, sdlEvent.button.y);
         return input::Event::newMouseButtonUp(input::MouseButtonEvent {
             static_cast<input::MouseButton>(sdlEvent.button.button),
             sdlEvent.button.down,
             sdlEvent.button.clicks,
-            scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
-            scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
+            position.x,
+            position.y});
+    }
     case SDL_EVENT_MOUSE_WHEEL: {
         return input::Event::newMouseWheel(input::MouseWheelEvent {
             sdlEvent.wheel.x,

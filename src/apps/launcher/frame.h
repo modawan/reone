@@ -53,6 +53,8 @@ private:
         bool ssr {false};
         bool fxaa {true};
         bool sharpen {true};
+        bool fullRes {false};
+        bool stretch {false};
         int texQuality {0};
         int shadowres {1};
         int anisofilter {2};
@@ -82,6 +84,8 @@ private:
     wxCheckBox *_checkBoxSSR;
     wxCheckBox *_checkBoxFXAA;
     wxCheckBox *_checkBoxSharpen;
+    wxCheckBox *_checkBoxFullRes;
+    wxCheckBox *_checkBoxStretch;
     wxSlider *_sliderVolumeMusic;
     wxSlider *_sliderVolumeVoice;
     wxSlider *_sliderVolumeSound;

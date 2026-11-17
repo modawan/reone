@@ -519,6 +519,7 @@ private:
     resource::ResourceServices &_resourceSvc;
 
     std::unique_ptr<IRenderPipeline> _renderPipeline;
+    glm::ivec2 _renderPipelineSize {0};
     FrameEffects _frameEffects;
     float _forceSightPhase {0.0f}; /**< seconds into the current Force Sight pulse */
     float _textureTime {0.0f};

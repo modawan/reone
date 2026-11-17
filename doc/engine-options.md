@@ -11,6 +11,8 @@ winscale | window scale in percents | 100
 fullscreen | enable fullscreen | 0
 headless | hide the window for scripted batch runs | 0
 vsync | enable V-Sync | 1
+fullresworld | draw the world at full resolution, see below | 0
+stretch | stretch the screen to the window's shape, see below | 0
 wheelzoom | zoom the follow camera with the mouse wheel | 0
 grass | enable grass | 1
 shadows | enable shadows | 1
@@ -47,6 +49,14 @@ Developer mode facilitates debugging of the engine. Enabling developer mode has 
 - Warp button is enabled in the main menu
 - First person camera can be toggled using the V key
 - Game speed can be changed using "+" and "-" keys
+
+### Full-Resolution World
+
+On a high-density display, or in fullscreen on a desktop larger than the render size, the window has more pixels than the render width and height. The GUI always uses all of them, or those between the black bars (see Stretch). The world is drawn at the render size and stretched to fit, unless `fullresworld` is on: then it is drawn at those pixels, sharper but slower (on a display of double density, four times the pixels).
+
+### Stretch
+
+In fullscreen the window takes the desktop's size, or with a refresh rate the nearest display mode, whose shape can differ from the render width and height (a 4:3 resolution on a 16:9 display). By default the screen keeps its shape: it is drawn as large as fits, centred, with black bars beside it or above and below. With `stretch` on it fills the window instead, stretched out of shape.
 
 ### Texture Quality
 
