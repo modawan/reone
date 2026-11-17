@@ -24,6 +24,7 @@
 #include "../fixtures/game.h"
 #include "../fixtures/scene.h"
 
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -376,4 +377,31 @@ TEST(CreatureWalk, a_destroyed_walker_gives_its_path_back) {
 
     ASSERT_FALSE(fixture.game->getObjectById(walker->id()));
     EXPECT_EQ(0, activePaths(*fixture.area));
+}
+
+// A walk to a creature follows it when it moves well away from where the walk's
+// path was planned to. The walker used to keep to the path to the old spot
+// until it reached the end of it.
+TEST(CreatureWalk, a_walk_to_a_creature_follows_it_when_it_moves) {
+    CorridorFixture fixture;
+    fixture.pc->setPosition(glm::vec3(-10.0f, 0.0f, 0.0f));
+    auto target = fixture.spawn(glm::vec3(10.0f, 1.5f, 0.0f));
+    auto walk = fixture.game->newAction<MoveToObjectAction>(target, false, 1.0f);
+    fixture.pc->addAction(walk);
+    for (int tick = 0; tick < 30; ++tick) {
+        fixture.pc->update(kTick);
+    }
+    const float setOut = fixture.pc->position().x;
+    ASSERT_GT(setOut, -10.0f) << "the walk set out";
+
+    target->setPosition(glm::vec3(-16.0f, 1.5f, 0.0f));
+    float furthest = setOut;
+    for (int tick = 0; tick < 30 * 30 && !walk->isCompleted(); ++tick) {
+        fixture.pc->update(kTick);
+        furthest = std::max(furthest, fixture.pc->position().x);
+    }
+
+    EXPECT_TRUE(walk->isCompleted());
+    EXPECT_LT(furthest, setOut + 1.0f) << "walked on towards where the creature stood";
+    EXPECT_LT(fixture.pc->position().x, setOut);
 }

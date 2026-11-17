@@ -464,6 +464,12 @@ static constexpr float kUseBesideArrival = 0.25f;
 // sixth ends the walk.
 static constexpr int kMaxPathBumps = 5;
 static constexpr float kSameBlockerDistance2 = 1e-5f;
+// How far a walk's destination may move from where its path was planned to
+// before the walk plans again: a share of the distance left, never under a
+// floor. Tuning values. The share keeps a far target shuffling about from
+// costing a plan every frame, and the floor does the same for a near one.
+static constexpr float kReplanShareOfDistance = 0.4f;
+static constexpr float kReplanFloor = 2.0f;
 // A wall that stops a leg of a way round this near its start, squared, is
 // met at the start.
 static constexpr float kWayStartContact2 = 1e-6f;
@@ -9859,6 +9865,15 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
     const auto executing = _executingActionNode.lock();
     if (_path && executing && _pathNode.lock() != executing) {
         clearPath();
+    }
+    // A destination that has moved well away from where the path leads, as a
+    // creature being walked to or followed walks off, is planned for again.
+    if (_path) {
+        const glm::vec2 plannedTo {getLastPathPoint(pf, *_path)};
+        const float allowance = std::max(kReplanFloor, kReplanShareOfDistance * glm::distance(glm::vec2(_position), glm::vec2(dest)));
+        if (glm::distance2(plannedTo, glm::vec2(dest)) > allowance * allowance) {
+            clearPath();
+        }
     }
 
     // A creature within reach of the destination but without a clear line to
