@@ -10448,14 +10448,16 @@ bool Creature::navigateToUse(const Object &target, float extra, float dt, bool r
     // ended; a walk under way runs to its own end. The walk belongs to the
     // action that set it out, and ends with it.
     // The walks that end short of the use point, and the time without
-    // progress toward it, are counted for useApproachGaveOut.
-    if (_shortUseWalksTarget != target.id()) {
+    // progress toward it, are counted for useApproachGaveOut, afresh for
+    // each action that walks to the target.
+    const auto walker = _executingActionNode.lock();
+    if (_shortUseWalksTarget != target.id() || _shortUseWalksWalker.lock() != walker) {
         _shortUseWalksTarget = target.id();
+        _shortUseWalksWalker = walker;
         _shortUseWalks = 0;
         _useApproachNearest = -1.0f;
         _useApproachStalled = 0.0f;
     }
-    const auto walker = _executingActionNode.lock();
     const bool walking = _useWalk && _useWalk->walker.lock() == walker;
     if (!walking && isInUseRange(target, extra)) {
         setMovementType(MovementType::None);

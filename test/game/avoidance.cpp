@@ -222,3 +222,27 @@ TEST(CreatureAvoidance, the_way_round_a_companion_keeps_to_the_walkmesh) {
     EXPECT_GT(fixture.pc->position().x, 8.5f) << "walked past the companion";
     EXPECT_LE(glm::abs(fixture.pc->position().y), kHalfWidth);
 }
+
+// A use given again after one cleared on its way, as a second click on the
+// container gives it, waits out its own approach: the first one's short walks
+// and time without progress do not count against it.
+TEST(CreatureAvoidance, a_use_given_again_after_a_cleared_one_waits_out_its_own_approach) {
+    CorridorFixture fixture;
+    fixture.pc->setPosition(glm::vec3(-15.0f, 0.0f, 0.0f));
+    auto user = fixture.spawn(glm::vec3(0.0f, 0.0f, 0.0f));
+    blockCorridor(fixture, 5.0f);
+    auto box = addContainer(fixture, 10.0f);
+    // Up to the creatures and two seconds held up there.
+    user->addAction(fixture.game->newAction<OpenContainerAction>(box));
+    for (int tick = 0; tick < 150; ++tick) {
+        user->update(kTick);
+    }
+    ASSERT_FALSE(user->actions().empty()) << "the first use gave out already";
+    user->clearAllActions(true);
+
+    user->addAction(fixture.game->newAction<OpenContainerAction>(box));
+    const int ticks = ticksUntilIdle(*user);
+
+    // Three seconds' patience of its own, as useApproachGaveOut allows.
+    EXPECT_GE(ticks, 90);
+}

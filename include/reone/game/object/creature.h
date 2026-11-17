@@ -2906,6 +2906,8 @@ private:
     /** navigateToUse's walks toward _shortUseWalksTarget that ended in a row short of its use range. */
     int _shortUseWalks {0};
     uint32_t _shortUseWalksTarget {script::kObjectInvalid};
+    /** The action whose walks toward _shortUseWalksTarget are counted. */
+    std::weak_ptr<ActionQueueNode> _shortUseWalksWalker;
     /** The nearest navigateToUse has come to its use point, and the seconds since it last came nearer. */
     float _useApproachNearest {-1.0f};
     float _useApproachStalled {0.0f};
