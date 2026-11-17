@@ -46,3 +46,46 @@ TEST(TextReader, should_read_lines_from_byte_buffer) {
     line = reader.readLine();
     EXPECT_FALSE(line);
 }
+
+TEST(TextReader, should_read_lines_longer_than_the_read_chunk) {
+    // given
+    auto first = std::string(1000, 'a');
+    auto second = std::string(300, 'b');
+    auto text = first + "\r\n" + second + "\n" + "short";
+    auto bytes = ByteBuffer {text.begin(), text.end()};
+    auto stream = MemoryInputStream(bytes);
+    auto reader = TextReader(stream);
+    std::optional<std::string> line;
+
+    // expect
+    line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, first);
+
+    line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, second);
+
+    line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, std::string("short"));
+
+    line = reader.readLine();
+    EXPECT_FALSE(line);
+}
+
+TEST(TextReader, should_tolerate_a_bare_carriage_return) {
+    // given
+    auto bytes = ByteBuffer {'a', '\r', 'b', '\n'};
+    auto stream = MemoryInputStream(bytes);
+    auto reader = TextReader(stream);
+
+    // expect
+    auto line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, std::string("a"));
+
+    line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, std::string("b"));
+}
