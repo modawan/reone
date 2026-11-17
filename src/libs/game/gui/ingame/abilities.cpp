@@ -146,8 +146,7 @@ void AbilitiesMenu::onGUILoaded() {
 }
 
 void AbilitiesMenu::loadSkills() {
-    for (int type = static_cast<int>(SkillType::ComputerUse); type <= static_cast<int>(SkillType::TreatInjury); ++type) {
-        auto skill = static_cast<SkillType>(type);
+    for (SkillType skill : kSkills) {
         const auto &rules = *_services.game.skills.get(skill);
 
         SkillInfo skillInfo;
@@ -174,7 +173,7 @@ void AbilitiesMenu::loadSkills() {
 void AbilitiesMenu::refreshControls() {
     refreshPortraits();
     if (!_game.isTSL()) {
-        _controls.LBL_PORTRAIT->setBorderFill(_game.party().getLeader()->portrait());
+        _controls.LBL_PORTRAIT->setBorderFill(_game.party().getLeader()->portraitResRefForGoodEvil());
     }
     setView(_view);
 }
@@ -432,11 +431,11 @@ void AbilitiesMenu::refreshPortraits() {
     std::shared_ptr<Creature> partyMember1(party.getMember(1));
     std::shared_ptr<Creature> partyMember2(party.getMember(2));
 
-    _controls.BTN_CHANGE1->setBorderFill(partyMember1 ? partyMember1->portrait() : nullptr);
-    _controls.BTN_CHANGE1->setHilightFill(partyMember1 ? partyMember1->portrait() : nullptr);
+    _controls.BTN_CHANGE1->setBorderFill(partyMember1 ? partyMember1->portraitResRefForGoodEvil() : std::string());
+    _controls.BTN_CHANGE1->setHilightFill(partyMember1 ? partyMember1->portraitResRefForGoodEvil() : std::string());
 
-    _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portrait() : nullptr);
-    _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portrait() : nullptr);
+    _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portraitResRefForGoodEvil() : std::string());
+    _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portraitResRefForGoodEvil() : std::string());
 }
 
 } // namespace game

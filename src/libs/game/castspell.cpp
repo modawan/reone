@@ -604,7 +604,7 @@ void SpellCastVisuals::attach(Set &set, Creature &caster, const std::array<std::
         auto &attached = set[index];
         attached.body = body;
         attached.hook = kCastVisualHooks[index];
-        attached.model = body->graph().newModel(*model, scene::ModelUsage::Projectile);
+        attached.model = body->graph().newModel(model, scene::ModelUsage::Projectile);
         hook->addChild(*attached.model);
         attached.model->playAnimation(animation);
     }
@@ -1132,9 +1132,7 @@ bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
         return false;
     }
     SavedEventRecord event;
-    const uint64_t when = game.worldTimeMilliseconds() + delayMilliseconds;
-    event.day = static_cast<uint32_t>(when / game.millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(when % game.millisecondsPerWorldDay());
+    game.setEventDueAfter(event, delayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(caster.id());
     event.caller = event.object;
     event.eventId = static_cast<uint32_t>(SavedEventType::SpellImpact);

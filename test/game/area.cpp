@@ -29,6 +29,7 @@
 #include "reone/game/object/door.h"
 #include "reone/game/room.h"
 #include "reone/graphics/walkmesh.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/node/walkmesh.h"
 #include "reone/system/exception/validation.h"
 
@@ -66,8 +67,8 @@ struct WallsFixture {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     Room room {"room", glm::vec3(0.0f), nullptr, nullptr};
-    graphics::Walkmesh roomWalkmesh;
-    graphics::Walkmesh doorWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
+    std::shared_ptr<graphics::Walkmesh> doorWalkmesh {std::make_shared<graphics::Walkmesh>()};
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     std::shared_ptr<scene::WalkmeshSceneNode> doorNode;
     StubConsole console;
@@ -84,8 +85,8 @@ struct WallsFixture {
         ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
         ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
 
-        addWall(roomWalkmesh, roomWallAt);
-        addWall(doorWalkmesh, doorWallAt);
+        addWall(*roomWalkmesh, roomWallAt);
+        addWall(*doorWalkmesh, doorWallAt);
         roomNode = std::make_shared<scene::WalkmeshSceneNode>(
             roomWalkmesh, sceneGraph, engine.services().graphics, engine.services().audio, engine.services().resource);
         roomNode->setUser(room);
@@ -215,4 +216,94 @@ TEST(Area, a_room_wall_before_a_door_stops_a_walk_first) {
     EXPECT_LT(test.stopPoint.x, 2.0f - fixture.walker->personalSpace() + 0.01f);
     EXPECT_GT(test.stopPoint.x, 1.0f);
     EXPECT_FALSE(test.door.has_value());
+}
+
+namespace {
+
+// A face the line from the sound meets: one it enters faces back towards the
+// sound, along -x, and one it leaves faces on, along +x.
+struct Blocker {
+    scene::IUser *user {nullptr};
+    bool entering {true};
+};
+
+// Answers each line-of-sight test with the next blocker in turn, two metres
+// apart along the x axis, then with a clear line.
+void blockInTurn(scene::MockSceneGraph &sceneGraph, const std::vector<Blocker> &blockers) {
+    auto &calls = EXPECT_CALL(sceneGraph, testLineOfSight(_, _, _));
+    for (size_t i = 0; i < blockers.size(); ++i) {
+        scene::Collision collision;
+        collision.user = blockers[i].user;
+        collision.intersection = glm::vec3(2.0f * static_cast<float>(i + 1), 0.0f, 0.0f);
+        collision.normal = glm::vec3(blockers[i].entering ? -1.0f : 1.0f, 0.0f, 0.0f);
+        calls.WillOnce(DoAll(SetArgReferee<2>(collision), Return(true)));
+    }
+    calls.WillRepeatedly(Return(false));
+}
+
+float obstructionThrough(const std::vector<Blocker> &blockers) {
+    scene::MockSceneGraph sceneGraph;
+    blockInTurn(sceneGraph, blockers);
+    return Area::soundObstruction(sceneGraph, glm::vec3(0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+}
+
+// Room walls crossing the x axis at \p wallsAt, met as real geometry is: a
+// line meets the first wall at or past where it starts.
+float obstructionBetweenWalls(const std::vector<float> &wallsAt) {
+    scene::MockSceneGraph sceneGraph;
+    EXPECT_CALL(sceneGraph, testLineOfSight(_, _, _))
+        .WillRepeatedly([wallsAt](const glm::vec3 &from, const glm::vec3 &to, scene::Collision &collision) {
+            for (float x : wallsAt) {
+                if (x >= from.x && x <= to.x) {
+                    collision.intersection = glm::vec3(x, 0.0f, 0.0f);
+                    collision.normal = glm::vec3(-1.0f, 0.0f, 0.0f);
+                    return true;
+                }
+            }
+            return false;
+        });
+    return Area::soundObstruction(sceneGraph, glm::vec3(0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+}
+
+} // namespace
+
+TEST(Area, sound_obstruction_leaves_out_what_the_sound_or_the_listener_touches) {
+    // The floor a sound sits on, or a wall it is set a little into.
+    EXPECT_FLOAT_EQ(obstructionBetweenWalls({0.0f}), 0.0f);
+    EXPECT_FLOAT_EQ(obstructionBetweenWalls({0.05f}), 0.0f);
+    // A wall the listener stands against.
+    EXPECT_FLOAT_EQ(obstructionBetweenWalls({9.95f}), 0.0f);
+    // Walls between them still count.
+    EXPECT_FLOAT_EQ(obstructionBetweenWalls({0.0f, 5.0f, 9.95f}), 0.4f);
+    EXPECT_FLOAT_EQ(obstructionBetweenWalls({0.5f, 9.5f}), 0.8f);
+}
+
+TEST(Area, sound_obstruction_sums_walls_placeables_and_doors_up_to_all) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = game.newDoor();
+    auto placeable = game.newPlaceable();
+    auto creature = game.newCreature();
+
+    EXPECT_FLOAT_EQ(obstructionThrough({}), 0.0f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{}, {placeable.get()}}), 0.8f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{door.get()}}), 0.55f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{creature.get()}, {}}), 0.4f);
+    EXPECT_FLOAT_EQ(obstructionThrough({{}, {door.get()}, {}}), 1.0f);
+}
+
+TEST(Area, sound_obstruction_counts_an_object_once_where_the_line_enters_it) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = game.newDoor();
+    auto placeable = game.newPlaceable();
+
+    // In through the door's front and out through its back.
+    EXPECT_FLOAT_EQ(obstructionThrough({{door.get()}, {door.get(), false}}), 0.55f);
+    // A sound inside its own placeable only leaves it.
+    EXPECT_FLOAT_EQ(obstructionThrough({{placeable.get(), false}}), 0.0f);
 }

@@ -337,7 +337,7 @@ void Player::faceCombatTarget(Creature &leader, float dt) {
         return;
     }
     auto target = std::dynamic_pointer_cast<Creature>(game.getObjectById(game.lastTarget()));
-    if (!target || leader.getReputationToward(*target) > kHighestEnemyReputation || leader.isDriveBlocked()) {
+    if (!target || !isEnemyReputation(leader.getReputationToward(*target)) || leader.isDriveBlocked()) {
         return;
     }
     const float facing = leader.getFacing();

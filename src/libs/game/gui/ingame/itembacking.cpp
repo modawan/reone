@@ -709,11 +709,11 @@ private:
         for (int i = 0; i < 3; ++i) {
             auto member = _game.party().getMember(i);
             if (member && member->isRuntimeLive())
-                view.portraits[i] = member->portrait();
+                view.portraits[i] = member->portraitResRefForGoodEvil();
         }
         if (_browseRoster) {
             view.portraits = {};
-            view.portraits[0] = subject->portrait();
+            view.portraits[0] = subject->portraitResRefForGoodEvil();
         }
         view.vitality = std::to_string(subject->currentHitPoints()) + "/\n" + std::to_string(subject->maxHitPoints());
         view.defense = std::to_string(subject->getDefense());

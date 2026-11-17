@@ -171,13 +171,18 @@ float Sound::nextInterval() const {
     return std::max(0, interval) / 1000.0f;
 }
 
-// A volume above the loudest plays at the loudest.
-float Sound::nextGain() const {
-    int volume = _volume;
-    if (_volumeVrtn != 0) {
-        volume += randomInt(-static_cast<int>(_volumeVrtn), static_cast<int>(_volumeVrtn) - 1);
+// A volume above the loudest plays at the loudest (see currentGain).
+int Sound::nextVolumeShift() const {
+    if (_volumeVrtn == 0) {
+        return 0;
     }
-    return std::clamp(volume, 0, kMaxVolume) / static_cast<float>(kMaxVolume);
+    return randomInt(-static_cast<int>(_volumeVrtn), static_cast<int>(_volumeVrtn) - 1);
+}
+
+// A looping sound object plays its first sound as one loop, and so does a
+// single continuous sound with no interval and no random position.
+bool Sound::loops() const {
+    return _looping || (_sounds.size() == 1 && _continuous && !_randomPosition && _interval == 0);
 }
 
 // A fixed variance from 0.5 to 2 is the pitch, and the pitch variation is
@@ -195,6 +200,12 @@ void Sound::update(float dt) {
     if (!_active) {
         return;
     }
+    if (_fade) {
+        advanceFade(dt);
+        if (!_active) {
+            return;
+        }
+    }
     auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
     // Out of its time the sound stops and waits.
     if (!playsAtThisTime()) {
@@ -205,24 +216,24 @@ void Sound::update(float dt) {
         setActive(false);
         return;
     }
-    // A looping sound object plays its first sound as one loop, and so does a
-    // single continuous sound with no interval and no random position. The
-    // loop plays while it is audible and waits while it is not. Nothing
-    // starts before the scene has first told whether the sound is audible.
-    const bool loops = _looping || (_sounds.size() == 1 && _continuous && !_randomPosition && _interval == 0);
+    // A loop (see loops) plays while it is audible and waits while it is
+    // not. Nothing starts before the scene has first told whether the sound
+    // is audible.
     const bool audible = sceneNode.auidible();
     if (!sceneNode.isAudibilityKnown()) {
         return;
     }
     // A loop that fails to play ends the sound object.
-    if (loops) {
+    if (loops()) {
         if (audible && !sceneNode.isSoundPlaying()) {
             if (!_services.resource.audioClips.get(_sounds.front())) {
                 setActive(false);
                 return;
             }
-            sceneNode.playSound(_sounds.front(), std::min(int {_volume}, kMaxVolume) / static_cast<float>(kMaxVolume),
-                                _positional, true);
+            // A loop plays at the sound's volume, unvaried.
+            _clipVolumeShift = 0;
+            _playedGain = currentGain();
+            sceneNode.playSound(_sounds.front(), _playedGain, _positional, true);
         }
         return;
     }
@@ -283,7 +294,60 @@ void Sound::update(float dt) {
     // playing it in a burst.
     _timeout = next + late > 0.0f ? next + late : next;
     if (audible) {
-        sceneNode.playSound(_sounds[_soundIdx], nextGain(), _positional, false, nextPitch());
+        _clipVolumeShift = nextVolumeShift();
+        _playedGain = currentGain();
+        sceneNode.playSound(_sounds[_soundIdx], _playedGain, _positional, false, nextPitch());
+    }
+}
+
+float Sound::currentGain() const {
+    const int volume = std::clamp(int {_volume} + _clipVolumeShift, 0, kMaxVolume);
+    return volume / static_cast<float>(kMaxVolume) * fadeScale();
+}
+
+float Sound::fadeScale() const {
+    if (!_fade || _fade->duration <= 0.0f) {
+        return 1.0f;
+    }
+    return std::clamp(_fade->remaining / _fade->duration, 0.0f, 1.0f);
+}
+
+void Sound::fadeAndStop(float seconds) {
+    if (!_active || !(seconds > 0.0f)) {
+        setActive(false);
+        return;
+    }
+    _fade = Fade {seconds, seconds};
+}
+
+void Sound::advanceFade(float dt) {
+    if (!_fade) {
+        return;
+    }
+    _fade->remaining -= dt;
+    if (_fade->remaining <= 0.0f) {
+        setActive(false);
+        return;
+    }
+    applyGainToPlayingClip();
+}
+
+// A clip keeps the gain it started with, so a change of volume or a fade
+// scales it from there. A clip started silent cannot be scaled up; a loop is
+// stopped so the next update starts it again at the new gain, and any other
+// waits for its next clip.
+void Sound::applyGainToPlayingClip() {
+    if (!_sceneNode) {
+        return;
+    }
+    auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
+    if (!sceneNode.isSoundPlaying()) {
+        return;
+    }
+    if (_playedGain > 0.0f) {
+        sceneNode.setGainScale(currentGain() / _playedGain);
+    } else if (currentGain() > 0.0f && loops()) {
+        sceneNode.stopSound();
     }
 }
 
@@ -299,9 +363,18 @@ void Sound::updateTransform() {
 
 void Sound::setVolume(int volume) {
     _volume = static_cast<uint8_t>(std::clamp(volume, 0, kMaxVolume));
+    applyGainToPlayingClip();
 }
 
 void Sound::setActive(bool active) {
+    // Stopping ends a fade, and so does playing again: a SoundObjectPlay
+    // during a fade brings the sound back to its volume and keeps it playing.
+    if (_fade) {
+        _fade.reset();
+        if (active) {
+            applyGainToPlayingClip();
+        }
+    }
     if (_active == active) {
         return;
     }

@@ -73,7 +73,8 @@ struct MenuItemView {
 
 struct MenuSubjectView {
     bool present {false};
-    std::array<std::shared_ptr<graphics::Texture>, 3> portraits;
+    /** The portraits of the subject and the members after it, by name; empty for none. */
+    std::array<std::string, 3> portraits;
     std::string vitality;
     std::string defense;
     std::string credits;

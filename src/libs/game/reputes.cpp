@@ -39,9 +39,6 @@ namespace reone {
 
 namespace game {
 
-static constexpr int kDefaultRepute = 50;
-static constexpr int kMinRepute = 0;
-
 // Row r holds faction r's standings and column c, after the label column, the
 // standing toward faction c. A blank label ends the table, as does a blank
 // standing, which is read as 0.
@@ -52,10 +49,10 @@ static std::vector<std::vector<int>> readBaseStandings(const TwoDA &repute) {
         if (repute.getString(row, 0).empty()) {
             break;
         }
-        auto &faction = standings.emplace_back(columnCount, IReputes::kMaxReputation);
+        auto &faction = standings.emplace_back(columnCount, kMaxReputation);
         for (int column = 1; column < columnCount; ++column) {
             const auto reputation = repute.getIntOpt(row, column);
-            faction[column] = std::clamp(reputation.value_or(0), kMinRepute, IReputes::kMaxReputation);
+            faction[column] = std::clamp(reputation.value_or(0), kMinReputation, kMaxReputation);
             if (!reputation) {
                 return standings;
             }
@@ -146,7 +143,7 @@ std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
         }
         values[source][target] = std::clamp(
             static_cast<int64_t>(reputation),
-            static_cast<int64_t>(kMinRepute),
+            static_cast<int64_t>(kMinReputation),
             static_cast<int64_t>(kMaxReputation));
     }
 
@@ -180,13 +177,13 @@ int Reputes::getReputation(Faction sourceFaction, Faction targetFaction) const {
     // are not NPC factions the standing is the default.
     if (!isNPC(target)) {
         if (!isNPC(source)) {
-            return kDefaultRepute;
+            return kNeutralReputation;
         }
         std::swap(source, target);
     }
     if (source < 0 || source >= static_cast<int>(_factionValues.size()) ||
         target >= static_cast<int>(_factionValues[source].size()))
-        return kDefaultRepute;
+        return kNeutralReputation;
 
     return _factionValues[source][target];
 }
@@ -205,20 +202,19 @@ void Reputes::adjustReputation(Faction sourceFaction, Faction targetFaction, int
 
     int64_t adjusted = static_cast<int64_t>(_factionValues[source][target]) + adjustment;
     _factionValues[source][target] = static_cast<int>(
-        std::clamp(adjusted, static_cast<int64_t>(kMinRepute), static_cast<int64_t>(kMaxReputation)));
+        std::clamp(adjusted, static_cast<int64_t>(kMinReputation), static_cast<int64_t>(kMaxReputation)));
 }
 
 bool Reputes::getIsEnemy(const Creature &source, const Creature &target) const {
-    return getObjectReputation(source, target, source.game()) <= kHighestEnemyReputation;
+    return isEnemyReputation(getObjectReputation(source, target, source.game()));
 }
 
 bool Reputes::getIsFriend(const Creature &source, const Creature &target) const {
-    return getObjectReputation(source, target, source.game()) >= kLowestFriendReputation;
+    return isFriendReputation(getObjectReputation(source, target, source.game()));
 }
 
 bool Reputes::getIsNeutral(const Creature &source, const Creature &target) const {
-    const int reputation = getObjectReputation(source, target, source.game());
-    return reputation > kHighestEnemyReputation && reputation < kLowestFriendReputation;
+    return isNeutralReputation(getObjectReputation(source, target, source.game()));
 }
 
 std::optional<Faction> getObjectFaction(const Object &object) {
@@ -247,24 +243,24 @@ int getObjectReputation(const Object &receiver, const Object &other, const Game 
     if (const auto *areaOfEffect = dyn_cast<AreaOfEffect>(target)) {
         otherCreator = areaOfEffect->creator();
         if (!otherCreator) {
-            return kDefaultRepute;
+            return kNeutralReputation;
         }
         target = otherCreator.get();
     }
     if (const auto *areaOfEffect = dyn_cast<AreaOfEffect>(source)) {
         receiverCreator = areaOfEffect->creator();
         if (!receiverCreator) {
-            return kDefaultRepute;
+            return kNeutralReputation;
         }
         source = receiverCreator.get();
     }
     auto sourceFaction = getObjectFaction(*source);
     auto targetFaction = getObjectFaction(*target);
     if (!sourceFaction || !targetFaction) {
-        return kDefaultRepute;
+        return kNeutralReputation;
     }
     if (source == target) {
-        return IReputes::kMaxReputation;
+        return kMaxReputation;
     }
 
     const auto &reputes = receiver.services().game.reputes;
@@ -288,7 +284,7 @@ int getObjectReputation(const Object &receiver, const Object &other, const Game 
         }
     }
     if (!isNPCFaction(*targetFaction)) {
-        return kDefaultRepute;
+        return kNeutralReputation;
     }
     return reputes.getReputation(*sourceFaction, *targetFaction);
 }

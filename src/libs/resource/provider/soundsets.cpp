@@ -29,8 +29,8 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<SoundSet> SoundSets::doGet(std::string resRef) {
-    auto res = _resources.find(ResourceId(resRef, ResType::Ssf));
+std::shared_ptr<SoundSet> SoundSets::doGet(const std::string &resRef, ResourceReads &reads) {
+    auto res = reads.find(_resources, ResourceId(resRef, ResType::Ssf));
     if (!res) {
         return nullptr;
     }
@@ -43,9 +43,10 @@ std::shared_ptr<SoundSet> SoundSets::doGet(std::string resRef) {
     std::vector<int> sounds(ssf.soundSet());
     for (size_t i = 0; i < sounds.size(); ++i) {
         std::string soundResRef(boost::to_lower_copy(_strings.getSound(sounds[i])));
-        std::shared_ptr<AudioClip> sound(_audioClips.get(soundResRef));
-        if (sound) {
-            result->insert(std::make_pair(static_cast<SoundSetEntry>(i), sound));
+        auto &sound = _audioClips.entry(soundResRef);
+        reads.add(sound.reads);
+        if (sound.value) {
+            result->insert(std::make_pair(static_cast<SoundSetEntry>(i), sound.value));
         }
     }
 

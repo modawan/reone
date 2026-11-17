@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -33,9 +34,6 @@ class ITwoDAs;
 
 namespace game {
 
-/** A favoured class of this value names none. */
-constexpr int kNoFavoredClass = 0xff;
-
 /** A race: a row of racialtypes.2da. */
 struct Race {
     /** The race's name, a string reference; a blank one is 0. */
@@ -43,10 +41,13 @@ struct Race {
     /** The name conversations use, and its lower-case form; a blank one is 0. */
     int converName {0};
     int converNameLower {0};
-    /** The adjustment to each ability, in Ability order: a signed byte, blank is 0. */
+    /** The adjustment to each ability, in Ability order; blank is 0. */
     std::array<int, 6> abilityAdjustments {};
-    /** The favoured class (low byte), or kNoFavoredClass. */
-    int favoredClass {kNoFavoredClass};
+    /**
+     * The favoured class; none, which favours the creature's highest class,
+     * when the cell is blank, below zero or 255.
+     */
+    std::optional<ClassType> favoredClass;
     /** Whether a player's character may take the race. */
     bool playerRace {false};
     /** The feats the race grants at the first character level. */

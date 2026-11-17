@@ -32,6 +32,7 @@
 #include "runtimeref.h"
 #include "saveprovenance.h"
 #include "types.h"
+#include "worldtime.h"
 
 namespace reone {
 
@@ -46,26 +47,33 @@ struct Variable;
 namespace game {
 
 /**
- * The milliseconds an effect of \p seconds lasts. Whole days are taken off
- * the duration one at a time, in single precision, so the remainder carries
- * its rounding.
+ * The milliseconds an effect of \p seconds lasts: its whole days, then the
+ * rest of a day in single precision, which below 2^24 seconds is exact. One
+ * of more days than a DWORD counts is endless.
  */
 inline uint64_t getEffectDurationMilliseconds(float seconds, uint32_t dayMilliseconds) {
-    if (seconds <= 0.0f) {
+    if (!(seconds > 0.0f)) {
         return 0;
     }
-    auto daySeconds = static_cast<float>(dayMilliseconds / 1000u);
-    uint64_t days = 0;
-    while (seconds >= daySeconds) {
-        seconds -= daySeconds;
-        ++days;
+    const double daySeconds = static_cast<double>(dayMilliseconds) / kMillisecondsInSecond;
+    const double days = std::floor(seconds / daySeconds);
+    if (days >= std::numeric_limits<uint32_t>::max()) {
+        return std::numeric_limits<uint64_t>::max();
     }
-    return days * dayMilliseconds + static_cast<uint32_t>(seconds * 1000.0f);
+    const auto rest = static_cast<float>(seconds - days * daySeconds);
+    return static_cast<uint64_t>(days) * dayMilliseconds + getWholeMilliseconds(rest);
 }
 
-/** The game time, in milliseconds, an effect of \p seconds applied at \p start expires. */
+/** The last day an effect's saved expiry day, a DWORD, holds. */
+constexpr uint32_t kLastEffectExpiryDay = std::numeric_limits<uint32_t>::max();
+
+/**
+ * The game time, in milliseconds, an effect of \p seconds applied at \p start
+ * expires; at most the last its saved expiry day holds.
+ */
 inline uint64_t getEffectExpiryMilliseconds(uint64_t start, float seconds, uint32_t dayMilliseconds) {
-    return start + getEffectDurationMilliseconds(seconds, dayMilliseconds);
+    return getCalendarTimeAfter(start, getEffectDurationMilliseconds(seconds, dayMilliseconds), dayMilliseconds,
+                                kLastEffectExpiryDay);
 }
 
 /** The most the ability increases on a creature add to one ability. */

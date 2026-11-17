@@ -30,13 +30,20 @@ void FolderResourceContainer::init() {
 
 void FolderResourceContainer::loadDirectory(const std::filesystem::path &path) {
     for (auto &entry : std::filesystem::directory_iterator(path)) {
-        if (std::filesystem::is_directory(entry.path())) {
+        if (entry.is_directory()) {
             loadDirectory(entry.path());
             continue;
         }
-        auto resRef = boost::to_lower_copy(entry.path().filename().replace_extension("").string());
+        // A file with no extension names no resource type.
+        if (!entry.path().has_extension()) {
+            continue;
+        }
         auto ext = boost::to_lower_copy(entry.path().extension().string().substr(1));
-        auto resType = getResTypeByExt(ext);
+        auto resType = getResTypeByExt(ext, false);
+        if (resType == ResType::Invalid) {
+            continue;
+        }
+        auto resRef = boost::to_lower_copy(entry.path().filename().replace_extension("").string());
         auto resId = ResourceId(resRef, resType);
 
         Resource res;

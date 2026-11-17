@@ -342,7 +342,7 @@ Texture &PBRRenderPipeline::render(const FrameEffects &effects) {
         }
 
         // Blur highlights
-        combineOpaqueGeometry();
+        combineOpaqueGeometry(effects.clearColor);
         applyGaussianBlur(
             *_targets.cbDeferredOpaque2,
             *_targets.fbPing,
@@ -458,7 +458,7 @@ void PBRRenderPipeline::renderSSAO(float sampleRadius, float bias) {
     _context.useProgram(_shaderRegistry.get(ShaderProgramId::pbrSSAO));
     _context.bindTexture(*_targets.dbGBuffer, TextureUnits::gBufDepth);
     _context.bindTexture(*_targets.cbGBufEyeNormal, TextureUnits::gBufEyeNormal);
-    _context.bindTexture(_textureRegistry.get(TextureName::noiseRg), TextureUnits::noise);
+    _context.bindTexture(*_textureRegistry.get(TextureName::noiseRg), TextureUnits::noise);
     _context.withViewport(glm::ivec4(0, 0, size.x, size.y), [this]() {
         _context.clearColorDepth();
         _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
@@ -486,7 +486,9 @@ void PBRRenderPipeline::renderSSR(float bias, float pixelStride, float maxSteps)
     });
 }
 
-void PBRRenderPipeline::combineOpaqueGeometry() {
+// The combine leaves the pixels where no geometry is drawn, which keep the
+// clear colour and no hilight.
+void PBRRenderPipeline::combineOpaqueGeometry(const glm::vec3 &clearColor) {
     _context.useProgram(_shaderRegistry.get(ShaderProgramId::pbrCombine));
     _context.bindDrawFramebuffer(*_targets.fbDeferredCombine, {0, 1});
     _context.bindTexture(*_targets.cbGBufDiffuse);
@@ -506,6 +508,9 @@ void PBRRenderPipeline::combineOpaqueGeometry() {
         _context.bindTexture(*_targets.cbSSR, TextureUnits::ssr);
     }
     _context.clearColorDepth();
+    _context.bindDrawFramebuffer(*_targets.fbDeferredCombine, {0});
+    _context.clearColor(glm::vec4(clearColor, 0.0f));
+    _context.bindDrawFramebuffer(*_targets.fbDeferredCombine, {0, 1});
     _meshRegistry.get(MeshName::quadNDC).draw(_statistic);
 }
 

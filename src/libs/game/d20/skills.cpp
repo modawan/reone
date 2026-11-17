@@ -21,6 +21,7 @@
 
 #include "reone/game/d20/attributes.h"
 #include "reone/game/d20/class.h"
+#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
@@ -52,18 +53,7 @@ void Skills::init() {
         skill->untrained = (skills->getInt(row, "untrained", 0) & 1) != 0;
         skill->allClassesCanUse = (skills->getInt(row, "allclassescanuse", 0) & 1) != 0;
         skill->hostile = (skills->getInt(row, "hostileskill", 0) & 1) != 0;
-        const auto key = skills->getString(row, "keyability");
-        if (key == "DEX") {
-            skill->keyAbility = Ability::Dexterity;
-        } else if (key == "CON") {
-            skill->keyAbility = Ability::Constitution;
-        } else if (key == "INT") {
-            skill->keyAbility = Ability::Intelligence;
-        } else if (key == "WIS") {
-            skill->keyAbility = Ability::Wisdom;
-        } else if (key == "CHA") {
-            skill->keyAbility = Ability::Charisma;
-        }
+        skill->keyAbility = readAbilityColumn(*skills, row, "keyability").value_or(Ability::Strength);
         _skills.insert(std::make_pair(static_cast<SkillType>(row), std::move(skill)));
     }
 }
@@ -71,6 +61,20 @@ void Skills::init() {
 std::shared_ptr<Skill> Skills::get(SkillType type) const {
     auto it = _skills.find(type);
     return it != _skills.end() ? it->second : nullptr;
+}
+
+// Whether a character of the class can use the skill: every class can, or the
+// class has a skills table.
+static bool canClassUseSkill(const Skill &rules, const CreatureClass &clazz) {
+    return rules.allClassesCanUse || clazz.hasSkills();
+}
+
+// Whether one of the creature's classes can use the skill.
+static bool canClassesUseSkill(const Skill &rules, const CreatureAttributes &attributes) {
+    const auto &classLevels = attributes.classLevels();
+    return std::any_of(classLevels.begin(), classLevels.end(), [&rules](const auto &classLevel) {
+        return canClassUseSkill(rules, *classLevel.first);
+    });
 }
 
 bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttributes &attributes, bool tsl) {
@@ -89,10 +93,7 @@ bool canUseSkill(const ISkills &skills, SkillType skill, const CreatureAttribute
         return true;
     }
     if (rules->untrained) {
-        const auto &classLevels = attributes.classLevels();
-        return std::any_of(classLevels.begin(), classLevels.end(), [&rules](const auto &classLevel) {
-            return rules->allClassesCanUse || classLevel.first->hasSkills();
-        });
+        return canClassesUseSkill(*rules, attributes);
     }
     return attributes.getSkillRank(skill) > 0;
 }
@@ -109,12 +110,21 @@ bool canCreatureUseSkill(
         const auto rules = skills.get(SkillType::Demolitions);
         return rules && !rules->untrained && attributes.getSkillRank(SkillType::Demolitions) > 0;
     }
+    return canCreatureUseSkill(skills, static_cast<SkillType>(skill), attributes, hasFeat, tsl);
+}
+
+bool canCreatureUseSkill(
+    const ISkills &skills,
+    SkillType skill,
+    const CreatureAttributes &attributes,
+    const std::function<bool(FeatType)> &hasFeat,
+    bool tsl) {
     // In TSL, the stealth feat counts for Stealth also when an effect grants it.
-    if (tsl && skill == static_cast<int>(SkillType::Stealth) && skills.get(SkillType::Stealth) &&
+    if (tsl && skill == SkillType::Stealth && skills.get(SkillType::Stealth) &&
         hasFeat(FeatType::PersonalCloakingShield)) {
         return true;
     }
-    return canUseSkill(skills, static_cast<SkillType>(skill), attributes, tsl);
+    return canUseSkill(skills, skill, attributes, tsl);
 }
 
 } // namespace game

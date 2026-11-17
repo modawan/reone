@@ -521,7 +521,7 @@ std::shared_ptr<ModelSceneNode> Turret::loadModel(const std::string &resRef) {
         return nullptr;
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
+    auto node = sceneGraph.newModel(model, ModelUsage::Placeable);
     node->setDrawDistance(_game.options().graphics.drawDistance);
     playIdleAnimation(*node);
     return node;

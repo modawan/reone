@@ -165,52 +165,52 @@ std::shared_ptr<TwoDA> makeFeatTable() {
 // choice of powers reads.
 std::shared_ptr<TwoDA> makeSpellsTable() {
     const std::vector<std::string> columns = {
-        "usertype", "prerequisites", "guardian", "consular", "sentinel", "light_recom", "dark_recom"};
+        "name", "usertype", "prerequisites", "guardian", "consular", "sentinel", "light_recom", "dark_recom"};
     std::unordered_map<int, Row> rows {
-        {4, {{"usertype", "1"}, {"prerequisites", "49"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "9"}, {"dark_recom", "22"}}}, // LIGHT_SABER_THROW_ADVANCED
-        {6, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "28"}, {"dark_recom", "29"}}}, // AFFECT_MIND
-        {7, {{"usertype", "1"}, {"prerequisites", "45"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"dark_recom", "10"}}}, // AFFLICTION
-        {8, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "16"}, {"dark_recom", "18"}}}, // SPEED_BURST
-        {9, {{"usertype", "1"}, {"prerequisites", "50"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"dark_recom", "5"}}}, // CHOKE
-        {10, {{"usertype", "1"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "6"}}}, // CURE
-        {11, {{"usertype", "1"}, {"prerequisites", "15"}, {"guardian", "18"}, {"consular", "18"}, {"sentinel", "18"}, {"dark_recom", "8"}}}, // DEATH_FIELD
-        {12, {{"usertype", "1"}, {"prerequisites", "47"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "11"}}}, // DROID_DISABLE
-        {13, {{"usertype", "1"}, {"prerequisites", "47_12"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"light_recom", "12"}}}, // DROID_DESTROY
-        {14, {{"usertype", "1"}, {"prerequisites", "6"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "29"}, {"dark_recom", "30"}}}, // DOMINATE
-        {15, {{"usertype", "1"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"dark_recom", "7"}}}, // DRAIN_LIFE
-        {16, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "12"}}}, // FEAR
-        {17, {{"usertype", "1"}, {"prerequisites", "18_24"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"light_recom", "15"}}}, // FORCE_ARMOR
-        {18, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "13"}}}, // FORCE_AURA
-        {19, {{"usertype", "1"}, {"prerequisites", "48"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "27"}, {"dark_recom", "24"}}}, // FORCE_BREACH
-        {20, {{"usertype", "1"}, {"prerequisites", "41"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "25"}, {"dark_recom", "26"}}}, // FORCE_IMMUNITY
-        {22, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "19"}}}, // FORCE_VALOR
-        {23, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "4"}, {"dark_recom", "15"}}}, // FORCE_PUSH
-        {24, {{"usertype", "1"}, {"prerequisites", "18"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "14"}}}, // FORCE_SHIELD
-        {25, {{"usertype", "1"}, {"prerequisites", "43_35"}, {"guardian", "18"}, {"consular", "18"}, {"sentinel", "18"}, {"dark_recom", "3"}}}, // FORCE_STORM
-        {26, {{"usertype", "1"}, {"prerequisites", "23_27"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "6"}, {"dark_recom", "17"}}}, // FORCE_WAVE
-        {27, {{"usertype", "1"}, {"prerequisites", "23"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "5"}, {"dark_recom", "16"}}}, // FORCE_WHIRLWIND
-        {28, {{"usertype", "1"}, {"prerequisites", "10"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"light_recom", "7"}}}, // HEAL
-        {29, {{"usertype", "1"}, {"prerequisites", "46"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "2"}}}, // STASIS
-        {30, {{"usertype", "1"}, {"prerequisites", "16"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"dark_recom", "13"}}}, // HORROR
-        {31, {{"usertype", "1"}, {"prerequisites", "16_30"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"dark_recom", "14"}}}, // INSANITY
-        {32, {{"usertype", "1"}, {"prerequisites", "50_9"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"dark_recom", "6"}}}, // KILL
-        {33, {{"usertype", "1"}, {"prerequisites", "22"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "20"}}}, // KNIGHT_VALOR
-        {34, {{"usertype", "1"}, {"prerequisites", "8"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "17"}, {"dark_recom", "19"}}}, // KNIGHT_SPEED
-        {35, {{"usertype", "1"}, {"prerequisites", "43"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"dark_recom", "2"}}}, // LIGHTNING
-        {36, {{"usertype", "1"}, {"prerequisites", "22_33"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "21"}}}, // MASTER_VALOR
-        {37, {{"usertype", "1"}, {"prerequisites", "8_34"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "18"}, {"dark_recom", "20"}}}, // SPEED_MASTERY
-        {38, {{"usertype", "1"}, {"prerequisites", "7_45"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"dark_recom", "11"}}}, // PLAGUE
-        {40, {{"usertype", "1"}, {"prerequisites", "42"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "23"}, {"dark_recom", "28"}}}, // RESIST_ENERGY_2
-        {41, {{"usertype", "1"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "24"}, {"dark_recom", "25"}}}, // RESIST_FORCE
-        {42, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "22"}, {"dark_recom", "27"}}}, // RESIST_ENERGY_1
-        {43, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "1"}}}, // SHOCK
-        {44, {{"usertype", "1"}, {"prerequisites", "46_29"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "3"}}}, // MASS_STASIS
-        {45, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "9"}}}, // SLOW
-        {46, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "1"}}}, // STUN
-        {47, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "10"}}}, // DROID_STUN
-        {48, {{"usertype", "1"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "26"}, {"dark_recom", "23"}}}, // SUPRESS_FORCE
-        {49, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "8"}, {"dark_recom", "21"}}}, // LIGHT_SABER_THROW
-        {50, {{"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "4"}}}, // WOUND
+        {4, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "49"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "9"}, {"dark_recom", "22"}}}, // LIGHT_SABER_THROW_ADVANCED
+        {6, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "28"}, {"dark_recom", "29"}}}, // AFFECT_MIND
+        {7, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "45"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"dark_recom", "10"}}}, // AFFLICTION
+        {8, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "16"}, {"dark_recom", "18"}}}, // SPEED_BURST
+        {9, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "50"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"dark_recom", "5"}}}, // CHOKE
+        {10, {{"name", "1"}, {"usertype", "1"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "6"}}}, // CURE
+        {11, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "15"}, {"guardian", "18"}, {"consular", "18"}, {"sentinel", "18"}, {"dark_recom", "8"}}}, // DEATH_FIELD
+        {12, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "47"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "11"}}}, // DROID_DISABLE
+        {13, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "47_12"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"light_recom", "12"}}}, // DROID_DESTROY
+        {14, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "6"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "29"}, {"dark_recom", "30"}}}, // DOMINATE
+        {15, {{"name", "1"}, {"usertype", "1"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"dark_recom", "7"}}}, // DRAIN_LIFE
+        {16, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "12"}}}, // FEAR
+        {17, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "18_24"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"light_recom", "15"}}}, // FORCE_ARMOR
+        {18, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "13"}}}, // FORCE_AURA
+        {19, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "48"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "27"}, {"dark_recom", "24"}}}, // FORCE_BREACH
+        {20, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "41"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "25"}, {"dark_recom", "26"}}}, // FORCE_IMMUNITY
+        {22, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "19"}}}, // FORCE_VALOR
+        {23, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "4"}, {"dark_recom", "15"}}}, // FORCE_PUSH
+        {24, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "18"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"light_recom", "14"}}}, // FORCE_SHIELD
+        {25, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "43_35"}, {"guardian", "18"}, {"consular", "18"}, {"sentinel", "18"}, {"dark_recom", "3"}}}, // FORCE_STORM
+        {26, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "23_27"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "6"}, {"dark_recom", "17"}}}, // FORCE_WAVE
+        {27, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "23"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "5"}, {"dark_recom", "16"}}}, // FORCE_WHIRLWIND
+        {28, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "10"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"light_recom", "7"}}}, // HEAL
+        {29, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "46"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "2"}}}, // STASIS
+        {30, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "16"}, {"guardian", "6"}, {"consular", "6"}, {"sentinel", "6"}, {"dark_recom", "13"}}}, // HORROR
+        {31, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "16_30"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"dark_recom", "14"}}}, // INSANITY
+        {32, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "50_9"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"dark_recom", "6"}}}, // KILL
+        {33, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "22"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "20"}}}, // KNIGHT_VALOR
+        {34, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "8"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "17"}, {"dark_recom", "19"}}}, // KNIGHT_SPEED
+        {35, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "43"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"dark_recom", "2"}}}, // LIGHTNING
+        {36, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "22_33"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "21"}}}, // MASTER_VALOR
+        {37, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "8_34"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "18"}, {"dark_recom", "20"}}}, // SPEED_MASTERY
+        {38, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "7_45"}, {"guardian", "12"}, {"consular", "12"}, {"sentinel", "12"}, {"dark_recom", "11"}}}, // PLAGUE
+        {40, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "42"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "23"}, {"dark_recom", "28"}}}, // RESIST_ENERGY_2
+        {41, {{"name", "1"}, {"usertype", "1"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "24"}, {"dark_recom", "25"}}}, // RESIST_FORCE
+        {42, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "22"}, {"dark_recom", "27"}}}, // RESIST_ENERGY_1
+        {43, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "1"}}}, // SHOCK
+        {44, {{"name", "1"}, {"usertype", "1"}, {"prerequisites", "46_29"}, {"guardian", "15"}, {"consular", "15"}, {"sentinel", "15"}, {"light_recom", "3"}}}, // MASS_STASIS
+        {45, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "9"}}}, // SLOW
+        {46, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "1"}}}, // STUN
+        {47, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "10"}}}, // DROID_STUN
+        {48, {{"name", "1"}, {"usertype", "1"}, {"guardian", "9"}, {"consular", "9"}, {"sentinel", "9"}, {"light_recom", "26"}, {"dark_recom", "23"}}}, // SUPRESS_FORCE
+        {49, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"light_recom", "8"}, {"dark_recom", "21"}}}, // LIGHT_SABER_THROW
+        {50, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"dark_recom", "4"}}}, // WOUND
     };
     return makeSparseTable(columns, 51, rows);
 }
@@ -624,11 +624,11 @@ TEST_F(RecommendedTest, should_choose_dark_side_powers_from_the_dark_side_band_e
 
 TEST_F(RecommendedTest, should_fall_back_on_the_other_sides_recommendations) {
     ON_CALL(twoDas, get("spells")).WillByDefault(Return(makeSparseTable(
-        {"usertype", "guardian", "light_recom", "dark_recom"},
+        {"name", "usertype", "guardian", "light_recom", "dark_recom"},
         3,
-        {{0, {{"usertype", "1"}, {"guardian", "0"}, {"dark_recom", "2"}}},
-         {1, {{"usertype", "1"}, {"guardian", "0"}, {"dark_recom", "1"}}},
-         {2, {{"usertype", "1"}, {"guardian", "2"}, {"light_recom", "1"}}}})));
+        {{0, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"dark_recom", "2"}}},
+         {1, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"dark_recom", "1"}}},
+         {2, {{"name", "1"}, {"usertype", "1"}, {"guardian", "2"}, {"light_recom", "1"}}}})));
     spells = std::make_unique<Spells>(textures, audioClips, models, strings, twoDas);
     spells->init(GameID::KotOR);
     CreatureClass guardian(ClassType::JediGuardian, *classes, strings, twoDas);
@@ -665,11 +665,11 @@ TEST_F(RecommendedTest, should_break_a_tie_between_power_recommendations_by_the_
 
 TEST_F(RecommendedTest, should_fill_power_picks_with_unranked_candidates_only_when_asked) {
     ON_CALL(twoDas, get("spells")).WillByDefault(Return(makeSparseTable(
-        {"usertype", "guardian", "light_recom", "dark_recom"},
+        {"name", "usertype", "guardian", "light_recom", "dark_recom"},
         3,
-        {{0, {{"usertype", "1"}, {"guardian", "0"}}},
-         {1, {{"usertype", "1"}, {"guardian", "0"}, {"dark_recom", "1"}}},
-         {2, {{"usertype", "1"}, {"guardian", "0"}}}})));
+        {{0, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {1, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"dark_recom", "1"}}},
+         {2, {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}}}})));
     spells = std::make_unique<Spells>(textures, audioClips, models, strings, twoDas);
     spells->init(GameID::KotOR);
     CreatureClass guardian(ClassType::JediGuardian, *classes, strings, twoDas);
@@ -678,29 +678,6 @@ TEST_F(RecommendedTest, should_fill_power_picks_with_unranked_candidates_only_wh
     EXPECT_EQ(recommendPowers(*spells, attributes, guardian, 3, Alignment::LightSide), std::vector<SpellType> {static_cast<SpellType>(1)});
     EXPECT_EQ(recommendPowers(*spells, attributes, guardian, 4, Alignment::LightSide, true),
               (std::vector<SpellType> {static_cast<SpellType>(1), static_cast<SpellType>(0), static_cast<SpellType>(2)}));
-}
-
-// Attributes
-
-TEST_F(RecommendedTest, should_recommend_a_level_ups_point_for_the_classes_primary_ability) {
-    CreatureAttributes consular(getClass(ClassType::JediConsular).defaultAttributes());
-    consular.addClassLevels(consular.classLevels().back().first, 3);
-    ASSERT_EQ(consular.wisdom(), 14);
-
-    EXPECT_EQ(recommendLevelUpAbility(getClass(ClassType::JediConsular), consular, 18), Ability::Wisdom);
-}
-
-TEST_F(RecommendedTest, should_recommend_the_highest_other_ability_when_the_primary_one_is_at_its_cap) {
-    // A Soldier with Strength at the cap: Dexterity and Constitution tie at 14.
-    CreatureAttributes soldier(getClass(ClassType::Soldier).defaultAttributes());
-    soldier.setAbilityScore(Ability::Strength, 18);
-
-    EXPECT_EQ(recommendLevelUpAbility(getClass(ClassType::Soldier), soldier, 18), Ability::Dexterity);
-
-    for (int ability = 0; ability <= static_cast<int>(Ability::Charisma); ++ability) {
-        soldier.setAbilityScore(static_cast<Ability>(ability), 18);
-    }
-    EXPECT_FALSE(recommendLevelUpAbility(getClass(ClassType::Soldier), soldier, 18));
 }
 
 // Point costs shared by the screens and the recommendations

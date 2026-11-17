@@ -122,8 +122,12 @@ private:
     void setupClassButton(int index, Gender gender, ClassType clazz);
 
     std::shared_ptr<scene::ModelSceneNode> getCharacterModel(int appearance, scene::ISceneGraph &sceneGraph);
-    int getRandomCharacterAppearance(Gender gender, ClassType clazz);
-    std::vector<Portrait> getPCPortraitsByGender(Gender gender);
+    /**
+     * Gives \p character a random player portrait of its gender, keeping the
+     * portraits.2da row, and that portrait's appearance for \p clazz.
+     */
+    void pickRandomPortrait(Character &character, ClassType clazz);
+    std::vector<int> getPCPortraitRowsByGender(Gender gender);
 
     void setButtonColors(gui::Control &control);
     void setClassButtonEnlarged(int index, bool enlarged);

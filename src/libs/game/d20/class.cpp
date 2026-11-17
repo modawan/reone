@@ -17,6 +17,8 @@
 
 #include "reone/game/d20/class.h"
 
+#include <algorithm>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/strings.h"
@@ -49,18 +51,6 @@ static bool hasColumn(const TwoDA &twoDa, const std::string &column) {
     return twoDa.getColumnIndex(column) != -1;
 }
 
-static std::optional<Ability> parseAbility(const std::string &name) {
-    static const std::unordered_map<std::string, Ability> kAbilities {
-        {"str", Ability::Strength},
-        {"dex", Ability::Dexterity},
-        {"con", Ability::Constitution},
-        {"int", Ability::Intelligence},
-        {"wis", Ability::Wisdom},
-        {"cha", Ability::Charisma}};
-    auto maybeAbility = kAbilities.find(boost::to_lower_copy(name));
-    return maybeAbility != kAbilities.end() ? std::optional<Ability>(maybeAbility->second) : std::nullopt;
-}
-
 template <class T>
 static std::optional<int> findRecommendation(const std::unordered_map<T, int> &recommendations, T key) {
     auto maybeRecommendation = recommendations.find(key);
@@ -74,6 +64,8 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     _hitdie = twoDa.getInt(row, "hitdie");
     _forcedie = twoDa.getInt(row, "forcedie");
     _skillPointBase = twoDa.getInt(row, "skillpointbase");
+    // The recommended level-up point goes to the ability the column names.
+    _primaryAbility = readAbilityColumn(twoDa, row, "primaryabil");
 
     _defaultAttributes.addClassLevels(this, 1);
     _defaultAttributes.setAbilityScore(Ability::Strength, twoDa.getInt(row, "str"));
@@ -82,7 +74,6 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     _defaultAttributes.setAbilityScore(Ability::Intelligence, twoDa.getInt(row, "int"));
     _defaultAttributes.setAbilityScore(Ability::Wisdom, twoDa.getInt(row, "wis"));
     _defaultAttributes.setAbilityScore(Ability::Charisma, twoDa.getInt(row, "cha"));
-    _primaryAbility = parseAbility(twoDa.getString(row, "primaryabil"));
 
     std::string skillsTable(boost::to_lower_copy(twoDa.getString(row, "skillstable")));
     _hasSkills = !skillsTable.empty();
@@ -115,7 +106,7 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
 void CreatureClass::loadClassSkills(const std::string &skillsTable) {
     std::shared_ptr<TwoDA> skills(_twoDas.get(kSkillsTwoDAResRef));
     for (int row = 0; row < skills->getRowCount(); ++row) {
-        if (skills->getInt(row, skillsTable + "_class") == 1) {
+        if (skills->getInt(row, skillsTable + "_class") != 0) {
             _classSkills.insert(static_cast<SkillType>(row));
         }
         auto recommendation = skills->getIntOpt(row, skillsTable + "_reco");
@@ -125,14 +116,25 @@ void CreatureClass::loadClassSkills(const std::string &skillsTable) {
     }
 }
 
+int CreatureClass::skillPointsForLevel(int intModifier, bool firstLevel, bool tsl) const {
+    if (tsl) {
+        int points = std::max(1, _skillPointBase + intModifier);
+        return firstLevel ? 4 * points : points;
+    }
+    if (firstLevel) {
+        return 4 * std::max(1, _skillPointBase / 2 + intModifier);
+    }
+    return std::max(1, (_skillPointBase + intModifier) / 2);
+}
+
 void CreatureClass::loadSavingThrows(const std::string &savingThrowTable) {
     auto twoDa = getRequiredTwoDA(_twoDas, savingThrowTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
-        // Saving throw bonuses are signed bytes.
+        // A saving throw bonus keeps its sign.
         SavingThrows throws;
-        throws.fortitude = static_cast<int8_t>(twoDa->getInt(row, "fortsave"));
-        throws.reflex = static_cast<int8_t>(twoDa->getInt(row, "refsave"));
-        throws.will = static_cast<int8_t>(twoDa->getInt(row, "willsave"));
+        throws.fortitude = twoDa->getInt(row, "fortsave");
+        throws.reflex = twoDa->getInt(row, "refsave");
+        throws.will = twoDa->getInt(row, "willsave");
 
         _savingThrows.push_back(throws);
     }
@@ -141,16 +143,16 @@ void CreatureClass::loadSavingThrows(const std::string &savingThrowTable) {
 void CreatureClass::loadAttackBonuses(const std::string &attackBonusTable) {
     auto twoDa = getRequiredTwoDA(_twoDas, attackBonusTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
-        // Attack bonuses are unsigned bytes.
-        _attackBonuses.push_back(twoDa->getInt(row, "bab") & 0xff);
+        // An attack bonus below zero reads as 0.
+        _attackBonuses.push_back(std::max(0, twoDa->getInt(row, "bab")));
     }
 }
 
 void CreatureClass::loadDefenseBonuses(const std::string &defenseBonusColumn) {
     auto twoDa = getRequiredTwoDA(_twoDas, kDefenseBonusTwoDAResRef);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
-        // Defense bonuses are signed bytes.
-        _defenseBonuses.push_back(static_cast<int8_t>(twoDa->getInt(row, defenseBonusColumn)));
+        // A defense bonus keeps its sign.
+        _defenseBonuses.push_back(twoDa->getInt(row, defenseBonusColumn));
     }
 }
 
@@ -170,9 +172,12 @@ void CreatureClass::loadFeatListValues(const std::string &featsPrefix) {
     auto recommendationColumn = featsPrefix + "_recom";
     for (int row = 0; row < feats->getRowCount(); ++row) {
         auto feat = static_cast<FeatType>(row);
-        // The list, granted and player-character cells are bytes; a blank
-        // cell, or a column the table lacks, reads as 0.
-        int listValue = feats->getInt(row, listColumn) & 0xff;
+        // A blank cell, or a column the table lacks, reads as 0. A list value
+        // below zero is off every list.
+        int listValue = feats->getInt(row, listColumn);
+        if (listValue < 0) {
+            listValue = kOffListFeatListValue;
+        }
         _featListValues.insert(std::make_pair(feat, listValue));
         auto recommendation = feats->getIntOpt(row, recommendationColumn);
         if (recommendation) {
@@ -180,11 +185,12 @@ void CreatureClass::loadFeatListValues(const std::string &featsPrefix) {
         }
 
         // List value 3, or one above 4, marks a feat the class grants at the
-        // level in its granted column. A new TSL player character also starts
-        // with the selectable feats marked in the player-character column.
+        // level in its granted column; a level below 1 is never reached. A new
+        // TSL player character also starts with the selectable feats marked 1
+        // in the player-character column.
         if (listValue == kGrantedFeatListValue || listValue > kOffListFeatListValue) {
-            _featGrantedLevels.insert(std::make_pair(feat, feats->getInt(row, grantedColumn) & 0xff));
-        } else if (listValue < kGrantedFeatListValue && (feats->getInt(row, pcGrantedColumn) & 0xff) == 1) {
+            _featGrantedLevels.insert(std::make_pair(feat, feats->getInt(row, grantedColumn)));
+        } else if (listValue < kGrantedFeatListValue && feats->getInt(row, pcGrantedColumn) == 1) {
             _pcGrantedFeats.insert(feat);
         }
     }
@@ -201,11 +207,11 @@ void CreatureClass::loadFeatGains(const std::string &featGainPrefix) {
         return;
     }
 
-    // Both gains are bytes; a blank cell, or a missing bonus column, reads 0.
+    // A blank cell, a missing bonus column, or a gain below zero reads 0.
     std::string bonusGainColumn(featGainPrefix + "_bon");
     for (int row = 0; row < featGain->getRowCount(); ++row) {
-        _featGains.push_back(featGain->getInt(row, regularGainColumn, 0) & 0xff);
-        _bonusFeatGains.push_back(featGain->getInt(row, bonusGainColumn, 0) & 0xff);
+        _featGains.push_back(std::max(0, featGain->getInt(row, regularGainColumn, 0)));
+        _bonusFeatGains.push_back(std::max(0, featGain->getInt(row, bonusGainColumn, 0)));
     }
 }
 
@@ -222,11 +228,10 @@ void CreatureClass::loadPowerGains(const std::string &powerGainPrefix) {
 
     for (int row = 0; row < powerGain->getRowCount(); ++row) {
         // A level gains powers only when the power level table gives it at
-        // least one power level (an unsigned byte). A power gain is an
-        // unsigned byte; 255 means none.
-        const bool hasPowerLevels = (powerLevels->getInt(row, "numspelllevels", 0) & 0xff) > 0;
-        const int gain = powerGain->getInt(row, powerGainPrefix, 0) & 0xff;
-        _powerGains.push_back(hasPowerLevels && gain != 0xff ? gain : 0);
+        // least one power level. A blank gain, or one below zero, is none.
+        const bool hasPowerLevels = powerLevels->getInt(row, "numspelllevels", 0) > 0;
+        const int gain = powerGain->getInt(row, powerGainPrefix, 0);
+        _powerGains.push_back(hasPowerLevels ? std::max(0, gain) : 0);
     }
 }
 
@@ -284,7 +289,7 @@ int CreatureClass::getPowerGain(int level) const {
 
 int CreatureClass::getFeatListValue(FeatType feat) const {
     auto maybeFeatListValue = _featListValues.find(feat);
-    return maybeFeatListValue != _featListValues.end() ? maybeFeatListValue->second : 4;
+    return maybeFeatListValue != _featListValues.end() ? maybeFeatListValue->second : kOffListFeatListValue;
 }
 
 std::optional<int> CreatureClass::getSkillRecommendation(SkillType skill) const {

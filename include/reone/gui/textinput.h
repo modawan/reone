@@ -19,6 +19,7 @@
 
 #include "reone/input/event.h"
 #include "reone/system/textbuffer.h"
+#include "reone/system/unicodeutil.h"
 
 namespace reone {
 
@@ -34,25 +35,57 @@ struct TextInputFlags {
     static constexpr int console = digits | letters | whitespace | symbols;
 };
 
+/**
+ * Edits a text buffer from the keyboard. The text typed is what the system
+ * translates the keys into, one character at a time, kept in the code page
+ * set (Windows-1252 unless set); Backspace removes the last character.
+ * Control characters and characters the code page lacks are never entered.
+ */
 class TextInput {
 public:
     TextInput(TextBuffer &buffer, int mask) :
         _buffer(buffer), _mask(mask) {}
 
+    /**
+     * Enters a typed character, or acts on a key: Backspace, and Control+V
+     * or Command+V where pasting is allowed. Every other key that types a
+     * character with its modifiers (input::KeyEvent::character) is taken
+     * too, though its character arrives as text.
+     *
+     * @return whether the event was taken
+     */
     bool handle(const input::Event &event);
 
     void setMinOffset(size_t minOffset) { _minOffset = minOffset; }
+    /** Characters never entered, whether typed or pasted. */
+    void setExcludedCharacters(std::string characters) { _excluded = std::move(characters); }
+    /** Whether Control+V or Command+V enters the clipboard's text, as if typed. Off unless set. */
+    void setPasteAllowed(bool allowed) { _pasteAllowed = allowed; }
+    /** Sets the code page the text is kept in, which typed and pasted characters are entered in. */
+    void setCodePage(CodePage codePage) { _codePage = codePage; }
+    /** Characters are no longer entered once the text holds this many. Zero sets no limit. */
+    void setMaxLength(size_t length) { _maxLength = length; }
     void clear();
     void setText(std::string_view text);
 
 private:
     TextBuffer &_buffer;
-    int _minOffset {0};
+    size_t _minOffset {0};
     int _mask {0};
+    /** Characters never entered (setExcludedCharacters). */
+    std::string _excluded;
+    /** The most characters the text holds; zero sets no limit (setMaxLength). */
+    size_t _maxLength {0};
+    /** The code page the text is kept in (setCodePage). */
+    CodePage _codePage {CodePage::Windows1252};
+    /** Whether Control+V pastes (setPasteAllowed). */
+    bool _pasteAllowed {false};
 
     bool handleKeyDown(const input::KeyEvent &event);
-    bool isKeyAllowed(const input::KeyEvent &event) const;
+    /** Enters the typed character when the mask allows its kind. */
+    bool handleTextInput(const input::TextInputEvent &event);
 
+    /** Enters the character, unless it is excluded, a control character or past the length limit. */
     void insert(char c);
     void backspace();
 };

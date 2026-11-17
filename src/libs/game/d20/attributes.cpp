@@ -25,7 +25,9 @@ namespace reone {
 
 namespace game {
 
-static constexpr int kDefaultAbilityScore = 8;
+// A creature whose record gives no ability score has a base of 0; the
+// effective score is still at least kMinimumAbilityScore.
+static constexpr int kDefaultAbilityScore = 0;
 static constexpr int kDefaultSkillRank = 0;
 
 void CreatureAttributes::addFeat(FeatType type) {

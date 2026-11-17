@@ -1131,23 +1131,28 @@ void Object::discardGroupNode(const OrdinaryActionQueue::Node &node) {
     }
 }
 
+static uint64_t heartbeatMilliseconds() {
+    return getWholeMilliseconds(kHeartbeatInterval);
+}
+
 bool Object::isHeartbeatDueSince(uint32_t day, uint32_t time) const {
-    uint32_t days = 0;
-    uint32_t elapsed = 0;
-    _game.subtractWorldTimes(_game.worldTimeDay(), _game.worldTimeOfDay(), day, time, days, elapsed);
-    return elapsed >= static_cast<uint32_t>(kHeartbeatInterval * 1000.0f);
+    return _game.worldTimeSince(day, time) >= heartbeatMilliseconds();
 }
 
 void Object::stampHeartbeat() {
-    _heartbeatDay = _game.worldTimeDay();
-    _heartbeatTime = _game.worldTimeOfDay();
+    stampHeartbeat(_heartbeatDay, _heartbeatTime);
+}
+
+void Object::stampHeartbeat(uint32_t &day, uint32_t &time) const {
+    _game.advanceStamp(day, time, heartbeatMilliseconds(), _game.worldTimeMilliseconds());
 }
 
 void Object::updateStampedHeartbeat(const std::string &script, bool runnable) {
     if (!isHeartbeatDueSince(_heartbeatDay, _heartbeatTime)) {
         return;
     }
-    const bool running = _heartbeatTime != 0 && runnable;
+    // The first heartbeat, with no stamp, only starts the clock.
+    const bool running = isWorldTimeStamped(_heartbeatDay, _heartbeatTime) && runnable;
     stampHeartbeat();
     // A lock takes the PC level on a running heartbeat, whether or not the
     // object has a script.
@@ -1799,7 +1804,8 @@ bool Object::restoreEffect(EffectInstance effect) {
 }
 
 bool Object::admitEffect(EffectInstance effect) {
-    const uint64_t start = _game.worldTimeMilliseconds();
+    // An effect is timed on the object's own clock, which it expires by.
+    const uint64_t start = _game.activeTimeMilliseconds(*this);
     effect.skipOnLoad = effect.skipOnLoad || effect.exposed == 0;
     const auto result = effect.effect
                             ? effect.effect->onApply(*this, effect)
@@ -1814,13 +1820,12 @@ bool Object::admitEffect(EffectInstance effect) {
     if (effect.durationType() == DurationType::Temporary) {
         if (effect.expiryOrigin == EffectExpiryOrigin::RuntimeCountdown ||
             effect.expiryOrigin == EffectExpiryOrigin::None) {
-            const auto expiry = getEffectExpiryMilliseconds(start, effect.duration,
-                                                            static_cast<uint32_t>(_game.millisecondsPerWorldDay()));
-            effect.expiryDay = static_cast<uint32_t>(expiry / _game.millisecondsPerWorldDay());
-            effect.expiryTime = static_cast<uint32_t>(expiry % _game.millisecondsPerWorldDay());
+            const auto expiry = getEffectExpiryMilliseconds(start, effect.duration, _game.millisecondsPerWorldDay());
+            effect.expiryDay = _game.calendarDay(expiry);
+            effect.expiryTime = _game.calendarTimeOfDay(expiry);
             effect.expiryOrigin = EffectExpiryOrigin::RuntimeAbsoluteGameTime;
         }
-        effect.remainingDuration = _game.remainingEffectDuration(effect);
+        effect.remainingDuration = _game.remainingEffectDuration(effect, _game.activeTimeMilliseconds(*this));
     }
     // Effect icons and visuals other than the two lasting ones are not lasting.
     static constexpr int kFirstLastingVisual = 5000;
@@ -1960,10 +1965,9 @@ void Object::updateEffects(float dt) {
                              !effect.hasLiveRuntimeSource();
         const bool temporary = effect.durationType() == DurationType::Temporary;
         if (temporary) {
-            effect.remainingDuration = _game.remainingEffectDuration(effect);
+            effect.remainingDuration = _game.remainingEffectDuration(effect, _game.activeTimeMilliseconds(*this));
         }
-        const auto expiry = static_cast<uint64_t>(effect.expiryDay) * _game.millisecondsPerWorldDay() +
-                            effect.expiryTime;
+        const auto expiry = _game.toWorldMilliseconds(effect.expiryDay, effect.expiryTime);
         // An object acting through a time stop expires its effects on its own clock.
         if (retired || (temporary && _game.activeTimeMilliseconds(*this) > expiry)) {
             const EffectId id = effect.id;

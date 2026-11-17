@@ -19,8 +19,7 @@
 
 #include "reone/script/program.h"
 
-#include "../replacements.h"
-#include "../resources.h"
+#include "../decodedcache.h"
 
 namespace reone {
 
@@ -37,10 +36,8 @@ public:
 
 class Scripts : public IScripts {
 public:
-    Scripts(IResources &resources,
-            IResourceReplacements &replacements) :
-        _resources(resources),
-        _replacements(replacements) {
+    Scripts(IResources &resources) :
+        _resources(resources) {
     }
 
     void clear() override {
@@ -49,29 +46,17 @@ public:
 
     std::shared_ptr<script::ScriptProgram> get(const std::string &key) override {
         ResRef resRef(key);
-        ResourceId id(resRef, ResType::Ncs);
-        uint64_t revision = _replacements.revision(id);
-        auto maybeObject = _objects.find(resRef);
-        if (maybeObject != _objects.end() && maybeObject->second.revision == revision) {
-            return maybeObject->second.program;
-        }
-        auto program = doGet(resRef.value());
-        _objects[resRef] = CachedProgram {std::move(program), revision};
-        return _objects.at(resRef).program;
+        return _objects.get(resRef, [this, &resRef](ResourceReads &reads) {
+            return doGet(resRef.value(), reads);
+        }).value;
     }
 
 private:
-    struct CachedProgram {
-        std::shared_ptr<script::ScriptProgram> program;
-        uint64_t revision;
-    };
-
     IResources &_resources;
-    IResourceReplacements &_replacements;
 
-    std::unordered_map<ResRef, CachedProgram> _objects;
+    DecodedCache<ResRef, script::ScriptProgram> _objects;
 
-    std::shared_ptr<script::ScriptProgram> doGet(std::string resRef);
+    std::shared_ptr<script::ScriptProgram> doGet(const std::string &resRef, ResourceReads &reads);
 };
 
 } // namespace resource

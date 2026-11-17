@@ -24,6 +24,8 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/party.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
@@ -185,13 +187,20 @@ void CharGenSkills::onGUILoaded() {
 void CharGenSkills::reset(bool newGame) {
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+    // A level-up starts from the leader's ranks and unspent points, so opening
+    // the screen again during the level-up starts the level's skills over.
+    const CreatureAttributes &start = newGame ? attributes : _game.party().getLeader()->attributes();
 
-    _points = glm::max(1, (clazz->skillPointBase() + attributes.getAbilityModifier(Ability::Intelligence)) / 2);
     _allocationLevel = attributes.getAggregateLevel() + (newGame ? 0 : 1);
+    // A level that makes the total level 1 gives the first level's points in
+    // place of any left unspent; a later level adds its points to those left
+    // unspent before.
+    const bool firstLevel = _allocationLevel == 1;
+    const int levelPoints = clazz->skillPointsForLevel(
+        attributes.getAbilityModifier(Ability::Intelligence), firstLevel, _game.isTSL());
+    _points = firstLevel ? levelPoints : start.unspentSkillPoints() + levelPoints;
 
     if (newGame) {
-        _points *= 4;
-
         _attributes.setSkillRank(SkillType::ComputerUse, 0);
         _attributes.setSkillRank(SkillType::Demolitions, 0);
         _attributes.setSkillRank(SkillType::Stealth, 0);
@@ -201,7 +210,7 @@ void CharGenSkills::reset(bool newGame) {
         _attributes.setSkillRank(SkillType::Security, 0);
         _attributes.setSkillRank(SkillType::TreatInjury, 0);
     } else {
-        _attributes = attributes;
+        _attributes = start;
     }
     _startAttributes = _attributes;
     _startPoints = _points;
@@ -275,6 +284,7 @@ void CharGenSkills::updateCharacter() {
     for (auto &skillRank : _attributes.skillRanks()) {
         character.attributes.setSkillRank(skillRank.first, skillRank.second);
     }
+    character.attributes.setUnspentSkillPoints(_points);
     _charGen.setCharacter(std::move(character));
 }
 

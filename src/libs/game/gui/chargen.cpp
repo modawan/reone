@@ -295,6 +295,7 @@ void CharacterGeneration::startLevelUp(bool forced) {
     Character character;
     character.name = partyLeader->name();
     character.appearance = partyLeader->appearance();
+    character.portraitId = partyLeader->portraitId();
     character.gender = partyLeader->gender();
     character.attributes = partyLeader->attributes();
     // The attributes panel adds the coming level to the character as it is.
@@ -508,7 +509,7 @@ bool CharacterGeneration::autoLevelUp() {
         _abilities->reset(false);
         _abilities->recommend();
         if (_abilities->remainingPoints() > 0) {
-            warn("Auto level-up refused: no ability can take the attribute point");
+            warn("Auto level-up refused: the class has no primary ability to take the attribute point");
             return false;
         }
         _abilities->accept();
@@ -588,6 +589,7 @@ void CharacterGeneration::finish() {
                     resource::LocString(-1, _character.name, _services.resource.strings), resource::LocString());
                 player->setGender(_character.gender);
                 player->setAppearance(_character.appearance);
+                player->setPortraitId(_character.portraitId);
                 player->loadAppearance();
                 // A new character moves at the player's pace.
                 player->setMovementRate(kPlayerMovementRate);
@@ -687,7 +689,7 @@ std::shared_ptr<ModelSceneNode> CharacterGeneration::getCharacterModel(ISceneGra
     creature->loadAppearance();
     creature->updateModelAnimation();
 
-    auto model = sceneGraph.newModel(*_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
+    auto model = sceneGraph.newModel(_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
     model->attach("cgbody_light", *creature->sceneNode());
 
     return model;

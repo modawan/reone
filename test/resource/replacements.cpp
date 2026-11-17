@@ -17,7 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/mounttransaction.h"
 #include "reone/resource/replacementresources.h"
@@ -30,15 +29,6 @@ using namespace reone;
 using namespace reone::resource;
 
 namespace {
-
-enum class Backend {
-    Legacy,
-    Extract,
-};
-
-std::string backendName(const testing::TestParamInfo<Backend> &info) {
-    return info.param == Backend::Legacy ? "Legacy" : "Extract";
-}
 
 ByteBuffer bytes(std::string_view value) {
     return ByteBuffer(value.begin(), value.end());
@@ -62,15 +52,11 @@ std::string dataOf(const std::optional<Resource> &resource) {
     return std::string(resource->data.begin(), resource->data.end());
 }
 
-class ReplacementResourcesTest : public testing::TestWithParam<Backend> {
+class ReplacementResourcesTest : public testing::Test {
 protected:
     void SetUp() override {
         std::unique_ptr<IResources> backend;
-        if (GetParam() == Backend::Legacy) {
-            backend = std::make_unique<Resources>();
-        } else {
-            backend = std::make_unique<ExtractResources>();
-        }
+        backend = std::make_unique<Resources>();
         _resources = std::make_unique<ReplacementResources>(std::move(backend), _replacements);
     }
 
@@ -86,7 +72,7 @@ protected:
     std::unique_ptr<ReplacementResources> _resources;
 };
 
-TEST_P(ReplacementResourcesTest, replacement_beats_a_mounted_resource) {
+TEST_F(ReplacementResourcesTest, replacement_beats_a_mounted_resource) {
     addMounted("shared", "mounted");
 
     _replacements.replaceResource(id("shared"), bytes("replacement"));
@@ -94,20 +80,20 @@ TEST_P(ReplacementResourcesTest, replacement_beats_a_mounted_resource) {
     EXPECT_EQ("replacement", dataOf(_resources->find(id("shared"))));
 }
 
-TEST_P(ReplacementResourcesTest, replacement_supplies_a_missing_resource) {
+TEST_F(ReplacementResourcesTest, replacement_supplies_a_missing_resource) {
     _replacements.replaceResource(id("missing"), bytes("replacement"));
 
     EXPECT_EQ("replacement", dataOf(_resources->find(id("missing"))));
 }
 
-TEST_P(ReplacementResourcesTest, repeated_replacement_uses_the_newest_bytes) {
+TEST_F(ReplacementResourcesTest, repeated_replacement_uses_the_newest_bytes) {
     _replacements.replaceResource(id("shared"), bytes("first"));
     _replacements.replaceResource(id("shared"), bytes("second"));
 
     EXPECT_EQ("second", dataOf(_resources->find(id("shared"))));
 }
 
-TEST_P(ReplacementResourcesTest, removal_restores_the_mounted_resource) {
+TEST_F(ReplacementResourcesTest, removal_restores_the_mounted_resource) {
     addMounted("shared", "mounted");
     _replacements.replaceResource(id("shared"), bytes("replacement"));
 
@@ -116,7 +102,7 @@ TEST_P(ReplacementResourcesTest, removal_restores_the_mounted_resource) {
     EXPECT_EQ("mounted", dataOf(_resources->find(id("shared"))));
 }
 
-TEST_P(ReplacementResourcesTest, clear_restores_all_mounted_resources) {
+TEST_F(ReplacementResourcesTest, clear_restores_all_mounted_resources) {
     addMounted("first", "first mounted");
     addMounted("second", "second mounted");
     _replacements.replaceResource(id("first"), bytes("first replacement"));
@@ -128,7 +114,7 @@ TEST_P(ReplacementResourcesTest, clear_restores_all_mounted_resources) {
     EXPECT_EQ("second mounted", dataOf(_resources->find(id("second"))));
 }
 
-TEST_P(ReplacementResourcesTest, empty_replacement_is_present) {
+TEST_F(ReplacementResourcesTest, empty_replacement_is_present) {
     _replacements.replaceResource(id("empty"), {});
 
     auto resource = _resources->find(id("empty"));
@@ -137,21 +123,21 @@ TEST_P(ReplacementResourcesTest, empty_replacement_is_present) {
     EXPECT_TRUE(resource->data.empty());
 }
 
-TEST_P(ReplacementResourcesTest, resource_ids_are_case_normalized) {
+TEST_F(ReplacementResourcesTest, resource_ids_are_case_normalized) {
     _replacements.replaceResource(id("MiXeD"), bytes("replacement"));
 
     EXPECT_EQ("replacement", dataOf(_resources->find(id("mixed"))));
     EXPECT_EQ("replacement", dataOf(_resources->find(id("MIXED"))));
 }
 
-TEST_P(ReplacementResourcesTest, preserves_fallback_behavior_without_replacements) {
+TEST_F(ReplacementResourcesTest, preserves_fallback_behavior_without_replacements) {
     addMounted("mounted", "mounted");
 
     EXPECT_EQ("mounted", dataOf(_resources->find(id("mounted"))));
     EXPECT_FALSE(_resources->find(id("missing")));
 }
 
-TEST_P(ReplacementResourcesTest, returned_data_remains_valid_after_replacement_changes) {
+TEST_F(ReplacementResourcesTest, returned_data_remains_valid_after_replacement_changes) {
     _replacements.replaceResource(id("shared"), bytes("first"));
     auto first = _resources->get(id("shared"));
     MemoryInputStream stream(first.data);
@@ -164,7 +150,7 @@ TEST_P(ReplacementResourcesTest, returned_data_remains_valid_after_replacement_c
     EXPECT_EQ("first", std::string(read.begin(), read.end()));
 }
 
-TEST_P(ReplacementResourcesTest, replacements_survive_local_and_save_scope_changes) {
+TEST_F(ReplacementResourcesTest, replacements_survive_local_and_save_scope_changes) {
     addMounted("shared", "global", ResourceOwner::Global);
     addMounted("shared", "save", ResourceOwner::SaveSlot);
     addMounted("shared", "local", ResourceOwner::ActiveModule);
@@ -176,7 +162,7 @@ TEST_P(ReplacementResourcesTest, replacements_survive_local_and_save_scope_chang
     EXPECT_EQ("replacement", dataOf(_resources->find(id("shared"))));
 }
 
-TEST_P(ReplacementResourcesTest, replacements_survive_an_undone_mount) {
+TEST_F(ReplacementResourcesTest, replacements_survive_an_undone_mount) {
     addMounted("shared", "global", ResourceOwner::Global);
     _replacements.replaceResource(id("shared"), bytes("replacement"));
 
@@ -216,10 +202,5 @@ TEST(ResourceReplacementsRevision, advances_on_every_meaningful_state_transition
     EXPECT_LT(second, cleared);
     EXPECT_LT(cleared, third);
 }
-
-INSTANTIATE_TEST_SUITE_P(Backends,
-                         ReplacementResourcesTest,
-                         testing::Values(Backend::Legacy, Backend::Extract),
-                         backendName);
 
 } // namespace

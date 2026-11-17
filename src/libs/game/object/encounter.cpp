@@ -28,6 +28,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/shaperules.h"
 #include "reone/resource/2da.h"
@@ -228,8 +229,6 @@ void Encounter::deserializePendingSpawns(const resource::Gff &gff) {
 // thresholds.
 static constexpr float kCreaturePointBase = 1.5f;
 static constexpr int kCreaturePointTableSize = 50;
-// A creature is hostile to the encounter below this reputation.
-static constexpr int kHostileReputation = 11;
 // A spawn point hands its creature to the safe-location search within this radius.
 static constexpr float kSpawnPointPlacementRadius = 20.0f;
 // The first title's hostile tally counts creatures within this box around the entrant.
@@ -237,7 +236,6 @@ static constexpr float kHostileTallyExtent = 30.0f;
 // The spawn option of an encounter that spawns again; its respawn limit when it has none.
 static constexpr int kContinuousSpawnOption = 1;
 static constexpr int kUnlimitedRespawns = -1;
-static constexpr uint32_t kMillisecondsPerSecond = 1000;
 // The hostiles' points count at a quarter toward the level a wave is chosen for.
 static constexpr double kHostilePointsShare = 0.25;
 // A wave may overspend what is left of the budget by a tenth of it.
@@ -348,7 +346,8 @@ void Encounter::spawnIfAppropriate(uint32_t triggeringId) {
 }
 
 bool Encounter::isHostileTo(const Creature &creature) const {
-    return creature.getReputationFrom(_faction) < kHostileReputation;
+    // A creature is hostile to the encounter when it is the faction's enemy.
+    return isEnemyReputation(creature.getReputationFrom(_faction));
 }
 
 // Whether a living creature hostile to the encounter is inside it. The
@@ -533,19 +532,16 @@ void Encounter::spawnNext() {
 
 // A continuous encounter that resets re-arms once its reset time has passed
 // since its wave was destroyed, up to its respawn limit (-1: without limit).
-// Both parts of the destruction stamp must be set. The reset time is
-// compared, in milliseconds, with the time part of the world time since then,
-// and any whole day passed re-arms it too.
+// It waits for a destruction stamp. A whole day passed re-arms it whatever
+// its reset time.
 void Encounter::updateRespawn() {
     auto &state = _savedRuntimeState;
-    if (_spawnOption != kContinuousSpawnOption || !_reset || state.lastSpawnDay == 0 || state.lastSpawnTime == 0) {
+    if (_spawnOption != kContinuousSpawnOption || !_reset || !isWorldTimeStamped(state.lastSpawnDay, state.lastSpawnTime)) {
         return;
     }
-    uint32_t days = 0;
-    uint32_t milliseconds = 0;
-    _game.subtractWorldTimes(_game.worldTimeDay(), _game.worldTimeOfDay(), state.lastSpawnDay, state.lastSpawnTime,
-                             days, milliseconds);
-    if (milliseconds < static_cast<uint32_t>(_resetTime) * kMillisecondsPerSecond && days == 0) {
+    const uint64_t since = _game.worldTimeSince(state.lastSpawnDay, state.lastSpawnTime);
+    if (since < static_cast<uint64_t>(std::max(_resetTime, 0)) * kMillisecondsInSecond &&
+        since < _game.millisecondsPerWorldDay()) {
         return;
     }
     if (state.currentSpawns >= _respawns && _respawns != kUnlimitedRespawns) {
@@ -560,16 +556,15 @@ void Encounter::updateRespawn() {
     state.spawnPoolActive = 0.0f;
 }
 
-// A due heartbeat is signalled as an event; the first check only starts the
-// clock.
+// A due heartbeat is signalled as an event; the first check, with no stamp,
+// only starts the clock.
 void Encounter::updateHeartbeat() {
     auto &state = _savedRuntimeState;
     if (!isHeartbeatDueSince(state.heartbeatDay, state.heartbeatTime)) {
         return;
     }
-    const bool running = state.heartbeatTime != 0;
-    state.heartbeatDay = _game.worldTimeDay();
-    state.heartbeatTime = _game.worldTimeOfDay();
+    const bool running = isWorldTimeStamped(state.heartbeatDay, state.heartbeatTime);
+    stampHeartbeat(state.heartbeatDay, state.heartbeatTime);
     if (running) {
         _game.queueScriptEvent(*this, *this, Event(kHeartbeatEvent));
     }

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "reone/audio/clip.h"
 
 namespace reone {
@@ -571,6 +573,11 @@ enum class Ability {
     Charisma = 5
 };
 
+/** Every ability, in Ability order. */
+constexpr std::array<Ability, 6> kAbilities {
+    Ability::Strength, Ability::Dexterity, Ability::Constitution,
+    Ability::Intelligence, Ability::Wisdom, Ability::Charisma};
+
 /** The most credits, components or chemicals a creature or the party holds. */
 constexpr int kMaxHeldCount = 999999999;
 
@@ -664,6 +671,11 @@ enum class SkillType {
     Security = 6,
     TreatInjury = 7
 };
+
+/** Every skill, in SkillType order. */
+constexpr std::array<SkillType, 8> kSkills {
+    SkillType::ComputerUse, SkillType::Demolitions, SkillType::Stealth, SkillType::Awareness,
+    SkillType::Persuade, SkillType::Repair, SkillType::Security, SkillType::TreatInjury};
 
 /** A skill effect on this skill applies to every skill. */
 constexpr int kAllSkills = 255;

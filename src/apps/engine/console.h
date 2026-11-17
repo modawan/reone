@@ -49,6 +49,7 @@ public:
         _graphicsSvc(graphicsSvc),
         _resourceSvc(resourceSvc),
         _input(_buffer, gui::TextInputFlags::console) {
+        _input.setPasteAllowed(true);
     }
 
     ~Console() {
@@ -58,8 +59,16 @@ public:
     void init();
     void deinit();
 
+    /**
+     * Takes the console key (isConsoleKey) wherever it is pressed, opening or
+     * closing the console, and while the console is open its input. Alt+`
+     * runs the next batch of commands.
+     *
+     * @return whether the event was taken
+     */
     bool handle(const input::Event &event);
     void render();
+    bool isOpen() const { return _open; }
 
     void registerCommand(std::string name, std::string description, CommandHandler handler) override;
     void printLine(const std::string &text) override;
@@ -105,6 +114,13 @@ private:
     std::unordered_map<std::string, std::reference_wrapper<Command>> _nameToCommand;
 
     // END Commands
+
+    /**
+     * Whether the event is the console key, which opens and closes the console
+     * and is never typed, by the language of the talk table: Control+C in
+     * Polish, otherwise its character typed, ° in German and ` in every other.
+     */
+    bool isConsoleKey(const input::Event &event) const;
 
     bool handleMouseWheel(const input::MouseWheelEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);

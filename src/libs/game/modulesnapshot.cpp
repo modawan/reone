@@ -192,11 +192,10 @@ std::shared_ptr<Gff> effectToGff(
         if (!game) {
             throw ValidationException("temporary effect lacks a game-time conversion context");
         }
-        uint64_t expiry = getEffectExpiryMilliseconds(game->worldTimeMilliseconds(),
-                                                      *effect.remainingDuration, static_cast<uint32_t>(game->millisecondsPerWorldDay()));
-        uint64_t millisecondsPerDay = game->millisecondsPerWorldDay();
-        expiryDay = static_cast<uint32_t>(expiry / millisecondsPerDay);
-        expiryTime = static_cast<uint32_t>(expiry % millisecondsPerDay);
+        const uint64_t expiry = getEffectExpiryMilliseconds(game->worldTimeMilliseconds(), *effect.remainingDuration,
+                                                            game->millisecondsPerWorldDay());
+        expiryDay = game->calendarDay(expiry);
+        expiryTime = game->calendarTimeOfDay(expiry);
     } else if (!effect.hasSerializableTemporalProvenance()) {
         throw ValidationException("temporary effect lacks save-facing expiry provenance");
     }
@@ -1299,6 +1298,15 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newWord("FactionID", static_cast<uint16_t>(creature._faction)));
     put(record, Gff::Field::newWord("Appearance_Type", creature._appearance));
     put(record, Gff::Field::newByte("UseBackupHead", creature._useBackupHead));
+    // A portrait row a word can name is saved as the portrait ID; any other
+    // portrait is saved as its resref, under the ID naming no row.
+    const auto &portraitId = creature._portraitId;
+    if (portraitId && *portraitId >= 0 && *portraitId < Creature::kFirstResRefPortraitId) {
+        put(record, Gff::Field::newWord("PortraitId", static_cast<uint16_t>(*portraitId)));
+    } else {
+        put(record, Gff::Field::newWord("PortraitId", static_cast<uint16_t>(Creature::kNoPortraitId)));
+        put(record, Gff::Field::newResRef("Portrait", creature.basePortraitResRef()));
+    }
     put(record, Gff::Field::newByte("PM_IsDisguised", creature._disguised));
     if (creature._disguised) {
         put(record, Gff::Field::newWord("PM_Appearance", creature._appearanceBeforeDisguise));
@@ -1412,7 +1420,11 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newShort("fortbonus", creature._fortBonus));
     put(record, Gff::Field::newFloat("ChallengeRating", creature._challengeRating));
     put(record, Gff::Field::newInt("AIState", static_cast<int>(creature._aiStyle)));
-    put(record, Gff::Field::newWord("SoundSetFile", creature._soundSetId));
+    // A sound set row a word can name is saved as its row; any other as none.
+    const auto &soundSetId = creature._soundSetId;
+    const bool soundSetSaved = soundSetId && *soundSetId >= 0 && *soundSetId < Creature::kNoSoundSetId;
+    put(record, Gff::Field::newWord(
+                    "SoundSetFile", static_cast<uint16_t>(soundSetSaved ? *soundSetId : Creature::kNoSoundSetId)));
     put(record, Gff::Field::newByte("BodyBag", creature._bodyBagId));
 }
 
@@ -1435,6 +1447,9 @@ void ModuleSnapshotBuilder::writeCreatureAttributes(Gff &record, const Creature 
         skills.push_back(std::move(skill));
     }
     put(record, Gff::Field::newList("SkillList", std::move(skills)));
+    const int skillPoints = std::clamp(
+        creature._attributes.unspentSkillPoints(), 0, static_cast<int>(std::numeric_limits<uint16_t>::max()));
+    put(record, Gff::Field::newWord("SkillPoints", static_cast<uint16_t>(skillPoints)));
     std::map<uint16_t, std::shared_ptr<Gff>> oldFeats;
     for (const auto &feat : record.getList("FeatList")) {
         oldFeats.emplace(
@@ -1813,7 +1828,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeAreaOfEffect(
     put(*result, Gff::Field::newDword("LastEntered", savedId(areaOfEffect.lastEntered())));
     put(*result, Gff::Field::newDword("LastLeft", savedId(areaOfEffect.lastLeft())));
     put(*result, Gff::Field::newDword("Duration",
-                                      static_cast<uint32_t>(std::max(0.0f, areaOfEffect._remainingDuration) * 1000.0f)));
+                                      static_cast<uint32_t>(std::min<uint64_t>(areaOfEffect._remainingMilliseconds,
+                                                                               std::numeric_limits<uint32_t>::max()))));
     put(*result, Gff::Field::newByte("DurationType", static_cast<uint8_t>(areaOfEffect._durationType)));
     put(*result, Gff::Field::newDword("LastHrtbtDay", areaOfEffect._heartbeatDay));
     put(*result, Gff::Field::newDword("LastHrtbtTime", areaOfEffect._heartbeatTime));

@@ -36,7 +36,6 @@ class Uniforms;
 
 namespace resource {
 
-class IResources;
 class Textures;
 
 class ICursors {
@@ -54,15 +53,13 @@ public:
         graphics::ShaderRegistry &shaderRegistry,
         resource::Textures &textures,
         graphics::Uniforms &uniforms,
-        graphics::IStatistic &statistic,
-        IResources &resources) :
+        graphics::IStatistic &statistic) :
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
         _textures(textures),
         _uniforms(uniforms),
-        _statistic(statistic),
-        _resources(resources) {
+        _statistic(statistic) {
     }
 
     ~Cursors() { deinit(); }
@@ -82,14 +79,8 @@ private:
     resource::Textures &_textures;
     graphics::Uniforms &_uniforms;
     graphics::IStatistic &_statistic;
-    IResources &_resources;
 
     // END Services
-
-    std::shared_ptr<graphics::Texture> newTextureFromCursor(uint32_t name);
-
-    const std::pair<uint32_t, uint32_t> &getCursorGroupNames(CursorType type);
-    std::vector<uint32_t> getCursorNamesFromCursorGroup(uint32_t name);
 };
 
 } // namespace resource

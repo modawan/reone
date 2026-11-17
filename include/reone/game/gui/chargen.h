@@ -64,6 +64,9 @@ enum class CharGenScreen {
 
 class CharacterGeneration : public GameGUI {
 public:
+    /** The name entry takes typing. */
+    bool wantsTextInput() const override { return _screen == CharGenScreen::Name; }
+
     enum class Type {
         Quick,
         Custom,

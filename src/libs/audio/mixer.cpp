@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "reone/audio/clip.h"
 #include "reone/audio/context.h"
@@ -55,6 +56,93 @@ void AudioMixer::render() {
         }
     }
     applyChanges(_arbiter.update());
+    const auto now = _clock();
+    const auto last = std::exchange(_lastRendered, now);
+    const float seconds = last ? std::chrono::duration<float>(now - *last).count() : 0.0f;
+    refreshObstruction(seconds);
+    renderObstruction(seconds);
+}
+
+void AudioMixer::setObstructionTest(ObstructionTest test) {
+    _obstructionTest = std::move(test);
+}
+
+void AudioMixer::obstruct(ActiveSource &active, bool jump) {
+    const auto &position = active.source->position();
+    if (!_obstructionTest || !_context.rendersObstruction() || !position) {
+        return;
+    }
+    active.obstructionTarget = _obstructionTest(*position, _context.listenerPosition());
+    active.obstructedAt = *position;
+    active.obstructedListener = _context.listenerPosition();
+    active.obstructionInvalid = false;
+    if (jump) {
+        active.obstruction = active.obstructionTarget;
+        _context.setObstruction(*active.source, active.obstruction);
+    }
+}
+
+void AudioMixer::invalidateObstruction() {
+    for (auto &active : _sources) {
+        active.obstructionInvalid = true;
+    }
+}
+
+// Arbitrary, but small beside the edge of a wall, so a walk past a corner
+// finds the change soon after the line crosses it.
+static constexpr float kObstructionMoveDistance = 0.25f;
+
+bool AudioMixer::isObstructionStale(const ActiveSource &active, const glm::vec3 &listener) const {
+    static constexpr float kMoveDistance2 = kObstructionMoveDistance * kObstructionMoveDistance;
+    return active.obstructionInvalid ||
+           glm::distance2(*active.source->position(), active.obstructedAt) > kMoveDistance2 ||
+           glm::distance2(listener, active.obstructedListener) > kMoveDistance2;
+}
+
+// Arbitrary, but enough that while up to fifteen sources in range are stale
+// at once, each waits less than half a second for its turn.
+static constexpr float kObstructionTestsPerSecond = 30.0f;
+// Arbitrary: the tests a budget saved while nothing changed can spend in one
+// render, so a step after standing still costs no more than a few rays.
+static constexpr float kObstructionBurst = 4.0f;
+
+// The budget runs on the clock, so the rays cast do not grow with the frame
+// rate. Only stale positional sources within range take a turn, in order.
+void AudioMixer::refreshObstruction(float seconds) {
+    if (!_obstructionTest || !_context.rendersObstruction()) {
+        return;
+    }
+    _obstructionBudget = std::min(_obstructionBudget + kObstructionTestsPerSecond * seconds, kObstructionBurst);
+    const glm::vec3 listener {_context.listenerPosition()};
+    for (size_t step = 0; step < _sources.size() && _obstructionBudget >= 1.0f; ++step) {
+        const size_t index = _nextObstructed % _sources.size();
+        _nextObstructed = index + 1;
+        auto &active = _sources[index];
+        if (active.positional && !active.outOfRange && isObstructionStale(active, listener)) {
+            obstruct(active, false);
+            _obstructionBudget -= 1.0f;
+        }
+    }
+}
+
+// Arbitrary: obstruction moves from none to full in half a second, so a
+// wall's worth comes and goes over a fifth of one. That is short enough to
+// follow a walk past a rock and long enough not to be heard as a step.
+static constexpr std::chrono::milliseconds kObstructionEaseTime {500};
+
+void AudioMixer::renderObstruction(float seconds) {
+    if (seconds <= 0.0f || !_obstructionTest || !_context.rendersObstruction()) {
+        return;
+    }
+    const float step = seconds / std::chrono::duration<float>(kObstructionEaseTime).count();
+    for (auto &active : _sources) {
+        if (active.obstruction == active.obstructionTarget) {
+            continue;
+        }
+        const float gap = active.obstructionTarget - active.obstruction;
+        active.obstruction = std::abs(gap) <= step ? active.obstructionTarget : active.obstruction + std::copysign(step, gap);
+        _context.setObstruction(*active.source, active.obstruction);
+    }
 }
 
 bool AudioMixer::heldBySlot(const ActiveSource &active) const {
@@ -414,6 +502,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
 
     source->init();
     _context.setReverbSend(*source, reverbSend(active));
+    obstruct(active, true);
     if (distances) {
         source->setDistances(distances->fullVolumeDistance, distances->cutoffDistance);
     }

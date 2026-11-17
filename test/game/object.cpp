@@ -632,7 +632,7 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                     engine.services().resource);
             }));
         ON_CALL(graph, newModel(_, _))
-            .WillByDefault(Invoke([&engine](graphics::Model &model, scene::ModelUsage usage) {
+            .WillByDefault(Invoke([&engine](std::shared_ptr<graphics::Model> model, scene::ModelUsage usage) {
                 auto node = std::make_shared<scene::ModelSceneNode>(
                     model,
                     usage,
@@ -645,7 +645,7 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                 return node;
             }));
         ON_CALL(graph, newWalkmesh(_))
-            .WillByDefault(Invoke([&engine](graphics::Walkmesh &walkmesh) {
+            .WillByDefault(Invoke([&engine](std::shared_ptr<graphics::Walkmesh> walkmesh) {
                 // init() is skipped on purpose: it uploads a debug-render mesh,
                 // which needs the render thread. Collision only consults the
                 // node's enabled flag and transform.
@@ -685,7 +685,7 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                 return true;
             }));
         // The ground is one room's walkable surface, material 0, at height 0.
-        static graphics::Walkmesh roomWalkmesh;
+        static std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
         static auto room = std::make_shared<scene::WalkmeshSceneNode>(
             roomWalkmesh,
             graph,
@@ -1053,6 +1053,63 @@ TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
     EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
 }
 
+TEST(Creature, takes_the_record_portrait_resref_when_its_portrait_id_names_no_row) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newDword("Appearance_Type", 0))
+                      .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                      .field(Gff::Field::newByte("BodyBag", 0xff))
+                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                      .field(Gff::Field::newWord("PortraitId", static_cast<uint16_t>(Creature::kNoPortraitId)))
+                      .field(Gff::Field::newResRef("Portrait", "po_custom"))
+                      .build();
+    auto creature = game.newCreature();
+    creature->deserialize(*record, SerializedIdentityContext::templateResource());
+
+    EXPECT_FALSE(creature->portraitId());
+    EXPECT_EQ("po_custom", creature->portraitResRef());
+    EXPECT_EQ("po_custom", creature->portraitResRefForGoodEvil());
+}
+
+TEST(Creature, shows_the_portrait_row_its_portrait_id_names_and_not_the_record_resref) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    std::vector<Portrait> rows(2);
+    rows[1].resRef = "po_row";
+    auto &portraits = static_cast<MockPortraits &>(engine.services().game.portraits);
+    EXPECT_CALL(portraits, portraits()).WillRepeatedly(ReturnRef(rows));
+
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newDword("Appearance_Type", 0))
+                      .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                      .field(Gff::Field::newByte("BodyBag", 0xff))
+                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                      .field(Gff::Field::newWord("PortraitId", 1))
+                      .field(Gff::Field::newResRef("Portrait", "po_custom"))
+                      .build();
+    auto creature = game.newCreature();
+    creature->deserialize(*record, SerializedIdentityContext::templateResource());
+
+    EXPECT_EQ(std::optional<int>(1), creature->portraitId());
+    EXPECT_TRUE(creature->portraitResRef().empty());
+    EXPECT_EQ("po_row", creature->portraitResRefForGoodEvil());
+    Mock::VerifyAndClearExpectations(&portraits);
+}
+
 // A script that activates a sound object starts its first sound at once. The
 // node was found inaudible while the object was inactive, so it has to wait
 // for the scene to tell again rather than skip that sound.
@@ -1274,11 +1331,11 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
         1, "rhand", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, bodyRoot.get()));
     bodyRoot->addChild(std::make_shared<graphics::ModelNode>(
         2, "lhand", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, bodyRoot.get()));
-    graphics::Model body(
+    auto body = std::make_shared<graphics::Model>(
         "body",
         graphics::MdlClassification::character,
         bodyRoot,
-        {makeAnimation("pause1", {{0.5f, "draw_weapon"}})},
+        std::vector<std::shared_ptr<graphics::Animation>> {makeAnimation("pause1", {{0.5f, "draw_weapon"}})},
         "",
         1.0f);
 
@@ -1299,8 +1356,8 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
         engine.services().audio,
         engine.services().resource);
     auto bodyNode = graph.newModel(body, scene::ModelUsage::Creature);
-    auto rightSaberNode = graph.newModel(*rightSaber, scene::ModelUsage::Equipment);
-    auto leftSaberNode = graph.newModel(*leftSaber, scene::ModelUsage::Equipment);
+    auto rightSaberNode = graph.newModel(rightSaber, scene::ModelUsage::Equipment);
+    auto leftSaberNode = graph.newModel(leftSaber, scene::ModelUsage::Equipment);
     bodyNode->attach("rhand", *rightSaberNode);
     bodyNode->attach("lhand", *leftSaberNode);
     ASSERT_EQ(bodyNode->getAttachment("rhand"), rightSaberNode.get());
@@ -1417,7 +1474,7 @@ TEST(Creature, should_return_a_finished_external_animation_to_the_pause) {
     auto first = makeAnimation("first");
     auto second = makeAnimation("second");
     std::vector<std::shared_ptr<graphics::Animation>> animations {idle, first, second};
-    graphics::Model model("creature", 0, modelRoot, std::move(animations), "", 1.0f);
+    auto model = std::make_shared<graphics::Model>("creature", 0, modelRoot, std::move(animations), "", 1.0f);
     graphics::GraphicsOptions graphicsOptions;
     scene::SceneGraph graph(
         "test",
@@ -1498,7 +1555,7 @@ TEST(Creature, should_publish_external_animation_before_pending_state_refresh) {
         nullptr);
     auto idle = makeAnimation("cpause1");
     auto cut = makeAnimation("cut003w");
-    graphics::Model model(
+    auto model = std::make_shared<graphics::Model>(
         "creature", 0, modelRoot,
         std::vector<std::shared_ptr<graphics::Animation>> {idle}, "", 1.0f);
     graphics::GraphicsOptions graphicsOptions;
@@ -1572,7 +1629,7 @@ TEST(DialogGUI, should_place_a_stunt_clip_by_its_id_and_put_the_participant_back
         engine.services().graphics,
         engine.services().audio,
         engine.services().resource);
-    auto modelNode = graph.newModel(*stuntModel, scene::ModelUsage::Creature);
+    auto modelNode = graph.newModel(stuntModel, scene::ModelUsage::Creature);
     auto player = game.newObject<TestCreature>(
         "player", game, engine.services());
     player->setSceneNode(modelNode);
@@ -1715,7 +1772,7 @@ struct DialogAnimScene {
         (void)id;
         auto creature = game.newObject<TestCreature>(
             std::move(tag), game, engine.services());
-        creature->setSceneNode(graph.newModel(*model, scene::ModelUsage::Creature));
+        creature->setSceneNode(graph.newModel(model, scene::ModelUsage::Creature));
         return creature;
     }
 };
@@ -4608,6 +4665,89 @@ TEST(CombatVisibility, retired_subject_does_not_remain_perceived) {
     EXPECT_FALSE(fixture.observer->perception().sees(strongStorage->id()));
 }
 
+// A scripted move to a spot another creature stands on, checking its range as
+// ActionMoveToObject does, ends against that creature. Setting out again would
+// meet the same creature every frame and never let the rest of the queue run.
+// Tatooine's Dune Sea gate: Tanis's wife's exit walk to tat_exit, with the
+// player standing on it, held ActionResumeConversation behind it for good.
+TEST(CreatureBlockedByCreature, a_checked_move_to_an_occupied_spot_ends_against_the_creature) {
+    BlockedDoorFixtureBase fixture;
+    testSceneGraph(fixture.engine);
+    auto walker = fixture.addCreature("");
+    auto blocker = fixture.addCreature("");
+    blocker->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+    auto spot = fixture.game.newWaypoint();
+    spot->setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+    fixture.area->add(spot);
+
+    auto move = fixture.game.newAction<MoveToObjectAction>(spot, false, 1.0f, false, -1.0f, false, 1.0f);
+    for (int frame = 0; frame < 40 && !move->isCompleted(); ++frame) {
+        // Each walk sets out on a straight path, as a planned one would here.
+        if (!TestGameModule::hasAreaRuntimePath(*walker)) {
+            TestGameModule::setAreaRuntimeStraightPath(*walker, fixture.area->pathfinder(), spot->position());
+        }
+        move->execute(move, *walker, 0.5f);
+    }
+
+    EXPECT_TRUE(move->isCompleted());
+    EXPECT_TRUE(walker->walkEndedAtCreature());
+    EXPECT_LT(walker->position().x, 4.0f);
+}
+
+// A forced move (ActionForceMoveToObject) that a creature ends short of its
+// target does not end there: it carries on to its deadline and then jumps to
+// the target, as it does when no path reaches it.
+TEST(CreatureBlockedByCreature, a_forced_move_to_an_occupied_spot_runs_to_its_deadline_and_jumps) {
+    BlockedDoorFixtureBase fixture;
+    testSceneGraph(fixture.engine);
+    auto walker = fixture.addCreature("");
+    auto blocker = fixture.addCreature("");
+    blocker->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+    auto spot = fixture.game.newWaypoint();
+    spot->setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+    fixture.area->add(spot);
+
+    auto move = fixture.game.newAction<MoveToObjectAction>(spot, false, 1.0f, true, 30.0f, false, 1.0f);
+    auto frame = [&]() {
+        if (!TestGameModule::hasAreaRuntimePath(*walker)) {
+            TestGameModule::setAreaRuntimeStraightPath(*walker, fixture.area->pathfinder(), spot->position());
+        }
+        move->execute(move, *walker, 0.5f);
+        TestGameModule::advanceWorldTime(fixture.game, 0.5f);
+    };
+    // 20 seconds against the blocker, well inside the 30 second deadline.
+    for (int i = 0; i < 40; ++i) {
+        frame();
+    }
+    ASSERT_TRUE(walker->walkEndedAtCreature());
+    EXPECT_FALSE(move->isCompleted());
+    EXPECT_LT(walker->position().x, 4.0f);
+
+    for (int i = 0; i < 30 && !move->isCompleted(); ++i) {
+        frame();
+    }
+    EXPECT_TRUE(move->isCompleted());
+    EXPECT_GT(walker->position().x, 4.0f);
+}
+
+// A checked move that is merely short of its target, with nothing in the way,
+// still sets out again rather than ending.
+TEST(CreatureBlockedByCreature, a_checked_move_short_of_its_target_without_a_blocker_carries_on) {
+    BlockedDoorFixtureBase fixture;
+    testSceneGraph(fixture.engine);
+    auto walker = fixture.addCreature("");
+    auto spot = fixture.game.newWaypoint();
+    spot->setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+    fixture.area->add(spot);
+
+    auto move = fixture.game.newAction<MoveToObjectAction>(spot, false, 1.0f, false, -1.0f, false, 1.0f);
+    TestGameModule::setAreaRuntimeStraightPath(*walker, fixture.area->pathfinder(), spot->position());
+    move->execute(move, *walker, 0.5f);
+
+    EXPECT_FALSE(move->isCompleted());
+    EXPECT_FALSE(walker->walkEndedAtCreature());
+}
+
 TEST(CreatureBlockedByDoor, should_run_the_blocked_script_when_a_closed_door_stops_a_walk) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
@@ -5463,7 +5603,7 @@ void setUpOverlay(OverlayFixture &fixture, TestEngine &engine) {
         engine.services().graphics,
         engine.services().audio,
         engine.services().resource);
-    fixture.node = fixture.graph->newModel(*fixture.model, scene::ModelUsage::Creature);
+    fixture.node = fixture.graph->newModel(fixture.model, scene::ModelUsage::Creature);
 }
 
 // A creature whose appearance row makes it a body model, i.e. the humanoid

@@ -110,6 +110,9 @@ protected:
         GameGUI(game, services),
         _datapad(datapad) {
         _resRef = guiResRef(datapad ? "datapad" : "confirm");
+        // Each box, the tutorial window and the message box among them,
+        // takes its OK and Cancel for itself.
+        _ownGUI = true;
     }
 
 private:

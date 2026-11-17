@@ -157,15 +157,23 @@ struct KeyEvent {
     KeyCode code;
     uint16_t mod;
     bool repeat;
+    /**
+     * The character a key pressed types with the modifiers held, as a
+     * Unicode code point, or 0 when it types none or the modifiers make a
+     * shortcut.
+     */
+    uint32_t character;
 
     KeyEvent(bool pressed,
              KeyCode code,
              uint16_t mod,
-             bool repeat) :
+             bool repeat,
+             uint32_t character = 0) :
         pressed(pressed),
         code(code),
         mod(mod),
-        repeat(repeat) {
+        repeat(repeat),
+        character(character) {
     }
 };
 
@@ -215,6 +223,16 @@ struct MouseButtonEvent {
     }
 };
 
+/** One character of text the system translated from the keyboard. */
+struct TextInputEvent {
+    /** The character's Unicode code point. */
+    uint32_t codePoint;
+
+    TextInputEvent(uint32_t codePoint) :
+        codePoint(codePoint) {
+    }
+};
+
 enum class MouseWheelDirection {
     Normal,
     Flipped
@@ -240,7 +258,9 @@ enum class EventType {
     MouseMotion,
     MouseButtonDown,
     MouseButtonUp,
-    MouseWheel
+    MouseWheel,
+    /** A character of text the system translated from the keyboard (TextInputEvent). */
+    TextInput
 };
 
 struct Event {
@@ -250,6 +270,7 @@ struct Event {
         MouseMotionEvent motion;
         MouseButtonEvent button;
         MouseWheelEvent wheel;
+        TextInputEvent text;
     };
 
     Event(EventType type) :
@@ -289,6 +310,16 @@ struct Event {
     inline static Event newMouseWheel(MouseWheelEvent wheel) {
         Event event {EventType::MouseWheel};
         event.wheel = std::move(wheel);
+        return event;
+    }
+
+    /**
+     * @param text the character the system translated from the keyboard
+     * @return an event of type TextInput carrying it
+     */
+    inline static Event newTextInput(TextInputEvent text) {
+        Event event {EventType::TextInput};
+        event.text = std::move(text);
         return event;
     }
 };

@@ -64,6 +64,17 @@ public:
     int maxSkillRank(SkillType skill, int level) const;
 
     /**
+     * The first level gives four times a level's points. On K1 a level gives
+     * half the class's skill point base plus the Intelligence modifier at the
+     * first level, and half of their sum at later levels; on TSL it gives
+     * their sum. A level always gives at least one point.
+     *
+     * @param intModifier the modifier of the creature's base Intelligence
+     * @return the skill points a level of this class gives
+     */
+    int skillPointsForLevel(int intModifier, bool firstLevel, bool tsl) const;
+
+    /**
      * @return class saving throws at the class level, from the saving throw
      *         table's row level - 1; none for a level without a row
      */
@@ -113,6 +124,7 @@ public:
      *         that row a power level); 0 without a row and for any other class
      */
     int getPowerGain(int level) const;
+    /** @return the feat's list value; the off-list value, 4, for a feat without a row */
     int getFeatListValue(FeatType feat) const;
 
     /** @return whether a character of the class can take the feat as one of its normal feats */
@@ -139,9 +151,9 @@ public:
     bool hasSkills() const { return _hasSkills; }
 
     /**
-     * @return the class level at which the class grants the feat, from 0 to
-     *         255, or none when the feat is not on the class's granted list;
-     *         level 0 is never reached
+     * @return the class level at which the class grants the feat, or none
+     *         when the feat is not on the class's granted list; a level below
+     *         1 is never reached
      */
     std::optional<int> getFeatGrantedLevel(FeatType feat) const;
 

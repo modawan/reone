@@ -80,7 +80,27 @@ TEST(AudioContext, loads_an_environment_s_preset_into_the_reverb) {
 #endif
 }
 
-TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send) {
+// The highs end up at the filter's overall gain times its high-frequency one.
+TEST(AudioContext, obstruction_takes_the_highs_down_twenty_decibels_and_the_lows_five) {
+    auto decibels = [](float gain) { return 20.0f * std::log10(gain); };
+    const ObstructionLowpass clear = obstructionLowpass(0.0f);
+    EXPECT_FLOAT_EQ(clear.gain, 1.0f);
+    EXPECT_FLOAT_EQ(clear.gainHF, 1.0f);
+
+    const ObstructionLowpass wall = obstructionLowpass(0.4f);
+    EXPECT_NEAR(decibels(wall.gain), -2.0f, 1e-4f);
+    EXPECT_NEAR(decibels(wall.gain * wall.gainHF), -8.0f, 1e-4f);
+
+    const ObstructionLowpass blocked = obstructionLowpass(1.0f);
+    EXPECT_NEAR(decibels(blocked.gain), -5.0f, 1e-4f);
+    EXPECT_NEAR(decibels(blocked.gain * blocked.gainHF), -20.0f, 1e-4f);
+
+    const ObstructionLowpass beyond = obstructionLowpass(2.0f);
+    EXPECT_FLOAT_EQ(beyond.gain, blocked.gain);
+    EXPECT_FLOAT_EQ(beyond.gainHF, blocked.gainHF);
+}
+
+TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send_and_obstruction) {
     Context context;
     if (!openTestContext(context)) {
         GTEST_SKIP() << "no OpenAL device opens";
@@ -98,5 +118,14 @@ TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send) {
     context.setReverbSend(source, 0.5f);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
     context.setReverbSend(source, 0.0f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+#ifdef R_ENABLE_EFX
+    EXPECT_TRUE(context.rendersObstruction());
+#else
+    EXPECT_FALSE(context.rendersObstruction());
+#endif
+    context.setObstruction(source, 0.4f);
+    EXPECT_EQ(alGetError(), AL_NO_ERROR);
+    context.setObstruction(source, 0.0f);
     EXPECT_EQ(alGetError(), AL_NO_ERROR);
 }

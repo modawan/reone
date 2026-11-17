@@ -73,6 +73,7 @@
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
 #include "reone/game/twodautil.h"
+#include "reone/game/worldtime.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
@@ -730,6 +731,10 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
     return -1;
 }
 
+Game::~Game() {
+    _services.audio.mixer.setObstructionTest({});
+}
+
 void Game::init() {
     _options.game.activeKeybindsIndex = loadActiveKeybinds(_options.game.configurationPath, _options.game.activeKeybindsIndex);
     for (int i = 0; i < _options.game.keybinds.size(); ++i) {
@@ -900,6 +905,11 @@ void Game::initTables() {
                                              kCreatureVocalizationSoundGroup,
                                              kBarkSoundGroup});
     _services.audio.mixer.setDryGroups({kBarkSoundGroup});
+    _services.audio.mixer.setObstructionTest([this](const glm::vec3 &source, const glm::vec3 &listener) {
+        auto module = _module;
+        auto area = module ? module->area() : nullptr;
+        return area ? area->soundObstruction(source, listener) : 0.0f;
+    });
     _areaMusic.init(isTSL());
     if (isTSL()) {
         _areaMusic.setLoadMusicHandover([this](const std::string &resRef) {
@@ -935,12 +945,7 @@ void Game::initJournalNotifications() {
         _statusSummary.submitQuestSound(change.end);
         awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
     });
-    _journal.setClock([this]() {
-        const uint32_t dayLength = millisecondsPerWorldDay();
-        return std::pair<uint32_t, uint32_t>(
-            static_cast<uint32_t>(_worldTimeMilliseconds / dayLength),
-            static_cast<uint32_t>(_worldTimeMilliseconds % dayLength));
-    });
+    _journal.setClock([this]() { return std::pair<uint32_t, uint32_t>(worldTimeDay(), worldTimeOfDay()); });
 }
 
 void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
@@ -994,6 +999,7 @@ void Game::initConsole() {
     registerConsoleCommand("heal", "fully heal and revive the party leader", &Game::consoleHeal);
     registerConsoleCommand("invulnerability", "toggle god mode for the party", &Game::consoleInvulnerability);
     registerConsoleCommand("whereami", "print the module and the party leader's position", &Game::consoleWhereAmI);
+    registerConsoleCommand("explain", "list the sources holding a resource, the one in use first: explain <resref.ext>", &Game::consoleExplain);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -1233,6 +1239,11 @@ void Game::update(float frameTime) {
 
 void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
+    // What the pointer is over is picked once a frame, after the frame's
+    // mouse moves, and also while paused.
+    if (_module && _screen == Screen::InGame && !_movie) {
+        _module->updateHover();
+    }
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
@@ -2468,7 +2479,7 @@ void Game::retireRuntimeSession() {
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
     _worldTimeMilliseconds = 0;
-    _minutesPerHour = 5;
+    _minutesPerHour = kDefaultMinutesPerHour;
     _worldTimeFraction = 0.0;
     _worldClockSample.reset();
 
@@ -3617,7 +3628,7 @@ void Game::updateTemporaryDeath() {
                 if (!creature || _party.isMember(*creature)) {
                     continue;
                 }
-                if (creature->getReputationToward(*reference) > kHighestEnemyReputation) {
+                if (!isEnemyReputation(creature->getReputationToward(*reference))) {
                     continue;
                 }
                 const bool seesMember = std::any_of(
@@ -4606,30 +4617,26 @@ void Game::prepareSavedRuntimeNamespace(
         }
     }
 
-    const uint64_t pauseDay = ifo.getUint("Mod_PauseDay");
-    const uint64_t pauseTime = ifo.getUint("Mod_PauseTime");
+    const uint32_t pauseDay = ifo.getUint("Mod_PauseDay");
+    const uint32_t pauseTime = ifo.getUint("Mod_PauseTime");
     restoreWorldTime(ifo, pauseDay, pauseTime);
 }
 
 void Game::restoreWorldTime(
     const resource::Gff &moduleIfo,
-    uint64_t pauseDay,
-    uint64_t pauseTime) {
+    uint32_t pauseDay,
+    uint32_t pauseTime) {
     // Mod_MinPerHour first: it defines the day length that Mod_PauseTime is
     // measured against.
     uint32_t minutesPerHour = moduleIfo.getUint("Mod_MinPerHour");
     if (minutesPerHour > std::numeric_limits<uint8_t>::max()) {
         throw ValidationException("Invalid Mod_MinPerHour");
     }
-    _minutesPerHour = minutesPerHour == 0
-                          ? 5
-                          : static_cast<uint8_t>(minutesPerHour);
+    _minutesPerHour = minutesPerHour == 0 ? kDefaultMinutesPerHour : static_cast<uint8_t>(minutesPerHour);
 
-    // Compose the absolute clock from the saved day/time pair. Oversized time
-    // carries into later days. Both inputs are DWORDs, so the 64-bit composition cannot
-    // overflow.
-    _worldTimeMilliseconds =
-        pauseDay * millisecondsPerWorldDay() + pauseTime;
+    // The clock is the saved day and time; an oversized time carries into
+    // later days.
+    _worldTimeMilliseconds = toWorldMilliseconds(pauseDay, pauseTime);
     _worldTimeFraction = 0.0;
     _worldClockSample.reset();
 }
@@ -4727,12 +4734,12 @@ void Game::publishSavedRuntimeState() {
     syncPartyCombatMode();
 }
 
-// One simulation second advances a clock by 1000 milliseconds.
+// One simulation second advances a clock by a second's milliseconds.
 static void advanceClock(uint64_t &milliseconds, double &fraction, double dt) {
-    if (dt <= 0.0f) {
+    if (dt <= 0.0) {
         return;
     }
-    double gameMilliseconds = fraction + static_cast<double>(dt) * 1000.0;
+    double gameMilliseconds = fraction + dt * kMillisecondsInSecond;
     uint64_t wholeMilliseconds =
         static_cast<uint64_t>(std::floor(gameMilliseconds));
     fraction = gameMilliseconds - static_cast<double>(wholeMilliseconds);
@@ -4791,7 +4798,7 @@ void Game::updateTimeStop() {
 void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event,
                             uint32_t delayMilliseconds) {
     SavedEventRecord queued;
-    setEventDue(queued, worldTimeMilliseconds() + delayMilliseconds);
+    setEventDueAfter(queued, delayMilliseconds);
     queued.object = SavedObjectReference::fromRuntimeId(target.id());
     // An absent object is carried as no reference, so it never holds the event back.
     auto reference = [](uint32_t id) {
@@ -4831,13 +4838,13 @@ void Game::queuePassage(Object &subArea, const std::shared_ptr<Creature> &creatu
 }
 
 void Game::setEventDue(SavedEventRecord &event, uint64_t milliseconds) const {
-    event.day = static_cast<uint32_t>(milliseconds / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(milliseconds % millisecondsPerWorldDay());
+    event.day = calendarDay(milliseconds);
+    event.time = calendarTimeOfDay(milliseconds);
 }
 
 void Game::queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds) {
     SavedEventRecord event;
-    setEventDue(event, worldTimeMilliseconds() + delayMilliseconds);
+    setEventDueAfter(event, delayMilliseconds);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::ApplyEffect);
     event.payload = std::move(effect);
@@ -4846,16 +4853,15 @@ void Game::queueEffectApplication(Object &target, EffectInstance effect, uint32_
 }
 
 std::optional<uint64_t> Game::delayedWorldTime(float seconds) const {
-    // The delay is truncated to whole milliseconds and added to the time of
-    // day as a day-0 delta. A negative delta, or one of a whole game day or
-    // more, cannot be added, so nothing is posted. NaN and products outside
-    // the int range truncate to a negative value.
-    const float milliseconds = seconds * 1000.0f;
-    if (!(milliseconds > -1.0f) ||
-        !(static_cast<double>(milliseconds) < static_cast<double>(millisecondsPerWorldDay()))) {
+    // The delay, in whole milliseconds, is added in full, however many days
+    // it spans, at most to the last time a saved event's day holds. A delay a
+    // millisecond or more below zero, or one that is not a number, posts
+    // nothing; one less below zero is due at once.
+    if (!(seconds * static_cast<float>(kMillisecondsInSecond) > -1.0f)) {
         return std::nullopt;
     }
-    return _worldTimeMilliseconds + static_cast<uint64_t>(static_cast<int64_t>(milliseconds));
+    return getCalendarTimeAfter(_worldTimeMilliseconds, getWholeMilliseconds(seconds),
+                                millisecondsPerWorldDay(), SavedEventRecord::kLastDay);
 }
 
 void Game::postDelayedCommand(Object &owner, std::optional<std::reference_wrapper<const Object>> caller, std::shared_ptr<Action> command, float seconds) {
@@ -5052,8 +5058,7 @@ void Game::postObjectDestruction(Object &target, uint32_t callerId, float second
         return;
     }
     SavedEventRecord event;
-    event.day = static_cast<uint32_t>(*when / millisecondsPerWorldDay());
-    event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
+    setEventDue(event, *when);
     event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.caller = SavedObjectReference::fromRuntimeId(callerId);
@@ -5062,8 +5067,7 @@ void Game::postObjectDestruction(Object &target, uint32_t callerId, float second
 
 void Game::queueEffectRemoval(Object &target, EffectId id) {
     SavedEventRecord event;
-    event.day = worldTimeDay();
-    event.time = worldTimeOfDay();
+    setEventDueAfter(event, 0);
     event.object = SavedObjectReference::fromRuntimeId(target.id());
     event.eventId = static_cast<uint32_t>(SavedEventType::RemoveEffect);
     EffectInstance value;
@@ -5074,17 +5078,17 @@ void Game::queueEffectRemoval(Object &target, EffectId id) {
     _module->enqueueBoundSaveEvent(std::move(event));
 }
 
-std::optional<float> Game::remainingEffectDuration(const EffectInstance &effect) const {
+std::optional<float> Game::remainingEffectDuration(const EffectInstance &effect, uint64_t now) const {
     if (effect.durationType() != DurationType::Temporary) {
         return std::nullopt;
     }
     if (effect.expiryOrigin == EffectExpiryOrigin::RuntimeCountdown ||
         effect.expiryOrigin == EffectExpiryOrigin::None)
         return effect.duration;
-    const uint64_t expiry = static_cast<uint64_t>(effect.expiryDay) * millisecondsPerWorldDay() + effect.expiryTime;
-    return expiry >= _worldTimeMilliseconds
-               ? static_cast<float>(expiry - _worldTimeMilliseconds) / 1000.0f
-               : -static_cast<float>(_worldTimeMilliseconds - expiry) / 1000.0f;
+    const uint64_t expiry = toWorldMilliseconds(effect.expiryDay, effect.expiryTime);
+    const auto millisecondsInSecond = static_cast<float>(kMillisecondsInSecond);
+    return expiry >= now ? static_cast<float>(expiry - now) / millisecondsInSecond
+                         : -static_cast<float>(now - expiry) / millisecondsInSecond;
 }
 
 void Game::renderGUI() {
@@ -5810,6 +5814,16 @@ void Game::updateCamera(float dt) {
         _services.audio.context.setListenerOrientation(-glm::normalize(glm::vec3(cameraTransform[2])),
                                                        glm::normalize(glm::vec3(cameraTransform[1])));
         updateEnvironment(camera->sceneNode()->origin());
+        // A walkmesh that came, went or moved may now stand between a sound
+        // and the listener, or no longer stand there.
+        if (auto area = _module ? _module->area() : nullptr) {
+            auto &graph = area->graph();
+            const std::pair<const scene::ISceneGraph *, uint32_t> revision {&graph, graph.walkmeshRevision()};
+            if (revision != _obstructionRevision) {
+                _obstructionRevision = revision;
+                _services.audio.mixer.invalidateObstruction();
+            }
+        }
     }
 }
 
@@ -5907,53 +5921,41 @@ static constexpr uint32_t kCalendarMonthsInYear = 12;
 static constexpr uint32_t kCalendarHoursInDay = 24;
 static constexpr uint32_t kCalendarLastYear = 32767;
 static constexpr uint32_t kCalendarYearPastLast = 1340;
+// SetTime moves the calendar no further than this year.
+static constexpr uint32_t kCalendarLastAdvanceYear = 32000;
 
 void Game::advanceToTime(int hours, int minutes, int seconds, int milliseconds) {
     if ((hours | minutes | seconds | milliseconds) < 0) {
         return;
     }
-    // The fields carry up from the milliseconds; the hours carry whole days.
-    const uint32_t totalSeconds = static_cast<uint32_t>(milliseconds) / 1000 + seconds;
-    const uint32_t totalMinutes = totalSeconds / 60 + minutes;
-    const int totalHours = static_cast<int>(totalMinutes / 60 + hours);
-    const uint32_t second = static_cast<int>(totalSeconds) % 60;
-    const uint32_t minute = static_cast<int>(totalMinutes) % 60;
-    const uint32_t hour = totalHours % 24;
-    const int millisecond = milliseconds % 1000;
-    uint32_t daysCarried = static_cast<uint32_t>(totalHours) / 24;
+    // The fields carry up from the milliseconds, in 64 bits so that no sum of
+    // them wraps; the minutes carry by sixty, as the seconds do, whatever an
+    // hour's length, and the hours carry whole days.
+    static constexpr uint64_t kClockMinutesInHour = 60;
+    const uint64_t totalSeconds =
+        static_cast<uint64_t>(milliseconds) / kMillisecondsInSecond + static_cast<uint64_t>(seconds);
+    const uint64_t totalMinutes = totalSeconds / kSecondsInMinute + static_cast<uint64_t>(minutes);
+    const uint64_t totalHours = totalMinutes / kClockMinutesInHour + static_cast<uint64_t>(hours);
+    const auto millisecond = static_cast<uint32_t>(milliseconds) % kMillisecondsInSecond;
+    const auto second = static_cast<uint32_t>(totalSeconds % kSecondsInMinute);
+    const auto minute = static_cast<uint32_t>(totalMinutes % kClockMinutesInHour);
+    const auto hour = static_cast<uint32_t>(totalHours % kHoursInDay);
+    uint64_t daysCarried = totalHours / kHoursInDay;
 
-    const uint32_t mph = _minutesPerHour == 0 ? 5 : _minutesPerHour;
-    const uint32_t timeOfDay = (hour > 23 ? 23 * 60000 : hour * 60000) * mph +
-                               (minute > 59 ? 59 * 60000 : minute * 60000) +
-                               (second > 59 ? 56000 : second * 1000) + millisecond;
-
-    const uint32_t day = worldTimeDay();
-    uint32_t dayOfMonth = day % kCalendarDaysInMonth + 1;
-    uint32_t month = day / kCalendarDaysInMonth % kCalendarMonthsInYear + 1;
-    uint32_t year = day / (kCalendarDaysInMonth * kCalendarMonthsInYear);
-    if (year > kCalendarLastYear) {
-        year = kCalendarYearPastLast;
-    }
+    const uint32_t timeOfDay =
+        hour * millisecondsPerWorldHour() + minute * kMillisecondsInMinute + second * kMillisecondsInSecond + millisecond;
 
     // A time of day already past today is tomorrow's.
     if (daysCarried == 0 && timeOfDay < millisecondsPerWorldDay() && worldTimeOfDay() > timeOfDay) {
         daysCarried = 1;
     }
-    if (daysCarried != 0) {
-        const uint32_t days = daysCarried + dayOfMonth;
-        month += days / (kCalendarDaysInMonth + 1);
-        year += month / (kCalendarMonthsInYear + 1);
-        if (year > 32000) {
-            return;
-        }
-        dayOfMonth = days % (kCalendarDaysInMonth + 1);
-        month %= kCalendarMonthsInYear + 1;
+    // The days carried are counted on from today, within the years the
+    // calendar moves to.
+    const uint64_t day = static_cast<uint64_t>(worldTimeDay()) + daysCarried;
+    if (day / (kCalendarDaysInMonth * kCalendarMonthsInYear) > kCalendarLastAdvanceYear) {
+        return;
     }
-
-    uint32_t calendarDay = year > 32000 ? 450240 : year * kCalendarDaysInMonth * kCalendarMonthsInYear;
-    calendarDay += month - 1 >= kCalendarMonthsInYear ? 140 : (month - 1) * kCalendarDaysInMonth;
-    calendarDay += dayOfMonth - 1 >= kCalendarDaysInMonth ? 0 : dayOfMonth - 1;
-    _worldTimeMilliseconds = static_cast<uint64_t>(calendarDay) * millisecondsPerWorldDay() + timeOfDay;
+    _worldTimeMilliseconds = toWorldMilliseconds(static_cast<uint32_t>(day), timeOfDay);
 }
 
 // The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
@@ -6115,7 +6117,7 @@ void Game::initInputEvents() {
     // Keys are read from the column of the talk table's language when an
     // enabled single-key row gives a key there, else from the first
     // language's.
-    std::string column = "language" + std::to_string(_services.resource.strings.languageId());
+    std::string column = "language" + std::to_string(static_cast<int>(_services.resource.strings.language()));
     bool languageHasKeys = false;
     for (int event = kFirstMappedInputEvent; event <= lastMappedEvent && !languageHasKeys; ++event) {
         const int row = rowOf(event, "");
@@ -6507,6 +6509,10 @@ bool Game::isMouseLooking() const {
     // Without a module there is no world camera to turn.
     const auto *camera = getActiveCamera();
     return camera && camera->isMouseLookMode();
+}
+
+bool Game::isPointerOnHUD(int x, int y) const {
+    return _hud && getScreenGUI() == _hud.get() && _hud->holdsPointer(x, y);
 }
 
 void Game::updateMouseLookPointer() {
@@ -7391,7 +7397,7 @@ std::optional<int> Game::forcePowerTutorial(const Spell &spell) const {
     if (isImmediateMenuCast(isTSL(), spell.type)) {
         return std::nullopt;
     }
-    return spell.hostileSlot != -1 ? kHostilePowerTutorial : kFriendlyPowerTutorial;
+    return spell.hostileSlot ? kHostilePowerTutorial : kFriendlyPowerTutorial;
 }
 
 void Game::clearOneAction() {
@@ -7432,15 +7438,12 @@ void Game::markNoClickEvent(uint32_t milliseconds) {
 // A whole day on, or the marked time past, a click works again; so does one
 // made from a world time earlier than the mark.
 bool Game::canClick() const {
-    const uint32_t day = worldTimeDay();
-    const uint32_t time = worldTimeOfDay();
-    if (day < _noClickDay || (day == _noClickDay && time < _noClickTime)) {
+    const uint64_t mark = toWorldMilliseconds(_noClickDay, _noClickTime);
+    if (_worldTimeMilliseconds < mark) {
         return true;
     }
-    uint32_t days = 0;
-    uint32_t elapsed = 0;
-    subtractWorldTimes(day, time, _noClickDay, _noClickTime, days, elapsed);
-    return days != 0 || elapsed >= _noClickMilliseconds;
+    const uint64_t since = worldTimeSince(mark);
+    return since >= millisecondsPerWorldDay() || since >= _noClickMilliseconds;
 }
 
 void Game::clearPlayerHostileActions() {
@@ -7451,7 +7454,7 @@ void Game::clearPlayerHostileActions() {
     const ObjectList creatures = _module->area()->getObjectsByType(ObjectType::Creature);
     for (const auto &object : creatures) {
         auto &creature = static_cast<Creature &>(*object);
-        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestEnemyReputation) {
+        if (_party.isMember(creature) || !isEnemyReputation(creature.getReputationToward(*player))) {
             continue;
         }
         creature.clearAllActions(true);
@@ -9788,6 +9791,11 @@ GameGUI *Game::getScreenGUI() const {
     return guiForScreen(_screen);
 }
 
+bool Game::wantsTextInput() const {
+    auto gui = getScreenGUI();
+    return gui && gui->wantsTextInput();
+}
+
 GameGUI *Game::guiForScreen(Screen screen) const {
     switch (screen) {
     case Screen::Death:
@@ -10189,6 +10197,32 @@ void Game::consoleWhereAmI(const ConsoleArgs &args) {
     }
     const glm::vec3 &position = leader->position();
     _console.printLine(str(boost::format("position: (%3.2f, %3.2f, %3.2f)") % position.x % position.y % position.z));
+}
+
+// Every line goes to the log as well as the console, so the answer can be
+// passed on.
+void Game::consoleExplain(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "resref.ext");
+    std::string name(*args[1]);
+    auto dot = name.find_last_of('.');
+    auto type = dot == std::string::npos ? ResType::Invalid : getResTypeByExt(boost::to_lower_copy(name.substr(dot + 1)), false);
+    if (type == ResType::Invalid) {
+        throw std::invalid_argument("usage: explain resref.ext, with the extension of a resource type");
+    }
+    ResourceId id(name.substr(0, dot), type);
+    auto print = [this](const std::string &line) {
+        _console.printLine(line);
+        info(line, LogChannel::Resources);
+    };
+    auto sources = _services.resource.resources.explain(id);
+    if (sources.empty()) {
+        print(id.string() + ": no source holds it");
+        return;
+    }
+    print(id.string() + ": read from the first of " + std::to_string(sources.size()));
+    for (size_t i = 0; i < sources.size(); ++i) {
+        print("  " + std::to_string(i + 1) + ". " + describe(sources[i]));
+    }
 }
 
 // The free camera is the first-person camera flown off the player: WASD/QZ

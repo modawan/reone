@@ -83,6 +83,20 @@ void SceneGraph::clear() {
     _floorStacking.reset();
     _roomTest.reset();
     _activeLights.clear();
+    // An emptied scene has no fog, and the frame is black where nothing is
+    // drawn until the next area sets its fog.
+    setFog(FogProperties());
+
+    // Clear nodes by type: opaque, transparent, blended, shell, etc.
+    refresh();
+    // These also point into the scene, and update() rebuilds them only once a
+    // camera is active.
+    _opaqueLeafs.clear();
+    _transparentLeafs.clear();
+    _flareLights.clear();
+    _shadowLight = nullptr;
+    _shadowActive = false;
+    _shadowStrength = 0.0f;
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
@@ -156,6 +170,7 @@ void SceneGraph::removeRoot(SoundSceneNode &node) {
 static constexpr float kForceSightPulsePeriod = 2.048f;
 
 void SceneGraph::update(float dt) {
+    updateWalkmeshRevision();
     _forceSightPhase = std::fmod(_forceSightPhase + dt, kForceSightPulsePeriod);
     _textureTime += dt;
     if (_updateRoots) {
@@ -209,6 +224,25 @@ void SceneGraph::cullRoots() {
 
         bool culled = (distanceToCamera > drawDistance) || (!_activeCamera->isInFrustum(*root));
         root->setCulled(culled);
+    }
+}
+
+void SceneGraph::updateWalkmeshRevision() {
+    size_t signature = 0;
+    for (const auto &root : _walkmeshRoots) {
+        boost::hash_combine(signature, root.get());
+        boost::hash_combine(signature, &root->walkmesh());
+        boost::hash_combine(signature, root->isEnabled());
+        const glm::mat4 &transform = root->absoluteTransform();
+        for (int column = 0; column < 4; ++column) {
+            for (int row = 0; row < 4; ++row) {
+                boost::hash_combine(signature, transform[column][row]);
+            }
+        }
+    }
+    if (signature != _walkmeshSignature) {
+        _walkmeshSignature = signature;
+        ++_walkmeshRevision;
     }
 }
 
@@ -818,6 +852,10 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
 }
 
 bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const {
+    return testLineOfSight(origin, dest, LineOfSightScope::AllWalkmeshes, outCollision);
+}
+
+bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, LineOfSightScope scope, Collision &outCollision) const {
     const auto originToDest = dest - origin;
     const float maxDistance = glm::length(originToDest);
     // A line of no length meets nothing.
@@ -836,6 +874,9 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         glm::vec3 originLocal;
         glm::vec3 dirLocal;
         if (root->walkmesh().isAreaWalkmesh()) {
+            if (scope == LineOfSightScope::ObjectWalkmeshesOnly) {
+                continue;
+            }
             originLocal = origin;
             dirLocal = dir;
         } else {
@@ -1391,6 +1432,9 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
     glm::vec3 end(glm::unProject(glm::vec3(x, _graphicsOpt.height - y, 1.0f), camera->view(), camera->projection(), viewport));
     glm::vec3 dir(glm::normalize(end - start));
 
+    // Collect the pickable models whose bounding boxes the ray enters,
+    // nearest first. No triangle or walkmesh test runs here, so pointing
+    // at empty space costs none; this runs on every mouse move.
     std::vector<std::pair<ModelSceneNode *, float>> distances;
     for (auto &model : _modelRoots) {
         if (!model->isPickable() || (except == model->user())) {
@@ -1403,10 +1447,6 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
         auto objSpaceInvDir = 1.0f / (model->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
         float distance;
         if (model->aabb().raycast(objSpaceStart, objSpaceInvDir, kMaxCollisionDistanceLineOfSight, distance) && distance > 0.0f) {
-            Collision collision;
-            if (testLineOfSight(start, start + distance * dir, collision) && collision.user != model->user()) {
-                continue;
-            }
             distances.push_back(std::make_pair(model.get(), distance));
         }
     }
@@ -1415,7 +1455,64 @@ ModelSceneNode *SceneGraph::pickModelAt(int x, int y, IUser *except) const {
     }
     sort(distances.begin(), distances.end(), [](auto &left, auto &right) { return left.second < right.second; });
 
-    return distances[0].first;
+    // Rooms hide an object from the pointer by what they draw, not by their
+    // walkmeshes: a room walkmesh also holds invisible barriers, and a module
+    // can put an object to use behind one. The Ebon Hawk's ramp in Davik's
+    // hangar (tar_m08aa) stands past a Nonwalk wall the player cannot cross.
+    // Candidates are nearest first, so once a drawn room hit is found it
+    // stands in front of every later candidate and no further room search
+    // is needed; until then, rooms are searched only as far as the
+    // candidate being tested.
+    std::optional<float> roomHit;
+    float roomSearchedTo = 0.0f;
+
+    for (auto &[model, distance] : distances) {
+        if (roomHit && *roomHit < distance) {
+            continue;
+        }
+        if (roomSearchedTo < distance) {
+            roomHit = nearestDrawnRoomHit(start, dir, distance);
+            roomSearchedTo = distance;
+            if (roomHit && *roomHit < distance) {
+                continue;
+            }
+        }
+        // A closed door still stands in the way through its walkmesh.
+        Collision collision;
+        if (testLineOfSight(start, start + distance * dir, LineOfSightScope::ObjectWalkmeshesOnly, collision) && collision.user != model->user()) {
+            continue;
+        }
+        return model;
+    }
+    return nullptr;
+}
+
+std::optional<float> SceneGraph::nearestDrawnRoomHit(const glm::vec3 &origin, const glm::vec3 &dir, float maxDistance) const {
+    std::optional<float> nearest;
+    for (auto &room : _modelRoots) {
+        if (room->usage() != ModelUsage::Room || !room->isEnabled()) {
+            continue;
+        }
+        // Only rooms whose box the ray enters before the nearest hit found
+        // so far can hold a nearer drawn hit. The segment shortens as that
+        // hit shrinks, so meshes past it are rejected by their bounding
+        // boxes inside intersectSegment.
+        const float bound = nearest ? *nearest : maxDistance;
+        auto objSpaceStart = room->absoluteTransformInverse() * glm::vec4(origin, 1.0f);
+        auto objSpaceInvDir = 1.0f / (room->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
+        float boxDistance;
+        if (!room->aabb().raycast(objSpaceStart, objSpaceInvDir, bound, boxDistance)) {
+            continue;
+        }
+        auto share = room->intersectSegment(origin, origin + bound * dir, /*opaqueOnly=*/true);
+        if (share) {
+            float hit = *share * bound;
+            if (!nearest || hit < *nearest) {
+                nearest = hit;
+            }
+        }
+    }
+    return nearest;
 }
 
 std::optional<std::reference_wrapper<ModelSceneNode>> SceneGraph::pickModelRay(const glm::vec3 &origin, const glm::vec3 &dir) const {
@@ -1449,14 +1546,14 @@ std::shared_ptr<DummySceneNode> SceneGraph::newDummy(ModelNode &modelNode) {
     return std::move(node);
 }
 
-std::shared_ptr<ModelSceneNode> SceneGraph::newModel(Model &model, ModelUsage usage) {
-    auto node = newSceneNode<ModelSceneNode, Model &, ModelUsage>(model, usage);
+std::shared_ptr<ModelSceneNode> SceneGraph::newModel(std::shared_ptr<Model> model, ModelUsage usage) {
+    auto node = newSceneNode<ModelSceneNode, std::shared_ptr<Model>, ModelUsage>(std::move(model), usage);
     node->init();
     return std::move(node);
 }
 
-std::shared_ptr<WalkmeshSceneNode> SceneGraph::newWalkmesh(Walkmesh &walkmesh) {
-    auto node = newSceneNode<WalkmeshSceneNode, Walkmesh &>(walkmesh);
+std::shared_ptr<WalkmeshSceneNode> SceneGraph::newWalkmesh(std::shared_ptr<Walkmesh> walkmesh) {
+    auto node = newSceneNode<WalkmeshSceneNode, std::shared_ptr<Walkmesh>>(std::move(walkmesh));
     node->init();
     return std::move(node);
 }

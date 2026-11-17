@@ -17,15 +17,12 @@
 
 #pragma once
 
-#include "reone/system/cache.h"
-
 #include "../2da.h"
+#include "../decodedcache.h"
 
 namespace reone {
 
 namespace resource {
-
-class IResources;
 
 class ITwoDAs {
 public:
@@ -46,12 +43,17 @@ public:
         _cache.clear();
     }
 
-    std::shared_ptr<TwoDA> get(const std::string &key) override;
+    std::shared_ptr<TwoDA> get(const std::string &key) override {
+        return entry(key).value;
+    }
+
+    /// The cached table with the lookups it was read from, for a value built from it.
+    const DecodedCache<std::string, TwoDA>::Entry &entry(const std::string &resRef);
 
 private:
     IResources &_resources;
 
-    Cache<std::string, TwoDA> _cache;
+    DecodedCache<std::string, TwoDA> _cache;
 };
 
 } // namespace resource

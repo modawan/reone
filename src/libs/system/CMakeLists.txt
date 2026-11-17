@@ -20,7 +20,6 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/arrayref.h
     ${SYSTEM_INCLUDE_DIR}/binaryreader.h
     ${SYSTEM_INCLUDE_DIR}/binarywriter.h
-    ${SYSTEM_INCLUDE_DIR}/cache.h
     ${SYSTEM_INCLUDE_DIR}/cast.h
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
     ${SYSTEM_INCLUDE_DIR}/clipboard.h
@@ -39,7 +38,6 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/smallset.h
     ${SYSTEM_INCLUDE_DIR}/smallvector.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileinput.h
-    ${SYSTEM_INCLUDE_DIR}/stream/gameinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileoutput.h
     ${SYSTEM_INCLUDE_DIR}/stream/input.h
     ${SYSTEM_INCLUDE_DIR}/stream/memoryinput.h
