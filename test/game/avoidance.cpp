@@ -77,7 +77,7 @@ struct CorridorFixture {
     TestEngine engine;
     NiceMock<scene::MockSceneGraph> sceneGraph;
     Room room {"corridor", glm::vec3(0.0f), nullptr, nullptr};
-    graphics::Walkmesh roomWalkmesh;
+    std::shared_ptr<graphics::Walkmesh> roomWalkmesh {std::make_shared<graphics::Walkmesh>()};
     std::shared_ptr<scene::WalkmeshSceneNode> roomNode;
     StubConsole console;
     std::unique_ptr<Game> game;
@@ -171,7 +171,7 @@ TEST(CreatureAvoidance, a_leader_with_a_wall_at_its_back_goes_round_a_companion)
     ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
     ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
     // An upright wall across the corridor, from the ground to 3 up.
-    auto &walkmesh = fixture.roomWalkmesh;
+    auto &walkmesh = *fixture.roomWalkmesh;
     walkmesh.vertices = {
         glm::vec3(kWallX, -kHalfWidth, 0.0f),
         glm::vec3(kWallX, kHalfWidth, 0.0f),
@@ -202,6 +202,28 @@ TEST(CreatureAvoidance, a_leader_with_a_wall_at_its_back_goes_round_a_companion)
     EXPECT_LE(glm::abs(fixture.pc->position().y), kHalfWidth);
 }
 
+// On a floor that is not at height zero, the way in from inside the hexagon is
+// still the corner nearest the walker. The corners stand on the ground and the
+// walker's point is taken flat (zero height), so a distance in three
+// dimensions picked the lowest corner, which can lie across the creature's
+// flank: the leg to it ran into the creature again and the walk ended.
+// Measured on a sloping floor at about height 29.
+TEST(CreatureAvoidance, the_way_in_from_inside_the_hexagon_is_the_nearest_corner_seen_from_above) {
+    const glm::vec3 companion(219.476f, 140.429f, 29.04f);
+    const glm::vec3 stepDir(-0.93f, 0.37f, 0.0f);
+    // Lower to the east and the north.
+    const auto ground = [](const glm::vec2 &p) { return 29.0f - 0.2f * (p.x - 219.476f) - 0.15f * (p.y - 140.429f); };
+    const AvoidanceHex hex = computeAvoidanceHex(companion, stepDir, 0.955f, ground);
+    const glm::vec3 leader(220.049f, 139.861f, 0.0f);
+    int nearest = 0;
+    for (int i = 1; i < 6; ++i) {
+        if (glm::distance2(glm::vec2(hex.v[i]), glm::vec2(leader)) < glm::distance2(glm::vec2(hex.v[nearest]), glm::vec2(leader))) {
+            nearest = i;
+        }
+    }
+    EXPECT_EQ(nearest, closestAvoidanceHexCorner(hex, leader));
+}
+
 // The leader walks up the corridor beside a wall along it, nearer the wall
 // than its personal space, as a path may run and a walker's steps follow, and
 // bumps a companion standing on its path. The way between the companion and
@@ -220,7 +242,7 @@ TEST(CreatureAvoidance, a_leader_walking_close_by_a_wall_goes_round_a_companion_
     ON_CALL(surfaces, getWalkableSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial}));
     ON_CALL(surfaces, getWalkcheckSurfaces()).WillByDefault(Return(std::set<uint32_t> {kFloorMaterial, kWallMaterial}));
     // An upright wall along the corridor, from the ground to 3 up.
-    auto &walkmesh = fixture.roomWalkmesh;
+    auto &walkmesh = *fixture.roomWalkmesh;
     walkmesh.vertices = {
         glm::vec3(-kHalfLength, kWallY, 0.0f),
         glm::vec3(kHalfLength, kWallY, 0.0f),

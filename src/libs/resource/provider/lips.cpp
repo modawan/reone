@@ -28,8 +28,8 @@ namespace reone {
 
 namespace resource {
 
-std::shared_ptr<LipAnimation> Lips::doGet(std::string resRef) {
-    auto res = _resources.find(ResourceId(resRef, ResType::Lip));
+std::shared_ptr<LipAnimation> Lips::doGet(const std::string &resRef, ResourceReads &reads) {
+    auto res = reads.find(_resources, ResourceId(resRef, ResType::Lip));
     if (!res) {
         return nullptr;
     }

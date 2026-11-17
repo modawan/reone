@@ -95,7 +95,7 @@ void ModelSceneNode::buildNodeTree(ModelNode &node, SceneNode &parent) {
         if (!reference->modelName.empty()) {
             auto model = _resourceSvc.models.get(reference->modelName);
             if (model) {
-                auto refModelNode = _sceneGraph.newModel(*model, _usage);
+                auto refModelNode = _sceneGraph.newModel(model, _usage);
                 refModelNode->init();
                 attach(node.name(), *refModelNode);
             }
@@ -206,7 +206,7 @@ ModelNodeSceneNode *ModelSceneNode::getNodeByName(const std::string &name) {
     return it != _nodeByName.end() ? it->second : nullptr;
 }
 
-std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const {
+std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, const glm::vec3 &to, bool opaqueOnly) const {
     std::optional<float> nearest;
     for (const auto &[number, node] : _nodeByNumber) {
         if (node->type() != SceneNodeType::Mesh) {
@@ -214,6 +214,9 @@ std::optional<float> ModelSceneNode::intersectSegment(const glm::vec3 &from, con
         }
         auto mesh = node->modelNode().mesh();
         if (!mesh || !mesh->mesh || mesh->skin || mesh->saber) {
+            continue;
+        }
+        if (opaqueOnly && (!mesh->render || node->modelNode().isAABBMesh() || static_cast<const MeshSceneNode *>(node)->isTransparent())) {
             continue;
         }
         const glm::vec3 localFrom {node->absoluteTransformInverse() * glm::vec4(from, 1.0f)};
@@ -288,7 +291,7 @@ SceneNode *ModelSceneNode::getAttachment(const std::string &parentName) {
     return it != _attachments.end() ? it->second : nullptr;
 }
 
-void ModelSceneNode::setMainTexture(Texture *texture) {
+void ModelSceneNode::setMainTexture(std::shared_ptr<Texture> texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setMainTexture(texture);
@@ -296,7 +299,7 @@ void ModelSceneNode::setMainTexture(Texture *texture) {
     }
 }
 
-void ModelSceneNode::setEnvironmentMap(Texture *texture) {
+void ModelSceneNode::setEnvironmentMap(std::shared_ptr<Texture> texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setEnvironmentMap(texture);
@@ -810,8 +813,13 @@ void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
     }
 }
 
+// An animation moves the model nodes its node tree pairs with, from the
+// model's animation root down (ModelNode::isAnimated). The root the
+// animation names limited its node tree to that node's branch when it was
+// made, so it limits nothing here: a root the model lacks leaves the
+// animation whole.
 void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode, const ModelNode &animNode) {
-    if (modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.anim->root())) {
+    if (modelNode.isAnimated()) {
         AnimationState state;
         state.flags = 0;
 
@@ -1127,10 +1135,10 @@ std::string ModelSceneNode::activeAnimationName() const {
     return channel.anim->name();
 }
 
-void ModelSceneNode::setModel(Model &model) {
+void ModelSceneNode::setModel(std::shared_ptr<Model> model) {
     _children.clear();
 
-    _model = &model;
+    _model = std::move(model);
 
     _nodeByName.clear();
     _nodeByNumber.clear();

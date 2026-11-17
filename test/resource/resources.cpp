@@ -110,3 +110,20 @@ TEST(Resources, should_index_providers_and_get_resources_without_caching) {
 
     std::filesystem::remove_all(tmpDirPath);
 }
+
+TEST(Resources, should_not_index_folder_files_with_unknown_resource_extensions) {
+    auto tmpDirPath = std::filesystem::temp_directory_path() / "reone_test_resources_unknown_extension";
+    std::filesystem::remove_all(tmpDirPath);
+    std::filesystem::create_directory(tmpDirPath);
+
+    auto file = FileOutputStream(tmpDirPath / "foo.bar");
+    file.write("ignored", 7);
+    file.close();
+
+    auto resources = Resources();
+    resources.addFolder(tmpDirPath);
+
+    EXPECT_FALSE(resources.find(ResourceId("foo", ResType::Invalid)));
+
+    std::filesystem::remove_all(tmpDirPath);
+}

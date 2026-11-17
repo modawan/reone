@@ -42,12 +42,6 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/context.cpp
     ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
-    ${TESTS_SOURCE_DIR}/extract/capsule.cpp
-    ${TESTS_SOURCE_DIR}/extract/chitin.cpp
-    ${TESTS_SOURCE_DIR}/extract/fileresource.cpp
-    ${TESTS_SOURCE_DIR}/extract/finder.cpp
-    ${TESTS_SOURCE_DIR}/extract/installation.cpp
-    ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
     ${TESTS_SOURCE_DIR}/fixtures/audio.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/fixtures/game.cpp
@@ -73,6 +67,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/iconselection.cpp
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/globalfade.cpp
+    ${TESTS_SOURCE_DIR}/game/hudinput.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/itempossession.cpp
     ${TESTS_SOURCE_DIR}/game/inventorydisturbed.cpp
@@ -82,6 +77,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/entrylifecycle.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymap.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
+    ${TESTS_SOURCE_DIR}/game/soundobject.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
     ${TESTS_SOURCE_DIR}/game/inventoryroutines.cpp
@@ -92,6 +88,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/listenpattern.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
+    ${TESTS_SOURCE_DIR}/game/minigameview.cpp
     ${TESTS_SOURCE_DIR}/game/minigamesession.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
@@ -144,9 +141,10 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/gui/control/slider.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/gui/gui.cpp
+    ${TESTS_SOURCE_DIR}/gui/guiinput.cpp
+    ${TESTS_SOURCE_DIR}/gui/textinput.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
-    ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
     ${TESTS_SOURCE_DIR}/resource/gameprobe.cpp
     ${TESTS_SOURCE_DIR}/resource/modulediscovery.cpp
     ${TESTS_SOURCE_DIR}/resource/moduleloading.cpp
@@ -183,6 +181,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/sourcelifetimes.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp
     ${TESTS_SOURCE_DIR}/scene/emitter.cpp
+    ${TESTS_SOURCE_DIR}/scene/graph.cpp
     ${TESTS_SOURCE_DIR}/scene/mesh.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp
     ${TESTS_SOURCE_DIR}/scene/particleutil.cpp
@@ -193,7 +192,6 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/system/arrayref.cpp
     ${TESTS_SOURCE_DIR}/system/binaryreader.cpp
     ${TESTS_SOURCE_DIR}/system/binarywriter.cpp
-    ${TESTS_SOURCE_DIR}/system/cache.cpp
     ${TESTS_SOURCE_DIR}/system/cast.cpp
     ${TESTS_SOURCE_DIR}/system/fileutil.cpp
     ${TESTS_SOURCE_DIR}/system/hexutil.cpp

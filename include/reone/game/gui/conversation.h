@@ -401,6 +401,7 @@ private:
     void runEndScript(const resource::Dialog &dialog, const Object &owner);
 
     int indexOfFirstActive(const std::vector<resource::Dialog::EntryReplyLink> &links);
+    bool isEntrySpeakerPresent(int entryIndex) const;
 
     bool isLinkActive(const resource::Dialog::EntryReplyLink &link);
     bool evaluateCondition(const std::string &scriptResRef, const resource::Dialog::EntryReplyLink::ConditionParams &params);

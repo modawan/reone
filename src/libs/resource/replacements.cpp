@@ -44,7 +44,10 @@ std::optional<Resource> ResourceReplacements::findResourceReplacement(const Reso
     if (it == _resources.end()) {
         return std::nullopt;
     }
-    return Resource {*it->second};
+    ResourceSourceRef source;
+    source.form = ResourceSourceForm::Replacement;
+    source.replacementRevision = revision(id);
+    return Resource {*it->second, std::move(source)};
 }
 
 uint64_t ResourceReplacements::revision(const ResourceId &id) const {

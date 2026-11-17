@@ -97,6 +97,20 @@ enum class ResType : uint16_t {
     Invalid = 0xffff
 };
 
+/** The language a talk table is written in, as its header gives it. */
+enum class Language {
+    English = 0,
+    French = 1,
+    German = 2,
+    Italian = 3,
+    Spanish = 4,
+    Polish = 5,
+    Korean = 128,
+    ChineseTraditional = 129,
+    ChineseSimplified = 130,
+    Japanese = 131
+};
+
 enum class GameID {
     KotOR,
     TSL

@@ -76,13 +76,7 @@ void Logger::deinit() {
 void Logger::append(std::string message,
                     LogChannel channel,
                     LogSeverity severity) {
-    if (!_inited) {
-        return;
-    }
-    if (static_cast<int>(severity) < static_cast<int>(_minSeverity)) {
-        return;
-    }
-    if (_enabledChannels.count(channel) == 0) {
+    if (!isEnabled(channel, severity)) {
         return;
     }
 

@@ -263,8 +263,10 @@ bool GUI::handle(const input::Event &event) {
                 auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
                 if (control->get().handleMouseDown(ctrlCoords.x, ctrlCoords.y)) {
                     _pressedControl = control;
-                    return true;
                 }
+                // A press on a control is the GUI's: whatever lies behind it,
+                // such as an object in the world, takes no click.
+                return true;
             }
         }
         break;
@@ -507,6 +509,10 @@ std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &co
         from = next->get();
     }
     return std::nullopt;
+}
+
+bool GUI::hasSelectableControlAt(int x, int y) const {
+    return findControlAt(x, y, [](const auto &control) { return control.isSelectable(); }).has_value();
 }
 
 std::optional<std::reference_wrapper<Control>> GUI::findControlAt(int x, int y,

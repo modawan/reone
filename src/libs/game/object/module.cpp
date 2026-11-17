@@ -533,11 +533,26 @@ bool Module::handle(const input::Event &event) {
 }
 
 bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
+    _hoverPoint = glm::ivec2(event.x, event.y);
+    return true;
+}
+
+void Module::updateHover() {
+    if (!_hoverPoint) {
+        return;
+    }
+    const glm::ivec2 point = *_hoverPoint;
+    _hoverPoint.reset();
+    if (!_area) {
+        return;
+    }
     CursorType cursor = CursorType::Default;
 
-    // While the mouse turns the camera nothing is under the pointer.
+    // While the mouse turns the camera, or the pointer is on a HUD control,
+    // nothing in the world is under the pointer.
     const Camera *camera = _game.getActiveCamera();
-    auto object = camera && camera->isMouseLookMode() ? std::nullopt : _area->getObjectAt(event.x, event.y);
+    const bool worldHidden = (camera && camera->isMouseLookMode()) || _game.isPointerOnHUD(point.x, point.y);
+    auto object = worldHidden ? std::nullopt : _area->getObjectAt(point.x, point.y);
     if (object && object->get().isSelectable()) {
         Object &picked = object->get();
         auto objectPtr = _game.getObjectById(picked.id());
@@ -552,8 +567,6 @@ bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
     }
 
     _game.setCursorType(cursor);
-
-    return true;
 }
 
 bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
@@ -638,6 +651,14 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sou
             _services.game.guiSounds.play(_services.game.guiSounds.getActionAccepted());
         }
         if (_game.prepareMenuAttack(*partyLeader, creature)) {
+            // A click on another foe in combat retargets: the leader's
+            // orders toward the foe it was after go first. A round entry
+            // alone waited behind a walk to the old foe, which went on for
+            // good when that foe was boxed in.
+            const uint32_t attempted = partyLeader->getAttemptedAttackTarget();
+            if (partyLeader->isInCombat() && attempted != script::kObjectInvalid && attempted != creature->id()) {
+                _game.combat().clearAllOrders(*partyLeader);
+            }
             _game.sendAttack(*partyLeader, creature);
         }
     } else if (!creature->conversation().empty() && !creature->isInCombat()) {
@@ -1574,12 +1595,16 @@ static constexpr int kFirstLightsaberItemType = 39;
 static constexpr int kLastLightsaberItemType = 41;
 
 std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Object> &object) const {
-    std::vector<ContextAction> actions;
     // With no one under control there is no one to act.
     const auto leader = _game.party().getLeader();
     if (!leader) {
-        return actions;
+        return {};
     }
+    return getContextActions(leader, object);
+}
+
+std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Creature> &leader, const std::shared_ptr<Object> &object) const {
+    std::vector<ContextAction> actions;
     // A locked door or container offers no bash while the area restricts the
     // player.
     const bool playerRestricted = _area && _area->playerRestrictMode();
@@ -1589,7 +1614,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         auto creature = std::static_pointer_cast<Creature>(object);
         // While the dead-target hold runs, every creature is offered the
         // hostile entries.
-        if (isHostileToPartyLeader(*creature) || _game.isDeadTargetHoldRunning()) {
+        if ((!creature->isDead() && _services.game.reputes.getIsEnemy(*creature, *leader)) || _game.isDeadTargetHoldRunning()) {
             // In a restricted area neither the attack nor the combat feats are
             // offered.
             const bool restricted = _area->playerRestrictMode();

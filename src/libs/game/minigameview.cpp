@@ -18,8 +18,11 @@
 #include "reone/game/minigameview.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
 
 #include "reone/graphics/animation.h"
 #include "reone/graphics/model.h"
@@ -50,6 +53,39 @@ void collectAnimatedNodes(const ModelNode &node, std::set<std::string> &out) {
 }
 
 } // namespace
+
+namespace {
+
+// The roll of BankL_01..10 and BankR_01..10 on each game's bike, in degrees:
+// the angle of the bike's lean node (dummy04) from level, averaged over the
+// keys of the clip. Read from the clips of the retail bikes (K1 v_superbike,
+// TSL v_supertrike01); the left and right clips agree to 0.02 degrees, and so
+// the left ones are averaged with the right ones. The steps are 0.5 to 1.5
+// degrees and shrink toward the last clips.
+constexpr std::array<float, kMinigameBankFrames> kKotorBankRoll {0.50f, 1.52f, 2.76f, 4.28f, 5.81f, 7.34f, 8.68f, 9.83f, 10.85f, 11.68f};
+constexpr std::array<float, kMinigameBankFrames> kTslBankRoll {0.70f, 1.56f, 2.78f, 4.30f, 5.84f, 7.36f, 8.69f, 9.84f, 10.81f, 11.65f};
+
+} // namespace
+
+std::string minigameBankAnimation(float lean, bool tsl) {
+    const auto &rolls = tsl ? kTslBankRoll : kKotorBankRoll;
+    // A full lean is the roll of the last clip.
+    float roll = std::clamp(std::fabs(lean), 0.0f, 1.0f) * rolls.back();
+    // The nearest of level (roll 0) and the ten clips.
+    int frame = 0;
+    float previous = 0.0f;
+    for (int i = 0; i < kMinigameBankFrames; ++i) {
+        if (roll < (previous + rolls[i]) * 0.5f) {
+            break;
+        }
+        frame = i + 1;
+        previous = rolls[i];
+    }
+    if (frame == 0) {
+        return kMinigameLevelAnimation;
+    }
+    return boost::str(boost::format("%s_%02d") % (lean < 0.0f ? "BankL" : "BankR") % frame);
+}
 
 const std::set<std::string> &MinigameAnimator::nodeSet(const Animation &anim) {
     auto it = _nodeSets.find(&anim);
@@ -132,6 +168,20 @@ void MinigameAnimator::remove(ModelSceneNode &model, const std::string &requeste
                        return p.model == &model && p.name == name;
                    }),
                    _pending.end());
+}
+
+bool MinigameAnimator::pose(ModelSceneNode &model, const std::string &requested, const std::string &previous) {
+    auto anim = findAnimation(model, requested);
+    if (anim) {
+        model.playAnimation(*anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loop | AnimationFlags::overlay));
+    }
+    if (!previous.empty()) {
+        auto old = findAnimation(model, previous);
+        if (old && old != anim) {
+            model.removeAnimation(old->name());
+        }
+    }
+    return anim != nullptr;
 }
 
 void MinigameAnimator::update(float dt) {

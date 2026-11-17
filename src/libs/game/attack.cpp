@@ -3953,7 +3953,7 @@ void SpecialAttackVisuals::show(Creature &attacker, FeatType attackType, bool ra
         attached.weapon = item;
         attached.ranged = ranged;
         attached.hook = &hook->get();
-        attached.model = body->graph().newModel(*impactModel, scene::ModelUsage::Projectile);
+        attached.model = body->graph().newModel(impactModel, scene::ModelUsage::Projectile);
         attached.hook->addChild(*attached.model);
         attached.model->playAnimation("impact");
     }

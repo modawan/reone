@@ -163,6 +163,13 @@ public:
 
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     /**
+     * Changes whenever testLineOfSight or testWalk could answer differently
+     * for the same points: a walkmesh is added, removed, enabled, disabled or
+     * moved, or the surfaces that stop sight change. It is brought up to date
+     * by update.
+     */
+    virtual uint32_t walkmeshRevision() const = 0;
+    /**
      * Where the line first meets a face of a room model's AABB mesh of a
      * camera surface, as testCameraLine has them, or the posed model of a
      * creature, placeable or door, or a model attached to one, that takes
@@ -307,8 +314,8 @@ public:
     // Factory methods
 
     virtual std::shared_ptr<CameraSceneNode> newCamera() = 0;
-    virtual std::shared_ptr<ModelSceneNode> newModel(graphics::Model &model, ModelUsage usage) = 0;
-    virtual std::shared_ptr<WalkmeshSceneNode> newWalkmesh(graphics::Walkmesh &walkmesh) = 0;
+    virtual std::shared_ptr<ModelSceneNode> newModel(std::shared_ptr<graphics::Model> model, ModelUsage usage) = 0;
+    virtual std::shared_ptr<WalkmeshSceneNode> newWalkmesh(std::shared_ptr<graphics::Walkmesh> walkmesh) = 0;
     virtual std::shared_ptr<TriggerSceneNode> newTrigger(std::vector<glm::vec3> geometry) = 0;
     virtual std::shared_ptr<SoundSceneNode> newSound() = 0;
     virtual std::shared_ptr<DummySceneNode> newDummy(graphics::ModelNode &modelNode) = 0;
@@ -422,7 +429,9 @@ public:
         return _fog.color;
     }
 
+    /** The frame shows the fog's colour where nothing is drawn, whether or not the fog is on. */
     void setFog(FogProperties fog) override {
+        _frameEffects.clearColor = fog.color;
         _fog = std::move(fog);
     }
 
@@ -447,6 +456,7 @@ public:
     // Collision detection and object picking
 
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
+    uint32_t walkmeshRevision() const override { return _walkmeshRevision; }
     bool testSceneHit(const glm::vec3 &origin, const glm::vec3 &dest, const std::vector<const IUser *> &excluded, const std::string &excludedHook, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
     bool testCameraLine(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
@@ -464,7 +474,10 @@ public:
 
     void setWalkableSurfaces(std::set<uint32_t> surfaces) override;
     void setWalkcheckSurfaces(std::set<uint32_t> surfaces) override;
-    void setLineOfSightSurfaces(std::set<uint32_t> surfaces) override { _lineOfSightSurfaces = std::move(surfaces); }
+    void setLineOfSightSurfaces(std::set<uint32_t> surfaces) override {
+        _lineOfSightSurfaces = std::move(surfaces);
+        ++_walkmeshRevision;
+    }
     void setRoomWalkmeshes(std::vector<std::shared_ptr<WalkmeshSceneNode>> rooms) override;
     void setRoomTest(std::weak_ptr<const RoomTest> test) override { _roomTest = std::move(test); }
 
@@ -473,8 +486,8 @@ public:
     // Factory methods
 
     std::shared_ptr<CameraSceneNode> newCamera() override;
-    std::shared_ptr<ModelSceneNode> newModel(graphics::Model &model, ModelUsage usage) override;
-    std::shared_ptr<WalkmeshSceneNode> newWalkmesh(graphics::Walkmesh &walkmesh) override;
+    std::shared_ptr<ModelSceneNode> newModel(std::shared_ptr<graphics::Model> model, ModelUsage usage) override;
+    std::shared_ptr<WalkmeshSceneNode> newWalkmesh(std::shared_ptr<graphics::Walkmesh> walkmesh) override;
     std::shared_ptr<TriggerSceneNode> newTrigger(std::vector<glm::vec3> geometry) override;
     std::shared_ptr<SoundSceneNode> newSound() override;
 
@@ -592,6 +605,9 @@ private:
     std::set<uint32_t> _walkableSurfaces;
     std::set<uint32_t> _walkcheckSurfaces;
     std::set<uint32_t> _lineOfSightSurfaces;
+    uint32_t _walkmeshRevision {0};
+    /** A hash of every walkmesh root, the walkmesh it holds, its enabled flag and its transform, as of the last update. */
+    size_t _walkmeshSignature {0};
     std::set<uint32_t> _cameraSurfaces;
     /** The walk-check surfaces that are not walkable. */
     std::set<uint32_t> _blockingSurfaces;
@@ -599,6 +615,27 @@ private:
     // END Surfaces
 
     void cullRoots();
+
+    /** Which walkmeshes a line-of-sight test considers. */
+    enum class LineOfSightScope {
+        /** Room walkmeshes as well as door and placeable ones. */
+        AllWalkmeshes,
+        /** Door and placeable walkmeshes only; room walkmeshes are skipped. */
+        ObjectWalkmeshesOnly
+    };
+
+    /**
+     * Line of sight from origin to dest, considering the walkmeshes in
+     * scope. The three-argument overload considers all walkmeshes.
+     */
+    bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, LineOfSightScope scope, Collision &outCollision) const;
+
+    /**
+     * Where the ray from origin along dir first meets the opaque, drawn
+     * meshes of an enabled room model, within maxDistance; none when it
+     * reaches that far unobstructed.
+     */
+    std::optional<float> nearestDrawnRoomHit(const glm::vec3 &origin, const glm::vec3 &dir, float maxDistance) const;
     /** Keeps the blocking surfaces in step with the walkable and walk-check ones. */
     void updateBlockingSurfaces();
     const FloorStacking &floorStacking() const;
@@ -613,6 +650,8 @@ private:
      */
     void refreshFromNode(SceneNode &node, const RoomTest *roomTest, bool lightsOnly);
 
+    /** Moves the walkmesh revision on when a walkmesh root has come, gone, been switched or moved. */
+    void updateWalkmeshRevision();
     void updateLighting();
     void updateShadowLight(float dt);
     void updateFlareLights();

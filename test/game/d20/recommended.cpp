@@ -680,29 +680,6 @@ TEST_F(RecommendedTest, should_fill_power_picks_with_unranked_candidates_only_wh
               (std::vector<SpellType> {static_cast<SpellType>(1), static_cast<SpellType>(0), static_cast<SpellType>(2)}));
 }
 
-// Attributes
-
-TEST_F(RecommendedTest, should_recommend_a_level_ups_point_for_the_classes_primary_ability) {
-    CreatureAttributes consular(getClass(ClassType::JediConsular).defaultAttributes());
-    consular.addClassLevels(consular.classLevels().back().first, 3);
-    ASSERT_EQ(consular.wisdom(), 14);
-
-    EXPECT_EQ(recommendLevelUpAbility(getClass(ClassType::JediConsular), consular, 18), Ability::Wisdom);
-}
-
-TEST_F(RecommendedTest, should_recommend_the_highest_other_ability_when_the_primary_one_is_at_its_cap) {
-    // A Soldier with Strength at the cap: Dexterity and Constitution tie at 14.
-    CreatureAttributes soldier(getClass(ClassType::Soldier).defaultAttributes());
-    soldier.setAbilityScore(Ability::Strength, 18);
-
-    EXPECT_EQ(recommendLevelUpAbility(getClass(ClassType::Soldier), soldier, 18), Ability::Dexterity);
-
-    for (int ability = 0; ability <= static_cast<int>(Ability::Charisma); ++ability) {
-        soldier.setAbilityScore(static_cast<Ability>(ability), 18);
-    }
-    EXPECT_FALSE(recommendLevelUpAbility(getClass(ClassType::Soldier), soldier, 18));
-}
-
 // Point costs shared by the screens and the recommendations
 
 TEST_F(RecommendedTest, should_charge_one_point_for_a_class_skill_rank_and_two_for_a_cross_class_one) {

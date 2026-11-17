@@ -17,6 +17,7 @@
 
 #include "reone/gui/textinput.h"
 #include "reone/system/clipboard.h"
+#include "reone/system/unicodeutil.h"
 
 namespace reone {
 
@@ -26,138 +27,74 @@ bool TextInput::handle(const input::Event &event) {
     switch (event.type) {
     case input::EventType::KeyDown:
         return handleKeyDown(event.key);
+    case input::EventType::TextInput:
+        return handleTextInput(event.text);
     default:
         return false;
     }
 }
 
-static inline bool isDigitKey(const input::KeyEvent &event) {
-    return event.code >= input::KeyCode::Key0 && event.code <= input::KeyCode::Key9;
-}
-
-static inline bool isLetterKey(const input::KeyEvent &event) {
-    return event.code >= input::KeyCode::A && event.code <= input::KeyCode::Z;
-}
-
-static inline bool isSymbolKey(const input::KeyEvent &event) {
-    return event.code == input::KeyCode::Minus ||
-           event.code == input::KeyCode::Equals ||
-           event.code == input::KeyCode::LeftBracket ||
-           event.code == input::KeyCode::RightBracket ||
-           event.code == input::KeyCode::Semicolon ||
-           event.code == input::KeyCode::Quote ||
-           event.code == input::KeyCode::Comma ||
-           event.code == input::KeyCode::Period ||
-           event.code == input::KeyCode::Slash ||
-           event.code == input::KeyCode::Backslash;
-}
-
-static inline bool isShiftPressed(const input::KeyEvent &event) {
-    return event.mod & input::KeyModifiers::shift;
-}
-
-static inline bool isControlPressed(const input::KeyEvent &event) {
-    return event.mod & input::KeyModifiers::control;
+// Pasting takes Control, or Command where the system pastes with it.
+static inline bool isPasteModifierPressed(const input::KeyEvent &event) {
+    return (event.mod & (input::KeyModifiers::control | input::KeyModifiers::gui)) != 0;
 }
 
 bool TextInput::handleKeyDown(const input::KeyEvent &event) {
-    if (!isKeyAllowed(event)) {
-        return false;
-    }
-
-    bool digit = isDigitKey(event);
-    bool letter = isLetterKey(event);
-    bool symbol = isSymbolKey(event);
-    bool shift = isShiftPressed(event);
-
-    if (isControlPressed(event) && event.code == input::KeyCode::V && !event.repeat) {
-        _buffer.write(getClipboard()->str());
-        return true;
-    }
-
     if (event.code == input::KeyCode::Backspace) {
         backspace();
-    } else if (event.code == input::KeyCode::Space) {
-        insert(' ');
-    } else if (digit) {
-        if (shift) {
-            if (event.code == input::KeyCode::Key1) {
-                insert('!');
-            } else if (event.code == input::KeyCode::Key2) {
-                insert('@');
-            } else if (event.code == input::KeyCode::Key3) {
-                insert('#');
-            } else if (event.code == input::KeyCode::Key4) {
-                insert('$');
-            } else if (event.code == input::KeyCode::Key5) {
-                insert('%');
-            } else if (event.code == input::KeyCode::Key6) {
-                insert('^');
-            } else if (event.code == input::KeyCode::Key7) {
-                insert('&');
-            } else if (event.code == input::KeyCode::Key8) {
-                insert('*');
-            } else if (event.code == input::KeyCode::Key9) {
-                insert('(');
-            } else if (event.code == input::KeyCode::Key0) {
-                insert(')');
-            }
-        } else {
-            insert(static_cast<char>(event.code));
-        }
-    } else if (letter) {
-        insert(shift ? toupper(static_cast<char>(event.code)) : static_cast<char>(event.code));
-    } else if (symbol) {
-        if (shift) {
-            if (event.code == input::KeyCode::Minus) {
-                insert('_');
-            } else if (event.code == input::KeyCode::Equals) {
-                insert('+');
-            } else if (event.code == input::KeyCode::LeftBracket) {
-                insert('{');
-            } else if (event.code == input::KeyCode::RightBracket) {
-                insert('}');
-            } else if (event.code == input::KeyCode::Semicolon) {
-                insert(':');
-            } else if (event.code == input::KeyCode::Quote) {
-                insert('\"');
-            } else if (event.code == input::KeyCode::Comma) {
-                insert('<');
-            } else if (event.code == input::KeyCode::Period) {
-                insert('>');
-            } else if (event.code == input::KeyCode::Slash) {
-                insert('?');
-            } else if (event.code == input::KeyCode::Backslash) {
-                insert('|');
-            }
-        } else {
-            insert(static_cast<char>(event.code));
-        }
+        return true;
     }
+    if (_pasteAllowed && isPasteModifierPressed(event) && event.code == input::KeyCode::V) {
+        if (!event.repeat) {
+            // The clipboard holds UTF-8; each of its characters is entered as
+            // one typed.
+            for (uint32_t codePoint : codePointsFromUTF8(std::string(getClipboard()->str()))) {
+                handleTextInput(input::TextInputEvent {codePoint});
+            }
+        }
+        return true;
+    }
+    // A key that types is taken whatever the mask, so that nothing else acts
+    // on it while text is typed; its character arrives as text, and the mask
+    // decides whether it is entered.
+    return event.character != 0;
+}
 
+bool TextInput::handleTextInput(const input::TextInputEvent &event) {
+    auto byte = codePageByteFromCodePoint(event.codePoint, _codePage);
+    if (!byte) {
+        return true;
+    }
+    char c = static_cast<char>(*byte);
+    int kind = TextInputFlags::symbols;
+    if (c == ' ') {
+        kind = TextInputFlags::whitespace;
+    } else if (c >= '0' && c <= '9') {
+        kind = TextInputFlags::digits;
+    } else if (isCodePointAlpha(event.codePoint)) {
+        kind = TextInputFlags::letters;
+    }
+    if ((_mask & kind) != 0) {
+        insert(c);
+    }
     return true;
 }
 
-bool TextInput::isKeyAllowed(const input::KeyEvent &event) const {
-    if (event.code == input::KeyCode::Backspace) {
-        return true;
-    }
-    if (event.code == input::KeyCode::Space) {
-        return (_mask & TextInputFlags::whitespace) != 0;
-    }
-    if (isDigitKey(event)) {
-        return (_mask & TextInputFlags::digits) != 0;
-    }
-    if (isLetterKey(event)) {
-        return (_mask & TextInputFlags::letters) != 0;
-    }
-    if (isSymbolKey(event)) {
-        return (_mask & TextInputFlags::symbols) != 0;
-    }
-    return false;
-}
-
 void TextInput::insert(char c) {
+    // Control characters and Delete are never entered.
+    const auto code = static_cast<unsigned char>(c);
+    if (code < 0x20 || code == 0x7f) {
+        return;
+    }
+    if (_excluded.find(c) != std::string::npos) {
+        return;
+    }
+    if (_maxLength > 0) {
+        const size_t size = _buffer.empty() ? 0 : _buffer.str().size();
+        if (size >= _minOffset && size - _minOffset >= _maxLength) {
+            return;
+        }
+    }
     _buffer.write(c);
 }
 

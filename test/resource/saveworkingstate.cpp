@@ -10,9 +10,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/exception/notfound.h"
-#include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/format/rimwriter.h"
@@ -22,9 +22,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
-#include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
-#include "../fixtures/script.h"
 
 using namespace reone;
 using namespace reone::resource;
@@ -170,20 +168,8 @@ struct CwdGuard {
     }
 };
 
-enum class Backend {
-    Legacy,
-    Extract,
-};
-
-struct SaveCase {
-    Backend backend;
-    GameID game;
-};
-
-std::string caseName(const testing::TestParamInfo<SaveCase> &info) {
-    std::string backend = info.param.backend == Backend::Legacy ? "Legacy" : "Extract";
-    std::string game = info.param.game == GameID::KotOR ? "K1" : "K2";
-    return backend + game;
+std::string caseName(const testing::TestParamInfo<GameID> &info) {
+    return info.param == GameID::KotOR ? "K1" : "K2";
 }
 
 void writeSlot(TmpDir &game,
@@ -424,9 +410,8 @@ TEST(SaveWorkingStateCandidateTest, erf_writer_consumes_a_borrowed_candidate_vie
     auto archive = writer.toBytes(ErfWriter::FileType::MOD);
 
     EXPECT_EQ(1, reads);
-    ErfResourceContainer container(Storage(std::move(archive)));
-    container.init();
-    auto packaged = container.findResourceData(sourceId);
+    auto container = openErf(std::move(archive));
+    auto packaged = container->findResourceData(sourceId);
     ASSERT_TRUE(packaged);
     EXPECT_EQ(bytes("borrowed bytes"), *packaged);
 }
@@ -1018,22 +1003,13 @@ TEST(SaveWorkingStateNormalizationTest, one_thousand_freezes_remain_structurally
     EXPECT_EQ(5u, finalIds.size());
 }
 
-class SaveWorkingStateDirectorTest : public testing::TestWithParam<SaveCase> {
+class SaveWorkingStateDirectorTest : public testing::TestWithParam<GameID> {
 protected:
     void SetUp() override {
-        _graphics.init();
-        _script.init();
-        if (GetParam().backend == Backend::Legacy) {
-            auto resources = std::make_unique<Resources>();
-            _sourceCount = [raw = resources.get()]() { return raw->containers().size(); };
-            _resources = std::move(resources);
-            _auxResources = std::make_unique<Resources>();
-        } else {
-            auto resources = std::make_unique<ExtractResources>();
-            _sourceCount = [raw = resources.get()]() { return raw->sourceCount(); };
-            _resources = std::move(resources);
-            _auxResources = std::make_unique<ExtractResources>();
-        }
+        auto resources = std::make_unique<Resources>();
+        _sourceCount = [raw = resources.get()]() { return raw->containers().size(); };
+        _resources = std::move(resources);
+        _auxResources = std::make_unique<Resources>();
     }
 
     void makeInstallation(TmpDir &game, TmpDir &cwd) {
@@ -1044,18 +1020,11 @@ protected:
     std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath) {
         _gamePath = gamePath;
         return std::make_unique<ResourceDirector>(
-            GetParam().game,
+            GetParam(),
             _gamePath,
             _graphicsOpt,
-            _graphics.services(),
-            _script.services(),
-            _dialogs,
-            _gffs,
-            _lips,
-            _paths,
             *_resources,
             *_auxResources,
-            _scripts,
             _twoDas);
     }
 
@@ -1081,13 +1050,6 @@ protected:
     }
 
     graphics::GraphicsOptions _graphicsOpt;
-    graphics::TestGraphicsModule _graphics;
-    script::TestScriptModule _script;
-    NiceMock<MockDialogs> _dialogs;
-    NiceMock<MockGffs> _gffs;
-    NiceMock<MockLips> _lips;
-    NiceMock<MockPaths> _paths;
-    NiceMock<MockScripts> _scripts;
     NiceMock<MockTwoDAs> _twoDas;
     std::filesystem::path _gamePath;
     std::unique_ptr<IResources> _resources;
@@ -1409,11 +1371,7 @@ TEST_P(SaveWorkingStateDirectorTest, loaded_session_keeps_no_rename_blocking_slo
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    BackendsAndGames,
+    Games,
     SaveWorkingStateDirectorTest,
-    testing::Values(
-        SaveCase {Backend::Legacy, GameID::KotOR},
-        SaveCase {Backend::Extract, GameID::KotOR},
-        SaveCase {Backend::Legacy, GameID::TSL},
-        SaveCase {Backend::Extract, GameID::TSL}),
+    testing::Values(GameID::KotOR, GameID::TSL),
     caseName);

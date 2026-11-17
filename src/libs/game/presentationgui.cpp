@@ -61,7 +61,8 @@ void PresentationGUI::init() {
     if (_resRef.empty()) {
         throw std::logic_error("GUI resRef must not be empty");
     }
-    _gui = _presentation.guis.get(_resRef, std::bind(&PresentationGUI::preload, this, std::placeholders::_1));
+    auto preload = std::bind(&PresentationGUI::preload, this, std::placeholders::_1);
+    _gui = _ownGUI ? _presentation.guis.load(_resRef, preload) : _presentation.guis.get(_resRef, preload);
     if (!_gui) {
         throw ResourceNotFoundException(str(boost::format("GUI not found: %s") % _resRef));
     }

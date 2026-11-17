@@ -56,6 +56,13 @@ public:
         TextGravity align = TextGravity::CenterCenter,
         float scale = 1.0f);
 
+    /**
+     * Draws \p text at \p position, placed by \p align against its width
+     * (measure), each glyph a glyph advance (glyphAdvance) after the one
+     * before.
+     *
+     * @param scale multiplies glyph size and advance, for scaled layouts
+     */
     void render(
         std::string_view text,
         const glm::vec3 &position,
@@ -63,8 +70,10 @@ public:
         TextGravity align = TextGravity::CenterCenter,
         float scale = 1.0f);
 
+    /** The width \p text takes when drawn at \p scale: the sum of its glyph advances. */
     float measure(std::string_view text, float scale = 1.0f) const;
 
+    /** Draws \p line from \p position offset by \p textOffset, which each glyph moves on by its glyph advance. */
     void renderLine(std::string_view line,
                     const glm::vec3 &position,
                     glm::vec3 &textOffset,
@@ -97,6 +106,7 @@ private:
     // END Services
 
     glm::vec2 getTextOffset(std::string_view text, TextGravity gravity, float scale = 1.0f) const;
+    /** How far the pen moves on after drawing \p glyph, unrounded: its width and the spacing after it, at \p scale. */
     float glyphAdvance(const Glyph &glyph, float scale) const;
 };
 

@@ -54,6 +54,8 @@ public:
     void init(std::shared_ptr<gui::Control> arrowMargin);
 
     bool handle(const input::Event &event);
+    /** Drop the pointer's hover of a target menu column, as when it moves off the menu. */
+    void clearHover();
     void update(float dt);
     /** Draw the reticles and the target menu, whose icons all grey while \p leaderDown. */
     void render(bool leaderDown);

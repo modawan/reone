@@ -28,17 +28,26 @@ namespace reone {
 
 namespace graphics {
 
+// One glyph for each value of a byte.
+static constexpr std::size_t kGlyphCount = 256;
+
 void Font::load(std::shared_ptr<Texture> texture) {
     _texture = texture;
 
     const Texture::Features &features = texture->features();
     _height = features.fontHeight * 100.0f;
     _spacingR = features.spacingR * 100.0f;
-    _glyphs.reserve(features.numChars);
+    // Every byte has a glyph: those past the font's characters, or past the
+    // coordinates its TXI gives, are blank.
+    const std::size_t charCount = std::min({static_cast<std::size_t>(std::max(features.numChars, 0)),
+                                            features.upperLeftCoords.size(),
+                                            features.lowerRightCoords.size()});
+    _glyphs.clear();
+    _glyphs.reserve(std::max(charCount, kGlyphCount));
 
     float textureAspect = static_cast<float>(texture->width()) / texture->height();
 
-    for (int i = 0; i < features.numChars; ++i) {
+    for (std::size_t i = 0; i < charCount; ++i) {
         glm::vec2 ul(features.upperLeftCoords[i]);
         glm::vec2 lr(features.lowerRightCoords[i]);
         float w = lr.x - ul.x;
@@ -52,6 +61,7 @@ void Font::load(std::shared_ptr<Texture> texture) {
 
         _glyphs.push_back(std::move(glyph));
     }
+    _glyphs.resize(std::max(charCount, kGlyphCount));
 }
 
 void Font::render(std::string_view text, const glm::vec3 &position, const glm::vec3 &color, TextGravity gravity, float scale) {
@@ -111,10 +121,12 @@ glm::vec2 Font::getTextOffset(std::string_view text, TextGravity gravity, float 
     }
 };
 
+// Text is measured as it is drawn, so that aligned text sits on its anchor
+// and wrapped text fills the width it was wrapped to.
 float Font::measure(std::string_view text, float scale) const {
     float w = 0.0f;
-    for (const char &glyph : text) {
-        w += glyphAdvance(_glyphs[reinterpret_cast<const unsigned char &>(glyph)], scale);
+    for (const char &ch : text) {
+        w += glyphAdvance(_glyphs[static_cast<unsigned char>(ch)], scale);
     }
     return w;
 }
