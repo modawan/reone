@@ -89,3 +89,25 @@ TEST(TextReader, should_tolerate_a_bare_carriage_return) {
     EXPECT_TRUE(line);
     EXPECT_EQ(*line, std::string("b"));
 }
+TEST(TextReader, should_consume_a_crlf_split_across_chunks) {
+    // given
+    // The reader takes 256 bytes at a time, so the CR ends the first chunk and
+    // the LF starts the second.
+    auto first = std::string(255, 'a');
+    auto text = first + "\r\n" + "b";
+    auto bytes = ByteBuffer {text.begin(), text.end()};
+    auto stream = MemoryInputStream(bytes);
+    auto reader = TextReader(stream);
+
+    // expect
+    auto line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, first);
+
+    line = reader.readLine();
+    EXPECT_TRUE(line);
+    EXPECT_EQ(*line, std::string("b"));
+
+    line = reader.readLine();
+    EXPECT_FALSE(line);
+}
