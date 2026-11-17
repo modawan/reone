@@ -28,6 +28,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/shaperules.h"
 #include "reone/resource/2da.h"
@@ -228,8 +229,6 @@ void Encounter::deserializePendingSpawns(const resource::Gff &gff) {
 // thresholds.
 static constexpr float kCreaturePointBase = 1.5f;
 static constexpr int kCreaturePointTableSize = 50;
-// A creature is hostile to the encounter below this reputation.
-static constexpr int kHostileReputation = 11;
 // A spawn point hands its creature to the safe-location search within this radius.
 static constexpr float kSpawnPointPlacementRadius = 20.0f;
 // The first title's hostile tally counts creatures within this box around the entrant.
@@ -347,7 +346,8 @@ void Encounter::spawnIfAppropriate(uint32_t triggeringId) {
 }
 
 bool Encounter::isHostileTo(const Creature &creature) const {
-    return creature.getReputationFrom(_faction) < kHostileReputation;
+    // A creature is hostile to the encounter when it is the faction's enemy.
+    return isEnemyReputation(creature.getReputationFrom(_faction));
 }
 
 // Whether a living creature hostile to the encounter is inside it. The

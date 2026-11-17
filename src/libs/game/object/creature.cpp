@@ -1223,7 +1223,7 @@ static void applyDeathExperience(
     // A player character or party member is worth nothing. Reputation queries
     // from an NPC faction to faction zero use the player row.
     if (victim.actsAsPC() || game.party().isMember(victim) ||
-        services.game.reputes.getReputation(Faction::Player, victim.faction()) > 10)
+        !isEnemyReputation(services.game.reputes.getReputation(Faction::Player, victim.faction())))
         return;
     // The award is measured against the experience of the creature under the
     // player's control.
@@ -2557,7 +2557,7 @@ bool Creature::admitSkillUse(SkillType skill, const Object &target) const {
     const auto rules = _services.game.skills.get(skill);
     const auto *creature = dyn_cast<const Creature>(&target);
     if (!rules || !rules->hostile || !creature ||
-        creature->getReputationToward(*this) < kLowestFriendReputation) {
+        !isFriendReputation(creature->getReputationToward(*this))) {
         return true;
     }
     if (_game.party().getLeader().get() == this) {
@@ -2605,7 +2605,7 @@ void Creature::updateMindTrickPerception(const Creature &target, bool heard, boo
     if (_effectState != static_cast<int>(CreatureState::MindTrick) &&
         _effectState != static_cast<int>(CreatureState::DroidScramble))
         return;
-    if (getReputationToward(target) <= 10 && getSquareDistanceTo(target) <= 10.0f) {
+    if (isEnemyReputation(getReputationToward(target)) && getSquareDistanceTo(target) <= 10.0f) {
         removeMindTrickEffects();
     }
 }
@@ -4401,7 +4401,7 @@ void Creature::applyHitPointDamage(
 int Creature::getReputationToward(const Creature &target) const {
     const bool sourceParty = _game.party().isMember(*this);
     if (&target == this || (sourceParty && _game.party().isMember(target))) {
-        return IReputes::kMaxReputation;
+        return kMaxReputation;
     }
     return target.getReputationFrom(sourceParty ? Faction::Player : faction());
 }
@@ -4606,9 +4606,9 @@ bool Creature::isHostileCombatTurn() const {
             return false;
         }
         if (auto *creature = dyn_cast<Creature>(target.get())) {
-            return getReputationToward(*creature) <= 10;
+            return isEnemyReputation(getReputationToward(*creature));
         }
-        return getObjectReputation(*this, *target, _game) <= 10;
+        return isEnemyReputation(getObjectReputation(*this, *target, _game));
     };
     return hostile(_combatState.attemptedAttackTarget.resolve()) || hostile(_combatState.attemptedSpellTarget.resolve());
 }
@@ -7327,7 +7327,7 @@ void Creature::broadcastCombatState(uint32_t opponentId) {
                    ? CombatActivation::Direct
                    : CombatActivation::Indirect;
     };
-    if (opponent.get() == this || getReputationToward(*opponent) <= 10) {
+    if (opponent.get() == this || isEnemyReputation(getReputationToward(*opponent))) {
         setCombatState(true, activationType(*this), false);
     }
     // A plot creature does not rouse its faction.
@@ -7335,7 +7335,7 @@ void Creature::broadcastCombatState(uint32_t opponentId) {
         return;
     }
     // The faction pass includes this creature, which is always within range.
-    if (getReputationToward(*opponent) <= 10) {
+    if (isEnemyReputation(getReputationToward(*opponent))) {
         setCombatState(true, activationType(*this), false);
         setExcitedState(1);
     }
@@ -7355,7 +7355,7 @@ void Creature::broadcastCombatState(uint32_t opponentId) {
         if (!alwaysInRange && getSquareDistanceTo(*member) > range * range) {
             continue;
         }
-        if (member->getReputationToward(*opponent) <= 10) {
+        if (isEnemyReputation(member->getReputationToward(*opponent))) {
             member->setCombatState(true, activationType(*member), false);
             member->setExcitedState(1);
         }
@@ -7528,7 +7528,7 @@ void Creature::surrenderToEnemies(bool retainOwnEffects) {
             auto &other = static_cast<Creature &>(*object);
             if (&other == this ||
                 getSquareDistanceTo(other) > kMaxObjectVisibleDistance * kMaxObjectVisibleDistance ||
-                getReputationToward(other) > 10)
+                !isEnemyReputation(getReputationToward(other)))
                 continue;
             other.cancelCombat();
             other.clearAllEffects(retainOwnEffects);

@@ -2411,8 +2411,8 @@ static Variable GetFactionGold(const std::vector<Variable> &args, const RoutineC
 }
 
 // How the target regards the members of the source's faction, averaged with
-// truncation and kept within 0 to 100. A target that is not a creature regards
-// every member at 0.
+// truncation and kept within the reputation range. A target that is not a
+// creature regards every member at 0.
 static Variable GetFactionAverageReputation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto source = getResidentCreature(args, 0, ctx);
     if (!source) {
@@ -2427,7 +2427,7 @@ static Variable GetFactionAverageReputation(const std::vector<Variable> &args, c
             total += getObjectReputation(*target, *member, ctx.game);
         }
     }
-    return Variable::ofInt(std::clamp(total / static_cast<int>(members.size()), 0, 100));
+    return Variable::ofInt(std::clamp(total / static_cast<int>(members.size()), kMinReputation, kMaxReputation));
 }
 
 // Each member counts as dark side (3) up to 40, neutral (1) from 41 to 59 and
@@ -2721,19 +2721,13 @@ static Variable SetAreaTransitionBMP(const std::vector<Variable> &args, const Ro
     return Variable::ofNull();
 }
 
-// An object regards an invalid object at the neutral reputation; it regards
-// an enemy at most at the enemy reputation and a friend at least at the friend
-// reputation.
-static constexpr int kNeutralReputation = 50;
-static constexpr int kEnemyReputation = 10;
-static constexpr int kFriendReputation = 90;
-
 // Faction ids are the rows of the reputation table.
 static bool isKnownFaction(Faction faction, const RoutineContext &ctx) {
     const int id = static_cast<int>(faction);
     return id >= 0 && static_cast<size_t>(id) < ctx.services.game.reputes.state().factions.size();
 }
 
+// A receiver regards an invalid object at the neutral reputation.
 static Variable GetReputation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto other = getObjectOrNull(args, 0, ctx);
     auto receiver = getObjectOrNull(args, 1, ctx);
@@ -3032,7 +3026,7 @@ static Variable StringToFloat(const std::vector<Variable> &args, const RoutineCo
 }
 
 // How oTarget regards oSource, by default the caller. An invalid source is
-// regarded at 50; an invalid target answers nothing.
+// regarded as neutral (kNeutralReputation); an invalid target answers nothing.
 static std::optional<int> getTargetRegardForSource(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto target = getObjectOrNull(args, 0, ctx);
     if (!target) {
@@ -3042,8 +3036,9 @@ static std::optional<int> getTargetRegardForSource(const std::vector<Variable> &
     return source ? getObjectReputation(*target, *source, ctx.game) : kNeutralReputation;
 }
 
-// oTarget is an enemy of oSource when it regards oSource at 10 or less. A
-// placeable whose appearance is not hostile is no one's enemy.
+// oTarget is an enemy of oSource when its regard for oSource is an enemy's
+// (isEnemyReputation). A placeable whose appearance is not hostile is no
+// one's enemy.
 static Variable GetIsEnemy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto target = getObjectOrNull(args, 0, ctx);
     if (auto *placeable = target ? dyn_cast<Placeable>(target.get()) : nullptr;
@@ -3051,19 +3046,21 @@ static Variable GetIsEnemy(const std::vector<Variable> &args, const RoutineConte
         return Variable::ofInt(0);
     }
     const auto regard = getTargetRegardForSource(args, ctx);
-    return Variable::ofInt(regard && *regard <= kEnemyReputation ? 1 : 0);
+    return Variable::ofInt(regard && isEnemyReputation(*regard) ? 1 : 0);
 }
 
-// A friend regards oSource at 90 or more.
+// oTarget is a friend of oSource when its regard is a friend's
+// (isFriendReputation).
 static Variable GetIsFriend(const std::vector<Variable> &args, const RoutineContext &ctx) {
     const auto regard = getTargetRegardForSource(args, ctx);
-    return Variable::ofInt(regard && *regard >= kFriendReputation ? 1 : 0);
+    return Variable::ofInt(regard && isFriendReputation(*regard) ? 1 : 0);
 }
 
-// A neutral regards oSource at 11 to 89.
+// oTarget is neutral to oSource when its regard is neither
+// (isNeutralReputation).
 static Variable GetIsNeutral(const std::vector<Variable> &args, const RoutineContext &ctx) {
     const auto regard = getTargetRegardForSource(args, ctx);
-    return Variable::ofInt(regard && *regard > kEnemyReputation && *regard < kFriendReputation ? 1 : 0);
+    return Variable::ofInt(regard && isNeutralReputation(*regard) ? 1 : 0);
 }
 
 static Variable GetPCSpeaker(const std::vector<Variable> &args, const RoutineContext &ctx) {

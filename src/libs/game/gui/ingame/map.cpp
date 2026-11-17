@@ -26,6 +26,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
 #include "reone/graphics/types.h"
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
@@ -264,7 +265,7 @@ int MapMenu::travelRefusal() const {
             continue;
         }
         for (auto &member : party.members()) {
-            if (member.creature && member.creature->getReputationToward(watcher) <= 10 &&
+            if (member.creature && isEnemyReputation(member.creature->getReputationToward(watcher)) &&
                 watcher.perception().sees(member.creature->id())) {
                 return kStrRefEnemiesNearby;
             }
