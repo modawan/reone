@@ -420,7 +420,7 @@ static void computeWeaponDamage(
  * and makes no call-out.
  */
 static bool isPartyHitInConversation(const Creature &attacker) {
-    return attacker.game().isConversationActive() && attacker.isPartyMember();
+    return attacker.game().isDialogUnderWay() && attacker.isPartyMember();
 }
 
 static void computeUnarmedDamage(

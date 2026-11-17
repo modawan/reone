@@ -418,11 +418,16 @@ public:
     /** Whether play is paused, or will be once the frame takes its request at its end. */
     bool isPausedAtFrameEnd() const { return _pauseRequest ? _pauseRequest->paused : _paused; }
     /**
-     * The player's pause control: toggles play and ends any autopause.
-     * Returns whether play will be paused.
+     * The player's pause control: toggles play and ends any autopause. While
+     * a conversation is under way it only unpauses. Returns whether play will
+     * be paused.
      */
     bool togglePlayerPause() {
-        setPaused(!isPausedAtFrameEnd(), PauseReason::Player);
+        const bool pause = !isPausedAtFrameEnd();
+        if (pause && _dialogUnderWay) {
+            return false;
+        }
+        setPaused(pause, PauseReason::Player);
         return isPausedAtFrameEnd();
     }
     PauseReason pauseReason() const { return _pauseReason; }

@@ -2026,7 +2026,7 @@ void Party::updateFollowPath() {
         return;
     }
     const int furthest = furthestFollower();
-    if (!getMember(furthest) || _game.isConversationActive()) {
+    if (!getMember(furthest) || _game.isDialogUnderWay()) {
         return;
     }
     if (followerLag2(furthest) >= kFollowerLagLimit2 && !turnBack()) {

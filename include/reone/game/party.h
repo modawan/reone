@@ -757,9 +757,9 @@ public:
      */
     void resetFollowPath(Area &area, const glm::vec3 &position, float facing, bool seed);
     /**
-     * Outside conversations, once the furthest follower falls seven metres
-     * behind, the follow points are recomputed; when the nearest follower
-     * faces against the leader's way, the formation also swaps sides.
+     * While no conversation is under way, once the furthest follower falls
+     * seven metres behind, the follow points are recomputed; when the nearest
+     * follower faces against the leader's way, the formation also swaps sides.
      */
     void updateFollowPath();
     /**

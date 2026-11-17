@@ -150,9 +150,13 @@ public:
      * Picks what is under the pointer where the last mouse move this frame
      * left it, then highlights it and sets the cursor. Runs once a frame,
      * paused or not, however many moves arrived: picking tests room
-     * geometry, and a high-polling mouse sends many moves a frame.
+     * geometry, and a high-polling mouse sends many moves a frame. It also
+     * picks again where the pointer is once a conversation starts or ends,
+     * and on the first frame play is back on the screen.
      */
     void updateHover();
+    /** Play is off the screen, or under a message box, this frame: the next pick is made afresh. */
+    void markHoverStale();
     /** The module's and its area's actions run with the clock stopped. */
     void runObjectActions();
     /**
@@ -382,6 +386,10 @@ private:
 
     /** Where the last mouse move left the pointer, until updateHover picks there. */
     std::optional<glm::ivec2> _hoverPoint;
+    /** Whether a conversation was under way at the last pick. */
+    bool _hoverDialogUnderWay {false};
+    /** Play was off the screen since the last pick. */
+    bool _hoverStale {true};
 
     // User input
 

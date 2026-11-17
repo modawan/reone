@@ -3468,8 +3468,9 @@ private:
     void stopOverlayLoop();
     /**
      * The body shows \p clip: one that hides equipped items puts the hand
-     * weapons away; the next one that does not, outside a conversation, brings
-     * them back and takes away the creature's thrown lightsaber still in flight.
+     * weapons away; the next one that does not, while no conversation is under
+     * way, brings them back and takes away the creature's thrown lightsaber
+     * still in flight.
      */
     void presentEquippedItems(const std::string &clip);
     /**
