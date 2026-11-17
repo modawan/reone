@@ -64,6 +64,17 @@ public:
     int maxSkillRank(SkillType skill, int level) const;
 
     /**
+     * The first level gives four times a level's points. On K1 a level gives
+     * half the class's skill point base plus the Intelligence modifier at the
+     * first level, and half of their sum at later levels; on TSL it gives
+     * their sum. A level always gives at least one point.
+     *
+     * @param intModifier the modifier of the creature's base Intelligence
+     * @return the skill points a level of this class gives
+     */
+    int skillPointsForLevel(int intModifier, bool firstLevel, bool tsl) const;
+
+    /**
      * @return class saving throws at the class level, from the saving throw
      *         table's row level - 1; none for a level without a row
      */

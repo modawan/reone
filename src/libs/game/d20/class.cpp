@@ -116,6 +116,17 @@ void CreatureClass::loadClassSkills(const std::string &skillsTable) {
     }
 }
 
+int CreatureClass::skillPointsForLevel(int intModifier, bool firstLevel, bool tsl) const {
+    if (tsl) {
+        int points = std::max(1, _skillPointBase + intModifier);
+        return firstLevel ? 4 * points : points;
+    }
+    if (firstLevel) {
+        return 4 * std::max(1, _skillPointBase / 2 + intModifier);
+    }
+    return std::max(1, (_skillPointBase + intModifier) / 2);
+}
+
 void CreatureClass::loadSavingThrows(const std::string &savingThrowTable) {
     auto twoDa = getRequiredTwoDA(_twoDas, savingThrowTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
