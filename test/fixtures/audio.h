@@ -61,6 +61,7 @@ public:
     MOCK_METHOD(bool, rendersObstruction, (), (const, override));
     MOCK_METHOD(void, setObstruction, (AudioSource &, float), (override));
     MOCK_METHOD(void, setAirAbsorption, (AudioSource &, float), (override));
+    MOCK_METHOD(ReverbTier, reverbTier, (), (const, override));
 };
 
 /**
@@ -89,6 +90,7 @@ public:
     MOCK_METHOD(void, setStreamedGroups, (std::set<int>), (override));
     MOCK_METHOD(void, setDryGroups, (std::set<int>), (override));
     MOCK_METHOD(void, setRoomReverb, (bool), (override));
+    MOCK_METHOD(void, setReverbEnabled, (bool), (override));
     MOCK_METHOD(void, setObstructionTest, (ObstructionTest), (override));
     MOCK_METHOD(void, invalidateObstruction, (), (override));
     MOCK_METHOD(void, setAmbientGroups, (std::set<int>), (override));

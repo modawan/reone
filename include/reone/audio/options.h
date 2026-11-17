@@ -28,14 +28,24 @@ struct AudioOptions {
     static constexpr float kMinBias2D3D = 0.1f;
     /** The greatest 2D3D bias. */
     static constexpr float kMaxBias2D3D = 1.9f;
+    /** The highest EAX level, EAX 3. */
+    static constexpr int kMaxEAXLevel = 3;
 
     /** No sound is played, as the configuration's Disable Sound asks and unattended headless runs need. */
     bool muted {false};
     /**
-     * Whether software sound is forced, as KotOR's advanced sound panel shows
-     * and keeps it; no sound reads it.
+     * Whether software sound is forced, as the advanced sound panel shows and
+     * keeps it. Forced software sound renders no environments.
      */
     bool forceSoftware {false};
+    /**
+     * The EAX level chosen, from 0 to kMaxEAXLevel, as the configuration and
+     * the advanced sound panel keep it. Once the game sets it
+     * (Game::setEAXLevel), any level but 0 renders the rooms' environments,
+     * as far as the device renders them and while software sound is not
+     * forced.
+     */
+    int eaxLevel {kMaxEAXLevel};
     /** The volumes of music, voices, sound effects and movies, from 0 to kMaxVolume. */
     int musicVolume {85};
     int voiceVolume {85};

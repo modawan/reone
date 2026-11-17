@@ -240,7 +240,9 @@ bool ThirdPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) 
     if (mouseLook) {
         _mouseTurn += static_cast<float>(event.xrel);
     }
-    _mouseRise += static_cast<float>(event.yrel);
+    // TSL's reverse option swaps up and down for the tilt.
+    const bool reverse {_game.isTSL() && _game.options().game.gameplay.reverseInGameYAxis};
+    _mouseRise += static_cast<float>(reverse ? -event.yrel : event.yrel);
     return false;
 }
 

@@ -86,6 +86,11 @@ public:
      */
     virtual void setRoomReverb(bool reverb) = 0;
     /**
+     * Whether any source reaches the reverb, as the EAX level asks. Sources
+     * already playing take it at once.
+     */
+    virtual void setReverbEnabled(bool enabled) = 0;
+    /**
      * Sets how positional sources are found obstructed: as each one starts,
      * and again once it or the listener has moved, or the obstructions were
      * invalidated, as a budget of tests a second allows. A source takes its
@@ -188,6 +193,7 @@ public:
     void setStreamedGroups(std::set<int> groups) override;
     void setDryGroups(std::set<int> groups) override;
     void setRoomReverb(bool reverb) override;
+    void setReverbEnabled(bool enabled) override;
     void setObstructionTest(ObstructionTest test) override;
     void invalidateObstruction() override;
     void setAmbientGroups(std::set<int> groups) override;
@@ -257,6 +263,8 @@ private:
     std::set<int> _dryGroups;
     /** See setRoomReverb. */
     bool _roomReverb {false};
+    /** See setReverbEnabled. */
+    bool _reverbEnabled {true};
     ObstructionTest _obstructionTest;
     /** The source whose obstruction is worked out next. */
     size_t _nextObstructed {0};

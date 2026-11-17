@@ -71,6 +71,7 @@ static const std::string kFragOITProjectedBeam = "f_oit_projbeam";
 static const std::string kFragPointLightShadows = "f_ptlightshadow";
 static const std::string kFragPostBoxBlur4 = "f_pp_boxblur4";
 static const std::string kFragPostFXAA = "f_pp_fxaa";
+static const std::string kFragPostGamma = "f_pp_gamma";
 static const std::string kFragPostGaussianBlur13 = "f_pp_gausblur13";
 static const std::string kFragPostGaussianBlur9 = "f_pp_gausblur9";
 static const std::string kFragPostMedianFilter3 = "f_pp_medianfilt3";
@@ -132,6 +133,7 @@ void Shaders::init() {
     auto fragPointLightShadows = initShader(ShaderType::Fragment, kFragPointLightShadows);
     auto fragPostBoxBlur4 = initShader(ShaderType::Fragment, kFragPostBoxBlur4);
     auto fragPostFXAA = initShader(ShaderType::Fragment, kFragPostFXAA);
+    auto fragPostGamma = initShader(ShaderType::Fragment, kFragPostGamma);
     auto fragPostGaussianBlur13 = initShader(ShaderType::Fragment, kFragPostGaussianBlur13);
     auto fragPostGaussianBlur9 = initShader(ShaderType::Fragment, kFragPostGaussianBlur9);
     auto fragPostMedianFilter3 = initShader(ShaderType::Fragment, kFragPostMedianFilter3);
@@ -177,6 +179,7 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows, geomPointLightShadows, fragPointLightShadows}));
     _shaderRegistry.add(ShaderProgramId::postBoxBlur4, initShaderProgram({vertPassthrough, fragPostBoxBlur4}));
     _shaderRegistry.add(ShaderProgramId::postFXAA, initShaderProgram({vertPassthrough, fragPostFXAA}));
+    _shaderRegistry.add(ShaderProgramId::postGamma, initShaderProgram({vertPassthrough, fragPostGamma}));
     _shaderRegistry.add(ShaderProgramId::postGaussianBlur13, initShaderProgram({vertPassthrough, fragPostGaussianBlur13}));
     _shaderRegistry.add(ShaderProgramId::postGaussianBlur9, initShaderProgram({vertPassthrough, fragPostGaussianBlur9}));
     _shaderRegistry.add(ShaderProgramId::postMedianFilter3, initShaderProgram({vertPassthrough, fragPostMedianFilter3}));

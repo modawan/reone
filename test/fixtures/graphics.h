@@ -53,6 +53,7 @@ public:
     MOCK_METHOD(void, blitFramebuffer, (Framebuffer &, Framebuffer &, const glm::ivec4 &, const glm::ivec4 &, int, int, int, FramebufferBlitFilter), (override));
 
     MOCK_METHOD(std::shared_ptr<Texture>, captureScreen, (int, int), (override));
+    MOCK_METHOD(void, copyBackBuffer, (Texture &), (override));
 
     MOCK_METHOD(void, bindUniformBuffer, (UniformBuffer &, int), (override));
     MOCK_METHOD(void, bindTexture, (Texture &, int), (override));

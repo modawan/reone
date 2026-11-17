@@ -68,6 +68,8 @@ public:
 
     /** Reads the back buffer before presentation for automated screenshots. */
     virtual std::shared_ptr<Texture> captureScreen(int width, int height) = 0;
+    /** Copies the back buffer, from its lower left corner, into the texture at its size. */
+    virtual void copyBackBuffer(Texture &destination) = 0;
 
     virtual void bindUniformBuffer(UniformBuffer &buffer, int index) = 0;
     virtual void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) = 0;
@@ -163,6 +165,7 @@ public:
                          FramebufferBlitFilter filter = FramebufferBlitFilter::Nearest) override;
 
     std::shared_ptr<Texture> captureScreen(int width, int height) override;
+    void copyBackBuffer(Texture &destination) override;
 
     void bindUniformBuffer(UniformBuffer &buffer, int index) override;
     void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) override;

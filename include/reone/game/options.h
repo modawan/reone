@@ -35,6 +35,10 @@ struct GameOptions {
     FeedbackOptions feedback;
     int clientDifficulty {1}; /**< Easy=0, Normal=1, Difficult=2, Default=3 */
     int activeKeybindsIndex {0};
+    /** The graphics page's brightness, from 0 to kMaxBrightness; the renderer's gamma follows it. */
+    int brightness {kDefaultBrightness};
+    /** TSL's Force Speed option: an asked-for speed blur is drawn. */
+    bool forceSpeed {true};
     MenuPresentation menuPresentation;
     AutoPauseOptions autoPause;
     /** How the mouse turns the camera. */

@@ -123,7 +123,7 @@ MoviesShown loadMoviesShown(const std::filesystem::path &path);
 /** Write the movies shown into the configuration, keeping every other line. */
 void saveMoviesShown(const std::filesystem::path &path, const MoviesShown &shown);
 
-/** Write the sound options' volumes and Force Software into the configuration, keeping every other line. */
+/** Write the sound options' volumes, Force Software and EAX level into the configuration, keeping every other line. */
 void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptions &options);
 /**
  * Write the graphics options the running game applies at once (Shadows, Soft
@@ -131,6 +131,19 @@ void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptio
  * every other line.
  */
 void saveGraphicsOptions(const std::filesystem::path &path, const graphics::GraphicsOptions &options);
+/** Write the brightness and, when given, TSL's Force Speed into the configuration, keeping every other line. */
+void saveDisplayOptions(const std::filesystem::path &path, int brightness, std::optional<bool> forceSpeed);
+
+/** The brightness is kept from 0 to this, the length of the graphics page's slider. */
+constexpr int kMaxBrightness = 100;
+/** The brightness a new configuration starts with. */
+constexpr int kDefaultBrightness = 57;
+/**
+ * The exponent the finished frame takes for a brightness out of
+ * kMaxBrightness. A greater brightness lowers it; TSL raises the brightness by
+ * 15 first, up to the maximum.
+ */
+float gammaForBrightness(int brightness, bool tsl);
 
 /**
  * The graphics options the game takes only as it starts: the display mode, the
@@ -158,6 +171,8 @@ struct MouseOptions {
     bool mouseLook {false};
     /** How far a frame of mouse travel turns the camera, from 0 to 255. */
     int sensitivity {44};
+    /** The left and right mouse buttons trade places. */
+    bool reverseButtons {false};
 
     /** The options in the configuration; an option it does not set keeps its default. */
     static MouseOptions load(const std::filesystem::path &path);
@@ -175,6 +190,12 @@ struct GameplayOptions {
     bool combatMovement {true};
     /** Party companions level up by themselves whenever they can (Party::levelUpByItself). */
     bool autoLevelUpNPCs {false};
+    /** Entering a module may save the game automatically. */
+    bool autoSave {true};
+    /** Up and down are swapped for aiming in the minigames. */
+    bool reverseMinigameYAxis {false};
+    /** Up and down are swapped for tilting the camera. TSL only. */
+    bool reverseInGameYAxis {false};
 
     /** The options in the configuration; an option it does not set keeps its default. */
     static GameplayOptions load(const std::filesystem::path &path);

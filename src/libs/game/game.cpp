@@ -115,8 +115,10 @@
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/renderbuffer.h"
+#include "reone/graphics/shaderprogram.h"
 #include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/texture.h"
+#include "reone/graphics/textureutil.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
 #include "reone/gui/guis.h"
@@ -919,6 +921,10 @@ void Game::init() {
     initLocalServices();
     setSceneSurfaces();
     setCursorType(CursorType::Default);
+    // The frame is drawn at the brightness's gamma, and the sound runs at the
+    // EAX level asked for, as far as the device renders it.
+    setBrightness(_options.game.brightness);
+    setEAXLevel(_options.audio.eaxLevel);
 
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
@@ -1265,9 +1271,18 @@ bool Game::isCoolingDown(const input::Event &event) {
     return leftButton || returnKey;
 }
 
-// The pointer is on the control the screens shown find under it, or on
-// none; a move no screen follows starts the tooltip's wait again.
+// The mouse buttons act as the player has them. The pointer is on the
+// control the screens shown find under it, or on none; a move no screen
+// follows starts the tooltip's wait again.
 bool Game::handle(const input::Event &event) {
+    // With the mouse buttons reversed, each acts as the other.
+    const bool button = event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp;
+    if (button && _options.game.mouse.reverseButtons &&
+        (event.button.button == input::MouseButton::Left || event.button.button == input::MouseButton::Right)) {
+        input::Event reversed = event;
+        reversed.button.button = event.button.button == input::MouseButton::Left ? input::MouseButton::Right : input::MouseButton::Left;
+        return handleInput(reversed);
+    }
     if (event.type == input::EventType::MouseMotion) {
         auto &tooltip = _services.gui.guis.tooltip();
         tooltip.beginPointerMove();
@@ -1727,6 +1742,35 @@ void Game::render() {
         renderScene();
         renderGUI();
     }
+    renderGamma();
+}
+
+// The finished frame is drawn over itself with each colour channel raised to
+// the gamma, unless that leaves it unchanged.
+void Game::renderGamma() {
+    const float exponent = _options.graphics.gamma;
+    if (exponent == 1.0f) {
+        return;
+    }
+    auto &graphics = _services.graphics;
+    auto &context = graphics.context;
+    const glm::ivec4 viewport = context.viewport();
+    if (!_gammaFrame || _gammaFrame->width() != viewport[2] || _gammaFrame->height() != viewport[3]) {
+        _gammaFrame = std::make_shared<Texture>("gamma_frame", TextureType::TwoDim, getTextureProperties(TextureUsage::ColorBuffer));
+        _gammaFrame->clear(viewport[2], viewport[3], PixelFormat::RGB8);
+        _gammaFrame->init();
+    }
+    context.resetDrawFramebuffer();
+    context.copyBackBuffer(*_gammaFrame);
+    auto &program = graphics.shaderRegistry.get(ShaderProgramId::postGamma);
+    context.useProgram(program);
+    program.setUniform("uGammaExponent", exponent);
+    context.bindTexture(*_gammaFrame);
+    context.withDepthTestMode(DepthTestMode::None, [&graphics]() {
+        graphics.context.withBlendMode(BlendMode::None, [&graphics]() {
+            graphics.meshRegistry.get(MeshName::quadNDC).draw(graphics.statistic);
+        });
+    });
 }
 
 bool Game::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
@@ -5145,8 +5189,42 @@ void Game::setAutoLevelUpNPCs(bool on) {
     }
 }
 
+void Game::setBrightness(int brightness) {
+    _options.game.brightness = brightness;
+    _options.graphics.gamma = gammaForBrightness(brightness, isTSL());
+}
+
+// The speed blur asked for stays asked for while Force Speed is off, so
+// turning the option back on draws it again.
+void Game::setForceSpeed(bool on) {
+    _options.game.forceSpeed = on;
+    _services.scene.graphs.get(kSceneMain).setSpeedBlur(on && _speedBlurWanted);
+}
+
+int Game::bestEAXLevel() const {
+    static constexpr int kStandardReverbEAXLevel = 2;
+    switch (_services.audio.context.reverbTier()) {
+    case ReverbTier::EaxReverb:
+        return AudioOptions::kMaxEAXLevel;
+    case ReverbTier::Reverb:
+        return kStandardReverbEAXLevel;
+    case ReverbTier::None:
+    default:
+        return 0;
+    }
+}
+
+void Game::setEAXLevel(int level) {
+    auto &audio = _options.audio;
+    audio.eaxLevel = std::clamp(level, 0, AudioOptions::kMaxEAXLevel);
+    const int effectiveLevel = audio.forceSoftware ? 0 : std::min(audio.eaxLevel, bestEAXLevel());
+    _services.audio.mixer.setReverbEnabled(effectiveLevel > 0);
+}
+
+// TSL draws the blur only while Force Speed is on.
 void Game::setSpeedBlur(bool enabled) {
-    _services.scene.graphs.get(kSceneMain).setSpeedBlur(enabled);
+    _speedBlurWanted = enabled;
+    _services.scene.graphs.get(kSceneMain).setSpeedBlur(enabled && _options.game.forceSpeed);
 }
 
 void Game::setSpeedBlurRatio(float ratio) {
@@ -6244,9 +6322,12 @@ enum class StringTokenAction {
     Bounty = 27
 };
 
-// The mouse-button texts a MouseButton token picks by its default value.
+// The mouse-button texts a MouseButton token picks by its default value,
+// with the buttons as they are and with them reversed.
 static constexpr std::array<int, 4> kMouseButtonStrRefsK1 {48483, 48482, 48485, 48484};
 static constexpr std::array<int, 4> kMouseButtonStrRefsTSL {48726, 48725, 48728, 48727};
+static constexpr std::array<int, 4> kReversedMouseButtonStrRefsK1 {48482, 48483, 48484, 48485};
+static constexpr std::array<int, 4> kReversedMouseButtonStrRefsTSL {48725, 48726, 48727, 48728};
 // The bounty token reads this global number and names that many times this
 // amount of credits.
 static constexpr char kBountyGlobal[] = "300NAR_Bounty";
@@ -6631,7 +6712,9 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
         }
         case StringTokenAction::MouseButton: {
             // A default outside the four texts reads string 0.
-            const auto &mouseButtons = isTSL() ? kMouseButtonStrRefsTSL : kMouseButtonStrRefsK1;
+            const bool reversed = _options.game.mouse.reverseButtons;
+            const auto &mouseButtons = isTSL() ? (reversed ? kReversedMouseButtonStrRefsTSL : kMouseButtonStrRefsTSL)
+                                               : (reversed ? kReversedMouseButtonStrRefsK1 : kMouseButtonStrRefsK1);
             const bool known = defaultValue >= 0 && defaultValue < static_cast<int>(mouseButtons.size());
             value = strings.getText(known ? mouseButtons[defaultValue] : 0);
             break;
@@ -7193,6 +7276,8 @@ void Game::saveSoundOptions() const {
 
 void Game::saveGraphicsOptions() const {
     reone::game::saveGraphicsOptions(_options.game.configurationPath, _options.graphics);
+    saveDisplayOptions(_options.game.configurationPath, _options.game.brightness,
+                       isTSL() ? std::optional<bool>(_options.game.forceSpeed) : std::nullopt);
 }
 
 void Game::unlockPlanetSongs(int songs) {
@@ -10063,6 +10148,11 @@ float Game::baseItemCostMultiplier(int baseItem) const {
 // open message box or tutorial window stays up. Its close returns to the
 // screen the same way (closeStation).
 void Game::changeScreen(Screen screen) {
+    // In TSL a screen opening over play ends a mouse look the right button
+    // toggled on; the Mouse Look option holds.
+    if (isTSL() && screen != _screen && screen != Screen::InGame) {
+        _mouseLookHeld = false;
+    }
     if (isStationScreen(screen)) {
         _screen = screen;
         return;

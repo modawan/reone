@@ -55,6 +55,9 @@ const std::string kRefreshRateKey {"refresh"};
 const std::string kTextureQualityKey {"texquality"};
 const std::string kAnisotropicFilteringKey {"anisofilter"};
 const std::string kGUIScaleKey {"guiscale"};
+const std::string kEAXLevelKey {"eaxlevel"};
+const std::string kBrightnessKey {"brightness"};
+const std::string kForceSpeedKey {"forcespeed"};
 
 // Top-level keys of the main menu's presentation.
 const std::string kMenuSelectorKey {"k2-menu-selector"};
@@ -85,6 +88,10 @@ const std::string kGameCompletedKey {"GameCompleted"};
 const std::string kMouseLookKey {"Mouse Look"};
 const std::string kCombatMovementKey {"Combat Movement"};
 const std::string kAutoLevelUpNPCsKey {"Auto Level Up NPCs"};
+const std::string kAutoSaveKey {"AutoSave"};
+const std::string kReverseMinigameYAxisKey {"Reverse Minigame YAxis"};
+const std::string kReverseInGameYAxisKey {"Reverse Ingame YAxis"};
+const std::string kReverseMouseButtonsKey {"Reverse Mouse Buttons"};
 const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
 
 // The Autopause Options keys.
@@ -528,12 +535,21 @@ GameplayOptions GameplayOptions::load(const std::filesystem::path &path) {
     GameplayOptions result;
     result.combatMovement = configuration.bit(kGameOptionsSection, kCombatMovementKey).value_or(result.combatMovement);
     result.autoLevelUpNPCs = configuration.bit(kGameOptionsSection, kAutoLevelUpNPCsKey).value_or(result.autoLevelUpNPCs);
+    result.autoSave = configuration.bit(kGameOptionsSection, kAutoSaveKey).value_or(result.autoSave);
+    result.reverseMinigameYAxis = configuration.bit(kGameOptionsSection, kReverseMinigameYAxisKey).value_or(result.reverseMinigameYAxis);
+    result.reverseInGameYAxis = configuration.bit(kGameOptionsSection, kReverseInGameYAxisKey).value_or(result.reverseInGameYAxis);
     return result;
 }
 
 void GameplayOptions::save(const std::filesystem::path &path) const {
     auto configuration = ConfigurationFile::read(path);
-    configuration.set(kGameOptionsSection, {{kCombatMovementKey, combatMovement ? 1 : 0}, {kAutoLevelUpNPCsKey, autoLevelUpNPCs ? 1 : 0}});
+    configuration.set(kGameOptionsSection, {
+                                               {kCombatMovementKey, combatMovement ? 1 : 0},
+                                               {kAutoLevelUpNPCsKey, autoLevelUpNPCs ? 1 : 0},
+                                               {kAutoSaveKey, autoSave ? 1 : 0},
+                                               {kReverseMinigameYAxisKey, reverseMinigameYAxis ? 1 : 0},
+                                               {kReverseInGameYAxisKey, reverseInGameYAxis ? 1 : 0},
+                                           });
     configuration.write(path);
 }
 
@@ -545,6 +561,7 @@ void saveSoundOptions(const std::filesystem::path &path, const audio::AudioOptio
                                      {kSoundVolumeKey, options.soundVolume},
                                      {kMovieVolumeKey, options.movieVolume},
                                      {kForceSoftwareKey, options.forceSoftware ? 1 : 0},
+                                     {kEAXLevelKey, options.eaxLevel},
                                  });
     configuration.write(path);
 }
@@ -559,6 +576,21 @@ void saveGraphicsOptions(const std::filesystem::path &path, const graphics::Grap
                                      {kVSyncKey, options.vsync ? 1 : 0},
                                  });
     configuration.write(path);
+}
+
+void saveDisplayOptions(const std::filesystem::path &path, int brightness, std::optional<bool> forceSpeed) {
+    auto configuration = ConfigurationFile::read(path);
+    std::vector<ConfigurationValue> values {{kBrightnessKey, brightness}};
+    if (forceSpeed) {
+        values.emplace_back(kForceSpeedKey, *forceSpeed ? 1 : 0);
+    }
+    configuration.set(kTopLevel, values);
+    configuration.write(path);
+}
+
+float gammaForBrightness(int brightness, bool tsl) {
+    const int level = tsl ? std::min(brightness + 15, kMaxBrightness) : brightness;
+    return 2.0f - 1.77f * level / static_cast<float>(kMaxBrightness);
 }
 
 StartGraphicsOptions StartGraphicsOptions::load(const std::filesystem::path &path, const graphics::GraphicsOptions &running) {
@@ -590,8 +622,10 @@ void StartGraphicsOptions::save(const std::filesystem::path &path) const {
 MouseOptions MouseOptions::load(const std::filesystem::path &path) {
     const auto configuration = ConfigurationFile::read(path);
     MouseOptions result;
-    result.mouseLook = configuration.flag(kGameOptionsSection, kMouseLookKey).value_or(result.mouseLook);
+    result.mouseLook = configuration.bit(kGameOptionsSection, kMouseLookKey).value_or(result.mouseLook);
     result.sensitivity = configuration.number(kGameOptionsSection, kMouseSensitivityKey).value_or(result.sensitivity);
+    // Unlike the one-bit switches, Reverse Mouse Buttons is on for any number but zero.
+    result.reverseButtons = configuration.flag(kGameOptionsSection, kReverseMouseButtonsKey).value_or(result.reverseButtons);
     return result;
 }
 
@@ -600,6 +634,7 @@ void MouseOptions::save(const std::filesystem::path &path) const {
     configuration.set(kGameOptionsSection, {
                                                {kMouseLookKey, mouseLook ? 1 : 0},
                                                {kMouseSensitivityKey, sensitivity},
+                                               {kReverseMouseButtonsKey, reverseButtons ? 1 : 0},
                                            });
     configuration.write(path);
 }

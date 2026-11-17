@@ -17,6 +17,7 @@
 
 #include "optionsparser.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -67,6 +68,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("stretch", value<bool>()->default_value(options->graphics.stretch), "stretch to the window's shape")                   //
         ("wheelzoom", value<bool>()->default_value(options->game.wheelZoom), "zoom the follow camera with the mouse wheel")     //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
+        ("brightness", value<int>()->default_value(options->game.brightness), "brightness, from 0 to 100")                      //
+        ("forcespeed", value<bool>()->default_value(options->game.forceSpeed), "draw the speed blur (TSL)")                     //
         ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
         ("softshadows", value<bool>()->default_value(options->graphics.softShadows), "enable soft shadows")                     //
         ("particles", value<bool>()->default_value(options->graphics.particles), "enable emitter particles")                    //
@@ -89,6 +92,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
         ("forcesoftware", value<bool>()->default_value(options->audio.forceSoftware), "force software sound")                   //
+        ("eaxlevel", value<int>()->default_value(options->audio.eaxLevel), "EAX level, from 0 to 3")                            //
         ("voices2d", value<int>()->default_value(options->audio.voices2D), "number of 2D voices, half for streams")             //
         ("voices3d", value<int>()->default_value(options->audio.voices3D), "number of 3D voices")                               //
         ("envstreaming", value<bool>()->default_value(options->audio.streamedReverb), "reverb streamed 3D sounds")              //
@@ -126,6 +130,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
     options->game.developer = vars["dev"].as<bool>();
     options->game.wheelZoom = vars["wheelzoom"].as<bool>();
+    options->game.brightness = std::clamp(vars["brightness"].as<int>(), 0, game::kMaxBrightness);
+    options->game.forceSpeed = vars["forcespeed"].as<bool>();
     options->game.configurationPath = std::filesystem::absolute(kConfigFilename);
     options->game.menuPresentation = game::MenuPresentation::load(options->game.configurationPath);
     options->graphics.width = vars["width"].as<int>();
@@ -160,6 +166,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->audio.soundVolume = vars["soundvol"].as<int>();
     options->audio.movieVolume = vars["movievol"].as<int>();
     options->audio.forceSoftware = vars["forcesoftware"].as<bool>();
+    options->audio.eaxLevel = std::clamp(vars["eaxlevel"].as<int>(), 0, audio::AudioOptions::kMaxEAXLevel);
     options->audio.voices2D = vars["voices2d"].as<int>();
     options->audio.voices3D = vars["voices3d"].as<int>();
     options->audio.streamedReverb = vars["envstreaming"].as<bool>();

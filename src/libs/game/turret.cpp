@@ -2060,15 +2060,21 @@ bool Turret::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event)
     return false;
 }
 
+// The minigame reverse option swaps up and down for aiming, from the keys
+// and the mouse alike.
+int Turret::pitchSign() const {
+    return _game.options().game.gameplay.reverseMinigameYAxis ? -1 : 1;
+}
+
 bool Turret::handleKeyDown(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::Up:
     case input::KeyCode::W:
-        _pitchRate.setDirection(1);
+        _pitchRate.setDirection(pitchSign());
         return true;
     case input::KeyCode::Down:
     case input::KeyCode::S:
-        _pitchRate.setDirection(-1);
+        _pitchRate.setDirection(-pitchSign());
         return true;
     case input::KeyCode::Left:
     case input::KeyCode::A:
@@ -2100,13 +2106,13 @@ bool Turret::handleKeyUp(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::Up:
     case input::KeyCode::W:
-        if (_pitchRate.direction() == 1) {
+        if (_pitchRate.direction() == pitchSign()) {
             _pitchRate.setDirection(0);
         }
         return true;
     case input::KeyCode::Down:
     case input::KeyCode::S:
-        if (_pitchRate.direction() == -1) {
+        if (_pitchRate.direction() == -pitchSign()) {
             _pitchRate.setDirection(0);
         }
         return true;
@@ -2148,7 +2154,7 @@ bool Turret::handleMouseMotion(const input::MouseMotionEvent &event) {
     };
     const float degreesPerPixel = glm::degrees(kMouseAimRadiansPerPixel);
     bind(_spec.mouse.axisX, _spec.mouse.flipAxisX, -event.xrel * degreesPerPixel);
-    bind(_spec.mouse.axisY, _spec.mouse.flipAxisY, -event.yrel * degreesPerPixel);
+    bind(_spec.mouse.axisY, _spec.mouse.flipAxisY, -event.yrel * degreesPerPixel * pitchSign());
     _aim.turn(turn);
     return true;
 }

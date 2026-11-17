@@ -335,8 +335,8 @@ public:
      * Whether the right button or a Ctrl key holds mouse look. The hold
      * outlasts areas and modules. In KotOR only the right button and the Ctrl
      * keys change it, and the right button's press and release reach it on
-     * every screen. In TSL stopping play's camera and starting a module end
-     * it too.
+     * every screen. In TSL stopping play's camera, a screen opening over play
+     * and starting a module end it too.
      */
     bool isMouseLookHeld() const { return _mouseLookHeld; }
     /** Starts or ends the mouse-look hold of the right button or a Ctrl key. */
@@ -1109,6 +1109,8 @@ public:
     /** Whether the mouse turns the camera unless the right button or a Ctrl key is held. */
     bool mouseLook() const { return _options.game.mouse.mouseLook; }
     void setMouseLook(bool on) { _options.game.mouse.mouseLook = on; }
+    /** The left and right mouse buttons trade places, or not. */
+    void setReverseMouseButtons(bool on) { _options.game.mouse.reverseButtons = on; }
     /** Write the mouse options to the configuration. */
     void saveMouseOptions() const;
     /** Whether a busy leader in combat mode may be steered. */
@@ -1118,6 +1120,36 @@ public:
     bool autoLevelUpNPCs() const { return _options.game.gameplay.autoLevelUpNPCs; }
     /** Turning the option on levels up at once every companion who can. */
     void setAutoLevelUpNPCs(bool on);
+    /** Whether entering a module may save the game automatically. */
+    bool autoSave() const { return _options.game.gameplay.autoSave; }
+    void setAutoSave(bool on) { _options.game.gameplay.autoSave = on; }
+    /** Up and down are swapped for aiming in the minigames. */
+    bool reverseMinigameYAxis() const { return _options.game.gameplay.reverseMinigameYAxis; }
+    void setReverseMinigameYAxis(bool on) { _options.game.gameplay.reverseMinigameYAxis = on; }
+    /** Up and down are swapped for tilting the camera (TSL). */
+    bool reverseInGameYAxis() const { return _options.game.gameplay.reverseInGameYAxis; }
+    void setReverseInGameYAxis(bool on) { _options.game.gameplay.reverseInGameYAxis = on; }
+    /** The brightness, from 0 to kMaxBrightness. */
+    int brightness() const { return _options.game.brightness; }
+    /** Set the brightness, from 0 to kMaxBrightness; the frame's gamma follows at once. */
+    void setBrightness(int brightness);
+    /** TSL's Force Speed option: whether an asked-for speed blur is drawn. */
+    bool forceSpeed() const { return _options.game.forceSpeed; }
+    /** Off takes the speed blur away at once; on draws one already asked for. */
+    void setForceSpeed(bool on);
+    /**
+     * The highest EAX level the sound device renders: EAX 3 with EFX's EAX
+     * reverb, EAX 2 with its standard reverb, which carries EAX 2's
+     * properties, and none without effects.
+     */
+    int bestEAXLevel() const;
+    /**
+     * Keeps EAX level \p level as the player's choice and runs the sound at
+     * it, as far as the device renders it, or at none while software sound is
+     * forced. Any level but 0 renders the rooms' environments; levels 1 to 3
+     * all render them at the device's fullest reverb.
+     */
+    void setEAXLevel(int level);
     /** Write the gameplay options to the configuration. */
     void saveGameplayOptions() const;
     /**
@@ -1130,7 +1162,7 @@ public:
     void saveKeybindOptions() const;
     /** Write the sound options to the configuration. */
     void saveSoundOptions() const;
-    /** Write the graphics options to the configuration. */
+    /** Write the graphics options, the brightness and TSL's Force Speed to the configuration. */
     void saveGraphicsOptions() const;
     /** Open these planet groups of the main menu's music list, and record them in the configuration. */
     void unlockPlanetSongs(int songs);
@@ -2157,6 +2189,8 @@ private:
     /** The sound mode the world's sounds were last paused or resumed for. */
     SoundMode _soundMode {SoundMode::Playing};
     int _motionBlurPrograms {0};
+    /** The speed blur is asked for, whether or not it is drawn. */
+    bool _speedBlurWanted {false};
     bool _autoPaused {false};
     PauseReason _pauseReason {PauseReason::Other};
 
@@ -2454,6 +2488,8 @@ private:
     bool _atStableSavePoint {false};
     SaveOrchestrationSeams _saveSeams;
     graphics::Texture *_lastRenderedSceneOutput {nullptr};
+    /** The finished frame, copied to be drawn again at the chosen gamma. */
+    std::shared_ptr<graphics::Texture> _gammaFrame;
 
     // Services
 
@@ -2899,7 +2935,9 @@ private:
 
     void renderScene();
     void renderGUI();
-    /** Handle an event; true when it was taken. */
+    /** Apply the brightness's gamma to the finished frame; nothing at an exponent of 1. */
+    void renderGamma();
+    /** Handle an event with the mouse buttons as the player has them; true when it was taken. */
     bool handleInput(const input::Event &event);
     void renderGlobalFade();
     void settleFadeArrival();

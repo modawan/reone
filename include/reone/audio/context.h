@@ -34,6 +34,16 @@ struct ObstructionLowpass {
 /** The low-pass for \p obstruction, from 0 for nothing in the way to 1 for fully blocked. */
 ObstructionLowpass obstructionLowpass(float obstruction);
 
+/** The fullest reverb the device renders, which decides how much of an environment is heard. */
+enum class ReverbTier {
+    /** No effects extension or no auxiliary send: every sound is dry. */
+    None,
+    /** EFX's standard reverb, which carries EAX 2's properties. */
+    Reverb,
+    /** EFX's EAX reverb, which carries EAX 3's properties. */
+    EaxReverb
+};
+
 class IContext {
 public:
     virtual ~IContext() = default;
@@ -84,16 +94,9 @@ public:
      * extension, or before the source is inited.
      */
     virtual void setAirAbsorption(AudioSource &source, float factor) = 0;
-};
 
-/** The fullest reverb the device renders, which decides how much of an environment is heard. */
-enum class ReverbTier {
-    /** No effects extension or no auxiliary send: every sound is dry. */
-    None,
-    /** EFX's standard reverb, which carries EAX 2's properties. */
-    Reverb,
-    /** EFX's EAX reverb, which carries EAX 3's properties. */
-    EaxReverb
+    /** The fullest reverb the device renders. */
+    virtual ReverbTier reverbTier() const = 0;
 };
 
 class Context : public IContext, boost::noncopyable {
@@ -118,7 +121,7 @@ public:
     void setListenerOrientation(glm::vec3 forward, glm::vec3 up) override;
     void setListenerGain(float gain) override;
 
-    ReverbTier reverbTier() const { return _reverbTier; }
+    ReverbTier reverbTier() const override { return _reverbTier; }
 
     void setEnvironment(Environment environment) override;
     void setReverbSend(AudioSource &source, float gain) override;

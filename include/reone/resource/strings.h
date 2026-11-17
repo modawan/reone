@@ -48,11 +48,23 @@ public:
     virtual float getSoundDuration(int strRef) = 0;
     /** The language of the main talk table; English when none is loaded. */
     virtual Language language() const = 0;
+    /**
+     * One of the game's custom strings, kept in override/custom.txt: the
+     * file's lines hold kCustomStringsPerLanguage strings for each language,
+     * English first, then French, Italian, German and Spanish; the main talk
+     * table's language picks them. Empty for a string the file lacks, and for
+     * every string when the file holds other than the five languages' worth.
+     */
+    virtual std::string getCustomText(int id) = 0;
 };
 
 class Strings : public IStrings {
 public:
     static constexpr std::size_t kTalkTableSlotCount = 7;
+    /** The custom strings each language has in override/custom.txt. */
+    static constexpr int kCustomStringsPerLanguage = 11;
+    /** The languages override/custom.txt holds. */
+    static constexpr int kCustomStringLanguages = 5;
 
     Strings() = default;
 
@@ -65,9 +77,12 @@ public:
     std::string getSound(int strRef) override;
     float getSoundDuration(int strRef) override;
     Language language() const override;
+    std::string getCustomText(int id) override;
 
 private:
     std::array<std::shared_ptr<TalkTable>, kTalkTableSlotCount> _tables;
+    /** The lines of override/custom.txt as written, read once at start; none without the file. */
+    std::vector<std::string> _customStrings;
 
     const TalkTable::String *findString(int strRef) const;
 };

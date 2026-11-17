@@ -689,8 +689,7 @@ bool Game::autosavesOnEntering(const std::string &module) {
     case resource::ModuleAutosave::Always:
         return true;
     case resource::ModuleAutosave::WhenEnabledAndDue:
-        // The player's autosave option has no setting yet and stays on.
-        return due;
+        return due && autoSave();
     case resource::ModuleAutosave::WhenDue:
         return due;
     case resource::ModuleAutosave::Never:
